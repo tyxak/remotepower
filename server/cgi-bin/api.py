@@ -1132,6 +1132,7 @@ for _ad_name in (
         '_advisory_scope', '_build_advisory', '_failed_protect_checks',
         '_advisory_brute_force', '_advisory_stale_backups', '_advisory_tls_expiring',
         '_advisory_agent_tamper', '_advisory_weak_ssh_keys',
+        '_advisory_risky_accounts',
 ):
     globals()[_ad_name] = getattr(advisory_handlers_mod, _ad_name)
 del _ad_name
@@ -2241,6 +2242,22 @@ EVENT_REGISTRY = {
     'rogue_uid0_cleared': dict(
         label='No unexpected UID 0 accounts remain (recovered)', kind='accounts',
         resolves=('rogue_uid0',)),
+    # v6.4.2: the agent has tagged `empty_password` since v3.14.0 and the server
+    # has persisted it just as long — into a per-device drawer badge and nothing
+    # else. An account whose /etc/shadow password field is literally blank needs
+    # no credential at all: `su - <user>` from any account succeeds, and with
+    # PermitEmptyPasswords it is an open shell from anywhere. That is not a
+    # badge, it is a page. Edge-triggered per user and cleared as an aggregate,
+    # exactly like rogue_uid0 above (the cleared event fires only when NONE
+    # remain, which is what makes the device-id-only auto-resolve correct here).
+    'empty_password_account': dict(
+        label='A local account has a blank password', kind='accounts',
+        title='Blank Password Account', severity='high', priority=5,
+        tags='rotating_light,key'),
+    'empty_password_cleared': dict(
+        label='No blank-password accounts remain (recovered)', kind='accounts',
+        resolves=('empty_password_account',),
+        tags='white_check_mark,key'),
     # v6.2.0: someone gained sudo/wheel (Linux) or Administrators (Windows).
     # The classic post-compromise persistence step, and the classic
     # nobody-told-me change. Edge-triggered per user, like rogue_uid0.
@@ -15903,6 +15920,27 @@ def handle_device_user_action(dev_id):
         cmd = f'userdel {username}'
     elif action in ('addkey', 'revokekey'):
         key = str(body.get('sshkey', '')).strip()
+        # v6.4.2: revoke by FINGERPRINT. The SSH key audit page ranks weak and
+        # reused keys first and then offered no action on any row — six
+        # read-only columns and nowhere to go but Host config, per host, by
+        # hand. It knows the fingerprint, not the key line (deliberately: the
+        # audit response is require_auth, so every role reads it), so the line
+        # is resolved HERE from the same baseline the audit is built from.
+        # Resolving server-side also means the client can never name a key that
+        # is not actually on that host for that user.
+        fp = str(body.get('fingerprint', '')).strip()
+        if not key and fp and action == 'revokekey':
+            baseline = load(SSH_KEY_BASELINE_FILE) or {}
+            for line in ((baseline.get(dev_id) or {}).get(username) or []):
+                parts = str(line).split()
+                if len(parts) < 2:
+                    continue
+                if _ssh_key_sha256(parts[1]) == fp or _ssh_key_fingerprint(line) == fp:
+                    key = str(line).strip()
+                    break
+            if not key:
+                respond(404, {'error': 'no key with that fingerprint is '
+                                       'recorded for this user on this host'})
         if not _SSH_PUBKEY_RE.match(key):
             respond(400, {'error': 'sshkey is not a valid SSH public key line'})
         ssh_dir = _user_home_path(username)
@@ -18999,6 +19037,24 @@ def handle_heartbeat():
                      'check': _sanitize_str(str(e.get('check', '')), 64),
                      'ts': int(e.get('ts', 0) or 0)}
                     for e in _gq[:50] if isinstance(e, dict)]
+            # v6.4.2: canary ARM status. Only trip reports (`canary_events`) ever
+            # rode the heartbeat, so an operator who armed /root/.aws/credentials
+            # fleet-wide got a save-time toast saying "3 canary file(s) armed"
+            # and no screen anywhere that could contradict it — on a host with a
+            # read-only /root the honeytoken did not exist, and where a REAL
+            # credentials file was already there the decoy silently became a
+            # change-watch on genuine data. Same whitelist rule as the two above:
+            # drop it here and the UI has nothing to show.
+            _cst = si.get('canary_status')
+            if isinstance(_cst, list):
+                safe_si['canary_status'] = [
+                    {'path': _sanitize_str(str(e.get('path', '')), 256),
+                     'state': (str(e.get('state', ''))
+                               if str(e.get('state', '')) in
+                               ('armed', 'watching', 'failed', 'pending')
+                               else 'pending'),
+                     'detail': _sanitize_str(str(e.get('detail', '')), 120)}
+                    for e in _cst[:50] if isinstance(e, dict)]
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -42586,6 +42642,32 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             # the open rogue_uid0 alert(s) for this host.
             events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
         rec['_uid0_alerted'] = sorted(rogue)
+
+        # v6.4.2: blank-password accounts. Same edge-trigger shape as the UID-0
+        # block above, for a flag the agent has reported since v3.14.0 and that
+        # reached nothing but a drawer badge. `login` rides along so the alert
+        # can say whether the account has an interactive shell — a passwordless
+        # nologin account is still `su`-able without a credential, so it fires
+        # either way, but the operator should be able to tell them apart.
+        blank = {a['user']: bool(a.get('login'))
+                 for a in accts
+                 if 'empty_password' in (a.get('flags') or []) and a.get('user')}
+        prev_blank = set(rec.get('_emptypw_alerted') or [])
+        for u in sorted(set(blank) - prev_blank):
+            events.append(('empty_password_account', {
+                'device_id': dev_id, 'name': dev_name, 'user': u,
+                'detail': (
+                    f"'{u}' has a blank password field in /etc/shadow"
+                    + (' and an interactive login shell' if blank[u]
+                       else ' (no login shell, but still su-able with no '
+                            'credential)')
+                    + '. Set a password or lock the account '
+                      '(passwd -l), and check PermitEmptyPasswords in sshd.'),
+            }))
+        if prev_blank and not blank:
+            events.append(('empty_password_cleared',
+                           {'device_id': dev_id, 'name': dev_name}))
+        rec['_emptypw_alerted'] = sorted(blank)
 
         # v6.2.0: privileged-group membership tripwire. The agents ALREADY
         # report this — Linux get_local_accounts() parses /etc/group for

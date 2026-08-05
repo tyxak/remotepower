@@ -674,8 +674,12 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         action: str = ''
         sshkey: str = ''
+        # v6.4.2: revokekey may name the key by fingerprint instead of by line —
+        # the SSH key audit page has the fingerprint, not the key.
+        fingerprint: str = ''
         username: str = ''
-        _v0 = field_validator('action', 'sshkey', 'username', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('action', 'sshkey', 'fingerprint', 'username',
+                              mode='before')(_coerce_str_loose)
 
     class DeviceFirewallActionRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

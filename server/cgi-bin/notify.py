@@ -776,6 +776,13 @@ def _webhook_message(event, payload):
             f'{name}: account {payload.get("user","?")} has UID 0 '
             f"(root-equivalent) — verify it is expected"
         )
+    elif event == "empty_password_account":
+        # v6.4.2: `detail` already says whether it has a login shell and what to
+        # do; the generic fallback would have read "empty_password_account:
+        # unknown", which is the whole reason this branch exists.
+        return f'{name}: {payload.get("detail") or "an account has a blank password"}'
+    elif event == "empty_password_cleared":
+        return f"{name}: no blank-password accounts remain"
     elif event == "priv_group_added":
         return (
             f'{name}: {payload.get("user","?")} gained privileged-group '

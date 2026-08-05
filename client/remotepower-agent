@@ -1128,15 +1128,27 @@ _CANARY_DEFAULT = ('# AWS credentials — do not share\n'
                    '[default]\naws_access_key_id = AKIA' + 'IOSFODNN7EXAMPLE\n'
                    'aws_secret_access_key = wJalrXUtnFEMI/EXAMPLEKEY\n')
 _canary_planted = {}       # path -> {mtime, size, plant_ts}
+_canary_failed  = {}       # v6.4.2: path -> why the plant failed (arm report)
 _canary_reported = set()   # paths already reported this run
 
 
 def _plant_canaries(canary_cfg):
     """Create any not-yet-planted canary files. Returns nothing; updates the
-    in-memory baseline. Never overwrites an existing file."""
+    in-memory baseline. Never overwrites an existing file.
+
+    v6.4.2: plant OUTCOME is recorded (`_canary_failed`) instead of vanishing
+    into log.debug. A canary the agent could not plant — read-only filesystem,
+    permission denied, path is a directory — used to leave the operator with a
+    save-time toast saying "3 canary file(s) armed" and no screen anywhere that
+    would ever contradict it. That is worse than a missing feature: it is a
+    security control the operator now stops worrying about.
+    """
     for c in (canary_cfg or [])[:50]:
         p = c.get('path') if isinstance(c, dict) else c
-        if not p or not str(p).startswith('/'):
+        if not p:
+            continue
+        if not str(p).startswith('/'):
+            _canary_failed[str(p)[:256]] = 'not an absolute path'
             continue
         hp = host_path(p)
         if p in _canary_planted:
@@ -1147,6 +1159,7 @@ def _plant_canaries(canary_cfg):
                 st = os.stat(hp)
                 _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
                                       'plant_ts': int(time.time()), 'ours': False}
+                _canary_failed.pop(p, None)
                 continue
             content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
             d = os.path.dirname(hp)
@@ -1160,8 +1173,44 @@ def _plant_canaries(canary_cfg):
             st = os.stat(hp)
             _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
                                   'plant_ts': int(time.time()), 'ours': True}
+            _canary_failed.pop(p, None)
         except OSError as e:
             log.debug(f'canary plant {p}: {e}')
+            _canary_failed[p] = (e.strerror or str(e))[:120]
+
+
+def _canary_status(canary_cfg):
+    """[{path, state, detail}] for every CONFIGURED canary path — the arm report.
+
+    v6.4.2: only trip reports (`canary_events`) ever rode the heartbeat, so the
+    server had no way to answer "is this honeytoken actually in place?" for any
+    host. States:
+      armed    — we created the decoy and are watching it
+      watching — a REAL file was already there; we baselined it and left it
+                 alone, so this path is now a change-watch on genuine data and
+                 NOT a honeytoken (the operator almost certainly meant the other
+                 thing, and never had a way to find out)
+      failed   — the plant raised; `detail` is why
+      pending  — configured, not yet processed this poll
+    """
+    out = []
+    for c in (canary_cfg or [])[:50]:
+        p = c.get('path') if isinstance(c, dict) else c
+        if not p:
+            continue
+        p = str(p)
+        base = _canary_planted.get(p)
+        if base:
+            out.append({'path': p[:256],
+                        'state': 'armed' if base.get('ours') else 'watching',
+                        'detail': '' if base.get('ours')
+                                  else 'a real file was already at this path'})
+        elif p in _canary_failed:
+            out.append({'path': p[:256], 'state': 'failed',
+                        'detail': str(_canary_failed[p])[:120]})
+        else:
+            out.append({'path': p[:256], 'state': 'pending', 'detail': ''})
+    return out
 
 
 def _check_canaries(canary_cfg):
@@ -10734,6 +10783,19 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['chassis'] = ch
             except Exception as e:
                 log.debug(f'chassis probe error: {e}')
+            try:
+                # v6.4.2: canary ARM status. Only trip reports rode the
+                # heartbeat, so an operator could believe they had ransomware
+                # tripwire coverage that was never planted. Inside
+                # `if send_sysinfo:` and AFTER `sysinfo = {...}` — the v6.1.2
+                # scope gotcha applies (a collector in the earlier per-container
+                # cadence block references `sysinfo` before assignment and dies
+                # in a swallowed UnboundLocalError).
+                cst = _canary_status(_canary_cfg)
+                if cst:
+                    sysinfo['canary_status'] = cst
+            except Exception as e:
+                log.debug(f'canary status error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # v6.2.2: delta sysinfo — drop the heavy fields whose content is

@@ -413,6 +413,86 @@ def _host_checks(
             "critical" if bad else "ok",
             f"{len(bad)} pool(s) degraded" if bad else f"{len(pools)} pool(s) healthy",
         )
+    # ── v6.4.2: canary / honeytoken ARM status ────────────────────────
+    # Until now the only canary data on the wire was TRIP reports, and the only
+    # operator feedback was a toast fired at save time — before any agent had
+    # even received the config. So a decoy the agent could not plant (read-only
+    # filesystem, permission denied) or that silently became a change-watch on a
+    # REAL pre-existing file was indistinguishable from working coverage. That
+    # is the worst shape a security control can fail in: the operator stops
+    # worrying about it. Renders only where canaries are configured AND the
+    # agent has reported, so an unconfigured host shows no row.
+    cst = si.get("canary_status")
+    if isinstance(cst, list) and cst:
+        failed = [c for c in cst if isinstance(c, dict) and c.get("state") == "failed"]
+        watching = [c for c in cst if isinstance(c, dict) and c.get("state") == "watching"]
+        armed = [c for c in cst if isinstance(c, dict) and c.get("state") == "armed"]
+        if failed:
+            status = "critical"
+            out_txt = f"{len(failed)} could NOT be planted: " + ", ".join(
+                f"{c.get('path')} ({c.get('detail') or 'unknown error'})"
+                for c in failed[:3])
+        elif watching:
+            status = "warning"
+            out_txt = (
+                f"{len(watching)} path(s) already held a REAL file — watching it "
+                "for changes, NOT a honeytoken: "
+                + ", ".join(str(c.get("path")) for c in watching[:3]))
+        elif armed:
+            status = "ok"
+            out_txt = f"{len(armed)} decoy(s) armed"
+        else:
+            # Configured, nothing planted yet. Reporting `ok` here would be the
+            # same lie this row exists to stop telling: zero armed decoys is not
+            # working coverage.
+            status = "unknown"
+            out_txt = f"{len(cst)} path(s) configured, none planted yet"
+        add(
+            "canary_files",
+            "Canary files (honeytokens)",
+            "security",
+            status,
+            out_txt,
+        )
+
+    # ── v6.4.2: local-account password posture ────────────────────────
+    # The agent has tagged `empty_password` and `stale_password` on every local
+    # account since v3.14.0 and the server has persisted both into the hardware
+    # record just as long. Only `uid0` and `sudo` were ever consumed, so the
+    # answer to "does anything here have a passwordless account?" was one
+    # per-device drawer badge and nothing that could be counted, alerted on, or
+    # rolled into health. Renders ONLY when the agent actually reported accounts
+    # (root-read of /etc/shadow), so an unprivileged or non-Linux agent shows no
+    # row rather than a misleading "ok".
+    accts = hw_rec.get("accounts")
+    if isinstance(accts, list) and accts:
+        blank, stale = [], []
+        for _a in accts:
+            if not isinstance(_a, dict):
+                continue
+            _f = _a.get("flags") or []
+            if "empty_password" in _f:
+                blank.append(str(_a.get("user") or "?"))
+            if "stale_password" in _f:
+                stale.append(str(_a.get("user") or "?"))
+        add(
+            "account_passwords",
+            "Local account passwords",
+            "security",
+            "critical" if blank else ("warning" if stale else "ok"),
+            (
+                f"{len(blank)} account(s) with a BLANK password: "
+                + ", ".join(blank[:4])
+                if blank
+                else (
+                    f"{len(stale)} password(s) over a year old: "
+                    + ", ".join(stale[:4])
+                    if stale
+                    else f"{len(accts)} account(s), none blank or stale"
+                )
+            ),
+        )
+
     # ── v6.2.0: Windows security-posture checks (from sysinfo.win_posture) ──
     # These render ONLY when the Windows agent reported posture, so a Linux host
     # never shows an empty "BitLocker" row. Classic RMM check-library staples that

@@ -15184,7 +15184,7 @@ async function loadExposure() {
     }
     _renderExposure();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
   loadSecrets();   // v3.14.0 #35: the secrets card lives on the same page
 }
@@ -15224,7 +15224,7 @@ async function loadSecrets() {
     _secretsResp = await api('GET', '/fleet/secrets');
     _renderSecrets();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderSecrets() {
@@ -15537,20 +15537,22 @@ async function loadSshKeys() {
   const summary = document.getElementById('ssh-keys-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('ssh-keys-thead', 'sshkeys', () => _renderSshKeys());
-  tbody.innerHTML = _skeletonRows(6);
+  tbody.innerHTML = _skeletonRows(7);
   try {
     const data = await api('GET', '/ssh-keys');
     _sshKeysResp = data;
     if (summary) summary.textContent = `${data.count} key${data.count === 1 ? '' : 's'} · ${data.weak} weak · ${data.reused} reused`;
     _renderSshKeys();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
+let _sshKeyFpFilter = '';
 function _renderSshKeys() {
   const tbody = document.getElementById('ssh-keys-tbody');
   if (!tbody || !_sshKeysResp) return;
   let rows = (_sshKeysResp.keys || []).slice();
+  if (_sshKeyFpFilter) rows = rows.filter((r) => r.fingerprint === _sshKeyFpFilter);
   rows = tableCtl.sortRows('sshkeys', rows, (r) => ({
     device: (r.device || '').toLowerCase(),
     user: (r.user || '').toLowerCase(),
@@ -15560,16 +15562,22 @@ function _renderSshKeys() {
     hosts: r.hosts || 0,
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No authorized_keys collected yet. Keys are gathered from hosts whose config includes authorized_keys.</td></tr>';
+    tbody.innerHTML = _sshKeyFpFilter
+      ? `<tr><td colspan="7" class="empty-state">No rows for that fingerprint. <button class="btn-icon" data-action="sshKeyFilterFp" data-arg="${escAttr(_sshKeyFpFilter)}">Show all keys</button></td></tr>`
+      : '<tr><td colspan="7" class="isl-534">No authorized_keys collected yet. Keys are gathered from hosts whose config includes authorized_keys.</td></tr>';
     return;
   }
-  const { rows: shown, note } = _capFleetRows(rows, 6, 'keys');
+  const { rows: shown, note } = _capFleetRows(rows, 7, 'keys');
   tbody.innerHTML = shown.map(r => {
     const typeCell = r.weak
       ? `<span class="kev-badge" title="Weak/legacy key type">${escHtml(r.type)}</span>`
       : `<code>${escHtml(r.type)}</code>`;
+    // v6.4.2: the reuse count is now the way IN to the other hosts. The page
+    // ranks reused keys first precisely so they get dealt with, and then gave
+    // no way to see which hosts they were on — the operator had to eyeball the
+    // fingerprint column. Clicking narrows the table to that fingerprint.
     const hostsCell = r.hosts > 1
-      ? `<span class="epss-chip" title="This key is present on ${r.hosts} hosts">${r.hosts} hosts</span>`
+      ? `<button class="epss-chip" data-action="sshKeyFilterFp" data-arg="${escAttr(r.fingerprint)}" title="Show the ${r.hosts} hosts carrying this key">${r.hosts} hosts</button>`
       : '<span class="hint">1</span>';
     return `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
@@ -15578,9 +15586,61 @@ function _renderSshKeys() {
       <td class="hint">${escHtml(r.comment || '—')}</td>
       <td class="hint mono-12">${escHtml(r.fingerprint)}</td>
       <td class="ta-center">${hostsCell}</td>
+      <td class="ta-right">
+        <button class="btn-icon" data-action="sshKeyRevoke" data-arg="${escAttr(r.device_id + '|' + r.user + '|' + r.fingerprint)}" title="Revoke this key from ${escAttr(r.user)}@${escAttr(r.device)}">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Revoke
+        </button>
+      </td>
     </tr>`;
   }).join('') + note;
 }
+
+// v6.4.2: narrow the audit to one key. A reused key is ONE decision across N
+// hosts, and until now reading which hosts carried it meant scanning a column
+// of base64 fingerprints by eye.
+function sshKeyFilterFp(fp) {
+  _sshKeyFpFilter = (_sshKeyFpFilter === fp) ? '' : String(fp || '');
+  _renderSshKeys();
+}
+
+// v6.4.2: the audit page's first action. It ranks weak and reused keys to the
+// top — it is explicitly a remediation worklist — and then offered nothing to
+// do about any row. The key LINE is never sent to the browser (the audit read
+// is require_auth, so every role including viewer sees it); the server resolves
+// the fingerprint against the same baseline the audit is built from, which also
+// means the client cannot name a key that is not on that host for that user.
+async function sshKeyRevoke(arg) {
+  const [devId, user, fp] = String(arg || '').split('|');
+  if (!devId || !user || !fp) return;
+  const row = (_sshKeysResp?.keys || []).find(
+    (k) => k.device_id === devId && k.user === user && k.fingerprint === fp);
+  const host = row ? row.device : devId;
+  const alsoOn = row && row.hosts > 1
+    ? `\n\nThis key is on ${row.hosts} hosts. Revoking here does NOT remove it from the others — use the "${row.hosts} hosts" chip to work through them.`
+    : '';
+  if (!await uiConfirm({
+    title: 'Revoke SSH key',
+    message: `Remove this key from ${user}@${host}?\n\n${fp}\n\nThe change is queued through the audited command channel and applies on the host's next check-in. If this is the account's only key, make sure you have another way in first.${alsoOn}`,
+    confirmText: 'Revoke', danger: true,
+  })) return;
+  try {
+    const d = await api('POST', `/devices/${encodeURIComponent(devId)}/user-action`,
+                        { action: 'revokekey', username: user, fingerprint: fp });
+    if (d?.error) { toast(d.error, 'error'); return; }
+    toast(`Revoke queued for ${user}@${host}`, 'success');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+// v6.4.2: canary arm states, worst first — a failed plant is the whole point
+// of the row, so it must not sort under a wall of healthy "armed" lines.
+const _CANARY_RANK = { failed: 0, watching: 1, pending: 2, armed: 3 };
+const _CANARY_LABEL = {
+  failed: 'NOT PLANTED',
+  watching: 'watching a real file (not a decoy)',
+  pending: 'not yet planted',
+  armed: 'armed',
+};
 
 // ─── v3.14.0: Fleet power / UPS + energy ────────────────────────────────────
 let _powerResp = null;
@@ -15813,7 +15873,7 @@ async function loadSoftwarePolicy() {
     const summary = document.getElementById('swpol-summary');
     if (summary) summary.textContent = `${(_swPolicy.rules||[]).length} rules · ${_swViolations.length} violations`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderSwRules() {
@@ -16285,6 +16345,7 @@ const EVENT_CLASS = {
   // v5.6.x: host-condition recover events (auto-resolve) → green "ok" dots.
   'kernel_current': 'ok', 'smart_recovered': 'ok', 'cert_file_renewed': 'ok',
   'rogue_uid0_cleared': 'ok', 'av_clean': 'ok', 'reboot_cleared': 'ok',
+  'empty_password_cleared': 'ok',   // v6.4.2
   'av_realtime_on': 'ok',   // v6.2.0: protection restored
   'containers_current': 'ok', 'port_unexposed': 'ok',
 };
@@ -18648,6 +18709,8 @@ function _renderHomeActivity(fleetEvents) {
     'gateway_latency_high', 'gateway_latency_normal',   // v6.4.0
     'battery_health_low', 'battery_health_ok',           // v6.4.0
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
+    // v6.4.2: a local account with a BLANK /etc/shadow password field.
+    'empty_password_account', 'empty_password_cleared',
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
@@ -18935,6 +18998,9 @@ function _homeActivityAttrs(event, p) {
     case 'kmip_cert_expiring': case 'kmip_cert_renewed':
       return 'data-action-btn="_showPageBtn" data-page="kmip"';
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
+    // v6.4.2: blank-password account — the drawer's Local accounts table is
+    // where the account and its flags are, so route to the host.
+    case 'empty_password_account': case 'empty_password_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -21464,8 +21530,18 @@ async function saveCanaryFiles() {
     .split('\n').map(s => s.trim()).filter(Boolean);
   const canary_files = paths.map(p => ({ path: p }));
   const r = await api('POST', '/config', { canary_files });
-  if (r && !r.error) toast(paths.length ? `${paths.length} canary file(s) armed` : 'Canary files off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  // v6.4.2: this said "N canary file(s) armed" — at SAVE time, before any agent
+  // had received the config, let alone tried to plant anything. On a host with a
+  // read-only /root the decoy never appeared; where a real file already sat at
+  // the path the agent baselined it and left it alone, so the honeytoken was
+  // silently a change-watch on genuine data. Nothing anywhere contradicted the
+  // toast. It now says what actually happened — saved — and points at the
+  // per-host arm status that says whether they are in place.
+  if (r && !r.error) {
+    toast(paths.length
+      ? `${paths.length} canary path(s) saved — hosts report arm status on their next check-in`
+      : 'Canary files off', 'success');
+  } else toast(r?.error || 'Failed', 'error');
 }
 
 // W3-19: live high-res device view — arm the burst + poll the sample ring.
@@ -22390,6 +22466,19 @@ async function _loadAuditSection(key) {
           // nowhere — now listed so the alert is verifiable against reality.
           ['USB devices', si.usb && Object.keys(si.usb).length
             ? Object.entries(si.usb).map(([id, label]) => `${label || '?'} (${id})`).join('\n')
+            : null],
+          // v6.4.2: canary ARM status. The agent has planted honeytokens since
+          // v6.0.0 and reported only TRIPS — never whether the plant SUCCEEDED.
+          // So a decoy blocked by a read-only filesystem, and a path that
+          // already held a REAL file (baselined and left alone, which makes it
+          // a change-watch on genuine data rather than a honeytoken), both
+          // looked exactly like working coverage. Failures first: they are the
+          // reason this row exists.
+          ['Canary files', (si.canary_status && si.canary_status.length)
+            ? si.canary_status.slice()
+                .sort((a, b) => (_CANARY_RANK[a.state] ?? 9) - (_CANARY_RANK[b.state] ?? 9))
+                .map(c => `${c.path} — ${_CANARY_LABEL[c.state] || c.state}`
+                          + (c.detail ? ` (${c.detail})` : '')).join('\n')
             : null],
           ['Last boot', si.last_boot ? _fmtAbsTs(si.last_boot) : null],
           // v3.8.0: why the host last restarted (the command before the reboot)

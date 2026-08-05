@@ -235,6 +235,49 @@ def _advisory_weak_ssh_keys(ids):
     return out
 
 
+def _advisory_risky_accounts(ids):
+    """{device_id: {'empty': ['user (login)', …], 'stale': ['user — 812 days', …]}}
+    from the per-host local-account posture the agent already reports.
+
+    v6.4.2: the agent has tagged `empty_password` and `stale_password` since
+    v3.14.0 and the server has persisted both into `hardware.json` just as long.
+    Only `uid0` and `sudo` were ever consumed — so the one question the
+    `id.sshempty` finding literally instructs the operator to go and answer by
+    hand ("audit for accounts that actually have a blank password") was
+    answerable from the store that finding is already reading.
+
+    A durable state, not a delta, so it belongs here rather than in the event
+    stream (the same reasoning as `_advisory_weak_ssh_keys` above — and the
+    blank-password EDGE does now fire its own alert, from the accounts ingest).
+    """
+    try:
+        store = A._load_ro(A.HARDWARE_FILE) or {}
+    except Exception:
+        return {}
+    out = {}
+    for did, rec in store.items():
+        if did not in ids or not isinstance(rec, dict):
+            continue
+        empty, stale = [], []
+        for a in (rec.get('accounts') or [])[:500]:
+            if not isinstance(a, dict):
+                continue
+            flags = a.get('flags') or []
+            user = str(a.get('user') or '')[:64]
+            if not user:
+                continue
+            if 'empty_password' in flags:
+                empty.append(user + (' (login shell)' if a.get('login')
+                                     else ' (no login shell)'))
+            if 'stale_password' in flags:
+                age = a.get('age_days')
+                stale.append(f'{user} — {int(age)} days'
+                             if isinstance(age, (int, float)) else user)
+        if empty or stale:
+            out[did] = {'empty': empty, 'stale': stale}
+    return out
+
+
 def _build_advisory(devs):
     """Assemble the advisory. Every store is read read-only and passed in — the
     pure logic lives in advisory.py."""
@@ -281,6 +324,7 @@ def _build_advisory(devs):
                      if d in ids and isinstance(v, dict)},
         agent_tamper_by_dev=A._advisory_agent_tamper(devs),
         weak_keys_by_dev=A._advisory_weak_ssh_keys(ids),
+        accounts_by_dev=A._advisory_risky_accounts(ids),
         now=int(time.time()))
 
 

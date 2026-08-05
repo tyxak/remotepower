@@ -2698,6 +2698,7 @@ def run_custom_scripts(scripts):
 
 
 _canary_planted = {}       # path -> {mtime, size, plant_ts, ours}
+_canary_failed  = {}       # v6.4.2: path -> why the plant failed (arm report)
 _canary_reported = set()   # paths already reported this run
 _CANARY_DEFAULT = ('# AWS credentials — do not share\n'
                    '[default]\naws_access_key_id = AKIA' + 'IOSFODNN7EXAMPLE\n'
@@ -2720,7 +2721,12 @@ def _plant_canaries(canary_cfg):
     a pre-existing path is baselined and left alone."""
     for c in (canary_cfg or [])[:50]:
         p = c.get('path') if isinstance(c, dict) else c
-        if not p or not _canary_path_ok(str(p)):
+        if not p:
+            continue
+        if not _canary_path_ok(str(p)):
+            # v6.4.2: a rejected path used to vanish — the operator saw a
+            # "armed" toast for a path the agent never even attempted.
+            _canary_failed[str(p)[:256]] = 'path not permitted for a canary'
             continue
         p = str(p)
         if p in _canary_planted:
@@ -2730,6 +2736,7 @@ def _plant_canaries(canary_cfg):
                 st = os.stat(p)
                 _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
                                       'plant_ts': int(time.time()), 'ours': False}
+                _canary_failed.pop(p, None)
                 continue
             content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
             d = os.path.dirname(p)
@@ -2743,9 +2750,39 @@ def _plant_canaries(canary_cfg):
             st = os.stat(p)
             _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
                                   'plant_ts': int(time.time()), 'ours': True}
+            _canary_failed.pop(p, None)
         except OSError as e:
             log.debug('canary plant %s: %s', p, e)
+            _canary_failed[p] = (e.strerror or str(e))[:120]
 
+
+def _canary_status(canary_cfg):
+    """[{path, state, detail}] for every CONFIGURED canary path — the arm report.
+
+    v6.4.2: only trip reports (`canary_events`) ever rode the heartbeat, so the
+    server had no way to answer "is this honeytoken actually in place?" for any
+    host. States: armed (we created the decoy), watching (a REAL file was
+    already there, so this is a change-watch on genuine data and NOT a
+    honeytoken), failed (`detail` says why), pending (not processed yet).
+    """
+    out = []
+    for c in (canary_cfg or [])[:50]:
+        p = c.get('path') if isinstance(c, dict) else c
+        if not p:
+            continue
+        p = str(p)
+        base = _canary_planted.get(p)
+        if base:
+            out.append({'path': p[:256],
+                        'state': 'armed' if base.get('ours') else 'watching',
+                        'detail': '' if base.get('ours')
+                                  else 'a real file was already at this path'})
+        elif p in _canary_failed:
+            out.append({'path': p[:256], 'state': 'failed',
+                        'detail': str(_canary_failed[p])[:120]})
+        else:
+            out.append({'path': p[:256], 'state': 'pending', 'detail': ''})
+    return out
 
 def _check_canaries(canary_cfg):
     """[{path, reason, ts}] for decoys touched since plant, each reported once."""
@@ -3366,6 +3403,20 @@ def build_heartbeat(creds, poll_count, pending_output=None):
                 payload['canary_events'] = _cev
         except Exception:
             pass
+        # v6.4.2: the ARM report. Only trip reports rode the heartbeat, so the
+        # server had no way to show whether a honeytoken was ever planted — an
+        # operator could believe they had ransomware tripwire coverage that a
+        # read-only filesystem or a permission error had silently prevented.
+        # Written only onto a FULL sysinfo (never a partial one — a partial
+        # dict is merged, but the state is cheap to recompute and belongs with
+        # the rest of the posture).
+        if isinstance(payload.get('sysinfo'), dict) and not payload.get('sysinfo_partial'):
+            try:
+                _cst = _canary_status(_canary_cfg)
+                if _cst:
+                    payload['sysinfo']['canary_status'] = _cst
+            except Exception:
+                pass
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')

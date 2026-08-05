@@ -263,7 +263,7 @@ def _tls_findings(tls_expiring):
 
 
 def _identity_findings(dev_id, name, dev, bf_sources=None,
-                       weak_ssh_keys=None):
+                       weak_ssh_keys=None, risky_accounts=None):
     """Who can get in, and how."""
     out = []
     si = dev.get('sysinfo') or {}
@@ -280,16 +280,28 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
                 evidence=[f"PermitRootLogin {ssh.get('permit_root_login')}"],
                 source='sshd config', doc='docs/security.md'))
         if str(ssh.get('permit_empty_passwords', '')).lower() == 'yes':
+            # v6.4.2: the second half of this finding is now ANSWERED rather
+            # than delegated — see id.emptypw below, which lists the accounts
+            # that actually have a blank password on this host.
+            blank_here = len((risky_accounts or {}).get('empty') or [])
             out.append(_finding(
                 'id.sshempty', 'identity', 'critical',
                 'SSH accepts accounts with an empty password',
                 'Any account on this host with a blank password can be logged '
                 'into from anywhere, with no credential at all. This is one '
                 'misconfigured user away from an open shell.',
-                'Set PermitEmptyPasswords no, then audit for accounts that '
-                'actually have a blank password — the setting is only half of it.',
+                'Set PermitEmptyPasswords no.' + (
+                    f' {blank_here} account(s) on this host currently HAVE a '
+                    'blank password — see "Local accounts with a blank '
+                    'password" below; together these are an open shell right '
+                    'now, not a latent risk.' if blank_here else
+                    ' No account on this host currently has a blank password, '
+                    'so nothing is exposed by it today — but the setting means '
+                    'the next one that appears is immediately reachable.'),
                 device_id=dev_id, device=name,
-                evidence=['PermitEmptyPasswords yes'],
+                evidence=['PermitEmptyPasswords yes'] + (
+                    [f'{blank_here} blank-password account(s) present']
+                    if blank_here else []),
                 source='sshd config', doc='docs/security.md'))
         if str(ssh.get('password_authentication', '')).lower() == 'yes':
             out.append(_finding(
@@ -350,6 +362,50 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
             device_id=dev_id, device=name,
             evidence=[str(k)[:100] for k in weak_ssh_keys[:6]],
             source='SSH key audit', doc='docs/security.md'))
+
+    # v6.4.2: local accounts whose /etc/shadow password field is blank or
+    # ancient. The agent has reported both flags since v3.14.0; until now they
+    # reached a per-device drawer badge and nothing else, so answering "does any
+    # host have a passwordless account?" across a fleet meant opening every
+    # drawer — which is precisely what id.sshempty above used to tell the
+    # operator to go and do. Same durable-state reasoning as id.weakkey.
+    ra = risky_accounts if isinstance(risky_accounts, dict) else {}
+    blank = ra.get('empty') or []
+    stale = ra.get('stale') or []
+    if blank:
+        # A blank password is unconditionally serious, but the shell decides
+        # whether it is remotely reachable or only locally: an account with a
+        # login shell can be SSH'd into (with PermitEmptyPasswords) or su'd to;
+        # a nologin one can still be su'd to with no credential.
+        interactive = [b for b in blank if 'no login shell' not in b]
+        out.append(_finding(
+            'id.emptypw', 'identity',
+            'critical' if interactive else 'high',
+            f'{len(blank)} local account(s) have a blank password',
+            'These accounts need no credential at all. `su - <user>` from any '
+            'account on the host succeeds, and if sshd permits empty passwords '
+            'they are reachable from the network. A blank password is not a '
+            'weak password — there is nothing to guess.',
+            'Set a password (passwd <user>) or lock the account '
+            '(passwd -l <user>) for each. If the account exists only to own '
+            'files, give it a nologin shell as well. Then confirm '
+            'PermitEmptyPasswords is no in sshd_config.',
+            device_id=dev_id, device=name, evidence=blank[:6],
+            source='local account posture', doc='docs/security.md'))
+    if stale:
+        out.append(_finding(
+            'id.stalepw', 'identity', 'low',
+            f'{len(stale)} login-capable account(s) have a password older '
+            'than a year',
+            'A credential that has not changed in over a year has had a year '
+            'of exposure to every breach corpus, shoulder-surf and reused-'
+            'password leak since it was set — and if the account belongs to '
+            'someone who has left, it is still live.',
+            'Rotate them, or better, move the account to key-based auth and '
+            'lock the password. Confirm each still belongs to someone who '
+            'should have access at all.',
+            device_id=dev_id, device=name, evidence=stale[:6],
+            source='local account posture', doc='docs/security.md'))
 
     # Windows posture — the identity/endpoint controls that keep an operator
     # account from becoming an administrator one.
@@ -595,7 +651,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
-          weak_keys_by_dev=None, now=None):
+          weak_keys_by_dev=None, accounts_by_dev=None, now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -616,6 +672,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     scap_by_dev = scap_by_dev or {}
     agent_tamper_by_dev = agent_tamper_by_dev or {}
     weak_keys_by_dev = weak_keys_by_dev or {}
+    accounts_by_dev = accounts_by_dev or {}
 
     findings = []
     for dev_id, dev in (devices or {}).items():
@@ -626,7 +683,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                  eol_by_dev.get(dev_id), scap_by_dev.get(dev_id))
         findings += _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn)
         findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id),
-                                       weak_keys_by_dev.get(dev_id))
+                                       weak_keys_by_dev.get(dev_id),
+                                       accounts_by_dev.get(dev_id))
         findings += _integrity_findings(dev_id, name, dev,
                                         failed_checks_by_dev.get(dev_id),
                                         agent_tamper_by_dev.get(dev_id))

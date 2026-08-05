@@ -2222,6 +2222,25 @@ def build_hardware_corpus(store, devices=None, now=0):
             if isinstance(rec.get('accounts'), dict) else rec.get('_priv_users')
         if isinstance(priv, list) and priv:
             lines.append(f"privileged (root-equivalent) accounts: {', '.join(map(str, priv[:12]))}")
+        # v6.4.2: blank / year-old passwords. The agent has tagged both flags
+        # since v3.14.0 and nothing downstream read them, so an operator asking
+        # the advisor "does anything on my fleet have a passwordless account?"
+        # got a confident no from a model that had never been told.
+        _blank, _stale = [], []
+        for _a in (rec.get('accounts') or [])[:500]:
+            if not isinstance(_a, dict):
+                continue
+            _f = _a.get('flags') or []
+            if 'empty_password' in _f:
+                _blank.append(str(_a.get('user') or '?'))
+            if 'stale_password' in _f:
+                _stale.append(str(_a.get('user') or '?'))
+        if _blank:
+            lines.append('accounts with a BLANK password (no credential needed): '
+                         + ', '.join(_blank[:12]))
+        if _stale:
+            lines.append('login-capable accounts whose password is over a year old: '
+                         + ', '.join(_stale[:12]))
         if lines:
             docs.append(make_doc(
                 f"live/{dev_id}#hardware", 'live_state', 'device_hardware',
