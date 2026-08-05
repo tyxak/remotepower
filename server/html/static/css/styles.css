@@ -58,6 +58,12 @@
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     /* warm accent (fail2ban/attention chrome) + recessed text-well ground */
     --warm: #f5a623; --warm-soft: rgba(245,166,35,0.16); --warm-edge: rgba(245,166,35,0.55);
+    /* v6.4.2 a11y (SC 1.4.3): ink for text sitting on its OWN 15%-tinted badge
+       background rather than on --surface. Measured, not eyeballed: --muted on
+       the grey tint is 4.27:1 dark / 3.79:1 light, and --green is 3.55:1 light
+       — all below the 4.5 minimum. These two clear it in both themes. */
+    --green-on-tint: #5aae83;   /* >=4.5:1 on its tint over --surface AND --surface2 */
+    --muted-on-tint: #8b95a1;   /* >=4.5:1 on its tint over --surface AND --surface2 */
     --well-bg: var(--bg);
   }
   body.light {
@@ -68,6 +74,8 @@
     --text: #141922;
     --muted: #6a7787;
     --green: #2f8f5b;
+    --green-on-tint: #267249;   /* >=4.5:1 on its tint over --surface AND --surface2 */
+    --muted-on-tint: #57626f;   /* >=4.5:1 on its tint over --surface AND --surface2 */
     --red: #d33f39;
     --amber: #c67e12;
     --warm: #c2710a; --warm-soft: rgba(194,113,10,0.12); --warm-edge: rgba(194,113,10,0.50);
@@ -6002,7 +6010,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .chk-pill.chk-ok       { background: rgba(34,197,94,0.15);  color: var(--green); border: 1px solid var(--green); }
 .chk-pill.chk-warning  { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid var(--amber); }
 .chk-pill.chk-critical { background: rgba(239,68,68,0.15);  color: var(--red);   border: 1px solid var(--red); }
-.chk-pill.chk-unknown  { background: rgba(100,116,139,0.15); color: var(--muted); border: 1px solid var(--muted); }
+.chk-pill.chk-unknown  { background: rgba(100,116,139,0.15); color: var(--muted-on-tint); border: 1px solid var(--muted); }
 .chk-row.disabled td   { opacity: 0.5; }
 .alerts-summary-pill   { display: inline-block; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; font-size: 13px; }
 
@@ -6299,7 +6307,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .ro-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
   font-weight: 600; text-transform: uppercase; letter-spacing: .03em; border: 1px solid var(--border); }
 .ro-badge.rs-running { background: rgba(59,130,246,.15); color: var(--accent-ink); border-color: var(--accent); }
-.ro-badge.rs-done    { background: rgba(34,197,94,.15);  color: var(--green); border-color: var(--green); }
+.ro-badge.rs-done    { background: rgba(34,197,94,.15);  color: var(--green-on-tint); border-color: var(--green); }
 .ro-badge.rs-paused  { background: rgba(245,158,11,.15); color: var(--amber); border-color: var(--amber); }
 .ro-badge.rs-failed,
 .ro-badge.rs-cancelled { background: rgba(239,68,68,.12); color: var(--red); border-color: var(--red); }
@@ -6558,7 +6566,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.4.2: Settings → Install checklist */
 .setup-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px;
   border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
-.setup-step.done { opacity: 0.75; }
+/* v6.4.2 a11y (SC 1.4.3): "done" used to be `opacity: 0.75`, which dimmed every
+   descendant — the step's hint text fell to 3.38:1 and its status badge to
+   3.23:1. Opacity cannot be salvaged here: --muted is only 4.56:1 at FULL
+   opacity in the light theme, so any fade at all fails. De-emphasise with the
+   surface and border instead, which leaves text contrast untouched. */
+.setup-step.done { background: var(--surface2); border-color: var(--border); }
 .setup-step-ico { flex: 0 0 auto; margin-top: 1px; }
 .setup-step-body { flex: 1 1 auto; min-width: 0; }
 .setup-step .btn-secondary { flex: 0 0 auto; align-self: center; }

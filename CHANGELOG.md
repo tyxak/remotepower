@@ -191,6 +191,28 @@ product has always computed for its own screens and never let you take away.
 - Table rows got a tab stop but deliberately **not** a button role — that would
   strip a row's implicit semantics and break the table for the same screen
   readers the change is meant to help.
+- **The accessibility gate was blind to Settings, and things were living there.**
+  It walked all seventy-plus pages but never switched a tab, and a hidden panel
+  is not scanned at all — so thirteen of the fourteen Settings panes had never
+  been audited. The sweep now steps through every pane, and it found real
+  failures on its first run: **368 unlabelled checkboxes** in the notification
+  event matrix (a screen-reader user heard 368 identical anonymous toggles and
+  could not tell which event or which channel any of them controlled), a button
+  with no accessible name, and two colour-contrast failures.
+- **A completed setup step faded its own text below the legibility minimum.**
+  "Done" was conveyed with `opacity: 0.75`, which dimmed everything inside it —
+  the step's hint dropped to 3.38:1 against a 4.5:1 requirement. Opacity could
+  not be tuned out of it either: the muted ink is only 4.56:1 at *full* opacity
+  in the light theme, so any fade at all fails. Completed steps are now
+  de-emphasised with their surface and border, which leaves text alone.
+- Badge text sitting on its own tinted background gets its own ink, measured
+  against both surface tones rather than assumed — the previous colours failed
+  in one theme or the other.
+- **An invisible control was in the keyboard tab order** of every dialog with a
+  device picker. The searchable picker keeps the original dropdown as its value
+  carrier, collapsed to one pixel and fully transparent — but still focusable,
+  so tabbing through those dialogs landed on nothing, with no focus ring and
+  nothing announced.
 - Also removed a stray `None` token that a scripted markup edit had written into
   index.html as a bogus attribute, and translated the five tab-widget and two
   palette accessible names, which had shipped English-only in all six languages.

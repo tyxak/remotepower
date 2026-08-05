@@ -182,6 +182,9 @@ async function loadRAGStatus() {
     if (onPg || canPg) {
       btn.hidden = false;
       btn.textContent = onPg ? 'Move index back to JSON' : 'Move index to Postgres (pgvector)';
+      // Keep the accessible name in step with the visible text — an aria-label
+      // that disagreed with the label would fail SC 2.5.3 Label in Name.
+      btn.setAttribute('aria-label', btn.textContent);
       btn.dataset.target = onPg ? 'json' : 'postgres';
     } else {
       btn.hidden = true;

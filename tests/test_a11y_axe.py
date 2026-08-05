@@ -196,6 +196,42 @@ class TestAccessibilityAxe(unittest.TestCase):
                     "axe.run(%s).then(r => r)" % json.dumps(_AXE_OPTIONS))
                 self._assert_no_serious_violations(results, f'page {p!r}')
 
+    def test_every_settings_pane(self):
+        """v6.4.2: the sweep above walks PAGES, but Settings is one page whose
+        fourteen panes are `display:none` until their tab is clicked — and axe
+        does not scan a `display:none` subtree at all.
+
+        So thirteen of fourteen panes had never been audited, and real critical
+        failures were living there: 368 unlabelled checkboxes in the
+        notifications event matrix, an unnamed button in the AI pane, and two
+        colour-contrast failures. The gate was not weak, it was blind — no
+        number of re-runs on default-state pages would ever have surfaced them.
+        """
+        import re as _re
+        from pathlib import Path as _P
+        html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
+        panes = []
+        for m in _re.finditer(r'class="settings-tab[^"]*"[^>]*data-tab="([a-z0-9-]+)"', html):
+            if m.group(1) not in panes:
+                panes.append(m.group(1))
+        self.assertGreater(len(panes), 8, 'settings tabs not discovered')
+        self.page.goto(self.base + '/index.html')
+        self.page.evaluate("localStorage.setItem('rp_tour_done', '1')")
+        self.page.fill('#login-user', 'admin')
+        self.page.fill('#login-pass', 'remotepower')
+        self.page.click('#login-form button[type="submit"]')
+        self.page.wait_for_selector('#app', state='visible', timeout=15000)
+        self.page.evaluate("showPage('settings')")
+        self.page.wait_for_selector('#page-settings.active', timeout=15000)
+        self.page.evaluate(self.axe.axe_script)
+        for pane in panes:
+            with self.subTest(pane=pane):
+                self.page.evaluate(f"switchSettingsTab({pane!r})")
+                self.page.wait_for_timeout(300)
+                results = self.page.evaluate(
+                    "axe.run('#page-settings', %s).then(r => r)" % json.dumps(_AXE_OPTIONS))
+                self._assert_no_serious_violations(results, f'settings pane {pane!r}')
+
 
 if __name__ == '__main__':
     unittest.main()

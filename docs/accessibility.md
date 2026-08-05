@@ -144,14 +144,23 @@ Two consequences, both bad for a screen-reader or cognitively-impaired user:
 
 This is the gap that keeps the overall self-assessment at *partially supports*.
 
-### 2. The automated gate only sees default-state pages
+### 2. The automated gate does not yet open every surface
 
-The axe sweep loads each page and audits it as rendered. It never opens a
-modal, switches a tab panel, opens the device drawer or opens the command
-palette — so **none of those surfaces has ever been machine-audited**, and any
-violation that lives inside one is invisible to the gate. No test presses Tab,
-either: the focus traps and focus-restore behaviour described above are
-verified by code review, not by an automated keyboard walk.
+The axe sweep loads each page and audits it as rendered. Since v6.4.2 it also
+**switches through all fourteen Settings panes** and audits each one, and a
+companion browser suite presses keys: it drives the sidebar accordion, every tab
+widget, the command palette and the login form, asserting the live DOM rather
+than the source text.
+
+That mattered more than it sounds. `display:none` subtrees are not scanned by
+axe at all, so thirteen of the fourteen panes were not "audited while hidden" —
+they were invisible to the gate entirely, and real critical failures were living
+there: 368 unlabelled checkboxes in the notification event matrix, an unnamed
+button, and two colour-contrast failures. The pane sweep found the last of those
+the first time it ran.
+
+Still not opened by the gate: the ~133 modal overlays and the device drawer.
+A violation inside one of those remains invisible to automation.
 
 ### 3. Four dialogs bypass the modal manager and get no focus trap
 

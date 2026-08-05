@@ -4292,8 +4292,8 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
     return `<tr>
       <td><code>${escHtml(ev)}</code></td>
       <td>${escHtml(desc)}${extra}</td>
-      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-webhook" data-event="${escHtml(ev)}" ${wh}></td>
-      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-email"   data-event="${escHtml(ev)}" ${email}></td>
+      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-webhook" data-event="${escHtml(ev)}" aria-label="Webhook: ${escAttr(ev)}" ${wh}></td>
+      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-email"   data-event="${escHtml(ev)}" aria-label="Email: ${escAttr(ev)}" ${email}></td>
     </tr>`;
   }).join('');
 }
@@ -6092,6 +6092,15 @@ function comboifyDeviceSelect(sel) {
   sel.parentNode.insertBefore(wrap, sel);
   wrap.appendChild(sel);
   sel.classList.add('dev-combo-native');
+  // v6.4.2 a11y: the native <select> is kept as the value carrier but is
+  // visually collapsed to 1x1 with opacity 0. It stayed FOCUSABLE, so a
+  // keyboard user tabbing through any modal that uses a device combo landed on
+  // an invisible control with no focus ring and no announced purpose
+  // (SC 2.4.3 Focus Order / 2.4.7 Focus Visible). Take it out of the tab order
+  // and out of the accessibility tree — the text input beside it is the real
+  // control and carries its own aria-label.
+  sel.tabIndex = -1;
+  sel.setAttribute('aria-hidden', 'true');
   const inp = document.createElement('input');
   inp.type = 'text';
   inp.autocomplete = 'off';

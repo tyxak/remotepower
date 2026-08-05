@@ -441,3 +441,87 @@ class TestKeyboardActivation(_Base):
                          f"{bad['noStop']} of {bad['total']} action rows have no tab stop")
         self.assertEqual(bad['roled'], 0,
                          'a tr/td was given role="button" — that breaks table semantics')
+
+
+class TestNoInvisibleTabStops(_Base):
+    """A control collapsed to 1x1 with opacity 0 but still focusable is a trap:
+    the keyboard user's focus vanishes with no ring and nothing announced
+    (SC 2.4.3 / 2.4.7). The device combo kept its native <select> as the value
+    carrier and left it in the tab order.
+    """
+
+    def test_comboified_selects_are_out_of_the_tab_order(self):
+        # Drive the real enhancer over a real select rather than asserting on
+        # source text.
+        state = self.page.evaluate("""() => {
+            const host = document.createElement('div');
+            host.innerHTML = '<select class="form-input device-combo" id="__combotest">'
+                           + '<option value="a">alpha</option></select>';
+            document.body.appendChild(host);
+            comboifyDeviceSelect(host.querySelector('select'));
+            const sel = document.getElementById('__combotest');
+            const inp = host.querySelector('.dev-combo-input');
+            return {
+                tabIndex: sel.tabIndex,
+                hidden: sel.getAttribute('aria-hidden'),
+                inputNamed: !!inp && !!inp.getAttribute('aria-label'),
+            };
+        }""")
+        self.assertEqual(state['tabIndex'], -1,
+                         'the invisible native select is still a tab stop')
+        self.assertEqual(state['hidden'], 'true')
+        self.assertTrue(state['inputNamed'],
+                        'the visible combo input has no accessible name')
+
+    def test_no_zero_size_focusable_control_is_reachable(self):
+        """General sweep: nothing focusable may render smaller than 4x4 while
+        still being in the tab order."""
+        bad = self.page.evaluate("""() => {
+            const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea,[tabindex]';
+            return Array.from(document.querySelectorAll(sel))
+                .filter(el => el.tabIndex >= 0 && el.getAttribute('aria-hidden') !== 'true')
+                .filter(el => { const r = el.getBoundingClientRect();
+                                return r.width > 0 && (r.width < 4 || r.height < 4); })
+                .map(el => (el.tagName + '.' + (el.className || '')).slice(0, 60));
+        }""")
+        self.assertEqual(bad, [], f'focusable but effectively invisible: {bad}')
+
+
+class TestNotificationMatrixIsLabelled(_Base):
+    """368 identical unlabelled checkboxes — the matrix was unusable
+    non-visually, and the axe gate never opens the pane it lives on."""
+
+    def test_every_event_toggle_has_an_accessible_name(self):
+        self.page.evaluate("showPage('settings')")
+        self.page.wait_for_selector('#page-settings.active', timeout=15000)
+        self.page.evaluate("switchSettingsTab('notifications')")
+        self.page.wait_for_timeout(400)
+        unnamed = self.page.evaluate("""() =>
+            Array.from(document.querySelectorAll('.toggle-webhook, .toggle-email'))
+                 .filter(cb => !cb.getAttribute('aria-label')
+                            && !cb.closest('label')
+                            && !document.querySelector('label[for="' + cb.id + '"]'))
+                 .length""")
+        total = self.page.evaluate(
+            """() => document.querySelectorAll('.toggle-webhook, .toggle-email').length""")
+        if total == 0:
+            self.skipTest('event matrix not rendered in this fixture')
+        self.assertEqual(unnamed, 0, f'{unnamed} of {total} event toggles are unlabelled')
+
+    def test_the_two_channels_are_distinguishable(self):
+        """Same event, two checkboxes — the names must differ or the label is
+        useless for choosing which channel to toggle."""
+        self.page.evaluate("showPage('settings')")
+        self.page.wait_for_selector('#page-settings.active', timeout=15000)
+        self.page.evaluate("switchSettingsTab('notifications')")
+        self.page.wait_for_timeout(400)
+        pair = self.page.evaluate("""() => {
+            const w = document.querySelector('.toggle-webhook');
+            const e = document.querySelector('.toggle-email');
+            if (!w || !e) return null;
+            return [w.getAttribute('aria-label'), e.getAttribute('aria-label')];
+        }""")
+        if not pair:
+            self.skipTest('event matrix not rendered in this fixture')
+        self.assertNotEqual(pair[0], pair[1])
+        self.assertTrue(all(pair), f'blank accessible name: {pair}')
