@@ -183,7 +183,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Webhooks | Generic JSON, Discord, ntfy, Slack, Gotify, Microsoft Teams, Pushover, Telegram, Matrix *(Telegram/Matrix v5.3.0)*; auto-format detection |
+| Webhooks | Generic JSON, Discord, ntfy, Slack, Gotify, Microsoft Teams, Pushover, Telegram, Matrix *(Telegram/Matrix v5.3.0)*; auto-format detection. A **generic** destination takes operator-supplied request **headers** (`Name: value`), so it can authenticate to self-hosted n8n, a Vector/Fluent Bit HTTP source or an internal API gateway — previously only the format-locked hosted services could send an `Authorization`/`X-API-Key`, and the only escape was a credential in a URL query parameter or a purpose-built shim. Header values are stored and withheld like any other secret; names the sender owns (`Host`, `Content-Length`) and RemotePower's own signature headers are rejected *(v6.4.2)* |
 | Signed webhook deliveries | Optional per-destination HMAC secret on generic-format deliveries, so receivers verify authenticity; secret write-only *(v5.3.0)*. `X-RemotePower-Signature-V2` covers the **timestamp and the body together**, which is what lets a receiver's age check reject a replayed delivery; the body-only `X-RemotePower-Signature` is still sent alongside it so existing receivers keep working *(v6.4.2)* |
 | Browser push | Web Push (VAPID) notifications straight to subscribed browsers / the PWA — no third-party service; admin-enabled, per-browser opt-in *(v4.0.0)* |
 | GitHub issues | `github` destination opens an issue with labels *(v3.3.0)* |

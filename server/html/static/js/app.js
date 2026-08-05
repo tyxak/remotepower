@@ -5085,6 +5085,7 @@ async function saveSettings(btn) {
       delete c.itsm_secret_set;
       delete c.matrix_token_set;
       delete c.hmac_secret_set;
+      delete c.header_names;
       return c;
     });
   }
@@ -28806,6 +28807,11 @@ function renderWebhookDests() {
             <input type="password" data-field="hmac_secret" class="form-input isl-743" placeholder="${hmacSecretSet ? '••••••••••• (signing secret set — leave blank to keep)' : 'Optional HMAC signing secret'}">
           </div>
           <div class="meta-sm-nm">Optional. If set, each payload is signed — header <code>X-RemotePower-Signature: sha256=&lt;hmac&gt;</code> over the raw body, plus <code>X-RemotePower-Timestamp</code>.</div>` : ''}
+        ${isGeneric ? `
+          <div class="isl-741">
+            <input type="text" data-field="custom_headers" class="form-input isl-743" value="" placeholder="${(d.header_names || []).length ? (d.header_names.join(', ') + ' set — retype to change, blank to keep') : 'Authorization: Bearer <token>, X-API-Key: <key>'}">
+          </div>
+          <div class="meta-sm-nm">Optional request headers, <code>Name: value</code> separated by commas or newlines. This is what lets a generic destination authenticate to self-hosted n8n, a Vector/Fluent Bit HTTP source or an internal API gateway — an HMAC signature is something the receiver must be coded to verify, not a credential a gateway accepts. Values are stored like any other secret and never sent back to the browser; names are shown so you can see what is set. Generic destinations only.</div>` : ''}
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">
@@ -28891,6 +28897,22 @@ function _readWebhookDestCard(idx, card) {
       // Don't overwrite the placeholder unless the user typed something
       if (el.value) d[f] = el.value;
     }
+    // v6.4.2: custom request headers, entered as `Name: value` pairs. Same
+    // leave-blank-to-keep rule as every secret above — the values are never
+    // sent back to the browser, so an empty box means "unchanged", not "clear".
+    else if (f === 'custom_headers') {
+      if (el.value.trim()) {
+        const hdrs = {};
+        el.value.split(/[,\n]/).forEach(pair => {
+          const i = pair.indexOf(':');
+          if (i <= 0) return;
+          const k = pair.slice(0, i).trim();
+          const v = pair.slice(i + 1).trim();
+          if (k && v) hdrs[k] = v;
+        });
+        if (Object.keys(hdrs).length) d.headers = hdrs;
+      }
+    }
     else d[f] = el.value;
   });
   const _csv = sel => {
@@ -28953,6 +28975,7 @@ async function saveWebhookDests() {
     delete c.pushover_user_set;
     delete c.matrix_token_set;
     delete c.hmac_secret_set;
+    delete c.header_names;
     return c;
   });
   const r = await api('POST', '/config', {webhook_urls: cleaned});

@@ -310,3 +310,151 @@ class TestSelectAllMatchingFilters(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGenericWebhookCustomHeaders(unittest.TestCase):
+    """A generic webhook destination could send exactly three headers
+    (X-Title, X-Priority, X-Tags) and had no way to carry an Authorization or
+    X-API-Key. Only the 13 format-locked hosted services could authenticate, so
+    self-hosted n8n with header auth, a Vector/Fluent Bit HTTP source wanting a
+    bearer token, and any internal API gateway were reachable only by putting
+    the credential in a URL query parameter — or by standing up a shim service
+    purely to add one header. (HMAC signing exists, but that is a signature the
+    receiver must be coded to verify, not a credential a gateway accepts.)
+    """
+
+    def setUp(self):
+        self.sent = {}
+        self._saved = {k: getattr(api, k) for k in
+                       ("_ssrf_safe_opener", "_url_targets_local_or_meta",
+                        "_log_webhook")}
+
+        class _Resp:
+            status = 200
+            def read(self): return b"{}"
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def _open(req, *a, **k):
+            self.sent["headers"] = dict(req.headers)
+            return _Resp()
+
+        api._ssrf_safe_opener = lambda *a, **k: type(
+            "O", (), {"open": staticmethod(_open)})()
+        api._url_targets_local_or_meta = lambda *a, **k: False
+        api._log_webhook = lambda *a, **k: None
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(api, k, v)
+
+    def _send(self, **dest):
+        self.sent.clear()
+        d = dict({"id": "d1", "url": "https://n8n.lan/webhook/x",
+                  "format": "generic", "enabled": True}, **dest)
+        api._dispatch_one_webhook("device_offline", d, {"device_id": "h1"},
+                                  "web01 is offline", "Device Offline", 3, {})
+        # urllib title-cases header names on the way out.
+        return {k.lower(): v for k, v in (self.sent.get("headers") or {}).items()}
+
+    def test_a_custom_header_reaches_the_wire(self):
+        h = self._send(headers={"Authorization": "Bearer tok123",
+                                "X-API-Key": "k"})
+        self.assertEqual(h.get("authorization"), "Bearer tok123")
+        self.assertEqual(h.get("x-api-key"), "k")
+
+    def test_the_built_in_headers_survive(self):
+        h = self._send(headers={"Authorization": "Bearer t"})
+        self.assertEqual(h.get("x-title"), "Device Offline")
+        self.assertEqual(h.get("content-type"), "application/json")
+
+    def test_a_transport_header_cannot_be_overridden(self):
+        """`Host` decides where the request actually goes."""
+        h = self._send(headers={"Host": "evil.internal"})
+        self.assertNotEqual(h.get("host"), "evil.internal")
+
+    def test_the_signature_headers_cannot_be_forged(self):
+        """A custom header must never be able to overwrite the HMAC RemotePower
+        computes — a receiver verifying the signature would accept a forged
+        one."""
+        h = self._send(hmac_secret="s",
+                       headers={"X-RemotePower-Signature": "sha256=forged"})
+        self.assertNotEqual(h.get("x-remotepower-signature"), "sha256=forged")
+        self.assertTrue(h.get("x-remotepower-signature", "").startswith("sha256="),
+                        "the real signature stopped being sent")
+
+    def test_a_hosted_format_ignores_them(self):
+        """Discord/Slack/Matrix builders own their own auth header; letting an
+        operator overwrite it could only break the destination."""
+        h = self._send(format="discord", headers={"Authorization": "Bearer leak"})
+        self.assertNotEqual(h.get("authorization"), "Bearer leak")
+
+    def test_an_illegal_header_name_is_rejected_at_save(self):
+        """A header NAME goes onto the wire verbatim — a CR/LF or colon in it
+        splits the request."""
+        saved = {k: getattr(api, k, None) for k in
+                 ("require_admin_auth", "method", "get_json_body", "_env",
+                  "audit_log")}
+        api.require_admin_auth = lambda *a, **k: "admin"
+        api.method = lambda: "POST"
+        api._env = lambda k, d="": d
+        api.audit_log = lambda *a, **k: None
+        api.save(api.CONFIG_FILE, {})
+        api._LOAD_CACHE.clear()
+        try:
+            for bad in ("X-Evil: injected", "X-Evil\r\nHost", "Host"):
+                with self.subTest(name=bad):
+                    api.get_json_body = lambda _b=bad: {"webhook_urls": [
+                        {"id": "d1", "url": "https://x/y", "format": "generic",
+                         "headers": {_b: "v"}}]}
+                    try:
+                        api.handle_config_save()
+                        status = None
+                    except api.HTTPError as e:
+                        status = e.status
+                    except SystemExit:
+                        status = "exit"
+                    self.assertEqual(status, 400,
+                                     "an unsafe header name was accepted")
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    setattr(api, k, v)
+
+    def test_the_values_are_never_echoed_back(self):
+        """They are credentials. Same treatment as hmac_secret / matrix_token —
+        sent once, never returned, re-entered to change."""
+        saved = {k: getattr(api, k, None) for k in
+                 ("require_auth", "verify_token", "get_token_from_request",
+                  "method", "_env")}
+        api.require_auth = lambda *a, **k: "admin"
+        api.verify_token = lambda *a, **k: ("admin", "admin")
+        api.get_token_from_request = lambda: "x"
+        api.method = lambda: "GET"
+        api._env = lambda k, d="": d
+        api.save(api.CONFIG_FILE, {"webhook_urls": [
+            {"id": "d1", "url": "https://x/y", "format": "generic",
+             "headers": {"Authorization": "Bearer supersecret"}}]})
+        api._LOAD_CACHE.clear()
+        try:
+            try:
+                api.handle_config_get()
+                self.fail("handler did not respond")
+            except api.HTTPError as e:
+                body = e.body
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    setattr(api, k, v)
+        self.assertNotIn("supersecret", json.dumps(body),
+                         "the credential was echoed back to the browser")
+        dest = body["webhook_urls"][0]
+        self.assertEqual(dest.get("header_names"), ["Authorization"],
+                         "the NAMES must come back, or the editor cannot show "
+                         "what is configured")
+
+    def test_the_editor_offers_the_field(self):
+        js = (_JS / "app.js").read_text()
+        self.assertIn('data-field="custom_headers"', js)
+        self.assertIn("d.headers = hdrs", js,
+                      "the field is rendered and never read back out")

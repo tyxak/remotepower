@@ -11894,6 +11894,19 @@ def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
     return urllib.request.build_opener(*handlers)
 
 
+# v6.4.2: custom-header validation for a generic webhook destination.
+# A header NAME goes onto the wire verbatim, so it is charset-restricted rather
+# than sanitised — anything with a colon, CR or LF could split the request.
+_HEADER_NAME_RE = re.compile(r'^[A-Za-z0-9-]{1,64}$')
+# Names the operator must not be able to set: the ones the sender owns
+# (Host/Content-Length are the transport's), and RemotePower's own signature
+# headers, which a custom header must never be able to forge or overwrite.
+_RESERVED_HEADERS = frozenset({
+    'host', 'content-length', 'connection', 'transfer-encoding',
+    'x-remotepower-signature', 'x-remotepower-timestamp',
+    'x-remotepower-signature-v2',
+})
+
 _WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams',
                     'github', 'pagerduty', 'opsgenie',
                     'jira', 'servicenow', 'zendesk',   # v5.0.0 ITSM
@@ -12048,6 +12061,25 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
     else:
         body, headers, content_type = _build_generic_body(
             event, title, message, priority, safe_payload)
+    # v6.4.2: operator-supplied headers on a GENERIC destination. Without this a
+    # destination could send exactly three headers (X-Title, X-Priority, X-Tags)
+    # and had no way to carry an Authorization or X-API-Key — so self-hosted n8n
+    # with header auth, a Vector/Fluent Bit HTTP source wanting a bearer token,
+    # and any internal API gateway were reachable only by putting the credential
+    # in a URL query parameter, or by standing up a shim service purely to add
+    # one header. (HMAC signing exists but is a signature a receiver must be
+    # coded to verify — it is not a credential a gateway will accept.)
+    #
+    # Generic format only: a hosted service's builder owns its own auth header,
+    # and letting an operator overwrite Discord's or Matrix's would only break
+    # the destination. Applied BEFORE the setdefault()s so an operator can also
+    # override Content-Type for a receiver that insists on something else, and
+    # before the HMAC block so a custom header can never clobber the signature.
+    if fmt == 'generic':
+        for _hk, _hv in (dest.get('headers') or {}).items():
+            _hk = str(_hk).strip()
+            if _HEADER_NAME_RE.match(_hk) and _hk.lower() not in _RESERVED_HEADERS:
+                headers[_hk] = str(_hv)[:1024]
     headers.setdefault('Content-Type', content_type)
     headers.setdefault('User-Agent', f'RemotePower/{SERVER_VERSION}')
     # v5.4.1 (F2): propagate W3C trace-context so a downstream receiver joins this
@@ -25431,13 +25463,20 @@ def handle_config_get():
             # regex, but echo a *_set flag + keep the non-secret itsm fields).
             r = {k: v for k, v in e.items()
                  if k not in ('pushover_token', 'pushover_user', 'token', 'itsm_secret',
-                              'matrix_token', 'hmac_secret')}
+                              'matrix_token', 'hmac_secret', 'headers')}
             r['pushover_token_set'] = bool(e.get('pushover_token'))
             r['pushover_user_set']  = bool(e.get('pushover_user'))
             r['token_set']          = bool(e.get('token'))
             r['itsm_secret_set']    = bool(e.get('itsm_secret'))
             r['matrix_token_set']   = bool(e.get('matrix_token'))
             r['hmac_secret_set']    = bool(e.get('hmac_secret'))
+            # v6.4.2: custom headers exist to carry a credential — an
+            # Authorization or X-API-Key — so the VALUES are withheld exactly
+            # like every other secret here. The NAMES are returned so the editor
+            # can show which headers are configured and the operator can change
+            # one without re-typing the others; a header name is not a secret and
+            # showing nothing would make the field unusable.
+            r['header_names'] = sorted((e.get('headers') or {}).keys())
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
@@ -25781,6 +25820,35 @@ def handle_config_save():
                         clean_entry['hmac_secret'] = _sanitize_str(_hsec, 256)
                     elif existing and existing.get('hmac_secret'):
                         clean_entry['hmac_secret'] = existing['hmac_secret']
+                    # v6.4.2: operator-supplied request headers, so a generic
+                    # destination can finally carry an Authorization / X-API-Key.
+                    # The NAME is charset-restricted rather than sanitised — it
+                    # goes onto the wire verbatim, and a colon or CR/LF in it
+                    # would split the request. The VALUE is a credential, so it
+                    # follows the hmac_secret pattern exactly: sent once, never
+                    # echoed back (see _scrub_config_secrets), and an empty
+                    # submission keeps what is already stored rather than
+                    # silently clearing it.
+                    _hdrs = entry.get('headers')
+                    if isinstance(_hdrs, dict):
+                        _ch = {}
+                        for _hk, _hv in list(_hdrs.items())[:20]:
+                            _hk = str(_hk).strip()
+                            if not _HEADER_NAME_RE.match(_hk):
+                                respond(400, {'error': f'header name "{_hk[:40]}" '
+                                                       'must match [A-Za-z0-9-]{1,64}'})
+                            if _hk.lower() in _RESERVED_HEADERS:
+                                respond(400, {'error': f'"{_hk}" is set by RemotePower '
+                                                       'and cannot be overridden'})
+                            _hv = str(_hv or '')
+                            if not _hv and existing:
+                                _hv = str((existing.get('headers') or {}).get(_hk, ''))
+                            if _hv:
+                                _ch[_hk] = _hv[:1024]
+                        if _ch:
+                            clean_entry['headers'] = _ch
+                    elif existing and existing.get('headers'):
+                        clean_entry['headers'] = existing['headers']
             clean.append(clean_entry)
         cfg['webhook_urls'] = clean
 
