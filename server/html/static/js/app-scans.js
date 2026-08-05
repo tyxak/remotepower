@@ -63,7 +63,7 @@ async function _renderScanDeviceResults(term) {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickScanDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>`).join('')
+        `<div class="pointer mb-8" data-action="pickScanDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>`).join('')
     : '<div class="empty-state">No matching devices.</div>';
   box.classList.remove('hidden');
 }

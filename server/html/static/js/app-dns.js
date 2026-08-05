@@ -63,7 +63,7 @@ function _renderDnsAgentResults(term) {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickDnsAgent" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.online ? '' : ' <span class="hint">(offline)</span>'}${d.acme ? ' <span class="hint">· acme.sh</span>' : ''}</div>`).join('')
+        `<div class="pointer mb-8" data-action="pickDnsAgent" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.online ? '' : ' <span class="hint">(offline)</span>'}${d.acme ? ' <span class="hint">· acme.sh</span>' : ''}</div>`).join('')
     : '<div class="empty-state">No matching devices.</div>';
   box.classList.remove('hidden');
 }
@@ -740,7 +740,7 @@ function _acmeRenderTable() {
     const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
     const createdStr = r.created_ts ? new Date(r.created_ts * 1000).toLocaleDateString() : '—';
     const renewStr   = r.next_renew_ts ? new Date(r.next_renew_ts * 1000).toLocaleDateString() : '—';
-    return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >
+    return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}"  tabindex="0">
       <td>${escHtml(r.device_name)}</td>
       <td>
         <code class="isl-674">${escHtml(r.domain)}</code>${wildcardGlyph}${altLabel}

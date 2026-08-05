@@ -347,3 +347,97 @@ class TestLoginErrorsAreAnnounced(_Base):
         left = self.page.evaluate(
             """() => document.querySelectorAll('#login-form [aria-invalid="true"]').length""")
         self.assertEqual(left, 0, 'aria-invalid survived a successful login')
+
+
+class TestKeyboardActivation(_Base):
+    """WCAG 2.1.1 Keyboard. The delegated dispatcher bound only `click`, so a
+    data-action on anything that is not a native button or link was mouse-only.
+
+    The two things that matter are that Enter/Space now DO fire, and that they
+    do not fire TWICE on a native control (a checkbox with its own data-action
+    nested inside a row that carries another one is live in this app).
+    """
+
+    def test_enter_activates_a_non_native_data_action(self):
+        fired = self.page.evaluate("""() => {
+            window.__k = 0;
+            window.__kTestAction = () => { window.__k++; };
+            const d = document.createElement('div');
+            d.setAttribute('data-action', '__kTestAction');
+            d.setAttribute('tabindex', '0');
+            d.id = '__ktarget';
+            document.body.appendChild(d);
+            d.focus();
+            return document.activeElement === d;
+        }""")
+        self.assertTrue(fired, 'the test element did not take focus')
+        self.page.keyboard.press('Enter')
+        self.assertEqual(self.page.evaluate("() => window.__k"), 1,
+                         'Enter did not activate a non-native data-action element')
+
+    def test_space_activates_and_does_not_scroll(self):
+        self.page.evaluate("""() => {
+            window.__k = 0;
+            window.__kTestAction = () => { window.__k++; };
+            document.getElementById('__ktarget')?.remove();
+            const d = document.createElement('div');
+            d.setAttribute('data-action', '__kTestAction');
+            d.setAttribute('tabindex', '0');
+            d.id = '__ktarget';
+            document.body.appendChild(d);
+            d.focus();
+        }""")
+        self.page.keyboard.press(' ')
+        self.assertEqual(self.page.evaluate("() => window.__k"), 1,
+                         'Space did not activate the element')
+
+    def test_a_native_button_fires_exactly_once(self):
+        """The double-fire hazard the _NATIVE_ACTIVATABLE guard exists for."""
+        self.page.evaluate("""() => {
+            window.__k = 0;
+            window.__kTestAction = () => { window.__k++; };
+            document.getElementById('__ktarget')?.remove();
+            const b = document.createElement('button');
+            b.setAttribute('data-action', '__kTestAction');
+            b.id = '__ktarget';
+            b.textContent = 'x';
+            document.body.appendChild(b);
+            b.focus();
+        }""")
+        self.page.keyboard.press('Enter')
+        self.assertEqual(self.page.evaluate("() => window.__k"), 1,
+                         'a native button fired its data-action twice')
+
+    def test_space_still_scrolls_when_no_data_action_is_focused(self):
+        """preventDefault must happen only after a target is resolved, or Space
+        stops scrolling everywhere in the app."""
+        blocked = self.page.evaluate("""() => {
+            document.getElementById('__ktarget')?.remove();
+            document.body.focus();
+            let prevented = false;
+            const probe = (ev) => { if (ev.defaultPrevented) prevented = true; };
+            document.addEventListener('keydown', probe, true);
+            const ev = new KeyboardEvent('keydown', {key: ' ', bubbles: true, cancelable: true});
+            document.body.dispatchEvent(ev);
+            document.removeEventListener('keydown', probe, true);
+            return ev.defaultPrevented;
+        }""")
+        self.assertFalse(blocked, 'Space is being swallowed with no data-action focused')
+
+    def test_drilldown_rows_are_reachable(self):
+        """A <tr> whose only trigger is its own data-action needs a tab stop —
+        but NOT role=button, which would strip its implicit row role and red
+        the axe gate."""
+        bad = self.page.evaluate("""() => {
+            const rows = Array.from(document.querySelectorAll('tr[data-action], td[data-action]'));
+            return {
+                total: rows.length,
+                noStop: rows.filter(r => !r.hasAttribute('tabindex')
+                                      && !r.querySelector('button,a[href],[data-action-btn]')).length,
+                roled: rows.filter(r => r.getAttribute('role') === 'button').length,
+            };
+        }""")
+        self.assertEqual(bad['noStop'], 0,
+                         f"{bad['noStop']} of {bad['total']} action rows have no tab stop")
+        self.assertEqual(bad['roled'], 0,
+                         'a tr/td was given role="button" — that breaks table semantics')

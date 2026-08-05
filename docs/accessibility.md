@@ -179,14 +179,29 @@ closing restores focus to wherever it was opened from.
 the list is rebuilt on every keystroke — set once at open time it would dangle
 at the first re-render.
 
-### 5. `data-action` is click-only
+### 5. ~~`data-action` is click-only~~ — fixed in v6.4.2
 
-The interface routes events through a delegated `data-action` dispatcher bound
-to `click`. On a `<button>` or `<a href>` that is fine — the browser
-synthesises a click from Enter/Space. But a `data-action` placed on a
-non-button element (a `<div>`, `<td>`, `<span>`) is **not keyboard reachable
-and not keyboard activatable**, because nothing gives it a tab stop or a
-keydown handler. Where that occurs, the action is mouse-only.
+The dispatcher now has a keydown twin: Enter and Space on any element carrying
+`data-action` replay a click through the same single dispatcher, so there is one
+code path and the two cannot drift. Native activatable elements
+(`button`, `a[href]`, form controls, `summary`) are skipped deliberately — the
+browser already synthesises a click from Enter/Space on those, and firing here
+as well would invoke the handler twice. That is not hypothetical: a checkbox
+with its own `data-action` sits inside a row carrying another one.
+
+Elements that needed a tab stop got one. Table rows and cells got `tabindex`
+**only** — deliberately not `role="button"`, which would strip a `<tr>`'s
+implicit `row` role and break table semantics. Simple leaf controls (status
+pills, chips, the notes and ticket icons) got `role="button"` as well.
+
+Space still scrolls the page when no `data-action` element has focus: the
+handler resolves its target before calling `preventDefault`, which is
+load-bearing and covered by a regression test.
+
+Two picker families remain imperfect rather than broken: the typeahead result
+rows are keyboard-operable but are not yet exposed as a `listbox`/`option`
+combobox, because `role="option"` requires a `role="listbox"` parent to be
+valid. `comboifyDeviceSelect` is the shipped pattern to converge them on.
 
 ### 6. JavaScript-rendered table headers mostly lack `scope`
 
@@ -237,7 +252,7 @@ do not read this as either a pass or a fail.
 
 | Criterion | Level | Assessment | Notes |
 |---|---|---|---|
-| 2.1.1 Keyboard | A | Partially supports | Buttons, links, form controls, sortable headers, modals and the drawer are all keyboard-operable; `data-action` on non-button elements is not (limitation 5). |
+| 2.1.1 Keyboard | A | Supports | Buttons, links, form controls, sortable headers, modals and the drawer are keyboard-operable, and since v6.4.2 so is every `data-action` element — the dispatcher gained an Enter/Space twin and non-native targets gained tab stops (limitation 5). |
 | 2.1.2 No Keyboard Trap | A | Supports | Modal and drawer traps are deliberate, scoped to an open dialog, and always escapable with Escape. The dialogs in limitation 3 do not trap at all — the failure is the opposite direction. |
 | 2.1.4 Character Key Shortcuts | A | Supports | Single-character shortcuts are suppressed while a form field has focus. |
 | 2.2.1 Timing Adjustable | A | Partially supports | Session idle timeout is operator-configurable; toast dismissal timing is not adjustable, which is the substance of limitation 1. |

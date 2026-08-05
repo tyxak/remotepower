@@ -864,7 +864,7 @@ function _registerTlsTable() {
       const aiBtn = (t.status === 'warning' || t.status === 'critical' || t.status === 'error')
         ? `<button class="btn-icon isl-475" data-action="aiExplainTls" data-stop-prop="1" data-arg="${escAttr(t.host)}" data-arg2="${t.port||443}" data-arg3="${t.expires_at||0}" data-arg4="${escAttr(t.issuer||'')}" data-arg5="starttls=${escAttr(t.starttls||'none')}" title="AI: triage this cert">${_icon('sparkles',14)}</button>`
         : '';
-      return `<tr data-action="tlsDetailOpen" data-arg="${escAttr(t.id)}" class="pointer">
+      return `<tr data-action="tlsDetailOpen" data-arg="${escAttr(t.id)}" class="pointer" tabindex="0">
         <td>${statusBadge}${daneBadge}</td>
         <td class="ff-mono">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
         <td class="isl-476">${t.port}</td>

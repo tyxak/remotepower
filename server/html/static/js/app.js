@@ -2865,10 +2865,10 @@ function renderDevices() {
     let hwPill = '';
     if (hw.smart_failed > 0) {
       const t = `SMART failure on ${hw.smart_failed} disk${hw.smart_failed > 1 ? 's' : ''} — open Health & Hardware`;
-      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1">${_icon('hardDrive',12)} SMART×</span>`;
+      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1" tabindex="0" role="button">${_icon('hardDrive',12)} SMART×</span>`;
     }
     if (hw.kernel_reboot) {
-      hwPill += ` <span class="hw-pill hw-warn" title="A newer kernel is installed — reboot to apply" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1">${_icon('refresh',12)} kernel</span>`;
+      hwPill += ` <span class="hw-pill hw-warn" title="A newer kernel is installed — reboot to apply" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1" tabindex="0" role="button">${_icon('refresh',12)} kernel</span>`;
     }
     // v3.13.0: active brute-force lockouts (data already in the devices payload,
     // previously had no UI). Click opens the device's Logs/security view.
@@ -2876,7 +2876,7 @@ function renderDevices() {
     if (bfa.length) {
       const ips = [...new Set(bfa.map(b => b.source_ip).filter(Boolean))];
       const t = `${bfa.length} active brute-force source${bfa.length>1?'s':''}: ${ips.slice(0,5).join(', ')}${ips.length>5?'…':''}`;
-      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="logs" data-stop-prop="1">${_icon('shield',12)} brute-force ${ips.length}</span>`;
+      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="logs" data-stop-prop="1" tabindex="0" role="button">${_icon('shield',12)} brute-force ${ips.length}</span>`;
     }
     // v4.11.0: audit (read-only) agent badge — the host refuses every command.
     const auditPill = ((si || {}).audit_mode)
@@ -2888,13 +2888,13 @@ function renderDevices() {
     // v5.4.1: small ticket-glyph marker (same icon as the Tickets nav) shown
     // IN FRONT of the hostname when the host has an open ticket.
     const ticketMark = (window._ticketDevices && window._ticketDevices.has(d.id))
-      ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1">${_icon('ticket',13)}</span>`
+      ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" tabindex="0" role="button">${_icon('ticket',13)}</span>`
       : '';
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${escAttr(d.id)}">
       <div class="device-header">
         <div class="device-info">
-          <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${ticketMark}${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action" tabindex="0" role="button">${iconContent}</div>
+          <div><div class="device-name">${ticketMark}${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}"  tabindex="0" role="button">${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -3031,7 +3031,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
-        <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default>${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
+        <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
@@ -7881,7 +7881,7 @@ function _renderRisk() {
     const factors = (r.factors || []).slice(0, 4).map(f =>
       `<span class="pill" data-color="var(--muted)" title="${escAttr(f.detail || '')}">${escHtml(f.kind.replace(/_/g, ' '))} +${f.points}</span>`).join(' ') || '<span class="hint">—</span>';
     return `<tr>
-      <td class="fw-500 pointer" data-action="openDeviceDrawer" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">${escHtml(r.device_name)}</td>
+      <td class="fw-500 pointer" data-action="openDeviceDrawer" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}" tabindex="0">${escHtml(r.device_name)}</td>
       <td><span class="fw-600" data-color="${color}">${r.score}</span>/100</td>
       <td><span class="pill" data-color="${color}">${escHtml(level)}</span></td>
       <td>${factors}</td>
@@ -10898,7 +10898,7 @@ function _registerCveTable() {
       const prioBtn = cveTotal > 0
         ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this device's CVEs">${_icon('sparkles',14)}</button> `
         : '';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -10978,7 +10978,7 @@ function _registerServicesTable() {
       const watchedCell = d.total > 0 ? unitList : '<span class="meta-sm-nm">(none configured)</span>';
       const upCell   = d.up > 0 ? `<td class="isl-402">${d.up}</td>` : '<td class="isl-385">0</td>';
       const downCell = d.down > 0 ? `<td class="isl-403">${d.down}</td>` : '<td class="isl-385">0</td>';
-      return `<tr data-action="openServiceDetail" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer">
+      return `<tr data-action="openServiceDetail" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0">
         <td class="fw-500">${escHtml(d.name)}</td>
         <td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
         <td>${watchedCell}</td>
@@ -15739,7 +15739,7 @@ function _renderSwCatalog() {
   body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full">
     <thead><tr class="c-muted"><th>Package</th><th>Installed version(s)</th><th class="ta-center">Hosts</th></tr></thead>
     <tbody>` + shown.map((p, i) =>
-      `<tr class="pointer" data-action="_swCatalogToggle" data-arg="${i}" title="Show where it's installed"><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''} <button class="btn-icon cell-sm" data-action="aiPackageSafety" data-arg="${escAttr(p.package)}" data-stop-prop="1" title="AI: is this version safe / any known CVEs?">${_icon('sparkles', 12)}</button></td>
+      `<tr class="pointer" data-action="_swCatalogToggle" data-arg="${i}" title="Show where it's installed" tabindex="0"><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''} <button class="btn-icon cell-sm" data-action="aiPackageSafety" data-arg="${escAttr(p.package)}" data-stop-prop="1" title="AI: is this version safe / any known CVEs?">${_icon('sparkles', 12)}</button></td>
         <td>${verCell(p)}</td>
         <td class="ta-center">${p.hosts}</td></tr>` + whereRow(p, i)).join('')
     + `</tbody></table></div>`
@@ -16650,7 +16650,7 @@ async function loadBoard() {
   if ((data.problems || []).length) {
     strip = `<div class="board-problem-strip"><span class="meta-label">${_icon('alertTriangle', 11)} Needs attention (${data.problems.length})</span>
       <div class="board-prob-chips">${data.problems.map(p =>
-        `<span class="board-prob-chip" data-action="openDetail" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}" title="Open ${escAttr(p.name)}">`
+        `<span class="board-prob-chip" data-action="openDetail" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}" title="Open ${escAttr(p.name)}" tabindex="0" role="button">`
         + `<span class="sem sem-${p.status === 'down' ? 'down' : 'warn'}"></span>`
         + `<span class="machine">${escHtml(p.name)}</span> <span class="reason">${_icon(_reasonIcon(p.reason), 11)} ${escHtml(p.reason)}</span></span>`).join('')}</div></div>`;
   }
@@ -16661,7 +16661,7 @@ async function loadBoard() {
     const seg = (k, n) => n > 0 ? `<span class="seg-${k}" data-w="${n}"></span>` : '';
     // Segment widths are applied after render via .style.width (no inline style
     // strings in the HTML → CSP-safe).
-    return `<div class="board-tile ${cls}" data-action="boardOpenGroup" data-arg="${escAttr(tile.key)}">
+    return `<div class="board-tile ${cls}" data-action="boardOpenGroup" data-arg="${escAttr(tile.key)}" tabindex="0">
       <div class="board-tile-head">
         <span class="board-tile-name" title="${escAttr(tile.name)}">${_icon('layers', 12)} ${escHtml(tile.name)}</span>
         <span class="board-tile-count">${onl}/${tile.total}</span>
@@ -17274,7 +17274,7 @@ function _renderHomeWidgets(home) {
     const shown = igItems.slice(0, 8);
     let html = `<div class="integ-tiles integ-tiles-mini">${_integrationTiles(shown, { link: true })}</div>`;
     if (igItems.length > shown.length) {
-      html += `<div class="hint pointer" data-action="goIntegrationsPage">+${igItems.length - shown.length} more — open the Integrations page →</div>`;
+      html += `<div class="hint pointer" data-action="goIntegrationsPage" tabindex="0">+${igItems.length - shown.length} more — open the Integrations page →</div>`;
     }
     _setWidget('home-w-integrations-body', html);
   } else {
@@ -20178,7 +20178,7 @@ async function _spDevResults(i, term) {
   if (q) m = m.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q));
   m = m.slice(0, 15);
   box.innerHTML = m.length
-    ? m.map(d => `<div class="pointer mb-8" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    ? m.map(d => `<div class="pointer mb-8" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="hint">No matching devices.</div>';
   box.classList.remove('hidden');
 }
@@ -20198,7 +20198,7 @@ async function _spMonResults(i, term) {
   if (q) m = m.filter(lbl => lbl.toLowerCase().includes(q));
   m = m.slice(0, 15);
   box.innerHTML = m.length
-    ? m.map(lbl => `<div class="pointer mb-8" data-action="spAddMon" data-arg="${i}" data-arg2="${escAttr(lbl)}">${escHtml(lbl)}</div>`).join('')
+    ? m.map(lbl => `<div class="pointer mb-8" data-action="spAddMon" data-arg="${i}" data-arg2="${escAttr(lbl)}" tabindex="0">${escHtml(lbl)}</div>`).join('')
     : '<div class="hint">No matching monitors.</div>';
   box.classList.remove('hidden');
 }
@@ -22669,7 +22669,7 @@ async function _loadAuditSection(key) {
           const ts    = o.ts ? _fmtAbsTs(o.ts) : '';
           const outTxt= o.output || o.stdout || '(no output)';
           return `<div class="audit-cmd-entry" id="cmd-entry-${id}-${i}">
-            <div class="audit-cmd-summary" data-action="toggleAuditCmd" data-arg="${id}" data-arg2="${i}">
+            <div class="audit-cmd-summary" data-action="toggleAuditCmd" data-arg="${id}" data-arg2="${i}" tabindex="0" role="button">
               <code class="isl-638">${escHtml(o.cmd||'?')}</code>
               <span class="isl-639">rc=${rc} · ${ts}</span>
               <span class="isl-640"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
@@ -24627,7 +24627,7 @@ function _renderSavedQueries() {
   const qs = _savedQueries();
   // v5.0.0 (#U5): each saved query gets rename + duplicate + delete actions.
   wrap.innerHTML = qs.map((q, i) =>
-    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}" title="Apply this query">${escHtml(q.name)}</span>`
+    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}" title="Apply this query" tabindex="0" role="button">${escHtml(q.name)}</span>`
     + `<button class="btn-icon fs-11" data-action="renameFleetQuery" data-arg="${i}" title="Rename">${_icon('edit', 12)}</button>`
     + `<button class="btn-icon fs-11" data-action="duplicateFleetQuery" data-arg="${i}" title="Duplicate">${_icon('copy', 12)}</button>`
     + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">${_icon('trash', 12)}</button>`).join('');
@@ -25320,7 +25320,7 @@ function _renderForecastTable() {
       : '';
     const sel = idx === _forecastSel ? ' is-selected' : '';
     const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)" title="network share (NFS/SMB/CIFS)">net</span>` : '';
-    return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
+    return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}" tabindex="0">
       <td class="fw-500">${escHtml(m.device_name)}</td>
       <td><code>${escHtml(m.path)}</code>${netBadge}${extra} <button class="btn-icon cell-sm" data-action="aiForecastAdvice" data-arg="${escAttr(m.device_name)}" data-arg2="${escAttr(m.path)}" data-stop-prop="1" title="AI: why is this filling, and what to clean up?">${_icon('sparkles', 12)}</button></td>
       <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
@@ -27187,6 +27187,34 @@ document.addEventListener('click', e => {
     const fn2 = window[el.dataset.action2];
     if (fn2) fn2();
   }
+});
+
+// v6.4.2 a11y (WCAG 2.1.1 Keyboard): the delegated dispatcher above binds only
+// `click`, so a data-action on anything that is not a native button or link was
+// mouse-only. Enter/Space here REPLAY a click through that one dispatcher
+// rather than re-implementing arg coercion, the lazy-module fallback and the
+// in-flight guard — one code path, so the two cannot drift.
+//
+// Native activatable elements are skipped deliberately: the browser already
+// synthesizes a click from Enter/Space on them, and firing here as well would
+// invoke the handler twice. That is not hypothetical — a checkbox carrying its
+// own data-action sits inside a <tr> that carries another one.
+const _NATIVE_ACTIVATABLE =
+  'button, a[href], input, select, textarea, summary, [contenteditable="true"]';
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (!t || !t.closest) return;
+  if (t.closest(_NATIVE_ACTIVATABLE)) return;           // the browser handles it
+  const el = t.closest('[data-action], [data-action-btn], [data-drawer-act]');
+  // Order is load-bearing: resolve the target BEFORE preventDefault, or Space
+  // stops scrolling everywhere in the app.
+  if (!el) return;
+  if (el.getAttribute('aria-disabled') === 'true' || el.disabled) return;
+  e.preventDefault();
+  if (typeof el.click === 'function') el.click();
+  else el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
 });
 
 // Delegated change handler for data-change attributes

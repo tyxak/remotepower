@@ -422,7 +422,7 @@ function cmdbRenderTable(rows) {
     const decommChip = r.decommissioned
       ? ' <span class="patch-badge fs-10 c-muted" title="Decommissioned — retired asset, fully silenced">DECOMMED</span>' : '';
     return `<tr class="${r.decommissioned ? 'decommissioned' : ''}">
-      <td class="fw-500 pointer" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}${decommChip}</td>
+      <td class="fw-500 pointer" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}" tabindex="0">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}${decommChip}</td>
       <td class="mono-12">${_cmdbEsc(r.asset_id) || '<span class="c-muted">—</span>'}</td>
       <td>${fn}</td>
       <td class="hint">${_cmdbEsc(r.os) || '—'}</td>

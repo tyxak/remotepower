@@ -351,7 +351,7 @@ function ccCatalogSearch() {
     .filter(({ e }) => !term || (`${e.l} ${e.c} ${e.n} ${e.p}`).toLowerCase().includes(term))
     .slice(0, 80);
   box.innerHTML = hits.length
-    ? hits.map(({ e, i }) => `<div class="dev-combo-item" data-action="ccPickCatalog" data-arg="${i}"><strong>${escHtml(e.l)}</strong> <span class="hint">${escHtml(e.c)}</span></div>`).join('')
+    ? hits.map(({ e, i }) => `<div class="dev-combo-item" data-action="ccPickCatalog" data-arg="${i}" tabindex="0"><strong>${escHtml(e.l)}</strong> <span class="hint">${escHtml(e.c)}</span></div>`).join('')
     : '<div class="dev-combo-empty">No matching checks.</div>';
   box.hidden = false;
 }
@@ -378,7 +378,7 @@ async function ccHostSearch() {
     (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
-    ? matches.map(d => `<div class="dev-combo-item" data-action="pickCcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    ? matches.map(d => `<div class="dev-combo-item" data-action="pickCcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="dev-combo-empty">No matching devices.</div>';
   box.hidden = false;
 }
@@ -665,7 +665,7 @@ async function bcHostSearch() {
     (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
-    ? matches.map(d => `<div class="dev-combo-item" data-action="pickBcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    ? matches.map(d => `<div class="dev-combo-item" data-action="pickBcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="dev-combo-empty">No matching devices.</div>';
   box.hidden = false;
 }
@@ -967,7 +967,7 @@ async function advHostSearch() {
     (d.name || '').toLowerCase().includes(term) || (d.ip || '').toLowerCase().includes(term) ||
     (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
   box.innerHTML = matches.length
-    ? matches.slice(0, 25).map(d => `<div class="dev-combo-item" data-action="pickAdvHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    ? matches.slice(0, 25).map(d => `<div class="dev-combo-item" data-action="pickAdvHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="dev-combo-empty">No matching devices.</div>';
   box.hidden = false;
 }

@@ -179,6 +179,18 @@ product has always computed for its own screens and never let you take away.
   also plain `div`s with no role, so a failed sign-in was silent to a screen
   reader; both are announced now. Two other auth validations said "Both fields
   required" without naming either field.
+- **Everything you can click, you can now reach with a keyboard.** The event
+  dispatcher was bound to `click` alone, so an action placed on anything that is
+  not a button or a link was mouse-only — drilling into a CVE row, a service, a
+  TLS or ACME certificate, a CMDB asset, a ticket, a dashboard feed entry, a
+  board tile, a calendar event, or any of thirteen device pickers. Enter and
+  Space now replay a click through that same single dispatcher, and the elements
+  that needed a tab stop got one. Native controls are skipped on purpose so a
+  checkbox nested inside a clickable row still fires once, not twice; and Space
+  still scrolls the page when nothing actionable has focus.
+- Table rows got a tab stop but deliberately **not** a button role — that would
+  strip a row's implicit semantics and break the table for the same screen
+  readers the change is meant to help.
 - Also removed a stray `None` token that a scripted markup edit had written into
   index.html as a bogus attribute, and translated the five tab-widget and two
   palette accessible names, which had shipped English-only in all six languages.

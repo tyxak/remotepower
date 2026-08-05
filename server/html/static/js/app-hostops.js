@@ -26,7 +26,7 @@ async function _renderCatalogDeviceResults(term) {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickCatalogDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+        `<div class="pointer mb-8" data-action="pickCatalogDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="empty-state">No matching devices.</div>';
   box.classList.remove('hidden');
 }
@@ -165,7 +165,7 @@ async function _renderCronDeviceResults(term) {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickCronDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+        `<div class="pointer mb-8" data-action="pickCronDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="empty-state">No matching devices.</div>';
   box.classList.remove('hidden');
 }
@@ -280,7 +280,7 @@ async function _renderFmDeviceResults(term) {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickFmDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+        `<div class="pointer mb-8" data-action="pickFmDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="empty-state">No matching devices.</div>';
   box.classList.remove('hidden');
 }

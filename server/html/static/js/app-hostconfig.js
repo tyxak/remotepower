@@ -85,7 +85,7 @@ function _renderProfileDevResults(term) {
     (d.group||'').toLowerCase().includes(q) || (d.hostname||'').toLowerCase().includes(q)
   ).slice(0, 25);
   box.innerHTML = matches.map(d =>
-    `<div class="pointer p-6" data-action="pickProfileDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip||'')} ${escHtml(d.group||'')}</span></div>`
+    `<div class="pointer p-6" data-action="pickProfileDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip||'')} ${escHtml(d.group||'')}</span></div>`
   ).join('') || '<div class="meta-sm-nm">No matches.</div>';
 }
 function pickProfileDev(id) {

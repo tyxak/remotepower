@@ -172,7 +172,7 @@ async function _teSiteResults(term) {
   const sites = (r && r.sites) || [];
   const m = sites.filter(s => (s.name || '').toLowerCase().includes(q)).slice(0, 20);
   box.innerHTML = m.map(s =>
-    `<div class="pointer p-6" data-action="tePickSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${escHtml(s.name)}</div>`).join('')
+    `<div class="pointer p-6" data-action="tePickSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" tabindex="0">${escHtml(s.name)}</div>`).join('')
     || '<div class="meta-sm-nm">No matching site.</div>';
 }
 function tePickSite(id, name) {
@@ -190,7 +190,7 @@ async function _teDevResults(term) {
   const devs = (r && (r.devices || (Array.isArray(r) ? r : []))) || [];
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q)).slice(0, 20);
   box.innerHTML = m.map(d =>
-    `<div class="pointer p-6" data-action="tePickDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('')
+    `<div class="pointer p-6" data-action="tePickDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('')
     || '<div class="meta-sm-nm">No matches.</div>';
 }
 function tePickDev(id, name) {
@@ -409,7 +409,7 @@ function _tsWatchResults() {
   const m = (q ? users.filter(u => u.toLowerCase().includes(q)) : users).slice(0, 20);
   if (!m.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   box.classList.remove('hidden');
-  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="tsPickWatch" data-arg="${escAttr(u)}">${escHtml(u)}</div>`).join('');
+  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="tsPickWatch" data-arg="${escAttr(u)}" tabindex="0">${escHtml(u)}</div>`).join('');
 }
 
 function tsPickWatch(u) {
@@ -471,7 +471,7 @@ function _twTypeahead(inpId, boxId, src) {
   const items = (q ? (src || []).filter(u => u.toLowerCase().includes(q)) : (src || [])).slice(0, 20);
   if (!items.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   box.classList.remove('hidden');
-  box.innerHTML = items.map(u => `<div class="pointer p-6" data-action="_twPick" data-arg="${escAttr(boxId)}" data-arg2="${escAttr(u)}">${escHtml(u)}</div>`).join('');
+  box.innerHTML = items.map(u => `<div class="pointer p-6" data-action="_twPick" data-arg="${escAttr(boxId)}" data-arg2="${escAttr(u)}" tabindex="0">${escHtml(u)}</div>`).join('');
 }
 
 function _twWatcherResults() { _twTypeahead('tw-watcher', 'tw-watcher-results', _twData && _twData.users); }

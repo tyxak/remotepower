@@ -65,7 +65,7 @@ function _tkRowHtml(t, byId, childrenOf) {
   const cbCell = open
     ? `<td><input type="checkbox" class="tk-row-cb" data-id="${escAttr(t.id)}" data-action="_tkBulkBar" aria-label="Select ticket"></td>`
     : '<td></td>';
-  return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
+  return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}" tabindex="0">
     ${cbCell}
     <td class="mono-12">${numCell}</td>
     <td>${subjCell}</td>
@@ -230,7 +230,7 @@ async function _tkCreateDevResults(term) {
   const _dr = await api('GET', '/devices');
   const devs = (_dr && (_dr.devices || (Array.isArray(_dr) ? _dr : []))) || [];
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
-  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
+  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
 }
 function pickTicketDev(id, name) {
   if (!_tkNewDevs.some(d => d.id === String(id))) _tkNewDevs.push({ id: String(id), name: name || String(id) });
@@ -398,7 +398,7 @@ async function _tkDetailDevResults(term) {
   const _dr = await api('GET', '/devices');
   const devs = (_dr && (_dr.devices || (Array.isArray(_dr) ? _dr : []))) || [];
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
-  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDetailDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
+  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDetailDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
 }
 function pickTicketDetailDev(id, name) {
   window._tkDetailDevs = window._tkDetailDevs || [];
@@ -417,7 +417,7 @@ function _tkAssigneeResults(term) {
   const q = (term || '').toLowerCase().trim();
   const users = window._tkUsers || [];
   const m = (q ? users.filter(u => u.toLowerCase().includes(q)) : users).slice(0, 20);
-  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="pickTicketAssignee" data-arg="${escAttr(u)}">${escHtml(u)}</div>`).join('')
+  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="pickTicketAssignee" data-arg="${escAttr(u)}" tabindex="0">${escHtml(u)}</div>`).join('')
     || '<div class="meta-sm-nm">No matching user — leave blank to unassign.</div>';
 }
 function pickTicketAssignee(u) {

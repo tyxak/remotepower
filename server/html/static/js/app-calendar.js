@@ -93,11 +93,11 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${calSafeColor(ev.color)}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph"></span>' : ''}${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${calSafeColor(ev.color)}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}" tabindex="0">${ev.is_recurring ? '<span class="cal-recur-glyph"></span>' : ''}${escHtml(ev.title)}</div>`
     ).join('');
     const more = events.length > 3 ? `<div class="isl-428">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    html += `<div class="cal-day${isOtherMonth ? ' other-month' : ''}${isToday ? ' today' : ''}" data-action="openEventModalForDay" data-arg="${dayDate}" >
+    html += `<div class="cal-day${isOtherMonth ? ' other-month' : ''}${isToday ? ' today' : ''}" data-action="openEventModalForDay" data-arg="${dayDate}"  tabindex="0">
       <div class="cal-day-num">${d.getDate()}</div>
       ${eventsHtml}${more}
     </div>`;
@@ -301,7 +301,7 @@ function renderTaskCard(t) {
   }
   return `<div class="kanban-card" draggable="true"
               data-task-id="${escAttr(t.id)}"
-              data-action="openTaskModal" data-arg="${escAttr(t.id)}" >
+              data-action="openTaskModal" data-arg="${escAttr(t.id)}"  tabindex="0">
     <div class="kanban-card-title">${escHtml(t.title)}</div>
     <div class="kanban-card-meta">
       ${devBadge}
