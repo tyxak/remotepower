@@ -2512,6 +2512,10 @@ function showPage(name, btn) {
     const group = navB && navB.closest('.sidebar-group');
     if (group && group.classList.contains('collapsed')) _openSidebarGroup(group.dataset.group);
   }
+  // v6.4.2: the cross-page "Related" chips. Rendered on entry, not once at
+  // boot, because a module can be switched off between visits and the labels
+  // come from the live nav.
+  try { _renderPageRelated(name); } catch (_) { /* never block navigation */ }
   if (name === 'home')     { loadHome(); _maybeStartTour(); }   // v5.4.1 (H6)
   if (name === 'devices')  loadDevices();   // v5.0.1 perf: render the grid on entry (was 60s-tick-only)
   if (name === 'board')    loadBoard();
@@ -28603,6 +28607,131 @@ const PALETTE_PAGE_ALIASES = [
   ['Monitoring', 'monitor'], ['TLS', 'tls'], ['IaC', 'iac'],
   ['Network Map', 'netmap'], ['Command Library', 'cmdlib'], ['Fleet Query', 'query'],
 ];
+// ─── v6.4.2: cross-page "Related" chips ─────────────────────────────────────
+// Navigation in this SPA was almost entirely one-way. The dashboard activity
+// feed routed to ~28 pages, a handful of Settings hints linked to drift and
+// exposure, and everything else was a sidebar-only destination — thirty pages,
+// including the flagship Security Advisory ("what do I fix first"), Risk,
+// Forecast, Alert Tuning and Command Queue, had ZERO inbound reference from
+// anywhere else in the app.
+//
+// An operator triaging a critical CVE therefore had no route to that host's
+// risk score, to the advisory that ranks the CVE against everything else, or
+// to Package Snapshots to see what changed. They had to remember the page
+// exists, remember which of the twelve accordion groups it lives in, open that
+// group (which collapses the one they were in), and lose their filter state on
+// the way.
+//
+// The chips render into the `.page-subtitle` line, which 77 of 78 pages already
+// use for their Documentation link — the pattern and the styling exist. The
+// LABEL is read from the page's own nav button rather than hardcoded here, so a
+// renamed page cannot leave a stale chip behind, and a page whose module is
+// switched off (its nav button hidden) drops out of every list automatically
+// instead of linking somewhere that refuses to load.
+const _PAGE_RELATED = {
+  // Security triage: a finding, what it scores, what ranks it, what changed.
+  cve:            ['advisory', 'risk', 'patches', 'patchsnapshots', 'exposure'],
+  advisory:       ['cve', 'risk', 'attention', 'compliance', 'exposure'],
+  risk:           ['advisory', 'cve', 'attention', 'compliance', 'trends'],
+  exposure:       ['advisory', 'firewall', 'netmap', 'cve'],
+  compliance:     ['advisory', 'drift', 'protect', 'reports'],
+  scans:          ['cve', 'exposure', 'advisory'],
+  protect:        ['compliance', 'drift', 'advisory', 'firewall'],
+  firewall:       ['exposure', 'netmap', 'protect'],
+  'ssh-keys':     ['audit', 'users', 'protect'],
+  // Alerting: the inbox, what is tuning it, and where the noise comes from.
+  alerts:         ['attention', 'tuning', 'checks', 'timeline', 'history'],
+  attention:      ['alerts', 'advisory', 'checks', 'risk'],
+  tuning:         ['alerts', 'attention', 'history', 'checks'],
+  checks:         ['alerts', 'monitor', 'tuning', 'attention'],
+  timeline:       ['alerts', 'history', 'audit', 'cmdqueue'],
+  history:        ['alerts', 'tuning', 'cmdqueue', 'audit'],
+  // Fleet & capacity.
+  devices:        ['attention', 'taxonomy', 'sites', 'board', 'cmdb'],
+  board:          ['devices', 'attention', 'alerts', 'trends'],
+  trends:         ['forecast', 'risk', 'board', 'storage'],
+  forecast:       ['trends', 'storage', 'disk-health', 'thermal'],
+  storage:        ['disk-health', 'forecast', 'trends'],
+  'disk-health':  ['storage', 'forecast', 'thermal'],
+  thermal:        ['power', 'gpus', 'disk-health'],
+  gpus:           ['thermal', 'power', 'monitor'],
+  power:          ['thermal', 'gpus'],
+  netmetrics:     ['netmap', 'monitor', 'trends'],
+  netmap:         ['netmetrics', 'exposure', 'firewall', 'devices'],
+  monitor:        ['checks', 'netmetrics', 'services', 'alerts'],
+  services:       ['monitor', 'checks', 'containers', 'logs'],
+  containers:     ['services', 'logs', 'virtualization', 'cve'],
+  logs:           ['services', 'alerts', 'timeline'],
+  // Change & delivery.
+  patches:        ['cve', 'autopatch', 'patchsnapshots', 'rollouts', 'catalog'],
+  autopatch:      ['patches', 'rollouts', 'schedule', 'patchsnapshots'],
+  rollouts:       ['patches', 'autopatch', 'provisioning', 'cmdqueue'],
+  patchsnapshots: ['patches', 'cve', 'autopatch', 'drift'],
+  catalog:        ['patches', 'software-policy', 'cve'],
+  'software-policy': ['catalog', 'compliance', 'patches'],
+  cmdqueue:       ['history', 'scripts', 'rollouts', 'confirmations'],
+  confirmations:  ['cmdqueue', 'audit', 'users'],
+  scripts:        ['cmdqueue', 'cmdlib', 'rollouts', 'schedule'],
+  cmdlib:         ['scripts', 'cmdqueue', 'automation'],
+  automation:     ['scripts', 'cmdqueue', 'tuning', 'alerts'],
+  schedule:       ['autopatch', 'rollouts', 'calendar', 'maintenance'],
+  calendar:       ['schedule', 'maintenance', 'tasks'],
+  maintenance:    ['schedule', 'calendar', 'alerts'],
+  provisioning:   ['rollouts', 'devices', 'iac'],
+  iac:            ['provisioning', 'drift', 'cmdb'],
+  drift:          ['compliance', 'protect', 'patchsnapshots', 'devices'],
+  // Records & reporting.
+  reports:        ['compliance', 'billing', 'audit', 'sites', 'trends'],
+  audit:          ['history', 'reports', 'users', 'timeline'],
+  cmdb:           ['devices', 'sites', 'contacts', 'dataexplorer'],
+  dataexplorer:   ['devices', 'cve', 'drift', 'query'],
+  query:          ['dataexplorer', 'devices', 'reports'],
+  sites:          ['devices', 'cmdb', 'contacts', 'reports'],
+  contacts:       ['sites', 'tickets', 'cmdb'],
+  tickets:        ['alerts', 'contacts', 'timesheet', 'billing'],
+  timesheet:      ['tickets', 'billing', 'tasks'],
+  billing:        ['tickets', 'timesheet', 'sites', 'reports'],
+  tasks:          ['tickets', 'calendar', 'timesheet'],
+  kb:             ['tickets', 'docs', 'cmdlib'],
+  // Platform.
+  self:           ['audit', 'backups', 'timeline'],
+  backups:        ['self', 'storage', 'schedule'],
+  users:          ['apikeys', 'audit', 'confirmations'],
+  apikeys:        ['users', 'audit', 'integrations'],
+};
+
+function _pageNavLabel(page) {
+  const b = document.querySelector('.nav-btn[data-page="' + page + '"]');
+  if (!b || b.classList.contains('d-none')) return '';
+  for (const s of b.querySelectorAll('span')) {
+    if (s.classList.contains('nav-badge')) continue;
+    const t = (s.textContent || '').trim();
+    if (t) return t;
+  }
+  return '';
+}
+
+function _renderPageRelated(page) {
+  const pageEl = document.getElementById('page-' + page);
+  if (!pageEl) return;
+  const sub = pageEl.querySelector('.page-subtitle');
+  if (!sub) return;
+  const existing = sub.querySelector('.rel-pages');
+  const targets = (_PAGE_RELATED[page] || [])
+    .map(p => [p, _pageNavLabel(p)])
+    .filter(([, label]) => label);       // gated-off module → no chip
+  if (!targets.length) { if (existing) existing.remove(); return; }
+  const row = existing || document.createElement('span');
+  row.className = 'rel-pages';
+  // Rebuilt each entry: a module can be switched off between visits, and a
+  // chip pointing at a page showPage() now refuses is worse than no chip.
+  row.innerHTML = '<span class="rel-label">Related</span>'
+    + targets.map(([p, label]) =>
+        `<a href="#${escAttr(p)}" class="rel-chip" data-action="showPage" data-arg="${escAttr(p)}" data-prevent-default>${escHtml(label)}</a>`)
+      .join('');
+  if (!existing) sub.appendChild(row);
+}
+
 function _palettePages() {
   const out = [];
   const seen = new Set();

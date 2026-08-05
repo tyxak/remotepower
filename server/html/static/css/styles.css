@@ -7915,3 +7915,21 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+
+/* ── v6.4.2: cross-page "Related" chips on the page subtitle ─────────────────
+   Thirty pages had zero inbound link from anywhere else in the app. These sit
+   at the end of the .page-subtitle line, alongside the Documentation link that
+   77 of 78 pages already carry, so no page grows a new row. */
+.rel-pages { display: inline-flex; align-items: center; flex-wrap: wrap;
+             gap: 6px; margin-left: 10px; }
+.rel-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+             letter-spacing: .04em; }
+.rel-chip { font-size: 12px; line-height: 1; padding: 3px 8px; border-radius: 999px;
+            border: 1px solid var(--hair); color: var(--text); text-decoration: none;
+            background: var(--surface-2, transparent); white-space: nowrap; }
+/* --accent-ink, not --accent: the fill accent fails contrast as text on the
+   surface, which tests/test_v642_css.py enforces across every theme x accent
+   pair. The BORDER may use the fill colour; the label may not. */
+.rel-chip:hover, .rel-chip:focus-visible { border-color: var(--accent);
+                                           color: var(--accent-ink); }
