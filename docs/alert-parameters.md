@@ -63,3 +63,27 @@ input's placeholder). Each section has its own **Save**.
 
 *Related:* [alert-tuning.md](alert-tuning.md) · [alerts.md](alerts.md) ·
 [monitors.md](monitors.md) · [settings.md](settings.md)
+
+## Preview impact *(v6.4.2)*
+
+Every field on this page applies **fleet-wide the moment you save**, and the
+checks engine recomputes for every host on the next read. Dropping
+`disk_warn_percent` from 90 to 80 on a 400-host fleet is a hundred simultaneous
+new breaches, a Needs-Attention avalanche and a paging storm — and the only way
+back is Settings → Advanced → Configuration history.
+
+**Preview impact** answers the question first. It recomputes every host's
+checks against the values currently in the form — without saving anything — and
+reports which checks would start breaching, which would stop, how many hosts
+each affects, and a few example hostnames.
+
+- It drives the **real** checks engine against the proposed config, not a
+  separate copy of the rules. A preview that disagreed with what actually
+  happens would be worse than no preview.
+- Only hosts within your role scope are counted.
+- Alerts **already open** are not resolved by a threshold change. They clear on
+  their own recover events, or by muting them under Monitoring → Tuning — so a
+  preview showing "40 host-checks would stop breaching" is about future firing,
+  not about the inbox emptying.
+
+`POST /api/config/threshold-preview` takes the same body as `POST /api/config`.

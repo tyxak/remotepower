@@ -1097,6 +1097,8 @@ for _at_name in (
         # Zendesk ticket resolves the alert it came from.
         'handle_itsm_callback', '_itsm_callback_fields', '_itsm_status_is_closed',
         '_dig', '_ITSM_REF_PATHS', '_ITSM_STATUS_PATHS', '_ITSM_CLOSED',
+        # v6.4.2: what would this threshold change break?
+        'handle_threshold_preview', '_preview_check_map',
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -66836,6 +66838,7 @@ def _build_exact_routes():
         ('GET', '/api/device-profiles'): handle_device_profiles,
         ('POST', '/api/device-profiles'): handle_device_profiles,
         # W5-6: smart groups (saved-query dynamic groups, admin-gated).
+        ('POST', '/api/config/threshold-preview'): handle_threshold_preview,
         ('GET', '/api/report/archive'): handle_report_archive,
         ('GET', '/api/smart-groups'): handle_smart_groups,
         ('GET', '/api/snmp/trap-rules'): handle_snmp_trap_rules,

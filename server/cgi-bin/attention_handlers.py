@@ -740,3 +740,127 @@ def _itsm_status_is_closed(status):
     if not status:
         return True
     return str(status).strip().lower() in _ITSM_CLOSED
+
+
+# ── v6.4.2: threshold blast-radius preview ──────────────────────────────────
+# Settings → Alert parameters exposes ~70 numeric firing thresholds plus the
+# grade/risk cutoffs and per-factor weights, and POST /api/config applied them
+# FLEET-WIDE on save with no preview step. Nothing computed how many hosts
+# would newly breach.
+#
+# An operator wants fewer disk pages, drops disk_warn_percent from 90 to 80,
+# and hits Save. Because _host_checks() is recomputed for the whole fleet on
+# the next read, the change fans out instantly: on a 400-host fleet that is a
+# hundred simultaneous new breaches, a Needs-Attention avalanche and a paging
+# storm, at which point the only recovery is Settings → Advanced →
+# Configuration history.
+#
+# The blast-radius idea already exists in this codebase — `_blast_radius_guard`
+# gates batch reboot/shutdown — but it is scoped to power actions. And the data
+# needed to answer "how many hosts sit between 80 and 90 right now" is already
+# loaded on the server; nothing exposed it before the save.
+#
+# The preview re-runs the REAL checks engine against the proposed config rather
+# than reimplementing any threshold's meaning. A second copy of "what counts as
+# breaching" would drift from the first, and a preview that disagrees with what
+# actually happens is worse than no preview.
+_PREVIEW_EXAMPLE_HOSTS = 5
+
+
+def _preview_check_map(devices, cfg, scripts, hw_all, cve_all, eta_all, now, ttl):
+    """{device_id: {check_key: status}} for one config."""
+    out = {}
+    kwargs = A._checks_threshold_kwargs(cfg)
+    disabled_all = cfg.get('host_checks_disabled') or {}
+    custom_defs = cfg.get('custom_checks') or []
+    exposure_mutes = cfg.get('exposure_mutes') or []
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        rows = A._host_checks(did, dev, hw_all.get(did) or {},
+                              disabled_all.get(did) or [], now, ttl,
+                              cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
+                              custom_defs=custom_defs, scripts=scripts,
+                              exposure_mutes=exposure_mutes, **kwargs)
+        out[did] = {r.get('key'): r.get('status') for r in rows
+                    if isinstance(r, dict) and r.get('enabled', True)}
+    return out
+
+
+_BREACH = ('warning', 'critical')
+
+
+def handle_threshold_preview():
+    """POST /api/config/threshold-preview — what would this change break?
+
+    Body is the same shape POST /api/config takes; only keys the threshold
+    save-loops actually accept are considered, so pasting a whole settings
+    payload is fine.
+    """
+    A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    tunable = A._alert_param_config_keys()
+    cfg = A.load(A.CONFIG_FILE) or {}
+    proposed_vals = {}
+    for k, v in body.items():
+        if k not in tunable:
+            continue
+        try:
+            nv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if cfg.get(k) is None or float(cfg.get(k, 0) or 0) != nv:
+            proposed_vals[k] = int(nv) if nv == int(nv) else nv
+    if not proposed_vals:
+        A.respond(200, {'changed': {}, 'newly_breaching': [], 'newly_passing': [],
+                        'hosts_evaluated': 0,
+                        'note': 'None of these values differ from what is saved.'})
+    # SEC: scope-filtered like every other fleet-wide view — a preview that
+    # counts hosts the caller cannot see is a host-count leak.
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    scripts = A._load_custom_scripts()
+    hw_all = (A.load(A.HARDWARE_FILE) or {}) if A.backend_exists(A.HARDWARE_FILE) else {}
+    cve_all = A._cve_high_counts()
+    eta_all = A._disk_fill_eta(devices)
+    now = int(A.time.time())
+    ttl = A.get_online_ttl()
+    before = _preview_check_map(devices, cfg, scripts, hw_all, cve_all, eta_all, now, ttl)
+    after = _preview_check_map(devices, {**cfg, **proposed_vals}, scripts,
+                               hw_all, cve_all, eta_all, now, ttl)
+    worse, better = {}, {}
+    for did, rows in after.items():
+        for key, status in rows.items():
+            was = (before.get(did) or {}).get(key)
+            if was == status:
+                continue
+            name = (devices.get(did) or {}).get('name', did)
+            if status in _BREACH and was not in _BREACH:
+                worse.setdefault(key, []).append({'device_id': did, 'name': name,
+                                                  'to': status})
+            elif was in _BREACH and status not in _BREACH:
+                better.setdefault(key, []).append({'device_id': did, 'name': name,
+                                                  'from': was})
+
+    def _rows(d):
+        return sorted(
+            ({'check': k, 'hosts': len(v),
+              'examples': [x['name'] for x in v[:_PREVIEW_EXAMPLE_HOSTS]]}
+             for k, v in d.items()),
+            key=lambda r: -r['hosts'])
+
+    A.respond(200, {
+        'changed': proposed_vals,
+        'hosts_evaluated': len(devices),
+        'newly_breaching': _rows(worse),
+        'newly_passing': _rows(better),
+        'total_newly_breaching': sum(len(v) for v in worse.values()),
+        'total_newly_passing': sum(len(v) for v in better.values()),
+        # Said explicitly because the obvious assumption is wrong, and a preview
+        # that lets an operator believe it would be a worse kind of missing.
+        'note': 'Counts are CHECK results recomputed against your proposed '
+                'values. Alerts already open are not resolved by a threshold '
+                'change — they clear on their own recover events, or by muting '
+                'them under Monitoring → Tuning.',
+    })

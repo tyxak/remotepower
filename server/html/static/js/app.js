@@ -21576,6 +21576,47 @@ document.addEventListener('input', (e) => {
   if (dflt !== undefined) _apMarkModified(el, dflt);
 });
 
+// v6.4.2: what would this change break? ~70 thresholds applied fleet-wide on
+// save with no preview — drop disk_warn_percent from 90 to 80 on a 400-host
+// fleet and it is a hundred simultaneous new breaches, a Needs-Attention
+// avalanche and a paging storm, with Configuration history as the only way
+// back. The data needed to answer it was already on the server.
+async function previewThresholdImpact() {
+  const out = document.getElementById('ap-preview-out');
+  if (!out) return;
+  const payload = {};
+  for (const [id, key, dflt] of _ALERT_PARAM_FIELDS) {
+    const el = document.getElementById(id);
+    const n = _ALERT_PARAM_FLOAT_KEYS.has(key) ? parseFloat(el?.value)
+                                               : parseInt(el?.value, 10);
+    payload[key] = Number.isNaN(n) ? dflt : n;
+  }
+  out.innerHTML = '<span class="hint">Recomputing every host\'s checks…</span>';
+  const r = await api('POST', '/config/threshold-preview', payload).catch(() => null);
+  if (!r) { out.innerHTML = '<span class="hint">Preview failed.</span>'; return; }
+  if (!Object.keys(r.changed || {}).length) {
+    out.innerHTML = `<span class="hint">${escHtml(r.note || 'Nothing changed.')}</span>`;
+    return;
+  }
+  const tbl = (rows, cls, verb) => rows.length
+    ? `<div class="mt-6"><strong class="fs-13 ${cls}">${rows.reduce((a, x) => a + x.hosts, 0)} host-check(s) would ${verb}</strong>`
+      + '<div class="scrollable-table-wrap audit-scroll mt-4"><table class="fs-13"><thead><tr>'
+      + '<th>Check</th><th class="ta-right">Hosts</th><th>For example</th></tr></thead><tbody>'
+      + rows.map(x => `<tr><td><code>${escHtml(x.check)}</code></td>`
+          + `<td class="ta-right">${x.hosts}</td>`
+          + `<td class="hint">${escHtml((x.examples || []).join(', '))}</td></tr>`).join('')
+      + '</tbody></table></div></div>'
+    : '';
+  const changed = Object.entries(r.changed)
+    .map(([k, v]) => `<code>${escHtml(k)}</code> → ${escHtml(String(v))}`).join(', ');
+  out.innerHTML = `<div class="fs-13">Comparing <strong>${r.hosts_evaluated}</strong> host(s) against: ${changed}</div>`
+    + tbl(r.newly_breaching || [], 'c-amber', 'start breaching')
+    + tbl(r.newly_passing || [], 'c-green', 'stop breaching')
+    + (!(r.newly_breaching || []).length && !(r.newly_passing || []).length
+        ? '<div class="hint mt-6">No host changes state at these values.</div>' : '')
+    + `<div class="hint mt-6">${escHtml(r.note || '')}</div>`;
+}
+
 async function saveAlertParams(btn) {
   const payload = {};
   for (const [id, key, dflt] of _ALERT_PARAM_FIELDS) {
