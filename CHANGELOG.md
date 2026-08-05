@@ -149,6 +149,27 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Maintenance the status page understands
+
+- **A declared maintenance window showed customers a red outage with no
+  explanation.** Component status came only from whether hosts had checked in,
+  so a machine rebooting inside a window its operator had correctly declared
+  counted as down — and because offline alerts are suppressed during
+  maintenance, no incident was recorded either. The public page showed a broken
+  component, an empty incident list, and nothing to explain either. That is
+  worse than showing nothing.
+- Components under an active window now read **Under maintenance** rather than
+  as an outage. That happens for every declared window, not just published
+  ones: it is simply the more accurate word, and hiding the fix behind a flag
+  would leave the problem in place for anyone who did not find the flag.
+- **Announcing the work is separate, and opt-in.** A window can be published to
+  the status page with a public title; unpublished windows correct the status
+  and say nothing else. Declaring maintenance so your own alerts stay quiet is
+  not the same as agreeing to tell the internet about it — and what gets
+  published is a title and a time, never the internal reason, which is free
+  text an operator writes for colleagues.
+- The whole behaviour can be switched off under the status-page settings.
+
 ### Reports that say what changed
 
 - **Two consecutive weekly reports were indistinguishable.** Every section was a

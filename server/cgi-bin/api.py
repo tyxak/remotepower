@@ -24978,7 +24978,7 @@ def handle_config_get():
     # separate `status_token`). Surface a stable shape so the Settings UI renders.
     safe.setdefault('status_page', {'enabled': False, 'title': '',
                                     'show_incidents': True, 'incident_days': 30,
-                                    'components': []})
+                                    'show_maintenance': True, 'components': []})
     safe.setdefault('status_incident_recipients', '')   # W2-25
     # v5.1.0: web file manager (opt-in, powerful) — surface a stable shape so the
     # Settings UI renders. No secret here; the allowlisted roots are operator data.
@@ -26799,6 +26799,9 @@ def handle_config_save():
             'enabled':        bool(sp_in.get('enabled', False)),
             'title':          _sanitize_str(str(sp_in.get('title', '')), 128),
             'show_incidents': bool(sp_in.get('show_incidents', True)),
+            # This block REBUILDS the dict, so a key not listed here never
+            # persists — the documented silent-drop class.
+            'show_maintenance': bool(sp_in.get('show_maintenance', True)),
             'incident_days':  max(1, min(90, _idays)),
             'components':     _sp_comps,
         }
@@ -47452,11 +47455,19 @@ def _ct_token_eq(given, expected):
         return False
 
 
-def _status_page_component_state(comp, devices, now, ttl, mon_last):
+def _status_page_component_state(comp, devices, now, ttl, mon_last, maint_ids=None):
     """Derive a public component status from its member devices + monitors.
-    Returns (status, down, total) where status is operational|degraded|major_outage.
-    v5.1.0."""
-    total = down = 0
+    Returns (status, down, total) where status is
+    operational|degraded|major_outage|maintenance. v5.1.0.
+
+    v6.4.2: `maint_ids` is the set of device ids under an ACTIVE published
+    maintenance window. Without it a host rebooting inside a window its operator
+    had correctly declared counted as down — and because device_offline is
+    suppressed during maintenance, no incident was recorded either. The public
+    page showed a red component, an empty incident list and no explanation at
+    all, which is worse than showing nothing."""
+    maint_ids = maint_ids or set()
+    total = down = maint = 0
     for did in comp.get('device_ids') or []:
         d = devices.get(did)
         if not isinstance(d, dict) or d.get('monitored') is False:
@@ -47468,7 +47479,11 @@ def _status_page_component_state(comp, devices, now, ttl, mon_last):
             last = d.get('last_seen', 0)
             up = bool(last) and (now - last) < ttl
         if not up:
-            down += 1
+            # A declared, published window is planned work, not an outage.
+            if did in maint_ids:
+                maint += 1
+            else:
+                down += 1
     for lbl in comp.get('monitors') or []:
         last = mon_last.get(lbl)
         if last is None:
@@ -47479,10 +47494,64 @@ def _status_page_component_state(comp, devices, now, ttl, mon_last):
     if total == 0:
         return 'operational', 0, 0
     if down == 0:
-        return 'operational', 0, total
+        # Nothing genuinely down: say "maintenance" when that is why, so the
+        # page explains itself rather than looking untouched.
+        return ('maintenance' if maint else 'operational'), 0, total
     if down >= total:
         return 'major_outage', down, total
     return 'degraded', down, total
+
+
+def _status_page_maintenance(sp, devices, now):
+    """(device ids under an active published window, announcements) for the
+    public status page.
+
+    Returns ONLY what is safe to publish: a title and a window, never the
+    internal `reason`, the device names, or the scope target. Windows are opt-in
+    (`public: true`) — an operator who declares maintenance for internal alert
+    suppression has not thereby agreed to tell the internet about it.
+    """
+    if not sp.get('show_maintenance', True):
+        return set(), []
+    try:
+        windows = (load(MAINT_FILE) or {}).get('windows') or []
+    except Exception:
+        return set(), []
+    ids, announce = set(), []
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        try:
+            if not _window_active(w, now):
+                continue
+        except Exception:
+            continue
+        # The STATUS is corrected for every active window, published or not:
+        # "maintenance" is simply the more accurate word for a host its operator
+        # declared down on purpose, and gating that behind a flag would leave
+        # the original bug — a red component with no incident and no
+        # explanation — unfixed for everyone who did not set it.
+        #
+        # The ANNOUNCEMENT is opt-in, because that is where the text lives, and
+        # declaring a window for internal alert suppression is not consent to
+        # tell the internet what you are doing.
+        scope = (w.get('scope') or 'device').lower()
+        target = w.get('target') or ''
+        if scope == 'global':
+            ids.update(devices)
+        elif scope == 'group' and target:
+            ids.update(did for did, d in devices.items()
+                       if isinstance(d, dict) and (d.get('group') or '') == target)
+        elif scope == 'device' and target in devices:
+            ids.add(target)
+        if w.get('public'):
+            announce.append({
+                'title': _sanitize_str(str(w.get('public_title') or ''), 80)
+                         or 'Scheduled maintenance',
+                'start': str(w.get('start') or ''),
+                'end':   str(w.get('end') or ''),
+            })
+    return ids, announce
 
 
 def _status_page_projection(cfg, devices, now, ttl):
@@ -47501,10 +47570,15 @@ def _status_page_projection(cfg, devices, now, ttl):
     window_s = window_days * 86400
     mon_hist = load(MON_HIST_FILE) or {}
     mon_last = {lbl: ents[-1] for lbl, ents in mon_hist.items() if ents}
+    # v6.4.2: which devices are under an ACTIVE published maintenance window,
+    # and what to announce. Opt-in per window, and we publish `public_title`
+    # only — `reason` is internal free text and must never reach a public URL.
+    maint_ids, maint_now = _status_page_maintenance(sp, devices, now)
     dev_to_comp = {}
     out_comps = []
     for c in sp.get('components') or []:
-        status, _down, _total = _status_page_component_state(c, devices, now, ttl, mon_last)
+        status, _down, _total = _status_page_component_state(c, devices, now, ttl,
+                                                             mon_last, maint_ids)
         comp = {'id': str(c.get('id') or ''), 'group': str(c.get('group') or ''),
                 'name': str(c.get('name') or ''), 'status': status}
         out_comps.append(comp)
@@ -47560,6 +47634,7 @@ def _status_page_projection(cfg, devices, now, ttl):
             'overall': overall, 'window_days': window_days,
             'components': out_comps, 'incidents': incidents,
             'posted_incidents': posted,
+            'maintenance': maint_now,
             'status_page_enabled': True}
 
 
@@ -61119,6 +61194,12 @@ def handle_maintenance_add():
         # until one of the device's gating windows is active (change-window
         # gating — distinct from the alert suppression above).
         'gate_exec': bool(body.get('gate_exec')),
+        # v6.4.2: opt-in publication on the PUBLIC status page. Off by default,
+        # and it publishes `public_title` — never `reason`, which is internal
+        # free text an operator writes for colleagues ("swapping the failing
+        # PSU in rack 3") and must not appear on a customer-facing URL.
+        'public':       bool(body.get('public')),
+        'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
         'created_by': actor,
         'created_at': int(time.time()),
     }
@@ -61178,6 +61259,10 @@ def _validate_maintenance_body(body):
         'start': start, 'end': end, 'cron': cron,
         'duration': duration, 'events': events,
         'gate_exec': bool(body.get('gate_exec')),
+        # handle_maintenance_update does new_win.update(clean) — a key missing
+        # from this dict is SILENTLY CLEARED on every edit of the window.
+        'public':       bool(body.get('public')),
+        'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
     }
 
 

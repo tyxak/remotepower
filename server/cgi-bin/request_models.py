@@ -2271,13 +2271,15 @@ if _AVAILABLE:
         end: str = ''
         events: Any = None
         gate_exec: bool = False
+        public: bool = False
+        public_title: str = ''
         reason: str = ''
         scope: str = ''
         start: str = ''
         target: str = ''
-        _v0 = field_validator('cron', 'end', 'reason', 'scope', 'start', 'target', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('cron', 'end', 'public_title', 'reason', 'scope', 'start', 'target', mode='before')(_coerce_str_loose)
         _v1 = field_validator('duration', mode='before')(_coerce_int_or(0))
-        _v2 = field_validator('gate_exec', mode='before')(_coerce_bool_loose)
+        _v2 = field_validator('gate_exec', 'public', mode='before')(_coerce_bool_loose)
 
     class ServicesConfigRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

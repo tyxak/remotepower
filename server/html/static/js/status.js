@@ -99,6 +99,8 @@
       case 'major_outage':
       case 'down':
       case 'offline': return 'sp-down';
+      // v6.4.2: planned work is neither healthy nor an outage.
+      case 'maintenance': return 'sp-maint';
       // W2-25 operator-posted incident states
       case 'resolved': return 'sp-ok';
       case 'monitoring': return 'sp-degraded';
@@ -122,7 +124,9 @@
               'M12 9v4', 'M12 17h.01'] },
     major_outage: { cls: 'sp-down', text: 'Major outage',
       paths: ['M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z',
-              'M12 9v4', 'M12 17h.01'] }
+              'M12 9v4', 'M12 17h.01'] },
+    maintenance: { cls: 'sp-maint', text: 'Under maintenance',
+      paths: ['M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'] }
   };
   function renderBanner(overall) {
     clear(bannerEl);
@@ -273,6 +277,37 @@
   }
 
   // ---- operator-posted incidents -------------------------------------------
+  // ---- scheduled maintenance (v6.4.2) --------------------------------------
+  // Announced windows only. The server publishes a title and a window and
+  // nothing else — never the operator's internal reason, the host names or the
+  // scope target.
+  function renderMaintenance(windows) {
+    var wrap = el('div', 'status-maint');
+    wrap.appendChild(el('h2', null, 'Scheduled maintenance'));
+    for (var i = 0; i < windows.length; i++) {
+      var w = windows[i] || {};
+      var row = el('div', 'status-maint-row');
+      row.appendChild(pillEl('maintenance'));
+      row.appendChild(el('strong', null, String(w.title || 'Scheduled maintenance')));
+      var when = '';
+      if (w.start) { when = fmtAbs(w.start); }
+      if (w.end) { when += (when ? ' — ' : '') + fmtAbs(w.end); }
+      if (when) { row.appendChild(el('span', 'status-maint-when', when)); }
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  // Absolute, in the VIEWER's locale — a public page has no session and no
+  // configured timezone to borrow, and a bare ISO string is not readable.
+  function fmtAbs(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) { return String(iso || ''); }
+      return d.toLocaleString();
+    } catch (e) { return String(iso || ''); }
+  }
+
   function renderPostedIncidents(posted) {
     var section = el('section', 'status-section');
     section.appendChild(el('h2', 'status-section-title', 'Incidents'));
@@ -313,6 +348,12 @@
     var posted = Array.isArray(data.posted_incidents) ? data.posted_incidents : [];
     if (posted.length) {
       bodyEl.appendChild(renderPostedIncidents(posted));
+    }
+    // Above the components: the explanation should be visible before the thing
+    // it explains.
+    var maint = Array.isArray(data.maintenance) ? data.maintenance : [];
+    if (maint.length) {
+      bodyEl.appendChild(renderMaintenance(maint));
     }
     var components = Array.isArray(data.components) ? data.components : [];
     if (components.length) {
