@@ -324,6 +324,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'empty_password_account',                 # v6.4.2 blank /etc/shadow password
             'server_upgraded',                       # v6.4.2 controller version change
             'integration_metric_alert',              # v6.4.2 operator bound on a connector metric
+            'sweep_failing', 'sidecar_down',         # v6.4.2 control-plane health
             'kmip_cert_expiring',                    # v6.4.1 KMIP PKI expiry
             'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
             'control_plane_security_change',         # v6.4.2 privileged change on RemotePower itself
@@ -376,6 +377,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'rogue_uid0_cleared',                    # ← rogue_uid0
             'empty_password_cleared',                # ← empty_password_account (v6.4.2)
             'integration_metric_recovered',          # ← integration_metric_alert (v6.4.2)
+            'sweep_recovered',                       # ← sweep_failing (v6.4.2)
+            'sidecar_recovered',                     # ← sidecar_down (v6.4.2)
             'av_clean',                              # ← av_infected (+ av_warning)
             'av_realtime_on',                        # ← av_realtime_off (v6.2.0)
             'modules_visible_restored',              # ← modules_hidden (v6.2.2)

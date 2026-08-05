@@ -41,9 +41,9 @@ detection → routing → delivery chain is intact for every alertable event typ
 destination, recover events that can never close their alert). It fires
 nothing; see [detection-selftest.md](detection-selftest.md).
 
-**Optional sidecars** — informational rows for the ingest and key-custody
-daemons, each reported **only when that sidecar is enabled** and deliberately
-never a health input on its own (a receiver you don't run is not a fault):
+**Optional sidecars** — rows for the ingest and key-custody daemons, each
+reported **only when that sidecar is enabled** (a receiver you don't run is not
+a fault):
 
 | Row | What it tells you |
 |---|---|
@@ -51,6 +51,16 @@ never a health input on its own (a receiver you don't run is not a fault):
 | **Syslog** | Mapped sources, last ingest time, and the `remotepower-syslogd` unit state — see [syslog.md](syslog.md) |
 | **Flow** | Reporting exporters, last ingest time, and the `remotepower-flowd` unit state — see [flow.md](flow.md) |
 | **KMIP** | Live clients, stored keys, last sidecar check-in, the `remotepower-kmipd` unit state, and the **soonest PKI expiry** across the CA and every live client certificate — see [kmip.md](kmip.md) |
+
+Since v6.4.2 an enabled sidecar that **stops** also raises `sidecar_down` (and
+its `sidecar_recovered` clear). It is deliberately conservative: it only speaks
+when systemd is present *and* reports a definite dead state (`inactive` /
+`failed`), so a sidecar legitimately running on a different host and POSTing over
+the network still says nothing — the enablement check is the gate, not the unit
+probe. The reason it is no longer purely informational is KMIP: an informational
+row on a page nobody has open during an outage is not a control, and when the key
+server dies every appliance storing its volume keys there fails to unlock on its
+next reboot.
 
 The KMIP expiry number is there because an expired client certificate silently
 ends that appliance's key access, and encrypted volumes then fail to mount

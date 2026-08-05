@@ -72,6 +72,7 @@ LONGPOLL_FILE    = DATA_DIR / 'longpoll.json'
 APIKEYS_FILE     = DATA_DIR / 'apikeys.json'
 RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
+SIDECAR_STATE_FILE = DATA_DIR / 'sidecar_state.json'   # v6.4.2: {down: {unit: bool}}
 SERVER_VERSION_FILE = DATA_DIR / 'server_version.json'  # v6.4.2: {current, since, history:[{from,to,at}]}
 AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: key generations 2+
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
@@ -2325,6 +2326,31 @@ EVENT_REGISTRY = {
     # charts and the activity feed, which is the first question asked when
     # alert volume or heartbeat latency shifts. Fleet-level (no device_id):
     # the subject is the server. Low severity — it is context, not a problem.
+    # v6.4.2: a maintenance sweep failing while the scheduler still lives. All
+    # the data existed — per-sweep last_ok/err in self_observability.json — and
+    # its only consumers were the Server-status handler and the RAG corpus, so
+    # the monitors sweep could start throwing on every cadence and nothing
+    # paged. kind='health': this is the control plane's own health, and an
+    # operator routing health events to a destination should get these on the
+    # same wire. Fleet-level (no device_id) — the subject is the server.
+    'sweep_failing': dict(
+        label='A RemotePower maintenance sweep is failing', kind='health',
+        title='Maintenance Sweep Failing', severity='high', priority=4,
+        tags='rotating_light,gear'),
+    'sweep_recovered': dict(
+        label='A failing maintenance sweep is running again', kind='health',
+        resolves=('sweep_failing',), tags='white_check_mark,gear'),
+    # v6.4.2: a co-located sidecar (syslogd / flowd / kmipd) stopped. Each owns
+    # an ingest or key-serving path that fails SILENTLY — when kmipd dies, every
+    # appliance storing its volume keys there fails to unlock on its next
+    # reboot, and nothing said so.
+    'sidecar_down': dict(
+        label='A RemotePower sidecar service stopped', kind='health',
+        title='Sidecar Stopped', severity='high', priority=4,
+        tags='rotating_light,electric_plug'),
+    'sidecar_recovered': dict(
+        label='A RemotePower sidecar service is running again', kind='health',
+        resolves=('sidecar_down',), tags='white_check_mark,electric_plug'),
     'server_upgraded': dict(
         lifecycle='point',
         label='RemotePower itself was upgraded', kind='accounts',
@@ -4118,6 +4144,31 @@ def _load_ro(path):
     return load(path)
 
 
+# v6.4.2: how long a configured scheduler may go silent before the request path
+# takes the cadence back. Ten intervals or 15 minutes, whichever is larger — far
+# past the "is it alive?" window used for the Server-status indicator, so a slow
+# sweep or a restart never has both running.
+_SCHEDULER_STALL_FLOOR_S = 900
+
+
+def _external_scheduler_configured():
+    """Whether an out-of-band scheduler is CONFIGURED to own the cadence — the
+    flag alone, with no opinion about whether it is alive.
+
+    v6.4.2: split out of _external_scheduler_active, which now also requires a
+    recent heartbeat. Server status needs both facts and they are genuinely
+    different: "you told me a scheduler owns this" and "one actually does". The
+    panel showing them as one number is how a dead scheduler stayed invisible.
+    """
+    v = (os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
+    if v in ('1', 'true', 'yes', 'on'):
+        return True
+    try:
+        return bool(_config_ro().get('external_scheduler'))
+    except Exception:
+        return False
+
+
 def _external_scheduler_active():
     """v5.5.0 (keystone Stage D): True when an out-of-band scheduler process owns
     the maintenance cadence, so the request path stops piggy-backing the
@@ -4126,12 +4177,41 @@ def _external_scheduler_active():
     ``external_scheduler``. Default OFF — the request path runs the cadence exactly
     as before, so existing CGI installs are unaffected. Never raises."""
     v = (os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
-    if v in ('1', 'true', 'yes', 'on'):
-        return True
-    try:
-        return bool(_config_ro().get('external_scheduler'))
-    except Exception:
+    configured = v in ('1', 'true', 'yes', 'on')
+    if not configured:
+        try:
+            configured = bool(_config_ro().get('external_scheduler'))
+        except Exception:
+            return False
+    if not configured:
         return False
+    # v6.4.2: the flag said WHO SHOULD own the cadence; it never asked whether
+    # that owner is alive. On the single-node default the scheduler owns all ~33
+    # maintenance sweeps, so when remotepower-scheduler OOMs at 02:00, offline
+    # detection, monitors, integrations, ticket SLA, the daily backup and every
+    # alerting sweep stop — and because the flag was still set the request path
+    # REFUSED to pick them up. The dashboard kept showing the last-known-good
+    # state and the fleet looked perfectly healthy.
+    #
+    # So: a scheduler that has not beaten in a long time no longer owns the
+    # cadence. The threshold is deliberately generous (well past
+    # _runtime_serving_info's "alive" window) so a slow sweep or a restart never
+    # causes both to run — the sweeps are idempotent and claim their slot, but
+    # double-running them is still waste.
+    try:
+        st = _load_ro(SCHEDULER_STATE_FILE) if backend_exists(SCHEDULER_STATE_FILE) else None
+        if not isinstance(st, dict) or not st.get('ts'):
+            # Never beaten. Either it has not started yet on a fresh install, or
+            # it is not running at all — in both cases the request path picking
+            # the cadence up is the safe answer.
+            return False
+        interval = int(st.get('interval') or 60)
+        age = int(time.time()) - int(st['ts'])
+        return age < max(_SCHEDULER_STALL_FLOOR_S, interval * 10)
+    except Exception:
+        # Can't tell → keep the configured behaviour rather than silently
+        # double-running the cadence on every request.
+        return True
 
 
 # v5.6.x: which request tier is executing this process. Default 'cgi' (a bare,
@@ -4160,9 +4240,13 @@ def _runtime_serving_info():
     except Exception:
         pass
     try:
-        info['scheduler_configured'] = _external_scheduler_active()
-        # When the scheduler owns the cadence, the request path SKIPS the sweeps.
-        info['cadence_in_request'] = not info['scheduler_configured']
+        # v6.4.2: these are two different facts and the panel must not conflate
+        # them. `scheduler_configured` is the flag; `cadence_in_request` asks
+        # the liveness-aware question, so a configured-but-dead scheduler now
+        # reads "configured: yes, cadence in request: yes" — which is exactly
+        # the state that used to be silent.
+        info['scheduler_configured'] = _external_scheduler_configured()
+        info['cadence_in_request'] = not _external_scheduler_active()
     except Exception:
         pass
     try:
@@ -66778,11 +66862,24 @@ def _self_obs_load():
     return _SELF_OBS
 
 
+# v6.4.2: sweeps whose failure must NOT fire an event. An event about the thing
+# that delivers events is a loop; the outbound healthchecks dead-man's-switch is
+# the architecturally correct signal for those.
+_SELF_OBS_NO_ALERT = frozenset({
+    'ping_healthchecks_if_due', 'run_webhook_retries_if_due',
+    '_record_self_error', 'fire_webhook',
+})
+# How many CONSECUTIVE failures before a sweep is called broken. One transient
+# (a DNS blip in the integrations sweep) is the noise that gets an event muted.
+_SWEEP_FAIL_STREAK = 3
+
+
 def _self_obs_mark(label, ok, exc=None):
     """Record a maintenance-sweep outcome (last_ok on success; last_err + the
     error ring on failure). Also usable as a general swallowed-error sink:
     _self_obs_mark('some_context', False, exc)."""
     global _SELF_OBS_LAST_FLUSH
+    _pending_sweep_event = None
     try:
         st = _self_obs_load()
         now = int(time.time())
@@ -66799,9 +66896,38 @@ def _self_obs_mark(label, ok, exc=None):
             sw['err_count'] = int(sw.get('err_count', 0)) + 1
             st['errors'].append({'ts': now, 'ctx': str(label), 'err': msg})
             del st['errors'][:-_SELF_OBS_MAX_ERRORS]
-        # Flush now on an error OR any state change (incl. recovery err→ok); else
-        # throttle steady-state ok→ok to keep the hot cadence cheap.
+        # v6.4.2: a sweep that FAILS while the scheduler still lives had no
+        # event — the per-sweep last_ok/err was written here and read by exactly
+        # two consumers, the Server-status handler and the RAG corpus. So the
+        # monitors sweep could start throwing on every cadence and nothing would
+        # page; the operator found out when somebody happened to open Server
+        # status and notice a red row.
+        #
+        # Edge-triggered on the CONSECUTIVE-failure count, not the first error:
+        # a single transient (a DNS blip in the integrations sweep) is exactly
+        # the kind of noise that gets an event muted, and a muted event catches
+        # nothing. Fires once per failing streak and recovers on the next ok.
+        #
+        # NOT fired for the notify/webhook sweeps themselves — an event about
+        # the thing that delivers events is a loop, and its own failure is what
+        # the outbound healthchecks dead-man's-switch is for.
         _changed = (_prev != sw['last_outcome'])
+        if str(label) not in _SELF_OBS_NO_ALERT:
+            _streak = int(sw.get('err_count', 0)) - int(sw.get('_alerted_at', 0))
+            if (not ok) and not sw.get('_alerted') and _streak >= _SWEEP_FAIL_STREAK:
+                sw['_alerted'] = True
+                _pending_sweep_event = ('sweep_failing', {
+                    'name': get_server_name(), 'sweep': str(label),
+                    'detail': (f'Maintenance sweep "{label}" has failed '
+                               f'{_streak} times in a row: {sw.get("err", "")}'),
+                })
+            elif ok and sw.get('_alerted'):
+                sw['_alerted'] = False
+                sw['_alerted_at'] = int(sw.get('err_count', 0))
+                _pending_sweep_event = ('sweep_recovered', {
+                    'name': get_server_name(), 'sweep': str(label),
+                    'detail': f'Maintenance sweep "{label}" is running again.',
+                })
         if (not ok) or _changed or (now - _SELF_OBS_LAST_FLUSH) >= 30:
             _SELF_OBS_LAST_FLUSH = now
             try:
@@ -66810,12 +66936,110 @@ def _self_obs_mark(label, ok, exc=None):
                 pass
     except Exception:
         pass
+    # Fired AFTER the state write and outside every try above: fire_webhook is
+    # self-locking, and a failure here must not swallow the observability record
+    # that is the whole point of this function.
+    if _pending_sweep_event:
+        try:
+            fire_webhook(*_pending_sweep_event)
+        except Exception:
+            pass
 
 
 def _record_self_error(context, exc):
     """Public swallowed-error sink for any `except` that would otherwise vanish."""
     _self_obs_mark(context, False, exc)
 
+
+
+
+def run_sidecar_watch_if_due():
+    """Alert when an ENABLED co-located sidecar has stopped.
+
+    v6.4.2: `systemctl is-active` rows for remotepower-syslogd / -flowd /
+    -kmipd have been on Server status since v6.3.1 as deliberately
+    INFORMATIONAL watchers — the reasoning being that a sidecar may legitimately
+    run on a different host and POST over the network, so "no local unit" is not
+    a fault. That reasoning is sound and is preserved exactly: this stays silent
+    unless systemd is present AND reports a definite dead state.
+
+    What it does not survive is KMIP. docs/self-monitoring.md said the sidecar
+    rows are "never a health input", and when the key server dies every
+    appliance storing its volume keys there silently fails to unlock on its next
+    reboot. An informational row on a page nobody has open during an outage is
+    not a control.
+
+    Cheap: three `systemctl is-active` calls at most, on a 5-minute cadence, and
+    only for sidecars the operator has actually turned on.
+    """
+    now = int(time.time())
+    cfg = _config_ro() or {}
+    if (now - int(cfg.get('last_sidecar_watch') or 0)) < _SIDECAR_WATCH_INTERVAL:
+        return
+    if not shutil.which('systemctl'):
+        return
+    _claim_cadence_slot('last_sidecar_watch', now)
+
+    # Only watch what the operator enabled — an install that never turned on
+    # flow ingest must not be told its flowd is down.
+    want = []
+    try:
+        toks = (load(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or []
+        kinds = {t.get('kind') for t in toks if isinstance(t, dict)}
+        if 'syslog' in kinds:
+            want.append(('remotepower-syslogd', 'syslog ingest'))
+        if 'flow' in kinds:
+            want.append(('remotepower-flowd', 'NetFlow/IPFIX ingest'))
+    except Exception:
+        pass
+    try:
+        if (load(KMIP_FILE) or {}).get('enabled'):
+            want.append(('remotepower-kmipd', 'KMIP key server'))
+    except Exception:
+        pass
+    if not want:
+        return
+
+    state = load(SIDECAR_STATE_FILE) or {}
+    marks = state.get('down') if isinstance(state.get('down'), dict) else {}
+    pending = []
+    for unit, what in want:
+        try:
+            r = subprocess.run(['systemctl', 'is-active', unit],
+                               capture_output=True, text=True, timeout=3)
+            status = (r.stdout or '').strip()
+        except Exception:
+            continue          # can't tell → say nothing, per the contract above
+        # ONLY these two are a definite dead state. `unknown`, `activating`,
+        # `deactivating` and an empty answer all mean "cannot tell right now",
+        # and a sidecar running on another host answers `inactive` for a unit
+        # that was never installed — which is why the enablement check above is
+        # the gate, not this.
+        down = status in ('inactive', 'failed')
+        was = bool(marks.get(unit))
+        if down and not was:
+            marks[unit] = True
+            pending.append(('sidecar_down', {
+                'name': get_server_name(), 'unit': unit,
+                'detail': (f'{what} sidecar ({unit}) is {status}. The feature it '
+                           'serves is silently not working.'),
+            }))
+        elif (not down) and was:
+            marks[unit] = False
+            pending.append(('sidecar_recovered', {
+                'name': get_server_name(), 'unit': unit,
+                'detail': f'{what} sidecar ({unit}) is running again.',
+            }))
+    state['down'] = marks
+    try:
+        save(SIDECAR_STATE_FILE, state, non_blocking=True)
+    except Exception:
+        pass
+    for ev, payload in pending:
+        try:
+            fire_webhook(ev, payload)
+        except Exception:
+            pass
 
 
 # ── v6.4.2: controller version history ───────────────────────────────────────
@@ -66834,6 +67058,7 @@ def _record_self_error(context, exc):
 # a stale-value trap. This compares the LIVE constant against the last value
 # observed and only writes on a CHANGE, so the store is a change log, never a
 # claim about what is running now.
+_SIDECAR_WATCH_INTERVAL = 300   # v6.4.2: three is-active calls, every 5 min
 SERVER_VERSION_HISTORY_MAX = 50
 
 
@@ -67030,6 +67255,9 @@ def main():
     _safe(_retention_sweep_if_due, '_retention_sweep_if_due')
     # v6.4.2: note a controller version change the first time it is seen.
     _safe(_record_server_version_change, '_record_server_version_change')
+    # v6.4.2: an enabled sidecar that has stopped — the feature it serves is
+    # silently not working, and for kmipd that means appliances fail to unlock.
+    _safe(run_sidecar_watch_if_due, 'run_sidecar_watch_if_due')
     # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
     # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
     # v6.4.2: called DIRECTLY (like _record_satellite below), NOT via _safe(), and

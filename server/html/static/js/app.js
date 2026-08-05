@@ -19024,6 +19024,9 @@ function _renderHomeActivity(fleetEvents) {
     // v6.4.2: the controller itself was upgraded — the marker that answers
     // "did we change anything?" when alert volume or latency shifts.
     'server_upgraded',
+    // v6.4.2: the control plane telling on itself — a maintenance sweep
+    // failing while the scheduler lives, and a stopped sidecar.
+    'sweep_failing', 'sweep_recovered', 'sidecar_down', 'sidecar_recovered',
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
@@ -19318,6 +19321,10 @@ function _homeActivityAttrs(event, p) {
     // v6.4.2: the subject is the server, not a host — the self page is where
     // its version, uptime and internal health live.
     case 'server_upgraded':
+    // v6.4.2: all four are about the server itself — Server status is where the
+    // sweep table, the scheduler heartbeat and the sidecar rows live.
+    case 'sweep_failing': case 'sweep_recovered':
+    case 'sidecar_down': case 'sidecar_recovered':
       return `${base} data-home-act="self"`;
     case 'empty_password_account': case 'empty_password_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.

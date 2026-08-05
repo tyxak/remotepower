@@ -6,6 +6,7 @@ exclusive, and that the request-path guard (_external_scheduler_active) is opt-i
 and default-off.
 """
 import os
+import time
 import re
 import sys
 import tempfile
@@ -103,12 +104,59 @@ class TestRequestPathGuard(unittest.TestCase):
         # no env + (test config has no external_scheduler) → request path keeps the cadence
         self.assertFalse(api._external_scheduler_active())
 
-    def test_env_enables(self):
+    def _beat(self, age_s):
+        """Write a scheduler heartbeat `age_s` seconds old."""
+        api.save(api.SCHEDULER_STATE_FILE,
+                 {'ts': int(time.time()) - age_s, 'interval': 60})
+        api._invalidate_load_cache(api.SCHEDULER_STATE_FILE)
+
+    def test_env_enables_when_the_scheduler_is_actually_alive(self):
+        """v6.4.2: the flag says WHO SHOULD own the cadence. It never asked
+        whether that owner is alive — so when remotepower-scheduler OOMed, the
+        request path REFUSED to pick up all ~33 sweeps (offline detection,
+        monitors, integrations, ticket SLA, the daily backup) because the flag
+        was still set, and the fleet looked perfectly healthy. The flag alone is
+        no longer sufficient; a recent heartbeat is required too."""
+        self._beat(10)
         for v in ('1', 'true', 'YES', 'on'):
             os.environ['RP_EXTERNAL_SCHEDULER'] = v
             self.assertTrue(api._external_scheduler_active(), v)
         os.environ['RP_EXTERNAL_SCHEDULER'] = 'no'
         self.assertFalse(api._external_scheduler_active())
+
+    def test_a_stalled_scheduler_hands_the_cadence_back(self):
+        os.environ['RP_EXTERNAL_SCHEDULER'] = '1'
+        try:
+            self._beat(10)
+            self.assertTrue(api._external_scheduler_active())
+            self._beat(3600)
+            self.assertFalse(api._external_scheduler_active(),
+                             'a scheduler silent for an hour still owned the '
+                             'cadence, so nothing ran it')
+        finally:
+            os.environ['RP_EXTERNAL_SCHEDULER'] = 'no'
+
+    def test_a_scheduler_that_never_beat_hands_it_back(self):
+        """Either it has not started on a fresh install or it is not running at
+        all; in both cases the request path taking the cadence is the safe
+        answer, and the sweeps claim their slots so nothing double-runs."""
+        os.environ['RP_EXTERNAL_SCHEDULER'] = '1'
+        try:
+            api.save(api.SCHEDULER_STATE_FILE, {})
+            api._invalidate_load_cache(api.SCHEDULER_STATE_FILE)
+            self.assertFalse(api._external_scheduler_active())
+        finally:
+            os.environ['RP_EXTERNAL_SCHEDULER'] = 'no'
+
+    def test_the_grace_is_far_wider_than_the_liveness_indicator(self):
+        """A slow sweep or a restart must never make BOTH run — the sweeps are
+        idempotent and claim their slot, but double-running is still waste."""
+        os.environ['RP_EXTERNAL_SCHEDULER'] = '1'
+        try:
+            self._beat(400)   # well past _runtime_serving_info's ~180s window
+            self.assertTrue(api._external_scheduler_active())
+        finally:
+            os.environ['RP_EXTERNAL_SCHEDULER'] = 'no' 
 
     def test_main_safe_guarded_by_flag(self):
         src = (_CGI / "api.py").read_text()
