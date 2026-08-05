@@ -1074,6 +1074,7 @@ for _at_name in (
         'handle_na_suppress_remove',
         'handle_ignored_list', 'handle_ignored_add', 'handle_ignored_remove',
         'handle_suppressions',   # v6.4.2: the unified "why isn't this alerting?" view
+        'handle_mcp_acknowledge_alert',   # v6.4.2: the MCP inbox write
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -1676,6 +1677,12 @@ MCP_ACTION_ALLOWLIST = frozenset({
     # Destructive ones (reboot, run_saved_script) gate through the per-device
     # `require_confirmation` flag — operator must approve in the dashboard
     # before the action runs. Non-destructive ones execute immediately.
+    # v6.4.2: acknowledge_alert — the least destructive write here by some
+    # margin. It changes who is expected to ACT and touches no fleet state, and
+    # it deliberately cannot RESOLVE: closing an alert stays an operator action
+    # in the dashboard. Added because the MCP server exposed reboot_device and
+    # could not read the Alerts inbox at all, which is the wrong way round.
+    'acknowledge_alert',
     'reboot_device',
     'run_saved_script',
     'force_package_scan',
@@ -65565,6 +65572,7 @@ def _build_exact_routes():
         ('GET', '/api/maintenance/suppressions'): handle_maintenance_suppressions,
         ('POST', '/api/mcp/force_acme_rescan'): handle_mcp_force_acme_rescan,
         ('POST', '/api/mcp/force_package_scan'): handle_mcp_force_package_scan,
+        ('POST', '/api/mcp/acknowledge_alert'): handle_mcp_acknowledge_alert,
         ('POST', '/api/mcp/reboot_device'): handle_mcp_reboot_device,
         ('POST', '/api/mcp/run_saved_script'): handle_mcp_run_saved_script,
         ('GET', '/api/monitor'): handle_monitor_run,

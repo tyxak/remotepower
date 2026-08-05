@@ -519,7 +519,150 @@ def tool_force_acme_rescan(args):
 
 # ── Tool registry ──────────────────────────────────────────────────────────
 
+
+# ── v6.4.2: the Alerts inbox and Needs-attention ─────────────────────────────
+#
+# The MCP server exposed 18 tools and a case-insensitive search for "alert"
+# across the whole file returned NOTHING. So an assistant could reboot a host
+# — a far riskier action — and could not read the Alerts inbox, which is the
+# product's own primary triage surface, with severity, ack state, correlation
+# and root-cause tagging. Asked "what's on fire right now?", the only honest
+# option was to call list_devices and eyeball online flags.
+#
+# `search_fleet` does retrieve alert TEXT through the RAG, but as ranked prose
+# chunks — not structured rows an assistant can count, filter by severity, or
+# act on. The endpoints all already exist and are already role-gated; this was
+# missing client wiring, nothing more.
+
+def tool_list_alerts(args):
+    """Open (and optionally resolved) alerts, newest first."""
+    a = args or {}
+    qs = []
+    status = str(a.get('status') or 'open').lower()
+    if status in ('open', 'acknowledged', 'resolved', 'all'):
+        qs.append('status=' + status)
+    sev = str(a.get('severity') or '').lower()
+    if sev in ('critical', 'high', 'medium', 'low'):
+        qs.append('severity=' + sev)
+    try:
+        limit = max(1, min(200, int(a.get('limit') or 50)))
+    except (TypeError, ValueError):
+        limit = 50
+    qs.append('limit=%d' % limit)
+    data = _api("GET", "/api/alerts?" + "&".join(qs))
+    rows = data if isinstance(data, list) else (data or {}).get('alerts') or []
+    # Trim hard: the stored alert carries a full payload and an AI-triage blob,
+    # and 50 of those would eat the context this tool exists to save.
+    return [{
+        'id':          r.get('id'),
+        'ref':         r.get('alertid'),
+        'severity':    r.get('severity'),
+        'event':       r.get('event'),
+        'title':       r.get('title'),
+        'device':      r.get('device_name') or r.get('device_id') or '',
+        'first_seen':  r.get('first_seen') or r.get('ts'),
+        'acknowledged_by': r.get('acknowledged_by'),
+        'resolved_at': r.get('resolved_at'),
+        # The two correlation facts that change what an operator should DO.
+        'root_cause':  bool(r.get('_root_cause')),
+        'collateral_of': r.get('_collateral_of') or None,
+        'incident_id': r.get('incident_id') or None,
+    } for r in rows]
+
+
+def tool_get_attention(args):
+    """The Needs-attention digest — what the fleet wants looked at, ranked."""
+    data = _api("GET", "/api/attention") or {}
+    items = data.get('items') if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        items = data if isinstance(data, list) else []
+    try:
+        limit = max(1, min(200, int((args or {}).get('limit') or 50)))
+    except (TypeError, ValueError):
+        limit = 50
+    return [{
+        'kind':     i.get('kind'),
+        'severity': i.get('severity'),
+        'title':    i.get('title') or i.get('label'),
+        'detail':   i.get('detail') or '',
+        'device':   i.get('device_name') or i.get('device_id') or '',
+    } for i in items[:limit] if isinstance(i, dict)]
+
+
+def tool_acknowledge_alert(args):
+    """Acknowledge an alert, optionally with a note saying who is on it.
+
+    A WRITE, and deliberately the least destructive one here: acknowledging
+    changes who is expected to act, never the fleet. It still rides the same
+    audited /api/mcp/ path as every other write, so the originating AI host and
+    the natural-language prompt land in the audit log.
+    """
+    a = args or {}
+    alert_id = a.get('alert_id') or a.get('id')
+    if not alert_id:
+        raise RuntimeError("'alert_id' argument required (from list_alerts)")
+    note = str(a.get('note') or '')[:256]
+    return _api("POST", "/api/mcp/acknowledge_alert",
+                {'alert_id': str(alert_id), 'note': note},
+                mcp_prompt=note or f'acknowledge alert {alert_id}')
+
+
 TOOLS = {
+    "list_alerts": {
+        "description":
+            "The Alerts inbox: open (or acknowledged/resolved) alerts, newest "
+            "first, with severity, the device, when it FIRST fired, who acked "
+            "it, and the correlation flags — whether it is the root cause on "
+            "its host, which upstream it is collateral from, and any declared "
+            "incident it belongs to. This is the right first call for "
+            "\"what is wrong right now?\" — list_devices only shows "
+            "up/down. Filter with status=open|acknowledged|resolved|all and "
+            "severity=critical|high|medium|low.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string",
+                           "description": "open (default), acknowledged, resolved, all"},
+                "severity": {"type": "string",
+                             "description": "critical, high, medium or low"},
+                "limit": {"type": "integer",
+                          "description": "max rows, default 50, cap 200"},
+            },
+        },
+        "handler": tool_list_alerts,
+    },
+    "get_attention": {
+        "description":
+            "The Needs-attention digest — everything the fleet wants looked "
+            "at, ranked, including things that never became an alert (stale "
+            "backups, expiring certificates, drifted config, posture gaps). "
+            "Broader than list_alerts and the better call for \"what should I "
+            "work on?\".",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer",
+                                      "description": "max items, default 50"}},
+        },
+        "handler": tool_get_attention,
+    },
+    "acknowledge_alert": {
+        "description":
+            "Acknowledge an alert and optionally record who is on it. Takes "
+            "the `id` from list_alerts. Acknowledging changes who is expected "
+            "to act; it does not touch the fleet, and it does not resolve the "
+            "alert — resolving stays an operator action in the dashboard.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "alert_id": {"type": "string",
+                             "description": "Alert id from list_alerts"},
+                "note": {"type": "string",
+                         "description": "Optional note, e.g. who is picking it up"},
+            },
+            "required": ["alert_id"],
+        },
+        "handler": tool_acknowledge_alert,
+    },
     "list_devices": {
         "description":
             "List all devices in the RemotePower fleet with current online "

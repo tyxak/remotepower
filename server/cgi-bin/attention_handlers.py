@@ -456,3 +456,64 @@ def handle_suppressions():
     rows.sort(key=lambda r: (r['kind'], r['device_name'].lower(), r['label']))
     A.respond(200, {'ok': True, 'suppressions': rows,
                     'total': len(rows), 'counts': counts})
+
+
+def handle_mcp_acknowledge_alert():
+    """POST /api/mcp/acknowledge_alert — an AI host acknowledges an alert.
+
+    v6.4.2: the MCP server exposed 18 tools and a case-insensitive search for
+    "alert" across the whole file returned nothing — so an assistant could
+    reboot a host and could not read, let alone touch, the Alerts inbox, which
+    is the product's primary triage surface. This is the one write that pairs
+    with the new read tools, and it is deliberately the mildest one available:
+    acknowledging changes who is expected to ACT and no fleet state at all.
+
+    It cannot RESOLVE. Closing an alert is a judgement that the underlying
+    problem is gone, and that stays an operator action in the dashboard.
+
+    Rides `require_mcp_action` like every other MCP write, so a leaked MCP key
+    is still confined to the allowlist and every call lands in the audit log
+    with the originating AI host and the natural-language prompt.
+    """
+    user = A.require_mcp_action('acknowledge_alert')
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    alert_id = str(body.get('alert_id') or '').strip()
+    if not alert_id:
+        A.respond(400, {'error': 'alert_id required'})
+    note = A._sanitize_str(str(body.get('note') or ''), 256)
+    ai_host, ai_prompt = A.get_mcp_attribution()
+
+    found = acked = None
+    with A._LockedUpdate(A.ALERTS_FILE) as store:
+        for a in (store.get('alerts') or []):
+            if a.get('id') != alert_id:
+                continue
+            found = True
+            # Same visibility gate the human ack uses — an MCP key confined to
+            # a tenant or a role scope must not be able to ack outside it just
+            # because this route is not under /api/devices/.
+            if not A._alert_mutable_by_caller(a):
+                A.respond(404, {'error': 'alert not found'})
+            if a.get('resolved_at'):
+                A.respond(409, {'error': 'alert already resolved'})
+            if a.get('acknowledged_at'):
+                A.respond(409, {'error': 'alert already acknowledged'})
+            a['acknowledged_by'] = user
+            a['acknowledged_at'] = int(A.time.time())
+            if note:
+                a['ack_note'] = note
+            acked = dict(a)
+            break
+    if not found:
+        A.respond(404, {'error': 'alert not found'})
+    # audit_log is self-locking and auto-defers, but keeping it out of the block
+    # is the house rule and costs nothing.
+    A.audit_log(user, 'mcp_acknowledge_alert',
+                f'alert={alert_id}' + (f' note={note!r}' if note else ''),
+                ai_host=ai_host, ai_prompt=ai_prompt)
+    A.respond(200, {'ok': True, 'alert_id': alert_id,
+                    'acknowledged_by': user,
+                    'severity': (acked or {}).get('severity'),
+                    'title': (acked or {}).get('title')})

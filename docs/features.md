@@ -525,8 +525,9 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| MCP server | 18 tools — 14 read (`list_devices`, `get_device`, `search_devices`, `search_fleet`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `get_snmp_data`) |
-| Guarded write tools | `reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan` — per-token allow-list + roles; arbitrary `run_command` intentionally absent |
+| MCP server | 21 tools — 16 read (`list_devices`, `get_device`, `search_devices`, `search_fleet`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `get_snmp_data`, **`list_alerts`**, **`get_attention`**) |
+| Alerts are readable | `list_alerts` returns the inbox as structured rows — severity, device, when it FIRST fired, who acked it, and the correlation flags (root cause on its host, which upstream it is collateral from, any declared incident) — and `get_attention` returns the broader Needs-attention digest. Until v6.4.2 a search for "alert" across the whole MCP server returned nothing, so an assistant could reboot a host and could not see what was wrong; "what's on fire?" meant listing devices and eyeballing online flags *(v6.4.2)* |
+| Guarded write tools | `reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan`, **`acknowledge_alert`** — per-token allow-list + roles; arbitrary `run_command` intentionally absent. `acknowledge_alert` changes who is expected to act and no fleet state, and deliberately **cannot resolve** — closing an alert asserts the problem is gone, which stays an operator action *(v6.4.2)* |
 
 ## Homelab software integrations *(v4.7.0)*
 
