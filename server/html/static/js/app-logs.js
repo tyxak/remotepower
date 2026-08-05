@@ -229,6 +229,29 @@ function clearLogSearch() {
   startLogsTail();
 }
 
+// v6.4.2: the ingested log ring had no export at all — the page could search it
+// and tail it, but an operator who needed the lines somewhere else (a ticket, an
+// auditor, grep) had to copy them out of the viewer by hand.
+//
+// Exports exactly what the toolbar currently describes, so "Export" matches what
+// is on screen rather than dumping the whole buffer. A raw file response, so it
+// goes through _downloadAuthed (a fetch + blob), NOT api() — api() parses JSON
+// and would choke on CSV.
+function exportLogs(format) {
+  const fmt = format === 'ndjson' ? 'ndjson' : 'csv';
+  const qs = new URLSearchParams({format: fmt});
+  const q = document.getElementById('logs-search-input')?.value.trim();
+  const dev = document.getElementById('logs-device-filter')?.value;
+  const unit = document.getElementById('logs-unit-filter')?.value;
+  if (q) qs.set('q', q);
+  if (dev) qs.set('device', dev);
+  if (unit) qs.set('unit', unit);
+  const stamp = new Date().toISOString().slice(0, 10);
+  _downloadAuthed(`/api/logs/export?${qs.toString()}`,
+                  `remotepower-logs-${stamp}.${fmt}`,
+                  `Log lines exported as ${fmt.toUpperCase()}`);
+}
+
 // ─── Alert rules (v1.8.2: per-device + fleet-wide tabs) ────────────────────
 let logsRulesTab = 'device';  // 'device' | 'global'
 

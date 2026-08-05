@@ -8237,6 +8237,72 @@ async function batchTags() {
   if (data?.ok) { toast(`Updated tags on ${data.updated} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else toast(data?.error || 'Failed', 'error');
 }
+// ── v6.4.2: bulk attribute edit ─────────────────────────────────────────────
+// Until now the only bulk device writes were delete and tags; everything else
+// was one device at a time from its drawer.
+//
+// The contract on both sides is "a key that is absent is not touched", so this
+// builds the payload from the fields the operator ACTUALLY filled in. Sending
+// blanks would clear group/site across the whole selection — the opposite of
+// what an untouched field means.
+function openBatchAttrs() {
+  if (!selectedDevices.size) return;
+  for (const id of ['ba-group', 'ba-site', 'ba-tags-add', 'ba-tags-remove', 'ba-poll']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  for (const id of ['ba-monitored', 'ba-channel']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const sub = document.getElementById('batch-attrs-sub');
+  if (sub) {
+    sub.textContent = `Every field left blank is left unchanged. Applied to `
+      + `${selectedDevices.size} selected device(s) in one operation.`;
+  }
+  openModal('batch-attrs-modal');
+}
+
+function closeBatchAttrs() { closeModal('batch-attrs-modal'); }
+
+async function applyBatchAttrs() {
+  if (!selectedDevices.size) return;
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const csv = id => val(id).split(',').map(s => s.trim()).filter(Boolean);
+  const payload = {device_ids: [...selectedDevices]};
+  if (val('ba-group')) payload.group = val('ba-group');
+  if (val('ba-site')) payload.site = val('ba-site');
+  if (csv('ba-tags-add').length) payload.tags_add = csv('ba-tags-add');
+  if (csv('ba-tags-remove').length) payload.tags_remove = csv('ba-tags-remove');
+  if (val('ba-monitored') !== '') payload.monitored = val('ba-monitored') === '1';
+  if (val('ba-channel')) payload.update_channel = val('ba-channel');
+  if (val('ba-poll')) {
+    const p = parseInt(val('ba-poll'), 10);
+    // The server 400s outside 30..3600 and writes nothing, so catch it here
+    // rather than failing the whole batch on a typo.
+    if (isNaN(p) || p < 30 || p > 3600) {
+      toast('Poll interval must be 30–3600 seconds', 'error');
+      document.getElementById('ba-poll')?.focus();
+      return;
+    }
+    payload.poll_interval = p;
+  }
+  if (Object.keys(payload).length === 1) { toast('Nothing to change', 'info'); return; }
+  const r = await api('POST', '/devices/bulk-attrs', payload);
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  closeBatchAttrs();
+  // Report BOTH numbers: out-of-scope / cross-tenant ids are silently dropped
+  // server-side, so "updated 8" against a selection of 10 is a real outcome the
+  // operator needs to see rather than a success that hides it.
+  const req = r.requested != null ? r.requested : selectedDevices.size;
+  toast(r.updated === req
+    ? `Updated ${r.updated} device(s)`
+    : `Updated ${r.updated} of ${req} device(s) — the rest are outside your scope`,
+    r.updated === req ? 'success' : 'warning');
+  clearSelection();
+  setTimeout(loadDevices, 500);
+}
+
 async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run';
   // v6.4.1 (roadmap D11): name the hosts, not just the count — "Reboot 3
   // device(s)?" hides exactly the mistake a confirmation exists to catch.
@@ -10577,13 +10643,69 @@ async function loadPatchCatalog() {
   }
   if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted">No pending updates across the fleet.</div>'); return; }
   const sorted = tableCtl.sortRows('patch_catalog', r.packages.slice(), p => ({
-    package: p.package, hosts: p.count,
+    package: p.package, hosts: p.count, approval: p.approval || '',
   }));
-  const rows = sorted.map(p =>
-    `<tr><td class="mono-12">${escHtml(p.package)}</td><td class="ta-center fw-500">${p.count}</td>`
-    + `<td class="fs-12 c-muted">${escHtml(p.devices.join(', '))}${p.count > p.devices.length ? ', …' : ''}</td></tr>`).join('');
-  body.innerHTML = `<div class="table-card"><table><thead id="patch-catalog-thead"><tr><th data-col="package">Package</th><th data-col="hosts" class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>` + tpHtml;
+  // v6.4.2: the catalog carries each package's approve/decline decision, so the
+  // column needs no second request. Writes are admin-or-operator; a read-only
+  // role sees the state without the buttons.
+  const canWrite = !!(_meCache && (_meCache.admin || (_meCache.permissions || []).length));
+  const rows = sorted.map(p => {
+    const st = p.approval || '';
+    const pill = st === 'approved'
+      ? '<span class="status-pill ok" title="Auto-patch will un-pin this package so it upgrades">approved</span>'
+      : st === 'declined'
+      ? '<span class="status-pill critical" title="Auto-patch pins this package on Linux hosts so it is held back">declined</span>'
+      : '<span class="c-muted">—</span>';
+    const acts = canWrite
+      ? `<button class="btn-icon" title="Approve — auto-patch un-pins it so it upgrades" data-action="setPatchApproval" data-arg="${escAttr(p.package)}" data-arg2="approved">${_icon('check', 13)}</button>`
+        + `<button class="btn-icon" title="Decline — auto-patch holds it back on Linux hosts" data-action="setPatchApproval" data-arg="${escAttr(p.package)}" data-arg2="declined">${_icon('x', 13)}</button>`
+        + (st ? `<button class="btn-icon" title="Clear the decision" data-action="clearPatchApproval" data-arg="${escAttr(p.package)}">${_icon('trash', 13)}</button>` : '')
+      : '';
+    return `<tr><td class="mono-12">${escHtml(p.package)}</td><td class="ta-center fw-500">${p.count}</td>`
+      + `<td class="ta-center">${pill}</td>`
+      + `<td class="fs-12 c-muted">${escHtml(p.devices.join(', '))}${p.count > p.devices.length ? ', …' : ''}</td>`
+      + `<td><div class="user-actions">${acts}</div></td></tr>`;
+  }).join('');
+  const counts = (r.approved_packages || r.declined_packages)
+    ? `<div class="hint mt-8">${r.approved_packages || 0} approved · ${r.declined_packages || 0} declined. `
+      + 'A declined package is pinned on <strong>Linux</strong> hosts immediately before an auto-patch run '
+      + '(<code>apt-mark hold</code> / versionlock / addlock). Windows and macOS have no per-package '
+      + 'exclusion, so a decline is <strong>not</strong> enforced there.</div>'
+    : '';
+  body.innerHTML = `<div class="table-card"><table><thead id="patch-catalog-thead"><tr><th data-col="package">Package</th><th data-col="hosts" class="ta-center">Hosts</th><th data-col="approval" class="ta-center">Approval</th><th>Devices</th><th class="th-actions"></th></tr></thead><tbody>${rows}</tbody></table></div>` + counts + tpHtml;
   tableCtl.wireSortOnly('patch-catalog-thead', 'patch_catalog', loadPatchCatalog);
+}
+
+// v6.4.2: per-package approve / decline. Deliberately explicit about what a
+// decline does NOT do — it is enforced on Linux only, and shipping a bare
+// success toast here would be the "success-toast-then-silence" class the rest
+// of this release is about.
+async function setPatchApproval(pkg, state) {
+  const name = String(pkg);
+  const want = state === 'approved' ? 'approved' : 'declined';
+  if (want === 'declined') {
+    const ok = await uiConfirm({
+      title: `Decline "${name}"`,
+      message: 'Auto-patch will hold this package back on Linux hosts, pinning it immediately '
+               + 'before each run.\n\nWindows and macOS upgrades have no per-package exclusion, '
+               + 'so it will still be upgraded there. Staged (ringed) auto-patch policies do not '
+               + 'apply the pin either — only flat policies do.',
+      confirmText: 'Decline',
+    });
+    if (!ok) return;
+  }
+  const r = await api('POST', '/patch-approvals', {packages: [name], state: want});
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast(`"${name}" ${want}`, 'success');
+  loadPatchCatalog();
+}
+
+async function clearPatchApproval(pkg) {
+  const name = String(pkg);
+  const r = await api('POST', '/patch-approvals/delete', {packages: [name]});
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast(`Decision cleared for "${name}"`, 'success');
+  loadPatchCatalog();
 }
 
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }

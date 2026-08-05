@@ -40,7 +40,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | IPAM | Define subnets (CIDR/site/VLAN/notes + static reservations); per-subnet occupancy is derived from known device addresses (device IP + CMDB interfaces incl. NAT) — used/reserved/free counts + a per-address inventory. A duplicate IP across two devices raises an edge-triggered `ip_conflict` alert. `GET/POST /api/ipam/subnets`, `GET /api/ipam/subnets/{id}/occupancy` *(v6.0.0)* |
 | Device profiles | Named bundle of per-device settings (poll interval, watched units, log watches, drift-watched files, metric thresholds); **apply** stamps them onto selected devices as a one-shot copy (devices stay editable). `GET/POST /api/device-profiles`, `POST /api/device-profiles/{id}/apply` *(v6.0.0)* |
 | Smart groups | Saved fleet-query predicate (group/tag/site/OS/agent-version/monitored/agentless/drift/reboot + mem/disk/cpu/swap % thresholds) whose membership is re-materialized every ~60s; reference it as a `smart:<name>` targeting scope in alert-routing, auto-patch, report and service-baseline scopes (doesn't change a device's real group). `GET/POST /api/smart-groups` *(v6.0.0)* |
-| Bulk attribute edit | Set group, site, tags (replace or add/remove), monitored, decommissioned, icon, notes, poll interval, update channel, offline-alert delay and reachability across a selection in one locked write; a missing key is left untouched, validation runs before the lock so a bad field can't half-apply, cap 1000 devices. `POST /api/devices/bulk-attrs` *(v6.4.2)* |
+| Bulk attribute edit | **Edit attributes** on the Devices batch bar (and `POST /api/devices/bulk-attrs`) sets group, site, tags (replace or add/remove), monitored, decommissioned, icon, notes, poll interval, update channel, offline-alert delay and reachability across a selection in one locked write; a blank field is left unchanged, out-of-scope devices are dropped and reported rather than hidden; a missing key is left untouched, validation runs before the lock so a bad field can't half-apply, cap 1000 devices. `POST /api/devices/bulk-attrs` *(v6.4.2)* |
 
 ## Device drawer signals
 
@@ -122,7 +122,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | CT watch | Certificate-Transparency monitoring via crt.sh — watched domains baseline on first check, then any certificate you didn't know about raises `ct_new_certificate` (compromised DNS/ACME, rogue issuance); circuit-broken when crt.sh is down *(v6.0.0)* |
 | Resolver health monitor | Re-resolves a name across public resolvers; tracks latency + NXDOMAIN; `resolver_unhealthy`/`resolver_recovered` *(v4.9.0)* |
 | Healthchecks.io watchdog | Server pings a URL on a cadence so an external monitor flips red if RemotePower stops |
-| Log buffer retention & export | The ingested log-line ring's window (hours) and per-unit byte cap are operator-tunable under Settings → Advanced → Data retention (`0` = built-in default); the buffer exports as CSV or NDJSON. `GET /api/logs/export` *(v6.4.2)* |
+| Log buffer retention & export | The ingested log-line ring's window (hours) and per-unit byte cap are operator-tunable under Settings → Advanced → Data retention (`0` = built-in default); the Logs toolbar exports exactly the lines the current filters describe as CSV or NDJSON, with spreadsheet-formula escaping on remote log content. `GET /api/logs/export` *(v6.4.2)* |
 
 ## Alerts, events & routing
 
@@ -244,7 +244,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Software metering | Named-software install counts vs allowance, over-deployment flagged; aliases + reclamation *(v3.4.2)* |
 | Fleet software policy | `banned` / `required` / `min_version` rules (tag-scoped) → `software_policy_violation` *(v3.11.0)* |
 | Update-available notice | Checks GitHub for newer RemotePower releases; detection only *(v2.4.6)* |
-| Patch approval | Approve/decline individual packages; auto-patch pins declined ones (`apt-mark hold` / versionlock / addlock) immediately before the upgrade and un-pins approved ones so state converges. Shown per row in the patch catalog. Instance-wide policy — superadmin-only to change under multi-tenancy. `GET/POST /api/patch-approvals` *(v6.4.2)* |
+| Patch approval | Approve/decline individual packages from the **Patch catalog** row; auto-patch pins declined ones (`apt-mark hold` / versionlock / addlock) immediately before the upgrade and un-pins approved ones so state converges. Shown per row in the patch catalog. Instance-wide policy — superadmin-only to change under multi-tenancy. `GET/POST /api/patch-approvals` *(v6.4.2)* |
 
 ## Vulnerabilities (CVE) & risk
 

@@ -111,14 +111,18 @@ product has always computed for its own screens and never let you take away.
   repointing an RBAC scope from a device-taxonomy screen is the worse failure —
   so the response lists every store that still names the old group, and the
   toast is a warning naming them rather than a success.
-- **Bulk device attribute edit.** `POST /api/devices/bulk-attrs` sets group,
-  site, tags (replace or add/remove), monitored, decommissioned, icon, notes,
-  poll interval, update channel, offline-alert delay and reachability across a
-  selection in one locked write. A missing key is not touched; validation runs
-  *before* the lock so a bad field cannot half-apply. The cap is 1000 devices,
-  not the 100 the generic target resolver uses.
-- **Per-package patch approval.** Approve or decline individual packages and the
-  auto-patch run honours it — declined packages are pinned (`apt-mark hold` /
+- **Bulk device attribute edit.** An **Edit attributes** button on the Devices
+  batch bar sets group, site, tags, monitoring, update channel and poll interval
+  across a selection in one locked write — previously the only bulk writes were
+  delete and tags, and everything else was one device at a time from its drawer.
+  A field left blank is left alone on both sides, so opening the dialog and
+  changing one thing cannot clear the rest. The cap is 1000 devices, not the 100
+  the generic target resolver uses. Devices outside your scope are dropped
+  server-side, so the toast reports *updated of requested* rather than a success
+  that hides the shortfall.
+- **Per-package patch approval, in the patch catalog.** Each package row carries
+  its decision and approve / decline / clear actions; the auto-patch run honours
+  it — declined packages are pinned (`apt-mark hold` /
   versionlock / addlock) immediately before the upgrade, and approving one
   un-pins it so the state converges rather than drifting. The patch catalog
   carries each decision. Honest about its edges: the run reports
@@ -133,9 +137,14 @@ product has always computed for its own screens and never let you take away.
   single-tenant installs, which is nearly all of them.
 - **The ingested log ring is tunable, and exportable.** Its 6-hour window and
   per-unit byte cap were two hard-coded constants; both are now under **Settings
-  → Advanced → Data retention** (`0` on either keeps the built-in default), and
-  `GET /api/logs/export` returns the buffer as CSV or NDJSON. The Logs page no
-  longer claims a fixed six hours, because it is no longer fixed.
+  → Advanced → Data retention** (`0` on either keeps the built-in default). The
+  Logs toolbar gained **Export CSV** and **Export NDJSON**, which export exactly
+  the lines the current filters describe rather than the whole buffer — until now
+  the page could search the ring and tail it, but getting lines out for a ticket
+  or an auditor meant copying them from the viewer by hand. Log content is remote
+  and attacker-influenced, so CSV cells are escaped against spreadsheet formula
+  injection. The Logs page no longer claims a fixed six hours, because it is no
+  longer fixed.
 - These land in a new bound module rather than growing `api.py`, which let the
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.

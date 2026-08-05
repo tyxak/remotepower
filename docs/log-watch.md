@@ -8,7 +8,11 @@ Advanced → Data retention** (`log_buffer_retention_hours`, 0–168; `0` restor
 the default). An optional per-**unit** byte cap
 (`log_buffer_max_bytes_per_unit`, `0` = no cap) keeps the newest lines and stops
 one chatty unit crowding every other unit out of the buffer. The buffer can be
-exported as CSV or NDJSON with `GET /api/logs/export`.
+exported from the toolbar's **Export CSV** / **Export NDJSON** buttons, which
+export exactly the lines the current device / unit / search filters describe
+rather than the whole buffer (`GET /api/logs/export`). Log content is remote and
+attacker-influenced, so CSV cells are escaped against spreadsheet formula
+injection — a line beginning `=`, `+`, `-` or `@` is prefixed with `'`.
 
 ## Using the page
 

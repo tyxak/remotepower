@@ -26,6 +26,13 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    'Export NDJSON': { fr: 'Exporter en NDJSON', de: 'NDJSON exportieren', zh: '导出 NDJSON', hi: 'NDJSON निर्यात करें', es: 'Exportar NDJSON', ar: 'تصدير NDJSON' },
+    'Edit attributes': { fr: 'Modifier les attributs', de: 'Attribute bearbeiten', zh: '编辑属性', hi: 'विशेषताएँ संपादित करें', es: 'Editar atributos', ar: 'تحرير السمات' },
+    'Add tags': { fr: 'Ajouter des étiquettes', de: 'Tags hinzufügen', zh: '添加标签', hi: 'टैग जोड़ें', es: 'Añadir etiquetas', ar: 'إضافة وسوم' },
+    'Remove tags': { fr: 'Retirer des étiquettes', de: 'Tags entfernen', zh: '移除标签', hi: 'टैग हटाएँ', es: 'Quitar etiquetas', ar: 'إزالة الوسوم' },
+    'leave unchanged': { fr: 'laisser inchangé', de: 'unverändert lassen', zh: '保持不变', hi: 'अपरिवर्तित छोड़ें', es: 'dejar sin cambios', ar: 'اتركه دون تغيير' },
+    'leave blank to keep': { fr: 'laisser vide pour conserver', de: 'leer lassen zum Beibehalten', zh: '留空以保留', hi: 'बनाए रखने के लिए खाली छोड़ें', es: 'dejar en blanco para conservar', ar: 'اتركه فارغًا للإبقاء عليه' },
+    'Approval': { fr: 'Approbation', de: 'Freigabe', zh: '审批', hi: 'अनुमोदन', es: 'Aprobación', ar: 'الموافقة' },
     'Metric explorer': { fr: 'Explorateur de métriques', de: 'Metrik-Explorer', zh: '指标浏览器', hi: 'मेट्रिक एक्सप्लोरर', es: 'Explorador de métricas', ar: 'مستكشف المقاييس' },
     'Clear hosts': { fr: 'Effacer les hôtes', de: 'Hosts leeren', zh: '清除主机', hi: 'होस्ट साफ़ करें', es: 'Borrar hosts', ar: 'مسح المضيفين' },
     'Filter hosts…': { fr: 'Filtrer les hôtes…', de: 'Hosts filtern…', zh: '筛选主机…', hi: 'होस्ट फ़िल्टर करें…', es: 'Filtrar hosts…', ar: 'تصفية المضيفين…' },
