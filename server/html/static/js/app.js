@@ -8557,7 +8557,31 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
     if (await uiConfirm({ message: `${data.error}\n\nForce the update anyway?`, confirmText: 'Force', danger: true })) data = await api('POST', ep, {device_ids: [...selectedDevices], force: true});
     else return;
   }
-  if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
+  if (data?.ok) {
+    // v6.4.2: the server has always returned a per-device `results` dict with
+    // the quarantined / audit-mode / queue-full rejections in it, and this
+    // threw it away and toasted "Reboot queued for 412 device(s)". The
+    // operator closed the window and found out three weeks later during a CVE
+    // audit that N hosts were never patched. Count what actually queued, name
+    // the failures, and point at the job record that now keeps them.
+    const res = (data && data.results) || {};
+    const ids = Object.keys(res);
+    const failed = ids.filter(k => !(res[k] && res[k].ok));
+    const queued = ids.length ? ids.length - failed.length : selectedDevices.size;
+    if (failed.length) {
+      const why = failed.slice(0, 3)
+        .map(k => `${(devices.find(d => d.id === k) || {}).name || k}: ${res[k].error || 'failed'}`)
+        .join('; ');
+      toast(`${verb}: ${queued} queued, ${failed.length} refused — ${why}${failed.length > 3 ? ' …' : ''}`,
+            'error', { transient: false });
+    } else {
+      const msg = command === 'upgrade'
+        ? `Package upgrade queued for ${queued} device(s). Output arrives on next heartbeat (~60s).`
+        : `${verb} queued for ${queued} device(s)`;
+      toast(msg, 'success');
+    }
+    clearSelection(); setTimeout(loadDevices, 3000);
+  } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
 async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 

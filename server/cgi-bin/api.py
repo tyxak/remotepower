@@ -22182,6 +22182,62 @@ def _blast_radius_guard(ids, body, action):
                       'blast_blocked': True, 'count': n, 'fleet': fleet, 'action': action})
 
 
+
+def _record_batch_job(kind, label, command, actor, results):
+    """Persist a batch-job record for a bulk action, and return its id.
+
+    v6.4.2: a real batch-job tracker already existed (BATCH_JOBS_FILE,
+    GET /api/exec/batch, the "Recent installs & jobs" card on Rollouts, with
+    per-host done/failed/pending marks and live polling) — created by exactly
+    TWO paths: one-time package install and batch script exec. The four bulk
+    actions an operator actually reaches for from the Devices batch bar
+    (shutdown, reboot, upgrade packages, update agent) all funnel through
+    _queue_command_batch, which returns a per-device results dict and persists
+    nothing. The client threw that dict away and showed "Reboot queued for 412
+    device(s)".
+
+    So the quarantined, audit-mode and queue-full rejections — the ones already
+    computed and already in the HTTP response — vanished. The operator saw a
+    green toast, closed the window, and found out three weeks later during a CVE
+    audit that N hosts were never patched.
+
+    (An OFFLINE host is NOT one of those rejections: the command simply waits in
+    its queue. The rejections are invalid/unknown id, quarantined, audit-mode
+    and a full queue.)
+    """
+    if not isinstance(results, dict) or not results:
+        return None
+    now = int(time.time())
+    per_device = {}
+    devices = _load_ro(DEVICES_FILE) or {}
+    for dev_id, r in results.items():
+        r = r if isinstance(r, dict) else {}
+        entry = {'queued': bool(r.get('ok')),
+                 'name': (devices.get(dev_id) or {}).get('name', dev_id),
+                 'queued_at': now}
+        if r.get('error'):
+            entry['error'] = str(r['error'])[:160]
+        if r.get('approval_required'):
+            entry['approval_required'] = True
+            entry['confirmation_id'] = r.get('confirmation_id')
+        per_device[dev_id] = entry
+    job_id = secrets.token_hex(8)
+    try:
+        with _LockedUpdate(BATCH_JOBS_FILE) as jobs_data:
+            _purge_expired_batch_jobs(jobs_data)
+            jobs_data.setdefault('jobs', {})[job_id] = {
+                'id': job_id, 'kind': kind, 'label': label,
+                'match_cmd': command, 'actor': actor, 'created': now,
+                'targets': [d for d, e in per_device.items() if e['queued']],
+                'per_device': per_device,
+            }
+    except Exception as e:
+        # A missing job record must never cost the operator the action itself.
+        sys.stderr.write(f'[remotepower] batch job record failed: {e}\n')
+        return None
+    return job_id
+
+
 def _queue_command_batch(dev_ids, command, actor):
     _block_if_maintenance(command)  # v5.0.0 #R3
     devices = load(DEVICES_FILE); results = {}
@@ -22522,7 +22578,11 @@ def handle_shutdown():
     if len(ids) == 1: _queue_command(ids[0], 'shutdown', actor)
     else:
         _blast_radius_guard(ids, body, 'shutdown')
-        respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'shutdown', actor)})
+        _res = _queue_command_batch(ids, 'shutdown', actor)
+        respond(200, {'ok': True, 'results': _res,
+                      'job_id': _record_batch_job('shutdown',
+                                                  f'Shut down {len(ids)} device(s)',
+                                                  'shutdown', actor, _res)})
 
 
 def handle_reboot():
@@ -22533,7 +22593,11 @@ def handle_reboot():
     if len(ids) == 1: _queue_command(ids[0], 'reboot', actor)
     else:
         _blast_radius_guard(ids, body, 'reboot')
-        respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'reboot', actor)})
+        _res = _queue_command_batch(ids, 'reboot', actor)
+        respond(200, {'ok': True, 'results': _res,
+                      'job_id': _record_batch_job('reboot',
+                                                  f'Reboot {len(ids)} device(s)',
+                                                  'reboot', actor, _res)})
 
 
 def _ver_tuple(s):
@@ -22610,7 +22674,12 @@ def handle_update_device():
                               'incompatible': True, 'device_id': dev_id,
                               'hint': 'pass {"force": true} to override'})
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
-    else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
+    else:
+        _res = _queue_command_batch(ids, 'update', actor)
+        respond(200, {'ok': True, 'results': _res,
+                      'job_id': _record_batch_job('agent_update',
+                                                  f'Update agent on {len(ids)} device(s)',
+                                                  'update', actor, _res)})
 
 
 def handle_uninstall_agent(dev_id):
@@ -22910,7 +22979,14 @@ def handle_upgrade_device():
                           'detail': 'Parked — a second admin must approve it.'})
         if r.get('ok'): respond(200, {'ok': True})
         else:           respond(400, {'error': r.get('error', 'Failed')})
-    respond(200, {'ok': True, 'results': results})
+    # v6.4.2: a batch record, so "how many of the 800 actually got patched, and
+    # which ones didn't?" has an answer after the toast fades. This handler
+    # builds `results` itself rather than going through _queue_command_batch,
+    # so it records its own.
+    respond(200, {'ok': True, 'results': results,
+                  'job_id': _record_batch_job('upgrade',
+                                              f'Upgrade packages on {len(ids)} device(s)',
+                                              'upgrade', actor, results)})
 
 
 # v3.4.2: install software from the host's own repos, targeted at a single
