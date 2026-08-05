@@ -54130,29 +54130,20 @@ def _alert_resolution_how(a):
     return 'unknown'
 
 
-def handle_alert_resolution_stats():
-    """GET /api/alerts/resolution-stats?days=N — time-to-resolution (MTTR) and
-    time-to-ack (MTTA) analytics over recently-resolved alerts: overall mean /
-    median, a per-host breakdown, and a timeline of how each was resolved
-    (auto / manual / muted, by whom, with the ack/resolve note). Read-only.
+def _alert_resolution_stats(alerts, days=30):
+    """MTTR / MTTA analytics over the resolved alerts in `alerts`.
 
-    Pairs with the ack-webhook: 'manual' rows carry the operator who acked /
-    resolved, so you can see who closed what and how fast."""
-    require_auth()
-    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
-    try:
-        days = int(qs.get('days', ['30'])[0] or '30')
-    except ValueError:
-        days = 30
-    days = max(1, min(365, days))
+    v6.4.2: extracted from handle_alert_resolution_stats so a report builder can
+    call it — the handler ends in respond(), which raises, so it was unusable as
+    a computation.
+
+    Takes an ALREADY-FILTERED alert list on purpose. The handler passes its
+    caller-visible set (role scope + tenant gate); the report builder passes its
+    own scoped set. Filtering inside here would make the correct scope invisible
+    at the call site, which is how the cross-tenant leak this guards against
+    happened in the first place."""
+    days = max(1, min(365, int(days or 30)))
     cutoff = int(time.time()) - days * 86400
-    store = load(ALERTS_FILE) or {}
-    alerts = store.get('alerts', []) if isinstance(store, dict) else []
-    # v6.3.0 security fix: restrict to the caller's visible alerts (role scope
-    # AND tenant gate) BEFORE computing MTTR/MTTA + the per-host timeline —
-    # otherwise a tenant admin (scope None) or a scoped viewer got fleet-wide
-    # resolution stats incl. cross-tenant hostnames, notes and who-acked.
-    alerts = _filter_alerts_for_caller(alerts)
     resolved = [a for a in alerts if isinstance(a, dict) and a.get('resolved_at')
                 and int(a.get('resolved_at') or 0) >= cutoff]
     mttrs, mttas, per_host, timeline = [], [], {}, []
@@ -54202,11 +54193,34 @@ def handle_alert_resolution_stats():
         h['mttr_mean'] = int(h['_sum'] / h['_n']) if h['_n'] else 0
         h.pop('_sum', None)
         h.pop('_n', None)
-    respond(200, {
+    return {
         'days': days, 'resolved_count': len(resolved),
         'mttr_mean': _mean(mttrs), 'mttr_median': _median(mttrs), 'mtta_mean': _mean(mttas),
         'hosts': hosts[:50], 'timeline': timeline[:100],
-    })
+    }
+
+
+def handle_alert_resolution_stats():
+    """GET /api/alerts/resolution-stats?days=N — time-to-resolution (MTTR) and
+    time-to-ack (MTTA) analytics over recently-resolved alerts: overall mean /
+    median, a per-host breakdown, and a timeline of how each was resolved
+    (auto / manual / muted, by whom, with the ack/resolve note). Read-only.
+
+    Pairs with the ack-webhook: 'manual' rows carry the operator who acked /
+    resolved, so you can see who closed what and how fast."""
+    require_auth()
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    try:
+        days = int(qs.get('days', ['30'])[0] or '30')
+    except ValueError:
+        days = 30
+    store = load(ALERTS_FILE) or {}
+    alerts = store.get('alerts', []) if isinstance(store, dict) else []
+    # v6.3.0 security fix: restrict to the caller's visible alerts (role scope
+    # AND tenant gate) BEFORE computing MTTR/MTTA + the per-host timeline —
+    # otherwise a tenant admin (scope None) or a scoped viewer got fleet-wide
+    # resolution stats incl. cross-tenant hostnames, notes and who-acked.
+    respond(200, _alert_resolution_stats(_filter_alerts_for_caller(alerts), days))
 
 
 def handle_alert_resolve(alert_id):

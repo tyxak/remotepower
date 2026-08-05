@@ -25234,9 +25234,13 @@ async function saveReportSchedule() {
 }
 
 // ─── v3.14.0: custom report builder ─────────────────────────────────────────
+// Second registry: the checkbox list renders `_REPORT_SECTION_LABELS[s] || s`,
+// so a section added server-side to _REPORT_SECTIONS but not here shows up as
+// its raw slug ("period") in the Custom reports editor.
 const _REPORT_SECTION_LABELS = {
   devices: 'Devices', health: 'Health score', attention: 'Needs attention',
   patches: 'Patches', cve: 'CVEs', sla: 'SLA / uptime', compliance: 'Compliance',
+  period: 'Period activity',
 };
 let _reportDefs = [];
 let _reportDefEditId = '';

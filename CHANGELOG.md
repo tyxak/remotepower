@@ -149,6 +149,25 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Reports that say what changed
+
+- **Two consecutive weekly reports were indistinguishable.** Every section was a
+  live counter — devices online, patches pending, CVE counts, health score — so
+  the artifact told you where things stood and never whether the team was
+  winning. Reports now carry a **Last 30 days** section: alerts opened and
+  resolved, median time to resolve, mean time to acknowledge, update runs, and
+  the change in health score and compliance since the start of the window. It
+  appears in the emailed summary, the CSV and the printable report, and is a
+  selectable section for custom reports.
+- No new collection was needed — all of it was already stored and none of it was
+  ever shown. Resolution times measure from when an alert **first** fired, not
+  its most recent re-fire, so a condition that kept firing while nobody looked
+  no longer reports a flatteringly short time-to-fix.
+- When there is not yet a comparable sample from the start of the window, the
+  change reads *n/a* rather than *0*. Those are materially different statements
+  to put in front of a customer, and a zero would claim no progress where the
+  truth is not enough history.
+
 ### Reports that carry your name
 
 - **A scheduled report emailed a preview of itself, not the report.** A report

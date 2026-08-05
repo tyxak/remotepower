@@ -70,6 +70,33 @@
              (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high');
 
     let html = '';
+    // v6.4.2: what changed over the window, not just where things stand.
+    const per = rep.period || null;
+    if (per) {
+      const dur = function (s) {
+        s = parseInt(s, 10) || 0;
+        if (!s) return '—';
+        const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
+        return hh ? hh + 'h' + String(mm).padStart(2, '0') : mm + 'm';
+      };
+      // 'n/a' rather than 0 when there is no comparable sample yet — a 0 would
+      // read as "no change" when the truth is "not enough history".
+      const dl = per.delta || {};
+      const sgn = function (v, suffix) {
+        if (v == null) return 'n/a';
+        return (v > 0 ? '+' : '') + v + (suffix || '');
+      };
+      html += '<h2>Last ' + esc(String(per.days || 30)) + ' days</h2>'
+        + '<table><tbody>'
+        + '<tr><td>Alerts opened</td><td>' + (per.alerts_opened || 0) + '</td></tr>'
+        + '<tr><td>Alerts resolved</td><td>' + (per.alerts_resolved || 0) + '</td></tr>'
+        + '<tr><td>Median time to resolve</td><td>' + esc(dur(per.mttr_median)) + '</td></tr>'
+        + '<tr><td>Mean time to acknowledge</td><td>' + esc(dur(per.mtta_mean)) + '</td></tr>'
+        + '<tr><td>Update runs</td><td>' + (per.patches_applied_runs || 0) + '</td></tr>'
+        + '<tr><td>Health score change</td><td>' + esc(sgn(dl.health_score)) + '</td></tr>'
+        + '<tr><td>Compliance change</td><td>' + esc(sgn(dl.compliance_pct, ' pp')) + '</td></tr>'
+        + '</tbody></table>';
+    }
     const fwKeys = Object.keys(fws);
     if (fwKeys.length) {
       html += '<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'

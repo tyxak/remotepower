@@ -460,7 +460,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Health-gated rollouts | Auto-halt + `rollout_halted` if a host's health drops during verify; pauses, never auto-rolls-back *(v4.10.0)* |
 | Rollout rollback | One-click rollback for a staged script rollout *(v5.0.0)* |
 | Rolling reboot orchestrator | Reboot a scope in dependency-ordered waves (leaves first, upstreams last, from each device's `depends_on`; cycle-safe), health-gated + verified per wave via the rollout engine. `POST /api/rollouts/reboot-plan` + `action: reboot` *(v6.0.0)* |
-| Fleet posture reports | One report binding patches/CVEs/health/compliance; JSON/CSV or scheduled email; every Reports table exports to CSV from its card *(v3.4.1; table export v6.4.2)* |
+| Fleet posture reports | One report binding patches/CVEs/health/compliance; JSON/CSV or scheduled email (the CSV/JSON now **attached**, not just summarised); every Reports table exports to CSV from its card; a **Period activity** section — alerts opened/resolved, MTTR median, MTTA mean, update runs, and health/compliance deltas against the start of the window (measured from an alert's FIRST firing, and *n/a* rather than 0 when there is no comparable sample yet) *(v3.4.1; table export, attachments and period activity v6.4.2)* |
 | Custom report builder | Pick sections (devices/health/attention/patches/CVE/SLA/compliance), JSON/CSV, download or schedule *(v4.0.0)* |
 | Per-site (customer) reports | Same report scoped to one site; RBAC-scoped *(v4.10.0)* |
 | SLA / uptime reporting | Per-device + per-group uptime % over 7/30/90d *(v3.4.1)* |
