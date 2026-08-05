@@ -1765,6 +1765,60 @@ if (document.readyState === 'loading') {
 // v2.0: docs page filter. Substring match against the summary text and
 // data-keywords attribute, no fancy ranking. Auto-expands matching cards
 // so search results are immediately visible.
+// ── v6.4.2: in-app documentation viewer ─────────────────────────────────────
+//
+// The doc-pointer program put 126 `<a href="docs/<topic>.md">Documentation</a>`
+// links across the app — 77 of 78 pages have one — and exactly ONE carried
+// target="_blank". The other 125 unloaded the SPA and handed the browser a raw
+// markdown file served as a static asset with no renderer. An operator mid-way
+// through configuring TLS monitoring clicks Documentation, the whole app
+// unloads, they get `# TLS certificate monitoring` in source form (or, on a
+// stock nginx where `.md` has no MIME mapping and the server sends
+// X-Content-Type-Options: nosniff, a file download), and coming back means a
+// full SPA reboot to the dashboard with the half-filled form gone.
+//
+// renderMarkdown() has shipped since the KB and the AI chat. This is a
+// delegated intercept, so every existing link is covered without touching 126
+// anchors — and anything it cannot fetch falls through to the normal navigation
+// rather than trapping the operator in a broken modal.
+async function openDocViewer(path, title) {
+  const modal = document.getElementById('doc-viewer-modal');
+  if (!modal) return false;
+  const body = document.getElementById('doc-viewer-body');
+  const raw = document.getElementById('doc-viewer-raw');
+  document.getElementById('doc-viewer-title').textContent = title || 'Documentation';
+  document.getElementById('doc-viewer-path').textContent = path;
+  if (raw) raw.href = path;
+  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  openModal('doc-viewer-modal');
+  try {
+    const r = await fetch(path, { headers: { 'X-Token': getToken() } });
+    if (!r.ok) throw new Error(String(r.status));
+    const text = await r.text();
+    // renderMarkdown escapes first and transforms on safe ground, so this is
+    // the same sink the KB already uses.
+    body.innerHTML = renderMarkdown(text);
+  } catch (e) {
+    body.innerHTML = '<div class="empty-state">Could not load this page in the app. '
+      + '<a class="c-accent" href="' + escAttr(path) + '" target="_blank" rel="noopener">Open the raw file</a> instead.</div>';
+  }
+  return true;
+}
+
+// One delegated listener rather than 126 edited anchors. A modified click
+// (new tab / new window / middle button) is left alone — an operator asking for
+// a tab should get a tab.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[href^="docs/"]');
+  if (!a || e.defaultPrevented) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  if (a.getAttribute('target') === '_blank') return;
+  const href = a.getAttribute('href') || '';
+  if (!/\.md$/i.test(href)) return;
+  e.preventDefault();
+  openDocViewer(href, (a.textContent || '').trim() || 'Documentation');
+});
+
 function filterDocs(query) {
   const q = (query || '').trim().toLowerCase();
   document.querySelectorAll('#docs-container .doc-card').forEach(card => {
@@ -1776,7 +1830,12 @@ function filterDocs(query) {
     const summary = (card.querySelector('summary')?.textContent || '').toLowerCase();
     const body = (card.querySelector('.doc-body')?.textContent || '').toLowerCase();
     const keywords = (card.dataset.keywords || '').toLowerCase();
-    if (summary.includes(q) || body.includes(q) || keywords.includes(q)) {
+    // v6.4.2: match every TOKEN, not the whole trimmed string. As one substring,
+    // "cve scan" only hit a card containing that exact phrase — so the obvious
+    // two-word query returned nothing while the sidebar search, which has always
+    // been multi-token, found it. Same engine, two behaviours.
+    const hay = summary + ' ' + body + ' ' + keywords;
+    if (q.split(/\s+/).every(t => hay.includes(t))) {
       card.classList.remove('hidden');
       card.setAttribute('open', '');
     } else {
