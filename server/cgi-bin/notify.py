@@ -783,6 +783,11 @@ def _webhook_message(event, payload):
         return f'{name}: {payload.get("detail") or "an account has a blank password"}'
     elif event == "empty_password_cleared":
         return f"{name}: no blank-password accounts remain"
+    elif event == "server_upgraded":
+        # v6.4.2: fleet-level — `name` is the server, and the generic fallback
+        # would read "server_upgraded: unknown".
+        return (f'RemotePower upgraded from {payload.get("from", "?")} to '
+                f'{payload.get("to", "?")}')
     elif event == "priv_group_added":
         return (
             f'{name}: {payload.get("user","?")} gained privileged-group '

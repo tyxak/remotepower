@@ -18965,6 +18965,9 @@ function _renderHomeActivity(fleetEvents) {
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
     // v6.4.2: a local account with a BLANK /etc/shadow password field.
     'empty_password_account', 'empty_password_cleared',
+    // v6.4.2: the controller itself was upgraded — the marker that answers
+    // "did we change anything?" when alert volume or latency shifts.
+    'server_upgraded',
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
@@ -19254,6 +19257,10 @@ function _homeActivityAttrs(event, p) {
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
     // v6.4.2: blank-password account — the drawer's Local accounts table is
     // where the account and its flags are, so route to the host.
+    // v6.4.2: the subject is the server, not a host — the self page is where
+    // its version, uptime and internal health live.
+    case 'server_upgraded':
+      return `${base} data-home-act="self"`;
     case 'empty_password_account': case 'empty_password_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':

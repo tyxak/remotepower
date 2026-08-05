@@ -366,6 +366,29 @@ async function clearClientErrors() {
   if (r && r.ok) { toast(`Cleared ${r.cleared} entr${r.cleared === 1 ? 'y' : 'ies'}`, 'success'); _loadClientErrors(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
+// v6.4.2: when this version started running, and the last few transitions.
+//
+// RemotePower tracks every package upgrade on every managed device and kept no
+// history of its own version — so "did we change anything?", the first question
+// asked when alert volume triples or heartbeat p95 doubles, was unanswerable
+// in-app about the one host RemotePower manages least. The Timeline and the
+// metric charts now carry a `server_upgraded` marker; this is the same fact
+// where an operator is already looking at the server.
+function _versionSinceHtml(s) {
+  return s.version_since
+    ? ` <span class="hint">since ${escHtml(_fmtAbsTs(s.version_since))}</span>`
+    : '';
+}
+
+function _versionHistoryRow(s) {
+  const h = (s.version_history || []).filter(e => e && e.from);
+  if (!h.length) return '';
+  const rows = h.slice(-5).reverse().map(e =>
+    `${escHtml(e.from)} → ${escHtml(e.to)} <span class="hint">${escHtml(_fmtAbsTs(e.at))}</span>`
+  ).join('<br>');
+  return `<tr><td class="c-muted-padded">Upgrade history</td><td class="fs-12">${rows}</td></tr>`;
+}
+
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
   body.innerHTML = _skeletonBlock();
@@ -505,7 +528,8 @@ async function loadSelfStatus() {
     <div class="dash-card">
       <div class="section-title">Site health ${healthPill}</div>
       <table class="fs-13">
-        <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
+        <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}${_versionSinceHtml(s)}</td></tr>
+        ${_versionHistoryRow(s)}
         ${la['1m'] != null ? `<tr><td class="c-muted-padded">Load average</td><td>${la['1m'].toFixed(2)} · ${la['5m'].toFixed(2)} · ${la['15m'].toFixed(2)} <span class="c-muted">(1m · 5m · 15m)</span></td></tr>` : ''}
         ${mem.used_pct != null ? `<tr><td class="c-muted-padded">System memory</td><td>${mem.used_pct}% used · ${_selfFmtBytes((mem.total_kb - mem.available_kb)*1024)} of ${_selfFmtBytes(mem.total_kb*1024)} ${memBar}</td></tr>` : ''}
         ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">Worker process RSS</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}

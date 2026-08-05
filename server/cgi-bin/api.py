@@ -72,6 +72,7 @@ LONGPOLL_FILE    = DATA_DIR / 'longpoll.json'
 APIKEYS_FILE     = DATA_DIR / 'apikeys.json'
 RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
+SERVER_VERSION_FILE = DATA_DIR / 'server_version.json'  # v6.4.2: {current, since, history:[{from,to,at}]}
 AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: key generations 2+
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
@@ -2309,6 +2310,18 @@ EVENT_REGISTRY = {
     # privilege change is an EVENT, not a condition. An auto-resolving row would
     # let a real escalation disappear from the inbox as soon as the attacker
     # undid the visible half of it.
+    # v6.4.2: the controller itself was upgraded. lifecycle='point' and no
+    # recover event — an upgrade is an EVENT, not a condition, exactly like
+    # priv_group_added and control_plane_security_change above. It exists so
+    # that "did we change anything?" has a marker on the Timeline, the metric
+    # charts and the activity feed, which is the first question asked when
+    # alert volume or heartbeat latency shifts. Fleet-level (no device_id):
+    # the subject is the server. Low severity — it is context, not a problem.
+    'server_upgraded': dict(
+        lifecycle='point',
+        label='RemotePower itself was upgraded', kind='accounts',
+        title='Controller Upgraded', severity='low', priority=2,
+        tags='arrow_up,gear'),
     'control_plane_security_change': dict(
         lifecycle='point',
         label='A privileged account or security control on RemotePower itself changed',
@@ -23092,6 +23105,10 @@ _METRIC_ANNOTATION_EVENTS = {
     'drift_detected':    ('drift', 'Config drift'),
     'config_drift':      ('drift', 'Config drift'),
     'oom_detected':      ('oom', 'OOM kill'),
+    # v6.4.2: the first thing to rule out when a metric shifts is a controller
+    # upgrade. Fleet-level, so it annotates EVERY device's chart — which is the
+    # point: the change was to the thing measuring them all.
+    'server_upgraded':   ('upgrade', 'RemotePower upgraded'),
 }
 
 
@@ -30673,6 +30690,17 @@ def handle_self_status():
     require_auth()
     now = int(time.time())
     out = {'now': now, 'server_version': SERVER_VERSION}
+    # v6.4.2: when this version started running, and the last few transitions.
+    # `SERVER_VERSION` alone answers "what is running now"; it never answered
+    # "did we change anything?", which is the question asked when alert volume
+    # or heartbeat latency shifts. Read-only and best-effort.
+    try:
+        _vh = _load_ro(SERVER_VERSION_FILE) if backend_exists(SERVER_VERSION_FILE) else None
+        if isinstance(_vh, dict):
+            out['version_since'] = int(_vh.get('since') or 0)
+            out['version_history'] = list(_vh.get('history') or [])[-10:]
+    except Exception:
+        pass
     # v5.6.x: how the server is actually being served (storage backend, request
     # tier, scheduler) — rendered as the "Serving / Runtime" table on the page.
     out['runtime'] = _runtime_serving_info()
@@ -66603,6 +66631,62 @@ def _record_self_error(context, exc):
     _self_obs_mark(context, False, exc)
 
 
+
+# ── v6.4.2: controller version history ───────────────────────────────────────
+#
+# RemotePower tracks every package upgrade on every managed device (update_logs
+# .json, ten runs per host) and kept NO history of its own version. So when
+# alert volume triples on the 14th, or heartbeat p95 doubles, the first question
+# an operator asks — "did we change anything?" — was unanswerable in-app about
+# the one host RemotePower manages least. The Timeline, the metric charts and
+# the fleet-events feed all covered the window with no marker for the upgrade
+# that happened that morning, and the audit log (if the guided path was even
+# used, which is one of four ways this actually gets upgraded) recorded only
+# `cmd=/usr/local/sbin/remotepower-server-update`.
+#
+# Deliberately NOT `cfg['server_version']` — that idea was abandoned earlier as
+# a stale-value trap. This compares the LIVE constant against the last value
+# observed and only writes on a CHANGE, so the store is a change log, never a
+# claim about what is running now.
+SERVER_VERSION_HISTORY_MAX = 50
+
+
+def _record_server_version_change():
+    """Note a controller version change, once, when it is first observed.
+
+    Cheap: one read of a tiny store on the request path, a write only on the
+    beat after an upgrade. Best-effort — a failure here must never affect a
+    request.
+    """
+    try:
+        store = _load_ro(SERVER_VERSION_FILE) if backend_exists(SERVER_VERSION_FILE) else None
+        prev = (store or {}).get('current')
+        if prev == SERVER_VERSION:
+            return
+        now = int(time.time())
+        with _LockedUpdate(SERVER_VERSION_FILE) as st:
+            # Re-check inside the lock: several workers hit this on the same
+            # first request after a restart, and without this they would each
+            # append the same transition.
+            if st.get('current') == SERVER_VERSION:
+                return
+            was = st.get('current')
+            st['current'] = SERVER_VERSION
+            st['since'] = now
+            hist = st.get('history') if isinstance(st.get('history'), list) else []
+            hist.append({'from': was, 'to': SERVER_VERSION, 'at': now})
+            st['history'] = hist[-SERVER_VERSION_HISTORY_MAX:]
+        # First boot on a fresh install is not an upgrade — recording it is
+        # right (the store needs a baseline), announcing it is not.
+        if was:
+            fire_webhook('server_upgraded', {
+                'name': get_server_name(), 'from': was, 'to': SERVER_VERSION,
+                'detail': f'RemotePower upgraded from {was} to {SERVER_VERSION}.',
+            })
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] server version history: {e}\n')
+
+
 def main():
     # v5.4.1 (keystone Stage A): reset per-request process-local state at the very
     # start. No-op under CGI (fresh process); the boundary a persistent app server
@@ -66758,6 +66842,8 @@ def main():
     _safe(_sqlite_maintenance_if_due, '_sqlite_maintenance_if_due')
     # v3.12.0: daily age-based purge for logs with a configured retention.
     _safe(_retention_sweep_if_due, '_retention_sweep_if_due')
+    # v6.4.2: note a controller version change the first time it is seen.
+    _safe(_record_server_version_change, '_record_server_version_change')
     # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
     # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
     # v6.4.2: called DIRECTLY (like _record_satellite below), NOT via _safe(), and
