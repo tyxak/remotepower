@@ -14,6 +14,7 @@ import unittest
 import sys as _as_sys
 from pathlib import Path as _as_Path
 _as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from srcpin import py_function   # growth-proof source pins
 from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
@@ -86,8 +87,11 @@ class TestHealthGatedRollouts(unittest.TestCase):
         self.assertEqual(api._ALERT_RULES.get('rollout_halted')[0], 'high')
 
     def test_create_accepts_health_gate(self):
-        i = API_SRC.index('def handle_rollouts_create(')
-        self.assertIn('health_gate', API_SRC[i:i + 3000])
+        # v6.4.2: was a fixed API_SRC[i:i+3000] window. The v6.4.2 ring-selector
+        # work grew handle_rollouts_create past 3000 chars before the health_gate
+        # lines, so the pin failed on working code — the exact re-widening
+        # treadmill srcpin exists to end.
+        self.assertIn('health_gate', py_function(API_SRC, 'handle_rollouts_create'))
 
     def test_advance_has_gate_and_pending(self):
         i = API_SRC.index('def _rollout_advance(')

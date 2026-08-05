@@ -971,7 +971,8 @@ provisioning_handlers_mod.bind(globals())
 for _pv_name in (
         '_blueprints_load', '_provisioning_enabled', '_rollout_advance',
         '_rollout_dispatch_ring', '_rollout_log', '_rollout_public',
-        '_rollout_resolve_ring', '_rollout_ring_progress', '_rollout_script_body',
+        '_rollout_resolve_ring', '_rollout_ring_coverage', '_rollout_ring_ids',
+        '_rollout_ring_progress', '_rollout_script_body',
         '_rollout_tick', '_rollout_tick_if_due', '_terraform_available', '_terraform_run',
         'handle_blueprint_create', 'handle_blueprint_delete', 'handle_blueprint_render',
         'handle_blueprint_run', 'handle_blueprint_update', 'handle_blueprints_list',
@@ -17611,7 +17612,11 @@ def _autopatch_clean_rings(raw):
             continue
         sel = r.get('selector') or {}
         st = sel.get('type')
-        if st not in ('group', 'tag', 'ids'):
+        # v6.4.2: same vocabulary as a hand-made rollout ring — an auto-patch
+        # policy that can only say group/tag/ids cannot express the staged shape
+        # it exists to run ("canary 1 %, then 10 %, then the rest").
+        if st not in ('group', 'tag', 'smart', 'site', 'ids',
+                      'percent', 'count', 'remaining'):
             continue
         clean = {'type': st}
         if st == 'ids':
@@ -17619,6 +17624,19 @@ def _autopatch_clean_rings(raw):
                             if _validate_id(str(x).strip())]
             if not clean['ids']:
                 continue
+        elif st == 'remaining':
+            pass                      # position IS the specification
+        elif st in ('percent', 'count'):
+            # A policy is validated silently (no respond() on this path), so a
+            # bad number drops the ring rather than 400-ing — same as every
+            # other malformed ring here.
+            try:
+                _n = float(sel.get('value'))
+            except (TypeError, ValueError):
+                continue
+            if not (0 < _n <= (100 if st == 'percent' else 100000)):
+                continue
+            clean['value'] = str(int(_n) if st == 'count' else _n)
         else:
             clean['value'] = _sanitize_str(str(sel.get('value', '')), 128)
             if not clean['value']:
@@ -17696,10 +17714,10 @@ def _autopatch_queue(pol, actor):
         _autopatch_spawn_rollout(pol, actor)
         # Report how many devices the rings cover, for the run response.
         devices = load(DEVICES_FILE)
-        covered = set()
-        for ring in pol['rings']:
-            covered.update(_rollout_resolve_ring(ring.get('selector'), devices))
-        return len(covered)
+        # v6.4.2: rings are resolved IN ORDER — a percent/remaining ring's
+        # membership depends on what the earlier rings took. Unioning
+        # independently resolved rings would count "the rest" as the whole fleet.
+        return len(_rollout_ring_coverage(pol['rings'], devices))
     targets = _autopatch_target_devices(pol.get('target'), pol.get('tenant_gate'))
     if not targets:
         return 0
@@ -38118,11 +38136,15 @@ def handle_reboot_plan():
     if st == 'all':
         ids = [d for d, dev in devices.items()
                if isinstance(dev, dict) and not dev.get('agentless')]
-    elif st in ('group', 'tag', 'smart', 'ids'):
+    elif st in ('group', 'tag', 'smart', 'site', 'ids'):
         ids = _rollout_resolve_ring(scope, devices)
         ids = [i for i in ids if not (devices.get(i) or {}).get('agentless')]
     else:
-        respond(400, {'error': 'scope.type must be all, group, tag, smart or ids'})
+        # The pool-relative types (percent/count/remaining) are deliberately not
+        # offered here: they are defined relative to the OTHER rings, and this
+        # endpoint takes a single scope which it then splits into dependency-
+        # ordered waves itself.
+        respond(400, {'error': 'scope.type must be all, group, tag, smart, site or ids'})
     if not ids:
         respond(400, {'error': 'no eligible devices in scope'})
     waves = _reboot_wave_plan(ids, devices)

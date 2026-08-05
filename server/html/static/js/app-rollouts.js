@@ -58,10 +58,14 @@ async function openRolloutModal() {
   document.getElementById('ro-action').value = 'upgrade';
   document.getElementById('ro-verify').value = 30;
   document.getElementById('ro-auto').checked = false;
+  // v6.4.2: rows added by "+ Add ring" are removed on reopen, so the form
+  // always starts at the three the markup ships.
   document.querySelectorAll('#ro-rings .ro-ring').forEach((row, i) => {
+    if (i > 2) { row.remove(); return; }
     row.querySelector('.ro-ring-name').value = ['canary', 'pilot', 'broad'][i] || '';
     row.querySelector('.ro-ring-type').value = 'group';
     row.querySelector('.ro-ring-value').value = '';
+    roRingTypeChange(row.querySelector('.ro-ring-type'));
   });
   // Populate the saved-script dropdown
   const sel = document.getElementById('ro-script');
@@ -81,6 +85,44 @@ function onRolloutActionChange() {
   document.getElementById('ro-script-row').classList.toggle('d-none', !isScript);
 }
 
+// v6.4.2: the value box means something different per selector type — and for
+// `remaining` it means nothing at all, since "everything the rings above did
+// not take" is fully specified by the ring's position. Leaving a live text box
+// there invites an operator to type into it and expect it to matter.
+const _RO_RING_PLACEHOLDER = {
+  group: 'group name', tag: 'tag', site: 'site id',
+  smart: 'smart-group name', percent: 'e.g. 10  (% of the fleet)',
+  count: 'e.g. 20  (first N hosts)', ids: 'id,id,id',
+  remaining: 'no value needed',
+};
+function roRingTypeChange(el) {
+  const row = el && el.closest ? el.closest('.ro-ring') : null;
+  if (!row) return;
+  const type = row.querySelector('.ro-ring-type').value;
+  const val = row.querySelector('.ro-ring-value');
+  if (!val) return;
+  val.placeholder = _RO_RING_PLACEHOLDER[type] || '';
+  val.disabled = type === 'remaining';
+  if (type === 'remaining') val.value = '';
+}
+
+function addRolloutRing() {
+  const box = document.getElementById('ro-rings');
+  const rows = box ? box.querySelectorAll('.ro-ring') : [];
+  // The server caps a rollout at 10 rings (raw_rings[:10]); silently accepting
+  // an 11th row and dropping it server-side is the success-then-silence shape.
+  if (!box || rows.length >= 10) { toast('A rollout can have at most 10 rings', 'warning'); return; }
+  const row = rows[rows.length - 1].cloneNode(true);
+  row.querySelector('.ro-ring-name').value = '';
+  row.querySelector('.ro-ring-name').placeholder = 'ring ' + (rows.length + 1);
+  row.querySelector('.ro-ring-type').value = 'remaining';
+  const val = row.querySelector('.ro-ring-value');
+  val.value = '';
+  box.appendChild(row);
+  roRingTypeChange(row.querySelector('.ro-ring-type'));
+  row.querySelector('.ro-ring-name').focus();
+}
+
 async function saveRollout() {
   const name = document.getElementById('ro-name').value.trim();
   if (!name) { toast('Name is required', 'error', {transient: true}); return; }
@@ -90,10 +132,12 @@ async function saveRollout() {
     const rname = row.querySelector('.ro-ring-name').value.trim();
     const type = row.querySelector('.ro-ring-type').value;
     const value = row.querySelector('.ro-ring-value').value.trim();
-    if (!value) return;
+    // `remaining` is the one selector with nothing to type — skipping it for an
+    // empty value would drop the ring that exists to catch what the others miss.
+    if (!value && type !== 'remaining') return;
     const selector = type === 'ids'
       ? { type: 'ids', ids: value.split(',').map(s => s.trim()).filter(Boolean) }
-      : { type, value };
+      : (type === 'remaining' ? { type } : { type, value });
     rings.push({ name: rname || ('ring ' + (rings.length + 1)), selector });
   });
   if (!rings.length) { toast('Add at least one ring with a target', 'error'); return; }

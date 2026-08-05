@@ -11,6 +11,7 @@ api.py. Adding a feature here: edit this file; new routes go in api.py's
 _PATTERN_ROUTE_DEFS / _build_exact_routes as usual.
 """
 import json
+import math
 import os
 import re
 import secrets
@@ -159,7 +160,9 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     if _gate is not None:
         _rdev = {_d: _v for _d, _v in devices.items()
                  if isinstance(_v, dict) and A._device_tenant(_v) == _gate}
-    ids = A._rollout_resolve_ring(ring.get('selector'), _rdev)
+    # v6.4.2: NOT _rollout_resolve_ring on this ring alone — a percent/remaining
+    # ring is defined relative to the rings before it, so 0..idx are replayed.
+    ids = _rollout_ring_ids(roll.get('rings') or [], idx, _rdev)
     now = int(time.time())
     is_upgrade = roll.get('action') == 'upgrade'
     reboot = bool(roll.get('reboot'))
@@ -223,9 +226,37 @@ def _rollout_public(roll):
     return {k: v for k, v in roll.items() if not k.startswith('_')}
 
 
-def _rollout_resolve_ring(selector, devices):
-    """Resolve a ring selector ({'type':'group'|'tag'|'smart'|'ids',
-    'value'/'ids'}) to a de-duped list of valid device ids that currently exist.
+# v6.4.2: ring selectors whose answer depends on the OTHER rings — how much of
+# the fleet is left after the earlier ones took their share. `_rollout_ring_ids`
+# threads that running set; the flat types ignore it.
+_ROLLOUT_POOL_SELECTORS = ('percent', 'count', 'remaining')
+
+
+def _rollout_resolve_ring(selector, devices, exclude=None):
+    """Resolve a ring selector ({'type':'group'|'tag'|'smart'|'site'|'ids'|
+    'percent'|'count'|'remaining', 'value'/'ids'}) to a de-duped list of valid
+    device ids that currently exist.
+
+    `exclude` is the set of ids earlier rings already claimed. It is what makes
+    the canonical staged shape — "canary 1 %, then 10 %, then everything else" —
+    expressible at all, and only the pool-relative types read it.
+
+    v6.4.2: before this, the vocabulary was group/tag/ids and `ids` capped at
+    500, so that shape could not be written down. On a 4,000-host fleet an admin
+    staging an agent self-update had to invent throwaway tags (`ring-canary`,
+    `ring-pilot`) and apply them across 420 hosts through a batch bar that
+    selects one page at a time — before they could even create the rollout. And
+    the final ring had no expression at all: "broad" was whatever group they
+    named, silently omitting every host with no group and every host enrolled
+    after the rollout was created. docs/rollouts.md had been promising rings
+    defined "by group / tag / site / count" the whole time.
+
+    ORDER for the pool-relative types is device id, ascending. Deterministic on
+    purpose: a ring re-resolves at dispatch (the fleet may have changed since
+    creation), and an unstable order would let a host slip between two rings or
+    land in both. The tradeoff is that the same hosts canary every time, which
+    is why a percent ring stays a starting point rather than a replacement for
+    naming a real canary group.
 
     v6.4.2: `smart` was the missing one. Smart groups are a real dynamic-segment
     engine — a saved predicate re-evaluated every ~60s — but `smart:<name>`
@@ -256,11 +287,67 @@ def _rollout_resolve_ring(selector, devices):
         tag = str(selector.get('value') or '')
         out = [did for did, dev in devices.items()
                if isinstance(dev, dict) and tag in (dev.get('tags') or [])]
+    elif t == 'site':
+        site = str(selector.get('value') or '')
+        out = [did for did, dev in devices.items()
+               if isinstance(dev, dict) and (dev.get('site') or '') == site]
+    elif t in _ROLLOUT_POOL_SELECTORS:
+        taken = set(exclude or ())
+        pool = sorted(did for did, dev in devices.items()
+                      if isinstance(dev, dict) and did not in taken)
+        if t == 'remaining':
+            out = pool
+        else:
+            try:
+                n = float(selector.get('value') or 0)
+            except (TypeError, ValueError):
+                n = 0
+            if t == 'percent':
+                # A percentage of the WHOLE fleet, not of what is left — so
+                # 1 % / 10 % / remaining reads the way an operator says it.
+                # ceil, because 1 % of 40 hosts must be one host and not a ring
+                # that silently dispatches to nobody.
+                n = math.ceil(max(0.0, min(100.0, n)) / 100.0 * len(devices or {}))
+            out = pool[:max(0, int(n))]
     seen, uniq = set(), []
     for d in out:
         if d not in seen:
             seen.add(d); uniq.append(d)
     return uniq
+
+
+def _rollout_ring_ids(rings, idx, devices):
+    """v6.4.2: ring `idx`'s ids, with the pool-relative types resolved against
+    what rings 0..idx-1 claim.
+
+    A `remaining` or `percent` ring cannot be resolved on its own — its answer
+    is defined by the rings before it. Every caller that resolves ring N must
+    therefore replay 0..N-1 rather than calling `_rollout_resolve_ring`
+    directly, or a "10 %" second ring hands back the same hosts the canary
+    already took and a "the rest" ring covers the entire fleet a second time.
+
+    Replayed live rather than read from `rings_state[i].dispatched_ids`: the
+    fleet moves between rings (that is the whole point of the verify window),
+    and a host that was quarantined during ring 1 must not be silently promoted
+    into "everything else" just because ring 1 skipped it at dispatch.
+    """
+    if not (0 <= idx < len(rings or [])):
+        return []
+    taken = set()
+    ids = []
+    for i in range(idx + 1):
+        ids = _rollout_resolve_ring((rings[i] or {}).get('selector'), devices, taken)
+        taken.update(ids)
+    return ids
+
+
+def _rollout_ring_coverage(rings, devices):
+    """Every id any ring in `rings` reaches — the union, with pool-relative
+    rings resolved in order."""
+    taken = set()
+    for r in (rings or []):
+        taken.update(_rollout_resolve_ring((r or {}).get('selector'), devices, taken))
+    return taken
 
 
 # v6.4.1: how long after dispatch a self-update ring device gets to come back
@@ -802,7 +889,8 @@ def handle_rollouts_create():
             continue
         sel = r.get('selector') or {}
         st = sel.get('type')
-        if st not in ('group', 'tag', 'smart', 'ids'):
+        if st not in ('group', 'tag', 'smart', 'site', 'ids',
+                      'percent', 'count', 'remaining'):
             continue
         clean = {'type': st}
         if st == 'ids':
@@ -810,6 +898,22 @@ def handle_rollouts_create():
                             if A._validate_id(str(x).strip())]
             if not clean['ids']:
                 continue
+        elif st == 'remaining':
+            # v6.4.2: the one selector that carries no value — "everything the
+            # earlier rings did not take" is fully specified by its position.
+            pass
+        elif st in ('percent', 'count'):
+            # A typo here would otherwise resolve to zero hosts and the rollout
+            # would report a ring "done" having dispatched to nobody — 201 and
+            # a success toast for a ring that can never do anything.
+            try:
+                _n = float(sel.get('value'))
+            except (TypeError, ValueError):
+                A.respond(400, {'error': f'{st} ring needs a number'})
+            _hi = 100 if st == 'percent' else 100000
+            if not (0 < _n <= _hi):
+                A.respond(400, {'error': f'{st} ring must be between 1 and {_hi}'})
+            clean['value'] = str(int(_n) if st == 'count' else _n)
         else:
             clean['value'] = A._sanitize_str(sel.get('value', ''), 128)
             if not clean['value']:

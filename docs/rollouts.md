@@ -6,8 +6,16 @@ caught on a few hosts before it reaches everything.
 
 ## Ring model
 
-- You define the rings (which hosts are canary, pilot, broad — by group / tag /
-  site / count).
+- You define the rings (which hosts are canary, pilot, broad). A ring targets a
+  **group**, a **tag**, a **site**, a **smart group**, a **percentage of the
+  fleet**, the **first N hosts**, a pasted **device-id list** (up to 500), or
+  **everything else** — which takes every host the rings above it did not, so
+  the last ring can't silently omit ungrouped hosts or hosts enrolled after the
+  rollout was created. Up to 10 rings.
+- Percentages and counts are of the whole fleet and resolve in device-id order,
+  so `1 %` → `10 %` → everything else is disjoint and adds up. They are
+  re-resolved when the ring is released, not frozen at creation — a device-id
+  list is the one selector that *is* frozen.
 - A ring is released, then **verified** before the next ring starts:
   - **Upgrades** use post-deploy verification (the agent confirms the new
     version is healthy after updating).

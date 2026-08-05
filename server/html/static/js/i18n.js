@@ -1575,6 +1575,7 @@
     "+ Add tunnel": { "fr": "+ Ajouter un tunnel", "de": "+ Tunnel hinzufügen", "zh": "+ 添加隧道", "hi": "+ टनल जोड़ें", "es": "+ Añadir túnel", "ar": "+ إضافة نفق" },
     "+ Add user": { "fr": "+ Ajouter un utilisateur", "de": "+ Benutzer hinzufügen", "zh": "+ 添加用户", "hi": "+ उपयोगकर्ता जोड़ें", "es": "+ Añadir usuario", "ar": "+ إضافة مستخدم" },
     "+ Agentless device": { "fr": "+ Appareil sans agent", "de": "+ Agentenloses Gerät", "zh": "+ 无代理设备", "hi": "+ एजेंटरहित डिवाइस", "es": "+ Dispositivo sin agente", "ar": "+ جهاز بلا وكيل" },
+    "+ Add ring": { "fr": "+ Ajouter un anneau", "de": "+ Ring hinzufügen", "zh": "+ 添加批次", "hi": "+ रिंग जोड़ें", "es": "+ Añadir anillo", "ar": "+ إضافة حلقة" },
     "+ Issue new cert": { "fr": "+ Émettre un nouveau certificat", "de": "+ Neues Zertifikat ausstellen", "zh": "+ 签发新证书", "hi": "+ नया cert जारी करें", "es": "+ Emitir nuevo certificado", "ar": "+ إصدار شهادة جديدة" },
     "-----BEGIN OPENSSH PRIVATE KEY-----": { fr: "-----BEGIN OPENSSH PRIVATE KEY-----",de: '-----BEGIN OPENSSH PRIVATE KEY-----',  "zh": "-----BEGIN OPENSSH PRIVATE KEY-----", "hi": "-----BEGIN OPENSSH PRIVATE KEY-----", "es": "-----BEGIN OPENSSH PRIVATE KEY-----", "ar": "-----BEGIN OPENSSH PRIVATE KEY-----" },
     "/etc/hosts": { fr: "/etc/hosts",de: '/etc/hosts',  "zh": "/etc/hosts", "hi": "/etc/hosts", "es": "/etc/hosts", "ar": "/etc/hosts" },

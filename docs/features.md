@@ -467,7 +467,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Staged / ring rollouts | Canary → pilot → broad upgrade/script push, verified per ring, auto/manual promote *(v3.4.2)* |
+| Staged / ring rollouts | Canary → pilot → broad upgrade/script push, verified per ring, auto/manual promote *(v3.4.2)*. A ring targets a group, tag, **site**, **smart group**, **% of the fleet**, **first N hosts**, device-id list, or **everything else** — the last taking every host the rings above it did not, so a final ring can't silently omit ungrouped hosts or hosts enrolled after the rollout was created *(v6.4.2; group/tag/ids only before, which made "1 % → 10 % → the rest" impossible to write down without inventing throwaway tags across hundreds of hosts first)*. Percent/count are of the whole fleet, resolve in device-id order, and re-resolve when the ring is released. Up to 10 rings, with an Add ring control — the modal had three hardcoded rows and the server has always taken ten. Auto-patch policies use the same vocabulary |
 | Health-gated rollouts | Auto-halt + `rollout_halted` if a host's health drops during verify; pauses, never auto-rolls-back *(v4.10.0)* |
 | Rollout rollback | One-click rollback for a staged script rollout *(v5.0.0)* |
 | Rolling reboot orchestrator | Reboot a scope in dependency-ordered waves (leaves first, upstreams last, from each device's `depends_on`; cycle-safe), health-gated + verified per wave via the rollout engine. `POST /api/rollouts/reboot-plan` + `action: reboot` *(v6.0.0)* |
