@@ -288,3 +288,171 @@ def handle_ignored_remove():
             data['devices'] = [e for e in data['devices'] if e.get('id') != did]
     A.respond(200, {'ok': True})
 
+
+
+# ── v6.4.2: the unified suppression view ─────────────────────────────────────
+#
+# "Why isn't this alerting?" had no single answer surface. Suppression state is
+# split across SEVEN independent mechanisms, each with its own UI home:
+#
+#   alert mutes            alert_mutes.json      → Monitoring → Tuning
+#   Needs-Attention ignores ignored_items.json   → Settings → Ignored items
+#   NA class rules         na_suppress_rules.json→ Settings → Ignored items
+#   accepted-risk CVEs     cve_ignore.json       → Security → CVE
+#   exposure mutes         config.exposure_mutes → Security → Exposure
+#   maintenance windows    maintenance.json      → Scheduling → Maintenance
+#   quiet hours            config.quiet_hours    → a topbar moon and nothing else
+#
+# Only the last two are even discoverable during an incident, and only
+# maintenance had a rollup. So a host that stops paging sends the operator to six
+# pages across four accordion groups, each of which collapses the previous one.
+# The product already treats this as a real question — the topbar's quiet-hours
+# indicator carries the comment "why am I not being paged?" — that instinct just
+# stopped at one of the seven.
+#
+# Read-only aggregation over stores that all already have list handlers; no new
+# state. Every row carries `page`/`tab` so the UI can send the operator to the
+# surface that can LIFT it, because a rollup you cannot act from is the same dead
+# end one level up.
+
+def handle_suppressions():
+    """GET /api/suppressions — every active suppression, from all seven
+    mechanisms, in one list. Read-only. Auth: require_auth (nothing here is a
+    secret; it is the same data each owning page already shows)."""
+    A.require_auth()
+    now = int(A.time.time())
+    cfg = A._config_ro() or {}
+    # Scope + tenant, folded once. A tenant admin resolves to scope None, so
+    # this has to be explicit — the same class as every other fleet aggregate.
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    visible = set(devices)
+    all_devs = A.load(A.DEVICES_FILE) or {}
+
+    def _dev_ok(did):
+        """Keep fleet-level rows (no device) and rows for a visible device; drop
+        a row naming a device that exists but is not this caller's."""
+        if not did:
+            return True
+        return did not in all_devs or did in visible
+
+    def _name(did):
+        return (devices.get(did) or {}).get('name') or did or ''
+
+    rows = []
+
+    def add(kind, label, detail, page, tab=None, device_id='', extra=None):
+        if not _dev_ok(device_id):
+            return
+        r = {'kind': kind, 'label': label, 'detail': detail,
+             'page': page, 'device_id': device_id or '',
+             'device_name': _name(device_id) if device_id else ''}
+        if tab:
+            r['tab'] = tab
+        if extra:
+            r.update(extra)
+        rows.append(r)
+
+    # 1. per-(host, event) alert mutes — expired ones are not in force, so they
+    #    are not listed (listing one would say "silenced" when it is not).
+    try:
+        for m in (A._alert_mutes_load().get('mutes') or []):
+            if A._mute_expired(m, now):
+                continue
+            what = m.get('container') and f"container {m['container']}" \
+                or m.get('event') or 'all events'
+            add('alert_mute', what,
+                'Muted' + (' until it lapses' if m.get('expires_at')
+                           else ' permanently'),
+                'tuning', device_id=m.get('device_id') or '',
+                extra={'expires_at': m.get('expires_at') or 0,
+                       'id': m.get('id') or ''})
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: alert mutes: {e}\n')
+
+    # 2 + 3. Needs-Attention per-item ignores and class-level rules.
+    try:
+        data = A._ignored_load()
+        for cat, entries in (data or {}).items():
+            if not isinstance(entries, list):
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                add('na_ignore', f"{cat}: {e.get('id') or e.get('key') or '?'}",
+                    'Hidden from Needs attention',
+                    'settings', tab='ignored',
+                    device_id=e.get('device_id') or '')
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: ignores: {e}\n')
+    try:
+        for r in (A._na_suppress_rules() or []):
+            add('na_rule',
+                f"{r.get('kind') or 'any'} / {r.get('severity') or 'any'}",
+                'Class rule — hides matching Needs-attention items',
+                'settings', tab='ignored',
+                extra={'id': r.get('id') or ''})
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: na rules: {e}\n')
+
+    # 4. accepted-risk CVEs.
+    try:
+        for vuln_id, meta in (A.load(A.CVE_IGNORE_FILE) or {}).items():
+            meta = meta if isinstance(meta, dict) else {}
+            add('cve_accepted', str(vuln_id)[:64],
+                'Accepted risk' + (f" — {meta['reason']}"
+                                   if meta.get('reason') else ''),
+                'cve', device_id=meta.get('device_id') or '')
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: cve ignores: {e}\n')
+
+    # 5. exposure mutes (a muted world-exposed port).
+    try:
+        for m in (cfg.get('exposure_mutes') or []):
+            m = m if isinstance(m, dict) else {}
+            add('exposure_mute',
+                f"port {m.get('port', '?')}/{m.get('proto', 'tcp')}",
+                'World-exposed-port check muted',
+                'exposure', device_id=m.get('device_id') or '')
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: exposure: {e}\n')
+
+    # 6. maintenance windows — ACTIVE ones only. A window that has not started
+    #    is not suppressing anything yet, and saying it is would be the same
+    #    class of lie this page exists to end.
+    try:
+        for w in ((A.load(A.MAINT_FILE) or {}).get('windows') or []):
+            if not isinstance(w, dict):
+                continue
+            start = A._parse_iso(w.get('start'))
+            end = A._parse_iso(w.get('end'))
+            if start and end and not (start <= now <= end):
+                continue
+            add('maintenance',
+                f"{w.get('scope') or 'global'}: {w.get('target') or 'fleet'}",
+                'Maintenance window' + (f" — {w['reason']}"
+                                        if w.get('reason') else ''),
+                'maintenance',
+                device_id=w.get('target') if w.get('scope') == 'device' else '',
+                extra={'ends_at': end or 0})
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: maintenance: {e}\n')
+
+    # 7. quiet hours — a schedule, not a per-host rule, so it is one row.
+    try:
+        qh = cfg.get('quiet_hours') or {}
+        if qh.get('enabled'):
+            add('quiet_hours',
+                f"{qh.get('start') or '?'}–{qh.get('end') or '?'}",
+                'Outbound delivery held outside these hours'
+                + (f" (severity {qh['min_severity']} and above still deliver)"
+                   if qh.get('min_severity') else ''),
+                'settings', tab='dashboard')
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: quiet hours: {e}\n')
+
+    counts = {}
+    for r in rows:
+        counts[r['kind']] = counts.get(r['kind'], 0) + 1
+    rows.sort(key=lambda r: (r['kind'], r['device_name'].lower(), r['label']))
+    A.respond(200, {'ok': True, 'suppressions': rows,
+                    'total': len(rows), 'counts': counts})

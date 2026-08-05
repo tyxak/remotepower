@@ -19,6 +19,9 @@ async function loadTuning() {
   _renderTuningNoisy(d.noisy || []);
   _renderTuningSources(d.sources || []);
   _renderTuningMutes(d.mutes || []);
+  // v6.4.2: the unified suppression view rides the same page load. Separate
+  // endpoint, fire-and-forget — a failure there must not blank the Tuning page.
+  loadSuppressions();
 }
 
 function _renderTuningNoisy(rows) {
@@ -155,4 +158,79 @@ async function unmuteAlert(id) {
     }
   }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+// ── v6.4.2: the unified suppression view ─────────────────────────────────────
+//
+// "Why isn't this alerting?" had no single answer surface. A host stops paging
+// and the operator has to check Tuning for a mute, Settings → Ignored items for
+// an NA ignore or a class rule, the CVE page for an accepted risk, Exposure for
+// a port mute, and Maintenance for an open window — six places across four
+// accordion groups, each of which collapses the previous one. Only maintenance
+// had a rollup. The product already treats this as a real question: the topbar's
+// quiet-hours moon carries the comment "why am I not being paged?".
+//
+// Read-only by design. Every row routes to the surface that OWNS the lift, so
+// this is a map rather than a seventh place to manage state from.
+const _SUPPRESSION_LABELS = {
+  alert_mute:    'Alert mute',
+  na_ignore:     'Needs-attention ignore',
+  na_rule:       'Needs-attention rule',
+  cve_accepted:  'Accepted CVE risk',
+  exposure_mute: 'Exposure mute',
+  maintenance:   'Maintenance window',
+  quiet_hours:   'Quiet hours',
+};
+
+let _suppressions = null;
+
+async function loadSuppressions() {
+  const tb = document.getElementById('suppressions-tbody');
+  if (!tb) return;
+  tableCtl.wireSortOnly('suppressions-thead', 'suppressions', () => _renderSuppressions());
+  const d = await api('GET', '/suppressions').catch(() => null);
+  if (!d || !Array.isArray(d.suppressions)) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">Could not load suppressions.</td></tr>';
+    return;
+  }
+  _suppressions = d;
+  _renderSuppressions();
+}
+
+function _renderSuppressions() {
+  const tb = document.getElementById('suppressions-tbody');
+  if (!tb || !_suppressions) return;
+  const summary = document.getElementById('suppressions-summary');
+  const rows = tableCtl.sortRows('suppressions', (_suppressions.suppressions || []).slice(), (r) => ({
+    kind: _SUPPRESSION_LABELS[r.kind] || r.kind,
+    device_name: (r.device_name || '').toLowerCase(),
+    label: (r.label || '').toLowerCase(),
+    detail: (r.detail || '').toLowerCase(),
+  }));
+  if (summary) {
+    const parts = Object.entries(_suppressions.counts || {})
+      .map(([k, n]) => `${n} ${_SUPPRESSION_LABELS[k] || k}`);
+    summary.textContent = rows.length
+      ? `${_suppressions.total} active — ${parts.join(' · ')}`
+      : '';
+  }
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">Nothing is silenced. Every alert this fleet can raise will reach you.</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map((r) => `<tr>
+    <td><span class="patch-badge">${escHtml(_SUPPRESSION_LABELS[r.kind] || r.kind)}</span></td>
+    <td class="fw-500">${escHtml(r.device_name || '—')}</td>
+    <td>${escHtml(r.label || '')}</td>
+    <td class="hint">${escHtml(r.detail || '')}</td>
+    <td class="ta-right"><button class="btn-icon" data-action="gotoSuppression" data-arg="${escAttr(r.page || '')}" data-arg2="${escAttr(r.tab || '')}" title="Open the page that can lift this">Open</button></td>
+  </tr>`).join('');
+}
+
+// The lift lives on the owning page — a rollup that duplicated six different
+// "unmute" flows would be a seventh place for this state to drift.
+function gotoSuppression(page, tab) {
+  if (!page) return;
+  showPage(String(page));
+  if (tab) setTimeout(() => document.getElementById('settings-tab-btn-' + tab)?.click(), 60);
 }

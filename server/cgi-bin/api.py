@@ -1072,6 +1072,7 @@ for _at_name in (
         'handle_na_suppress_list', 'handle_na_suppress_add',
         'handle_na_suppress_remove',
         'handle_ignored_list', 'handle_ignored_add', 'handle_ignored_remove',
+        'handle_suppressions',   # v6.4.2: the unified "why isn't this alerting?" view
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -65298,6 +65299,9 @@ def _build_exact_routes():
         ('GET', '/api/portal/ticket-queue'): handle_portal_ticket_queue,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
+        # v6.4.2: every active suppression from all seven mechanisms, in one
+        # list — "why isn't this alerting?" had no single answer surface.
+        ('GET', '/api/suppressions'): handle_suppressions,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
         ('GET', '/api/alert-tuning'): handle_alert_tuning,
         ('GET', '/api/alerts/resolution-stats'): handle_alert_resolution_stats,

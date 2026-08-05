@@ -458,3 +458,148 @@ class TestGenericWebhookCustomHeaders(unittest.TestCase):
         self.assertIn('data-field="custom_headers"', js)
         self.assertIn("d.headers = hdrs", js,
                       "the field is rendered and never read back out")
+
+
+class TestUnifiedSuppressionView(unittest.TestCase):
+    """"Why isn't this alerting?" had no single answer surface.
+
+    Suppression is split across SEVEN independent mechanisms — alert mutes,
+    Needs-attention per-item ignores, NA class rules, accepted-risk CVEs,
+    exposure mutes, maintenance windows and quiet hours — each with its own UI
+    home across four accordion groups, of which only maintenance had a rollup.
+    A host that stops paging sent the operator to six pages, each of which
+    collapses the previous one. The product already treats this as a real
+    question: the topbar's quiet-hours moon carries the comment "why am I not
+    being paged?". That instinct stopped at one of the seven.
+    """
+
+    def setUp(self):
+        n = int(time.time())
+        self.now = n
+        self._saved = {k: getattr(api, k) for k in
+                       ("require_auth", "_caller_scope", "_tenant_gate", "_env",
+                        "_scope_filter_devices")}
+        api.require_auth = lambda *a, **k: "jakob"
+        api._caller_scope = lambda *a, **k: None
+        api._tenant_gate = lambda *a, **k: None
+        api._env = lambda k, d="": d
+        api.save(api.DEVICES_FILE, {"sup1": {"name": "web01", "last_seen": n},
+                                    "sup2": {"name": "other", "last_seen": n}})
+        api.save(api.ALERT_MUTES_FILE, {"mutes": [
+            {"id": "m1", "device_id": "sup1", "event": "nic_errors"},
+            {"id": "m2", "device_id": "sup1", "container": "nginx",
+             "expires_at": n + 3600},
+            {"id": "m3", "device_id": "sup1", "event": "lapsed",
+             "expires_at": n - 10},
+            {"id": "m4", "device_id": "sup2", "event": "othertenant"}]})
+        api.save(api.IGNORED_ITEMS_FILE,
+                 {"attention": [{"id": "a1", "device_id": "sup1"}]})
+        api.save(api.NA_SUPPRESS_FILE,
+                 {"rules": [{"id": "r1", "kind": "av_posture",
+                             "severity": "low"}]})
+        api.save(api.CVE_IGNORE_FILE,
+                 {"CVE-2024-1": {"reason": "not exploitable",
+                                 "device_id": "sup1"}})
+        api.save(api.MAINT_FILE, {"windows": [
+            {"id": "w1", "scope": "device", "target": "sup1",
+             "start": "2020-01-01T00:00:00", "end": "2099-01-01T00:00:00",
+             "reason": "upgrade"},
+            {"id": "w2", "scope": "global", "target": "",
+             "start": "2020-01-01T00:00:00", "end": "2020-01-02T00:00:00"}]})
+        api.save(api.CONFIG_FILE, {
+            "exposure_mutes": [{"device_id": "sup1", "port": 22,
+                                "proto": "tcp"}],
+            "quiet_hours": {"enabled": True, "start": "22:00", "end": "07:00",
+                            "min_severity": "critical"}})
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(api, k, v)
+
+    def _get(self):
+        try:
+            api.handle_suppressions()
+            self.fail("handler did not respond")
+        except api.HTTPError as e:
+            return e.body
+
+    def test_all_seven_mechanisms_are_represented(self):
+        counts = self._get()["counts"]
+        for kind in ("alert_mute", "na_ignore", "na_rule", "cve_accepted",
+                     "exposure_mute", "maintenance", "quiet_hours"):
+            with self.subTest(kind=kind):
+                self.assertIn(kind, counts,
+                              f"{kind} suppressions are invisible in the "
+                              "one place that claims to list everything")
+
+    def test_a_lapsed_mute_is_not_listed(self):
+        """An expired timed mute is not in force; listing it would say
+        "silenced" about something that is not."""
+        rows = self._get()["suppressions"]
+        self.assertFalse(any(r.get("id") == "m3" for r in rows))
+
+    def test_a_finished_maintenance_window_is_not_listed(self):
+        rows = [r for r in self._get()["suppressions"]
+                if r["kind"] == "maintenance"]
+        self.assertEqual(len(rows), 1,
+                         "a window that has ended is not suppressing anything")
+
+    def test_every_row_routes_to_the_page_that_can_lift_it(self):
+        """A rollup you cannot act from is the same dead end one level up."""
+        for r in self._get()["suppressions"]:
+            with self.subTest(kind=r["kind"]):
+                self.assertTrue(r.get("page"),
+                                "no route back to the owning surface")
+
+    def test_it_is_scope_filtered(self):
+        """A tenant admin resolves to scope None, so this has to be explicit —
+        the same class as every other fleet aggregate in this codebase."""
+        api._scope_filter_devices = lambda d: {k: v for k, v in d.items()
+                                               if k != "sup2"}
+        rows = self._get()["suppressions"]
+        self.assertFalse(any(r["device_id"] == "sup2" for r in rows),
+                         "another scope's mutes leak through the rollup")
+
+    def test_fleet_level_rows_survive_scoping(self):
+        """Quiet hours and a class rule belong to no host — filtering them out
+        along with the invisible devices would hide real suppression."""
+        api._scope_filter_devices = lambda d: {}
+        kinds = {r["kind"] for r in self._get()["suppressions"]}
+        self.assertIn("quiet_hours", kinds)
+        self.assertIn("na_rule", kinds)
+
+    def test_a_broken_store_does_not_break_the_view(self):
+        """Seven stores; one unreadable must cost one section, not the page."""
+        api.save(api.CVE_IGNORE_FILE, "garbage")
+        api._LOAD_CACHE.clear()
+        body = self._get()
+        self.assertIn("alert_mute", body["counts"])
+
+    def test_the_route_is_registered(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from routing_harness import routes_to
+        self.assertEqual(routes_to("GET", "/api/suppressions"),
+                         "handle_suppressions")
+
+    def test_the_client_renders_and_routes(self):
+        js = (_JS / "app-tuning.js").read_text()
+        self.assertRegex(js, r"\basync function loadSuppressions\s*\(")
+        self.assertIn("loadSuppressions();", js,
+                      "defined and never called")
+        self.assertIn('data-action="gotoSuppression"', js)
+        self.assertRegex(js, r"\bfunction gotoSuppression\s*\(")
+
+    def test_the_table_is_capped_and_scrolls(self):
+        html = (ROOT / "server" / "html" / "index.html").read_text()
+        i = html.index('id="suppressions-card"')
+        card = html[i:html.index("</table>", i)]
+        self.assertIn("scrollable-table-wrap audit-scroll", card,
+                      "uncapped table — a fleet with 300 mutes grows unbounded")
+
+    def test_sorting_is_wired_eagerly(self):
+        js = (_JS / "app-tuning.js").read_text()
+        body = js[js.index("async function loadSuppressions"):]
+        body = body[:body.index("\n}\n")]
+        self.assertLess(body.index("wireSortOnly"), body.index("api('GET'"),
+                        "sort indicators appear only after data arrives")
