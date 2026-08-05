@@ -739,6 +739,16 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v6.2.2: helpdesk open-ticket count (distinct from the
                               # 'tickets' widget, which is actually the Alerts inbox)
                               'helpdesk',
+                              # v6.4.2: the onboarding checklist. GET /api/setup-status
+                              # had exactly ONE renderer — Settings → Install, a tab
+                              # reached only by opening Settings (which lands on
+                              # General) and then clicking Install. So the product
+                              # knew exactly what a new operator should do next and
+                              # showed it on no surface they would look at. Default
+                              # ON, and the renderer hides the card once the required
+                              # steps are done, so it removes itself rather than
+                              # becoming permanent clutter.
+                              'setup',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
@@ -7873,7 +7883,17 @@ def _log_webhook(event, url, status, detail=''):
     """Append an entry to the webhook log (last MAX_WEBHOOK_LOG entries)."""
     try:
         wl = load(WEBHOOK_LOG_FILE)
-        entries = wl.get('entries', [])
+        # v6.4.2: an install that _log_email had already clobbered has a BARE
+        # LIST on disk, and `.get` on it raised straight into the `except
+        # Exception: pass` below — so webhook logging stayed permanently dead
+        # even after the write-side fix. Migrate the shape on read.
+        if isinstance(wl, list):
+            wl = {'entries': wl}
+        elif not isinstance(wl, dict):
+            wl = {}
+        entries = wl.get('entries')
+        if not isinstance(entries, list):
+            entries = []
         entries.append({
             'ts':     int(time.time()),
             'event':  str(event)[:64],
@@ -8180,18 +8200,39 @@ def _send_event_email(event, payload, message, cfg, server_name):
 
 
 def _log_email(event, recipients, status, detail):
-    """Append to the webhook log file but tag as 'email' channel for visibility."""
+    """Append to the webhook log file but tag as 'email' channel for visibility.
+
+    v6.4.2 — this wrote the WRONG SHAPE and destroyed the log. `_log_webhook`
+    persists `{'entries': [...]}`; this read that dict, failed `isinstance(log,
+    list)`, reset to `[]` and saved a BARE LIST holding one email entry. So the
+    first email notification wiped every webhook delivery record — and from then
+    on `_log_webhook`'s `wl.get('entries')` raised AttributeError against the
+    list, swallowed by its own `except Exception: pass`, so webhook deliveries
+    were never recorded again on that install. Driven both ways.
+
+    The bare-list shape is also what old deployments have on disk (the log
+    handler already tolerates both), so this reads either and always writes the
+    canonical dict. Appending — not `insert(0, …)` — because the reader does
+    `reversed(entries)` and expects oldest-first; the email rows had been
+    rendering in the wrong order too.
+    """
     try:
-        log = load(WEBHOOK_LOG_FILE)
-        if not isinstance(log, list):
-            log = []
-        log.insert(0, {
+        wl = load(WEBHOOK_LOG_FILE)
+        if isinstance(wl, list):
+            wl = {'entries': wl}
+        elif not isinstance(wl, dict):
+            wl = {}
+        entries = wl.get('entries')
+        if not isinstance(entries, list):
+            entries = []
+        entries.append({
             'ts':         int(time.time()),
             'event':      f'{event} (email)',
             'status':     status,
             'detail':     f'{len(recipients)} recipient(s): {detail}'[:300],
         })
-        save(WEBHOOK_LOG_FILE, log[:MAX_WEBHOOK_LOG])
+        wl['entries'] = entries[-MAX_WEBHOOK_LOG:]
+        save(WEBHOOK_LOG_FILE, wl)
     except Exception:
         pass
 
@@ -55302,12 +55343,50 @@ def handle_setup_status():
     devices = load(DEVICES_FILE) or {}
 
     pw_done = bool(users) and not any(u.get('must_change_password') for u in users.values())
-    notif_done = bool((cfg.get('webhook_url') or '').strip()
-                      or (cfg.get('webhook_urls') or [])
-                      or (cfg.get('smtp_enabled') and cfg.get('smtp_host')))
+    notif_configured = bool((cfg.get('webhook_url') or '').strip()
+                            or (cfg.get('webhook_urls') or [])
+                            or (cfg.get('smtp_enabled') and cfg.get('smtp_host')))
+    # v6.4.2: this step used to be a PRESENCE test, so one mis-pasted character
+    # in a Discord path scored a green tick and the checklist declared "all set"
+    # — and the first real device_offline fired into a 404 with nobody paged,
+    # which is the exact failure the checklist exists to prevent. RemotePower
+    # already records every delivery attempt in webhook_log.json (and the
+    # Settings pane already has a "Send test webhook" button that produces one),
+    # so the tick can be evidence instead of a promise. The step is only DONE
+    # when a delivery has actually succeeded; configured-but-never-delivered is
+    # reported as its own state so the UI can say which of the two it is.
+    #
+    # NB this evidence was itself broken until this release: _log_email wrote a
+    # bare list over the canonical {'entries': […]} dict, wiping the log and
+    # permanently killing webhook logging on any install that ever sent an
+    # email. Gating on the log before fixing that would have made the tick
+    # unreachable.
+    notif_delivered = False
+    try:
+        _wl = _load_ro(WEBHOOK_LOG_FILE) if backend_exists(WEBHOOK_LOG_FILE) else None
+        _wentries = (_wl.get('entries') if isinstance(_wl, dict)
+                     else _wl if isinstance(_wl, list) else None) or []
+        notif_delivered = any(
+            str((e or {}).get('status', '')).lower() in ('ok', 'success', '200')
+            for e in _wentries if isinstance(e, dict))
+    except Exception:
+        notif_delivered = False
+    notif_done = notif_configured and notif_delivered
     backup_done = bool(cfg.get('backup'))
     twofa_done = bool((users.get(user) or {}).get('totp_secret'))
     n_dev = sum(1 for d in devices.values() if isinstance(d, dict))
+
+    if not notif_configured:
+        _notif_detail = ('Add a webhook (Slack/Discord/ntfy/PagerDuty) or SMTP '
+                         'email so alerts reach you.')
+    elif not notif_delivered:
+        _notif_detail = ('A channel is configured but nothing has ever been '
+                         'delivered through it. Send a test from Settings → '
+                         'Notifications — a typo in a webhook URL fails '
+                         'silently, and you would find out from the first '
+                         'alert nobody received.')
+    else:
+        _notif_detail = 'A notification has been delivered successfully.'
 
     steps = [
         {'id': 'admin-password', 'title': 'Set a strong admin password',
@@ -55318,8 +55397,10 @@ def handle_setup_status():
          'page': 'devices', 'required': True, 'done': n_dev > 0,
          'count': n_dev},
         {'id': 'notifications', 'title': 'Configure a notification channel',
-         'detail': 'Add a webhook (Slack/Discord/ntfy/PagerDuty) or SMTP email so alerts reach you.',
-         'page': 'settings', 'tab': 'notifs', 'required': False, 'done': notif_done},
+         'detail': _notif_detail,
+         'page': 'settings', 'tab': 'notifs', 'required': False,
+         'done': notif_done, 'configured': notif_configured,
+         'verified': notif_delivered},
         {'id': 'backups', 'title': 'Enable scheduled backups',
          'detail': 'Turn on automatic config/state backups so you can recover the server.',
          'page': 'settings', 'tab': 'backups', 'required': False, 'done': backup_done},

@@ -430,7 +430,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.5.0)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.5.0)* |
 | Enrolment auto-placement | Rules (Settings → Sites & teams) stamp group / site / tags on a **new** device by hostname regex or source-IP CIDR — first match wins, token defaults still win over a rule; never touches already-enrolled devices *(v6.0.0)* |
-| PIN enrolment | 6-digit, single-use, 10-min expiry |
+| PIN enrolment | 6-digit, single-use, 10-min expiry. **Enrolment confirmation** *(v6.4.2)*: after minting a token or PIN, the Enroll-device dialog polls for the host's first check-in and says "✓ web01 checked in — enrolled successfully", or after five minutes says what to look at instead. It used to print the one-liner and go permanently silent, so the operator could not tell "it worked, wait 60s" from "the token was rejected" — the highest-stakes moment in the first-run path and the one most likely to fail quietly |
 | Session caps | Limit concurrent sessions per user; oldest evicted *(v4.2.0)* |
 | Idle session timeout | Opt-in sliding-window expiry — a session unused for N minutes dies before its absolute TTL *(v5.5.0)* |
 | Active session management | Review/revoke live sessions *(v4.0.0)* |
@@ -590,7 +590,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Export-key rotation | Admin can rotate the export-signing key (Settings → Security); posture page grades password-policy / idle-timeout / SSO-only / signed-exports *(v5.5.0)* |
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
 | Install update | **Settings → Install** version check + guided self-update via a server-side update script *(v5.0.0)* |
-| Setup checklist | Settings → Install live getting-started checklist *(v3.4.2)* |
+| Setup checklist | Live getting-started checklist *(v3.4.2)*. Also a **default-on dashboard card** that hides itself once the required steps are done, so a new operator sees what to do next without having to find Settings → Install first *(v6.4.2)*. The notification step is **evidence, not presence**: it stays incomplete until a notification has actually been DELIVERED (webhook or email), and reports "configured, never delivered" in between — a mis-pasted webhook URL used to score a green tick and "all set" *(v6.4.2)* |
 | Guided tour | First-run coach-mark walkthrough (Dashboard/Devices/Alerts/Search/Settings); once per account, re-runnable via "Take a tour" *(v5.5.0)* |
 
 ## UX, interface & accessibility

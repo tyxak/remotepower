@@ -3221,6 +3221,10 @@ volumes:
   box.appendChild(hint);
   box.appendChild(pre);
   box.appendChild(copyBtn);
+  // Same silent-modal problem as the quick-install path — a container that
+  // never starts, or a token the compose file never reached, looked identical
+  // to success from in here.
+  _startEnrollWatch(Math.round(Date.now() / 1000));
 }
 function copyDockerEnroll() {
   const pre = document.getElementById('enroll-docker-pre');
@@ -3231,6 +3235,72 @@ function copyDockerEnroll() {
 // v4.8.0: one-line "baked" install. Mints a one-time token and hands the
 // operator a single command — the served installer downloads the agent, VERIFIES
 // its sha256, enrols with the baked token and the host appears by its hostname.
+
+// ── v6.4.2: enrollment confirmation ─────────────────────────────────────────
+// The Enroll-device modal minted a token, printed the one-liners and went
+// permanently silent. This is the highest-stakes moment in the whole first-run
+// path and the one most likely to fail quietly — wrong sudo, no machine-wide
+// Python on Windows, an egress firewall, a proxy that mangles the token. The
+// operator ran the command, watched the installer scroll past, switched to the
+// browser and got... the same modal with a Copy button. They could not tell
+// "it worked, wait 60s" from "the token was rejected".
+//
+// Bounded poll of GET /devices for a device enrolled AFTER the token was minted.
+// Bounded, not indefinite: a poll with no end is its own bug, and after ~5
+// minutes the answer is "something is wrong", which the modal now says.
+let _enrollWatchTimer = null;
+const _ENROLL_WATCH_MS = 5000;
+const _ENROLL_WATCH_LIMIT_MS = 300000;   // 5 minutes, then stop and say so
+
+function _stopEnrollWatch() {
+  if (_enrollWatchTimer) { clearInterval(_enrollWatchTimer); _enrollWatchTimer = null; }
+}
+
+function _enrollStatusEl() {
+  return document.getElementById('enroll-watch-status');
+}
+
+// `since` is the mint time in epoch SECONDS (the device record's `enrolled` is
+// in seconds, so comparing against Date.now() would never match).
+function _startEnrollWatch(since) {
+  _stopEnrollWatch();
+  const el = _enrollStatusEl();
+  if (!el) return;
+  const started = since;
+  const paint = (cls, text) => {
+    el.className = 'enroll-watch ' + cls;
+    el.textContent = text;
+  };
+  paint('c-muted', 'Waiting for the host to check in\u2026 run the command above; this usually takes under a minute.');
+  const tick = async () => {
+    // Stop if the operator closed the modal — a poll running against a dialog
+    // nobody is looking at is pure waste.
+    if (!document.getElementById('enroll-modal')?.classList.contains('active')) {
+      _stopEnrollWatch();
+      return;
+    }
+    const elapsed = Math.round(Date.now() / 1000) - started;
+    if (elapsed > _ENROLL_WATCH_LIMIT_MS / 1000) {
+      _stopEnrollWatch();
+      paint('c-amber', 'No host has checked in after 5 minutes. Check the installer output on the target, that it can reach this server, and that the token has not been used already.');
+      return;
+    }
+    const d = await api('GET', '/devices').catch(() => null);
+    const list = Array.isArray(d) ? d : (d && d.devices) || [];
+    const fresh = list.filter((x) => Number(x.enrolled || 0) >= started)
+      .sort((a, b) => Number(b.enrolled || 0) - Number(a.enrolled || 0));
+    if (fresh.length) {
+      _stopEnrollWatch();
+      const n = fresh[0];
+      paint('c-green', `\u2713 ${n.name || n.device_id} checked in \u2014 enrolled successfully.`);
+      loadDevices();
+      return;
+    }
+    paint('c-muted', `Waiting for the host to check in\u2026 ${elapsed}s elapsed.`);
+  };
+  _enrollWatchTimer = setInterval(tick, _ENROLL_WATCH_MS);
+}
+
 async function generateQuickInstall() {
   const box = document.getElementById('enroll-quick-result');
   if (!box) return;
@@ -3277,6 +3347,7 @@ async function generateQuickInstall() {
   foot.className = 'hint mt-6';
   foot.textContent = 'One-time token, expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.';
   box.appendChild(foot);
+  _startEnrollWatch(Math.round(Date.now() / 1000));
 }
 function copyQuickEnroll(idx) {
   const pre = document.getElementById('enroll-quick-pre-' + (idx == null ? 0 : idx));
@@ -3284,7 +3355,11 @@ function copyQuickEnroll(idx) {
   navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
   toast('Command copied to clipboard', 'success');
 }
-function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
+// v6.4.2: the countdown only ever decremented the PIN's TTL — it never watched
+// for the PIN being CONSUMED, so the PIN flow was silent about success in
+// exactly the same way the two token flows were. The watcher is bounded by its
+// own 5-minute limit, and the PIN's 10-minute TTL keeps running independently.
+function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); _startEnrollWatch(Math.round(Date.now() / 1000)); }
 function updatePinDisplay() { const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0'); const s = (pinSeconds % 60).toString().padStart(2, '0'); document.getElementById('pin-countdown').textContent = `${m}:${s}`; }
 let monitorTargets = [];
 // v1.11.5: monitor table gets filter+sort via tableCtl. Same pattern as
@@ -5788,6 +5863,9 @@ function openModal(id) {
   setTimeout(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); }, 350);
 }
 function closeModal(id) {
+  // v6.4.2: stop the enrollment watcher immediately rather than on its next
+  // tick — the modal is gone, so the poll is pure waste from here on.
+  if (id === 'enroll-modal') _stopEnrollWatch();
   const el = document.getElementById(id);
   if (el) { el.classList.remove('active'); el.style.zIndex = ''; }  // drop the stacked-modal raise
   const idx = _modalStack.indexOf(id);
@@ -17028,6 +17106,75 @@ function _msWorst(d) {
   const v = Object.values(d.metric_state || {});
   return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : null;
 }
+// v6.4.2: dashboard onboarding checklist.
+//
+// Default ON so a fresh install shows it without anyone finding it first, and
+// SELF-REMOVING: once no required step is outstanding the card hides itself, so
+// it does not become permanent clutter on a mature install. An explicit dismiss
+// is remembered in ui_prefs; the card is still re-addable from the widget
+// catalog like any other.
+let _setupStatusCache = null;
+async function _renderSetupWidget() {
+  const card = document.getElementById('home-w-setup');
+  if (!card) return;
+  const hide = () => card.classList.add('dash-off');
+  if (_uiPrefs && _uiPrefs.setup_card_dismissed) { hide(); return; }
+  let d = _setupStatusCache;
+  if (!d) {
+    d = await api('GET', '/setup-status').catch(() => null);
+    if (!d || !Array.isArray(d.steps)) { hide(); return; }
+    _setupStatusCache = d;
+  }
+  // Nothing REQUIRED left AND everything else done is the signal to get out of
+  // the way. The optional steps stay reachable in Settings -> Install; they are
+  // not worth a permanent dashboard card.
+  if (!(d.required_remaining || []).length && d.complete) { hide(); return; }
+  card.classList.remove('dash-off');
+  const rows = d.steps.map((st) => {
+    const cls = st.done ? 'c-green' : (st.required ? 'c-red' : 'c-muted');
+    // The notifications step reports configured-but-unverified separately —
+    // "configured" used to score a green tick while delivery had never once
+    // succeeded, which is exactly the state worth calling out here.
+    const right = st.done ? 'done'
+      : (st.configured && st.verified === false) ? 'never delivered'
+      : (st.required ? 'required' : 'optional');
+    return `<div class="dash-mini-row">`
+      + `<span class="dm-l"><button class="btn-icon" data-action="setupGoto"`
+      + ` data-arg="${escAttr(st.id)}" title="${escAttr(st.detail || '')}">`
+      + `${escHtml(st.title)}</button></span>`
+      + `<span class="dm-r ${cls}">${right}</span></div>`;
+  }).join('');
+  _setWidget('home-w-setup-body',
+    `<div class="dash-mini-head">${d.done}/${d.total} done`
+    + ((d.required_remaining || []).length
+        ? ` · <span class="c-red">${d.required_remaining.length} required left</span>` : '')
+    + `</div>${rows}`
+    + `<div class="mt-8"><button class="btn-icon" data-action="dismissSetupCard">Hide this card</button></div>`);
+}
+
+// Route a checklist row to the page/tab that actually fixes it. `page` and the
+// optional `tab` come from the server, so this stays one source of truth rather
+// than a second hardcoded map. The Settings tab is opened by CLICKING its real
+// button — each tab carries a data-action2 loader, and calling
+// switchSettingsTab directly would switch the pane without ever loading it.
+function setupGoto(stepId) {
+  const st = ((_setupStatusCache || {}).steps || []).find((x) => x.id === stepId);
+  if (!st) return;
+  showPage(st.page || 'settings');
+  if (st.tab) {
+    setTimeout(() => {
+      document.getElementById('settings-tab-btn-' + st.tab)?.click();
+    }, 60);
+  }
+}
+
+function dismissSetupCard() {
+  _uiPrefs.setup_card_dismissed = true;
+  _scheduleFlushUiPrefs();
+  document.getElementById('home-w-setup')?.classList.add('dash-off');
+  toast('Getting-started card hidden \u2014 the checklist is still in Settings \u2192 Install', 'success');
+}
+
 function _renderHomeWidgets(home) {
   _showHomelab = home.show_homelab !== false;   // v4.7.0: gate the homelab widget
   // Post-it: wire the textarea once (a 60s refresh must not clobber what's being
@@ -17203,6 +17350,11 @@ function _renderHomeWidgets(home) {
     bigStat('home-w-helpdesk-body', _hto, _hto === 1 ? 'open ticket' : 'open tickets',
             _hto ? 'c-amber' : 'c-green');
   }
+  // v6.4.2: the onboarding checklist, on the dashboard. It had exactly one
+  // renderer — Settings → Install — so the "N required steps left" state never
+  // appeared anywhere a new operator lands. Fire-and-forget: the checklist is a
+  // separate cheap endpoint, and a failure must never break the dashboard.
+  _renderSetupWidget();
   bigStat('home-w-crittotal-body', `${totC} / ${totH}`, 'critical / high', totC ? 'c-red' : 'c-amber');
   bigStat('home-w-updatestotal-body', totUpd, `across ${upd.length} host(s)`,
           totUpd ? 'c-amber' : 'c-green');
@@ -17539,6 +17691,10 @@ const DASH_WIDGETS = [
   // api.DASHBOARD_WIDGETS — a guardrail test pins the two lists equal.
   { key: 'uptimetop', label: 'Longest uptime',                  opt: true, size: 'sm' },
   { key: 'helpdesk', label: 'Helpdesk tickets open',  opt: true, size: 'sm' },
+  // v6.4.2: onboarding checklist. NOT `opt` — a new operator must not have to
+  // discover it to see it, which was the whole finding. Same order as
+  // api.DASHBOARD_WIDGETS (a guardrail test pins the two lists equal).
+  { key: 'setup',    label: 'Getting started',                 size: 'md' },
   // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },

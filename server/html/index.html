@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-20">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-21">
 
 </head>
 <body>
@@ -822,6 +822,7 @@
         <div class="dash-card dash-off" id="home-w-worsthealth" data-widget="worsthealth"><div class="section-title">Lowest health hosts</div><div id="home-w-worsthealth-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-uptimetop" data-widget="uptimetop"><div class="section-title">Longest uptime</div><div id="home-w-uptimetop-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-helpdesk" data-widget="helpdesk"><div class="section-title">Helpdesk tickets</div><div id="home-w-helpdesk-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-setup" data-widget="setup"><div class="section-title">Getting started</div><div id="home-w-setup-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-gradedist" data-widget="gradedist"><div class="section-title">Health grade spread</div><div id="home-w-gradedist-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-versionskew" data-widget="versionskew"><div class="section-title">Agent version skew</div><div id="home-w-versionskew-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-offlinegroups" data-widget="offlinegroups"><div class="section-title">Offline by group</div><div id="home-w-offlinegroups-body" class="dash-mini"></div></div>
@@ -8800,7 +8801,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="ldap-test-user-result" class="isl-191"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ldap-test-user-modal" >Close</button><button class="btn-primary" data-action="runLdapTestUser" >Test</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="enroll-modal-title" id="enroll-modal"><div class="modal"><div class="modal-title" id="enroll-modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="enroll-or">— or one-line install (recommended) —</div><div class="enroll-quick"><div class="modal-subtitle">Mints a one-time token and hands you a one-line command for <strong>Linux/macOS</strong> and <strong>Windows</strong>. Run it on the target host — it downloads the <strong>signed</strong> agent, verifies its checksum, enrols, and the host appears by its hostname. Nothing else to configure.</div><button class="btn-primary" data-action="generateQuickInstall">Quick install command</button><div id="enroll-quick-result" class="mt-12"></div></div><div class="enroll-or">— or monitor a Docker host —</div><div class="enroll-docker"><div class="modal-subtitle">No install needed — run the agent as a container. This mints a one-time enrollment token and a ready-to-run <code>docker compose</code> file; the host is named automatically and credentials persist in a volume.</div><button class="btn-secondary" data-action="generateDockerEnroll">Generate Docker compose</button><div id="enroll-docker-result" class="mt-12"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="enroll-modal" >Close</button><button class="btn-primary" data-action="generateNewPin" >Generate new PIN</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="enroll-modal-title" id="enroll-modal"><div class="modal"><div class="modal-title" id="enroll-modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="enroll-or">— or one-line install (recommended) —</div><div class="enroll-quick"><div class="modal-subtitle">Mints a one-time token and hands you a one-line command for <strong>Linux/macOS</strong> and <strong>Windows</strong>. Run it on the target host — it downloads the <strong>signed</strong> agent, verifies its checksum, enrols, and the host appears by its hostname. Nothing else to configure.</div><button class="btn-primary" data-action="generateQuickInstall">Quick install command</button><div id="enroll-quick-result" class="mt-12"></div><div id="enroll-watch-status" class="enroll-watch" role="status" aria-live="polite"></div></div><div class="enroll-or">— or monitor a Docker host —</div><div class="enroll-docker"><div class="modal-subtitle">No install needed — run the agent as a container. This mints a one-time enrollment token and a ready-to-run <code>docker compose</code> file; the host is named automatically and credentials persist in a volume.</div><button class="btn-secondary" data-action="generateDockerEnroll">Generate Docker compose</button><div id="enroll-docker-result" class="mt-12"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="enroll-modal" >Close</button><button class="btn-primary" data-action="generateNewPin" >Generate new PIN</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="shutdown-modal-title" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6d179c5f"/></svg></div><div class="modal-title" id="shutdown-modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="shutdown-modal" >Cancel</button><button class="btn-shutdown flex-1" data-action="confirmShutdown" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6d179c5f"/></svg> Shut down</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="reboot-modal-title" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ce8e1447"/></svg></div><div class="modal-title" id="reboot-modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="reboot-modal" >Cancel</button><button class="btn-reboot flex-1" data-action="confirmReboot" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ce8e1447"/></svg> Reboot</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title" id="detail-modal"><div class="modal modal-wide"><div class="modal-title" id="detail-title">Device details</div><div id="detail-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="detail-modal" >Close</button></div></div></div>
@@ -11264,38 +11265,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-20"></script>
+<script defer src="static/js/app.js?v=6.4.2-21"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-20"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-21"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-20"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-21"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-20"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-21"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-20"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-20"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-21"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-21"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-20"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-21"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11305,6 +11306,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-20"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-21"></script>
 </body>
 </html>
