@@ -351,7 +351,7 @@ async function _loadClientErrors() {
     else groups.set(key, { ...e, count: 1 });
   });
   body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Last seen</th><th>Count</th><th>Message</th><th>Source</th><th>Page</th><th>From</th></tr></thead><tbody>'
-    + [...groups.values()].map(e => `<tr><td class="hint">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td><td>${e.count > 1 ? `<span class="fw-600">×${e.count}</span>` : '1'}</td><td title="${escAttr(e.stack || '')}">${escHtml(e.message || '—')}</td><td class="ff-mono fs-11">${escHtml((e.source || '').split('/').pop() || '—')}${e.line ? ':' + e.line : ''}</td><td class="hint">${escHtml((e.page || '').replace(/^https?:\/\/[^/]+/, '') || '—')}</td><td class="ff-mono fs-11">${escHtml(e.ip || '')}${e.country_code ? ` <span class="hint">(${escHtml(e.country_code)})</span>` : ''}</td></tr>`).join('')
+    + [...groups.values()].map(e => `<tr><td class="hint">${e.ts ? _fmtAbsTs(e.ts) : '—'}</td><td>${e.count > 1 ? `<span class="fw-600">×${e.count}</span>` : '1'}</td><td title="${escAttr(e.stack || '')}">${escHtml(e.message || '—')}</td><td class="ff-mono fs-11">${escHtml((e.source || '').split('/').pop() || '—')}${e.line ? ':' + e.line : ''}</td><td class="hint">${escHtml((e.page || '').replace(/^https?:\/\/[^/]+/, '') || '—')}</td><td class="ff-mono fs-11">${escHtml(e.ip || '')}${e.country_code ? ` <span class="hint">(${escHtml(e.country_code)})</span>` : ''}</td></tr>`).join('')
     + '</tbody></table></div>';
 }
 async function clearClientErrors() {

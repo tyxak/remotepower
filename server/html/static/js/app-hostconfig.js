@@ -210,10 +210,10 @@ function renderCustomScriptsPage() {
     const outputSnippet = output.length > 80
       ? escHtml(output.slice(0, 80)) + '<span class="c-muted">…</span>'
       : escHtml(output || '—');
-    const ranAt = r.ran_at ? new Date(r.ran_at * 1000).toLocaleString() : '—';
+    const ranAt = r.ran_at ? _fmtAbsTs(r.ran_at) : '—';
     const dur   = r.duration_ms ? `${r.duration_ms} ms` : '—';
     const changedAgo = r.changed_at
-      ? `<span title="Status changed ${new Date(r.changed_at*1000).toLocaleString()}" class="isl-602">changed ${_reltime(r.changed_at)}</span>`
+      ? `<span title="Status changed ${_fmtAbsTs(r.changed_at)}" class="isl-602">changed ${_reltime(r.changed_at)}</span>`
       : '';
     return `<tr>
       <td class="fw-500">${escHtml(r.script_name)}</td>
@@ -536,7 +536,7 @@ async function openHostConfigModal(devId, devName) {
   const hasAnyDesired = Object.keys(desired).length > 0;
   if (!hasAnyDesired && Object.keys(current).length > 0) {
     const ts = data.current_collected_at
-      ? new Date(data.current_collected_at * 1000).toLocaleString()
+      ? _fmtAbsTs(data.current_collected_at)
       : 'unknown time';
     const infoBanner = document.getElementById('hc-info-banner');
     if (infoBanner) {
@@ -630,7 +630,7 @@ async function hcFetchCurrent(section) {
     _hcRenderGroups(Array.isArray(val) ? val : []);
   }
   const ts = data.current_collected_at
-    ? new Date(data.current_collected_at * 1000).toLocaleTimeString()
+    ? _fmtAbsTime(data.current_collected_at)
     : 'unknown time';
   toast(`Loaded current ${section} from agent (collected ${ts})`, 'success');
 }

@@ -560,7 +560,7 @@ async function _billingQuotes() {
   };
   const rows = quotes.length ? quotes.map(q => {
     const valid = q.valid_until
-      ? new Date(q.valid_until * 1000).toLocaleDateString() : '—';
+      ? _fmtAbsDate(q.valid_until) : '—';
     // Only an ACCEPTED quote can convert. The server enforces this too — the UI
     // just doesn't dangle a button that would be refused.
     const convert = (_bIsAdmin() && q.status === 'accepted')
@@ -754,7 +754,7 @@ async function invoiceView(iid) {
     <div id="invoice-print-area">
       <div class="inv-head">
         <div><div class="inv-no">Invoice ${escHtml(inv.number || '')}</div>
-          <div class="meta-sm-nm">Status: ${escHtml(inv.status)} · Issued ${inv.issued_at ? new Date(inv.issued_at * 1000).toLocaleDateString() : '—'}</div></div>
+          <div class="meta-sm-nm">Status: ${escHtml(inv.status)} · Issued ${inv.issued_at ? _fmtAbsDate(inv.issued_at) : '—'}</div></div>
       </div>
       <div class="inv-party mt-12">
         <div><strong>${escHtml(inv.site_name || '')}</strong><br>${escHtml(inv.billing_contact || '')}<br>${escHtml(inv.billing_address || '').replace(/\n/g, '<br>')}</div>

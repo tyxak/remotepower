@@ -31,7 +31,7 @@ function _registerScansTable() {
       const statusColor = { queued: 'c-muted', running: 'c-amber', done: 'c-green',
                             failed: 'c-red', cancelled: 'c-muted' }[s.status] || 'c-muted';
       const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
-      const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
+      const when = s.created ? _fmtAbsTs(s.created) : '—';
       const removeBtn = ` <button class="btn-icon cell-sm c-danger-outline" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">${_icon('trash',14)}</button>`;
       return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}${cell(sc.info, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
@@ -509,8 +509,8 @@ async function loadScanSchedules() {
     return;
   }
   box.innerHTML = scheds.map(s => {
-    const when = s.next_run ? new Date(s.next_run * 1000).toLocaleString() : '—';
-    const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString() : 'never';
+    const when = s.next_run ? _fmtAbsTs(s.next_run) : '—';
+    const last = s.last_run ? _fmtAbsTs(s.last_run) : 'never';
     const tgt = s.device_id ? 'device' : (s.scan_target_id ? 'verified target' : '—');
     const paused = s.enabled === false;
     const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
@@ -585,7 +585,7 @@ async function loadNetscanSchedules() {
     return;
   }
   box.innerHTML = scheds.map(s => {
-    const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString() : 'never';
+    const last = s.last_run ? _fmtAbsTs(s.last_run) : 'never';
     const paused = s.enabled === false;
     const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
     return `<div class="mb-8"><strong>${escHtml(s.device_name || s.device_id)}</strong>${stateBadge} <span class="hint">${escHtml(s.subnet)} · every ${s.interval_minutes}m · last ${escHtml(last)}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteNetscanSchedule" data-arg="${escAttr(s.id)}">${_icon('trash',14)}</button></div>`;

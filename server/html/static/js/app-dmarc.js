@@ -23,7 +23,7 @@ function _registerDmarcTable() {
       const spf = (d.spf && d.spf.all) ? escHtml(d.spf.all + 'all') : '—';
       const dkim = d.dkim_selector ? (d.dkim && d.dkim.present ? 'ok' : 'missing') : '—';
       const reasons = (d.reasons || []).map(escHtml).join('; ') || (d.status === 'ok' ? 'enforcing + reporting' : '');
-      const when = d.checked_at ? new Date(d.checked_at * 1000).toLocaleString() : 'never';
+      const when = d.checked_at ? _fmtAbsTs(d.checked_at) : 'never';
       return `<tr><td class="fw-500">${escHtml(d.domain)}</td><td class="${cls}">${escHtml(d.status)}</td><td>${pol}</td><td>${spf}</td><td>${dkim}</td><td class="hint">${reasons}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteDmarc" data-arg="${escAttr(d.id)}" title="Remove domain">Remove</button></td></tr>`;
     },
     emptyMsg: 'No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.',
@@ -88,7 +88,7 @@ function _renderReputation() {
       listed.push(`<span class="c-amber" title="${escAttr(detail)}">${errCount} unreachable</span>`);
     }
     const lists = listed.join(', ') || '<span class="c-muted">—</span>';
-    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
+    const when = t.checked_at ? _fmtAbsTs(t.checked_at) : 'never';
     return `<tr><td class="ff-mono fw-500">${escHtml(t.ip)}</td><td>${escHtml(t.label || '')}</td><td class="${cls}">${status}</td><td class="hint">${lists}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteReputation" data-arg="${escAttr(t.id)}" title="Stop monitoring this IP">Remove</button></td></tr>`;
   }).join('') : '<tr><td colspan="6" class="hint">No IPs monitored yet. Add one to watch its blocklist status.</td></tr>';
 }
@@ -130,7 +130,7 @@ async function loadDmarcReports() {
   const mbEl = document.getElementById('dmarc-mailbox');
   if (mbEl) {
     if (mb.error) mbEl.textContent = 'Mailbox: ' + mb.error;
-    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${new Date(mb.checked_at * 1000).toLocaleString()}`;
+    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${_fmtAbsTs(mb.checked_at)}`;
     else mbEl.textContent = 'Mailbox: not polled yet — configure IMAP and fetch.';
   }
   _renderDmarcReports();
@@ -156,7 +156,7 @@ function _renderDmarcReports() {
   });
   rtb.innerHTML = rows.length ? rows.map(r => {
     const s = r.summary || {};
-    const win = r.date_begin ? `${new Date(r.date_begin * 1000).toLocaleDateString()} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString()}` : '—';
+    const win = r.date_begin ? `${_fmtAbsDate(r.date_begin)} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString(_localeTag())}` : '—';
     const fail = s.fail || 0;
     return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
   }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';
@@ -176,7 +176,7 @@ function _renderDmarcSources() {
   }));
   stb.innerHTML = rows.length ? rows.map(s => {
     const fail = s.fail || 0;
-    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? new Date(s.last_seen * 1000).toLocaleDateString() : '—'}</td></tr>`;
+    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? _fmtAbsDate(s.last_seen) : '—'}</td></tr>`;
   }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
 }
 

@@ -57,8 +57,8 @@ function _tkRowHtml(t, byId, childrenOf) {
   const slaCell = !open ? '—'
     : (slaLeft == null ? '<span class="meta-sm-nm">—</span>'
       : (slaLeft < 0
-        ? `<span class="sev-pill sev-critical fs-11" title="Was due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">overdue ${escHtml(_fmtDuration(-slaLeft))}</span>`
-        : `<span class="meta-sm-nm" title="Due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">${escHtml(_fmtDuration(slaLeft))} left</span>`));
+        ? `<span class="sev-pill sev-critical fs-11" title="Was due ${escAttr(_fmtAbsTs(t._slaDue))}">overdue ${escHtml(_fmtDuration(-slaLeft))}</span>`
+        : `<span class="meta-sm-nm" title="Due ${escAttr(_fmtAbsTs(t._slaDue))}">${escHtml(_fmtDuration(slaLeft))} left</span>`));
   // v6.3.0 (UX wave 1): row checkbox feeds the bulk bar (open tickets only).
   // The dispatcher fires only the INNERMOST data-action, so ticking the box
   // never triggers the row's openTicket.
@@ -318,7 +318,7 @@ async function openTicket(tid) {
     const cls = isIn ? 'tk-msg tk-msg-in' : (dir === 'note' ? 'tk-msg tk-msg-note' : 'tk-msg tk-msg-out');
     const who = isIn ? `${escHtml(m.author || 'Customer')} · received`
       : (dir === 'note' ? `${escHtml(m.author || '')} · internal note` : `${escHtml(m.author || '')} · sent`);
-    const when = m.ts ? new Date(m.ts * 1000).toLocaleString() : '';
+    const when = m.ts ? _fmtAbsTs(m.ts) : '';
     return `<div class="${cls}"><div class="tk-msg-meta">${who} · ${when}</div><div class="tk-msg-body">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div>${_tkAttachHtml(tid, m.attachments)}</div>`;
   }).join('') || '<div class="meta-sm-nm">No messages yet.</div>';
   const alertLink = t.alertid ? `<div class="fs-12 mb-8">Linked alert: <code>${escHtml(_rpNo(t.alertid))}</code></div>` : '';
@@ -335,7 +335,7 @@ async function openTicket(tid) {
     : (t.device_id ? [{ id: String(t.device_id), name: t.device_name || String(t.device_id) }] : []);
   const slaStr = !t.sla_due ? '—' : (() => {
     const left = t.sla_due - Math.floor(Date.now() / 1000);
-    const due = new Date(t.sla_due * 1000).toLocaleString();
+    const due = _fmtAbsTs(t.sla_due);
     return (t.sla_breached || left < 0)
       ? `<span class="patch-badge warn fs-11" title="Was due ${escAttr(due)}">⚠ breached — overdue ${escHtml(_fmtDuration(-left))}</span>`
       : `<span class="fs-12">${escHtml(_fmtDuration(left))} left <span class="meta-sm-nm">(due ${escHtml(due)})</span></span>`;
@@ -746,7 +746,7 @@ async function openTicketThread(tid) {
       borderLeft: `4px solid ${accent}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '12px' });
     const label = isIn ? 'Received' : (isNote ? 'Internal note' : (m.channel === 'email' ? 'Sent (email)' : 'Reply (logged)'));
     const who = m.author || (isIn ? 'Customer' : '');
-    const when = m.ts ? new Date(m.ts * 1000).toLocaleString() : '';
+    const when = m.ts ? _fmtAbsTs(m.ts) : '';
     const head2 = el('div', { fontSize: '12px', color: '#5b626d', marginBottom: '6px', fontWeight: '600' },
       `${label} — ${who}${m.to ? ' → ' + m.to : ''} · ${when}`);
     card.appendChild(head2);

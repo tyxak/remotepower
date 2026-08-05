@@ -881,8 +881,8 @@ function _registerTlsTable() {
         const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
         return `<span class="isl-472" data-color="${colours[s] || 'var(--muted)'}">${labels[s] || s}</span>`;
       })();
-      const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
-      const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
+      const expires = t.expires_at ? _fmtAbsDate(t.expires_at) : '—';
+      const lastChk = t.last_check ? _fmtAbsTs(t.last_check) : '—';
       const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
         ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
       const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';
@@ -1107,7 +1107,7 @@ function tlsDetailOpen(id) {
           <tbody>${t.chain.map(c => `<tr>
             <td class="isl-482">${escHtml(c.subject || '—')}</td>
             <td class="isl-482">${escHtml(c.issuer || '—')}</td>
-            <td class="isl-44">${c.expires_at ? new Date(c.expires_at * 1000).toLocaleDateString() : '—'}</td>
+            <td class="isl-44">${c.expires_at ? _fmtAbsDate(c.expires_at) : '—'}</td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>`
@@ -1123,7 +1123,7 @@ function tlsDetailOpen(id) {
       <div class="c-muted">Label</div><div>${fmt(t.label, '—')}</div>
       <div class="c-muted">Status</div><div>${escHtml(t.status)}</div>
       <div class="c-muted">Days left</div><div>${typeof t.days_left === 'number' ? t.days_left + 'd' : '—'}</div>
-      <div class="c-muted">Expires</div><div>${t.expires_at ? new Date(t.expires_at*1000).toLocaleString() : '—'}</div>
+      <div class="c-muted">Expires</div><div>${t.expires_at ? _fmtAbsTs(t.expires_at) : '—'}</div>
       <div class="c-muted">Issuer</div><div>${fmt(t.issuer, '—')}</div>
       <div class="c-muted">Subject</div><div>${fmt(t.subject, '—')}</div>
       <div class="c-muted">SAN</div><div>${sans}</div>

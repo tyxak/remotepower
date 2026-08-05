@@ -13284,7 +13284,7 @@ function _renderDnsBlockPanels(items, dnsCtl) {
         bar.appendChild(track);
         const n = document.createElement('td');
         n.className = 'ta-right';
-        n.textContent = (Number(r.count) || 0).toLocaleString();
+        n.textContent = (Number(r.count) || 0).toLocaleString(_localeTag());
         tr.appendChild(name); tr.appendChild(bar); tr.appendChild(n);
         tb.appendChild(tr);
       });
@@ -26277,7 +26277,7 @@ async function loadPii() {
   const grand = Object.values(totals).reduce((a, b) => a + (b || 0), 0);
   if (sum) {
     sum.textContent = grand
-      ? `${grand.toLocaleString()} across ${d.scanned_hosts} host(s)`
+      ? `${grand.toLocaleString(_localeTag())} across ${d.scanned_hosts} host(s)`
       : 'nothing found yet';
   }
   if (!(d.hosts || []).length) {
@@ -26288,19 +26288,19 @@ async function loadPii() {
   }
   body.innerHTML = (d.hosts || []).map(h => {
     const chips = Object.entries(h.by_kind || {}).map(([k, n]) =>
-      `<span class="patch-badge warn">${escHtml(_PII_KIND_LABELS[k] || k)}: ${Number(n).toLocaleString()}</span>`
+      `<span class="patch-badge warn">${escHtml(_PII_KIND_LABELS[k] || k)}: ${Number(n).toLocaleString(_localeTag())}</span>`
     ).join(' ');
     const files = (h.findings || []).slice(0, 20).map(f =>
       `<tr>
          <td class="fs-12">${escHtml(f.path)}</td>
          <td class="fs-12">${escHtml(_PII_KIND_LABELS[f.kind] || f.kind)}</td>
-         <td class="fs-12 ta-right">${Number(f.count || 0).toLocaleString()}</td>
+         <td class="fs-12 ta-right">${Number(f.count || 0).toLocaleString(_localeTag())}</td>
          <td class="fs-11 c-muted">${escHtml((f.lines || []).join(', '))}</td>
        </tr>`).join('');
     return `<div class="settings-section mb-12">
       <div class="row-8-center mb-8">
         <div class="fw-600">${escHtml(h.name)}</div>
-        <span class="fs-11 c-muted">${Number(h.files || 0).toLocaleString()} file(s)</span>
+        <span class="fs-11 c-muted">${Number(h.files || 0).toLocaleString(_localeTag())} file(s)</span>
         ${chips}
       </div>
       <div class="scrollable-table-wrap audit-scroll">

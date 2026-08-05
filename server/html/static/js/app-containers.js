@@ -60,7 +60,7 @@ function _renderImageUpdatesMeta(summary) {
   if (summary.local) bits.push(`${summary.local} local`);
   if (summary.ignored) bits.push(`${summary.ignored} ignored`);
   if (!summary.enabled) bits.push('detection disabled');
-  if (summary.last_full_scan) bits.push(`last scan ${new Date(summary.last_full_scan * 1000).toLocaleString()}`);
+  if (summary.last_full_scan) bits.push(`last scan ${_fmtAbsTs(summary.last_full_scan)}`);
   el.textContent = bits.length ? `— ${bits.join(' · ')}` : '';
 }
 
@@ -106,7 +106,7 @@ function _registerImageUpdatesTable() {
       }
       const hosts = (r.hosts || []);
       const hostTitle = hosts.map(h => `${h.device_name}${h.container ? ' · ' + h.container : ''}${h.stale ? ' (stale)' : ''}`).join(', ');
-      const checked = (r.local || !r.last_checked) ? '—' : new Date(r.last_checked * 1000).toLocaleString();
+      const checked = (r.local || !r.last_checked) ? '—' : _fmtAbsTs(r.last_checked);
       // Container name(s) running this image — the only identifier when the
       // image itself is an untagged bare ID (e.g. right after a compose pull
       // that hasn't recreated the container yet, so `docker ps` shows sha256:…).
@@ -244,7 +244,7 @@ function _registerComposeStacksTable() {
       };
       const statusCell = statusMap[s.status] || `<span class="c-muted">${escHtml(s.status || '?')}</span>`;
       const last = s.last_action_ts
-        ? `${escHtml(s.last_action || '')} · ${new Date(s.last_action_ts * 1000).toLocaleString()}`
+        ? `${escHtml(s.last_action || '')} · ${_fmtAbsTs(s.last_action_ts)}`
         : '—';
       const view = `<button class="btn-icon btn-xs" data-action="viewComposeStack" data-arg="${escAttr(s.id)}">View</button>`;
       const del = `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteComposeStack" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button>`;
@@ -421,7 +421,7 @@ function _registerContainersOverviewTable() {
       const runtimes = Object.entries(s.by_runtime || {})
         .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
         .join(', ') || '—';
-      const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
+      const reported = r.reported_at ? _fmtAbsTs(r.reported_at) : '—';
       const staleBadge = r.is_stale
         ? '<span class="isl-450">STALE</span>'
         : '';
@@ -494,7 +494,7 @@ async function containersOpen(deviceId, name) {
   if (!data) return;
   const items = data.items || [];
   // v1.11.4: stale-data warning at the top of the modal.
-  const reportedHuman = data.reported_at ? new Date(data.reported_at * 1000).toLocaleString() : 'never';
+  const reportedHuman = data.reported_at ? _fmtAbsTs(data.reported_at) : 'never';
   const staleBanner = data.is_stale
     ? `<div class="isl-452">
          Container data is stale (last reported: ${escHtml(reportedHuman)}).

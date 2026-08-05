@@ -256,7 +256,7 @@ function _renderDrift(rows) {
     return;
   }
   tbody.innerHTML = visible.map(r => {
-    const lastCheck = r.last_check ? new Date(r.last_check * 1000).toLocaleString() : '—';
+    const lastCheck = r.last_check ? _fmtAbsTs(r.last_check) : '—';
     const driftColor = r.drifted > 0 ? 'var(--amber)' : 'var(--muted)';
     const missingColor = r.missing > 0 ? 'var(--red)' : 'var(--muted)';
     return `<tr>
@@ -362,7 +362,7 @@ async function openDriftDetail(devId, devName) {
       const missing = !f.exists;
       const ignored = !!f.ignored;          // v2.3.4
       const dormant = !!f.dormant;
-      const lastCheck = f.last_check ? new Date(f.last_check * 1000).toLocaleString() : '—';
+      const lastCheck = f.last_check ? _fmtAbsTs(f.last_check) : '—';
 
       // v2.3.4: an ignored file renders muted regardless of its
       // underlying drift/missing state — it's been explicitly marked
@@ -420,7 +420,7 @@ async function openDriftDetail(devId, devName) {
         html += `<tr><td colspan="5" class="isl-549"><details><summary class="isl-550">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
           <div class="isl-551">
           ${f.history.slice().reverse().slice(0, 10).map(h =>
-            `${new Date(h.ts * 1000).toLocaleString()}: ${escHtml((h.hash || '').substring(0, 24))}… ${h.exists === false ? ' [missing]' : ''}`
+            `${_fmtAbsTs(h.ts)}: ${escHtml((h.hash || '').substring(0, 24))}… ${h.exists === false ? ' [missing]' : ''}`
           ).join('<br>')}
           </div></details></td></tr>`;
       }
@@ -574,7 +574,7 @@ async function _refreshDriftDiff() {
       </div>`;
     } else if (captures.length === 1) {
       const c = captures[0];
-      const ts = new Date(c.ts * 1000).toLocaleString();
+      const ts = _fmtAbsTs(c.ts);
       body.innerHTML = `
         <div class="isl-563">
           One capture so far · ${ts} · rc=${c.rc} · ${escHtml((c.sha256 || '').substring(0, 27))}…
@@ -588,8 +588,8 @@ async function _refreshDriftDiff() {
       // ≥2 captures — diff the newest two
       const newer = captures[captures.length - 1];
       const older = captures[captures.length - 2];
-      const olderTs = new Date(older.ts * 1000).toLocaleString();
-      const newerTs = new Date(newer.ts * 1000).toLocaleString();
+      const olderTs = _fmtAbsTs(older.ts);
+      const newerTs = _fmtAbsTs(newer.ts);
       body.innerHTML = `
         <div class="isl-564">
           <div><span class="c-red">− Older</span> · ${olderTs} · rc=${older.rc}<br>

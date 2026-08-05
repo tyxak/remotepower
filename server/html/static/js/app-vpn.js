@@ -35,7 +35,7 @@ function _vpnExpiryCell(ts) {
   const now = Math.floor(Date.now() / 1000);
   const cls = ts <= now ? 'c-red' : (ts <= now + 7 * 86400 ? 'c-amber' : 'hint');
   const pre = ts <= now ? 'expired ' : '';
-  return `<span class="${cls}">${pre}${new Date(ts * 1000).toLocaleDateString()}</span>`;
+  return `<span class="${cls}">${pre}${_fmtAbsDate(ts)}</span>`;
 }
 
 function _vpnAge(ts) {

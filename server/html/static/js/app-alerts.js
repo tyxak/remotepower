@@ -310,7 +310,7 @@ async function loadAlertMttr() {
   const howBadge = { auto: 'c-green', manual: 'c-accent', muted: 'c-muted', unknown: 'c-muted' };
   const rows = data.timeline || [];
   tb.innerHTML = rows.length ? rows.map(t => {
-    const when = t.resolved_at ? new Date(t.resolved_at * 1000).toLocaleString() : '—';
+    const when = t.resolved_at ? _fmtAbsTs(t.resolved_at) : '—';
     const by = t.how === 'manual' ? (t.resolved_by || t.acknowledged_by || '—') : (t.how === 'auto' ? 'recover event' : (t.resolved_by || '—'));
     const note = t.note ? `<div class="hint">${escHtml(t.note)}</div>` : '';
     return `<tr><td class="meta-sm-nm">${escHtml(when)}</td>`
@@ -371,7 +371,7 @@ function _alertsHeatStrip() {
     const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     const n = byDay.get(key) || 0;
     const lvl = n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3));
-    cells.push(`<span class="alert-heat-cell heat-l${lvl}" title="${escAttr(d.toLocaleDateString())}: ${n} alert${n === 1 ? '' : 's'}"></span>`);
+    cells.push(`<span class="alert-heat-cell heat-l${lvl}" title="${escAttr(d.toLocaleDateString(_localeTag()))}: ${n} alert${n === 1 ? '' : 's'}"></span>`);
   }
   return `<span class="alert-heat-row" title="Alert volume per day (last 6 weeks, loaded alerts)">${cells.join('')}</span>`;
 }

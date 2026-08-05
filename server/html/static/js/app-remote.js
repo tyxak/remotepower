@@ -612,7 +612,7 @@ async function _sftpList(path) {
       const acts = isDir
         ? `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-dir="1">${_icon('trash',14)}</button>`
         : `<button class="btn-icon" data-action-btn="_sftpDlBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-name="${escAttr(e.name)}">Download</button> <button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">${_icon('trash',14)}</button>`;
-      rows.push(`<tr><td>${nameCell}</td><td class="hint">${isDir ? '' : _fmtBytes(e.size)}</td><td class="hint">${e.mtime ? new Date(e.mtime*1000).toLocaleString() : ''}</td><td class="nowrap">${acts}</td></tr>`);
+      rows.push(`<tr><td>${nameCell}</td><td class="hint">${isDir ? '' : _fmtBytes(e.size)}</td><td class="hint">${e.mtime ? _fmtAbsTs(e.mtime) : ''}</td><td class="nowrap">${acts}</td></tr>`);
     }
     document.getElementById('files-tbody').innerHTML = rows.join('');
   } catch (e) { toast('List failed: ' + e.message, 'error'); }

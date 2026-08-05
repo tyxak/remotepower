@@ -116,7 +116,7 @@ async function pollLogsTail(initial) {
 
 function _logLineHtml(l) {
   const color = lineSeverityColor(l.line);
-  const ts = new Date(l.ts*1000).toLocaleTimeString();
+  const ts = _fmtAbsTime(l.ts);
   return `<div class="isl-419" data-color="${color||''}">`
     + `<span class="c-muted">${ts}</span> `
     + `<span class="c-accent">${escHtml(l.name)}</span> `
@@ -217,7 +217,7 @@ async function runLogSearch() {
     html += `<details open class="mb-8"><summary class="isl-423">${escHtml(g.name)} <span class="meta-sm-nm">(${g.lines.length})</span></summary>`;
     html += g.lines.map(l => {
       const color = lineSeverityColor(l.line);
-      return `<div class="isl-424" data-color="${color||''}"><span class="c-muted">${new Date(l.ts*1000).toLocaleString()}</span> <span class="c-muted">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
+      return `<div class="isl-424" data-color="${color||''}"><span class="c-muted">${_fmtAbsTs(l.ts)}</span> <span class="c-muted">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
     }).join('');
     html += `</details>`;
   }
@@ -334,7 +334,7 @@ async function loadGlobalLogRules() {
     created:         r.created_at || 0,
   }));
   tbody.innerHTML = rules.map(r => {
-    const created = r.created_at ? new Date(r.created_at*1000).toLocaleDateString() : '—';
+    const created = r.created_at ? _fmtAbsDate(r.created_at) : '—';
     const unitDisplay = r.unit === '*'
       ? '<code class="isl-426">* (any unit)</code>'
       : `<code class="fs-12">${escHtml(r.unit)}</code>`;

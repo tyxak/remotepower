@@ -27,7 +27,7 @@ function _kmipAgo(ts) {
 }
 
 function _kmipDate(ts) {
-  return ts ? new Date(ts * 1000).toLocaleDateString() : '—';
+  return ts ? _fmtAbsDate(ts) : '—';
 }
 
 // api() resolves with the parsed body for EVERY status, 2xx or not — it only
@@ -230,7 +230,7 @@ function _renderKmipLog() {
     started: 'neutral', admin: 'warn',
   };
   tbody.innerHTML = rows.map(r => `<tr>
-    <td class="mono fs-11">${escHtml(new Date((r.ts || 0) * 1000).toLocaleString())}</td>
+    <td class="mono fs-11">${escHtml(new Date((r.ts || 0) * 1000).toLocaleString(_localeTag()))}</td>
     <td><span class="status-pill ${kindBadge[r.kind] || 'neutral'}">${escHtml((r.kind || '').replace(/_/g, ' '))}</span></td>
     <td>${escHtml(r.client || r.actor || '—')}</td>
     <td>${escHtml((r.op || '').replace(/_/g, ' ') || '—')}</td>

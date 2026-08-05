@@ -317,7 +317,7 @@ async function loadResolverHealth() {
       const title = `${r.resolver} (${r.ip}): ${r.status}${r.error ? ' — ' + r.error : ''} · ${r.latency_ms}ms`;
       return `<span class="${dot}" title="${escAttr(title)}">●</span>`;
     }).join(' ') || '<span class="hint">—</span>';
-    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
+    const when = t.checked_at ? _fmtAbsTs(t.checked_at) : 'never';
     return `<tr><td class="fw-500">${escHtml(t.name)}${t.label ? `<div class="hint">${escHtml(t.label)}</div>` : ''}</td>`
       + `<td>${escHtml(t.type || 'A')}</td><td class="${cls}">${status}</td>`
       + `<td class="meta-sm-nm">${lat}</td><td>${per}</td><td class="meta-sm-nm">${escHtml(when)}</td>`
@@ -738,8 +738,8 @@ function _acmeRenderTable() {
     const altLabel = altCount ? `<span class="meta-sm-nm"> +${altCount} SAN</span>` : '';
     const challengeLabel = r.is_dns_challenge ? 'DNS-01' : escHtml(r.challenge || '—');
     const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
-    const createdStr = r.created_ts ? new Date(r.created_ts * 1000).toLocaleDateString() : '—';
-    const renewStr   = r.next_renew_ts ? new Date(r.next_renew_ts * 1000).toLocaleDateString() : '—';
+    const createdStr = r.created_ts ? _fmtAbsDate(r.created_ts) : '—';
+    const renewStr   = r.next_renew_ts ? _fmtAbsDate(r.next_renew_ts) : '—';
     return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}"  tabindex="0">
       <td>${escHtml(r.device_name)}</td>
       <td>
@@ -874,7 +874,7 @@ function _acmeRenderDetail(r) {
       <div class="acme-timeline-dot ${e.state}"></div>
       <div class="flex-1">
         <div class="fw-500">${escHtml(e.label)}${e.rc !== undefined && e.rc !== null ? ` <span class="meta-sm-nm">(rc=${e.rc})</span>` : ''}</div>
-        <div class="meta-sm-nm">${new Date(e.ts * 1000).toLocaleString()}</div>
+        <div class="meta-sm-nm">${_fmtAbsTs(e.ts)}</div>
         ${e.logId ? `<button class="btn-icon isl-684" data-action="acmeLoadLog" data-arg="${escAttr(e.logId)}" >View log</button>` : ''}
       </div>
     </div>`).join('') : '<div class="empty-p20">No timeline events yet. Queue an issue or renewal to see activity here.</div>';
@@ -897,7 +897,7 @@ function _acmeRenderDetail(r) {
                   data-action="acmeLoadLog" data-arg="${escAttr(l.id)}" >
             <span>
               <strong>${escHtml(l.action || 'action')}</strong>
-              <span class="isl-686">${new Date(l.ts * 1000).toLocaleString()}</span>
+              <span class="isl-686">${_fmtAbsTs(l.ts)}</span>
             </span>
             <span class="meta-sm-nm">
               ${stateLabel} · ${(l.size / 1024).toFixed(1)} KB

@@ -13,7 +13,7 @@ function _registerAnsibleTable() {
     row: (p) => {
       const res = p.last_rc == null ? '<span class="hint">never</span>'
         : (p.last_rc === 0 ? '<span class="patch-badge c-green">ok</span>' : `<span class="patch-badge c-red">rc=${p.last_rc}</span>`);
-      return `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${p.last_run ? new Date(p.last_run*1000).toLocaleString() : 'never'}</td><td>${res}</td><td class="row-6"><button class="btn-icon" data-action-btn="_ansibleRunBtn" data-id="${escAttr(p.id)}">Run</button><button class="btn-icon" data-action-btn="_ansibleEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAnsiblePlaybook" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${p.last_run ? _fmtAbsTs(p.last_run) : 'never'}</td><td>${res}</td><td class="row-6"><button class="btn-icon" data-action-btn="_ansibleRunBtn" data-id="${escAttr(p.id)}">Run</button><button class="btn-icon" data-action-btn="_ansibleEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAnsiblePlaybook" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`;
     },
     emptyMsg: 'No playbooks yet. Create one to run against the fleet.',
     emptyMsgFiltered: 'No playbooks match the filter.',

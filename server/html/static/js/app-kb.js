@@ -138,7 +138,7 @@ async function openKbArticle(id) {
     return;
   }
   const a = d.article;
-  const when = a.updated_at ? new Date(a.updated_at * 1000).toLocaleString() : '';
+  const when = a.updated_at ? _fmtAbsTs(a.updated_at) : '';
   const meta = [
     a.category ? escHtml(a.category) : '',
     a.author ? 'by ' + escHtml(a.author) : '',

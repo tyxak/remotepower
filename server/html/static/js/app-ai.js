@@ -1447,7 +1447,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   document.getElementById('runbook-modal-copy').disabled = false;
   document.getElementById('runbook-modal-regen').style.display = 'flex';
   const _rbDel = document.getElementById('runbook-modal-delete'); if (_rbDel) _rbDel.style.display = 'flex';
-  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
+  const when = resp.generated_at ? _fmtAbsTs(resp.generated_at) : '—';
   document.getElementById('runbook-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
 
@@ -1478,7 +1478,7 @@ async function aiViewRunbook(devId, deviceName) {
   body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
   body.dataset.rawText = resp.content || '';
   document.getElementById('runbook-modal-copy').disabled = false;
-  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
+  const when = resp.generated_at ? _fmtAbsTs(resp.generated_at) : '—';
   document.getElementById('runbook-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · generated ${when} by ${resp.generated_by || '?'}`;
 }
@@ -1618,7 +1618,7 @@ async function aiCronBuild() {
     out.innerHTML = `<div class="c-amber">Couldn't build a valid expression: ${escHtml(r.explanation || r.error || '')}</div>`;
     return;
   }
-  const runs = (r.next_runs || []).map(ts => new Date(ts * 1000).toLocaleString());
+  const runs = (r.next_runs || []).map(ts => _fmtAbsTs(ts));
   out.innerHTML = `
     <div class="cron-result-expr"><code>${escHtml(r.cron)}</code>
       <button class="btn-icon fs-11" data-action="aiCronCopy" data-arg="${escAttr(r.cron)}">Copy</button></div>
@@ -2114,7 +2114,7 @@ function _logSweepRender(rec) {
   if (!files.length) {
     html += '<div class="empty-state">No sweep collected yet — click "Collect logs" to request one from the agent.</div>';
   } else {
-    const when = rec.ts ? new Date(rec.ts * 1000).toLocaleString() : '?';
+    const when = rec.ts ? _fmtAbsTs(rec.ts) : '?';
     html += `<p class="hint">Sweep from ${escHtml(when)} — ${files.length} file tail(s) kept of ` +
             `${rec.scanned || 0} scanned (${rec.skipped || 0} skipped), ` +
             `${Math.round((rec.total_bytes || 0) / 1024)} KB total.</p>`;

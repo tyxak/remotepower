@@ -45,7 +45,7 @@ function _registerBackupJobsTable() {
     columns: ['name', 'device_name', 'cron', 'last_run', 'enabled'],
     getColumns: (j) => ({ name: j.name || '', device_name: j.device_name || '',
       cron: j.cron || '', last_run: j.last_run || 0, enabled: j.enabled ? 1 : 0 }),
-    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}${j.type === 'file' ? ' <span class="badge-xs">file</span>' : ''}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${_backupStatusBadge(j.status)} ${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button>${j.type === 'file' ? `<button class="btn-icon" data-action="restoreBackupJob" data-arg="${escAttr(j.id)}" title="Restore this backup to the host">Restore</button>` : ''}<button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
+    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}${j.type === 'file' ? ' <span class="badge-xs">file</span>' : ''}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${_backupStatusBadge(j.status)} ${j.last_run ? _fmtAbsTs(j.last_run) : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button>${j.type === 'file' ? `<button class="btn-icon" data-action="restoreBackupJob" data-arg="${escAttr(j.id)}" title="Restore this backup to the host">Restore</button>` : ''}<button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
     emptyMsg: 'No backup jobs. Create one to run or schedule a backup command.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -79,7 +79,7 @@ async function loadPbsBackups() {
     const rows = stores.length ? stores.map(s => {
       const pctCls = s.used_pct >= 90 ? 'c-red' : s.used_pct >= 80 ? 'c-amber' : '';
       const eta = s.full_eta
-        ? `<td class="hint">${new Date(s.full_eta * 1000).toLocaleDateString()}</td>`
+        ? `<td class="hint">${_fmtAbsDate(s.full_eta)}</td>`
         : '<td class="c-muted">—</td>';
       return `<tr><td class="fw-600">${escHtml(s.name)}</td>`
         + `<td class="${pctCls}">${escHtml(String(s.used_pct))}%</td>`
@@ -415,11 +415,11 @@ async function loadProxmoxBackups() {
     status: g.status,
   }));
   const rows = sorted.map(g => {
-    const last = g.last_backup ? new Date(g.last_backup * 1000).toLocaleString() : '—';
+    const last = g.last_backup ? _fmtAbsTs(g.last_backup) : '—';
     const age = g.age_days == null ? '—' : `${g.age_days}d`;
     return `<tr><td class="fw-500">${escHtml(g.name || ('VM ' + g.vmid))}</td><td class="hint">${g.vmid}</td><td class="hint">${last}</td><td>${age}</td><td><span class="patch-badge ${cls[g.status] || 'c-muted'}">${label[g.status] || g.status}</span></td></tr>`;
   }).join('');
-  const updated = d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '';
+  const updated = d.updated_at ? _fmtAbsTs(d.updated_at) : '';
   body.innerHTML = `<div class="table-card"><table><thead id="pmbackup-thead"><tr><th data-col="name">Guest</th><th data-col="vmid">VMID</th><th data-col="last">Last backup</th><th data-col="age">Age</th><th data-col="status">Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
   tableCtl.wireSortOnly('pmbackup-thead', 'pmbackup', loadProxmoxBackups);
 }

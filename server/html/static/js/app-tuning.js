@@ -96,7 +96,7 @@ function _renderTuningMutes(rows) {
     if (secs <= 0) return '<span class="hint">expiring…</span>';
     const h = Math.floor(secs / 3600), mins = Math.round((secs % 3600) / 60);
     const left = h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : (h >= 1 ? `${h}h ${mins}m` : `${mins}m`);
-    return `<span class="patch-badge fs-11" title="Lapses on its own at ${escAttr(new Date(m.expires_at * 1000).toLocaleString())}">${escHtml(left)} left</span>`;
+    return `<span class="patch-badge fs-11" title="Lapses on its own at ${escAttr(_fmtAbsTs(m.expires_at))}">${escHtml(left)} left</span>`;
   };
   // v6.4.2: a mute row is EITHER an event mute or a per-container mute (the
   // Containers drawer's Mute button). Without this branch a container mute

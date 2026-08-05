@@ -71,7 +71,7 @@ async function loadBreakGlass() {
   if (!reqs.length) { card.classList.add('d-none'); return; }
   card.classList.remove('d-none');
   body.innerHTML = reqs.map(r => {
-    const when = r.created ? new Date(r.created * 1000).toLocaleString() : '—';
+    const when = r.created ? _fmtAbsTs(r.created) : '—';
     const status = r.status === 'approved'
       ? `<span class="patch-badge ok">approved by ${_cmdbEsc(r.approved_by || '')}</span>`
       : '<span class="patch-badge warn">awaiting approval</span>';
