@@ -4711,6 +4711,9 @@ async function loadSettings() {
   if (_portUrl) _portUrl.value = data.portal_base_url || '';
   const _portAppr = document.getElementById('cfg-portal-ticket-approval');
   if (_portAppr) _portAppr.checked = !!data.portal_ticket_approval_required;
+  // v6.4.2: appliance running-config archive
+  const _ncEn = document.getElementById('cfg-netconfig-backup-enabled');
+  if (_ncEn) _ncEn.checked = !!data.netconfig_backup_enabled;
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
     _secEn.checked = !!data.secrets_scan_enabled;
@@ -5312,6 +5315,8 @@ async function saveSettings(btn) {
   const _portSaveAppr = document.getElementById('cfg-portal-ticket-approval');
   if (_portSaveAppr) payload.portal_ticket_approval_required = _portSaveAppr.checked;
   // v3.14.0 #35: secrets-on-disk scanning
+  const _ncSaveEn = document.getElementById('cfg-netconfig-backup-enabled');
+  if (_ncSaveEn) payload.netconfig_backup_enabled = _ncSaveEn.checked;
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {
     payload.secrets_scan_enabled = _secSaveEn.checked;
@@ -19405,6 +19410,8 @@ function _renderHomeActivity(fleetEvents) {
     'server_disk_low', 'server_disk_ok',
     // v6.4.2: audit log not reaching the SIEM
     'audit_forward_failed', 'audit_forward_recovered',
+    // v6.4.2: a switch/firewall running config changed since the last archive
+    'netconfig_changed',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -19640,6 +19647,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="self"`;
     case 'audit_forward_failed': case 'audit_forward_recovered':
       return `${base} data-home-act="self"`;
+    case 'netconfig_changed': return `${base} data-home-act="devices"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
   case 'cve_cleared':    return `${base} data-home-act="cve"`;   // v6.4.0 recover

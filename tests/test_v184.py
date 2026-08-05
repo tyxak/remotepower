@@ -294,6 +294,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'server_disk_low', 'server_disk_ok',  # v5.0.0 #R1
             # v6.4.2: audit log not reaching the SIEM (spool + drain)
             'audit_forward_failed', 'audit_forward_recovered',
+            # v6.4.2: appliance running-config archive
+            'netconfig_changed',
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             'snmp_trap_received',                    # inbound SNMP trap receiver

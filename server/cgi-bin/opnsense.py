@@ -358,9 +358,14 @@ ACTIONS = ("add_filter_rule", "enable_filter_rule", "disable_filter_rule",
            "add_nat_rule", "enable_nat_rule", "disable_nat_rule",
            "delete_nat_rule",
            # system / firmware (v3.4.0, parity with RouterOS)
-           "reboot", "check_update", "upgrade")
+           "reboot", "check_update", "upgrade",
+           # v6.4.2: configuration export. RouterOS has had `export` since it
+           # shipped; OPNsense had no config call at all, so the appliance half
+           # of the fleet had no way to answer "what did this look like before
+           # Friday?" — the question RANCID/Oxidized exist for.
+           "export")
 
-_SYSTEM_OPS = ("reboot", "check_update", "upgrade")
+_SYSTEM_OPS = ("reboot", "check_update", "upgrade", "export")
 
 _FW_RULE_OPS = {
     "add_filter_rule":     ("filter", "add"),
@@ -468,6 +473,14 @@ def _system_op(host, key, secret, act, verify=False, timeout=15.0):
         r = _request(host, key, secret, "POST", "/core/firmware/upgrade",
                      verify=verify, timeout=timeout)
         return {"ok": True, "result": r}
+    if act == "export":
+        # /core/backup/download/this returns the running config.xml. Capped at
+        # the same 256 KB RouterOS's export is, so one enormous config cannot
+        # blow up the archive or the response.
+        r = _request(host, key, secret, "GET", "/core/backup/download/this",
+                     verify=verify, timeout=timeout)
+        text = r if isinstance(r, str) else json.dumps(r, indent=2, sort_keys=True)
+        return {"ok": True, "export": text[:256 * 1024]}
     raise OPNsenseError(f"unknown system op {act!r}")
 
 

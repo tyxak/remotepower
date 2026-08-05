@@ -84,6 +84,10 @@ AUDIT_FORWARD_SPOOL_FILE = DATA_DIR / 'audit_forward_spool.json'
 # v6.4.2: every report ever DELIVERED, kept so a past-dated one can be handed
 # to an auditor. See _archive_report / handle_report_archive.
 REPORT_ARCHIVE_FILE = DATA_DIR / 'report_archive.json'
+# v6.4.2: network-appliance running-config archive (RouterOS / OPNsense) —
+# per-device revisions + the daily sweep's cadence stamp.
+NETCONFIG_ARCHIVE_FILE = DATA_DIR / 'netconfig_archive.json'
+NETCONFIG_STATE_FILE = DATA_DIR / 'netconfig_state.json'
 # v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
 # Symmetry with the outbound log — operators want to see "we received N
 # inbound events today, M were rejected" on Server Status the same way
@@ -1292,6 +1296,12 @@ for _na_name in (
         '_opnsense_target', '_opnsense_redacted', '_opnsense_cache_update',
         'handle_device_opnsense', 'handle_device_opnsense_firewall',
         'handle_device_opnsense_action',
+        # v6.4.2: appliance config archive + its daily sweep
+        'handle_device_netconfig', 'handle_device_netconfig_revision',
+        'run_netconfig_backup_if_due', '_netconf_kind', '_netconf_fetch',
+        '_netconf_store_revision', '_netconf_diff', '_netconf_meta',
+        '_NETCONF_MAX_REVISIONS',
+        '_NETCONF_MAX_BODY',
 ):
     globals()[_na_name] = getattr(netappliance_handlers_mod, _na_name)
 del _na_name
@@ -2018,6 +2028,17 @@ EVENT_REGISTRY = {
         label='Audit log forwarding recovered', kind='server_disk',
         title='Audit Forwarding Recovered', resolves=('audit_forward_failed',),
         tags='white_check_mark'),
+    # v6.4.2: a switch or firewall's running config changed since the last
+    # archived copy. Linux hosts have had config_drift since v2; the appliances
+    # that most need it had nothing.
+    'netconfig_changed': dict(
+        # lifecycle='point': this RECORDS that the config changed at a moment
+        # in time. There is no "config un-changed" state to recover into — the
+        # new config is simply the config now — so a recover event would have
+        # nothing to fire on and the alert would sit open forever.
+        lifecycle='point',
+        label='Network appliance configuration changed', kind='drift',
+        title='Appliance Config Changed', severity='medium', tags='pencil'),
     'snmp_unreachable': dict(
         label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Device Unreachable',
         severity='high', symptom=True),
@@ -26065,6 +26086,7 @@ def handle_config_get():
     safe.setdefault('otlp_traces_interval', 30)
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
+    safe.setdefault('netconfig_backup_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
     safe.setdefault('image_updates_enabled', True)     # v6.4.0: registry digest checks
     safe.setdefault('image_scan_interval', IMAGE_SCAN_INTERVAL)   # v6.4.0
@@ -27422,6 +27444,12 @@ def handle_config_save():
         cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
     if 'image_scan_enabled' in body:      # W6-34: opt-in trivy image CVE scan
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
+    # v6.4.2: appliance running-config archive. Opt-in, default OFF — it
+    # authenticates to every RouterOS/OPNsense device in the fleet and stores
+    # its full configuration, which is an operator's decision, not something to
+    # inherit on upgrade.
+    if 'netconfig_backup_enabled' in body:
+        cfg['netconfig_backup_enabled'] = bool(body['netconfig_backup_enabled'])
     # v6.4.0: these two were read-only "dead switches" — the code honored them
     # but NO save path or UI could ever set them (found by the half-built
     # feature sweep). image_updates_enabled gates the registry digest-check
@@ -67009,6 +67037,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/iac/status/', '', 'handle_iac_status', "pi.startswith('/api/iac/status/') and m == 'GET'"),
     ('pat', ('GET',), '/api/iac/payload/', '', 'handle_iac_payload', "pi.startswith('/api/iac/payload/') and m == 'GET'"),
     ('pat', ('POST',), '/api/acme/', '/issue', 'handle_acme_issue', "pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST'"),
+    # v6.4.2: one archived appliance config (body / download / diff).
+    ('code', None, None, None, '_route_code_netconfig_rev', "pi.startswith('/api/devices/') and '/netconfig/' in pi and m == 'GET'"),
     ('code', None, None, None, '_route_code_80', "pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET'"),
     ('code', None, None, None, '_route_code_81', "pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST'"),
     ('code', None, None, None, '_route_code_82', "pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST'"),
@@ -67128,6 +67158,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH', 'DELETE'), '/api/snmp/trap-rules/', '', 'handle_snmp_trap_rule', "pi.startswith('/api/snmp/trap-rules/') and m in ('PATCH', 'DELETE')"),
     # v6.4.2: one archived (delivered) report — the artifact an auditor asks for by date.
     ('pat', ('GET', 'DELETE'), '/api/report/archive/', '', 'handle_report_archive_entry', "pi.startswith('/api/report/archive/') and m in ('GET', 'DELETE')"),
+    # v6.4.2: appliance running-config archive.
+    ('pat', ('GET', 'POST'), '/api/devices/', '/netconfig', 'handle_device_netconfig', "pi.startswith('/api/devices/') and pi.endswith('/netconfig') and m in ('GET', 'POST')"),
     ('pat', ('POST',), '/api/flow/in/', '', 'handle_flow_in', "pi.startswith('/api/flow/in/') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/flows', 'handle_device_flows', "pi.startswith('/api/devices/') and pi.endswith('/flows') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_revoke', "pi.startswith('/api/inbound-webhooks/') and m == 'DELETE'"),
@@ -67374,6 +67406,14 @@ def _route_code_46(pi, m):
 def _route_code_74(pi, m):
     if (pi.startswith('/api/devices/') and pi.endswith('/allowlist')):
         handle_device_allowlist(pi[len('/api/devices/'):-len('/allowlist')])
+        return True
+    return False
+
+
+def _route_code_netconfig_rev(pi, m):
+    if (pi.startswith('/api/devices/') and '/netconfig/' in pi and m == 'GET'):
+        _rest = pi[len('/api/devices/'):]; _did, _rid = _rest.split('/netconfig/', 1)
+        handle_device_netconfig_revision(_did, _rid)
         return True
     return False
 
@@ -68115,6 +68155,7 @@ def main():
     # W5-6: re-materialize smart-group membership (~60s cadence).
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     _safe(run_audit_forward_retry_if_due, 'run_audit_forward_retry_if_due')
+    _safe(run_netconfig_backup_if_due, 'run_netconfig_backup_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
     _safe(run_ignored_prune_if_due, 'run_ignored_prune_if_due')      # v6.4.0 #1 ignore GC

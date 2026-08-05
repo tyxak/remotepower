@@ -72,3 +72,32 @@ As with firewall edits, each action is queued through the audited command pipeli
   kept intact and every argument is shell-quoted before the command runs.
 - Edits never bypass **quarantine** or the **4-eyes change-approval** controls
   that already gate the command queue.
+
+
+## Appliance configuration archive *(v6.4.2)*
+
+RemotePower can keep a versioned copy of each **RouterOS** and **OPNsense**
+device's running configuration — the RANCID/Oxidized job, done from the
+appliance integrations you already configured.
+
+Switch it on under **Settings → Security → Appliance config archive**. It is
+off by default: archiving authenticates to every appliance in the fleet and
+stores its full configuration, which may embed secrets.
+
+- Runs **daily** (`netconfig_backup_interval_s` tunes it), keeps the last **10
+  revisions per device**, and raises **`netconfig_changed`** when a config
+  differs from the last archived copy.
+- An **identical** config is not archived again — only the "last verified"
+  timestamp moves, so a quiet device is distinguishable from a broken poll.
+- The **first** archive of a device is a baseline and fires nothing; otherwise
+  switching the feature on would alert on every appliance at once.
+- Each appliance's drawer gets a **Configuration archive** panel: back up now,
+  view a revision, download it, or diff it against the one before.
+- A config over **256 KB** is archived as a hash and size only. Change
+  detection still works, but there is no body to diff — a *truncated* config in
+  an archive looks complete and is not, which is worse than storing none.
+- Reading the archive list needs any signed-in role; reading or downloading a
+  configuration **body**, and running a backup, are admin-only.
+
+`GET|POST /api/devices/{id}/netconfig`,
+`GET /api/devices/{id}/netconfig/{revision}[?format=download|diff&against=…]`

@@ -1970,6 +1970,7 @@
     "Import .ics": { "fr": "Importer .ics", "de": ".ics importieren", "zh": "导入 .ics", "hi": ".ics Import करें", "es": "Importar .ics", "ar": "استيراد ‎.ics" },
     "Import events from an .ics file": { "fr": "Importer des événements depuis un fichier .ics", "de": "Ereignisse aus einer .ics-Datei importieren", "zh": "从 .ics 文件导入事件", "hi": ".ics फ़ाइल से events import करें", "es": "Importar eventos desde un archivo .ics", "ar": "استيراد الأحداث من ملف ‎.ics" },
     "Import now": { "fr": "Importer maintenant", "de": "Jetzt importieren", "zh": "立即导入", "hi": "अभी import करें", "es": "Importar ahora", "ar": "استورد الآن" },
+    "Appliance config archive": { "fr": "Archive de configuration des équipements", "de": "Appliance-Konfigurationsarchiv", "zh": "设备配置归档", "hi": "उपकरण कॉन्फ़िग संग्रह", "es": "Archivo de configuración de appliances", "ar": "أرشيف إعدادات الأجهزة" },
     "Delivered report archive": { "fr": "Archive des rapports envoyés", "de": "Archiv gesendeter Berichte", "zh": "已发送报告归档", "hi": "भेजी गई रिपोर्ट संग्रह", "es": "Archivo de informes enviados", "ar": "أرشيف التقارير المرسلة" },
     "Find": { "fr": "Rechercher", "de": "Suchen", "zh": "查找", "hi": "खोजें", "es": "Buscar", "ar": "بحث" },
     "Knowledge search": { "fr": "Recherche de connaissances", "de": "Wissenssuche", "zh": "知识搜索", "hi": "ज्ञान खोज", "es": "Búsqueda de conocimiento", "ar": "بحث المعرفة" },

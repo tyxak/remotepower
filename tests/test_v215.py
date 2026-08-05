@@ -135,6 +135,9 @@ class TestHtmlIdReferences(unittest.TestCase):
         'log-sweep-modal', 'log-sweep-title', 'log-sweep-body',
         # v6.3.1: created via document.createElement in _ensureFlowModal()
         'flow-modal', 'flow-title', 'flow-body',
+        # v6.4.2: the appliance config-archive panel is emitted into the
+        # RouterOS/OPNsense drawer card's innerHTML, not declared in index.html.
+        'netconf-body', 'netconf-out',
         # v2.4.0: Created via document.createElement in openSnapshots()
         'snapshot-modal', 'snapshot-modal-title',
         'virt-snapshot-modal', 'virt-snapshot-modal-title',   # app-virt.js builds these

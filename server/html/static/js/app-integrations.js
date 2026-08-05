@@ -92,8 +92,12 @@ function _renderRouterosCard(body, badge, data) {
   if (ov.errors && Object.keys(ov.errors).length) {
     h += `<div class="hint mt-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
   }
+  // v6.4.2: the archived-config panel. "Export config" above is the transient
+  // dump that vanished with the drawer; this one keeps revisions and diffs.
+  h += `<h4 class="mt-12">Configuration archive</h4><div id="netconf-body"></div>`;
   badge.textContent = sys.version ? 'v' + sys.version : 'loaded';
   body.innerHTML = h;
+  loadNetconfig();      // after innerHTML — it fills #netconf-body by id
 }
 
 async function saveRouterosConfig() {
@@ -175,8 +179,11 @@ function _renderOpnsenseCard(body, badge, data) {
       <button class="btn-icon" data-action="loadOpnsenseFirewall">${_icon('refresh',14)} Load / refresh rules</button>
     </div>
     <div id="opn-fw-body"><div class="c-muted">Click "Load / refresh rules" to view and manage filter + NAT rules.</div></div>`;
+  // v6.4.2: OPNsense had no config-retrieval call at all before this.
+  h += `<h4 class="mt-12">Configuration archive</h4><div id="netconf-body"></div>`;
   badge.textContent = fwv.version ? String(fwv.version).replace(/^OPNsense\s*/i, 'v') : 'loaded';
   body.innerHTML = h;
+  loadNetconfig();
 }
 
 async function opnsenseAction(action, arg) {
@@ -808,6 +815,108 @@ async function routerosLiveRates() {
   }
   h += '</tbody></table></div><div class="row-6 mt-6"><button class="btn-icon" data-action="routerosLiveRates">Refresh</button><button class="btn-icon" data-action="loadRouterosQos">Queues</button></div>';
   body.innerHTML = h;
+}
+
+// ── v6.4.2: appliance running-config archive ────────────────────────────────
+// The RouterOS `export` action dumped its text into a <pre> and persisted
+// nothing — it vanished when the drawer closed. OPNsense had no config call at
+// all. So "who changed the firewall rule at 3pm Friday, and what did it look
+// like before?" had no answer for the two device types the question is usually
+// about, while Linux hosts have had hash-based config drift since v2.
+let _netconfRevs = [];
+
+async function loadNetconfig() {
+  const box = document.getElementById('netconf-body');
+  const id = _drawerDeviceId;
+  if (!box || !id) return;
+  box.innerHTML = _skeletonBlock(4);
+  const r = await api('GET', `/devices/${encodeURIComponent(id)}/netconfig`)
+    .catch(() => null);
+  if (!r) { box.innerHTML = '<div class="hint">Failed to load the config archive.</div>'; return; }
+  if (!r.kind) {
+    box.innerHTML = '<div class="hint">This device has no RouterOS or OPNsense API configured, so there is no running config to archive.</div>';
+    return;
+  }
+  _netconfRevs = r.revisions || [];
+  const head = `<div class="row-8-center mb-8">
+      <button class="btn-icon" data-action="netconfigBackupNow">Back up now</button>
+      <span class="hint">${_netconfRevs.length} of ${r.max_revisions} revision(s) kept · ${escHtml(r.kind)}</span>
+    </div>`;
+  if (!_netconfRevs.length) {
+    box.innerHTML = head + '<div class="hint">No configuration archived yet. Back up now, or switch on the daily archive under Settings → Security.</div>';
+    return;
+  }
+  box.innerHTML = head + `<div class="table-card"><table><thead><tr>
+      <th scope="col">Archived</th><th scope="col">Size</th><th scope="col">Lines</th><th scope="col">By</th><th scope="col"></th>
+    </tr></thead><tbody>` + _netconfRevs.map((rev, i) => `
+      <tr>
+        <td class="nowrap">${_fmtTs(rev.ts)}</td>
+        <td>${rev.oversize ? '<span class="c-amber" title="Too large to archive the body — only the hash and size were kept, so change detection still works">' + Math.round((rev.bytes || 0) / 1024) + ' KB (hash only)</span>' : Math.round((rev.bytes || 0) / 1024) + ' KB'}</td>
+        <td>${rev.lines || 0}</td>
+        <td class="hint">${escHtml(rev.by || 'system')}</td>
+        <td class="nowrap">
+          ${rev.oversize ? '' : `<button class="btn-icon btn-xs" data-action="netconfigView" data-arg="${escAttr(rev.id)}">View</button>`}
+          ${(i < _netconfRevs.length - 1 && !rev.oversize) ? `<button class="btn-icon btn-xs" data-action="netconfigDiff" data-arg="${escAttr(rev.id)}">Diff</button>` : ''}
+        </td>
+      </tr>`).join('') + '</tbody></table></div><div id="netconf-out" class="mt-8"></div>';
+}
+
+async function netconfigBackupNow() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/netconfig`, {})
+    .catch(() => null);
+  if (!r || !r.ok) { toast((r && r.error) || 'Backup failed', 'error'); return; }
+  // "No change" is the useful answer most of the time — saying "backed up"
+  // either way would hide it.
+  toast(r.changed ? 'Configuration changed — new revision archived'
+                  : 'Configuration unchanged since the last archive', 'success');
+  loadNetconfig();
+}
+
+async function netconfigView(revId) {
+  const id = _drawerDeviceId;
+  const out = document.getElementById('netconf-out');
+  if (!id || !out) return;
+  const r = await api('GET', `/devices/${encodeURIComponent(id)}/netconfig/${encodeURIComponent(revId)}`)
+    .catch(() => null);
+  if (!r) { out.innerHTML = '<div class="hint">Failed to load that revision.</div>'; return; }
+  out.innerHTML = `<div class="row-8-center mb-6"><strong class="fs-13">Archived ${escHtml(_fmtTs(r.revision.ts))}</strong>`
+    + `<button class="btn-icon btn-xs" data-action="netconfigDownload" data-arg="${escAttr(revId)}">Download</button></div>`
+    + `<pre class="isl-514 scroll-cap"><code>${escHtml(r.text || '')}</code></pre>`;
+}
+
+async function netconfigDiff(revId) {
+  const id = _drawerDeviceId;
+  const out = document.getElementById('netconf-out');
+  if (!id || !out) return;
+  const r = await api('GET', `/devices/${encodeURIComponent(id)}/netconfig/${encodeURIComponent(revId)}?format=diff`)
+    .catch(() => null);
+  if (!r) { out.innerHTML = '<div class="hint">Failed to build the diff.</div>'; return; }
+  if (r.error) { out.innerHTML = `<div class="hint">${escHtml(r.error)}</div>`; return; }
+  const body = (r.diff || []).map(l => {
+    const cls = l.startsWith('+') && !l.startsWith('+++') ? 'c-green'
+              : l.startsWith('-') && !l.startsWith('---') ? 'c-red' : '';
+    return `<span class="${cls}">${escHtml(l)}</span>`;
+  }).join('\n');
+  out.innerHTML = `<div class="fs-13 mb-6"><strong>What changed</strong> — ${escHtml(_fmtTs(r.from.ts))} → ${escHtml(_fmtTs(r.to.ts))}</div>`
+    + `<pre class="isl-514 scroll-cap"><code>${body || 'No textual difference.'}</code></pre>`
+    + (r.truncated ? '<div class="hint">Diff truncated — download both revisions to compare in full.</div>' : '');
+}
+
+function netconfigDownload(revId) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  fetch(`/api/devices/${encodeURIComponent(id)}/netconfig/${encodeURIComponent(revId)}?format=download`,
+        { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u; a.download = `netconfig-${revId}.txt`; a.click();
+      URL.revokeObjectURL(u);
+    })
+    .catch(() => toast('Download failed', 'error'));
 }
 
 async function routerosAction(action, arg) {

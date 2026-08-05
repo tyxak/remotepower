@@ -964,6 +964,7 @@ if _AVAILABLE:
         ack_comment_enabled: bool = False
         after_hours: str = ''
         agentless_ssh_enabled: bool = False
+        netconfig_backup_enabled: bool = False
         agentless_ssh_key: str = ''
         alert_email_ack_links: bool = False
         alert_runbooks: str = ''
