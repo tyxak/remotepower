@@ -65,15 +65,25 @@ class TestItsmTicketing(unittest.TestCase):
         self.assertIsNone(api._build_jira_body("e", "t", "m", {"jira_project": "OPS"})[0])
 
     def test_parse_responses(self):
-        self.assertEqual(
-            api._parse_itsm_response("jira", "https://x.atlassian.net/y", b'{"key":"OPS-1"}'),
-            {"ticket_ref": "OPS-1", "ticket_url": "https://x.atlassian.net/browse/OPS-1"})
+        # v6.4.2 added ticket_id (the provider's ADDRESSABLE id, which differs
+        # from the human reference on ServiceNow) — assert the fields this test
+        # is about rather than the whole dict, so a future field does not fail a
+        # working parser.
+        _j = api._parse_itsm_response("jira", "https://x.atlassian.net/y",
+                                      b'{"key":"OPS-1"}')
+        self.assertEqual(_j["ticket_ref"], "OPS-1")
+        self.assertEqual(_j["ticket_url"], "https://x.atlassian.net/browse/OPS-1")
         self.assertEqual(
             api._parse_itsm_response("zendesk", "https://x.zendesk.com/y",
                                      b'{"ticket":{"id":7,"url":"u"}}')["ticket_ref"], "7")
         self.assertEqual(
             api._parse_itsm_response("servicenow", "https://x.service-now.com/y",
                                      b'{"result":{"number":"INC9","sys_id":"s"}}')["ticket_ref"], "INC9")
+        # The sys_id is what the v6.4.2 close PATCH addresses — the INC number
+        # cannot be PATCHed, so losing this silently breaks closing.
+        self.assertEqual(
+            api._parse_itsm_response("servicenow", "https://x.service-now.com/y",
+                                     b'{"result":{"number":"INC9","sys_id":"s"}}')["ticket_id"], "s")
         self.assertIsNone(api._parse_itsm_response("jira", "u", b"not json"))
 
     def test_ack_stores_ticket_on_alert(self):

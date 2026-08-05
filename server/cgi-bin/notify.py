@@ -374,6 +374,77 @@ def _build_zendesk_body(event, title, message, dest):
     return body, {"Authorization": auth}, "application/json"
 
 
+# ── v6.4.2: closing the loop ────────────────────────────────────────────────
+# The adapters above POST a create-ticket call on alert ACK, stamp the new
+# ticket's id/url on the alert, and stop. Nothing ever read the ticket's state
+# back, commented on it, transitioned it, or deduped a second ticket for the
+# same alert. The product already closes this loop for its OWN tickets —
+# tickets_handlers resolves the linked alert when an internal ticket moves to
+# resolved — so external ITSM was the one ticket path that did not participate.
+#
+# The orphan case: a patch_alert that auto-heals (RemotePower re-evaluates and
+# auto-resolves it) left an open Jira issue nobody would ever close.
+#
+# A COMMENT is the universal move; a transition is not. Every Jira workflow
+# names its transitions differently and they are addressed by numeric id, so
+# closing one requires configuration the operator has to supply. Commenting
+# always works, always tells the engineer looking at the ticket what happened,
+# and never fails because someone renamed a workflow step.
+
+
+def build_itsm_close(fmt, dest, ticket_ref, ticket_id, message):
+    """(method, url_suffix, body, headers) for "this alert resolved", or None.
+
+    `ticket_id` is the provider's ADDRESSABLE id where that differs from the
+    human reference (ServiceNow's sys_id vs its INC number) — addressing a
+    ServiceNow incident by its number does not work.
+    """
+    user = (dest.get("itsm_user") or "").strip()
+    secret = (dest.get("itsm_secret") or "").strip()
+    ref = str(ticket_ref or "").strip()
+    if not ref:
+        return None
+    if fmt == "jira":
+        auth = _itsm_basic(user, secret)
+        if not auth:
+            return None
+        return ("POST", f"/rest/api/2/issue/{urllib.parse.quote(ref, safe='')}/comment",
+                json.dumps({"body": message}).encode(),
+                {"Authorization": auth})
+    if fmt == "servicenow":
+        auth = _itsm_basic(user, secret)
+        sid = str(ticket_id or "").strip()
+        if not (auth and sid):
+            return None
+        # state 6 = Resolved. PATCH rather than a comment: ServiceNow's incident
+        # table takes the resolution inline, and leaving an incident open with a
+        # work note is not "closed" to anyone reading a queue.
+        return ("PATCH", f"/api/now/table/incident/{urllib.parse.quote(sid, safe='')}",
+                json.dumps({"state": "6", "close_notes": message,
+                            "close_code": "Resolved by caller"}).encode(),
+                {"Authorization": auth, "Accept": "application/json"})
+    if fmt == "zendesk":
+        auth = _itsm_basic(user, secret, zendesk=True)
+        if not auth:
+            return None
+        return ("PUT", f"/api/v2/tickets/{urllib.parse.quote(ref, safe='')}.json",
+                json.dumps({"ticket": {"status": "solved",
+                                       "comment": {"body": message,
+                                                   "public": False}}}).encode(),
+                {"Authorization": auth})
+    return None
+
+
+def itsm_close_message(alert, by):
+    """What the engineer looking at the ticket needs to know."""
+    what = alert.get("title") or alert.get("event") or "alert"
+    who = f" by {by}" if by and by != "auto" else " automatically"
+    host = alert.get("device_name") or alert.get("device_id") or ""
+    where = f" on {host}" if host else ""
+    return (f"RemotePower alert resolved{who}: {what}{where}. "
+            f"Reference {alert.get('alertid') or alert.get('id') or '?'}.")
+
+
 def _parse_itsm_response(fmt, url, raw):
     """Extract {ticket_ref, ticket_url} from a provider's create-ticket response."""
     try:
@@ -388,19 +459,24 @@ def _parse_itsm_response(fmt, url, raw):
         if fmt == "jira":
             key = data.get("key")
             if key:
-                return {"ticket_ref": str(key), "ticket_url": f"{base}/browse/{key}"}
+                return {"ticket_ref": str(key), "ticket_id": str(key),
+                        "ticket_url": f"{base}/browse/{key}"}
         elif fmt == "servicenow":
             res = data.get("result") or {}
             num, sid = res.get("number"), res.get("sys_id")
             if num:
                 link = f"{base}/nav_to.do?uri=incident.do?sys_id={sid}" if sid else ""
-                return {"ticket_ref": str(num), "ticket_url": link}
+                # v6.4.2: sys_id is what the close PATCH addresses; the INC
+                # number is only the human reference and cannot be PATCHed.
+                return {"ticket_ref": str(num), "ticket_id": str(sid or ""),
+                        "ticket_url": link}
         elif fmt == "zendesk":
             t = data.get("ticket") or {}
             tid = t.get("id")
             if tid:
                 return {
                     "ticket_ref": str(tid),
+                    "ticket_id": str(tid),
                     "ticket_url": t.get("url") or f"{base}/agent/tickets/{tid}",
                 }
     except Exception:

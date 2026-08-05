@@ -613,3 +613,130 @@ def handle_prometheus_sd():
 
     out.sort(key=lambda e: e['labels'].get('instance', ''))
     A.respond(200, out)
+
+
+def handle_itsm_callback(token_str):
+    """POST /api/itsm/in/<token> — an external ticket closed; resolve its alert.
+
+    v6.4.2: the other half of the ITSM loop. A team living in Jira acks a
+    `disk_predict_failure`, an issue opens, an engineer swaps the disk and
+    closes the issue — and RemotePower's alert stayed open forever, counting in
+    the inbox, holding the host in Needs Attention and dragging the fleet
+    health score down until somebody remembered to resolve it a second time in
+    a second UI. There was no inbound route back at all: the token kinds were
+    alert/syslog/snmp_trap/flow, so a Jira issue-updated webhook had nowhere to
+    land.
+
+    Body: `{ticket_ref, status?}` — or any of the providers' own issue-updated
+    shapes, which all carry the key somewhere different. Deliberately tolerant:
+    the sender is a webhook template an operator pastes into Jira/ServiceNow/
+    Zendesk, and rejecting it on shape would put us back where we started.
+    """
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    tokens = (A.load(A.INBOUND_WEBHOOKS_FILE) or {}).get('tokens', [])
+    token_str = (token_str or '').strip()
+    if not token_str or not token_str.startswith('rpwi_'):
+        A._log_inbound('itsm', '', '', '401', 'invalid token format')
+        A.respond(401, {'error': 'invalid token'})
+    match = None
+    for t in tokens:
+        if A.hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+            match = t
+            break
+    if not match:
+        A._log_inbound('itsm', '', '', '401', 'invalid or disabled token')
+        A.respond(401, {'error': 'invalid or disabled token'})
+    if (match.get('kind') or 'alert') != 'itsm':
+        A._log_inbound('itsm', match.get('id'), match.get('label'), '400',
+                     f'wrong url for {match.get("kind", "alert")} token')
+        A.respond(400, {'error': f'this token is a {match.get("kind", "alert")} '
+                               f'token — use the corresponding URL'})
+    body = A.get_json_obj()
+    ref, status = A._itsm_callback_fields(body)
+    if not ref:
+        A._log_inbound('itsm', match.get('id'), match.get('label'), '400',
+                     'no ticket reference in body')
+        A.respond(400, {'error': 'could not find a ticket key/number/id in the body '
+                               '— send {"ticket_ref": "..."} if your template '
+                               'cannot be shaped'})
+    if not A._itsm_status_is_closed(status):
+        A._log_inbound('itsm', match.get('id'), match.get('label'), '200',
+                     f'{ref} status={status or "?"} — not a closing state, ignored')
+        A.respond(200, {'ok': True, 'resolved': 0, 'reason': 'not a closing status'})
+    now = int(A.time.time())
+    n = 0
+    with A._LockedUpdate(A.ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if a.get('resolved_at') or str(a.get('ticket_ref') or '') != ref:
+                continue
+            a['resolved_at'] = now
+            a['resolved_by'] = f'itsm:{ref}'[:64]
+            n += 1
+    A._log_inbound('itsm', match.get('id'), match.get('label'), '200',
+                 f'resolved {n} alert(s) from ticket {ref}')
+    A.audit_log(f'inbound:{match.get("label", match.get("id", "?"))}',
+              'itsm_callback', f'ticket={ref} status={status} resolved={n}')
+    A.respond(200, {'ok': True, 'resolved': n, 'ticket_ref': ref})
+
+
+# The key lives somewhere different in every provider's issue-updated payload,
+# and each is a template the operator pastes in rather than a schema we control.
+_ITSM_REF_PATHS = (
+    ('ticket_ref',),                     # ours, for a template that can be shaped
+    ('issue', 'key'),                    # Jira
+    ('key',),                            # Jira, flattened
+    ('ticket', 'id'),                    # Zendesk
+    ('number',),                         # ServiceNow
+    ('sys_id',),                         # ServiceNow, when the number is absent
+)
+_ITSM_STATUS_PATHS = (
+    ('status',),
+    ('issue', 'fields', 'status', 'name'),
+    ('ticket', 'status'),
+    ('state',),
+)
+# What each provider calls "done". `6`/`7` are ServiceNow's Resolved/Closed.
+_ITSM_CLOSED = {'closed', 'resolved', 'solved', 'done', 'complete', 'completed',
+                'fixed', '6', '7'}
+
+
+def _dig(obj, path):
+    cur = obj
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def _itsm_callback_fields(body):
+    """(ticket_ref, status) from whichever provider shape arrived."""
+    if not isinstance(body, dict):
+        return '', ''
+    ref = ''
+    for path in _ITSM_REF_PATHS:
+        v = A._dig(body, path)
+        if v not in (None, ''):
+            ref = A._sanitize_str(str(v), 128)
+            break
+    status = ''
+    for path in _ITSM_STATUS_PATHS:
+        v = A._dig(body, path)
+        if v not in (None, ''):
+            status = A._sanitize_str(str(v), 64)
+            break
+    return ref, status
+
+
+def _itsm_status_is_closed(status):
+    """True when the provider says the ticket is done.
+
+    An ABSENT status counts as closed: several providers let an operator wire a
+    webhook that only fires ON transition-to-done and sends no status field at
+    all. Refusing those would leave the loop open for exactly the setups that
+    configured it most carefully.
+    """
+    if not status:
+        return True
+    return str(status).strip().lower() in _ITSM_CLOSED

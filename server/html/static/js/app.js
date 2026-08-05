@@ -14036,6 +14036,8 @@ function updateInboundWebhookKindHint() {
     if (hint) hint.textContent = 'Syslog tokens receive RFC 3164/5424 lines (JSON {lines:[...]} or plain text) and append to the device\'s log_watch under unit="syslog".';
   } else if (kind === 'flow') {
     if (hint) hint.textContent = 'Flow tokens receive NetFlow/IPFIX rollups from remotepower-flowd; the pinned device\'s IP must match the exporter. See docs/flow.md.';
+  } else if (kind === 'itsm') {
+    if (hint) hint.textContent = 'ITSM tokens close the loop the other way: point your Jira / ServiceNow / Zendesk issue-updated webhook at this URL and closing the ticket resolves the RemotePower alert it came from. No device pin needed.';
   } else {
     if (hint) hint.textContent = 'Alert tokens land in the Alerts inbox. The sender\'s own payload shape is adapted — pick it below.';
   }
@@ -14062,12 +14064,14 @@ async function createInboundWebhook() {
                       { label, scope_device_id, kind, source_format });
   if (r && r.ok && r.token) {
     closeModal('inbound-webhook-create-modal');
-    const path = kind === 'syslog' ? '/api/syslog/in/' : kind === 'snmp_trap' ? '/api/snmp/trap/' : '/api/webhook/in/';
+    const path = kind === 'syslog' ? '/api/syslog/in/' : kind === 'snmp_trap' ? '/api/snmp/trap/'
+      : kind === 'itsm' ? '/api/itsm/in/' : '/api/webhook/in/';
     _lastCreatedInboundWebhookUrl = `${location.origin}${path}${r.token}`;
     document.getElementById('inbound-wh-url').textContent = _lastCreatedInboundWebhookUrl;
     document.getElementById('inbound-wh-show-title').textContent =
       kind === 'syslog' ? 'Syslog ingestion token created'
-      : kind === 'snmp_trap' ? 'SNMP trap token created' : 'Alert webhook token created';
+      : kind === 'snmp_trap' ? 'SNMP trap token created'
+      : kind === 'itsm' ? 'ITSM callback token created' : 'Alert webhook token created';
     const ex = document.getElementById('inbound-wh-example');
     if (kind === 'snmp_trap') {
       ex.textContent =

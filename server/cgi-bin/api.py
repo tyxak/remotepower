@@ -1089,6 +1089,10 @@ for _at_name in (
         'handle_suppressions',   # v6.4.2: the unified "why isn't this alerting?" view
         'handle_mcp_acknowledge_alert',   # v6.4.2: the MCP inbox write
         'handle_prometheus_sd', '_prom_label',   # v6.4.2: Prometheus http_sd
+        # v6.4.2: the inbound half of the ITSM loop — a closed Jira/ServiceNow/
+        # Zendesk ticket resolves the alert it came from.
+        'handle_itsm_callback', '_itsm_callback_fields', '_itsm_status_is_closed',
+        '_dig', '_ITSM_REF_PATHS', '_ITSM_STATUS_PATHS', '_ITSM_CLOSED',
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -11245,6 +11249,7 @@ def _auto_resolve_alerts(event, payload):
     _id_only = (event in ('integration_recovered', 'integration_metric_recovered')
                 and bool(sub_match.get('integration_id')))
     _recovered_tids = []          # tickets whose source alert just recovered
+    _closed_external = []         # v6.4.2: alerts whose EXTERNAL ticket to close
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             now = int(time.time())
@@ -11284,13 +11289,102 @@ def _auto_resolve_alerts(event, payload):
                 a['resolved_by'] = 'auto'
                 if a.get('rp_ticket_id'):
                     _recovered_tids.append(a['rp_ticket_id'])
+                # v6.4.2: snapshot for the EXTERNAL ticket close, applied after
+                # the lock — the orphaned-Jira-issue case is exactly this one,
+                # an alert that healed itself.
+                if a.get('ticket_ref'):
+                    _closed_external.append(dict(a))
     except Exception:
         pass
+    _close_external_tickets(_closed_external)
     # Outside the ALERTS lock (the TICKETS lock must not nest): reflect the
     # recovery on any ticket the resolved alert opened — a note (always) and an
     # auto-resolve if the ticket is still untouched. collect-then-apply.
     if _recovered_tids:
         _apply_alert_recovery_to_tickets(_recovered_tids, event, payload or {})
+
+
+# ── v6.4.2: closing the EXTERNAL ticket loop (Jira / ServiceNow / Zendesk) ──
+# The ITSM adapters opened a ticket on alert ack, stamped ticket_ref/ticket_url
+# on the alert, and stopped. Nothing commented on it, transitioned it, or
+# deduped a second ticket for the same alert — while the built-in helpdesk has
+# always resolved the linked alert when its own ticket closes.
+#
+# So a patch_alert that auto-heals left an orphaned open Jira issue nobody would
+# ever close, and the operator learned to distrust the queue.
+
+
+def _itsm_dest_by_id(dest_id):
+    for d in (_config_ro().get('webhook_destinations') or []):
+        if isinstance(d, dict) and str(d.get('id')) == str(dest_id):
+            return d
+    return None
+
+
+def _itsm_close_ticket(alert):
+    """Tell the external ticket its alert resolved. Best-effort and bounded.
+
+    Returns a short status string for the log. Never raises: an unreachable
+    Jira must not stop RemotePower resolving its own alert.
+    """
+    ref = str(alert.get('ticket_ref') or '')
+    dest = _itsm_dest_by_id(alert.get('ticket_dest'))
+    if not (ref and dest):
+        return ''
+    fmt = str(dest.get('format') or '').lower()
+    if fmt not in ITSM_FORMATS:
+        return ''
+    base = str(dest.get('url') or '')
+    if not base:
+        return ''
+    try:
+        built = notify_mod.build_itsm_close(
+            fmt, dest, ref, alert.get('ticket_id'),
+            notify_mod.itsm_close_message(alert, alert.get('resolved_by')))
+    except Exception as e:                                # pragma: no cover
+        return f'close build failed: {type(e).__name__}'
+    if not built:
+        return 'close not supported for this destination'
+    method_, suffix, body, headers = built
+    parsed = urllib.parse.urlparse(base)
+    url = f'{parsed.scheme}://{parsed.netloc}{suffix}'
+    cfg = _config_ro()
+    # Same SSRF posture as the create call — this is the same operator-supplied
+    # base URL, and a ticket close is still an outbound request from the server.
+    if _url_targets_local_or_meta(urllib.parse.urlparse(url),
+                                  allow_loopback=bool(cfg.get('webhook_allow_loopback', True))):
+        return 'close blocked by the SSRF guard'
+    headers = {**headers, 'Content-Type': 'application/json'}
+    req = urllib.request.Request(url, data=body, headers=headers, method=method_)
+    try:
+        ctx = _get_ssl_context() if parsed.scheme == 'https' else None
+        opener = _ssrf_safe_opener(
+            allow_loopback=bool(cfg.get('webhook_allow_loopback', True)),
+            ssl_ctx=ctx, no_redirect=True,
+            enforce_ip=bool(cfg.get('webhook_block_local', True)))
+        resp = opener.open(req, timeout=10)
+        _log_webhook('alert_resolved', url, resp.status,
+                     f'OK ({resp.status}) [{fmt}] closed ticket {ref}')
+        return f'closed {ref}'
+    except Exception as e:
+        _log_webhook('alert_resolved', url, 'error',
+                     f'{type(e).__name__} [{fmt}] closing {ref}: {str(e)[:160]}')
+        return f'close failed: {type(e).__name__}'
+
+
+def _close_external_tickets(alerts):
+    """Close the external ticket for each resolved alert that opened one.
+
+    Takes a list of alert SNAPSHOTS, and must be called AFTER the ALERTS_FILE
+    lock releases — this makes outbound HTTP calls and _log_webhook takes its
+    own lock, so running it inside would nest (the recurring lock-nesting bug)
+    and hold the alert store open across a network timeout.
+    """
+    for a in (alerts or []):
+        try:
+            _itsm_close_ticket(a)
+        except Exception as e:                            # pragma: no cover
+            sys.stderr.write(f'[remotepower] itsm close failed: {e}\n')
 
 
 def _apply_alert_recovery_to_tickets(tids, event, payload):
@@ -55049,6 +55143,15 @@ def _fire_ack_webhooks(alert, user):
              and d.get('enabled', True) and (d.get('url') or '').strip()]
     if not dests:
         return
+    # v6.4.2: an alert that already has a ticket does not get a second one. Ack
+    # is re-runnable (un-ack, ack again; an escalation re-acks), and each pass
+    # used to open a fresh Jira issue with the same summary — the duplicates an
+    # ITSM admin then has to close by hand, from a queue they now distrust.
+    if alert.get('ticket_ref'):
+        dests = [d for d in dests
+                 if str(d.get('format') or '').lower() not in ITSM_FORMATS]
+        if not dests:
+            return
     p = alert.get('payload') or {}
     payload = {
         'alert_id':        alert.get('id'),
@@ -55080,7 +55183,7 @@ def _fire_ack_webhooks(alert, user):
             res = _dispatch_one_webhook('alert_acked', d, payload, message, title, 1)
             # v5.0.0: first ITSM destination that opened a ticket wins the link.
             if res and isinstance(res, dict) and res.get('ticket_ref') and not ticket:
-                ticket = res
+                ticket = {**res, '_dest_id': dest.get('id')}
         except Exception as e:
             _log_webhook('alert_acked', dest.get('url', '?'), 'error',
                          f'{type(e).__name__}: {str(e)[:200]}')
@@ -55092,6 +55195,12 @@ def _fire_ack_webhooks(alert, user):
                     if isinstance(a, dict) and a.get('id') == alert.get('id'):
                         a['ticket_ref'] = ticket['ticket_ref'][:128]
                         a['ticket_url'] = (ticket.get('ticket_url') or '')[:512]
+                        # v6.4.2: the provider's ADDRESSABLE id (ServiceNow's
+                        # sys_id is not its INC number) and WHICH destination
+                        # opened it — without both, the close call cannot be
+                        # made at all.
+                        a['ticket_id'] = str(ticket.get('ticket_id') or '')[:128]
+                        a['ticket_dest'] = str(ticket.get('_dest_id') or '')[:64]
                         break
         except Exception:
             pass
@@ -55665,6 +55774,7 @@ def handle_alert_resolve(alert_id):
     body = _read_valid(request_models.AlertResolveRequest)
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
+    _snap = None
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
@@ -55683,11 +55793,17 @@ def handle_alert_resolve(alert_id):
                     if note:
                         a['resolve_note'] = note
                     found = True
+                    if a.get('ticket_ref'):
+                        _snap = dict(a)
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
     if not found:
         respond(404, {'error': 'alert not found'})
+    # v6.4.2: tell the external ticket. AFTER the lock — this makes an outbound
+    # HTTP call and _log_webhook takes its own lock.
+    if _snap:
+        _close_external_tickets([_snap])
     audit_log(user, 'alert_resolve', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
     respond(200, {'ok': True})
 
@@ -57014,8 +57130,9 @@ def handle_inbound_webhooks_create():
     scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
-    if kind not in ('alert', 'syslog', 'snmp_trap', 'flow'):
-        respond(400, {'error': 'kind must be "alert", "syslog", "snmp_trap" or "flow"'})
+    if kind not in ('alert', 'syslog', 'snmp_trap', 'flow', 'itsm'):
+        respond(400, {'error': 'kind must be "alert", "syslog", "snmp_trap", '
+                               '"flow" or "itsm"'})
     # v6.4.2: which sender's payload shape to expect. `auto` sniffs it
     # structurally, which is right for almost everyone; pinning it matters when
     # a token is shared by two tools whose shapes could be confused.
@@ -67154,6 +67271,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
     ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),
     ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),
+    # v6.4.2: an external ticket closed — resolve the alert it came from.
+    ('pat', ('POST',), '/api/itsm/in/', '', 'handle_itsm_callback', "pi.startswith('/api/itsm/in/') and m == 'POST'"),
     # v6.4.2: OID → severity rules for inbound traps (admin CRUD + a dry-run).
     ('pat', ('PATCH', 'DELETE'), '/api/snmp/trap-rules/', '', 'handle_snmp_trap_rule', "pi.startswith('/api/snmp/trap-rules/') and m in ('PATCH', 'DELETE')"),
     # v6.4.2: one archived (delivered) report — the artifact an auditor asks for by date.
