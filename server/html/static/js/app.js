@@ -19027,6 +19027,8 @@ function _renderHomeActivity(fleetEvents) {
     // v6.4.2: the control plane telling on itself — a maintenance sweep
     // failing while the scheduler lives, and a stopped sidecar.
     'sweep_failing', 'sweep_recovered', 'sidecar_down', 'sidecar_recovered',
+    // v6.4.2: an operator fix that returned rc=0 and did not clear its alert.
+    'mitigation_unverified',
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
@@ -19323,6 +19325,7 @@ function _homeActivityAttrs(event, p) {
     case 'server_upgraded':
     // v6.4.2: all four are about the server itself — Server status is where the
     // sweep table, the scheduler heartbeat and the sidecar rows live.
+    case 'mitigation_unverified':
     case 'sweep_failing': case 'sweep_recovered':
     case 'sidecar_down': case 'sidecar_recovered':
       return `${base} data-home-act="self"`;
@@ -27344,12 +27347,15 @@ const MITIGATE_KINDS = new Set([
   'failed_units',
 ]);
 
-function openMitigateModal(devId, kind, target, deviceName) {
+function openMitigateModal(devId, kind, target, deviceName, alertId) {
   if (!MITIGATE_KINDS.has(kind)) {
     toast(`No mitigation playbook for "${kind}" yet`, 'info');
     return;
   }
-  _mitigateCtx = { devId, kind, target: target || '', deviceName: deviceName || devId, actionId: null };
+  // v6.4.2: alertId rides along so the fix can be VERIFIED afterwards. Every
+  // other caller passes nothing and gets the previous behaviour.
+  _mitigateCtx = { devId, kind, target: target || '', deviceName: deviceName || devId,
+                   actionId: null, alertId: alertId || '' };
   document.getElementById('mitigate-title').textContent =
     `Investigate: ${_MITIGATE_KIND_LABELS[kind] || kind}`;
   document.getElementById('mitigate-subtitle').textContent =
@@ -27394,7 +27400,8 @@ function mitigateTab(tab) {
 // Step 1: queue the diagnostic
 async function _mitigateKickoff() {
   const r = await api('POST', `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/investigate`,
-    { kind: _mitigateCtx.kind, target: _mitigateCtx.target });
+    { kind: _mitigateCtx.kind, target: _mitigateCtx.target,
+      alert_id: _mitigateCtx.alertId || '' });
   if (!r || !r.ok || !r.action_id) {
     document.getElementById('mitigate-diag-meta').textContent =
       r?.error || 'Failed to queue diagnostic';
@@ -28017,6 +28024,7 @@ async function mitigateRunFix() {
     target:       _mitigateCtx.target,
     command:      cmd,
     confirmation: confirmation,
+    alert_id:     _mitigateCtx.alertId || '',
   });
   btn.disabled = false; btn.textContent = orig;
   if (!r) {

@@ -2344,6 +2344,16 @@ EVENT_REGISTRY = {
     # an ingest or key-serving path that fails SILENTLY — when kmipd dies, every
     # appliance storing its volume keys there fails to unlock on its next
     # reboot, and nothing said so.
+    # v6.4.2: an operator's OWN fix did not clear the alert it was run for. The
+    # automation-rule path has had this loop since v6.3.1; the Fix button on an
+    # alert row had none of it, so a fix that returned rc=0 and changed nothing
+    # was indistinguishable from one that worked. lifecycle='point': it is a
+    # report about a run that already happened, not an ongoing condition.
+    'mitigation_unverified': dict(
+        lifecycle='point',
+        label='An operator-run fix did not clear its alert', kind='health',
+        title='Fix Did Not Work', severity='medium',
+        tags='warning,wrench'),
     'sidecar_down': dict(
         label='A RemotePower sidecar service stopped', kind='health',
         title='Sidecar Stopped', severity='high', priority=4,
@@ -67095,6 +67105,97 @@ def _record_self_error(context, exc):
 
 
 
+
+# ── v6.4.2: verify + prune the OPERATOR-driven mitigation runs ───────────────
+#
+# A fix run through an automation RULE gets a full act→verify loop: an attempt
+# ledger, a verify window, a sweep that re-checks whether the alert cleared,
+# `remediation_failed` on failure, and consecutive-failure auto-disable. The Fix
+# button on an alert row went down a completely different path with none of it.
+# So an operator hits Fix on a service_down at 02:00, sees rc=0, closes the
+# modal and goes back to bed; the unit crash-loops four minutes later, the alert
+# had already coalesced so nothing new pages, and nothing ever re-checked.
+#
+# This is the same loop, for the manual path, using the alert id now recorded on
+# the run. It deliberately does NOT auto-disable anything — there is no rule to
+# disable, and a human who ran a fix that did not work needs to be told, not
+# governed.
+#
+# It also prunes MITIGATE_LOGS_DIR, which nothing did: every investigate and fix
+# left a .log + .meta.json behind forever.
+_MITIGATE_VERIFY_AFTER_S = 300     # give the agent a poll cycle plus room
+_MITIGATE_VERIFY_INTERVAL = 120
+_MITIGATE_LOG_RETENTION_S = 30 * 86400
+
+
+def run_mitigate_verify_if_due():
+    """Re-check operator-driven fixes, and prune the mitigation log directory."""
+    now = int(time.time())
+    cfg = _config_ro() or {}
+    if (now - int(cfg.get('last_mitigate_verify') or 0)) < _MITIGATE_VERIFY_INTERVAL:
+        return
+    _claim_cadence_slot('last_mitigate_verify', now)
+    try:
+        metas = sorted(MITIGATE_LOGS_DIR.glob('*.meta.json'))
+    except Exception:
+        return
+
+    open_alerts = None      # loaded lazily — most sweeps have nothing due
+    pending = []
+    for mp in metas[:500]:
+        try:
+            st = mp.stat()
+        except OSError:
+            continue
+        # Prune first: an old run is not worth reading, and nothing ever
+        # cleaned this directory.
+        if (now - int(st.st_mtime)) > _MITIGATE_LOG_RETENTION_S:
+            for q in (mp, mp.with_suffix('').with_suffix('.log')):
+                try:
+                    q.unlink()
+                except OSError:
+                    pass
+            continue
+        try:
+            meta = json.loads(mp.read_text())
+        except Exception:
+            continue
+        if not isinstance(meta, dict) or meta.get('phase') != 'fix':
+            continue
+        if meta.get('verified') is not None or not meta.get('alert_id'):
+            continue
+        if (now - int(meta.get('queued_at') or 0)) < _MITIGATE_VERIFY_AFTER_S:
+            continue
+        if open_alerts is None:
+            _st = _load_ro(ALERTS_FILE) or {}
+            open_alerts = {a.get('id') for a in (_st.get('alerts') or [])
+                           if isinstance(a, dict) and not a.get('resolved_at')}
+        still_open = meta['alert_id'] in open_alerts
+        meta['verified'] = (not still_open)
+        meta['verified_at'] = now
+        try:
+            mp.write_text(json.dumps(meta))
+        except Exception:
+            continue
+        if still_open:
+            pending.append(('mitigation_unverified', {
+                'name': (load(DEVICES_FILE) or {}).get(
+                    meta.get('device_id'), {}).get('name') or meta.get('device_id', ''),
+                'device_id': meta.get('device_id', ''),
+                'kind': meta.get('kind', ''),
+                'detail': (f'The fix {meta.get("actor", "someone")} ran for '
+                           f'{meta.get("kind", "this alert")} did not clear it — '
+                           'the alert is still open '
+                           f'{max(1, (now - int(meta.get("queued_at") or now)) // 60)} '
+                           'minutes later.'),
+            }))
+    for ev, payload in pending:
+        try:
+            fire_webhook(ev, payload)
+        except Exception:
+            pass
+
+
 def run_sidecar_watch_if_due():
     """Alert when an ENABLED co-located sidecar has stopped.
 
@@ -67400,6 +67501,8 @@ def main():
     # v6.4.2: an enabled sidecar that has stopped — the feature it serves is
     # silently not working, and for kmipd that means appliances fail to unlock.
     _safe(run_sidecar_watch_if_due, 'run_sidecar_watch_if_due')
+    # v6.4.2: did the operator's own fix actually work? (+ prune its logs)
+    _safe(run_mitigate_verify_if_due, 'run_mitigate_verify_if_due')
     # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
     # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
     # v6.4.2: called DIRECTLY (like _record_satellite below), NOT via _safe(), and
@@ -69395,11 +69498,23 @@ def _mitigate_log_path(dev_id, action_id):
     return MITIGATE_LOGS_DIR / f'{safe_did}__{safe_act}.log'
 
 
-def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str, destructive=False):
+def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
+                            destructive=False, alert_id=None):
     """Queue an exec on the agent tagged for mitigation log capture.
 
     phase: 'investigate' or 'fix' — recorded in meta for the UI.
     Returns {ok, action_id} on success.
+
+    v6.4.2: `alert_id`. The same fix run through an AUTOMATION RULE gets a full
+    act→verify loop — an attempt ledger, a verify window, a sweep that re-checks
+    whether the alert cleared, `remediation_failed` on failure, and
+    consecutive-failure auto-disable. The Fix button on an alert row went down a
+    completely different path that never recorded WHICH alert it was fixing (the
+    modal is opened with device/kind/target and the alert id is dropped), so
+    nothing could ever check whether it worked. An operator hits Fix on a
+    service_down at 02:00, sees rc=0, and goes back to bed; the unit crash-loops
+    four minutes later, the alert had already coalesced so nothing new pages,
+    and there is no verify sweep for this path.
     """
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return None
@@ -69423,6 +69538,10 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str, destructive=Fa
             'queued_at':   now,
             'actor':       actor,
             'cmd':         cmd_str[:512],    # truncated for display
+            # v6.4.2: which alert this was fixing, so the verify sweep below has
+            # something to re-check and the run is attributable afterwards.
+            'alert_id':    str(alert_id or '')[:64] or None,
+            'device_id':   dev_id,
         }))
     except Exception as e:
         sys.stderr.write(f"[remotepower] mitigate queue: log dir prep failed dev={dev_id}: {e}\n")
@@ -69449,7 +69568,9 @@ def handle_mitigate_investigate(dev_id):
     diag, _fix, _prompt, _dest = _mitigate_build_command(kind, target)
     if not diag:
         respond(400, {'error': f'no mitigation playbook for kind={kind!r}'}); return
-    result = _mitigate_queue_command(dev_id, kind, target, 'investigate', diag, destructive=False)
+    result = _mitigate_queue_command(dev_id, kind, target, 'investigate', diag,
+                                     destructive=False,
+                                     alert_id=body.get('alert_id'))
     if result:
         respond(200, result)
 
@@ -69489,7 +69610,8 @@ def handle_mitigate_fix(dev_id):
             'hint': 'Pass {"confirmation": "RUN"} to acknowledge.',
         }); return
     result = _mitigate_queue_command(dev_id, kind, target, 'fix', cmd,
-                                       destructive=is_sensitive)
+                                     destructive=is_sensitive,
+                                     alert_id=body.get('alert_id'))
     if result:
         respond(200, result)
 

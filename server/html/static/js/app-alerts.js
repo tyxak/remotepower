@@ -848,8 +848,12 @@ function mitigateAlert(id) {
     toast('No remediation playbook for this alert', 'info');
     return;
   }
+  // v6.4.2: pass the ALERT ID. It used to stop here — the modal was opened with
+  // (device, kind, target) and the id was dropped, so the server had nothing to
+  // re-check afterwards and a fix that returned rc=0 and changed nothing was
+  // indistinguishable from one that worked.
   openMitigateModal(a.device_id, a.mitigation_kind, a.mitigation_target || '',
-                    a.device_name || a.device_id);
+                    a.device_name || a.device_id, a.id);
 }
 
 // v4.1.0 (#53): acknowledge every selected open alert in one call.

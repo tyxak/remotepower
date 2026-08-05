@@ -2429,7 +2429,10 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         kind: str = ''
         target: str = ''
-        _v0 = field_validator('kind', 'target', mode='before')(_coerce_str_loose)
+        # v6.4.2: which alert this run is about, so the verify sweep can
+        # re-check it and the run is attributable afterwards.
+        alert_id: str = ''
+        _v0 = field_validator('kind', 'target', 'alert_id', mode='before')(_coerce_str_loose)
 
     class MitigateFixRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
@@ -2437,7 +2440,8 @@ if _AVAILABLE:
         confirmation: str = ''
         kind: str = ''
         target: str = ''
-        _v0 = field_validator('command', 'confirmation', 'kind', 'target', mode='before')(_coerce_str_loose)
+        alert_id: str = ''
+        _v0 = field_validator('command', 'confirmation', 'kind', 'target', 'alert_id', mode='before')(_coerce_str_loose)
 
     class AiExecProposeRequest(BaseModel):
         """handle_ai_exec_propose POST (v6.2.0). Both fields str-coerced to match

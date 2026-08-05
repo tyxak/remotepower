@@ -793,7 +793,7 @@ def _webhook_message(event, payload):
         return (f'{payload.get("label","?")}: {payload.get("metric","?")} is '
                 f'back within its threshold ({payload.get("value","?")})')
     elif event in ("sweep_failing", "sweep_recovered", "sidecar_down",
-                   "sidecar_recovered"):
+                   "sidecar_recovered", "mitigation_unverified"):
         # v6.4.2: control-plane health. Fleet-level, so `name` is the server and
         # the generic fallback would read "sweep_failing: unknown".
         return str(payload.get("detail") or event)

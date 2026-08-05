@@ -334,3 +334,146 @@ class TestConfiguredIsNotTheSameAsActive(unittest.TestCase):
         self.assertTrue(info["scheduler_running"])
         self.assertFalse(info["cadence_in_request"],
                          "both would be running the sweeps")
+
+
+class TestOperatorFixesAreVerified(unittest.TestCase):
+    """A fix run through an automation RULE gets a full act→verify loop — an
+    attempt ledger, a verify window, a sweep that re-checks whether the alert
+    cleared, `remediation_failed`, consecutive-failure auto-disable. The Fix
+    button on an alert row went down a completely different path that never
+    recorded WHICH alert it was fixing: the modal was opened with
+    (device, kind, target) and the id was dropped. So nothing could ever check.
+
+    An operator hits Fix on a service_down at 02:00, sees rc=0, closes the modal
+    and goes back to bed. The unit crash-loops four minutes later; the alert had
+    already coalesced so nothing new pages; there was no verify sweep for this
+    path. Nobody found out until morning.
+    """
+
+    def setUp(self):
+        import json as _json
+        self._json = _json
+        self._saved = {k: getattr(api, k) for k in ("fire_webhook",)}
+        self.fired = []
+        api.fire_webhook = lambda ev, p=None, **k: self.fired.append((ev, dict(p or {})))
+        self.now = int(__import__("time").time())
+        api.save(api.DEVICES_FILE, {"mh1": {"name": "web01"}})
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "mv-open", "event": "service_down", "device_id": "mh1"},
+            {"id": "mv-fixed", "event": "service_down", "device_id": "mh1",
+             "resolved_at": self.now}], "alert_seq": 2})
+        api.MITIGATE_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        for f in api.MITIGATE_LOGS_DIR.glob("*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(api, k, v)
+
+    def _run(self, action, alert_id, age, phase="fix"):
+        lp = api.MITIGATE_LOGS_DIR / f"mh1__{action}.log"
+        lp.write_text("out")
+        mp = lp.with_suffix(".meta.json")
+        mp.write_text(self._json.dumps({
+            "kind": "service_down", "phase": phase,
+            "queued_at": self.now - age, "actor": "jakob",
+            "alert_id": alert_id, "device_id": "mh1"}))
+        return mp
+
+    def _sweep(self):
+        self.fired.clear()
+        cfg = api.load(api.CONFIG_FILE) or {}
+        cfg["last_mitigate_verify"] = 0
+        api.save(api.CONFIG_FILE, cfg)
+        api._LOAD_CACHE.clear()
+        api.run_mitigate_verify_if_due()
+        return [e for e, _p in self.fired]
+
+    def _meta(self, mp):
+        return self._json.loads(mp.read_text())
+
+    def test_a_fix_whose_alert_is_still_open_is_reported(self):
+        mp = self._run("act1", "mv-open", 600)
+        self.assertEqual(self._sweep(), ["mitigation_unverified"])
+        self.assertIs(self._meta(mp)["verified"], False)
+
+    def test_a_fix_that_worked_is_marked_verified_and_stays_quiet(self):
+        mp = self._run("act2", "mv-fixed", 600)
+        self.assertEqual(self._sweep(), [])
+        self.assertIs(self._meta(mp)["verified"], True)
+
+    def test_it_waits_before_judging(self):
+        """The agent polls; judging a fix before it has even run would report
+        every fix as failed."""
+        mp = self._run("act3", "mv-open", 10)
+        self._sweep()
+        self.assertNotIn("verified", self._meta(mp))
+
+    def test_an_investigate_run_is_never_judged(self):
+        """A diagnostic is not supposed to change anything."""
+        mp = self._run("act4", "mv-open", 600, phase="investigate")
+        self._sweep()
+        self.assertNotIn("verified", self._meta(mp))
+
+    def test_a_run_with_no_alert_id_is_skipped(self):
+        """Runs queued before this shipped, and the Fix button reached from
+        somewhere other than an alert row."""
+        mp = self._run("act5", "", 600)
+        self.assertEqual(self._sweep(), [])
+        self.assertNotIn("verified", self._meta(mp))
+
+    def test_it_reports_once(self):
+        self._run("act6", "mv-open", 600)
+        self._sweep()
+        self.assertEqual(self._sweep(), [])
+
+    def test_old_runs_are_pruned(self):
+        """Nothing ever cleaned MITIGATE_LOGS_DIR — every investigate and fix
+        left a .log and a .meta.json behind forever."""
+        mp = self._run("act7", "mv-open", 600)
+        lp = mp.with_suffix("").with_suffix(".log")
+        old = self.now - 40 * 86400
+        os.utime(mp, (old, old))
+        self._sweep()
+        self.assertFalse(mp.exists())
+        self.assertFalse(lp.exists())
+
+    def test_the_client_passes_the_alert_id(self):
+        """It used to stop at mitigateAlert — the modal took device/kind/target
+        and the id was dropped."""
+        al = (ROOT / "server" / "html" / "static" / "js"
+              / "app-alerts.js").read_text()
+        body = al[al.index("function mitigateAlert("):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("a.id", body)
+        js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+        self.assertIn("alert_id:     _mitigateCtx.alertId", js)
+        self.assertIn("alertId: alertId", js)
+
+    def test_the_model_accepts_it(self):
+        import request_models
+        for cls in (request_models.MitigateFixRequest,
+                    request_models.MitigateInvestigateRequest):
+            with self.subTest(model=cls.__name__):
+                ok, err = request_models.validate(cls, {"alert_id": "a1"})
+                self.assertTrue(ok, err)
+                ok2, _ = request_models.validate(cls, {})
+                self.assertTrue(ok2, "the model became required-field")
+
+    def test_it_is_in_both_cadence_registries(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("_safe(run_mitigate_verify_if_due", src)
+        self.assertIn("run_mitigate_verify_if_due",
+                      (_CGI / "scheduler.py").read_text())
+
+    def test_it_does_not_auto_disable_anything(self):
+        """There is no rule to disable, and a human whose fix did not work needs
+        to be told, not governed."""
+        src = (_CGI / "api.py").read_text()
+        fn = src[src.index("def run_mitigate_verify_if_due"):]
+        fn = fn[:fn.index("\ndef ")]
+        self.assertNotIn("enabled", fn)

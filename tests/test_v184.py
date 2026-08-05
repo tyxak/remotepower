@@ -325,6 +325,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'server_upgraded',                       # v6.4.2 controller version change
             'integration_metric_alert',              # v6.4.2 operator bound on a connector metric
             'sweep_failing', 'sidecar_down',         # v6.4.2 control-plane health
+            'mitigation_unverified',                 # v6.4.2 an operator fix that did not work
             'kmip_cert_expiring',                    # v6.4.1 KMIP PKI expiry
             'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
             'control_plane_security_change',         # v6.4.2 privileged change on RemotePower itself
