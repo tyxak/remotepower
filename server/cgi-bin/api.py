@@ -54522,10 +54522,44 @@ def _alert_resolution_stats(alerts, days=30):
         h['mttr_mean'] = int(h['_sum'] / h['_n']) if h['_n'] else 0
         h.pop('_sum', None)
         h.pop('_n', None)
+
+    # v6.4.2: the same numbers PER EVENT. They only ever aggregated per host, so
+    # Monitoring → Tuning — the page whose whole job is "which noise is safe to
+    # mute" — ranked purely on raw event count and could not distinguish 340
+    # nic_errors that all auto-resolved inside 90 seconds and were never
+    # acknowledged (pure noise, mute it) from 12 backup_stale that a human
+    # resolved by hand after six hours each (real work, never mute it). The
+    # judgement call the page exists to support was made on the one number that
+    # does not encode it.
+    per_event = {}
+    for row in timeline:
+        ev = row.get('event') or ''
+        if not ev:
+            continue
+        e = per_event.setdefault(ev, {
+            'event': ev, 'count': 0, 'auto': 0, 'manual': 0, 'muted': 0,
+            'acked': 0, '_sum': 0, '_n': 0})
+        e['count'] += 1
+        how = row.get('how')
+        if how in ('auto', 'manual', 'muted'):
+            e[how] += 1
+        if row.get('acknowledged_by'):
+            e['acked'] += 1
+        if row.get('mttr') is not None:
+            e['_sum'] += row['mttr']
+            e['_n'] += 1
+    for e in per_event.values():
+        e['mttr_mean'] = int(e['_sum'] / e['_n']) if e['_n'] else 0
+        e['auto_pct'] = int(round(100 * e['auto'] / e['count'])) if e['count'] else 0
+        e['acked_pct'] = int(round(100 * e['acked'] / e['count'])) if e['count'] else 0
+        e.pop('_sum', None)
+        e.pop('_n', None)
+
     return {
         'days': days, 'resolved_count': len(resolved),
         'mttr_mean': _mean(mttrs), 'mttr_median': _median(mttrs), 'mtta_mean': _mean(mttas),
         'hosts': hosts[:50], 'timeline': timeline[:100],
+        'events': sorted(per_event.values(), key=lambda x: -x['count'])[:100],
     }
 
 
@@ -54864,6 +54898,37 @@ def handle_alert_tuning():
         mm = dict(m)
         mm['device_name'] = _dname(m.get('device_id', ''), m.get('device_name', ''))
         mutes.append(mm)
+    # v6.4.2: the actionability signal. Raw count says which event is LOUDEST;
+    # it says nothing about whether the noise is safe to silence. `nic_errors`
+    # firing 340 times, every one auto-resolved inside 90 seconds and none ever
+    # acknowledged, is pure noise. `backup_stale` firing 12 times, every one
+    # resolved by a human after six hours, is real work — and ranking on count
+    # alone puts the first at the top and offers a Mute button for both. The
+    # resolution data was computed one endpoint away and aggregated only per
+    # host; it is now aggregated per EVENT and joined here.
+    #
+    # Same caller-visible alert set as handle_alert_resolution_stats — a tenant
+    # admin resolves to scope None, so filtering has to be explicit.
+    try:
+        _astore = load(ALERTS_FILE) or {}
+        _res = _alert_resolution_stats(
+            _filter_alerts_for_caller(
+                _astore.get('alerts', []) if isinstance(_astore, dict) else []),
+            days)
+        _by_event = {e['event']: e for e in (_res.get('events') or [])}
+    except Exception as _e:
+        sys.stderr.write(f'[remotepower] tuning resolution join failed: {_e}\n')
+        _by_event = {}
+    for _row in sources:
+        _r = _by_event.get(_row['event'])
+        if not _r:
+            continue
+        # `resolved` is the denominator for the percentages — an event with 340
+        # firings and 3 resolved rows must not read as "100% auto-resolved".
+        _row['resolved'] = _r['count']
+        _row['auto_pct'] = _r['auto_pct']
+        _row['acked_pct'] = _r['acked_pct']
+        _row['mttr_mean'] = _r['mttr_mean']
     respond(200, {'ok': True, 'days': days, 'noisy': top,
                   'sources': sources[:10], 'mutes': mutes})
 
@@ -58022,6 +58087,80 @@ def _timeline_event_detail(event, payload):
     return ''
 
 
+def _caller_can_read_audit():
+    """Non-raising form of require_admin_or_auditor_auth's predicate.
+
+    v6.4.2: the timeline merges audit rows for callers who could already read
+    them at GET /api/audit-log, and for nobody else. Merging them unconditionally
+    would have made the timeline a way around that gate — "the operator can't see
+    the audit log" is a deliberate boundary, not an oversight."""
+    role = _caller_role()
+    return bool(_resolve_role(role).get('admin') or role == 'auditor')
+
+
+# v6.4.2: which audit actions answer "what changed right before this broke".
+# The audit log is mostly reads and logins; folding ALL of it into an incident
+# timeline would bury the events under noise. These are the CHANGE actions —
+# an operator saving config, opening a maintenance window, editing a rule or
+# threshold, running a mitigation. Matched as a prefix so a family
+# (`config_`, `rule_`) stays covered as it grows.
+_TIMELINE_AUDIT_PREFIXES = (
+    'config_', 'maintenance', 'rule_', 'threshold', 'mitigate_',
+    'automation_', 'monitor_', 'device_update', 'host_user_action',
+    'device_delete', 'device_add', 'firewall_', 'rollout_', 'patch_',
+    'script_', 'check_', 'mute', 'unmute', 'alert_', 'agent_',
+    'backup_', 'restore', 'drift_', 'group_', 'tag_',
+)
+
+
+def _timeline_audit_rows(include_ids, name_map, since=None, until=None):
+    """Change-shaped audit entries as timeline rows.
+
+    The audit log is not device-keyed, so most entries are fleet-level; a row
+    naming an included device (`device=<id>` in the detail, the shape
+    `_mitigate_queue_command` and the host-action handlers already write) is
+    attributed to it, everything else stays fleet-level with no device_id. That
+    is the honest mapping — inventing a device for a global config save would be
+    worse than leaving it unattributed."""
+    rows = []
+    try:
+        store = _load_ro(AUDIT_LOG_FILE) if backend_exists(AUDIT_LOG_FILE) else None
+        entries = (store.get('entries') if isinstance(store, dict)
+                   else store if isinstance(store, list) else None) or []
+    except Exception:
+        return rows
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        action = str(e.get('action') or '')
+        if not action.startswith(_TIMELINE_AUDIT_PREFIXES):
+            continue
+        ts = int(e.get('ts') or 0)
+        # Cheap pre-filter: the audit log is the biggest of the merged stores
+        # and an incident window is usually minutes wide.
+        if since is not None and ts and ts < since:
+            continue
+        if until is not None and ts and ts > until:
+            continue
+        detail = str(e.get('detail') or '')
+        did = None
+        m = re.search(r'\bdevice=([A-Za-z0-9_.:-]{1,64})', detail)
+        if m and m.group(1) in include_ids:
+            did = m.group(1)
+        elif m:
+            continue      # names a device the caller cannot see — drop the row
+        rows.append({
+            'ts':          ts,
+            'kind':        'audit',
+            'severity':    'info',
+            'title':       f"{e.get('actor') or 'someone'}: {action}",
+            'detail':      detail[:200],
+            'device_id':   did,
+            'device_name': name_map.get(did, '') if did else '',
+        })
+    return rows
+
+
 def _timeline_collect(include_ids, name_map):
     """Shared merge core for the per-device and fleet-wide timelines.
 
@@ -58124,13 +58263,54 @@ def _timeline_etag_source(*extra):
     try:
         return (backend_mtime(FLEET_EVENTS_FILE), backend_mtime(CMD_OUTPUT_FILE),
                backend_mtime(CVE_FINDINGS_FILE), backend_mtime(CVE_IGNORE_FILE),
-               backend_mtime(DEVICES_FILE)) + extra
+               backend_mtime(DEVICES_FILE),
+               # v6.4.2: audit rows are merged in now — without this a config
+               # save would not bust the ETag and the timeline would keep
+               # serving a 304 that omits the very change being looked for.
+               backend_mtime(AUDIT_LOG_FILE)) + extra
     except Exception:
         return None
 
 
+def _timeline_window(qs):
+    """(since, until) epoch bounds from the query string, or (None, None).
+
+    v6.4.2: the Timeline is the one screen built for incident reconstruction and
+    it could not be pointed at the incident. It accepted only limit/kinds/device/
+    severity, and the client always asked for the newest 300 rows — on a busy
+    host that window may not even REACH the 03:41 the alert is about, and there
+    was no way to ask for it. docs/timeline.md meanwhile sold the page as 'the
+    "what happened around 03:40" view' and listed a time-range filter that did
+    not exist.
+
+    Three forms, all epoch seconds:
+      ?since=&until=   explicit bounds (either may be omitted)
+      ?around=&window= centred on a moment, +/- window seconds (default 1800)
+    `around` is what an alert links to: the row knows its own timestamp, and
+    "what surrounded this" is the actual question."""
+    def _int(name, default=None):
+        raw = (qs.get(name) or [''])[0].strip()
+        if not raw:
+            return default
+        try:
+            v = int(float(raw))
+        except ValueError:
+            return default
+        # Tolerate milliseconds — the client has a Date in hand and sending
+        # Date.now() instead of /1000 is the obvious mistake to make. Anything
+        # past ~year 2286 in seconds is certainly milliseconds.
+        return v // 1000 if v > 10_000_000_000 else v
+
+    around = _int('around')
+    if around is not None:
+        win = _int('window', 1800) or 1800
+        win = max(60, min(30 * 86400, win))
+        return around - win, around + win
+    return _int('since'), _int('until')
+
+
 def _timeline_parse_qs():
-    """Shared ?limit/?kinds parsing for the timeline endpoints."""
+    """Shared ?limit/?kinds/?since/?until/?around parsing for the timelines."""
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['100'])[0])
@@ -58144,6 +58324,25 @@ def _timeline_parse_qs():
             if k:
                 kind_filter.add(k)
     return qs, limit, kind_filter
+
+
+def _timeline_apply_window(items, since, until):
+    """Keep only rows inside [since, until]. Rows with no usable ts are dropped
+    when a window is asked for — an undated row cannot honestly be claimed to
+    have happened inside the window the operator asked about."""
+    if since is None and until is None:
+        return items
+    out = []
+    for i in items:
+        ts = int(i.get('ts') or 0)
+        if not ts:
+            continue
+        if since is not None and ts < since:
+            continue
+        if until is not None and ts > until:
+            continue
+        out.append(i)
+    return out
 
 
 def handle_device_timeline(dev_id):
@@ -58160,11 +58359,19 @@ def handle_device_timeline(dev_id):
         respond(404, {'error': 'device not found'})
         return
     _qs, limit, kind_filter = _timeline_parse_qs()
+    since, until = _timeline_window(_qs)
     name_map = {dev_id: dev.get('name', dev_id)}
     items = _timeline_collect({dev_id}, name_map)
+    # v6.4.2: operator-side CHANGES — config saves, maintenance windows, rule and
+    # threshold edits, mitigations — for callers who can already read the audit
+    # log. "What changed right before this broke" was the one question the
+    # timeline could not answer.
+    if _caller_can_read_audit():
+        items += _timeline_audit_rows({dev_id}, name_map, since, until)
     # Distinct kinds across the full (unfiltered) set so the UI's filter chips
     # stay stable regardless of the kind filter or limit window.
     kinds_present = sorted({i['kind'] for i in items})
+    items = _timeline_apply_window(items, since, until)
     if kind_filter:
         items = [i for i in items if i['kind'] in kind_filter]
     items.sort(key=lambda i: i['ts'], reverse=True)
@@ -58174,8 +58381,13 @@ def handle_device_timeline(dev_id):
         'items':       items[:limit],
         'kinds':       kinds_present,
         'total':       len(items),
+        'since':       since,
+        'until':       until,
     }
-    etag_source = _timeline_etag_source(dev_id, limit, tuple(sorted(kind_filter)))
+    etag_source = _timeline_etag_source(
+        dev_id, limit, tuple(sorted(kind_filter)), since, until,
+        _caller_can_read_audit())   # audit rows are role-dependent: an operator
+                                    # and an auditor must never share a 304
     if etag_source is not None:
         _respond_with_etag(out, etag_source)
     respond(200, out)
@@ -58196,6 +58408,7 @@ def handle_fleet_timeline():
     name_map = {did: d.get('name', did) for did, d in devices.items()
                 if isinstance(d, dict) and d.get('monitored') is not False}
     qs, limit, kind_filter = _timeline_parse_qs()
+    since, until = _timeline_window(qs)
     sev_filter = set()
     for raw in qs.get('severity') or []:
         for s in raw.split(','):
@@ -58209,9 +58422,12 @@ def handle_fleet_timeline():
         include = set(name_map)
 
     items = _timeline_collect(include, name_map)
+    if _caller_can_read_audit():
+        items += _timeline_audit_rows(include, name_map, since, until)
     # Distinct kinds across the full set (before kind/severity filters) so the
     # UI's filter chips are stable.
     kinds_present = sorted({i['kind'] for i in items})
+    items = _timeline_apply_window(items, since, until)
     if kind_filter:
         items = [i for i in items if i['kind'] in kind_filter]
     if sev_filter:
@@ -58223,9 +58439,12 @@ def handle_fleet_timeline():
         'devices': [{'id': did, 'name': nm} for did, nm in sorted(
                         name_map.items(), key=lambda kv: kv[1].lower())],
         'total':   len(items),
+        'since':   since,
+        'until':   until,
     }
     etag_source = _timeline_etag_source(
         limit, tuple(sorted(kind_filter)), tuple(sorted(sev_filter)), dev_q,
+        since, until, _caller_can_read_audit(),
         _caller_scope(), _tenant_gate())   # tenant term: two tenant admins (both
                                            # scope=None) must never share a 304
     if etag_source is not None:

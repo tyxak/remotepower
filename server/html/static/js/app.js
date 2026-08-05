@@ -24351,6 +24351,31 @@ function enterTimeline() {
   loadTimeline();
 }
 
+// v6.4.2: the Timeline's "around" control, in epoch SECONDS. Set from the page's
+// datetime-local input, or from an alert row via alertTimeline() (which stashes
+// the alert's own timestamp here so the deep link works before the input paints).
+let _timelineAround = null;
+function _timelineAroundSeconds() {
+  const el = document.getElementById('timeline-around');
+  if (el && el.value) {
+    const t = Date.parse(el.value);      // datetime-local parses as LOCAL time
+    if (!isNaN(t)) return Math.round(t / 1000);
+  }
+  return _timelineAround || null;
+}
+// Turn epoch seconds into the value a datetime-local input wants, in the
+// viewer's own timezone (toISOString would silently shift it to UTC).
+function _toLocalInput(ts) {
+  const dt = new Date(Number(ts) * 1000);
+  return new Date(dt - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function clearTimelineWindow() {
+  _timelineAround = null;
+  const el = document.getElementById('timeline-around');
+  if (el) el.value = '';
+  loadTimeline();
+}
+
 async function loadTimeline() {
   const sel = document.getElementById('timeline-device');
   const body = document.getElementById('timeline-body');
@@ -24359,9 +24384,19 @@ async function loadTimeline() {
   const scope = sel.value || '*';
   _timelineFleet = (scope === '*');
   body.innerHTML = _skeletonBlock();
+  // v6.4.2: point the page AT a moment. It could only ever ask for the newest
+  // 300 rows, which on a busy host may not reach the 03:41 the alert is about —
+  // and docs/timeline.md sold it as 'the "what happened around 03:40" view'.
+  let q = 'limit=300';
+  const around = _timelineAroundSeconds();
+  if (around) {
+    const win = parseInt(document.getElementById('timeline-window')?.value || '1800', 10);
+    q += `&around=${around}&window=${win > 0 ? win : 1800}`;
+  }
+  document.getElementById('timeline-clear-window')?.classList.toggle('d-none', !around);
   const url = _timelineFleet
-    ? '/fleet/timeline?limit=300'
-    : `/devices/${encodeURIComponent(scope)}/timeline?limit=300`;
+    ? `/fleet/timeline?${q}`
+    : `/devices/${encodeURIComponent(scope)}/timeline?${q}`;
   const r = await api('GET', url).catch(() => null);
   if (!r || !Array.isArray(r.items)) {
     body.innerHTML = '<div class="c-red">Failed to load timeline.</div>';
@@ -24370,9 +24405,14 @@ async function loadTimeline() {
   _timelineItems = r.items;
   // Drop active filters that don't apply to this scope's kind set.
   _timelineKindFilter = new Set([..._timelineKindFilter].filter(k => (r.kinds || []).includes(k)));
-  if (summary) summary.textContent = _timelineFleet
+  // `total` is the pre-window count; when a window is set the honest number is
+  // how many rows are actually IN it, or the summary claims 300 events for a
+  // 15-minute slice that holds four.
+  const _win = _timelineAroundSeconds()
+    ? ` — ${r.items.length} inside the window` : '';
+  if (summary) summary.textContent = (_timelineFleet
     ? `${r.total} event(s) across ${(r.devices || []).length} device(s)`
-    : `${r.total} event(s) for ${r.device_name}`;
+    : `${r.total} event(s) for ${r.device_name}`) + _win;
   _timelineShown = _TIMELINE_PAGE;
   _renderTimelineKinds(r.kinds || []);
   _renderTimeline();

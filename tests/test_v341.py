@@ -227,7 +227,14 @@ class TestV341Frontend(unittest.TestCase):
 
     def test_timeline_has_fleet_scope(self):
         # The Timeline page does whole-fleet OR a single device.
-        self.assertIn("'/fleet/timeline?limit=", self.APP)
+        #
+        # v6.4.2: the query string is now built up (limit + the optional
+        # around/window), so the old literal `'/fleet/timeline?limit=` pin no
+        # longer matches. Pinned on the ENDPOINT plus the per-device branch,
+        # which is what this test is actually about — the exact query string is
+        # the loader's business and test_v642_incident_loop covers it.
+        self.assertIn('/fleet/timeline?', self.APP)
+        self.assertIn('/timeline?${q}', self.APP)
         self.assertIn('Whole fleet', self.APP)
         self.assertIn('tl-devchip', self.APP)
 

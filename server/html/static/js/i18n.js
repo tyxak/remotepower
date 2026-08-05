@@ -1015,6 +1015,11 @@
     // v6.4.2: the human view of incident memory (Alerts page, prior-incidents card).
     "What happened last time": { "fr": "Ce qui s'est passé la dernière fois", "de": "Was beim letzten Mal geschah", "zh": "上次发生了什么", "hi": "पिछली बार क्या हुआ था", "es": "Qué pasó la última vez", "ar": "ما حدث في المرة الماضية" },
     "Show all":    { "fr": "Tout afficher", "de": "Alle anzeigen", "zh": "显示全部", "hi": "सभी दिखाएँ", "es": "Mostrar todo", "ar": "إظهار الكل" },
+    // v6.4.2: Timeline "around a moment" window control + the dashboard
+    // getting-started card's dismiss.
+    "Clear window": { "fr": "Effacer la fenêtre", "de": "Zeitfenster löschen", "zh": "清除时间窗口", "hi": "विंडो साफ़ करें", "es": "Borrar ventana", "ar": "مسح النافذة" },
+    "Hide this card": { "fr": "Masquer cette carte", "de": "Diese Karte ausblenden", "zh": "隐藏此卡片", "hi": "यह कार्ड छिपाएँ", "es": "Ocultar esta tarjeta", "ar": "إخفاء هذه البطاقة" },
+    "Around": { "fr": "Autour de", "de": "Zeitpunkt", "zh": "围绕", "hi": "इसके आसपास", "es": "Alrededor de", "ar": "حول" },
     "Closed by":   { "fr": "Clôturé par", "de": "Geschlossen von", "zh": "关闭者", "hi": "बंद किया गया", "es": "Cerrado por", "ar": "أُغلق بواسطة" },
     "Rated":       { "fr": "Évalué", "de": "Bewertet", "zh": "评分", "hi": "रेटेड", "es": "Valorado", "ar": "مُقيَّم" },
     // v6.4.2: container log viewer toolbar + per-container mute.

@@ -477,6 +477,24 @@ function _alertResolveNoteHtml(a) {
   return `<div class="hint"><strong>Fixed by:</strong> ${_escapeHtml(String(note))}</div>`;
 }
 
+// v6.4.2: open the Timeline centred on this alert. `around` is epoch SECONDS
+// (the alert's own ts), and the server widens it by ±window — so the operator
+// lands on what surrounded the incident rather than on the newest 300 rows.
+function alertTimeline(alertId) {
+  const a = (_alertsCache || []).find((x) => String(x.id) === String(alertId));
+  if (!a) return;
+  const at = Number(a.first_seen || a.ts || 0);
+  showPage('timeline');
+  setTimeout(() => {
+    const dev = document.getElementById('timeline-device');
+    if (dev && a.device_id) dev.value = a.device_id;
+    const around = document.getElementById('timeline-around');
+    if (around && at) around.value = _toLocalInput(at);
+    _timelineAround = at || null;
+    loadTimeline();
+  }, 60);
+}
+
 function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;
   const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
@@ -514,6 +532,12 @@ function _alertRowHtml(a, role) {
     // plain Resolve stays a single instant click — the note is opt-in, never a
     // dialog in the way of closing an alert.
     actions += `<button class="btn-icon btn-xs" data-action="resolveAlertWithNote" data-arg="${a.id}" title="Resolve and record what fixed it — the note shows on the resolved row and in the MTTR timeline" aria-label="Resolve with a note">${_icon('edit',12)}</button> `;
+    // v6.4.2: point the Timeline AT the incident. The Timeline is the one
+    // screen built for incident reconstruction and no alert linked to it — the
+    // operator picked the device from a dropdown and got the newest 300 rows,
+    // which on a busy host may not even reach the 03:41 the alert is about.
+    // The row knows its own timestamp; "what surrounded this" is the question.
+    actions += `<button class="btn-icon btn-xs" data-action="alertTimeline" data-arg="${a.id}" title="Timeline: what else happened on this host around the time this alert first fired" aria-label="Show the timeline around this alert">${_icon('clock',12)}</button> `;
     actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
       actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;

@@ -44,8 +44,41 @@ function _renderTuningSources(rows) {
   if (!rows.length) { el.innerHTML = '<div class="meta-sm-nm">No alert activity in this window.</div>'; return; }
   el.innerHTML = rows.map(r => `<div class="row-6 ts-entry">
     <span class="patch-badge">${escHtml(r.event)}</span>
-    <span class="ml-auto meta-sm-nm">${Number(r.count) || 0}× fleet-wide</span>
+    <span class="meta-sm-nm">${Number(r.count) || 0}× fleet-wide</span>
+    <span class="ml-auto">${_tuningVerdict(r)}</span>
   </div>`).join('');
+}
+
+// v6.4.2: whether this noise is SAFE TO SILENCE.
+//
+// The page ranked purely on how loud an event was, which is the one number that
+// does not answer its own question. 340 nic_errors that all auto-resolved in 90
+// seconds and were never acknowledged is noise; 12 backup_stale that a human
+// resolved by hand after six hours each is work. Both got the same Mute button
+// and the loud one got sorted to the top. The resolution data existed one
+// endpoint away, aggregated only per host; it is now joined per event.
+//
+// Deliberately a recommendation, not an automatic action — this is a judgement
+// call about what the operator wants to be woken for, and the page's job is to
+// inform it, not to make it.
+function _tuningVerdict(r) {
+  if (r.resolved == null || !r.resolved) {
+    return '<span class="hint" title="No alert from this event has been resolved in this window, so there is nothing to judge it by yet">no resolution data</span>';
+  }
+  const auto = Number(r.auto_pct) || 0;
+  const acked = Number(r.acked_pct) || 0;
+  const mttr = Number(r.mttr_mean) || 0;
+  const detail = `${r.resolved} resolved · ${auto}% auto · ${acked}% acknowledged · mean time to resolve ${_fmtDuration(mttr)}`;
+  // "Nobody ever acknowledged it and it always cleared itself" is the shape of
+  // noise. The MTTR bound matters: an event that auto-resolves after six hours
+  // is a condition that persisted, not a blip.
+  if (auto >= 90 && acked <= 10 && mttr < 900) {
+    return `<span class="patch-badge fs-11" title="${escAttr(detail)}">likely noise — safe to silence</span>`;
+  }
+  if (auto <= 40 || acked >= 50) {
+    return `<span class="patch-badge fs-11 c-amber" title="${escAttr(detail)}">people act on this</span>`;
+  }
+  return `<span class="hint" title="${escAttr(detail)}">${auto}% auto · ${acked}% acked</span>`;
 }
 
 function _renderTuningMutes(rows) {
