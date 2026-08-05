@@ -523,6 +523,12 @@ def generate_metrics(ctx: dict) -> str:
     if isinstance(compliance, dict) and compliance:
         _emit_compliance(lines, devices, compliance)
 
+    # ── v6.4.2: per-device uptime/SLA + framework compliance ───────────────────
+    # The two posture numbers the product has always computed for its own
+    # screens and never let an operator take away.
+    _emit_device_uptime(lines, devices, ctx)
+    _emit_framework_compliance(lines, ctx)
+
     # Trailing newline per spec
     lines.append('')
     return '\n'.join(lines)
@@ -840,6 +846,87 @@ def _emit_scored_rollup(lines, devices, rows, score_name, count_name,
     lines.append(f'# TYPE {count_name} gauge')
     for lvl in sorted(counts):
         lines.append(_metric(count_name, {'level': lvl}, counts[lvl]))
+
+
+def _emit_device_uptime(lines, devices, ctx):
+    """Per-device uptime % and SLA met/not over the SLA window.
+
+    The rows are pre-computed by the caller (api.py owns the uptime log and the
+    maintenance windows); this only formats them. A row whose window is not
+    fully COVERED is omitted entirely rather than emitted as 0 — time before a
+    device was enrolled is unknown, not downtime, and a 0 there would read as a
+    total outage on a dashboard. Same rule _emit_compliance applies to a null
+    pass ratio.
+    """
+    rows = ctx.get('device_uptime')
+    if not isinstance(rows, list) or not rows:
+        return
+    window = str(ctx.get('device_uptime_window') or '30d')
+    emitted = False
+    for r in rows:
+        if not isinstance(r, dict) or not r.get('covered'):
+            continue
+        pct = _num(r.get('uptime_pct'))
+        dev_id = str(r.get('device_id') or '')
+        if not dev_id or pct is None:
+            continue
+        if not emitted:
+            lines.append('# HELP remotepower_device_uptime_percent Observed uptime for one device over the SLA window.')
+            lines.append('# TYPE remotepower_device_uptime_percent gauge')
+            emitted = True
+        labels = dict(_dev_labels(devices, dev_id))
+        labels['window'] = window
+        lines.append(_metric('remotepower_device_uptime_percent', labels, round(pct, 4)))
+
+    met_rows = [r for r in rows
+                if isinstance(r, dict) and r.get('covered') and r.get('sla_met') is not None]
+    if met_rows:
+        lines.append('# HELP remotepower_device_sla_met 1 when the device met its resolved SLA target over the window, else 0.')
+        lines.append('# TYPE remotepower_device_sla_met gauge')
+        for r in met_rows:
+            dev_id = str(r.get('device_id') or '')
+            if not dev_id:
+                continue
+            lines.append(_metric('remotepower_device_sla_met',
+                                 _dev_labels(devices, dev_id),
+                                 1 if r.get('sla_met') else 0))
+
+
+def _emit_framework_compliance(lines, ctx):
+    """Per-framework compliance score and control counts (CIS, NIST, …).
+
+    Scores and counts ONLY. `compliance.build_report` embeds offending
+    HOSTNAMES in each control's evidence string, and a metrics scrape is
+    routinely wider-read than the compliance page — so control rows are
+    deliberately not emitted.
+    """
+    rep = ctx.get('framework_compliance')
+    if not isinstance(rep, dict):
+        return
+    fws = rep.get('frameworks')
+    if not isinstance(fws, dict) or not fws:
+        return
+    lines.append('# HELP remotepower_compliance_framework_score Compliance score for one framework (0-100).')
+    lines.append('# TYPE remotepower_compliance_framework_score gauge')
+    for name, fw in fws.items():
+        if not isinstance(fw, dict):
+            continue
+        v = _num(fw.get('score'))
+        if v is None:
+            continue
+        lines.append(_metric('remotepower_compliance_framework_score',
+                             {'framework': str(name)}, round(v, 2)))
+    lines.append('# HELP remotepower_compliance_framework_controls Controls per outcome for one framework (status: pass, fail or na).')
+    lines.append('# TYPE remotepower_compliance_framework_controls gauge')
+    for name, fw in fws.items():
+        if not isinstance(fw, dict):
+            continue
+        for status in ('pass', 'fail', 'na'):
+            v = _num(fw.get(status))
+            if v is None:
+                continue
+            lines.append(_metric('remotepower_compliance_framework_controls',
+                                 {'framework': str(name), 'status': status}, int(v)))
 
 
 def _emit_compliance(lines, devices, report):

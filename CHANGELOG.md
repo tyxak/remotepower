@@ -160,6 +160,18 @@ product has always computed for its own screens and never let you take away.
   The readable summary stays in the body; the attachment is the artifact.
   A failure building the file degrades to today's behaviour rather than costing
   you the email.
+- **Uptime and compliance reached the metrics endpoint.** The product computed
+  per-device uptime, SLA attainment and per-framework compliance for its own
+  screens and exported none of it, so you could read your SLA on a page but
+  never chart it, alert on it, or put it beside anything else. `/api/metrics`
+  now carries `remotepower_device_uptime_percent`, `remotepower_device_sla_met`
+  and per-framework score and control counts.
+- Two deliberate omissions there. A device whose window predates its enrolment
+  is left out entirely rather than reported as zero — unknown is not an outage,
+  and a zero would read as one on a dashboard. And framework metrics carry
+  scores and counts only, never individual controls: the compliance report
+  embeds offending hostnames in its control evidence, and a metrics scrape is
+  routinely read more widely than the compliance page.
 - **The documented metrics sample was eight families behind the exporter.**
   Anyone wiring a dashboard from `docs/prometheus-metrics-sample.txt` was
   working from a short list. Regenerated — and the guardrail now catches this

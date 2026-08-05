@@ -60289,7 +60289,62 @@ def _build_metrics_ctx():
         'risk':              _fleet_risk_cached(),
         'reliability':       _fleet_reliability_cached(),
         'compliance':        _compute_compliance(load(DEVICES_FILE) or {}),
+        # v6.4.2: per-device uptime/SLA and framework compliance — the two
+        # posture numbers the product computed for its own screens and never
+        # exported. Rows are built HERE, not in the exporter, because the
+        # uptime log and the maintenance windows are api.py's.
+        #
+        # NOT via handle_fleet_sla(): that is a handler ending in respond(), and
+        # it applies _scope_filter_devices, which is wrong for a scrape — a
+        # metrics endpoint is not a logged-in operator with a role scope.
+        'device_uptime':        _metrics_device_uptime(now),
+        'device_uptime_window': '30d',
+        # _compliance_facts(None) is the documented SYSTEM whole-fleet path
+        # (its docstring names the RAG corpus builder as the precedent).
+        'framework_compliance': _metrics_framework_compliance(),
     }
+
+
+def _metrics_device_uptime(now, days=30):
+    """Per-device uptime rows for the exporter, over the SLA window.
+
+    Uses the same pure helpers handle_fleet_sla does — _uptime_pct,
+    _resolve_sla_target, _error_budget, _maint_oneshot_intervals — so the
+    scraped number and the number on the SLA page cannot drift. Unmonitored
+    devices are skipped; `covered` is passed through so the exporter can omit a
+    device whose window predates its enrollment rather than report it as 0."""
+    try:
+        window_start = now - days * 86400
+        uptime = load(UPTIME_FILE) or {}
+        devices = load(DEVICES_FILE) or {}
+        windows = (load(MAINT_FILE) or {}).get('windows') or []
+        targets = (_config_ro() or {}).get('sla_targets') or {}
+        rows = []
+        for dev_id, dev in devices.items():
+            if not isinstance(dev, dict) or dev.get('monitored') is False:
+                continue
+            ev = (uptime.get(dev_id) or {}).get('events') or []
+            maint = _maint_oneshot_intervals(windows, dev_id, dev.get('group') or '',
+                                             window_start, now)
+            pct, _down, covered = _uptime_pct(ev, window_start, now, maint_intervals=maint)
+            target = _resolve_sla_target(targets, dev_id, dev)
+            met = (pct >= target) if (covered and pct is not None and target is not None) else None
+            rows.append({'device_id': dev_id, 'uptime_pct': pct,
+                         'covered': covered, 'sla_met': met})
+        return rows
+    except Exception as e:
+        # A scrape must never 500 because one posture block failed.
+        sys.stderr.write(f'[remotepower] metrics uptime block failed: {e}\n')
+        return []
+
+
+def _metrics_framework_compliance():
+    """Framework compliance (CIS/NIST/…) scores for the exporter."""
+    try:
+        return compliance.build_report(_compliance_facts(None))
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] metrics compliance block failed: {e}\n')
+        return {}
 
 
 def handle_prometheus_metrics():

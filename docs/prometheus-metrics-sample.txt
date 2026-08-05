@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1785923832
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1785916632
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1785924293
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1785917093
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -50,7 +50,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1785324132
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1785324593
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
@@ -161,3 +161,27 @@ remotepower_compliance_check_devices{check="cis-cve",severity="high",result="na"
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="pass"} 0
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="fail"} 0
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="na"} 2
+# HELP remotepower_compliance_framework_score Compliance score for one framework (0-100).
+# TYPE remotepower_compliance_framework_score gauge
+remotepower_compliance_framework_score{framework="pci"} 66.7
+remotepower_compliance_framework_score{framework="hipaa"} 66.7
+remotepower_compliance_framework_score{framework="soc2"} 100.0
+remotepower_compliance_framework_score{framework="e8"} 50.0
+remotepower_compliance_framework_score{framework="smb1001"} 66.7
+# HELP remotepower_compliance_framework_controls Controls per outcome for one framework (status: pass, fail or na).
+# TYPE remotepower_compliance_framework_controls gauge
+remotepower_compliance_framework_controls{framework="pci",status="pass"} 2
+remotepower_compliance_framework_controls{framework="pci",status="fail"} 1
+remotepower_compliance_framework_controls{framework="pci",status="na"} 1
+remotepower_compliance_framework_controls{framework="hipaa",status="pass"} 2
+remotepower_compliance_framework_controls{framework="hipaa",status="fail"} 1
+remotepower_compliance_framework_controls{framework="hipaa",status="na"} 0
+remotepower_compliance_framework_controls{framework="soc2",status="pass"} 4
+remotepower_compliance_framework_controls{framework="soc2",status="fail"} 0
+remotepower_compliance_framework_controls{framework="soc2",status="na"} 0
+remotepower_compliance_framework_controls{framework="e8",status="pass"} 1
+remotepower_compliance_framework_controls{framework="e8",status="fail"} 1
+remotepower_compliance_framework_controls{framework="e8",status="na"} 3
+remotepower_compliance_framework_controls{framework="smb1001",status="pass"} 2
+remotepower_compliance_framework_controls{framework="smb1001",status="fail"} 1
+remotepower_compliance_framework_controls{framework="smb1001",status="na"} 2
