@@ -619,7 +619,7 @@ function aiInvestigateDevice(devId, deviceName) {
     const [sysData, outData, allDevs] = await Promise.all([
       api('GET', `/devices/${idEnc}/sysinfo`).catch(() => null),
       api('GET', `/devices/${idEnc}/output`).catch(() => null),
-      api('GET', '/devices').catch(() => null),
+      api('GET', '/devices?slim=1').catch(() => null),
     ]);
 
     const si = sysData?.sysinfo || {};
@@ -1582,7 +1582,7 @@ async function aiAnomalyScan() {
   _lastAnomalies = items;
   _anomalyDevMap = {};
   try {
-    const devs = await api('GET', '/devices');
+    const devs = await api('GET', '/devices?slim=1');
     (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
   } catch (_) {}
   const sevCls = s => s === 'high' ? 'sev-critical' : s === 'medium' ? 'sev-medium' : 'sev-low';

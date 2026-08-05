@@ -2792,6 +2792,13 @@ function renderDevices() {
   // A table is the correct primitive: each <tr> has the same <td> layout,
   // browsers handle alignment, headers click-to-sort via tableCtl.
   if (dens === 'minimal') {
+    // v6.4.2: stash the FILTERED set so "select all N matching filters" can
+    // reach it. The header checkbox only ever iterated the RENDERED rows
+    // (15/50/100 of them), so a 340-host filtered set had to be selected page by
+    // page — and the bulk-actions modal's own picker understands only
+    // All / one group / one of the first 12 tags, so it cannot express the
+    // page's site, status, SNMP or free-text filters either.
+    _devicesFilteredIds = filtered.map(d => d.id).filter(Boolean);
     _renderDevicesMinimal(filtered);
     return;
   }
@@ -7853,6 +7860,20 @@ document.addEventListener('keydown', (e) => {
 // deselects every currently-rendered row (i.e. respects the visible filter,
 // not the entire device fleet). If you've filtered to "production" tag,
 // the checkbox toggles only those rows.
+// v6.4.2: every device id matching the CURRENT filter chain (tag, skew, free
+// text, status, SNMP, group, site), refreshed on every render of the minimal
+// table. The batch bar's selection Set already survives paging; what was missing
+// was any way to fill it in one action.
+let _devicesFilteredIds = [];
+
+function selectAllMatchingFilters() {
+  if (!_devicesFilteredIds.length) return;
+  _devicesFilteredIds.forEach(id => selectedDevices.add(id));
+  toast(`${_devicesFilteredIds.length} device(s) selected`, 'success');
+  updateBatchBar();
+  renderDevices();
+}
+
 function toggleSelectAllMinimal(checkbox) {
   const rows = document.querySelectorAll('#devices-minimal-tbody tr.dev-row');
   if (checkbox.checked) {
@@ -8411,7 +8432,21 @@ function _downscaleImage(file, size) {
   });
 }
 
-function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const cnt = document.getElementById('batch-count');
+  if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; }
+  else bar.classList.remove('visible');
+  // v6.4.2: offer the whole filtered set, and only when it would actually add
+  // something — a button that says "select all 12" over 12 already-selected
+  // devices is noise.
+  const all = document.getElementById('batch-select-all-matching');
+  if (all) {
+    const missing = _devicesFilteredIds.filter(id => !selectedDevices.has(id)).length;
+    all.classList.toggle('d-none', missing === 0);
+    all.textContent = `Select all ${_devicesFilteredIds.length} matching filters`;
+  }
+}
 
 // v5.0.0 (#F1): bulk delete the selected devices.
 async function batchDelete() {
@@ -16873,7 +16908,15 @@ async function loadBoard() {
   };
   let strip = '';
   if ((data.problems || []).length) {
-    strip = `<div class="board-problem-strip"><span class="meta-label">${_icon('alertTriangle', 11)} Needs attention (${data.problems.length})</span>
+    // v6.4.2: `data.problems.length` is the CAPPED count and read as a fleet
+    // total, so a 400-host outage displayed as "Needs attention (80)" on a wall
+    // screen — the one surface that is supposed to stay honest at scale. The
+    // server now sends the uncapped `problems_total`; say "80 of 412" when they
+    // differ, and never silently truncate.
+    const _pTot = Number(data.problems_total ?? data.problems.length);
+    const _pShown = data.problems.length;
+    const _pLabel = _pTot > _pShown ? `${_pShown} of ${_pTot}` : String(_pTot);
+    strip = `<div class="board-problem-strip"><span class="meta-label" title="${_pTot > _pShown ? `Showing the ${_pShown} worst of ${_pTot} hosts needing attention — down first` : ''}">${_icon('alertTriangle', 11)} Needs attention (${_pLabel})</span>
       <div class="board-prob-chips">${data.problems.map(p =>
         `<span class="board-prob-chip" data-action="openDetail" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}" title="Open ${escAttr(p.name)}" tabindex="0" role="button">`
         + `<span class="sem sem-${p.status === 'down' ? 'down' : 'warn'}"></span>`
@@ -20800,6 +20843,7 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-rel-reboot-churn',          'reliability_reboot_churn_min', 3],
   ['ap-rel-wear-high',             'reliability_wear_high_pct',  85],
   ['ap-monitor-history-max',       'monitor_history_max',        300],
+  ['ap-command-history-max',       'command_history_max',        200],
   // v6.2.2 batch 6: FLOAT thresholds (Forecast & CVE tuning). These MUST NOT be
   // parseInt'd on save — 0.5 would truncate to 0; see _ALERT_PARAM_FLOAT_KEYS +
   // the float branch in saveAlertParams.

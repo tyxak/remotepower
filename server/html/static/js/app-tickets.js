@@ -215,7 +215,7 @@ function openTicketCreate() {
   _tkRenderCreateChips();
   openModal('ticket-create-modal');
   const inp = document.getElementById('tk-create-dev-search');
-  inp.oninput = () => _tkCreateDevResults(inp.value);
+  inp.oninput = () => _tkDevSearchDebounced(_tkCreateDevResults, inp.value);
 }
 function _tkRenderCreateChips() {
   const box = document.getElementById('tk-create-dev-chip');
@@ -223,12 +223,39 @@ function _tkRenderCreateChips() {
     ? _tkNewDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDev" data-arg="${escAttr(d.id)}" title="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ')
     : '<span class="meta-sm-nm">No devices attached.</span>';
 }
+// v6.4.2: the device picker only needs {id, name, ip, group} and was fetching
+// the FULL non-slim /devices payload — sysinfo (mounts, top_processes,
+// listening_ports, timers, network, usb, ssh_hostkeys, packages), port
+// baselines, hardware health and an SNMP summary per device — to filter
+// client-side down to 20 names. `?slim=1` has existed since v3.3.0 and this
+// call site never used it. Cached for 30s as well, because opening a ticket and
+// then attaching a second device re-fetched the whole thing.
+let _tkDevIndex = null, _tkDevIndexAt = 0;
+async function _tkDeviceIndex() {
+  const now = Date.now();
+  if (_tkDevIndex && (now - _tkDevIndexAt) < 30000) return _tkDevIndex;
+  const r = await api('GET', '/devices?slim=1').catch(() => null);
+  _tkDevIndex = (r && (r.devices || (Array.isArray(r) ? r : []))) || [];
+  _tkDevIndexAt = now;
+  return _tkDevIndex;
+}
+
+// The create box was wired `inp.oninput = () => _tkCreateDevResults(inp.value)`
+// with no debounce at all, so every keystroke started a fetch. A 500ms in-flight
+// coalescer downstream collapsed a typing burst into roughly two requests rather
+// than eight — better than nothing, and not a reason to leave the box firing on
+// every character.
+let _tkDevSearchTimer = null;
+function _tkDevSearchDebounced(fn, value) {
+  clearTimeout(_tkDevSearchTimer);
+  _tkDevSearchTimer = setTimeout(() => fn(value), 200);
+}
+
 async function _tkCreateDevResults(term) {
   const box = document.getElementById('tk-create-dev-results');
   const q = (term || '').toLowerCase().trim();
   if (!q) { box.innerHTML = ''; return; }
-  const _dr = await api('GET', '/devices');
-  const devs = (_dr && (_dr.devices || (Array.isArray(_dr) ? _dr : []))) || [];
+  const devs = await _tkDeviceIndex();
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
   box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
 }
@@ -369,7 +396,7 @@ async function openTicket(tid) {
     </div>`;
   _tkRenderDetailChips();
   const _ds = document.getElementById('tk-d-dev-search');
-  if (_ds) _ds.oninput = () => _tkDetailDevResults(_ds.value);
+  if (_ds) _ds.oninput = () => _tkDevSearchDebounced(_tkDetailDevResults, _ds.value);
   const _as = document.getElementById('tk-d-assignee');
   if (_as) { _as.oninput = () => _tkAssigneeResults(_as.value); _as.onfocus = () => _tkAssigneeResults(_as.value); }
   const _ai = document.getElementById('tk-att-input');   // v5.4.1: stage chosen files
@@ -395,8 +422,7 @@ async function _tkDetailDevResults(term) {
   if (!box) return;
   const q = (term || '').toLowerCase().trim();
   if (!q) { box.innerHTML = ''; return; }
-  const _dr = await api('GET', '/devices');
-  const devs = (_dr && (_dr.devices || (Array.isArray(_dr) ? _dr : []))) || [];
+  const devs = await _tkDeviceIndex();
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
   box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDetailDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" tabindex="0">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
 }

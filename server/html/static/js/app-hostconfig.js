@@ -15,7 +15,7 @@ function loadCustomScripts() {
   renderCustomScriptsLoading();
   Promise.all([
     api('GET', '/custom-scripts/results'),
-    api('GET', '/devices'),
+    api('GET', '/devices?slim=1'),
   ]).then(([resultsData, devicesData]) => {
     if (!resultsData) return;
     _csData = resultsData;
@@ -302,7 +302,7 @@ async function _buildCsDevicePicker(scriptId) {
   let fetchFailed = false;
   if (!devs || !devs.length) {
     try {
-      const fetched = await api('GET', '/devices');
+      const fetched = await api('GET', '/devices?slim=1');
       devs = Array.isArray(fetched) ? fetched : (fetched && fetched.devices) ? fetched.devices : [];
       if (devs.length) _csDevices = devs; // cache for next time
     } catch (_) {

@@ -186,7 +186,7 @@ async function _teDevResults(term) {
   if (!box) return;
   const q = (term || '').toLowerCase().trim();
   if (!q) { box.innerHTML = ''; return; }
-  const r = await api('GET', '/devices');
+  const r = await api('GET', '/devices?slim=1');
   const devs = (r && (r.devices || (Array.isArray(r) ? r : []))) || [];
   const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q)).slice(0, 20);
   box.innerHTML = m.map(d =>

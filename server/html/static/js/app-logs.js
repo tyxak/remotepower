@@ -33,7 +33,7 @@ async function refreshLogsFilters() {
   const devSel = document.getElementById('logs-device-filter');
   const prevDev = devSel.value;
   // Load devices list (reuse whatever api returns for /devices)
-  const devs = await api('GET', '/devices');
+  const devs = await api('GET', '/devices?slim=1');
   const list = devs?.devices || devs || [];
   logsState.devicesCache = list;
   devSel.innerHTML = '<option value="">All devices</option>' +

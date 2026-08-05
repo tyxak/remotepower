@@ -280,7 +280,7 @@ function renderComposeStacks() {
 
 async function openComposeCreate() {
   const sel = document.getElementById('compose-create-device');
-  const devs = await api('GET', '/devices');
+  const devs = await api('GET', '/devices?slim=1');
   const list = Array.isArray(devs) ? devs : (devs && devs.devices) || [];
   sel.innerHTML = list
     .filter(d => !d.agentless)

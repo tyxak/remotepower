@@ -246,7 +246,7 @@ async function loadTasks() {
   // Populate device filter with current devices (only on first load)
   const sel = document.getElementById('tasks-device-filter');
   if (sel.options.length <= 2) {
-    const devs = await api('GET', '/devices');
+    const devs = await api('GET', '/devices?slim=1');
     if (devs) {
       const list = devs.devices || devs;
       // Keep "All devices" + "No device linked" options at top
@@ -355,7 +355,7 @@ async function openTaskModal(taskId) {
   // Populate device dropdown
   const devSel = document.getElementById('task-device');
   if (devSel.options.length <= 1) {
-    const devs = await api('GET', '/devices');
+    const devs = await api('GET', '/devices?slim=1');
     if (devs) {
       const list = devs.devices || devs;
       for (const d of list) {

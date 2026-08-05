@@ -111,7 +111,7 @@ async function runAnsiblePlaybook() {
 
 async function loadIacPage() {
   // Populate device dropdown
-  const devs = await api('GET', '/devices');
+  const devs = await api('GET', '/devices?slim=1');
   const sel  = document.getElementById('iac-device-select');
   if (sel && Array.isArray(devs)) {
     const stored = localStorage.getItem('rp_iac_last_device') || '';

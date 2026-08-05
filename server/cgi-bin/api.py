@@ -1562,7 +1562,20 @@ OFFLINE_MISSED_POLLS     = 5            # offline threshold = max(global ttl, po
 #                                         (5 missed polls; at the default 60s poll that's 300s, matching DEFAULT_ONLINE_TTL)
 DEFAULT_POLL_INTERVAL    = 60
 DEFAULT_CVE_CACHE_DAYS   = 7
+# v6.4.2: how many problem hosts the NOC board's attention strip renders. It is
+# a WALL DISPLAY cap (a strip of 3,000 chips is unreadable), which is why the
+# response also carries the uncapped `problems_total` — the number itself was
+# never the bug; applying it before the down-first sort was.
+_BOARD_PROBLEM_CAP = 80
 MAX_HISTORY       = 200
+# v6.4.2: the cap above is the DEFAULT, not the ceiling — it is now tunable as
+# `command_history_max` (Settings → Alert parameters). 200 fleet-wide meant one
+# 400-host bulk action wrote 400 rows and wiped the entire page, on a surface
+# whose subtitle says "Log of all commands sent to devices". The durable record
+# survives (audit log + command_queued fleet events, both archived), so this was
+# a lost VIEW rather than lost evidence — but it is the view an operator reaches
+# for first, and it went blank exactly when the fleet was busy enough to need it.
+MAX_HISTORY_CEILING = 20000
 # v6.4.1: raised 50 → 300. At the default 60s monitor cadence 50 checks was
 # under an hour of history, which made the Live Monitor sparkline, the latency
 # percentiles and the SLO availability window all far shorter than the periods
@@ -6813,16 +6826,31 @@ def log_command(actor, device_id, device_name, command):
         'device_name': _sanitize_str(device_name, MAX_NAME_LEN),
         'command':     _sanitize_str(command, 600),
     }
+    cap = _command_history_cap()
     _m = _dbmod()
     if _m is not None:
-        _m.list_append(HISTORY_FILE, entry, cap=MAX_HISTORY)
+        # The SQL backends cap inside list_append, which returns nothing to
+        # archive — the rows are still reachable through the audit log and the
+        # archived command_queued fleet events, same as before.
+        _m.list_append(HISTORY_FILE, entry, cap=cap)
         _invalidate_load_cache(HISTORY_FILE)
         return
     history = load(HISTORY_FILE)
     entries = history.get('entries', [])
     entries.append(entry)
-    history['entries'] = entries[-MAX_HISTORY:]
+    if len(entries) > cap:
+        _archive_history_entries(entries[:-cap])
+    history['entries'] = entries[-cap:]
     save(HISTORY_FILE, history)
+
+
+def _command_history_cap():
+    """Operator-tunable command-history depth (default MAX_HISTORY)."""
+    try:
+        v = int(_config_ro().get('command_history_max', MAX_HISTORY))
+    except (TypeError, ValueError):
+        v = MAX_HISTORY
+    return max(50, min(MAX_HISTORY_CEILING, v))
 
 
 def _slow_handler_threshold_ms():
@@ -6977,6 +7005,25 @@ def _archive_audit_entries(entries):
                 f.write(json.dumps(e) + '\n')
     except Exception as _arch_err:
         sys.stderr.write(f'[remotepower] audit archive write failed: {_arch_err}\n')
+
+
+def _archive_history_entries(entries):
+    """Append evicted command-history rows to a gzipped JSONL archive.
+
+    v6.4.2: the audit log and the fleet-event feed both gzip their overflow;
+    command history discarded it outright, so a single 400-host batch action
+    made the older rows unrecoverable. Mirrors _archive_audit_entries exactly —
+    best-effort, and a failure never breaks command logging."""
+    if not entries:
+        return
+    try:
+        import gzip
+        arch = DATA_DIR / 'command_history_archive.jsonl.gz'
+        with gzip.open(str(arch), 'at') as f:
+            for e in entries:
+                f.write(json.dumps(e) + '\n')
+    except Exception as _arch_err:
+        sys.stderr.write(f'[remotepower] history archive write failed: {_arch_err}\n')
 
 
 def audit_log(actor, action, detail='', source_ip=None,
@@ -25307,6 +25354,7 @@ def handle_config_get():
     safe.setdefault('proxmox_backup_warn_days', 7)      # stale Proxmox guest-backup age
     safe.setdefault('metric_recovery_buffer', METRIC_RECOVERY_BUFFER)  # metric-recovered hysteresis
     safe.setdefault('min_online_ttl', MIN_ONLINE_TTL)   # online-TTL clamp floor (anti-flap)
+    safe.setdefault('command_history_max', MAX_HISTORY)  # v6.4.2: history depth
     safe.setdefault('unstable_host_returns_min', 3)     # returns-to-online in window → unstable
     safe.setdefault('unstable_host_window_days', 7)     # unstable-host detection window
     safe.setdefault('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)  # returns in window → reboot-churn factor
@@ -26696,6 +26744,9 @@ def handle_config_save():
         # Monitor sparkline, the latency percentiles and SLO availability are
         # computed over — 50 checks was under an hour at the default cadence.
         ('monitor_history_max',       10,  5000,   True),
+        # v6.4.2: Command History depth. 200 fleet-wide, hardcoded, meant one
+        # 400-host bulk action wiped the whole page.
+        ('command_history_max',       50,  20000,  True),
     # v6.2.2 batch 4: per-factor score weights (health/risk/reliability), 0..1000,
     # blankable (blank → the code default). Generated from the constant dicts.
     ) + _weight_param_specs():
@@ -55143,7 +55194,16 @@ def handle_board():
         totals[st] += 1
         if d.get('agentless'):
             totals['agentless'] += 1
-        if st in ('down', 'warn') and len(problems) < 80:
+        if st in ('down', 'warn'):
+            # v6.4.2: the cap USED to be applied here — `and len(problems) < 80`
+            # inside the loop, with the down-first sort running afterwards. So
+            # the 80 kept were the 80 EARLIEST-ENROLLED problem hosts, not the
+            # 80 worst, and any host enrolled after those slots filled was
+            # invisible on the wall display no matter how badly it was failing.
+            # On a 3,000-host fleet with 400 down, the board showed 80 mostly-
+            # warning hosts and the NOC read it as the total. The tiles path 20
+            # lines below already sorted THEN sliced; this was an oversight, not
+            # a design choice. Collect everything, sort, then slice.
             problems.append({'id': did, 'name': d.get('name', did), 'status': st,
                              'reason': 'offline' if st == 'down' else alerted.get(did, 'alert')})
         if by == 'tag':
@@ -55160,8 +55220,16 @@ def handle_board():
     tile_list = list(tiles.values())
     tile_list.sort(key=lambda t: (-t['down'], -t['warn'], -t['total']))
     tile_list = tile_list[:120]
-    problems.sort(key=lambda p: 0 if p['status'] == 'down' else 1)
-    respond(200, {'by': by, 'totals': totals, 'tiles': tile_list, 'problems': problems})
+    problems.sort(key=lambda p: (0 if p['status'] == 'down' else 1,
+                                 (p['name'] or '').lower()))
+    # `problems_total` is the UNCAPPED count. The client rendered
+    # `Needs attention (${data.problems.length})`, which reads as a fleet total
+    # and was the capped number — so a 400-host outage displayed as 80.
+    problems_total = len(problems)
+    respond(200, {'by': by, 'totals': totals, 'tiles': tile_list,
+                  'problems': problems[:_BOARD_PROBLEM_CAP],
+                  'problems_total': problems_total,
+                  'problems_cap': _BOARD_PROBLEM_CAP})
 
 
 def handle_network_metrics():

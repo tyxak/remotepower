@@ -1018,6 +1018,9 @@
     // v6.4.2: Timeline "around a moment" window control + the dashboard
     // getting-started card's dismiss.
     "Clear window": { "fr": "Effacer la fenêtre", "de": "Zeitfenster löschen", "zh": "清除时间窗口", "hi": "विंडो साफ़ करें", "es": "Borrar ventana", "ar": "مسح النافذة" },
+    // v6.4.2: Devices batch bar — select every host matching the current filter
+    // chain, not just the rendered page.
+    "Select all matching filters": { "fr": "Tout sélectionner selon les filtres", "de": "Alle passenden auswählen", "zh": "选择所有匹配筛选的设备", "hi": "फ़िल्टर से मेल खाने वाले सभी चुनें", "es": "Seleccionar todos los que coinciden", "ar": "تحديد كل ما يطابق عوامل التصفية" },
     "Hide this card": { "fr": "Masquer cette carte", "de": "Diese Karte ausblenden", "zh": "隐藏此卡片", "hi": "यह कार्ड छिपाएँ", "es": "Ocultar esta tarjeta", "ar": "إخفاء هذه البطاقة" },
     "Around": { "fr": "Autour de", "de": "Zeitpunkt", "zh": "围绕", "hi": "इसके आसपास", "es": "Alrededor de", "ar": "حول" },
     "Closed by":   { "fr": "Clôturé par", "de": "Geschlossen von", "zh": "关闭者", "hi": "बंद किया गया", "es": "Cerrado por", "ar": "أُغلق بواسطة" },
