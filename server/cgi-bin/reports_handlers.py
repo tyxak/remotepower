@@ -703,6 +703,17 @@ def _clean_report_def(body):
     # toggle would appear to save and then quietly do nothing.
     destinations = [A._sanitize_str(str(x), 32) for x in (body.get('destinations') or [])
                     if isinstance(x, (str, int))][:20]
+    # v6.4.2: scope a scheduled report to ONE SITE (= one customer, per
+    # docs/sites.md). The schema had no site field, so the scheduler could only
+    # ever send the whole-fleet report — an MSP with 12 customer sites, per-site
+    # billing and per-site RBAC already configured could not say "email Acme
+    # their monthly report on the 1st". Their only options were to hand-download
+    # a JSON blob per customer per month, or to send all 12 customers the whole
+    # fleet's numbers, which leaks every other customer's device counts and CVE
+    # totals. Empty = whole fleet, exactly as before.
+    site = A._sanitize_str(str(body.get('site', '')), 64).strip()
+    if site and not isinstance((A.load(A.SITES_FILE) or {}).get(site), dict):
+        return 'badsite'
     return {
         'id':         A._sanitize_str(str(body.get('id', '')), 16) or A.secrets.token_hex(6),
         'name':       name,
@@ -712,6 +723,7 @@ def _clean_report_def(body):
         'enabled':    enabled,
         'recipients': recipients,
         'destinations': destinations,
+        'site':       site,
     }
 
 
@@ -731,6 +743,10 @@ def handle_report_defs_save():
     cleaned = A._clean_report_def(A.get_json_body())
     if cleaned == 'badcron':
         A.respond(400, {'error': 'invalid cron expression'})
+    if cleaned == 'badsite':
+        # A silently-dropped site would schedule a WHOLE-FLEET report to a
+        # customer's account manager — the exact leak this field exists to stop.
+        A.respond(400, {'error': 'unknown site'})
     if not cleaned:
         A.respond(400, {'error': 'name is required'})
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
@@ -799,7 +815,13 @@ def _maybe_send_report_definitions():
         if not recipients and not dest_ids:
             continue
         try:
-            report = A._filter_report_sections(A._build_fleet_report(), d.get('sections'))
+            # v6.4.2: honour the definition's site scope. `_build_fleet_report`
+            # has taken site_id since the per-site download shipped; the
+            # scheduler simply never passed it.
+            _site = (d.get('site') or '').strip()
+            report = A._filter_report_sections(
+                A._build_fleet_report(site_id=_site) if _site
+                else A._build_fleet_report(), d.get('sections'))
             subject, body = A._render_report_email(report)
             subject = f"[{d.get('name')}] " + subject
         except Exception as e:

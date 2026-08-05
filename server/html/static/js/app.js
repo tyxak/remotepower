@@ -9620,7 +9620,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="csv" title="Download this site's posture report as CSV (devices, patches, SLA, CVEs, health)">Report (CSV)</button><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="json" title="Download this site's posture report as raw JSON">JSON</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -25902,6 +25902,7 @@ async function loadReportDefs() {
   if (!wrap) return;
   const data = await api('GET', '/report/definitions').catch(() => null);
   _reportDefs = (data && data.definitions) || [];
+  _rdefPopulateSites();
   const available = (data && data.available_sections) || Object.keys(_REPORT_SECTION_LABELS);
   // Build the section checkboxes once.
   if (secEl && !secEl.dataset.built) {
@@ -25923,8 +25924,14 @@ async function loadReportDefs() {
   if (!_reportDefs.length) { wrap.innerHTML = '<div class="hint">No custom reports yet.</div>'; return; }
   wrap.innerHTML = _reportDefs.map(d => {
     const sched = d.enabled && d.cron ? `<span class="epss-chip" title="Scheduled">${escHtml(d.cron)}</span>` : '';
+    // A scheduled report that silently covers the whole fleet when the operator
+    // meant one customer is the failure this field exists to prevent — so say
+    // which it is on the saved row, not only in the editor.
+    const scope = d.site
+      ? `<span class="patch-badge fs-10" title="Scoped to one site">${escHtml(_rdefSiteName(d.site))}</span>`
+      : '<span class="hint">whole fleet</span>';
     return `<div class="rdef-row">
-      <span class="rdef-row-name">${escHtml(d.name)} <span class="hint">· ${(d.sections||[]).length} sections · ${escHtml(d.format||'json')}</span> ${sched}</span>
+      <span class="rdef-row-name">${escHtml(d.name)} <span class="hint">· ${(d.sections||[]).length} sections · ${escHtml(d.format||'json')}</span> ${scope} ${sched}</span>
       <span class="sb-controls">
         <button class="btn-icon cell-sm" data-action="downloadReportDef" data-arg="${escAttr(d.id)}">Download</button>
         <button class="btn-icon cell-sm" title="Edit" data-action="editReportDef" data-arg="${escAttr(d.id)}">${_icon('edit',14)}</button>
@@ -25932,6 +25939,28 @@ async function loadReportDefs() {
       </span></div>`;
   }).join('');
 }
+// v6.4.2: the site picker for a scheduled report. Sites are fetched by the
+// Sites page; if the operator has not opened it this session, fetch once here
+// rather than showing an empty dropdown that looks like "no sites exist".
+function _rdefSiteName(id) {
+  const s = (_sitesCache || []).find(x => x.id === id);
+  return s ? s.name : id;
+}
+
+async function _rdefPopulateSites() {
+  const sel = document.getElementById('rdef-site');
+  if (!sel) return;
+  if (!(_sitesCache || []).length) {
+    const d = await api('GET', '/sites').catch(() => null);
+    _sitesCache = (d && d.sites) || [];
+  }
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Whole fleet</option>'
+    + (_sitesCache || []).map(x =>
+        `<option value="${escAttr(x.id)}">${escHtml(x.name)}</option>`).join('');
+  sel.value = cur;
+}
+
 function _rdefSelectedSections() {
   return Array.from(document.querySelectorAll('.rdef-sec-cb')).filter(c => c.checked).map(c => c.value);
 }
@@ -25942,6 +25971,7 @@ function resetReportDef() {
   _reportDefEditId = '';
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
   set('rdef-name', ''); set('rdef-cron', ''); set('rdef-recipients', '');
+  set('rdef-site', '');
   const fmt = document.getElementById('rdef-format'); if (fmt) fmt.value = 'json';
   const en = document.getElementById('rdef-enabled'); if (en) en.checked = false;
   document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = true; });
@@ -25956,6 +25986,8 @@ function editReportDef(id) {
   document.getElementById('rdef-cron').value = d.cron || '';
   document.getElementById('rdef-recipients').value = (d.recipients || []).join(', ');
   document.getElementById('rdef-format').value = d.format || 'json';
+  const _rs = document.getElementById('rdef-site');
+  if (_rs) _rs.value = d.site || '';
   document.getElementById('rdef-enabled').checked = !!d.enabled;
   const sel = new Set(d.sections || []);
   document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = sel.has(c.value); });
@@ -25978,6 +26010,8 @@ async function saveReportDef() {
     id: _reportDefEditId || undefined, name, sections,
     format: document.getElementById('rdef-format').value, cron, enabled,
     recipients, destinations,
+    // v6.4.2: '' = whole fleet, exactly as before.
+    site: (document.getElementById('rdef-site') || {}).value || '',
   };
   const r = await api('POST', '/report/definitions', payload).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
