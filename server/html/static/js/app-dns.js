@@ -803,8 +803,7 @@ async function acmeOpenDetail(devId, domain) {
 }
 
 function acmeDetailTab(tab) {
-  document.querySelectorAll('#acme-detail-modal .drawer-tab-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.acmeTab === tab));
+  _syncTabs(document.querySelectorAll('#acme-detail-modal .drawer-tab-btn'), b => b.dataset.acmeTab === tab);
   document.querySelectorAll('.acme-detail-pane').forEach(p =>
     p.style.display = p.id === `acme-detail-${tab}` ? '' : 'none');
 }

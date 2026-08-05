@@ -658,9 +658,7 @@ function _cmdbRenderHardware(si) {
 }
 
 function cmdbSwitchTab(tab) {
-  document.querySelectorAll('.cmdb-tab-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.tab === tab);
-  });
+  _syncTabs(document.querySelectorAll('.cmdb-tab-btn'), b => b.dataset.tab === tab);
   document.getElementById('cmdb-tab-props').style.display = tab === 'props' ? 'block' : 'none';
   document.getElementById('cmdb-tab-docs').style.display  = tab === 'docs'  ? 'block' : 'none';
   document.getElementById('cmdb-tab-creds').style.display = tab === 'creds' ? 'block' : 'none';

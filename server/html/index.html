@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-8">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-9">
 
 </head>
 <body>
@@ -75,8 +75,8 @@
     <!-- v4.2.0 (B1): SAML SSO button — shown only if saml_enabled returns from /api/public-info -->
     <a href="/api/auth/saml/login" id="login-saml-btn" class="login-btn login-btn-oidc d-none">Sign in with SAML</a>
     <button type="button" id="login-passkey-btn" class="login-btn login-btn-oidc d-none" data-action="loginWithPasskey">Sign in with a passkey</button>
-    <div id="login-oidc-error" class="login-error d-none">SSO sign-in failed. Try local credentials.</div>
-    <div id="login-error" class="login-error">Invalid username or password</div>
+    <div id="login-oidc-error" class="login-error d-none" role="alert">SSO sign-in failed. Try local credentials.</div>
+    <div id="login-error" class="login-error" role="alert">Invalid username or password</div>
   </form>
 </div>
 
@@ -1481,41 +1481,41 @@
         <div class="settings-tabs" role="tablist" aria-label="Settings sections">
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Setup</span>
-            <button class="settings-tab"        id="settings-tab-btn-install" role="tab" aria-selected="false" aria-controls="settings-pane-install" data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
-            <button class="settings-tab active" id="settings-tab-btn-general" role="tab" aria-selected="true" aria-controls="settings-pane-general" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
+            <button class="settings-tab"        id="settings-tab-btn-install" role="tab" aria-selected="false" aria-controls="settings-pane-install" data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup"  tabindex="-1">Install</button>
+            <button class="settings-tab active" id="settings-tab-btn-general" role="tab" aria-selected="true" aria-controls="settings-pane-general" data-tab="general"  data-action="switchSettingsTab" data-arg="general"  tabindex="0">General</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Monitoring</span>
-            <button class="settings-tab"        id="settings-tab-btn-notifs" role="tab" aria-selected="false" aria-controls="settings-pane-notifs" data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+            <button class="settings-tab"        id="settings-tab-btn-notifs" role="tab" aria-selected="false" aria-controls="settings-pane-notifs" data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs"  tabindex="-1">Notifications</button>
             <!-- v6.1.1: was labeled "Dashboard" (data-tab="dashboard" kept
                  unchanged for #settings/dashboard bookmark compat) -- its
                  contents are brute-force/health-score/quiet-hours/on-call/
                  backup-monitoring/process-threshold alert config, zero
                  actual dashboard-widget settings. Relabeled + moved next to
                  Notifications, where the content actually belongs. -->
-            <button class="settings-tab"        id="settings-tab-btn-dashboard" role="tab" aria-selected="false" aria-controls="settings-pane-dashboard" data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Alerting</button>
-            <button class="settings-tab"        id="settings-tab-btn-alertparams" role="tab" aria-selected="false" aria-controls="settings-pane-alertparams" data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams" >Alert parameters</button>
-            <button class="settings-tab"        id="settings-tab-btn-mailbox" role="tab" aria-selected="false" aria-controls="settings-pane-mailbox" data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
-            <button class="settings-tab"        id="settings-tab-btn-ignored" role="tab" aria-selected="false" aria-controls="settings-pane-ignored" data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
+            <button class="settings-tab"        id="settings-tab-btn-dashboard" role="tab" aria-selected="false" aria-controls="settings-pane-dashboard" data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings"  tabindex="-1">Alerting</button>
+            <button class="settings-tab"        id="settings-tab-btn-alertparams" role="tab" aria-selected="false" aria-controls="settings-pane-alertparams" data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams"  tabindex="-1">Alert parameters</button>
+            <button class="settings-tab"        id="settings-tab-btn-mailbox" role="tab" aria-selected="false" aria-controls="settings-pane-mailbox" data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox"  tabindex="-1">Mailbox monitor</button>
+            <button class="settings-tab"        id="settings-tab-btn-ignored" role="tab" aria-selected="false" aria-controls="settings-pane-ignored" data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems"  tabindex="-1">Ignored items</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Connections</span>
-            <button class="settings-tab"        id="settings-tab-btn-integrations" role="tab" aria-selected="false" aria-controls="settings-pane-integrations" data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
-            <button class="settings-tab"        id="settings-tab-btn-proxmox" role="tab" aria-selected="false" aria-controls="settings-pane-proxmox" data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Virtualization</button>
-            <button class="settings-tab"        id="settings-tab-btn-ai" role="tab" aria-selected="false" aria-controls="settings-pane-ai" data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
+            <button class="settings-tab"        id="settings-tab-btn-integrations" role="tab" aria-selected="false" aria-controls="settings-pane-integrations" data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab"  tabindex="-1">Integrations</button>
+            <button class="settings-tab"        id="settings-tab-btn-proxmox" role="tab" aria-selected="false" aria-controls="settings-pane-proxmox" data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox"  tabindex="-1">Virtualization</button>
+            <button class="settings-tab"        id="settings-tab-btn-ai" role="tab" aria-selected="false" aria-controls="settings-pane-ai" data-tab="ai"       data-action="switchSettingsTab" data-arg="ai"  tabindex="-1">AI assistant</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">System</span>
-            <button class="settings-tab"        id="settings-tab-btn-security" role="tab" aria-selected="false" aria-controls="settings-pane-security" data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
+            <button class="settings-tab"        id="settings-tab-btn-security" role="tab" aria-selected="false" aria-controls="settings-pane-security" data-tab="security" data-action="switchSettingsTab" data-arg="security"  tabindex="-1">Security</button>
             <!-- v6.1.1: split out of Advanced -- the ticket-system config
                  (mailbox, auto-reply, CSAT, business hours, SLA, canned
                  replies, recurring tickets, customer portal) had grown to
                  8 sections buried in a catch-all tab. -->
-            <button class="settings-tab"        id="settings-tab-btn-tickets" role="tab" aria-selected="false" aria-controls="settings-pane-tickets" data-tab="tickets"  data-action="switchSettingsTab" data-arg="tickets" >Tickets</button>
+            <button class="settings-tab"        id="settings-tab-btn-tickets" role="tab" aria-selected="false" aria-controls="settings-pane-tickets" data-tab="tickets"  data-action="switchSettingsTab" data-arg="tickets"  tabindex="-1">Tickets</button>
             <!-- v6.1.1: split out of Advanced -- scheduled backup + backup/
                  restore, same reasoning as Tickets above. -->
-            <button class="settings-tab"        id="settings-tab-btn-backups" role="tab" aria-selected="false" aria-controls="settings-pane-backups" data-tab="backups"  data-action="switchSettingsTab" data-arg="backups" >Backups</button>
-            <button class="settings-tab"        id="settings-tab-btn-advanced" role="tab" aria-selected="false" aria-controls="settings-pane-advanced" data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
+            <button class="settings-tab"        id="settings-tab-btn-backups" role="tab" aria-selected="false" aria-controls="settings-pane-backups" data-tab="backups"  data-action="switchSettingsTab" data-arg="backups"  tabindex="-1">Backups</button>
+            <button class="settings-tab"        id="settings-tab-btn-advanced" role="tab" aria-selected="false" aria-controls="settings-pane-advanced" data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced"  tabindex="-1">Advanced</button>
           </div>
         </div>
 
@@ -8571,10 +8571,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="drawer-tabs" role="tablist" aria-label="Device details">
       <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
               role="tab" aria-selected="true" aria-controls="drawer-tab-actions"
-              data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
+              data-action="switchDrawerTab" data-arg="actions"  tabindex="0">Actions &amp; Settings</button>
       <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
               role="tab" aria-selected="false" aria-controls="drawer-tab-audit"
-              data-action="switchDrawerTab" data-arg="audit" >Audit</button>
+              data-action="switchDrawerTab" data-arg="audit"  tabindex="-1">Audit</button>
     </div>
 
     <!-- Content -->
@@ -9799,15 +9799,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
   <div id="cmdb-asset-tickets" class="mb-8 scroll-cap"></div>
   <div class="isl-227" role="tablist" aria-label="Asset detail">
-    <button class="btn-icon cmdb-tab-btn active" id="cmdb-tab-btn-props" role="tab" aria-selected="true" aria-controls="cmdb-tab-props" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
-    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-docs" role="tab" aria-selected="false" aria-controls="cmdb-tab-docs" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
-    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-creds" role="tab" aria-selected="false" aria-controls="cmdb-tab-creds" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
-    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-hw" role="tab" aria-selected="false" aria-controls="cmdb-tab-hw" data-tab="hw" data-action="cmdbSwitchTab" data-arg="hw" >Hardware</button>
-    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-biz" role="tab" aria-selected="false" aria-controls="cmdb-tab-biz" data-tab="biz" data-action="cmdbSwitchTab" data-arg="biz" >Contracts &amp; contacts</button>
-    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-snmp" role="tab" aria-selected="false" aria-controls="cmdb-tab-snmp" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp" >SNMP</button>
+    <button class="btn-icon cmdb-tab-btn active" id="cmdb-tab-btn-props" role="tab" aria-selected="true" aria-controls="cmdb-tab-props" data-tab="props" data-action="cmdbSwitchTab" data-arg="props"  tabindex="0">Properties</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-docs" role="tab" aria-selected="false" aria-controls="cmdb-tab-docs" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs"  tabindex="-1">Documentation</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-creds" role="tab" aria-selected="false" aria-controls="cmdb-tab-creds" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds"  tabindex="-1">Credentials</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-hw" role="tab" aria-selected="false" aria-controls="cmdb-tab-hw" data-tab="hw" data-action="cmdbSwitchTab" data-arg="hw"  tabindex="-1">Hardware</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-biz" role="tab" aria-selected="false" aria-controls="cmdb-tab-biz" data-tab="biz" data-action="cmdbSwitchTab" data-arg="biz"  tabindex="-1">Contracts &amp; contacts</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-snmp" role="tab" aria-selected="false" aria-controls="cmdb-tab-snmp" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp"  tabindex="-1">SNMP</button>
   </div>
 
-  <div id="cmdb-tab-props"None role="tabpanel" aria-labelledby="cmdb-tab-btn-props">
+  <div id="cmdb-tab-props" role="tabpanel" aria-labelledby="cmdb-tab-btn-props">
     <input type="hidden" id="cmdb-asset-deviceid">
     <div class="form-group cmdb-decomm-row">
       <label class="click-row"><input type="checkbox" id="cmdb-asset-decommissioned"> <strong>Decommissioned</strong></label>
@@ -10277,9 +10277,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="acme-detail-title">Certificate detail</div>
   <div class="modal-subtitle" id="acme-detail-subtitle"></div>
   <div class="isl-250" role="tablist" aria-label="Certificate detail">
-    <button class="drawer-tab-btn active" id="acme-tab-btn-overview" role="tab" aria-selected="true" aria-controls="acme-detail-overview" data-acme-tab="overview" data-action="acmeDetailTab" data-arg="overview" >Overview</button>
-    <button class="drawer-tab-btn" id="acme-tab-btn-timeline" role="tab" aria-selected="false" aria-controls="acme-detail-timeline" data-acme-tab="timeline" data-action="acmeDetailTab" data-arg="timeline" >Timeline</button>
-    <button class="drawer-tab-btn" id="acme-tab-btn-logs" role="tab" aria-selected="false" aria-controls="acme-detail-logs" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs" >Logs</button>
+    <button class="drawer-tab-btn active" id="acme-tab-btn-overview" role="tab" aria-selected="true" aria-controls="acme-detail-overview" data-acme-tab="overview" data-action="acmeDetailTab" data-arg="overview"  tabindex="0">Overview</button>
+    <button class="drawer-tab-btn" id="acme-tab-btn-timeline" role="tab" aria-selected="false" aria-controls="acme-detail-timeline" data-acme-tab="timeline" data-action="acmeDetailTab" data-arg="timeline"  tabindex="-1">Timeline</button>
+    <button class="drawer-tab-btn" id="acme-tab-btn-logs" role="tab" aria-selected="false" aria-controls="acme-detail-logs" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs"  tabindex="-1">Logs</button>
   </div>
   <div id="acme-detail-overview" class="acme-detail-pane isl-251" role="tabpanel" aria-labelledby="acme-tab-btn-overview"></div>
   <div id="acme-detail-timeline" class="acme-detail-pane isl-252" role="tabpanel" aria-labelledby="acme-tab-btn-timeline"></div>
@@ -10296,9 +10296,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
   <!-- Tab bar -->
   <div class="isl-250" role="tablist" aria-label="Investigation steps">
-    <button class="drawer-tab-btn active" id="mit-tab-btn-diagnostic" role="tab" aria-selected="true"  aria-controls="mitigate-pane-diagnostic" data-mit-tab="diagnostic" data-action="mitigateTab" data-arg="diagnostic" >1 · Diagnostic</button>
-    <button class="drawer-tab-btn"        id="mit-tab-btn-ai"         role="tab" aria-selected="false" aria-controls="mitigate-pane-ai"         data-mit-tab="ai"         data-action="mitigateTab" data-arg="ai" >2 · AI analysis</button>
-    <button class="drawer-tab-btn"        id="mit-tab-btn-fix"        role="tab" aria-selected="false" aria-controls="mitigate-pane-fix"        data-mit-tab="fix"        data-action="mitigateTab" data-arg="fix" >3 · Apply fix</button>
+    <button class="drawer-tab-btn active" id="mit-tab-btn-diagnostic" role="tab" aria-selected="true"  aria-controls="mitigate-pane-diagnostic" data-mit-tab="diagnostic" data-action="mitigateTab" data-arg="diagnostic"  tabindex="0">1 · Diagnostic</button>
+    <button class="drawer-tab-btn"        id="mit-tab-btn-ai"         role="tab" aria-selected="false" aria-controls="mitigate-pane-ai"         data-mit-tab="ai"         data-action="mitigateTab" data-arg="ai"  tabindex="-1">2 · AI analysis</button>
+    <button class="drawer-tab-btn"        id="mit-tab-btn-fix"        role="tab" aria-selected="false" aria-controls="mitigate-pane-fix"        data-mit-tab="fix"        data-action="mitigateTab" data-arg="fix"  tabindex="-1">3 · Apply fix</button>
   </div>
 
   <!-- Diagnostic tab -->
@@ -11217,38 +11217,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-8"></script>
+<script defer src="static/js/app.js?v=6.4.2-9"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-8"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-9"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-8"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-9"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-8"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-9"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-8"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-8"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-9"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-9"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-8"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-9"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11258,6 +11258,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-8"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-9"></script>
 </body>
 </html>

@@ -900,7 +900,23 @@ async function doLogin() {
   const err  = document.getElementById('login-error');
   err.classList.remove('show');
   err.style.color = '';
-  if (!user || !pass) return;
+  // v6.4.2: a blank field used to clear the previous message and silently
+  // return — the error was detected and shown to nobody, sighted or not, on the
+  // product's front door. Say which field is missing and put focus on it
+  // (WCAG 2.1 SC 3.3.1 Error Identification).
+  if (!user || !pass) {
+    const missing = !user ? 'login-user' : 'login-pass';
+    err.textContent = !user
+      ? 'Enter your username.'
+      : 'Enter your password.';
+    err.classList.add('show');
+    const f = document.getElementById(missing);
+    if (f) { f.setAttribute('aria-invalid', 'true'); f.focus(); }
+    return;
+  }
+  for (const id of ['login-user', 'login-pass']) {
+    document.getElementById(id)?.removeAttribute('aria-invalid');
+  }
   try {
     const payload = {username: user, password: pass, remember_me};
     if (totp_code) payload.totp_code = totp_code;
@@ -1678,9 +1694,21 @@ async function api(method, path, body, extra) {
 // v6.0.0 phase 2: ACCORDION — one domain open at a time (REGROUPING.md). The
 // open group is stored under a single key; opening one collapses the rest.
 // The active page's group still force-opens on navigation (_openSidebarGroup).
+// v6.4.2: ONE function owns both the collapsed class and aria-expanded, so they
+// cannot drift. They had: the attribute shipped as a static literal on all 12
+// toggles and nothing ever updated it, so every group announced itself as
+// collapsed permanently — including the open one. A frozen state attribute is
+// worse than none, because it actively lies to a screen reader (SC 4.1.2).
+function _paintSidebarGroups(openName) {
+  document.querySelectorAll('.sidebar-group').forEach(g => {
+    const open = g.dataset.group === openName;
+    g.classList.toggle('collapsed', !open);
+    const t = g.querySelector('.sidebar-group-toggle');
+    if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+}
 function _openSidebarGroup(name) {
-  document.querySelectorAll('.sidebar-group').forEach(g =>
-    g.classList.toggle('collapsed', g.dataset.group !== name));
+  _paintSidebarGroups(name);
   try { localStorage.setItem('sidebar.open_group', name || ''); } catch (_) {}
 }
 function toggleSidebarGroup(name) {
@@ -1711,8 +1739,9 @@ function _restoreSidebarGroups() {
   try { open = localStorage.getItem('sidebar.open_group'); } catch (_) {}
   // Default (no stored state): everything closed — the tidy 12-domain rail;
   // navigating (or the boot deep-link) opens the active page's domain.
-  document.querySelectorAll('.sidebar-group').forEach(g =>
-    g.classList.toggle('collapsed', g.dataset.group !== open));
+  // Through the shared painter, so a restored group's aria-expanded is correct
+  // from the first paint rather than only after the user clicks something.
+  _paintSidebarGroups(open);
 }
 // Run on load — sidebar exists by the time DOMContentLoaded fires
 if (document.readyState === 'loading') {
@@ -3971,7 +4000,7 @@ async function openUserAdd() {
   }
   openModal('user-add-modal');
 }
-async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error', {transient: true}); return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
+async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { const _m = !username ? 'new-username' : 'new-password'; toast(!username ? 'Username is required' : 'Password is required', 'error', {transient: true}); const _e = document.getElementById(_m); if (_e) { _e.setAttribute('aria-invalid', 'true'); _e.focus(); } return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!await uiConfirm({ message: `Delete user "${username}"?`, confirmText: 'Delete', danger: true })) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
@@ -4037,7 +4066,7 @@ function _openStepUpModal() {
 async function stepUpSubmit() {
   const password = document.getElementById('step-up-password').value;
   const totp_code = document.getElementById('step-up-totp').value.trim();
-  if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error', {transient: true}); return; }
+  if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error', {transient: true}); const _e = document.getElementById('step-up-password'); if (_e) { _e.setAttribute('aria-invalid', 'true'); _e.focus(); } return; }
   const data = await api('POST', '/auth/step-up', {password, totp_code});
   if (data?.ok) {
     closeModal('step-up-modal');
@@ -4062,8 +4091,7 @@ async function withStepUp(callFn) {
 
 // ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
 function switchSettingsTab(tab) {
-  document.querySelectorAll('.settings-tab').forEach(b =>
-    b.classList.toggle('active', b.dataset.tab === tab));
+  _syncTabs(document.querySelectorAll('.settings-tab'), b => b.dataset.tab === tab);
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.id === `settings-pane-${tab}`));
   if (tab) {
@@ -5551,6 +5579,57 @@ if (typeof document !== 'undefined' && !window.__rpVisibilityWired) {
 // stay the single integration point, so all 133 call sites + backdrop-click get
 // this for free. The AI modal (built ad-hoc) is the one exception and is
 // unaffected.
+// v6.4.2: ONE owner for a tab's three coupled states — the .active class, the
+// aria-selected the screen reader reads, and the roving tabindex the keyboard
+// uses. Five switchers previously toggled only the class, so all 28 tabs were
+// frozen at their page-load aria-selected: the first tab announced as selected
+// forever, and whichever tab you actually opened announced as unselected.
+//
+// Roving tabindex (exactly one 0, the rest -1) makes each tablist a single tab
+// stop, per the WAI-ARIA tabs pattern — Settings alone was ~16 tab stops.
+// `.tabIndex` is a property assignment, not an inline style or on* attribute,
+// so it is CSP-safe.
+function _syncTabs(tabs, isActive) {
+  Array.from(tabs || []).forEach(b => {
+    const on = !!isActive(b);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  });
+}
+
+// Arrow/Home/End across any tablist, present or future — delegated, so a sixth
+// tab widget is covered without touching this again.
+//
+// MANUAL activation (focus moves; Enter/Space activates via the existing
+// data-action click dispatcher) rather than the APG's automatic activation.
+// That is deliberate and load-bearing: switchSettingsTab fires per-tab network
+// loads and several tabs carry data-action2 loaders, so automatic activation
+// would fire a handful of API calls just arrowing across the Settings strip.
+// The APG explicitly permits manual activation when panels are expensive.
+document.addEventListener('keydown', (e) => {
+  const tab = e.target && e.target.closest && e.target.closest('[role="tab"]');
+  if (!tab) return;
+  const list = tab.closest('[role="tablist"]');
+  if (!list) return;
+  // Only tabs that are actually on screen — the Settings strip and its desktop
+  // left-nav are one DOM widget in two orientations.
+  const tabs = Array.from(list.querySelectorAll('[role="tab"]'))
+                    .filter(t => t.offsetParent !== null);
+  const i = tabs.indexOf(tab);
+  if (i === -1) return;
+  let n = null;
+  // Both axes bound on purpose: #page-settings renders this tablist vertically
+  // on desktop and horizontally at narrow widths.
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = (i + 1) % tabs.length;
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = (i - 1 + tabs.length) % tabs.length;
+  else if (e.key === 'Home') n = 0;
+  else if (e.key === 'End') n = tabs.length - 1;
+  if (n === null) return;
+  e.preventDefault();
+  tabs[n].focus();
+});
+
 const _MODAL_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),' +
   'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 const _modalStack = [];
@@ -21192,7 +21271,8 @@ function switchDrawerTab(tab) {
   ['actions', 'audit'].forEach(t => {
     const panel = document.getElementById(`drawer-tab-${t}`);
     if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
-    document.getElementById(`drawer-tab-btn-${t}`)?.classList.toggle('active', t === tab);
+    const btn = document.getElementById(`drawer-tab-btn-${t}`);
+    if (btn) _syncTabs([btn], () => t === tab);
   });
   // v6.2.2: keep the deep link tab-accurate (replaceState per the showPage
   // convention — tab flips must not pile onto back-button history).
@@ -26556,8 +26636,7 @@ function closeMitigateModal() {
 }
 
 function mitigateTab(tab) {
-  document.querySelectorAll('#mitigate-modal .drawer-tab-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.mitTab === tab));
+  _syncTabs(document.querySelectorAll('#mitigate-modal .drawer-tab-btn'), b => b.dataset.mitTab === tab);
   // NB: the AI and Fix panes share class .isl-255 which carries a stylesheet
   // `display:none` (a CSP-migration artifact — was inline style="display:none").
   // Setting style.display = '' only clears the INLINE value and leaves that
@@ -27252,6 +27331,7 @@ async function _mitigatePollFix() {
 let _palOpen = false;
 let _palItems = [];      // [{label, kind, action: () => void}]
 let _palCursor = 0;
+let _palReturnFocus = null;   // v6.4.2: focus restore on close
 // v6.3.0 (UX wave 5): pinned devices — a star in the drawer actions pins a
 // host; pinned hosts rank FIRST in the command palette (above recents) and
 // the list lives server-side in ui_prefs, so pins follow you across browsers.
@@ -27500,13 +27580,24 @@ function openCommandPalette() {
   }
   _palItems = _palBuildIndex();
   _palCursor = 0;
+  // v6.4.2: remember where focus was so closing can put it back. Every other
+  // overlay does this via openModal/closeModal; the palette builds its own DOM
+  // and did not, so Escape dropped focus to <body> and lost the user's place.
+  _palReturnFocus = document.activeElement;
   const overlay = document.createElement('div');
   overlay.id = 'cmd-palette-overlay';
+  // v6.4.2: dialog + combobox semantics. Opening the palette used to be
+  // completely silent — nothing announced that a search surface had appeared,
+  // and arrow keys moved only a CSS class, so a screen-reader user could not
+  // tell what Enter would do.
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Command palette');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;justify-content:center;padding-top:80px';
   overlay.innerHTML = `
     <div class="isl-716">
-      <input id="cmd-palette-input" type="text" placeholder="Jump to a device or page, or run an action — try “reboot”, “terminal”, “run command”…" autocomplete="off" class="isl-717">
-      <div id="cmd-palette-results" class="isl-718"></div>
+      <input id="cmd-palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="cmd-palette-results" aria-autocomplete="list" aria-label="Search devices, pages and actions" placeholder="Jump to a device or page, or run an action — try “reboot”, “terminal”, “run command”…" autocomplete="off" class="isl-717">
+      <div id="cmd-palette-results" class="isl-718" role="listbox" aria-label="Results"></div>
       <div class="isl-719">
         <span><kbd class="isl-720">↑↓</kbd> navigate</span>
         <span><kbd class="isl-720">⏎</kbd> open</span>
@@ -27524,6 +27615,11 @@ function openCommandPalette() {
 function closeCommandPalette() {
   _palOpen = false;
   document.getElementById('cmd-palette-overlay')?.remove();
+  // Put focus back where it came from. document.contains guards the case where
+  // a re-render replaced the node we captured.
+  const ret = _palReturnFocus;
+  _palReturnFocus = null;
+  if (ret && ret.focus && document.contains(ret)) { try { ret.focus(); } catch (_) {} }
 }
 function _palRender() {
   let q = (document.getElementById('cmd-palette-input')?.value || '').toLowerCase().trim();
@@ -27539,6 +27635,8 @@ function _palRender() {
   if (_palCursor >= filtered.length) _palCursor = 0;
   const html = filtered.map((it, idx) => `
     <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''} isl-721"
+         role="option" id="cmd-palette-opt-${idx}"
+         aria-selected="${idx === _palCursor ? 'true' : 'false'}"
          data-idx="${idx}">
       <div>
         <div class="fs-13">${escHtml(it.label)}</div>
@@ -27547,6 +27645,21 @@ function _palRender() {
       <span class="isl-722">${it.kind}</span>
     </div>`).join('') || '<div class="isl-723">No results</div>';
   document.getElementById('cmd-palette-results').innerHTML = html;
+  // Re-point aria-activedescendant INSIDE the function that writes the rows.
+  // _palRender rebuilds innerHTML on every keystroke and every arrow press, so
+  // anything set once at open time would dangle at the first re-render. Focus
+  // stays on the input (that is the combobox contract) and the highlighted row
+  // is conveyed by this attribute rather than by moving DOM focus.
+  {
+    const inp = document.getElementById('cmd-palette-input');
+    const act = document.getElementById('cmd-palette-opt-' + _palCursor);
+    if (inp) {
+      if (act) inp.setAttribute('aria-activedescendant', act.id);
+      else inp.removeAttribute('aria-activedescendant');
+      inp.setAttribute('aria-expanded', filtered.length ? 'true' : 'false');
+    }
+    if (act) act.scrollIntoView({ block: 'nearest' });
+  }
   document.querySelectorAll('.cmd-palette-row').forEach(el => {
     el.addEventListener('click', () => {
       const idx = parseInt(el.dataset.idx, 10);
@@ -27563,6 +27676,10 @@ function _palKeydown(e) {
   if (e.key === 'ArrowDown') { e.preventDefault(); _palCursor = Math.min(f.length - 1, _palCursor + 1); _palRender(); return; }
   if (e.key === 'ArrowUp')   { e.preventDefault(); _palCursor = Math.max(0, _palCursor - 1); _palRender(); return; }
   if (e.key === 'Enter')     { e.preventDefault(); _palActivate(_palCursor); return; }
+  // v6.4.2: keep Tab inside the dialog. The palette has exactly one focusable
+  // control, so swallowing Tab IS the whole trap — without it, Tab walks into
+  // the page behind an overlay that claims aria-modal="true".
+  if (e.key === 'Tab')       { e.preventDefault(); return; }
 }
 function _palActivate(idx) {
   const f = window._palFiltered || [];

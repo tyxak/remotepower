@@ -165,12 +165,19 @@ keyboard user can tab straight out of them into the page behind. (The
 log-sweep dialog, built the same way, routes through `openModal()` and does not
 have this problem.)
 
-### 4. The command palette is not exposed as a dialog
+### 4. ~~The command palette is not exposed as a dialog~~ — fixed in v6.4.2
 
-The command palette (`Ctrl/Cmd-K`) is built at open time as a plain overlay
-`<div>`. It has no `role="dialog"`, no `aria-modal`, no focus trap and no focus
-restore on close, and its search input relies on its **placeholder** for an
-accessible name rather than a label. Arrow-key navigation and Escape work.
+The palette is now a `role="dialog"` with `aria-modal="true"` and an accessible
+name. Its input is a `role="combobox"` with its own `aria-label` (rather than
+relying on the placeholder), `aria-controls` pointing at the results, and
+`aria-activedescendant` tracking the highlighted row — which is what makes
+arrow-key navigation audible, since focus deliberately stays in the input. The
+results list is a `role="listbox"` of `role="option"` rows. Tab is trapped, and
+closing restores focus to wherever it was opened from.
+
+`aria-activedescendant` is re-pointed inside the render function itself, because
+the list is rebuilt on every keystroke — set once at open time it would dangle
+at the first re-render.
 
 ### 5. `data-action` is click-only
 
@@ -238,7 +245,7 @@ do not read this as either a pass or a fail.
 | 2.3.1 Three Flashes | A | Supports | Nothing flashes more than three times per second. |
 | 2.4.1 Bypass Blocks | A | Supports | Skip link to main content, visible on focus. |
 | 2.4.2 Page Titled | A | Supports | Single-page app with a document title; each page carries a `.page-title` heading. |
-| 2.4.3 Focus Order | A | Partially supports | Correct for the modal manager and the drawer; the four dialogs in limitation 3 and the command palette in limitation 4 do not manage focus order. |
+| 2.4.3 Focus Order | A | Partially supports | Correct for the modal manager, the drawer and (since v6.4.2) the command palette, which traps Tab and restores focus on close; the four dialogs in limitation 3 do not manage focus order. |
 | 2.4.4 Link Purpose (In Context) | A | Supports | Links and buttons are named in context; documentation pointers name their topic. |
 | 2.4.5 Multiple Ways | AA | Supports | Sidebar navigation, the command palette (`Ctrl/Cmd-K`), the sidebar search index, and deep links (`#page`, `#device/<id>`). |
 | 2.4.6 Headings and Labels | AA | Supports | One heading idiom (`.section-title`) per card; every control named. |
@@ -259,7 +266,7 @@ do not read this as either a pass or a fail.
 | 3.2.3 Consistent Navigation | AA | Supports | One sidebar, one topbar, same order on every page. |
 | 3.2.4 Consistent Identification | AA | Supports | Actions with the same function use the same icon and label everywhere. |
 | **3.3.1 Error Identification** | **A** | **Does not support** | Validation errors are auto-dismissing toasts with no `aria-invalid`, no `aria-describedby`, and no association to the offending field (limitation 1). |
-| 3.3.2 Labels or Instructions | A | Partially supports | Every control in the static interface has an accessible name and most have hint text; the command palette input is placeholder-only. |
+| 3.3.2 Labels or Instructions | A | Supports | Every control in the static interface has an accessible name and most have hint text; the command palette input gained an `aria-label` in v6.4.2 rather than relying on its placeholder. |
 | 3.3.3 Error Suggestion | AA | Partially supports | Message text usually says what to fix ("Pick at least one device"); it is not programmatically attached to the field. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Supports | Destructive fan-out operations require explicit — sometimes typed — confirmation; low-risk deletes are deferred with Undo; configuration history allows rollback. |
 
@@ -267,7 +274,7 @@ do not read this as either a pass or a fail.
 
 | Criterion | Level | Assessment | Notes |
 |---|---|---|---|
-| 4.1.2 Name, Role, Value | A | Partially supports | Names and roles are ratchet-enforced and `aria-sort`/`aria-current` carry state; the four dialogs in limitation 3 and the command palette do not fully expose dialog semantics. |
+| 4.1.2 Name, Role, Value | A | Partially supports | Names and roles are ratchet-enforced and `aria-sort`/`aria-current` carry state. v6.4.2 made the state attributes live rather than static: the sidebar accordion's `aria-expanded` and all 28 tabs' `aria-selected` are now written by the same function that sets the visual class, and the command palette exposes full combobox/listbox semantics. The four dialogs in limitation 3 still do not expose dialog semantics. |
 | 4.1.3 Status Messages | AA | Partially supports | Toasts and ~17 per-action result regions announce through `role="status" aria-live="polite"`; table loading and empty states do not. |
 
 *(SC 4.1.1 Parsing was removed in WCAG 2.2 and is obsolete; it is not assessed.)*

@@ -149,6 +149,40 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Accessibility state that was decorative
+
+- **The sidebar and every tab widget were announcing the wrong state.** An
+  earlier pass this cycle added `aria-expanded` to all twelve sidebar groups and
+  a full tab-widget skeleton to all twenty-eight tabs — in the markup only.
+  Nothing updated either at runtime, so every domain group announced itself as
+  collapsed permanently *including the one open on screen*, and each tab strip
+  announced whichever tab happened to be first as selected forever. A state
+  attribute that never changes is worse than none: before, these were unlabelled
+  buttons; after, they claimed to be an accordion and a tab list and then lied
+  about which part was showing. One function now owns the class and the
+  attribute together, so they cannot drift apart again.
+- **Tab strips are one tab stop, not sixteen.** Each tablist now has a roving
+  tabindex with arrow-key, Home and End navigation. Activation stays manual —
+  arrowing moves focus, Enter or Space opens the panel — because these tabs
+  trigger per-tab network loads, and automatic activation would fire a handful
+  of requests just arrowing across the Settings strip.
+- **The command palette is a real dialog.** It announced nothing at all when
+  opened, and its arrow keys moved only a CSS class, so a screen-reader user had
+  no way to know what Enter would do. It is now a labelled `dialog` whose input
+  is a combobox with `aria-activedescendant` tracking the highlighted row,
+  results are a listbox of options, Tab is trapped, and closing returns focus to
+  wherever you opened it from.
+- **A blank sign-in did nothing at all.** Submitting the login form with an
+  empty field cleared any previous message and returned — the error was detected
+  and shown to nobody, sighted or not, on the product's front door. It now names
+  the missing field and focuses it. The credential and SSO error messages were
+  also plain `div`s with no role, so a failed sign-in was silent to a screen
+  reader; both are announced now. Two other auth validations said "Both fields
+  required" without naming either field.
+- Also removed a stray `None` token that a scripted markup edit had written into
+  index.html as a bogus attribute, and translated the five tab-widget and two
+  palette accessible names, which had shipped English-only in all six languages.
+
 ### Assets that could not be updated
 
 - **Four served pages were pinned to stale assets for up to a year.** `/static/`

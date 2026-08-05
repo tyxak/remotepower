@@ -26,6 +26,13 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    'Settings sections': { fr: 'Sections des paramètres', de: 'Einstellungsbereiche', zh: '设置分区', hi: 'सेटिंग्स अनुभाग', es: 'Secciones de ajustes', ar: 'أقسام الإعدادات' },
+    'Device details': { fr: 'Détails de l’appareil', de: 'Gerätedetails', zh: '设备详情', hi: 'डिवाइस विवरण', es: 'Detalles del dispositivo', ar: 'تفاصيل الجهاز' },
+    'Asset detail': { fr: 'Détail de l’actif', de: 'Asset-Detail', zh: '资产详情', hi: 'एसेट विवरण', es: 'Detalle del activo', ar: 'تفاصيل الأصل' },
+    'Certificate detail': { fr: 'Détail du certificat', de: 'Zertifikatsdetail', zh: '证书详情', hi: 'प्रमाणपत्र विवरण', es: 'Detalle del certificado', ar: 'تفاصيل الشهادة' },
+    'Investigation steps': { fr: 'Étapes d’investigation', de: 'Untersuchungsschritte', zh: '调查步骤', hi: 'जाँच के चरण', es: 'Pasos de investigación', ar: 'خطوات التحقيق' },
+    'Command palette': { fr: 'Palette de commandes', de: 'Befehlspalette', zh: '命令面板', hi: 'कमांड पैलेट', es: 'Paleta de comandos', ar: 'لوحة الأوامر' },
+    'Search devices, pages and actions': { fr: 'Rechercher appareils, pages et actions', de: 'Geräte, Seiten und Aktionen durchsuchen', zh: '搜索设备、页面和操作', hi: 'डिवाइस, पेज और क्रियाएँ खोजें', es: 'Buscar dispositivos, páginas y acciones', ar: 'ابحث في الأجهزة والصفحات والإجراءات' },
     'Export NDJSON': { fr: 'Exporter en NDJSON', de: 'NDJSON exportieren', zh: '导出 NDJSON', hi: 'NDJSON निर्यात करें', es: 'Exportar NDJSON', ar: 'تصدير NDJSON' },
     'Edit attributes': { fr: 'Modifier les attributs', de: 'Attribute bearbeiten', zh: '编辑属性', hi: 'विशेषताएँ संपादित करें', es: 'Editar atributos', ar: 'تحرير السمات' },
     'Add tags': { fr: 'Ajouter des étiquettes', de: 'Tags hinzufügen', zh: '添加标签', hi: 'टैग जोड़ें', es: 'Añadir etiquetas', ar: 'إضافة وسوم' },
