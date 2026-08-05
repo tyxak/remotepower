@@ -8687,7 +8687,6 @@ const _METRIC_SERIES = [
   { key: 'swap', label: 'Swap',   color: 'var(--purple)' },
   { key: 'disk', label: 'Disk',   color: 'var(--amber)' },
 ];
-const _MC = { W: 560, H: 150, padL: 28, padR: 10, padT: 14, padB: 24 };
 
 
 // Span-aware axis/label format: clock for short windows, date (+clock) for long.
@@ -8703,91 +8702,70 @@ function _metricPts(samples, key) {
   return samples.map(m => ({ ts: m.ts, v: m[key] }))
                 .filter(p => p.v !== null && p.v !== undefined && !isNaN(p.v));
 }
-function _mcX(ts, t0, span) { return _MC.padL + ((ts - t0) / span) * (_MC.W - _MC.padL - _MC.padR); }
-function _mcY(v) {
-  const ph = _MC.H - _MC.padT - _MC.padB;
-  return _MC.padT + (1 - Math.max(0, Math.min(100, v)) / 100) * ph;
-}
-function _mcLine(pts, t0, span) {
-  return pts.map((p, i) => `${i ? 'L' : 'M'}${_mcX(p.ts, t0, span).toFixed(1)},${_mcY(p.v).toFixed(1)}`).join(' ');
-}
-// Shared gridlines + y labels (0/50/100) + timestamped x-axis (start/mid/end).
-function _mcGrid(t0, t1) {
-  let g = '';
-  for (const pct of [0, 25, 50, 75, 100]) {
-    const yy = _mcY(pct).toFixed(1);
-    g += `<line x1="${_MC.padL}" y1="${yy}" x2="${_MC.W - _MC.padR}" y2="${yy}" stroke="var(--border)" stroke-width="1" stroke-opacity="0.5"/>`;
-    if (pct % 50 === 0) g += `<text x="${_MC.padL - 4}" y="${(+yy + 3).toFixed(1)}" fill="var(--muted)" font-size="10" text-anchor="end">${pct}</text>`;
-  }
-  const mid = Math.round((t0 + t1) / 2), span = t1 - t0;
-  for (const [ts, xx, anchor] of [[t0, _MC.padL, 'start'], [mid, _MC.W / 2, 'middle'], [t1, _MC.W - _MC.padR, 'end']]) {
-    g += `<text x="${xx.toFixed(1)}" y="${_MC.H - 7}" fill="var(--muted)" font-size="10" text-anchor="${anchor}">${_fmtTs(ts, span)}</text>`;
-  }
-  return g;
-}
 // v6.1.2: chart annotations. A metric chart is nearly always being asked "why
 // did it change THERE?" — and the answer is usually something we already recorded
 // (a reboot, a command run, config drift). Drawing those on the time axis turns a
 // shape into a cause. Deliberately sparse: a tick per alert would bury the line,
 // which is how annotated charts become unreadable.
 let _metricAnnotations = [];
-const _MC_ANNO_COLOR = {
-  reboot:  'var(--c-blue, #3b7eff)',
-  command: 'var(--muted)',
-  drift:   'var(--c-amber, #d29922)',
-  oom:     'var(--c-red, #f85149)',
-};
-function _mcAnnotations(t0, span) {
-  if (!_metricAnnotations.length) return '';
-  return _metricAnnotations
-    .filter(a => a.ts >= t0 && a.ts <= t0 + span)
-    .map(a => {
-      const x = _mcX(a.ts, t0, span).toFixed(1);
-      const col = _MC_ANNO_COLOR[a.kind] || 'var(--muted)';
-      // <title> gives a native tooltip with no JS and no CSP surface. The label
-      // is a fixed server-side string, never operator input.
-      return `<g><line x1="${x}" y1="${_MC.padT}" x2="${x}" y2="${_MC.H - _MC.padB}" ` +
-             `stroke="${col}" stroke-width="1" stroke-dasharray="3 2" opacity="0.75"/>` +
-             `<circle cx="${x}" cy="${_MC.padT}" r="2.5" fill="${col}"/>` +
-             `<title>${escHtml(a.label)} — ${escHtml(_fmtAbsTs(a.ts))}</title></g>`;
-    }).join('');
-}
 
-function _metricSeriesChart(samples, key, label, color) {
+// v6.4.2: the device Metrics modal is the chart an operator opens DURING an
+// incident, and it was the one chart in the product with no interaction at all
+// — a static role="img" SVG whose only numbers were a header line reading
+// `now 91.4% · min 3 · avg 22 · max 97`. To answer "what was CPU at 02:40, when
+// the alert fired?" they could hover the Trends chart and read the value, but
+// on the per-host chart they could only eyeball a pixel against a gridline. And
+// the 30d/90d ranges compress days into a few pixels with no way to zoom in.
+//
+// `renderTimeSeries` — crosshair readout, drag-to-zoom, double-click reset,
+// exact from/to range bar — had five call sites: three Trends charts and
+// thermal. Two charts in the same product, one page apart, behaving completely
+// differently. These now delegate to it.
+//
+// The chart body is rendered AFTER the container is in the DOM (renderTimeSeries
+// takes an element id and attaches pointer handlers), so these emit a
+// placeholder and _paintMetricCharts fills them in.
+function _metricChartShell(id, label, samples, key) {
   const pts = _metricPts(samples, key);
   if (!pts.length) return `<div class="isl-355"><div class="isl-356">${label}</div><span class="hint">no data</span></div>`;
-  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts, span = Math.max(1, t1 - t0);
-  const line = _mcLine(pts, t0, span);
-  const baseY = (_MC.H - _MC.padB).toFixed(1);
-  const last = pts[pts.length - 1];
-  const area = `${line} L${_mcX(last.ts, t0, span).toFixed(1)},${baseY} L${_mcX(pts[0].ts, t0, span).toFixed(1)},${baseY} Z`;
   const vals = pts.map(p => p.v);
   const cur = vals[vals.length - 1], mn = Math.min(...vals), mx = Math.max(...vals);
   const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
   return `<div class="isl-355">
-    <div class="metric-chart-head"><span class="isl-356">${label}</span>
+    <div class="metric-chart-head"><span class="isl-356">${escHtml(label)}</span>
       <span class="metric-stats">now <b>${cur.toFixed(1)}%</b> · min ${mn.toFixed(0)} · avg ${avg.toFixed(0)} · max ${mx.toFixed(0)}</span></div>
-    <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${label} over time">
-      ${_mcGrid(t0, t1)}
-      ${_mcAnnotations(t0, span)}
-      <path d="${area}" fill="${color}" fill-opacity="0.13" stroke="none"/>
-      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${_mcX(last.ts, t0, span).toFixed(1)}" cy="${_mcY(cur).toFixed(1)}" r="3" fill="${color}"/>
-    </svg></div>`;
+    <div id="${escAttr(id)}"></div></div>`;
 }
-function _metricsOverlayChart(samples) {
+
+function _metricsOverlayShell(samples) {
   const present = _METRIC_SERIES.filter(s => _metricPts(samples, s.key).length);
   if (present.length < 2) return '';
-  const allTs = samples.map(m => m.ts);
-  const t0 = Math.min(...allTs), t1 = Math.max(...allTs), span = Math.max(1, t1 - t0);
-  let paths = '', legend = '';
-  present.forEach((s, i) => {
-    paths += `<path d="${_mcLine(_metricPts(samples, s.key), t0, span)}" fill="none" stroke="${s.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
-    legend += `<g transform="translate(${_MC.padL + i * 78},2)"><rect width="11" height="3" y="3" fill="${s.color}"/><text x="15" y="7" fill="var(--muted)" font-size="10">${s.label}</text></g>`;
-  });
   return `<div class="isl-355"><div class="isl-356">All metrics</div>
-    <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="All metrics over time">
-      ${_mcGrid(t0, t1)}${_mcAnnotations(t0, span)}${legend}${paths}</svg></div>`;
+    <div id="mc-overlay"></div></div>`;
+}
+
+function _tsPoints(samples, key) {
+  return _metricPts(samples, key).map(p => ({ x: p.ts, y: p.v }));
+}
+
+function _paintMetricCharts(samples) {
+  const opts = {
+    zoom: true, crosshair: true, yUnit: '%', yMin: 0, yMax: 100,
+    annotations: _metricAnnotations,
+  };
+  const present = _METRIC_SERIES.filter(s => _metricPts(samples, s.key).length);
+  if (present.length >= 2 && document.getElementById('mc-overlay')) {
+    renderTimeSeries('mc-overlay', present.map(s => ({
+      name: s.label, color: s.color, points: _tsPoints(samples, s.key),
+    })), { ...opts, label: 'All metrics over time' });
+  }
+  for (const s of _METRIC_SERIES) {
+    const id = 'mc-' + s.key;
+    if (!document.getElementById(id)) continue;
+    renderTimeSeries(id, [{ name: s.label, color: s.color,
+                            points: _tsPoints(samples, s.key) }],
+                     { ...opts, label: s.label + ' over time' });
+  }
 }
 const _METRIC_RANGES = [
   { label: '24h', secs: 86400 },
@@ -8832,10 +8810,14 @@ async function _loadMetrics() {
     <div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${_fmtTs(metrics[0].ts, range)}</div></div>
     <div class="sysinfo-pill"><div class="label">To</div><div class="value fs-11">${_fmtTs(metrics[metrics.length - 1].ts, range)}</div></div>
   </div>`;
-  const charts = _METRIC_SERIES.map(s => _metricSeriesChart(metrics, s.key, s.label, s.color)).join('');
+  const charts = _METRIC_SERIES.map(s =>
+    _metricChartShell('mc-' + s.key, s.label, metrics, s.key)).join('');
   body.innerHTML = picker + note + span +
-    `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
-    `<p class="isl-357">Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
+    `<div class="isl-354">${_metricsOverlayShell(metrics)}${charts}</div>` +
+    `<p class="isl-357">Hover for the value at a point in time; drag across the chart to zoom, double-click to reset. Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
+  // After innerHTML — renderTimeSeries looks the container up by id and wires
+  // pointer handlers onto it, so it has to already be in the document.
+  _paintMetricCharts(metrics);
 }
 function pickRestoreFile() { document.getElementById('restore-file-input')?.click(); }
 async function restoreBackup() {
@@ -12103,6 +12085,13 @@ function _tsZoomBar(fromTs, toTs, zoomed, note, apply, reset) {
 // fires on every window change — (null, null) on reset — so a consumer can
 // refetch a finer tier for the window instead of just rescaling what it holds.
 // Charts that do NOT pass opts.zoom render and behave exactly as before.
+const _TS_ANNO_COLOR = {
+  reboot:  'var(--c-blue, #3b7eff)',
+  command: 'var(--muted)',
+  drift:   'var(--c-amber, #d29922)',
+  oom:     'var(--c-red, #f85149)',
+};
+
 function renderTimeSeries(elId, series, opts) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -12175,11 +12164,30 @@ function renderTimeSeries(elId, series, opts) {
     : _fmtAbsDate(ts, { month: 'short', day: 'numeric' });
   svg += `<text x="${padL}" y="${H - 8}" font-size="10" fill="var(--muted)">${fmtD(minX)}</text>`;
   svg += `<text x="${W - padR}" y="${H - 8}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtD(maxX)}</text>`;
+  // v6.4.2: event annotations (reboot / command / drift / OOM). A metric chart
+  // is nearly always being asked "why did it change THERE?", and the answer is
+  // usually something already recorded. Drawn here so the device-metrics charts
+  // keep the markers they had when they moved onto this component — and so
+  // every other consumer can have them too.
+  for (const a of (opts.annotations || [])) {
+    if (!a || typeof a.ts !== 'number' || a.ts < minX || a.ts > maxX) continue;
+    const ax = sx(a.ts).toFixed(1);
+    const col = _TS_ANNO_COLOR[a.kind] || 'var(--muted)';
+    svg += `<g><line x1="${ax}" y1="${padT}" x2="${ax}" y2="${padT + plotH}" `
+         + `stroke="${col}" stroke-width="1" stroke-dasharray="3 2" opacity="0.75"/>`
+         + `<circle cx="${ax}" cy="${padT}" r="2.5" fill="${col}"/>`
+         // <title> is a native tooltip with no JS and no CSP surface. The label
+         // is a fixed server-side string, never operator input.
+         + `<title>${escHtml(a.label || '')} — ${escHtml(_fmtAbsTs(a.ts))}</title></g>`;
+  }
   if (win) svg += `<g clip-path="url(#${escAttr(clipId)})">`;
   series.forEach((s, i) => {
     const pts = (s.points || []).slice().sort((a, b) => a.x - b.x);
     if (!pts.length) return;
-    const color = _CHART_COLORS[i % _CHART_COLORS.length];
+    // v6.4.2: a series may carry its own colour. The device-metrics charts
+    // have always drawn CPU/mem/disk/swap in a fixed palette, and moving them
+    // onto this component must not silently recolour them.
+    const color = s.color || _CHART_COLORS[i % _CHART_COLORS.length];
     const d = pts.map((p, j) => `${j ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
     svg += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
     pts.forEach(p => { svg += `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2" fill="${color}"/>`; });
@@ -12190,7 +12198,7 @@ function renderTimeSeries(elId, series, opts) {
   let legend = '';
   if (series.length > 1) {
     legend = '<div class="ts-legend">' + series.map((s, i) =>
-      `<span class="ts-leg"><span class="ts-dot" data-bg="${_CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name)}</span>`).join('') + '</div>';
+      `<span class="ts-leg"><span class="ts-dot" data-bg="${s.color || _CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name)}</span>`).join('') + '</div>';
   }
   el.innerHTML = svg + legend;
   // v6.3.0 (wave 10 deferral, done): hover crosshair + value tooltip on the
@@ -12241,7 +12249,7 @@ function renderTimeSeries(elId, series, opts) {
         let nearest = pts[0];
         pts.forEach(p => { if (Math.abs(p.x - anchor.x) < Math.abs(nearest.x - anchor.x)) nearest = p; });
         const val = Math.round(nearest.y * 10) / 10;
-        return `<div><span class="ts-tip-dot" data-bg="${_CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name || 'value')}: <strong>${val}${escHtml(opts.yUnit || '')}</strong></div>`;
+        return `<div><span class="ts-tip-dot" data-bg="${s.color || _CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name || 'value')}: <strong>${val}${escHtml(opts.yUnit || '')}</strong></div>`;
       }).join('');
       tip.innerHTML = `<div class="ts-tip-t">${escHtml(fmtFull(anchor.x))}</div>` + rows;
       tip.classList.remove('d-none');

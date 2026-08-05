@@ -28,7 +28,37 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 
-class TestRegistryWiring(unittest.TestCase):
+class _AlertStoreBase(unittest.TestCase):
+    """v6.4.2: every store `_record_alert` consults, pointed at a per-test temp
+    dir.
+
+    These classes only reset ALERTS_FILE. But `_record_alert` early-returns
+    when the alerts MODULE is off, when the routing matrix disallows the kind,
+    when the device is unmonitored, or when the (host, event) is muted — all of
+    which live in OTHER stores under the shared RP_DATA_DIR that
+    `os.environ.setdefault` hands to every test module in the same worker
+    process. So a neighbour writing a config or a mute made these count 0
+    alerts instead of 1, under one particular cross-module order only. That is
+    the documented class-4 shape: reset what the test READS, not just what it
+    writes.
+    """
+
+    def setUp(self):
+        self._d = Path(tempfile.mkdtemp())
+        self._saved = {}
+        for attr in ('ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
+                     'ALERT_MUTES_FILE'):
+            self._saved[attr] = getattr(api, attr)
+            setattr(api, attr, self._d / Path(getattr(api, attr)).name)
+            api._invalidate_load_cache(getattr(api, attr))
+        api.save(api.ALERTS_FILE, {'alerts': []})
+
+    def tearDown(self):
+        for attr, v in self._saved.items():
+            setattr(api, attr, v)
+
+
+class TestRegistryWiring(_AlertStoreBase):
     def test_event_registered_and_derived(self):
         reg = api.EVENT_REGISTRY['failed_unit_cleared']
         self.assertEqual(reg.get('kind'), 'failed_units')
@@ -58,9 +88,7 @@ class TestRegistryWiring(unittest.TestCase):
         self.assertIn('failed_unit_cleared', api.SUPPRESSIBLE_EVENTS)
 
 
-class TestAutoResolveRealPath(unittest.TestCase):
-    def setUp(self):
-        api.save(api.ALERTS_FILE, {'alerts': []})
+class TestAutoResolveRealPath(_AlertStoreBase):
 
     def _open(self):
         return [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
@@ -181,13 +209,11 @@ class TestHeartbeatEdgeTrigger(unittest.TestCase):
             [ev for ev, _ in self.fired if ev == 'failed_unit_cleared'], [])
 
 
-class TestTimerFailedCleared(unittest.TestCase):
+class TestTimerFailedCleared(_AlertStoreBase):
     """v6.3.0: timer_failed (scheduled-job failure) now auto-resolves via
     timer_failed_cleared — a per-unit recover event (one alert per timer, so a
     plain 'unit' sub_match, unlike failed_unit's batch)."""
 
-    def setUp(self):
-        api.save(api.ALERTS_FILE, {'alerts': []})
 
     def _open(self):
         return [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])

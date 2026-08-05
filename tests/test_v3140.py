@@ -5457,28 +5457,38 @@ class TestSSOProvisioning(_HandlerBase):
 
 
 class TestMetricChartsWiring(unittest.TestCase):
-    """v3.14.0 — richer per-device metric charts (time axis + overlay)."""
+    """v3.14.0 — richer per-device metric charts (time axis + overlay).
+
+    v6.4.2: these pinned the BESPOKE implementation (`_metricSeriesChart`,
+    `_metricsOverlayChart`, `_mcGrid`) by name. That implementation was the
+    finding: it was a static role="img" SVG with no crosshair and no zoom,
+    while the shared `renderTimeSeries` component one page away had both. A
+    test that pins the limitation keeps passing after the limitation lifts and
+    reads as intent — so these are rewritten as their positive inverse: the
+    same CAPABILITIES, asserted against whatever renders them.
+    """
 
     JS = client_js()
     CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
 
-    def test_chart_helpers_present(self):
-        for fn in ('_metricSeriesChart', '_metricsOverlayChart', '_mcGrid', '_fmtTs'):
+    def test_the_metric_charts_are_rendered(self):
+        for fn in ('_paintMetricCharts', '_metricChartShell',
+                   '_metricsOverlayShell', '_fmtTs'):
             self.assertIn(fn, self.JS, f'{fn} missing')
 
     def test_timestamped_axis(self):
-        # the grid builder must place clock labels on the x-axis
-        self.assertIn('_fmtTs(ts, span)', self.JS)
-        self.assertIn('text-anchor="middle"', self.JS)
+        # The chart must label its x-axis with real timestamps, not indices.
+        self.assertIn('_fmtAbsTs(', self.JS)
+        self.assertIn('_fmtTs(', self.JS)
 
     def test_overlay_and_stats(self):
         self.assertIn('All metrics', self.JS)        # combined overlay chart
         self.assertIn('metric-stats', self.JS)       # min/avg/max line
-        self.assertIn('.metric-svg', self.CSS)
 
     def test_csp_safe_no_inline_style_in_charts(self):
-        # charts must color via SVG fill/stroke attrs, never a style="" attribute
-        seg = self.JS[self.JS.index('_metricSeriesChart'):self.JS.index('function openMetrics')]
+        # charts must colour via SVG fill/stroke attrs, never a style="" attribute
+        seg = self.JS[self.JS.index('function _metricChartShell'):
+                      self.JS.index('function openMetrics')]
         self.assertNotIn('style=', seg)
 
 
