@@ -62,3 +62,30 @@ class TestEncryptionFactorExists(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNicErrorsReliability(unittest.TestCase):
+    """A NIC accumulating errors/drops fires the nic_errors alert (safe_si calls
+    it 'a dying cable/port/SFP') but carried zero weight in the reliability
+    'likely to fail' score."""
+
+    def _rel(self, sysinfo):
+        dev = {"name": "h", "monitored": True, "last_seen": time.time(),
+               "sysinfo": sysinfo}
+        r = api._device_reliability("d", dev, {}, {}, {}, {}, {}, {},
+                                    int(time.time()))
+        return r.get("score") if isinstance(r, dict) else r
+
+    def test_a_bad_nic_scores_higher_than_a_clean_one(self):
+        clean = self._rel({"network_io": [{"iface": "eth0", "err_delta": 0}]})
+        bad = self._rel({"network_io": [{"iface": "eth0", "err_delta": 50}]})
+        self.assertGreater(bad, clean)
+
+    def test_below_the_floor_does_not_score(self):
+        """Matches the nic_errors alert: a stray error under the floor is noise."""
+        self.assertEqual(
+            self._rel({"network_io": [{"iface": "eth0", "err_delta": 1}]}), 0)
+
+    def test_nic_errors_is_a_tunable_reliability_weight(self):
+        self.assertIn("nic_errors", api._RELIABILITY_WEIGHTS)
+        self.assertIn("nic_errors", api._reliability_weights())

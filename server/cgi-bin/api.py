@@ -47705,6 +47705,10 @@ _RELIABILITY_WEIGHTS = {
     'health_declining':   10,   # the host's own health score trending down
     'overheating':        12,
     'oom_recent':          8,
+    # v6.4.2 (audit): a NIC accumulating rx/tx errors+drops is failing hardware
+    # (safe_si's own comment calls it "a dying cable/port/SFP"). It fires the
+    # nic_errors alert but was weightless in the "how likely to fail" score.
+    'nic_errors':         10,
 }
 _RELIABILITY_CAPS = {
     'reboot_churn': 24, 'ecc_correctable': 24, 'oom_recent': 8,
@@ -47909,6 +47913,16 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             and (now - si['last_oom_ts']) < _oom_recent_window():
         _add('oom_recent', w['oom_recent'],
              'the OOM killer fired in the last 24h')
+
+    # v6.4.2: a NIC accumulating errors/drops — the same per-interface err_delta
+    # the nic_errors alert fires on, at the same operator-tunable floor.
+    _nic_floor = _rel_int('nic_err_alert_min', _NIC_ERR_ALERT_MIN)
+    _bad_nics = [n.get('iface') for n in (si.get('network_io') or [])
+                 if isinstance(n, dict) and isinstance(n.get('err_delta'), int)
+                 and n['err_delta'] >= _nic_floor]
+    if _bad_nics:
+        _add('nic_errors', w['nic_errors'],
+             'errors/drops rising on ' + ', '.join(str(i) for i in _bad_nics[:5] if i))
 
     # DELIBERATELY NOT SCORED: unit flapping.
     #
