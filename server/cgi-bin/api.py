@@ -11138,6 +11138,16 @@ def _auto_resolve_alerts(event, payload):
         # v6.2.2: nic_errors is edge-triggered per interface, so a recovery on
         # eth0 must not clear a still-erroring eth1 on the same host. Match iface.
         sub_match['iface'] = p.get('iface')
+    elif event in ('snmp_if_up', 'snmp_if_relieved'):
+        # v6.4.2: the same rule, and it was missed when per-port SNMP history
+        # shipped. snmp_if_down and snmp_if_saturated are edge-triggered PER
+        # PORT, so on a 48-port switch a device-id-only recovery meant the
+        # first port to come back up closed every other port's open alert —
+        # and the still-down ports never re-fire, because their edge already
+        # triggered. `iface` is in _ALERT_IDENTITY_FIELDS and in
+        # _record_alert's whitelist, so it is stored and discriminates; this
+        # branch is the third leg that makes it actually work.
+        sub_match['iface'] = p.get('iface')
     elif event == 'snapshot_ok':
         # v6.1.2: same per-pool rule — snapshot_stale is edge-triggered per pool,
         # so a device-id-only recovery would clear a pool whose snapshots are

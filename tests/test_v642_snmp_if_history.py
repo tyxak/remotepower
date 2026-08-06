@@ -468,3 +468,80 @@ class TestWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOnePortRecoveringDoesNotClearTheOthers(unittest.TestCase):
+    """v6.4.2 (adversarial audit of the session diff): `snmp_if_up` and
+    `snmp_if_relieved` shipped with no per-iface `sub_match` branch.
+
+    `iface` was already in `_ALERT_IDENTITY_FIELDS` and in `_record_alert`'s
+    payload whitelist — two of the three legs — so the alerts stayed as
+    separate rows. But `_auto_resolve_alerts` matched on device id alone, so on
+    a 48-port switch the FIRST port to come back up closed every other port's
+    open alert. And the still-down ports never re-fire, because their edge
+    already triggered: the operator is left with a switch that looks healthy
+    and 47 dead ports.
+
+    Driven through the real `_record_alert` → `_auto_resolve_alerts` path — a
+    hand-built {'payload': …} dict bypasses the identity coalescing and gives a
+    false green, which is the documented lesson from v4.9.0.
+    """
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._files = {}
+        for attr in ("ALERTS_FILE", "CONFIG_FILE", "DEVICES_FILE",
+                     "ALERT_MUTES_FILE"):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+            api._invalidate_load_cache(getattr(api, attr))
+        api.save(api.ALERTS_FILE, {"alerts": []})
+
+    def tearDown(self):
+        for a, v in self._files.items():
+            setattr(api, a, v)
+
+    def _open(self):
+        api._invalidate_load_cache(api.ALERTS_FILE)
+        return [a for a in (api.load(api.ALERTS_FILE) or {}).get("alerts", [])
+                if not a.get("resolved_at")]
+
+    def test_two_down_ports_are_two_rows(self):
+        for iface in ("gi1/0/1", "gi1/0/2"):
+            api._record_alert("snmp_if_down",
+                              {"device_id": "sw1", "name": "core", "iface": iface})
+        self.assertEqual(len(self._open()), 2)
+
+    def test_one_coming_up_clears_only_its_own(self):
+        for iface in ("gi1/0/1", "gi1/0/2"):
+            api._record_alert("snmp_if_down",
+                              {"device_id": "sw1", "name": "core", "iface": iface})
+        api._auto_resolve_alerts("snmp_if_up",
+                                 {"device_id": "sw1", "iface": "gi1/0/1"})
+        left = self._open()
+        self.assertEqual(len(left), 1)
+        self.assertEqual(left[0]["payload"]["iface"], "gi1/0/2")
+
+    def test_the_same_holds_for_saturation(self):
+        for iface in ("gi1/0/1", "gi1/0/2"):
+            api._record_alert("snmp_if_saturated",
+                              {"device_id": "sw1", "name": "core", "iface": iface,
+                               "util": 96})
+        api._auto_resolve_alerts("snmp_if_relieved",
+                                 {"device_id": "sw1", "iface": "gi1/0/1"})
+        self.assertEqual([a["payload"]["iface"] for a in self._open()],
+                         ["gi1/0/2"])
+
+    def test_a_recovery_on_another_switch_touches_nothing(self):
+        api._record_alert("snmp_if_down",
+                          {"device_id": "sw1", "name": "a", "iface": "gi1/0/1"})
+        api._auto_resolve_alerts("snmp_if_up",
+                                 {"device_id": "sw2", "iface": "gi1/0/1"})
+        self.assertEqual(len(self._open()), 1)
+
+    def test_iface_is_stored_on_the_alert(self):
+        """The identity field has to be on the ROW, or the sub_match has
+        nothing to match against — the third leg of the documented trio."""
+        api._record_alert("snmp_if_down",
+                          {"device_id": "sw1", "name": "core", "iface": "gi1/0/9"})
+        self.assertEqual(self._open()[0]["payload"].get("iface"), "gi1/0/9")

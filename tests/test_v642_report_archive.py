@@ -366,3 +366,68 @@ class TestTheUi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScopedCallersCannotReadTheArchive(_Base):
+    """v6.4.2 (adversarial audit of the session diff): the archive was gated on
+    admin-or-auditor alone.
+
+    A TENANT admin's role is `admin`, so `_caller_scope()` returns None and
+    every gate shaped "if scope is not None" waves them through — the documented
+    trap in this codebase. They could therefore download another tenant's
+    whole-fleet posture report: device counts, health score, CVE totals, site
+    names. A role-scoped admin could read the same for hosts outside their
+    scope.
+
+    Filtering after the fact is impossible: a stored report is an AGGREGATE,
+    not rows carrying device ids. So it refuses, exactly as handle_ai_rag_search
+    refuses the RAG corpus for the same reason.
+    """
+
+    def _scoped(self, scope=None, tenant=None):
+        api._caller_scope = lambda: scope
+        api._tenant_gate = lambda: tenant
+
+    def setUp(self):
+        super().setUp()
+        self._cs, self._tg = api._caller_scope, api._tenant_gate
+        self.addCleanup(lambda: setattr(api, "_caller_scope", self._cs))
+        self.addCleanup(lambda: setattr(api, "_tenant_gate", self._tg))
+        self._scoped()
+
+    def test_a_full_access_admin_still_reads_it(self):
+        """The under-permissive direction: the people it is FOR must keep it."""
+        api._archive_report(_report(1000), "schedule")
+        self.fresh()
+        self.assertEqual(self.call(api.handle_report_archive)["total"], 1)
+
+    def test_a_tenant_admin_is_refused(self):
+        api._archive_report(_report(1000), "schedule")
+        self.fresh()
+        self._scoped(tenant="acme")
+        self.call(api.handle_report_archive)
+        self.assertEqual(self.cap["s"], 403)
+
+    def test_a_role_scoped_caller_is_refused(self):
+        api._archive_report(_report(1000), "schedule")
+        self.fresh()
+        self._scoped(scope={"type": "groups", "values": ["web"]})
+        self.call(api.handle_report_archive)
+        self.assertEqual(self.cap["s"], 403)
+
+    def test_the_body_endpoint_is_refused_too(self):
+        """The list leaks site names and health scores; the entry leaks the
+        entire report. Both need the gate."""
+        rid = api._archive_report(_report(1000), "schedule")
+        self.fresh()
+        self._scoped(tenant="acme")
+        self.call(api.handle_report_archive_entry, rid)
+        self.assertEqual(self.cap["s"], 403)
+
+    def test_the_refusal_explains_itself_and_points_somewhere(self):
+        """A bare 403 on a page an operator can see reads as a bug."""
+        self._scoped(tenant="acme")
+        self.call(api.handle_report_archive)
+        msg = self.cap["b"]["error"]
+        self.assertIn("full-access", msg)
+        self.assertIn("site-scoped report", msg)

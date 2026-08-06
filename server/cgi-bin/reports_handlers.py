@@ -670,6 +670,29 @@ def _archive_index(since=0, until=0):
     return out
 
 
+def _archive_scope_guard():
+    """A stored report is a snapshot of whatever the fleet looked like when it
+    was DELIVERED, with no per-row scope tags to filter on afterwards.
+
+    v6.4.2 (audit): the archive was gated on admin-or-auditor alone, so a
+    TENANT admin — whose role is `admin`, and whose `_caller_scope()` is
+    therefore None — could download another tenant's whole-fleet posture
+    report, device counts, health scores and CVE totals included. A role-scoped
+    admin could read the same for hosts outside their scope.
+
+    Filtering after the fact is not possible: the report is an aggregate, not a
+    list of rows carrying device ids. So this refuses, with the same reasoning
+    and the same wording shape as handle_ai_rag_search's refusal for the RAG
+    corpus — until the artifact carries scope, the honest answer is no.
+    """
+    if A._caller_scope() is not None or A._tenant_gate() is not None:
+        A.respond(403, {'error': 'The report archive is limited to full-access '
+                                 'roles — a stored report is a whole-fleet '
+                                 'snapshot and carries no per-role or '
+                                 'per-tenant scope to filter on. Use a '
+                                 'site-scoped report definition instead.'})
+
+
 def handle_report_archive():
     """GET /api/report/archive — list delivered reports (metadata only).
 
@@ -680,6 +703,7 @@ def handle_report_archive():
     A.require_admin_or_auditor_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
+    _archive_scope_guard()
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
 
     def _num(key):
@@ -707,6 +731,7 @@ def handle_report_archive_entry(entry_id):
     """GET /api/report/archive/<id>[?format=json|csv|download] — one archived
     report exactly as it was delivered; DELETE — remove it (admin)."""
     actor = A.require_admin_or_auditor_auth()
+    _archive_scope_guard()
     entry_id = A._sanitize_str(str(entry_id or ''), 32)
     if A.method() == 'DELETE':
         A.require_admin_auth()
