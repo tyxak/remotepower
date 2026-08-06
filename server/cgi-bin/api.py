@@ -25821,7 +25821,15 @@ def _declarative_collections():
         # rules while a git-driven rebuild would restore NONE of them. Bind it to
         # the real store, like automation_rules/maintenance_windows below.
         'log_alert_rules':       file_list(LOG_RULES_GLOBAL_FILE, 'rules'),
+        # v6.4.2 (audit): operator DECISIONS that gate alerts/scoring. Dropping
+        # them from the "commit to version control" doc means a git-driven
+        # rebuild silently restores every muted world-exposed port to `warning`
+        # (an alert storm) and re-enables every CIS check the operator turned
+        # off (changing the compliance SCORE). Both are secret-free and
+        # round-trippable.
+        'exposure_mutes':        cfg_list('exposure_mutes'),
         'sla_targets':           cfg.get('sla_targets') if isinstance(cfg.get('sla_targets'), dict) else {},
+        'compliance_baseline':   cfg.get('compliance_baseline') if isinstance(cfg.get('compliance_baseline'), dict) else {},
         # own-file collections
         'automation_rules':      file_list(RULES_FILE, 'rules'),
         'maintenance_windows':   file_list(MAINT_FILE, 'windows'),
@@ -26019,7 +26027,9 @@ def _declarative_meta():
         'process_watches':       {'kind': 'cfg_list', 'key': 'process_watches', 'id': None},
         'backup_monitors':       {'kind': 'cfg_list', 'key': 'backup_monitors', 'id': 'path'},
         'log_alert_rules':       {'kind': 'file_list', 'file': LOG_RULES_GLOBAL_FILE, 'inner': 'rules', 'id': 'id'},
+        'exposure_mutes':        {'kind': 'cfg_list', 'key': 'exposure_mutes', 'id': None},
         'sla_targets':           {'kind': 'cfg_dict', 'key': 'sla_targets'},
+        'compliance_baseline':   {'kind': 'cfg_dict', 'key': 'compliance_baseline'},
         'automation_rules':      {'kind': 'file_list', 'file': RULES_FILE, 'inner': 'rules', 'id': 'id'},
         'maintenance_windows':   {'kind': 'file_list', 'file': MAINT_FILE, 'inner': 'windows', 'id': 'id'},
         'autopatch_policies':    {'kind': 'file_list', 'file': AUTOPATCH_FILE, 'inner': 'policies', 'id': 'id'},

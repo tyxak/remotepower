@@ -284,3 +284,40 @@ class TestLogAlertRulesAreBoundToTheirRealStore(unittest.TestCase):
         """Nothing reads cfg['log_alert_rules']; the export must not read it."""
         src = (_CGI / "api.py").read_text()
         self.assertNotIn("cfg_list('log_alert_rules')", src)
+
+
+class TestOperatorDecisionsAreExported(unittest.TestCase):
+    """v6.4.2 (audit): exposure_mutes and compliance_baseline are operator
+    DECISIONS that gate alerts/scoring. Leaving them out of the "commit to
+    version control" doc meant a git rebuild restored every muted world port to
+    warning (alert storm) and re-enabled every disabled CIS check (changing the
+    compliance score). Both are secret-free and round-trip.
+    """
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._cf = api.CONFIG_FILE
+        api.CONFIG_FILE = self.d / "config.json"
+        api.save(api.CONFIG_FILE, {
+            "exposure_mutes": [{"device_id": "h1", "port": 22}],
+            "compliance_baseline": {"disabled": ["cis_disk"]}})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def tearDown(self):
+        api.CONFIG_FILE = self._cf
+
+    def test_both_are_exported_with_their_data(self):
+        cols = api._declarative_collections()
+        self.assertEqual(cols["exposure_mutes"], [{"device_id": "h1", "port": 22}])
+        self.assertEqual(cols["compliance_baseline"], {"disabled": ["cis_disk"]})
+
+    def test_meta_describes_both(self):
+        meta = api._declarative_meta()
+        self.assertEqual(meta["exposure_mutes"]["kind"], "cfg_list")
+        self.assertEqual(meta["compliance_baseline"]["kind"], "cfg_dict")
+
+    def test_neither_is_marked_non_importable(self):
+        """They carry no secrets, so a round-trip restore is lossless."""
+        meta = api._declarative_meta()
+        self.assertNotEqual(meta["exposure_mutes"].get("importable"), False)
+        self.assertNotEqual(meta["compliance_baseline"].get("importable"), False)
