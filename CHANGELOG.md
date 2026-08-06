@@ -78,8 +78,17 @@ claimed to cover.
   sshd hardening (root login / password auth / empty passwords) and the
   automatic-update mechanism become check rows — `linux_firewall`,
   `linux_ssh_hardening`, `linux_auto_update` — at parity with the Windows and
-  macOS posture checks that already existed. A wide-open sshd is a critical check
-  row now, not just an entry in an advisory list that pages nobody.
+  macOS posture checks that already existed.
+- **Security hardening is opt-in, and alerts when you turn it on.** Because the
+  sshd-hardening, auto-updates-off and stale-account-password checks flag choices
+  that are often deliberate (password SSH auth, manual patching, a service
+  account whose password never rotates), they are **off by default** and gated
+  behind a single **Security hardening** toggle (Settings → Security) — like
+  protect baselines. A **blank** password and an **inactive host firewall** are
+  real exposure and stay always-on. When you enable hardening, each advisory
+  also raises an edge-triggered alert that auto-resolves when fixed
+  (`ssh_hardening_weak`, `autoupdate_disabled`, `password_stale`) — so it can
+  actually page you, not just sit on the Checks page.
 - **…and queryable fleet-wide.** New fleet-query facets `firewall_off`,
   `ssh_weak` and `autoupdate_off` answer "which hosts have no active firewall /
   permit root or password SSH / have auto-updates off", from stored posture, in
