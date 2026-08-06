@@ -87,6 +87,23 @@ claimed to cover.
 - **PCI 1.2.1 assesses host firewall state** instead of returning a blanket
   "cannot assess" — the product has reported it since v3.12.0 — while stating
   that upstream/network firewalls stay out of scope.
+- **Anti-malware and encryption-at-rest are compliance controls now.** HIPAA's
+  "Protection from malicious software" was evidenced by *pending-patch counts*;
+  it now reads the actual AV posture (clamav/rkhunter/Defender), and PCI 5.2.1
+  is assessed on the same evidence. BitLocker / FileVault, already checked and
+  risk-scored, gained PCI 3.5.1 and HIPAA 164.312(a)(2)(iv) controls. Each is
+  "not assessed" (score-neutral) on a fleet that doesn't report the data, so no
+  existing score shifts unless the telemetry is actually there.
+- **Windows/macOS endpoint posture and disk encryption feed the risk score**,
+  and a **NIC accumulating errors** feeds the reliability score — a Windows host
+  with BitLocker/Defender/firewall off no longer scores identically to a
+  hardened one, and a dying NIC is no longer invisible to "likely to fail".
+- **The fleet report gained a host-security-posture section** (firewall / SSH /
+  encryption / auto-update, each with its own reporting denominator), carried
+  into the printable view and the signed evidence pack.
+- **The macOS agent reports top processes** (`top_processes`/`proc_names`) — the
+  only agent that didn't, so the process custom-check and Top-Processes view were
+  empty on every Mac.
 - **The declarative export stopped dropping what it claimed to cover.** The
   fleet-wide log-alert rules were exported from a config key nothing writes (an
   always-empty phantom); they bind to their real store now. And the operator
