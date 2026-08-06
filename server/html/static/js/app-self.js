@@ -787,9 +787,11 @@ function _cadenceJobsCard(jobs) {
     return `<tr><td class="c-muted-padded">${escHtml(labels[k])}${cnt}</td><td class="${cls}">${escHtml(state)}</td></tr>`;
   }).join('');
   if (!rows) return '';
+  // v6.4.2: the scheduler's job list grows every release (~30 rows now) — cap
+  // it and scroll, like the self-test table below and the box-overflow rule.
   return `<div class="dash-card">
       <div class="section-title">Recurring jobs</div>
-      <table class="fs-13">${rows}</table>
+      <div class="scrollable-table-wrap audit-scroll"><table class="fs-13">${rows}</table></div>
     </div>`;
 }
 // v4.3.0: download the support diagnostics bundle (secrets scrubbed server-side).
