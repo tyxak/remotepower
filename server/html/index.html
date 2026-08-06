@@ -6139,6 +6139,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="form-group"><label class="form-label">Inode % &gt; (busiest)</label><input type="number" id="fq-inode" class="form-input" min="0" max="100" placeholder="—" aria-label="Inode % &gt; (busiest)"></div>
             <div class="form-group"><label class="form-label">File descriptors % &gt;</label><input type="number" id="fq-fd" class="form-input" min="0" max="100" placeholder="—" aria-label="File descriptors % &gt;"></div>
             <div class="form-group"><label class="form-label">Conntrack % &gt;</label><input type="number" id="fq-conntrack" class="form-input" min="0" max="100" placeholder="—" aria-label="Conntrack % &gt;"></div>
+            <div class="form-group"><label class="form-label">No host firewall</label><select id="fq-fwoff" class="form-input" aria-label="No host firewall"><option value="">any</option><option value="1">yes</option></select></div>
+            <div class="form-group"><label class="form-label">Weak SSH config</label><select id="fq-sshweak" class="form-input" aria-label="Weak SSH config"><option value="">any</option><option value="1">yes</option></select></div>
+            <div class="form-group"><label class="form-label">Auto-updates off</label><select id="fq-auoff" class="form-input" aria-label="Auto-updates off"><option value="">any</option><option value="1">yes</option></select></div>
           </div>
           <div class="row-8-center mt-8">
             <button class="btn-primary" data-action="runFleetQuery">Run</button>

@@ -25794,6 +25794,8 @@ const _FQ_FIELDS = {
   temp_high: 'fq-temp',
   // v4.1.0: capacity exhaustion (inode / fd / conntrack)
   inode_gt: 'fq-inode', fd_gt: 'fq-fd', conntrack_gt: 'fq-conntrack',
+  // v6.4.2: host security posture
+  firewall_off: 'fq-fwoff', ssh_weak: 'fq-sshweak', autoupdate_off: 'fq-auoff',
 };
 function _fqFields() {
   const out = {};
