@@ -322,7 +322,12 @@ def _demo_enrich_sysinfo(dev, rng, si):
             'tamper_protection': True, 'secure_boot': True,
             'uac_enabled': True, 'pending_reboot': True,
             'defender_realtime': True, 'firewall_enabled': True,
-            'bitlocker': 'on',
+            # v6.4.2: the real Windows agent sends bitlocker as a LIST of
+            # {mount,status} volumes, not a string — a string was silently
+            # skipped by the win_bitlocker check and the encryption risk factor.
+            # Vary status so the demo shows both the check and the risk firing.
+            'bitlocker': [{'mount': 'C:',
+                           'status': rng.choice(['On', 'On', 'Off'])}],
         }
     elif 'macos' in _os:
         si['mac_posture'] = {
@@ -393,8 +398,11 @@ def _demo_enrich_sysinfo(dev, rng, si):
              'mount': '/mnt/vault', 'capacity': rng.randint(45, 88)},
         ]
     # ── host firewall posture + drift fingerprint ──
+    # v6.4.2: ~1 in 6 hosts has no active ruleset so the linux_firewall check,
+    # the firewall_off fleet-query facet, the report posture section and PCI
+    # 1.2.1 all have a host to flag in the demo. The rest are rule-bearing.
     _backend = rng.choice(['nftables', 'iptables', 'ufw'])
-    _rules = rng.randint(0, 120)
+    _rules = 0 if rng.random() < 0.17 else rng.randint(4, 120)
     _active = _rules > 0
     si['firewall'] = {
         'active': _active,
@@ -404,6 +412,22 @@ def _demo_enrich_sysinfo(dev, rng, si):
     si['firewall_fp'] = {'backend': _backend, 'rules': _rules,
                          'fp': hashlib.sha256(
                              f"{dev['id']}|fw".encode()).hexdigest()[:16]}
+
+    # ── v6.4.2: sshd hardening posture (Linux hosts — the linux_ssh_hardening
+    # check, the ssh_weak fleet-query facet and the report posture section all
+    # read sysinfo.ssh_config). Mostly hardened; ~1 in 5 intentionally weak so
+    # every one of those surfaces has data to show in the demo. ──
+    _os_l = str(dev.get('os', '')).lower()
+    if 'windows' not in _os_l and 'macos' not in _os_l and 'mac os' not in _os_l:
+        _ssh_weak = rng.random() < 0.2
+        si['ssh_config'] = {
+            'permit_root_login': 'yes' if _ssh_weak else rng.choice(
+                ['no', 'prohibit-password']),
+            'password_authentication': 'yes' if _ssh_weak else 'no',
+            'permit_empty_passwords': 'no',
+            'x11_forwarding': 'no',
+            'source': 'sshd -T',
+        }
 
     # ── v5.0.0: per-interface network throughput (Network Metrics page) ──
     # The agent reports rx/tx bits-per-second + lifetime totals per NIC; the
