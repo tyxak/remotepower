@@ -2618,6 +2618,35 @@ EVENT_REGISTRY = {
     'mac_sip_enabled': dict(
         label='System Integrity Protection is enabled again (recovered)',
         kind='mac_posture', resolves=('mac_sip_disabled',)),
+    # v6.4.2: OPT-IN Security-hardening advisories (Settings → Security). Off by
+    # default because each flags a DELIBERATE configuration choice — password
+    # SSH auth, manual patching, an un-rotated service-account password — so
+    # warning on them out of the box is noise. When the operator enables the
+    # feature these fire edge-triggered (on entering the state, incl. first
+    # contact) and auto-resolve when fixed, mirroring the check rows in checks.py.
+    # Medium severity: real hardening gaps, not the emergencies the win/mac
+    # posture events (high) represent.
+    'ssh_hardening_weak': dict(
+        label='sshd permits root login, password auth or empty passwords (opt-in)',
+        kind='hardening', title='SSH Hardening Weak', severity='medium',
+        tags='warning,shield'),
+    'ssh_hardening_ok': dict(
+        label='sshd hardening restored (recovered)', kind='hardening',
+        resolves=('ssh_hardening_weak',)),
+    'autoupdate_disabled': dict(
+        label='Automatic security updates are off on a host (opt-in)',
+        kind='hardening', title='Auto-Updates Off', severity='medium',
+        tags='warning,package'),
+    'autoupdate_enabled': dict(
+        label='Automatic security updates are on again (recovered)',
+        kind='hardening', resolves=('autoupdate_disabled',)),
+    'password_stale': dict(
+        label='A local account password is over a year old (opt-in)',
+        kind='hardening', title='Stale Account Password', severity='medium',
+        tags='warning,key'),
+    'password_stale_cleared': dict(
+        label='No stale account passwords remain (recovered)', kind='hardening',
+        resolves=('password_stale',)),
     # v6.2.2: kernel-module visibility from the agent's execution context. A
     # sandbox that hides /lib/modules turns the next agent-run package upgrade
     # into a module-less, unbootable initramfs. A CONDITION (fires on first
@@ -8989,6 +9018,7 @@ CHANNEL_KIND_DEFS = (
     ('agent_sandbox', 'Kernel modules hidden from the agent', 'operational'),  # v6.2.2
     ('win_posture', 'Windows endpoint posture', 'operational'),  # v6.2.2
     ('mac_posture', 'macOS endpoint posture', 'operational'),  # v6.4.0
+    ('hardening', 'Security hardening advisories', 'security'),  # v6.4.2 (opt-in)
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -26351,6 +26381,7 @@ def handle_config_get():
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
     safe.setdefault('host_checks_disabled', {})  # v4.1.0: per-host disabled checks
+    safe.setdefault('security_hardening_checks', False)  # v6.4.2: opt-in hardening advisories
     # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
     safe.setdefault('webpush_enabled', False)
     safe.setdefault('webpush_subject', '')
@@ -28748,6 +28779,14 @@ def handle_config_save():
             _resolve_alerts_for_events(
                 _EXPOSURE_ALERT_EVENTS + ('firewall_changed',),
                 by='audit-disabled')
+    # v6.4.2: opt-in Security hardening — the SSH-hardening / auto-update /
+    # stale-password ADVISORY checks and their alerts. Off by default. Turning
+    # it off resolves any open hardening alerts so they don't sit forever.
+    if 'security_hardening_checks' in body:
+        _hard_was = bool(cfg.get('security_hardening_checks', False))
+        cfg['security_hardening_checks'] = bool(body['security_hardening_checks'])
+        if _hard_was and not cfg['security_hardening_checks']:
+            _resolve_alerts_for_events(_HARDENING_ALERT_EVENTS, by='hardening-disabled')
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
@@ -35018,6 +35057,9 @@ def handle_device_ssh_poll(dev_id):
 
 
 _EXPOSURE_ALERT_EVENTS = ('port_exposed_world', 'new_port_detected')
+# v6.4.2: the opt-in Security-hardening advisory alerts. Turning the feature off
+# resolves any open ones. Registered in EVENT_REGISTRY; fired edge-triggered.
+_HARDENING_ALERT_EVENTS = ('ssh_hardening_weak', 'autoupdate_disabled', 'password_stale')
 
 
 def _resolve_alerts_for_events(events, match_rule=None, by='exposure-mute'):
@@ -36097,6 +36139,37 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         for _k in sorted((prev_mac - cur_mac) & _mac_eval):
             _fire(_mac_map[_k][1], {'detail': f'{_k} posture recovered'})
         new['mac_bad'] = sorted(cur_mac | (prev_mac - _mac_eval))
+
+    # ── v6.4.2: opt-in Security-hardening advisories (SSH daemon + auto-update).
+    # Gated on the feature flag (Settings → Security). Edge-triggered on entering
+    # the state, incl. first contact, and auto-resolved when fixed — the same
+    # shape as the mac/win posture events above. Absence of the sysinfo field
+    # (an unprivileged agent) never fires. Password-age is fired from the
+    # accounts block (the accounts live in the hardware record, not sysinfo).
+    if _config_ro().get('security_hardening_checks'):
+        sc = si.get('ssh_config')
+        if isinstance(sc, dict) and sc:
+            _weak = (str(sc.get('permit_empty_passwords', '')).lower() == 'yes'
+                     or str(sc.get('permit_root_login', '')).lower() == 'yes'
+                     or str(sc.get('password_authentication', '')).lower() == 'yes')
+            if _weak and prev.get('ssh_weak') is not True:
+                _fire('ssh_hardening_weak', {'detail': (
+                    'sshd permits root login, password authentication or empty '
+                    'passwords. Set PermitRootLogin prohibit-password, '
+                    'PasswordAuthentication no and PermitEmptyPasswords no.')})
+            elif not _weak and prev.get('ssh_weak') is True:
+                _fire('ssh_hardening_ok', {'detail': 'sshd hardening restored'})
+            new['ssh_weak'] = _weak
+        au = si.get('autoupdate')
+        if isinstance(au, dict) and 'enabled' in au:
+            _auoff = au.get('enabled') is False
+            if _auoff and prev.get('autoupdate_off') is not True:
+                _fire('autoupdate_disabled', {'detail': (
+                    'no automatic security updates (unattended-upgrades / '
+                    'dnf-automatic) are enabled on this host.')})
+            elif not _auoff and prev.get('autoupdate_off') is True:
+                _fire('autoupdate_enabled', {'detail': 'automatic updates restored'})
+            new['autoupdate_off'] = _auoff
 
     # ── v6.2.2: kernel-module visibility ───────────────────────────
     # Like av_realtime_off this is a CONDITION, not an edge: a host that
@@ -44181,6 +44254,26 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                            {'device_id': dev_id, 'name': dev_name}))
         rec['_emptypw_alerted'] = sorted(blank)
 
+        # v6.4.2: opt-in stale-password advisory. A BLANK password is always-on
+        # above (real exposure); a password merely over a year old is a hardening
+        # ADVISORY (a service account like postgres legitimately never rotates),
+        # so it only alerts when Security hardening is enabled. One alert per
+        # host: fire when any stale account appears, resolve when none remain.
+        if _config_ro().get('security_hardening_checks'):
+            stale_pw = {a['user'] for a in accts
+                        if 'stale_password' in (a.get('flags') or []) and a.get('user')}
+            prev_stale = set(rec.get('_stalepw_alerted') or [])
+            if stale_pw and not prev_stale:
+                events.append(('password_stale', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'detail': (f"{len(stale_pw)} account(s) with a password over a "
+                               'year old: ' + ', '.join(sorted(stale_pw)[:6])
+                               + '. Rotate or lock unused accounts.')}))
+            elif prev_stale and not stale_pw:
+                events.append(('password_stale_cleared',
+                               {'device_id': dev_id, 'name': dev_name}))
+            rec['_stalepw_alerted'] = sorted(stale_pw)
+
         # v6.2.0: privileged-group membership tripwire. The agents ALREADY
         # report this — Linux get_local_accounts() parses /etc/group for
         # sudo/wheel/admin members, the Windows agent runs Get-LocalGroupMember
@@ -45612,6 +45705,12 @@ def _checks_threshold_kwargs(cfg):
         # Previously hardcoded 85/95 in checks.py with no way to tune.
         'cpu_pct_warn':              _i('cpu_pct_warn', 85),
         'cpu_pct_crit':              _i('cpu_pct_crit', 95),
+        # v6.4.2: the security-HARDENING advisory checks (SSH daemon hardening,
+        # auto-updates-off, stale account passwords) are OPT-IN — off by default,
+        # like protect baselines — because they flag deliberate configuration
+        # choices. Blank passwords and an inactive host firewall are real
+        # exposure and stay always-on regardless of this flag.
+        'security_hardening':        bool(cfg.get('security_hardening_checks', False)),
     }
 
 

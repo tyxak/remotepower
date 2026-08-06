@@ -383,6 +383,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'kmip_cert_renewed',                     # ← kmip_cert_expiring
             'rogue_uid0_cleared',                    # ← rogue_uid0
             'empty_password_cleared',                # ← empty_password_account (v6.4.2)
+            'ssh_hardening_weak', 'ssh_hardening_ok',       # v6.4.2 opt-in hardening
+            'autoupdate_disabled', 'autoupdate_enabled',    # v6.4.2 opt-in hardening
+            'password_stale', 'password_stale_cleared',     # v6.4.2 opt-in hardening
             'integration_metric_recovered',          # ← integration_metric_alert (v6.4.2)
             'sweep_recovered',                       # ← sweep_failing (v6.4.2)
             'sidecar_recovered',                     # ← sidecar_down (v6.4.2)

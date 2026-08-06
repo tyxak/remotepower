@@ -75,6 +75,7 @@ def _host_checks(
     defender_sig_warn_days=3,
     cpu_pct_warn=85,
     cpu_pct_crit=95,
+    security_hardening=False,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -475,23 +476,30 @@ def _host_checks(
                 blank.append(str(_a.get("user") or "?"))
             if "stale_password" in _f:
                 stale.append(str(_a.get("user") or "?"))
-        add(
-            "account_passwords",
-            "Local account passwords",
-            "security",
-            "critical" if blank else ("warning" if stale else "ok"),
-            (
+        # v6.4.2: a BLANK password is real exposure (never a deliberate
+        # hardening trade-off), so it is ALWAYS a critical row. A password merely
+        # over a year old is a hardening ADVISORY — a service account like
+        # postgres legitimately never rotates — so the stale/ok row only renders
+        # when Security hardening is enabled.
+        if blank:
+            add(
+                "account_passwords",
+                "Local account passwords",
+                "security",
+                "critical",
                 f"{len(blank)} account(s) with a BLANK password: "
-                + ", ".join(blank[:4])
-                if blank
-                else (
-                    f"{len(stale)} password(s) over a year old: "
-                    + ", ".join(stale[:4])
-                    if stale
-                    else f"{len(accts)} account(s), none blank or stale"
-                )
-            ),
-        )
+                + ", ".join(blank[:4]),
+            )
+        elif security_hardening:
+            add(
+                "account_passwords",
+                "Local account passwords",
+                "security",
+                "warning" if stale else "ok",
+                f"{len(stale)} password(s) over a year old: " + ", ".join(stale[:4])
+                if stale
+                else f"{len(accts)} account(s), none blank or stale",
+            )
 
     # ── v6.2.0: Windows security-posture checks (from sysinfo.win_posture) ──
     # These render ONLY when the Windows agent reported posture, so a Linux host
@@ -693,8 +701,10 @@ def _host_checks(
         )
 
     # sshd hardening. Values are the first token of each directive, lowercased.
+    # v6.4.2: OPT-IN — root/password/empty-password SSH is often a deliberate
+    # choice, so this advisory only renders when Security hardening is enabled.
     sc = si.get("ssh_config")
-    if isinstance(sc, dict) and sc:
+    if security_hardening and isinstance(sc, dict) and sc:
         pel = str(sc.get("permit_empty_passwords", "")).lower()
         prl = str(sc.get("permit_root_login", "")).lower()
         pwa = str(sc.get("password_authentication", "")).lower()
@@ -718,8 +728,10 @@ def _host_checks(
         )
 
     # Automatic security updates — the Linux twin of mac_auto_update above.
+    # v6.4.2: OPT-IN — many operators manage patching deliberately, so this
+    # advisory only renders when Security hardening is enabled.
     au = si.get("autoupdate")
-    if isinstance(au, dict) and "enabled" in au:
+    if security_hardening and isinstance(au, dict) and "enabled" in au:
         on = bool(au.get("enabled"))
         mech = str(au.get("mechanism") or "").strip()
         add(

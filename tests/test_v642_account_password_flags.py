@@ -186,14 +186,19 @@ class TestRegistryWiring(unittest.TestCase):
 class TestChecksRow(unittest.TestCase):
     """The Checks page + fleet health, which is derived from it."""
 
-    def _row(self, accounts):
+    def _row(self, accounts, hardening=True):
+        # v6.4.2: the STALE/ok rows are opt-in (security_hardening); a BLANK
+        # password is always critical. These logic tests default to enabling
+        # hardening; test_blank_password_is_critical proves the always-on path.
         rows = checks._host_checks(
             "h1", {"name": "web-01", "last_seen": int(time.time())},
-            hw_rec={"accounts": accounts}, now=int(time.time()))
+            hw_rec={"accounts": accounts}, now=int(time.time()),
+            security_hardening=hardening)
         return next((r for r in rows if r["key"] == "account_passwords"), None)
 
     def test_blank_password_is_critical(self):
-        r = self._row([_acct("svc", 1001, "empty_password")])
+        # Always on — even with Security hardening OFF.
+        r = self._row([_acct("svc", 1001, "empty_password")], hardening=False)
         self.assertIsNotNone(r, "no Local-account-passwords check row at all")
         self.assertEqual(r["status"], "critical")
         self.assertIn("svc", r["output"], "the row must name the account")
@@ -201,6 +206,11 @@ class TestChecksRow(unittest.TestCase):
     def test_stale_password_is_a_warning_not_a_critical(self):
         r = self._row([_acct("bob", 1002, "stale_password", age=900)])
         self.assertEqual(r["status"], "warning")
+
+    def test_stale_password_row_is_hidden_when_hardening_off(self):
+        # v6.4.2: a password merely over a year old is a hardening advisory.
+        self.assertIsNone(self._row([_acct("bob", 1002, "stale_password", age=900)],
+                                    hardening=False))
 
     def test_a_clean_host_is_ok(self):
         r = self._row([_acct("root", 0, "sudo"), _acct("bob", 1002)])

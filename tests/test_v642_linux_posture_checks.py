@@ -25,9 +25,13 @@ checks = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(checks)
 
 
-def _rows(sysinfo):
+def _rows(sysinfo, hardening=True):
+    # v6.4.2: SSH hardening and auto-update are OPT-IN (security_hardening);
+    # linux_firewall is always on. These tests exercise the check LOGIC, so they
+    # enable hardening by default; the gating itself is covered by
+    # test_v642_security_hardening.py.
     dev = {"name": "h", "last_seen": 1, "monitored": True, "sysinfo": sysinfo}
-    out = checks._host_checks("d1", dev, now=1)
+    out = checks._host_checks("d1", dev, now=1, security_hardening=hardening)
     return {r["key"]: r for r in out}
 
 

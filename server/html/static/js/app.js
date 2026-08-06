@@ -4771,6 +4771,8 @@ async function loadSettings() {
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
   if (_pae) _pae.checked = !!data.port_audit_enabled;
+  const _sh = document.getElementById('cfg-security-hardening');
+  if (_sh) _sh.checked = !!data.security_hardening_checks;
   // W6-41: GeoIP settings
   const _gdb = document.getElementById('cfg-geoip-db-path');
   if (_gdb) _gdb.value = data.geoip_db_path || '';
@@ -5365,6 +5367,8 @@ async function saveSettings(btn) {
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
+  const _shEn = document.getElementById('cfg-security-hardening');
+  if (_shEn) payload.security_hardening_checks = _shEn.checked;
   // W6-41: GeoIP settings
   const _gdbEl = document.getElementById('cfg-geoip-db-path');
   if (_gdbEl) payload.geoip_db_path = _gdbEl.value.trim();
@@ -19441,6 +19445,10 @@ function _renderHomeActivity(fleetEvents) {
     'mac_firewall_off', 'mac_firewall_on',
     'mac_gatekeeper_off', 'mac_gatekeeper_on',
     'mac_sip_disabled', 'mac_sip_enabled',
+    // v6.4.2: opt-in Security-hardening advisories
+    'ssh_hardening_weak', 'ssh_hardening_ok',
+    'autoupdate_disabled', 'autoupdate_enabled',
+    'password_stale', 'password_stale_cleared',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -19688,6 +19696,11 @@ function _homeActivityAttrs(event, p) {
     case 'empty_password_account': case 'empty_password_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':
+    // v6.4.2: opt-in Security-hardening advisories — per host; open its drawer
+    // (or the Checks page fleet-wide, where the matching rows live).
+    case 'ssh_hardening_weak': case 'ssh_hardening_ok':
+    case 'autoupdate_disabled': case 'autoupdate_enabled':
+    case 'password_stale': case 'password_stale_cleared':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v6.4.2: these are about the server ITSELF, not a host — Server status is
     // where its version, the sweep table, the scheduler heartbeat and the

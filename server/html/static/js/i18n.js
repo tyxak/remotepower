@@ -2024,6 +2024,7 @@
     "Line": { "fr": "Ligne", "de": "Zeile", "zh": "行", "hi": "पंक्ति", "es": "Línea", "ar": "السطر" },
     "Linked device (optional)": { "fr": "Appareil lié (facultatif)", "de": "Verknüpftes Gerät (optional)", "zh": "关联设备（可选）", "hi": "लिंक किया device (वैकल्पिक)", "es": "Dispositivo vinculado (opcional)", "ar": "الجهاز المرتبط (اختياري)" },
     "Listening-port & firewall audit": { "fr": "Audit des ports en écoute & du pare-feu", "de": "Lausch-Port- & Firewall-Audit", "zh": "监听端口与防火墙审计", "hi": "Listening-port व firewall audit", "es": "Auditoría de puertos de escucha y firewall", "ar": "تدقيق منافذ الاستماع وجدار الحماية" },
+    "Security hardening": { "fr": "Renforcement de la sécurité", "de": "Sicherheitshärtung", "zh": "安全加固", "hi": "सुरक्षा hardening", "es": "Refuerzo de seguridad", "ar": "تعزيز الأمان" },
     "Load": { "fr": "Charge", "de": "Last", "zh": "负载", "hi": "लोड", "es": "Carga", "ar": "الحمل" },
     "Lock": { "fr": "Verrouiller", "de": "Sperren", "zh": "锁定", "hi": "लॉक करें", "es": "Bloquear", "ar": "قفل" },
     "Log ignore patterns": { "fr": "Motifs d'ignorance des journaux", "de": "Protokoll-Ignoriermuster", "zh": "日志忽略模式", "hi": "Log अनदेखा patterns", "es": "Patrones de ignorado de registros", "ar": "أنماط تجاهل السجل" },
