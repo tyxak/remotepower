@@ -23,6 +23,79 @@ notification destinations can be scoped to a site or a tenant, an integration
 can name the host it runs on, and the metrics endpoint exports the posture the
 product has always computed for its own screens and never let you take away.
 
+Then a security and data-binding finalize pass — the "Ver1tyMatters" of the
+codename. An adversarial audit of the release (every finding carrying a runnable
+reproduction) and a fresh hunt across older code closed a cross-tenant log-content
+leak, a governance control a document-import could switch off, a webhook
+credential that shipped in clear text, and a device-existence oracle before
+authentication — all fixed here, all detailed in
+`docs/security-review-6.4.2.md`. And a run of "the product computes the answer
+and shows it in one place only": Linux host firewall, sshd hardening and
+auto-update posture — which used to reach only the advisory list — are now
+Checks-page rows and fleet-query facets, at parity with Windows and macOS; PCI
+1.2.1 attests host firewall state instead of declining to; and the declarative
+export stopped silently dropping the log rules and suppression decisions it
+claimed to cover.
+
+### Security and correctness — the finalize pass
+
+- **Cross-tenant log-content leak, fixed.** The live-tail log endpoint returned
+  every device's log lines with no scope filter — a read-only role or a tenant
+  administrator could tail other scopes'/tenants' log content, or read a named
+  out-of-scope device's lines. It now filters the device set exactly like its
+  search sibling.
+- **A governance switch a config import could flip.** Change-approval (four
+  eyes), the MFA-required roles and the audit-retention floor are step-up-gated
+  on the Settings save path; the declarative import had quietly re-exposed three
+  of them under plain admin auth (and can run head-less from the scheduler). They
+  are refused on import now, and the litigation-hold setter gained the same
+  step-up gate.
+- **A webhook header credential no longer leaves in clear text.** A bearer token
+  or API key placed in a delivery destination's custom headers was missed by the
+  redaction (header *names* aren't secret-shaped), so it appeared verbatim in the
+  support bundle, the config export and the encrypted-backup redaction. Both
+  redaction modes now mask header values.
+- **Authenticate before the lookup.** The network-appliance config-archive
+  endpoint answered "not found" for an unknown device id before it authenticated
+  — a pre-auth existence oracle. It authenticates first now, like every sibling.
+- **The threshold-impact preview stopped over-promising.** It recomputes the
+  checks engine only (~7 of ~90 alert parameters); it now lists the thresholds it
+  could *not* assess instead of implying "no host changes state" means safe.
+- **Alerts that could never clear, and a streak that never was.** Three
+  control-plane recovery events (sweep/sidecar/audit-forward) hit a device-scoped
+  guard and never resolved their inbox alerts; a maintenance-sweep alarm counted
+  cumulative failures while saying "N times in a row". Both fixed.
+- **The audit-forward spool** no longer drops un-forwarded records or
+  double-delivers under two concurrent retry workers — it claims its slot under
+  the lock and evicts by record identity.
+- **The agent console** now says a command was queued for approval instead of
+  printing "(no output)", and a command already carrying a dispatch prefix
+  (`ps:`, `cmd:`, `exec:`) is no longer double-wrapped.
+
+### Every signal reaches every consumer
+
+- **Linux host-security posture is now on the Checks page.** Host firewall,
+  sshd hardening (root login / password auth / empty passwords) and the
+  automatic-update mechanism become check rows — `linux_firewall`,
+  `linux_ssh_hardening`, `linux_auto_update` — at parity with the Windows and
+  macOS posture checks that already existed. A wide-open sshd is a critical check
+  row now, not just an entry in an advisory list that pages nobody.
+- **…and queryable fleet-wide.** New fleet-query facets `firewall_off`,
+  `ssh_weak` and `autoupdate_off` answer "which hosts have no active firewall /
+  permit root or password SSH / have auto-updates off", from stored posture, in
+  the query builder and the saved-query API.
+- **PCI 1.2.1 assesses host firewall state** instead of returning a blanket
+  "cannot assess" — the product has reported it since v3.12.0 — while stating
+  that upstream/network firewalls stay out of scope.
+- **The declarative export stopped dropping what it claimed to cover.** The
+  fleet-wide log-alert rules were exported from a config key nothing writes (an
+  always-empty phantom); they bind to their real store now. And the operator
+  suppression decisions `exposure_mutes` and `compliance_baseline` — muted
+  world-exposed ports and disabled compliance checks — are exported too, so a
+  git-driven rebuild no longer silently restores them to alerting.
+- **The Recurring jobs table** on Server status caps and scrolls like every
+  other variable-row panel.
+
 ### Mute everything about one container
 
 - **Per-container alert mute.** Every container in Fleet → Containers → View now

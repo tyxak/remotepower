@@ -20,9 +20,10 @@ working input.
 
 ## Scope
 
-Thirteen commits since v6.4.1 — roughly 3,800 changed lines in the server, the
-interface and the three agents, plus tests and documentation. The new or
-substantially changed surfaces:
+The v6.4.2 changes since v6.4.1 — a large body of work across the server, the
+interface and the three agents, plus tests and documentation, reviewed in two
+passes (the change review below, then the adversarial pre-release audit above).
+The new or substantially changed surfaces:
 
 | Surface | Why it was reviewed |
 |---|---|
@@ -406,17 +407,126 @@ case that motivated the original helper stays closed.
   required a leading slash — so the storage view, every per-mount disk check and
   the disk-fill forecast were permanently empty, which reads as healthy.
 
+## Additional pre-release audit
+
+A second, adversarial pass over the whole release — a diff audit that required a
+runnable reproduction for every claim, plus a fresh hunt across older code the
+release did not touch — found more. All are fixed here; each is described by
+class and remedy, without a working input.
+
+### An access-control gate on one endpoint and not its sibling (again)
+
+The live-tail log endpoint read every device's collected log lines with no scope
+filter, while its search sibling had been scope-filtered since v6.2.2. Because a
+read-only role and a tenant administrator both pass the plain authentication
+check, either could tail log content — authentication failures, hostnames,
+paths — for hosts in other scopes or other tenants, or name a specific
+out-of-scope device and read its lines directly. Log content is sensitive, so
+this is a content disclosure, not merely a host-count oracle. The tail endpoint
+now filters the device set exactly as search does; an out-of-scope request
+returns nothing. This is the same "one endpoint gated, its sibling not" shape as
+the privacy finding above, found by looking specifically for it.
+
+### A governance control that a document import could switch off
+
+An earlier commit put the governance switches — the four-eyes change-approval
+requirement, the roles that must carry MFA, the audit-retention floor — behind a
+fresh step-up re-authentication on the Settings save path, so an administrator
+cannot quietly turn the control that watches them off. A second commit, unaware
+of the first, added three of those same keys to the declarative-import
+allowlist, which applies under a plain administrator token and can run from the
+scheduler where there is no session to step up. An administrator refused at
+Settings could have flipped four-eyes off by importing a configuration document.
+The governance keys are removed from the import allowlist and refused at
+apply-time; the retention-freeze (litigation-hold) setter, which lives on its
+own endpoint, gained the same step-up gate.
+
+### A webhook credential that left the instance in clear text
+
+A delivery destination can carry custom headers, which is where an operator puts
+a bearer token or an API key for the receiving system. Header *names* are not
+secret-shaped, so the redaction that scrubs the support bundle, the declarative
+export and the encrypted-backup configuration missed them, and a credential
+placed in a header shipped in clear text in artefacts that are meant to be safe
+to share. The redaction now masks header values in both its masking and its
+dropping modes; the read API already withheld them, which is why the gap in the
+exports had gone unnoticed.
+
+### A device-existence oracle before authentication
+
+The network-appliance configuration-archive endpoint looked up the device and
+returned "not found" for an unknown identifier *before* it authenticated the
+caller, so an unauthenticated request could distinguish real device identifiers
+from absent ones. It now authenticates first, per method, like every sibling
+under the device path.
+
+### A spool that could delete un-forwarded audit records under load
+
+The audit-forwarding retry drained its spool by reading it, forwarding, and only
+then truncating by count — all with the position check and the truncation
+outside the lock. Two retry workers entering together forwarded the same records
+(a duplicate delivery to the SIEM) and the position-based truncation could
+discard records spooled in between without ever forwarding them. The drain now
+claims its slot under the lock and evicts exactly the records it forwarded, by
+identity, so a record written during a slow forward is never lost — the same
+claim-under-lock discipline the network-config and interface-history sweeps in
+this release already use.
+
+### Correctness defects with an operator-trust consequence
+
+Not vulnerabilities, but each misled the operator about the state of the fleet,
+which is its own kind of unsafe:
+
+- The **threshold-impact preview** recomputed the checks engine only — about
+  seven of the ninety-odd alert parameters — and reported "no host changes
+  state" for the rest, which fire through the metric, risk and attention
+  engines. An operator widening a threshold could read a green preview as "safe"
+  when the preview had not looked. It now lists exactly which changed thresholds
+  it could not assess.
+- Three control-plane recovery events (maintenance-sweep, sidecar, audit-forward)
+  could never clear their alerts — they are fleet-level and hit a device-scoped
+  guard — so those alerts accrued in the inbox forever. A long-standing
+  server-disk recovery had the identical defect. Fixed.
+- A maintenance-sweep failure alert said a sweep had failed "N times in a row"
+  while counting cumulative failures since the last recovery, so an alternating
+  fail/succeed sweep raised a permanent alarm claiming a streak it never had.
+
+### Data binding as a security property
+
+Several signals the agents already collect were reaching only the advisory list,
+which pages nobody. Host firewall state, sshd hardening (root login, password
+authentication, empty passwords) and the automatic-update mechanism are now
+**check rows** on Linux, at parity with the Windows and macOS equivalents that
+were already checks, and are **queryable fleet-wide** ("which hosts permit root
+SSH login", "which have no active firewall"). The PCI 1.2.1 firewall control
+stopped returning a blanket "cannot assess" — the product has reported host
+firewall state since v3.12.0 — and now attests the host-firewall layer honestly
+while stating that upstream firewalls are out of scope. And the declarative
+export stopped claiming to cover fleet-wide log rules and operator suppression
+decisions that it silently dropped, which on a rebuild would have restored muted
+world-exposed ports to alerting and re-enabled disabled compliance checks.
+
 ## Verification
 
 - **bandit**: 0 new findings against the committed baseline, **0 High**, across
   `server/cgi-bin` and all three agents.
-- **gitleaks**: no leaks, over the full history (1,629 commits) as well as the
+- **gitleaks**: no leaks, over the full history (1,696 commits) as well as the
   working tree.
 - **`ruff --select F821`**: 0 on all three agents and on every handler module.
-- **Full suite green on both storage backends** — 9,210 tests, JSON and SQLite.
-  No Postgres server was available for this pass, so the contract the
+- **Full suite green on both storage backends** — over 11,000 tests, JSON and
+  SQLite. No Postgres server was available for this pass, so the contract the
   database-lock fix depends on is pinned at source level in both storage modules,
   and that is stated rather than claimed as executed.
+- **Live pre-auth check against the maintainer's own running instance**
+  (authorised, read-only). The unauthenticated surface held: the health endpoint
+  discloses only a status word, the content-security policy carries no
+  `unsafe-inline`, HSTS is set with preload, the framing/content-type/referrer/
+  permissions headers are all present, the login endpoint returns an identical
+  answer for a real and an absent user (no enumeration) and rate-limits after a
+  few attempts, HTTP redirects to HTTPS, path traversal is normalised, and no
+  error path returned a stack trace or a framework fingerprint. The authenticated
+  surface was not re-tested in this pass — the supplied token did not
+  authenticate — so that part is stated as not-done rather than claimed.
 - **Per-defect checks.** The new tests were run against the pre-fix code as well
   as the fixed code and confirmed to fail there. An assertion that passes on both
   sides proves nothing, so each assertion was confirmed failing against the
