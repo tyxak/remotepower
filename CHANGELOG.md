@@ -1148,6 +1148,284 @@ release ships.
   is scoped to "the report is actually populated" now, and everything else
   prints the active page.
 
+### Segments you could save but not act on
+
+- **A smart group resolved in exactly one place.** Smart groups are a real
+  dynamic-segment engine — a saved predicate over group, tag, site, OS, agent
+  version, drift, pending reboot and resource thresholds, re-evaluated every
+  minute — but `smart:<name>` was understood only by role scopes, alert routing,
+  service baselines and report scopes. It could not filter the Devices page,
+  target the bulk-actions modal, or be a rollout ring. So an operator who
+  defined `smart:needs-reboot` — precisely the set a staged reboot rollout is
+  for — had to open Sites, click **View members**, read sixty hostnames out of
+  a toast that auto-dismissed while they were reading it, and paste them as
+  comma-separated ids into a ring that caps at 500. All three now understand it,
+  and the members are a list you can click through rather than a toast.
+- **Rollout rings could not express the one shape everyone uses.** A ring
+  accepted a group, a tag, or a pasted id list, so "canary 1 % of the fleet,
+  then 10 %, then everything else" was not writable. On a 4,000-host fleet an
+  admin staging an agent self-update had to invent throwaway tags and apply them
+  across 420 hosts through a batch bar that selects one page at a time — before
+  they could create the rollout at all. And the last ring had no expression: it
+  was whatever group you named, silently omitting every host with no group and
+  every host enrolled after the rollout was created. Rings now also take a
+  **site**, a **smart group**, a **percentage**, a **count**, and **everything
+  else**. Percentages are of the whole fleet and resolve in device-id order, so
+  the three add up and stay disjoint; they re-resolve when the ring is released,
+  so a host that fixed itself between ring one and ring three drops out on its
+  own. The modal shipped three hardcoded rows and no way to add a fourth,
+  although the server has always accepted ten.
+
+### The audit log could stop reaching your SIEM without telling you
+
+- **Forwarding was fire-and-forget.** A refused connection, a dropped datagram,
+  or one of three silent early returns inside the forwarder discarded that entry
+  from the SIEM permanently. No spool, no retry, no counter, no alert. The
+  collector goes down over a long weekend and three days of admin actions,
+  break-glass reveals and session revocations never arrive — with nothing in
+  RemotePower saying so, and no cursor to reconstruct the gap afterwards. The
+  local append-only copy always survived; the SIEM copy did not.
+- **The one place you would look reported "configured".** Which was true, and
+  answered a different question than the one being asked. Undelivered entries
+  are now spooled, retried on a cadence, and counted in the security-posture
+  row; a sustained outage raises `audit_forward_failed` **once** — not once per
+  audited action — and clears with `audit_forward_recovered`. A collector that
+  is wedged no longer adds its connect timeout to every audited request.
+- **The *Test forwarding* button reported success for entries that never left
+  the box.** The three decline paths — no destination set, the SSRF guard
+  refusing the address, DNS not resolving — returned silently, so the button an
+  operator presses precisely to prove the pipe works was the one place it could
+  lie. Each now says which.
+
+### SNMP traps that all looked the same
+
+- **Every trap from a host folded into one alert.** Traps were stored as raw
+  dotted OIDs and raised a single coalesced `snmp_trap_received` with no
+  identity field, at one fixed severity. A UPS reporting *on battery* and a
+  switch reporting its fourth `linkDown` of the hour were the same alert row, so
+  acknowledging the noise buried the outage — and paging on one while ignoring
+  the other, which is the entire reason to run a trap receiver, was not
+  expressible. **Trap rules** map an OID prefix (and optionally a pattern on the
+  value) to a severity, or to `ignore`. Longest prefix wins, so a specific rule
+  beats a broad one added later without reordering.
+- **The OID name resolver had one caller, and it was the wrong one.**
+  `oid_label()` has resolved well-known OIDs to their MIB name since the OID
+  browser shipped — while the trap store, the one place an unreadable dotted
+  string actually costs you something at 3am, kept the raw digits. Traps now
+  resolve on ingest, so the alert reads `upsOnBattery`.
+- **You can test a rule before the device emits one.** `POST
+  /api/snmp/trap-rules/test` (and a Test box on the settings pane) reports what
+  a given OID would do — a mistyped prefix otherwise looks exactly like a
+  correct one until 3am.
+
+### Switch ports had no history at all
+
+- **The interface-table walk existed and was thrown away.** It ran only on the
+  on-demand deep poll, which draws a one-shot table in the drawer, because
+  walking it every five minutes is genuinely too heavy for a big switch. So a
+  switch, router or firewall had no per-port bandwidth history, no utilisation
+  graph, no error trend, and no alert when a port went down or saturated — and
+  `nic_errors` only ever fired from agent telemetry, so it covered Linux,
+  Windows and macOS hosts and never a switch port. An uplink at 98 % for a week,
+  or an access port bouncing every night, was invisible.
+- **So it is opt-in per device.** Turn it on for the core switch you care about,
+  not for all forty access switches. Twenty-four hours per port, with
+  `snmp_if_down`/`snmp_if_up` and `snmp_if_saturated`/`snmp_if_relieved`.
+  Counter wraps are corrected and reboots dropped rather than drawn as a
+  fictional peak; a port you shut administratively is configuration, not an
+  incident; saturation needs two consecutive samples so a backup job does not
+  page you; and a port that goes down does not also announce that its
+  utilisation is back to normal.
+
+### The switch and the firewall had no config backup
+
+- **The only way to see an appliance's running config was to lose it.** The
+  RouterOS **export** action dumped text into a panel and persisted nothing —
+  not stored, not versioned, not diffed, not scheduled, no change event — and it
+  vanished when you closed the drawer. OPNsense had no config call at all.
+  Meanwhile Linux hosts have had hash-based config drift since v2. "Who changed
+  the firewall rule at 3pm Friday, and what did it look like before?" had no
+  answer for the two device types that question is usually about.
+- **Now archived daily, ten revisions per device, with a diff.** A change raises
+  `netconfig_changed`. An identical config is not re-archived — only its
+  last-verified time moves, so a quiet device is distinguishable from a broken
+  poll — and the first archive of a device is a baseline that alerts on nothing,
+  so switching the feature on does not page you about every appliance at once.
+  Off by default: it authenticates to every appliance and stores its full
+  configuration. A config over 256 KB is kept as a hash and size only; change
+  detection still works, and a *truncated* config in an archive looks complete
+  when it is not.
+
+### External tickets that opened and were never touched again
+
+- **Closing the Jira issue did not close the alert.** The ITSM destinations
+  posted a create-ticket call when an alert was acknowledged, stamped the
+  reference on the alert, and stopped. Nothing read the ticket's state back,
+  commented on it, or transitioned it. An engineer swaps the disk, closes the
+  issue, and RemotePower's alert stays open forever — counting in the inbox,
+  holding the host in Needs Attention, dragging fleet health down until somebody
+  resolves it a second time in a second interface. The built-in helpdesk has
+  always closed exactly this loop; external ITSM was the one ticket path that
+  did not participate.
+- **And the reverse.** An alert that healed itself left an orphaned open issue
+  nobody would close. Resolving an alert now comments on the Jira issue,
+  resolves the ServiceNow incident, or solves the Zendesk ticket. A new **ITSM
+  callback** token accepts each provider's own issue-updated webhook and
+  resolves the alert the ticket came from.
+- **Re-acknowledging no longer opens a second ticket.** Acknowledgement is
+  re-runnable — un-ack and ack again, or an escalation re-acking — and each pass
+  used to open a fresh issue with the same summary.
+
+### Receivers that named senders they rejected
+
+- **Alertmanager and Authentik were advertised and 400'd.** The inbound alert
+  receiver required a top-level `title` and read RemotePower's own shape. Both
+  of those senders post fixed payloads with no `title` field, so every
+  notification was rejected with "title required" — and there is nothing an
+  operator can change at their end. Their payloads are now adapted, along with
+  Grafana's, detected automatically or pinned per token.
+- **Grafana's re-notify filled the inbox.** A repeat firing appended a brand-new
+  alert row rather than updating the existing one, so one unresolved rule
+  produced six duplicates a day, all to be closed by hand — and `status:
+  resolved` did nothing at all. A repeat now updates the alert with a repeat
+  count, and a resolve closes it. Prometheus `warning` maps to *medium* rather
+  than high, so a fleet of disk-80 % rules does not page.
+
+### Reports you could not produce afterwards
+
+- **Every report was computed and thrown away.** No report was stored anywhere
+  and no endpoint took an as-of date. That would be recoverable if the inputs
+  had history, but CVE counts, patch backlog and per-framework control results
+  keep none — so a past-dated posture report was not merely unstored, it was
+  unreconstructable. An auditor asking for the end of Q1 got the March email, if
+  it was even scheduled, and nothing else. Every **delivered** report is now
+  kept exactly as sent, with an as-of lookup that returns the nearest delivery
+  at or before the date — never after, because a report generated a week later
+  looks like an answer and is not one.
+- **The evidence pack labelled itself loosely.** A `period_days: 90` header sat
+  next to a posture block of today's numbers. It now says so in the document,
+  and carries the archived reports that genuinely cover the period.
+- **Reports leave the box as uninterpreted numbers.** The model that writes a
+  covering paragraph already existed behind an in-app button, with no cadence,
+  no recipient list and no path into anything delivered — so the person a report
+  is usually *for*, who never logs in, received "Fleet health score: 82/100" and
+  no way to tell whether that was good. An optional **AI summary** section opens
+  the report with three to five sentences of plain prose. Off by default and
+  opt-in per report, because it costs provider tokens on every delivery; only
+  the report's own figures are sent, never the per-device rows; and a provider
+  outage costs the paragraph, not the report — the email says *AI summary
+  unavailable* with the reason rather than arriving silently without one.
+
+### Thirty pages you could only reach one way
+
+- **Cross-page navigation was almost entirely one-way.** Thirty pages —
+  including the flagship **Security Advisory**, Risk, Forecast, Alert Tuning and
+  Command Queue — had no inbound link from anywhere else in the interface. An
+  operator triaging a critical CVE had no route to that host's risk score, to
+  the advisory that ranks the CVE against everything else, or to Package
+  Snapshots to see what changed: they had to remember the page existed, remember
+  which of twelve sidebar groups it lived in, open that group — which collapses
+  the one they were in — and lose their filters on the way. Every page's
+  subtitle now ends in a **Related** chip row. The labels come from the live
+  navigation, so a renamed page cannot leave a stale chip and a switched-off
+  module drops out of every row.
+- **The retrieval index was filed as a diagnostic.** Neither search box reached
+  tickets, KB articles, CMDB assets, contacts or the documentation — while the
+  endpoint that searches all of them, with no model call and no tokens spent,
+  sat in Settings ▸ AI under "Test retrieval", rendering results as plain text
+  with no way to open what it found. Remembering a ticket about a failing NIC on
+  a host you cannot name meant searching Tickets, then KB, then CMDB, then
+  Contacts. **Knowledge search** now runs inside the command palette and every
+  result opens the thing it found. Full-access roles only, since the corpus
+  carries no per-role tags — the palette section simply does not appear for
+  scoped operators rather than showing them other people's hosts.
+- **Documentation links unloaded the whole interface.** Of 126 in-app
+  Documentation pointers, one opened in a new tab; the other 125 navigated away
+  from the app to a raw Markdown file with no renderer — a *download*, on a
+  stock nginx. Clicking the pointer beside a half-filled TLS form cost you the
+  form and a full reboot to the dashboard. They open in a modal now, using the
+  Markdown renderer the knowledge base has had since v2.1.3. One of the 126 was
+  also dead, and the Documentation page's own search matched the whole phrase
+  rather than each word.
+
+### Charts that behaved differently one page apart
+
+- **The chart you open during an incident was the one with no interaction.**
+  The device **Metrics** modal drew a static image whose only numbers were a
+  `now · min · avg · max` header, so answering "what was CPU at 02:40, when the
+  alert fired?" meant eyeballing a pixel against a gridline — while the Trends
+  chart one page away had a hover readout, drag-to-zoom and an exact from/to
+  range bar. The 30-day and 90-day views compressed days into a few pixels with
+  no way to zoom in. Both now use the same component. Reboot, command, drift and
+  out-of-memory annotations moved onto it as well, so any chart can carry them.
+
+### Changing a threshold no longer surprises you
+
+- **Seventy thresholds applied fleet-wide the moment you saved.** Nothing
+  computed how many hosts would newly breach. Dropping the disk warning from
+  90 % to 80 % on a 400-host fleet is a hundred simultaneous new breaches, a
+  Needs-Attention avalanche and a paging storm — and the only way back was
+  Settings ▸ Advanced ▸ Configuration history. **Preview impact** recomputes
+  every host's checks against the values in the form, without saving, and
+  reports which checks would start and stop breaching, on how many hosts, with
+  examples. It drives the real checks engine rather than a second copy of the
+  rules, and says plainly that alerts already open are not resolved by a
+  threshold change.
+
+### Cloud accounts you could not add
+
+- **Two of the three shipped importers could not be configured.** The cloud
+  inventory importer has handled Hetzner Cloud and DigitalOcean since v5.8.0 —
+  but the settings save path accepted only AWS, so those accounts could never be
+  stored and the code that imports them could never run.
+- **Azure and GCP now import too.** Azure through an app registration and the
+  subscription-wide VM list, so one call covers every resource group; GCP
+  through a service-account key and the aggregated instance list, so one call
+  covers every zone, with a read-only scope. An operator on those clouds
+  previously had no bulk path at all — sixty VMs added by hand, or a homegrown
+  script re-running on cron.
+
+### A prompt on Windows without installing OpenSSH
+
+- **The terminal button offered a login that could only fail.** The web terminal
+  is an SSH client, so a Windows host answers it only if OpenSSH Server was
+  installed and exposed separately — which RemotePower's own Windows onboarding
+  never does. The button said nothing about that. It now explains what SSH needs
+  and offers the alternative, while still letting you proceed with SSH, since
+  some Windows fleets do run it.
+- **The alternative is an agent console.** Run PowerShell or `cmd.exe` through
+  the agent and read the output inline — no SSH server, no inbound port, no
+  second credential. The synchronous run-and-wait channel has existed since
+  v5.6.0 with no interface on top of it. It is **not** a terminal and does not
+  pretend to be: each command is its own process, so `cd` does not carry over
+  and an interactive program will hang until the timeout — all three stated in
+  the modal. For a full desktop, the RDP tunnel is still the answer. Every
+  command goes through the same admin-gated, allowlist-enforced, audit-logged
+  path as **Run command**.
+
+### Erasing a person, and the switches that govern the admins
+
+- **Deleting a user left them all over the instance.** It removed the account
+  row and nothing else: the avatar stayed on disk, the sessions stayed in the
+  token store, the name stayed on forty ticket comments and every timesheet
+  line, the phone number stayed in Contacts — and no report even enumerated
+  where it all was. An erasure request had to be answered by grepping the data
+  directory. `GET /api/privacy/subject` now lists every record naming a person
+  and marks each erasable or retained; `POST /api/privacy/erase` removes what
+  can go and **reports exactly what it did not touch, and why**. The audit log is
+  never rewritten — it is hash-chained, and editing an entry destroys the
+  tamper-evidence that makes it evidence — and the erasure itself is recorded,
+  naming the subject, because that entry is the proof the request was honoured.
+  Backups already taken still hold the data, and the response says so.
+- **The four-eyes control was switchable by the people it governs.** Saving
+  settings was a plain admin action, so any admin could turn change approval
+  off, act unilaterally, and turn it back on — and the same request could unset
+  the append-only audit sink, drop audit retention to a day, empty the IP
+  allowlist or lift the MFA requirement. Changing any of those now requires the
+  admin to re-verify their password or second factor first, exactly as creating
+  an admin account already did, and is recorded by name. Only keys that actually
+  change trigger it, so ordinary settings saves are untouched.
+
 ### Documentation that promised more than the code did
 
 - **Webhook replay protection was described but not delivered.** The receiver
