@@ -65445,7 +65445,12 @@ def handle_log_tail():
         limit = 500
 
     log_store = load(LOG_WATCH_FILE)
-    devices   = load(DEVICES_FILE)
+    # v6.4.2 (audit): scope-filter exactly like handle_log_search (v6.2.2) — this
+    # sibling read the whole fleet's log lines with a bare load(DEVICES_FILE), so
+    # a scoped viewer or a tenant admin (require_auth admits both) could tail
+    # every other scope's/tenant's log content, and an out-of-scope `?device=`
+    # returned that device's lines. No-op for a single-org admin.
+    devices   = _scope_filter_devices(load(DEVICES_FILE))
     out = []
     newest_ts = since
     devices_reporting = 0
