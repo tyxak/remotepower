@@ -29383,6 +29383,11 @@ _FQ_PARAMS = (
     'uptime_gt', 'uptime_lt', 'cores_gt', 'cores_lt', 'container_stopped',
     'container_restarting', 'timer_failed', 'brute_force', 'smart_failure',
     'ups_on_battery', 'temp_high', 'inode_gt', 'fd_gt', 'conntrack_gt',
+    # v6.4.2: host security-posture facets. These signals already drove the risk
+    # score, the advisory, and (as of this release) the Checks page, but were
+    # unanswerable fleet-wide — "which hosts have no active firewall / password
+    # SSH auth / auto-updates off" had no query. All derived from stored sysinfo.
+    'firewall_off', 'ssh_weak', 'autoupdate_off',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -52519,7 +52524,9 @@ def handle_fleet_query():
       cores_gt=<n>, cores_lt=<n> (cpu_count),
       container_stopped=1, container_restarting=1, timer_failed=1,
       brute_force=1 (active brute-force), smart_failure=1 (a disk SMART-failed),
-      ups_on_battery=1.
+      ups_on_battery=1, firewall_off=1 (no active host firewall),
+      ssh_weak=1 (root/password/empty-password SSH permitted),
+      autoupdate_off=1 (no automatic security updates).
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -52572,6 +52579,10 @@ def handle_fleet_query():
     # v4.1.0: security/hardware posture (separate stores, loaded only when used).
     brute_q = q('brute_force') in ('1', 'true')
     smart_q = q('smart_failure') in ('1', 'true')
+    # v6.4.2: host security-posture facets (all from stored sysinfo).
+    fwoff_q = q('firewall_off') in ('1', 'true')
+    sshweak_q = q('ssh_weak') in ('1', 'true')
+    auoff_q = q('autoupdate_off') in ('1', 'true')
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -52760,6 +52771,24 @@ def handle_fleet_query():
             continue
         if temp_q and not (hw_store.get(did) or {}).get('_temp_high'):
             continue
+        # v6.4.2: host security-posture facets, mirroring the Checks-page rows.
+        if fwoff_q:
+            fw = si.get('firewall')
+            # active is tri-state — only False means "no active ruleset";
+            # None (unreadable probe) must NOT match, like the check row.
+            if not (isinstance(fw, dict) and fw.get('active') is False):
+                continue
+        if sshweak_q:
+            sc = si.get('ssh_config') or {}
+            weak = (str(sc.get('permit_empty_passwords', '')).lower() == 'yes'
+                    or str(sc.get('permit_root_login', '')).lower() == 'yes'
+                    or str(sc.get('password_authentication', '')).lower() == 'yes')
+            if not weak:
+                continue
+        if auoff_q:
+            au = si.get('autoupdate')
+            if not (isinstance(au, dict) and au.get('enabled') is False):
+                continue
         matched_pkg = None
         if has_pkg:
             installed = (pkg_store.get(did) or {}).get('packages') or []
