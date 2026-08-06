@@ -219,6 +219,58 @@ def _build_fleet_report(site_id=None):
             sla_pcts.append(pct)
     fleet_uptime = round(sum(sla_pcts) / len(sla_pcts), 3) if sla_pcts else None
 
+    # v6.4.2 (audit): host security POSTURE in the report. Firewall, sshd
+    # hardening and encryption-at-rest reached the Checks page and the risk score
+    # but never the artefact an auditor is handed. Aggregated from the sysinfo
+    # already loaded above — no extra store reads. Each dimension carries its own
+    # "reporting" denominator so an absent signal is never counted as a pass.
+    pos = {'firewall_off': [], 'ssh_weak': [], 'autoupdate_off': [],
+           'encryption_off': [],
+           'firewall_reporting': 0, 'ssh_reporting': 0,
+           'autoupdate_reporting': 0, 'encryption_reporting': 0}
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        si = d.get('sysinfo') or {}
+        nm = d.get('name', did)
+        fw = si.get('firewall')
+        if isinstance(fw, dict) and fw.get('active') is not None:
+            pos['firewall_reporting'] += 1
+            if fw.get('active') is False:
+                pos['firewall_off'].append(nm)
+        sc = si.get('ssh_config')
+        if isinstance(sc, dict) and sc:
+            pos['ssh_reporting'] += 1
+            if (str(sc.get('permit_empty_passwords', '')).lower() == 'yes'
+                    or str(sc.get('permit_root_login', '')).lower() == 'yes'
+                    or str(sc.get('password_authentication', '')).lower() == 'yes'):
+                pos['ssh_weak'].append(nm)
+        au = si.get('autoupdate')
+        if isinstance(au, dict) and 'enabled' in au:
+            pos['autoupdate_reporting'] += 1
+            if au.get('enabled') is False:
+                pos['autoupdate_off'].append(nm)
+        # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
+        # volume). Present-and-off only; absence is not counted.
+        mp = si.get('mac_posture')
+        if isinstance(mp, dict) and 'filevault' in mp:
+            pos['encryption_reporting'] += 1
+            if not mp.get('filevault'):
+                pos['encryption_off'].append(nm)
+        else:
+            wp = si.get('win_posture')
+            bl = wp.get('bitlocker') if isinstance(wp, dict) else None
+            if isinstance(bl, list) and bl:
+                pos['encryption_reporting'] += 1
+                if any(isinstance(v, dict)
+                       and str(v.get('status', '')).lower() not in ('on', 'encrypted')
+                       for v in bl):
+                    pos['encryption_off'].append(nm)
+    # keep the offender lists bounded like the health `worst` list
+    for _k in ('firewall_off', 'ssh_weak', 'autoupdate_off', 'encryption_off'):
+        pos[_k + '_count'] = len(pos[_k])
+        pos[_k] = pos[_k][:10]
+
     # v6.4.2: white-labelling. The printable report (report.html) hardcoded the
     # RemotePower name + logo even on an install that had set brand_name /
     # brand_accent, so the one artefact most likely to be sent to a CUSTOMER was
@@ -246,6 +298,7 @@ def _build_fleet_report(site_id=None):
         'health':         {'score': health['score'], 'grade': health['grade'],
                            'worst': health['devices'][:10]},
         'attention':      health['counts'],
+        'posture':        pos,
         'compliance':     comp,
         # v6.4.2: what CHANGED, not just where things stand. Every section above
         # is a live counter, so two consecutive weekly reports were
@@ -262,7 +315,7 @@ def _build_fleet_report(site_id=None):
 
 # v3.14.0: custom report builder — selectable sections + saved definitions.
 _REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention',
-                    'compliance', 'period')
+                    'posture', 'compliance', 'period')
 # v6.4.2: sections that cost real money and latency to produce. Deliberately
 # OUTSIDE the default tuple, because `sections or list(_REPORT_SECTIONS)` would
 # otherwise switch AI billing on for every install that has ever saved a report

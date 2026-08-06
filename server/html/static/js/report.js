@@ -109,6 +109,28 @@
         + '<tr><td>Compliance change</td><td>' + esc(sgn(dl.compliance_pct, ' pp')) + '</td></tr>'
         + '</tbody></table>';
     }
+    // v6.4.2: host security posture — firewall, sshd hardening, encryption,
+    // auto-update, each with its own reporting denominator so an absent signal
+    // is never shown as a pass.
+    const pos = rep.posture || {};
+    const posRows = [
+      ['Host firewall inactive', pos.firewall_off, pos.firewall_off_count, pos.firewall_reporting],
+      ['Weak SSH configuration', pos.ssh_weak, pos.ssh_weak_count, pos.ssh_reporting],
+      ['Automatic updates off', pos.autoupdate_off, pos.autoupdate_off_count, pos.autoupdate_reporting],
+      ['Disk encryption off', pos.encryption_off, pos.encryption_off_count, pos.encryption_reporting],
+    ].filter(function (r) { return (r[3] || 0) > 0; });
+    if (posRows.length) {
+      html += '<h2>Host security posture</h2><table><thead><tr><th>Finding</th>'
+        + '<th>Affected / reporting</th><th>For example</th></tr></thead><tbody>'
+        + posRows.map(function (r) {
+            const n = r[2] || 0, rep_n = r[3] || 0;
+            const ex = Array.isArray(r[1]) ? r[1].slice(0, 5).map(esc).join(', ') : '';
+            return '<tr><td>' + esc(r[0]) + '</td>'
+              + '<td class="' + (n ? 'bad' : 'ok') + '">' + n + ' / ' + rep_n + '</td>'
+              + '<td>' + ex + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+    }
     const fwKeys = Object.keys(fws);
     if (fwKeys.length) {
       html += '<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'
