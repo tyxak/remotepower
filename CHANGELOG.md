@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.4.2 — "Ver1tyMatters" — unreleased (test)
+## v6.4.2 — "Ver1tyMatters" — 2026-08-06
 
 Two things about containers that were quietly unfinished: you could not silence
 one container without silencing its host, and the **Logs** button showed you a

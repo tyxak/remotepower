@@ -182,17 +182,16 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.4.2 "Ver1tyMatters"** — two things about containers that were quietly
-  unfinished. **Silence one container** without silencing its host — the
-  restart loop you already know about, the sidecar that exits by design —
-  while its neighbours keep alerting; the mute stops the inbox, webhooks,
-  push and the health score, and deliberately keeps recording history and
-  forwarding to your SIEM. And the **Logs** button opens a real log window
-  that waits for the agent and says how long it has been waiting, fetches
-  100–2000 lines instead of a fixed 50, filters as you type, and offers
-  Copy, Download and *Explain logs*. Plus **Windows container actions**,
-  which had been drawing Start/Stop/Restart/Logs buttons that could never
-  run, and a cross-tenant leak fixed in the Tuning mute list.
+- **v6.4.2 "Ver1tyMatters"** — a truth-in-reporting release. **Per-container
+  alert mutes** (silence one container without silencing its host) and a real
+  container **log window**, then a long correctness pass: an adversarial audit
+  closed a **cross-tenant log-content leak**, a governance switch a config
+  import could flip, and a webhook credential that shipped in clear text. A
+  **data-binding sweep** put Linux firewall / SSH / auto-update posture on the
+  Checks page, into fleet-query, and behind PCI 1.2.1, and made
+  **Windows/macOS endpoint posture feed the risk score**. **Security hardening
+  is now opt-in** (Settings → Security) — the advisory checks that flag
+  deliberate choices are off by default and alert only when you enable them.
 - **v6.4.1 "Cust0dyMatters"** — key custody: a built-in **KMIP key server** so a
   Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys
   on the same hardware that holds the encrypted data. Off by default, a separate
