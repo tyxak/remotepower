@@ -221,6 +221,182 @@ def import_digitalocean(token, timeout=15, _opener=None):
     return out
 
 
+# ── v6.4.2: Azure + GCP ─────────────────────────────────────────────────────
+# The module docstring said it was "structured so Azure/GCP (OAuth2 bearer
+# flows) can slot in later". Later is now. Both need a client-credentials token
+# exchange before the list call — which is the only thing that made them
+# different from Hetzner/DigitalOcean, since `_bearer_get_json` already handles
+# the half that follows.
+#
+# An operator on those clouds had NO bulk-inventory path: every VM added by
+# hand as an agentless device, or enrolled one at a time. A shop with 60 Azure
+# VMs across three subscriptions either kept a spreadsheet or wrote their own
+# script against POST /api/devices and re-ran it on cron — re-implementing the
+# decommission-not-delete logic the scheduled re-sync already has.
+
+
+def _oauth2_token(url, form, timeout, _opener):
+    """Client-credentials token exchange. Returns the access token.
+
+    The token URL is built by the caller from a FIXED host plus an
+    operator-supplied tenant/id, never from a free-form URL — the same posture
+    as `_bearer_get_json`'s fixed hosts.
+    """
+    import json as _json
+    data = urllib.parse.urlencode(form).encode()
+    req = urllib.request.Request(url, data=data, headers={
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json', 'User-Agent': 'RemotePower'}, method='POST')
+    try:
+        opener = _opener or urllib.request.urlopen
+        with opener(req, timeout=timeout) as resp:
+            tok = _json.loads(resp.read().decode('utf-8', 'replace'))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode('utf-8', 'replace')[:300] if hasattr(e, 'read') else ''
+        # The detail is the provider's own error body — "AADSTS7000215: Invalid
+        # client secret" is the whole diagnosis, and swallowing it would leave
+        # the operator guessing between a wrong secret, a wrong tenant and a
+        # missing role assignment.
+        raise RuntimeError(f'Token request failed (HTTP {e.code}): {detail}') from None
+    except Exception as e:
+        raise RuntimeError(f'Could not reach the token endpoint: {e}') from None
+    access = (tok or {}).get('access_token')
+    if not access:
+        raise RuntimeError('Token endpoint returned no access_token')
+    return access
+
+
+_AZURE_API = '2023-07-01'
+
+
+def import_azure(tenant_id, client_id, client_secret, subscription_id,
+                 timeout=15, _opener=None):
+    """Azure VMs → flat instance dicts (same shape as EC2).
+
+    Uses the ARM list-all endpoint, so ONE call covers every resource group in
+    the subscription — an operator with VMs spread across a dozen groups should
+    not have to enumerate them.
+    """
+    tenant = urllib.parse.quote(str(tenant_id or '').strip(), safe='')
+    sub = urllib.parse.quote(str(subscription_id or '').strip(), safe='')
+    if not (tenant and sub and client_id and client_secret):
+        raise RuntimeError('Azure needs tenant_id, client_id, client_secret and '
+                           'subscription_id')
+    token = _oauth2_token(
+        f'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token',
+        {'grant_type': 'client_credentials', 'client_id': client_id,
+         'client_secret': client_secret,
+         'scope': 'https://management.azure.com/.default'},
+        timeout, _opener)
+    out = []
+    url = (f'https://management.azure.com/subscriptions/{sub}'
+           f'/providers/Microsoft.Compute/virtualMachines?api-version={_AZURE_API}')
+    seen_pages = 0
+    while url and seen_pages < 20:      # bounded: a paging loop must terminate
+        data = _bearer_get_json(url, token, timeout, _opener)
+        for vm in (data.get('value') or []):
+            props = vm.get('properties') or {}
+            hw = props.get('hardwareProfile') or {}
+            # ARM's VM list does not carry NICs' addresses; the ipConfiguration
+            # lives on a separate resource. Rather than fan out one call per VM
+            # (60 VMs = 60 extra round trips), leave the IP blank — the device
+            # is still created, and an operator can fill it in or let the agent
+            # enrol. Claiming an IP we did not fetch would be worse.
+            out.append({
+                'instance_id': str(vm.get('name') or vm.get('id') or ''),
+                'name': vm.get('name', ''),
+                'state': str(props.get('provisioningState') or ''),
+                'type': str(hw.get('vmSize') or ''),
+                'public_ip': '', 'private_ip': '',
+                'az': str(vm.get('location') or ''),
+            })
+        url = data.get('nextLink') or ''
+        seen_pages += 1
+    return out
+
+
+def import_gcp(client_email, private_key, project_id, timeout=15, _opener=None):
+    """GCP Compute instances → flat instance dicts (same shape as EC2).
+
+    Service-account JWT bearer flow (RFC 7523): sign a short-lived assertion
+    with the key from the downloaded service-account JSON and exchange it for
+    an access token. `aggregatedList` returns every zone in one call.
+    """
+    project = urllib.parse.quote(str(project_id or '').strip(), safe='')
+    if not (client_email and private_key and project):
+        raise RuntimeError('GCP needs client_email, private_key and project_id')
+    token = _oauth2_token(
+        'https://oauth2.googleapis.com/token',
+        {'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+         'assertion': _gcp_assertion(client_email, private_key)},
+        timeout, _opener)
+    out = []
+    url = (f'https://compute.googleapis.com/compute/v1/projects/{project}'
+           f'/aggregatedList/instances?maxResults=500')
+    pages = 0
+    while url and pages < 20:
+        data = _bearer_get_json(url, token, timeout, _opener)
+        for zone_key, block in (data.get('items') or {}).items():
+            for vm in ((block or {}).get('instances') or []):
+                nic = ((vm.get('networkInterfaces') or [{}])[0]) or {}
+                pub = ''
+                for ac in (nic.get('accessConfigs') or []):
+                    if ac.get('natIP'):
+                        pub = ac['natIP']
+                        break
+                out.append({
+                    'instance_id': str(vm.get('id') or vm.get('name') or ''),
+                    'name': vm.get('name', ''),
+                    'state': str(vm.get('status') or ''),
+                    # machineType is a full resource URL; the operator wants
+                    # "e2-medium", not the path it lives at.
+                    'type': str(vm.get('machineType') or '').rsplit('/', 1)[-1],
+                    'public_ip': pub,
+                    'private_ip': str(nic.get('networkIP') or ''),
+                    'az': str(zone_key).rsplit('/', 1)[-1],
+                })
+        tok = data.get('nextPageToken')
+        url = (f'https://compute.googleapis.com/compute/v1/projects/{project}'
+               f'/aggregatedList/instances?maxResults=500'
+               f'&pageToken={urllib.parse.quote(str(tok), safe="")}') if tok else ''
+        pages += 1
+    return out
+
+
+def _gcp_assertion(client_email, private_key):
+    """A signed JWT asserting the service account, per RFC 7523."""
+    import base64
+    import json as _json
+    import time as _time
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+    except ImportError:
+        raise RuntimeError('GCP import needs the `cryptography` package '
+                           '(already a RemotePower dependency)') from None
+
+    def b64(raw):
+        return base64.urlsafe_b64encode(raw).rstrip(b'=')
+
+    now = int(_time.time())
+    header = b64(_json.dumps({'alg': 'RS256', 'typ': 'JWT'},
+                             separators=(',', ':')).encode())
+    claim = b64(_json.dumps({
+        'iss': client_email,
+        'scope': 'https://www.googleapis.com/auth/compute.readonly',
+        'aud': 'https://oauth2.googleapis.com/token',
+        'iat': now, 'exp': now + 3600,
+    }, separators=(',', ':')).encode())
+    signing_input = header + b'.' + claim
+    try:
+        key = serialization.load_pem_private_key(
+            str(private_key).replace('\\n', '\n').encode(), password=None)
+    except Exception as e:
+        raise RuntimeError(f'Could not read the GCP private key: {e}') from None
+    sig = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+    return (signing_input + b'.' + b64(sig)).decode()
+
+
 def instance_to_device(provider, region, inst):
     """Map one cloud instance to an agentless device record fragment. The server
     merges this into DEVICES_FILE (stable id, agentless flag, tags)."""

@@ -25689,7 +25689,7 @@ def _redact_nonname_config_secrets(cfg, mask=False):
     for _ig in (cfg.get('integrations') or []):
         _hit(_ig, 'url')            # basic-auth userinfo; sibling 'secret' is name-caught
     for _ca in (cfg.get('cloud_accounts') or []):
-        _hit(_ca, 'secret_key')     # AWS/Hetzner/DO secret access key; '_key' not name-caught
+        _hit(_ca, 'secret_key')     # AWS/Hetzner/DO/Azure/GCP credential; '_key' not name-caught
 
 
 # ── v5.8.0 (B3.5): declarative config export ─────────────────────────────────
@@ -26246,9 +26246,16 @@ def handle_config_get():
     # v3.14.0 #32: cloud accounts — surface provider/region/key-id + a *_set
     # flag, never the secret key.
     if isinstance(safe.get('cloud_accounts'), list):
+        # v6.4.2: the non-secret identifiers of EVERY provider, not just AWS's
+        # key id — an Azure account whose subscription id was dropped on read
+        # renders as a blank row the operator cannot tell apart from another.
         safe['cloud_accounts'] = [
             {'provider': a.get('provider'), 'region': a.get('region'),
              'access_key_id': a.get('access_key_id'),
+             'tenant_id': a.get('tenant_id'), 'client_id': a.get('client_id'),
+             'subscription_id': a.get('subscription_id'),
+             'project_id': a.get('project_id'),
+             'client_email': a.get('client_email'),
              'secret_key_set': bool(a.get('secret_key'))}
             for a in safe['cloud_accounts'] if isinstance(a, dict)]
     else:
@@ -27836,25 +27843,40 @@ def handle_config_save():
     # saves when omitted (mirrors smtp_password) and never returned by GET.
     if 'cloud_accounts' in body:
         raw_ca = body['cloud_accounts'] if isinstance(body['cloud_accounts'], list) else []
-        existing = {(a.get('provider'), a.get('region'), a.get('access_key_id')): a
+        existing = {_cloud_account_key(a): a
                     for a in (cfg.get('cloud_accounts') or []) if isinstance(a, dict)}
         accounts = []
         for a in raw_ca[:50]:
             if not isinstance(a, dict):
                 continue
             prov = str(a.get('provider', '')).strip().lower()
-            if prov != 'aws':                 # v1: AWS only
+            # v6.4.2: this was `if prov != 'aws': continue` — "v1: AWS only" —
+            # even though the importer has handled Hetzner and DigitalOcean
+            # since W6-44. So those two accounts could not be SAVED, and the
+            # code that imports them could never run: a dispatch branch with no
+            # way to reach it. Azure and GCP join the same table rather than
+            # inheriting the gap.
+            spec = _CLOUD_PROVIDER_FIELDS.get(prov)
+            if not spec:
                 continue
-            region = _sanitize_str(str(a.get('region', '')), 32).strip()
-            akid = _sanitize_str(str(a.get('access_key_id', '')), 128).strip()
-            if not (region and akid):
+            entry = {'provider': prov}
+            missing = False
+            for field, required in spec:
+                v = _sanitize_str(str(a.get(field, '')), 256).strip()
+                if required and not v:
+                    missing = True
+                    break
+                if v:
+                    entry[field] = v
+            if missing:
                 continue
-            entry = {'provider': prov, 'region': region, 'access_key_id': akid}
             sk = a.get('secret_key')
             if sk:
-                entry['secret_key'] = str(sk)[:256]
+                entry['secret_key'] = str(sk)[:4096]   # a GCP private key is long
             else:
-                prev = existing.get((prov, region, akid))
+                # Write-only: a save that omits the secret keeps the stored one,
+                # so the UI never has to echo it back to round-trip a region edit.
+                prev = existing.get(_cloud_account_key(entry))
                 if prev and prev.get('secret_key'):
                     entry['secret_key'] = prev['secret_key']
             accounts.append(entry)
@@ -34410,6 +34432,37 @@ def handle_proxmox_lifecycle() -> None:
     respond(200, {'ok': True, 'task': upid, 'action': label})
 
 
+# v6.4.2: what each cloud provider needs, and which of it is required. The
+# secret itself is always `secret_key` regardless of provider, so it inherits
+# the write-only save, the GET-scrub and the backup redaction every other
+# credential already gets — five parallel secret field names would each need
+# adding to three separate scrub lists, and one would be forgotten.
+_CLOUD_PROVIDER_FIELDS = {
+    'aws':          [('region', True), ('access_key_id', True)],
+    'hetzner':      [('region', False)],
+    'digitalocean': [('region', False)],
+    'do':           [('region', False)],
+    'azure':        [('tenant_id', True), ('client_id', True),
+                     ('subscription_id', True), ('region', False)],
+    'gcp':          [('project_id', True), ('client_email', True),
+                     ('region', False)],
+}
+
+
+def _cloud_account_key(a):
+    """Identity of a saved cloud account, for matching a save against what is
+    already stored (so a secret-less edit keeps its secret).
+
+    Provider plus whichever field names the ACCOUNT — the AWS key id, the Azure
+    subscription, the GCP project. Keying on region alone would merge two
+    subscriptions in the same region into one.
+    """
+    return (str(a.get('provider', '')).lower(),
+            str(a.get('region', '')),
+            str(a.get('access_key_id') or a.get('subscription_id')
+                or a.get('project_id') or ''))
+
+
 def handle_cloud_import():
     """POST /api/cloud/import {provider?, region?} — pull instances from the
     configured cloud account(s) into the fleet as agentless device records.
@@ -34453,6 +34506,26 @@ def _cloud_fetch_instances(a):
             if not a.get('secret_key'):
                 return {}, 'no DigitalOcean API token set'
             insts = cloud_import.import_digitalocean(a['secret_key'], _opener=opener)
+        elif provider == 'azure':
+            # v6.4.2: client-credentials app registration. `secret_key` carries
+            # the client secret so it inherits the existing write-only /
+            # scrubbing treatment every other provider's credential gets.
+            if not (a.get('tenant_id') and a.get('client_id')
+                    and a.get('secret_key') and a.get('subscription_id')):
+                return {}, ('Azure needs tenant_id, client_id, client secret and '
+                            'subscription_id')
+            insts = cloud_import.import_azure(
+                a['tenant_id'], a['client_id'], a['secret_key'],
+                a['subscription_id'], _opener=opener)
+        elif provider == 'gcp':
+            # `secret_key` carries the service account's private key, for the
+            # same reason.
+            if not (a.get('client_email') and a.get('secret_key')
+                    and a.get('project_id')):
+                return {}, 'GCP needs client_email, private key and project_id'
+            insts = cloud_import.import_gcp(
+                a['client_email'], a['secret_key'], a['project_id'],
+                _opener=opener)
         else:
             return {}, f'unsupported provider {provider!r}'
     except Exception as e:
