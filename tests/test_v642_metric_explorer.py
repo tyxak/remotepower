@@ -499,16 +499,35 @@ class TestSeriesFromRealRollupPoints(_RollupBase):
         self.assertIn("Temperature", names)
 
     def test_the_requested_statistic_is_the_one_plotted(self):
+        """min <= avg <= max on every bucket, and at least one bucket where
+        they genuinely differ.
+
+        The earlier version asserted `lo < hi` on `points[0]` alone — the
+        OLDEST bucket, which is a partial hour whenever `now` lands near an
+        hour boundary. A single-sample bucket has min == max legitimately, so
+        the test failed on working code depending on the clock. The property it
+        means is "the requested statistic is the one read", and one differing
+        bucket proves that without depending on where the hour falls.
+        """
+        import json
         mpts, _ = self._points()
         ctx = _ctx(with_card=False)
         ctx.eval("var ROW = {id:'d1', name:'web01', metrics: %s, thermal: []};" % _js(mpts))
-        lo = ctx.eval("_mxBuildSeries([ROW], ['cpu'], 'min', 0, 9e9)[0].points[0].y")
-        av = ctx.eval("_mxBuildSeries([ROW], ['cpu'], 'avg', 0, 9e9)[0].points[0].y")
-        hi = ctx.eval("_mxBuildSeries([ROW], ['cpu'], 'max', 0, 9e9)[0].points[0].y")
-        self.assertLessEqual(lo, av)
-        self.assertLessEqual(av, hi)
-        self.assertLess(lo, hi, "the seeded curve varies; min == max means the "
-                                "statistic is not being read at all")
+
+        def ys(stat):
+            return json.loads(ctx.eval(
+                "JSON.stringify(_mxBuildSeries([ROW], ['cpu'], '%s', 0, 9e9)[0]"
+                ".points.map(function (p) { return p.y; }))" % stat))
+        lo, av, hi = ys('min'), ys('avg'), ys('max')
+        self.assertEqual(len(lo), len(av))
+        self.assertEqual(len(av), len(hi))
+        for i, (a, b, c) in enumerate(zip(lo, av, hi)):
+            with self.subTest(bucket=i):
+                self.assertLessEqual(a, b)
+                self.assertLessEqual(b, c)
+        self.assertTrue(any(a < c for a, c in zip(lo, hi)),
+                        "the seeded curve varies across every full hour; if no "
+                        "bucket has min < max the statistic is not being read")
 
     def test_points_outside_the_window_are_dropped(self):
         mpts, _ = self._points()

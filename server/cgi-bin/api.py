@@ -1099,6 +1099,9 @@ for _at_name in (
         '_dig', '_ITSM_REF_PATHS', '_ITSM_STATUS_PATHS', '_ITSM_CLOSED',
         # v6.4.2: what would this threshold change break?
         'handle_threshold_preview', '_preview_check_map',
+        # v6.4.2: GDPR Art. 15 / 17 — enumerate and erase what we hold on a person
+        'handle_privacy_subject', 'handle_privacy_erase', '_subject_scan',
+        '_subject_matches', '_SUBJECT_TEXT_FIELDS',
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -29821,7 +29824,38 @@ def handle_user_delete(username):
     if len(admins) <= 1 and users[username].get('role', 'admin') == 'admin':
         respond(400, {'error': 'Cannot delete last admin'})
     del users[username]; save(USERS_FILE, users)
-    respond(200, {'ok': True})
+    # v6.4.2: deleting the account used to leave the avatar JPEG on disk and
+    # the session rows in tokens.json. The tokens were inert (verify_token
+    # returns None once the user record is gone) but both are still storage
+    # naming a person who asked to be removed — the Article 17 case this
+    # endpoint is the front door to.
+    leftovers = []
+    try:
+        for f in AVATARS_DIR.glob(f'{username.lower()}.*'):
+            f.unlink()
+            leftovers.append('avatar')
+    except Exception as _e:                                  # pragma: no cover
+        sys.stderr.write(f'[remotepower] avatar unlink failed: {_e}\n')
+    try:
+        with _LockedUpdate(TOKENS_FILE) as store:
+            gone = [k for k, t in list(store.items())
+                    if isinstance(t, dict) and t.get('user') == username]
+            for k in gone:
+                store.pop(k, None)
+        if gone:
+            leftovers.append(f'{len(gone)} session(s)')
+    except Exception as _e:                                  # pragma: no cover
+        sys.stderr.write(f'[remotepower] token purge failed: {_e}\n')
+    audit_log(requester, 'user_delete',
+              detail=f'user={username} also_removed={",".join(leftovers) or "none"}')
+    # What SURVIVES is reported rather than left for the operator to discover:
+    # ticket authorship, time entries and the hash-chained audit trail are
+    # retained deliberately, and GET /api/privacy/subject enumerates them.
+    respond(200, {'ok': True, 'also_removed': leftovers,
+                  'note': 'Ticket authorship, time entries and audit-log actor '
+                          'fields naming this user are retained as business and '
+                          'evidential records. GET /api/privacy/subject?who='
+                          + username + ' lists everything still held.'})
 
 
 def handle_user_update(username):
@@ -66839,6 +66873,8 @@ def _build_exact_routes():
         ('POST', '/api/device-profiles'): handle_device_profiles,
         # W5-6: smart groups (saved-query dynamic groups, admin-gated).
         ('POST', '/api/config/threshold-preview'): handle_threshold_preview,
+        ('GET', '/api/privacy/subject'): handle_privacy_subject,
+        ('POST', '/api/privacy/erase'): handle_privacy_erase,
         ('GET', '/api/report/archive'): handle_report_archive,
         ('GET', '/api/smart-groups'): handle_smart_groups,
         ('GET', '/api/snmp/trap-rules'): handle_snmp_trap_rules,

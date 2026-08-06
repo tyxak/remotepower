@@ -864,3 +864,228 @@ def handle_threshold_preview():
                 'change — they clear on their own recover events, or by muting '
                 'them under Monitoring → Tuning.',
     })
+
+
+# ── v6.4.2: data-subject rights (GDPR Art. 15 / 17) ─────────────────────────
+# `handle_user_delete` was `del users[username]; save(...)`. It did not unlink
+# the avatar, prune the token rows, or touch anything else that names the
+# person — and RemotePower holds personal data well outside users.json: the
+# Contacts directory (name / role / company / email / phone / notes), ticket
+# authors and assignees, ticket comment authors, time-billing entries, scoped
+# notes and audit actor fields.
+#
+# So an EU MSP receiving an Article 17 erasure request from a departed
+# contractor could delete the account and still be left with their avatar JPEG
+# on disk, their name on forty ticket comments and every timesheet line, their
+# phone number in Contacts — and no report that even enumerates where it all
+# is. The answer had to be assembled by grepping the data directory.
+#
+# The product already ships an explicitly GDPR-framed PII SCANNER, which finds
+# regulated data on managed HOSTS. That is exactly why a buyer assumes the
+# subject-rights side exists.
+#
+# Two deliberate limits, both stated in the response rather than glossed:
+#   * The AUDIT LOG is never rewritten. It is hash-chained, and editing a
+#     chained entry destroys the tamper-evidence that makes it evidence at all.
+#     Audit references are REPORTED, never erased — which is the lawful answer
+#     (Art. 17(3)(b)/(e)) and not a limitation to hide.
+#   * Backups already taken still contain the data. An erasure tool that
+#     implied otherwise would be worse than none.
+_SUBJECT_TEXT_FIELDS = ('name', 'email', 'phone', 'company', 'role', 'notes')
+
+
+def _subject_matches(value, who, email):
+    v = str(value or '').strip().lower()
+    if not v:
+        return False
+    return v == who or (bool(email) and v == email)
+
+
+def _subject_scan(who, email=''):
+    """Every place this instance names a person. Read-only.
+
+    Deliberately enumerates rather than greps: a grep over the data directory
+    is what the operator was reduced to, and it cannot distinguish "the word
+    appears" from "this record is about them".
+    """
+    who = str(who or '').strip().lower()
+    email = str(email or '').strip().lower()
+    found = []
+
+    def add(store, kind, ref, detail, erasable):
+        found.append({'store': store, 'kind': kind, 'ref': str(ref)[:120],
+                      'detail': str(detail)[:200], 'erasable': erasable})
+
+    users = A.load(A.USERS_FILE) or {}
+    for u, rec in users.items():
+        if u.lower() == who or (email and str((rec or {}).get('email', '')).lower() == email):
+            add('users.json', 'account', u, f"role={rec.get('role', '?')}", True)
+    if A.AVATARS_DIR and who:
+        try:
+            for f in A.AVATARS_DIR.glob(f'{who}.*'):
+                add('avatars/', 'avatar', f.name, 'profile image', True)
+        except Exception:
+            pass
+    toks = A.load(A.TOKENS_FILE) or {}
+    n_tok = sum(1 for t in (toks.values() if isinstance(toks, dict) else [])
+                if isinstance(t, dict) and str(t.get('user', '')).lower() == who)
+    if n_tok:
+        add('tokens.json', 'session', f'{n_tok} token(s)',
+            'inert once the account is gone (verify_token returns None), but '
+            'still storage naming them', True)
+    for cid, c in (A.load(A.CONTACTS_FILE) or {}).items():
+        if not isinstance(c, dict):
+            continue
+        if any(_subject_matches(c.get(f), who, email) for f in _SUBJECT_TEXT_FIELDS):
+            add('contacts.json', 'contact', cid,
+                f"{c.get('name', '')} · {c.get('email', '')}", True)
+    tickets = (A.load(A.TICKETS_FILE) or {}).get('tickets') or []
+    t_auth = [t for t in tickets if isinstance(t, dict)
+              and (_subject_matches(t.get('created_by'), who, email)
+                   or _subject_matches(t.get('assignee'), who, email))]
+    if t_auth:
+        add('tickets.json', 'ticket', f'{len(t_auth)} ticket(s)',
+            'created_by / assignee', False)
+    n_comments = sum(
+        1 for t in tickets if isinstance(t, dict)
+        for c in (t.get('comments') or [])
+        if isinstance(c, dict) and _subject_matches(c.get('by'), who, email))
+    if n_comments:
+        add('tickets.json', 'comment', f'{n_comments} comment(s)',
+            'comment author', False)
+    entries = (A.load(A.TIME_ENTRIES_FILE) or {}).get('entries') or []
+    n_time = sum(1 for e in entries if isinstance(e, dict)
+                 and _subject_matches(e.get('user') or e.get('by'), who, email))
+    if n_time:
+        add('time_entries.json', 'time entry', f'{n_time} entr(y/ies)',
+            'billable work record', False)
+    audit = (A.load(A.AUDIT_LOG_FILE) or {}).get('entries') or []
+    n_audit = sum(1 for e in audit if isinstance(e, dict)
+                  and _subject_matches(e.get('actor'), who, email))
+    if n_audit:
+        add('audit_log.json', 'audit entry', f'{n_audit} entr(y/ies)',
+            'hash-chained — retained as evidence, never rewritten', False)
+    return found
+
+
+def handle_privacy_subject():
+    """GET /api/privacy/subject?who=<username-or-name>[&email=] — Article 15.
+
+    Enumerates every record this instance holds naming the person, and says
+    which are erasable and which are retained.
+    """
+    actor = A.require_admin_or_auditor_auth()
+    if A.method() != 'GET':
+        A.respond(405, {'error': 'Method not allowed'})
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    who = A._sanitize_str((qs.get('who') or [''])[0], 64).strip()
+    email = A._sanitize_str((qs.get('email') or [''])[0], 254).strip()
+    if not who and not email:
+        A.respond(400, {'error': 'who (username or display name) or email is required'})
+    records = _subject_scan(who, email)
+    A.audit_log(actor, 'privacy_subject_report',
+                detail=f'who={who or email} records={len(records)}')
+    A.respond(200, {
+        'subject': {'who': who, 'email': email},
+        'records': records,
+        'erasable': sum(1 for r in records if r['erasable']),
+        'retained': sum(1 for r in records if not r['erasable']),
+        'notes': [
+            'The audit log is hash-chained. Entries naming this person are '
+            'retained as evidence and are never rewritten — editing one would '
+            'destroy the tamper-evidence that makes the log evidence at all.',
+            'Ticket, comment and time-entry authorship is retained as a '
+            'business record. Erasing an account does not remove it.',
+            'Backups taken before an erasure still contain the data. Rotate or '
+            're-take them if your retention policy requires it.',
+        ],
+    })
+
+
+def handle_privacy_erase():
+    """POST /api/privacy/erase {who, confirm} — Article 17, for what can go.
+
+    Erases the account, its avatar, its sessions and its contact record. Says
+    exactly what it did NOT touch and why, rather than reporting a clean sweep
+    it did not perform.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    who = A._sanitize_str(str(body.get('who', '')), 64).strip()
+    if not who:
+        A.respond(400, {'error': 'who is required'})
+    if who.lower() == str(actor or '').lower():
+        A.respond(400, {'error': 'refusing to erase the account you are signed in as'})
+    if str(body.get('confirm') or '') != who:
+        A.respond(400, {'error': 'confirm must repeat the subject exactly'})
+    email = A._sanitize_str(str(body.get('email', '')), 254).strip()
+    before = _subject_scan(who, email)
+    low = who.lower()
+    erased = []
+
+    users = A.load(A.USERS_FILE) or {}
+    target = next((u for u in users if u.lower() == low), None)
+    if target:
+        # The same last-admin guard handle_user_delete has — an erasure request
+        # is not a reason to lock everyone out of the instance.
+        admins = [u for u, d in users.items()
+                  if (d or {}).get('role', 'admin') == 'admin']
+        if len(admins) <= 1 and (users[target] or {}).get('role', 'admin') == 'admin':
+            A.respond(400, {'error': 'that is the last admin account — transfer '
+                                     'the role first'})
+        with A._LockedUpdate(A.USERS_FILE) as store:
+            store.pop(target, None)
+        erased.append('account')
+
+    try:
+        for f in (A.AVATARS_DIR.glob(f'{low}.*') if A.AVATARS_DIR else []):
+            f.unlink()
+            erased.append('avatar')
+    except Exception as e:                                  # pragma: no cover
+        A.sys.stderr.write(f'[remotepower] avatar unlink failed: {e}\n')
+
+    try:
+        with A._LockedUpdate(A.TOKENS_FILE) as store:
+            gone = [k for k, t in list(store.items())
+                    if isinstance(t, dict) and str(t.get('user', '')).lower() == low]
+            for k in gone:
+                store.pop(k, None)
+        if gone:
+            erased.append(f'{len(gone)} session(s)')
+    except Exception as e:                                  # pragma: no cover
+        A.sys.stderr.write(f'[remotepower] token purge failed: {e}\n')
+
+    try:
+        with A._LockedUpdate(A.CONTACTS_FILE) as store:
+            gone = [cid for cid, c in list(store.items())
+                    if isinstance(c, dict)
+                    and any(_subject_matches(c.get(f), low, email.lower())
+                            for f in _SUBJECT_TEXT_FIELDS)]
+            for cid in gone:
+                store.pop(cid, None)
+        if gone:
+            erased.append(f'{len(gone)} contact record(s)')
+    except Exception as e:                                  # pragma: no cover
+        A.sys.stderr.write(f'[remotepower] contact purge failed: {e}\n')
+
+    retained = [r for r in before if not r['erasable']]
+    # The erasure ITSELF is audit-logged, naming the subject — that record is
+    # the evidence the request was honoured, and is the one entry a DPO will
+    # ask for. Stated in the response so it is not a surprise later.
+    A.audit_log(actor, 'privacy_erase',
+                detail=f'subject={who} erased={",".join(erased) or "nothing"} '
+                       f'retained={len(retained)}')
+    A.respond(200, {
+        'ok': True, 'subject': who,
+        'erased': erased,
+        'retained': retained,
+        'notes': [
+            'This erasure is itself recorded in the audit log, naming the '
+            'subject — that entry is the evidence the request was honoured.',
+            'Hash-chained audit entries, ticket/comment authorship and time '
+            'entries are retained as business and evidential records.',
+            'Backups taken before now still contain the data.',
+        ],
+    })

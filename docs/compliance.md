@@ -62,6 +62,38 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | Boundary protection — SSRF guards on all outbound, per-IP/login rate limits, IP allowlist, CSP | CC6.6 | A.8.20, A.8.23 |
 | Multi-tenant isolation — RBAC-scoped soft tenancy (group/tag/site); optional **hard multi-tenancy** (`tenancy_enforced`) with optional Postgres **row-level security** (`tenancy_rls`) **(operator)** | CC6.1 | A.5.15, A.8.2 |
 
+## Data-subject rights (GDPR Art. 15 / 17) *(v6.4.2)*
+
+RemotePower holds personal data about **people**, not only about hosts:
+operator accounts and avatars, the Contacts directory (name / role / company /
+email / phone / notes), ticket authors and assignees, ticket comment authors,
+time-billing entries, and audit `actor` fields. (This is distinct from the
+[PII scanner](pii.md), which finds regulated data on the hosts you manage.)
+
+| capability | SOC 2 | ISO 27001:2022 |
+|---|---|---|
+| subject-access report — enumerate every record naming a person (`GET /api/privacy/subject?who=&email=`); admin + auditor, itself audited | CC6.1 | A.5.34 |
+| erasure — remove the account, avatar, sessions and contact record (`POST /api/privacy/erase`), reporting exactly what is retained | P4.2 | A.5.34, A.8.10 |
+| deletion hygiene — deleting a user now also unlinks the avatar and prunes their sessions | — | A.8.10 |
+
+**What is erasable, and what is not.** The report and the erasure response both
+say so explicitly rather than implying a clean sweep:
+
+- **Erasable:** the user account, the avatar file, the session rows, and the
+  Contacts record.
+- **Retained — deliberately:** hash-chained **audit-log** entries (rewriting one
+  destroys the tamper-evidence that makes the log evidence at all; retention is
+  the lawful position under Art. 17(3)(b)/(e)), plus **ticket authorship**,
+  **comment authorship** and **time entries**, which are business and billing
+  records.
+- The **erasure itself is audit-logged and names the subject** — that entry is
+  the evidence the request was honoured, and is what a DPO will ask for.
+- **Backups taken before the erasure still contain the data.** Rotate or
+  re-take them if your retention policy requires it.
+
+RemotePower provides the technical means; deciding what your lawful basis and
+retention periods are remains yours.
+
 ## Operator responsibilities (not provided by the software)
 
 RemotePower supplies technical controls + evidence; **you** still own: the control
