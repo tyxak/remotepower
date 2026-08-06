@@ -115,14 +115,26 @@ function _agentConAppend(cmd, text, cls) {
   const head = document.createElement('div');
   head.className = 'c-accent';
   head.textContent = '> ' + cmd;
+  out.appendChild(head);
+  const body = _agentConBody(text, cls);
+  out.scrollTop = out.scrollHeight;
+  return body;
+}
+
+// v6.4.2 (audit): a body line with NO `> ` prompt head. The result of a command
+// is not a new prompt — emitting one produced a stray empty `> ` line before
+// every result.
+function _agentConBody(text, cls) {
+  const out = document.getElementById('agentcon-out');
+  if (!out) return null;
   const body = document.createElement('div');
   if (cls) body.className = cls;
   // textContent, never innerHTML: this is remote command output from a host
   // that may be compromised, which is precisely when an operator runs it.
   body.textContent = text;
-  out.appendChild(head);
   out.appendChild(body);
   out.scrollTop = out.scrollHeight;
+  return body;
 }
 
 async function agentConsoleRun() {
@@ -132,7 +144,8 @@ async function agentConsoleRun() {
   if (!raw) return;
   const shell = document.getElementById('agentcon-shell')?.value || 'exec:';
   inp.value = '';
-  _agentConAppend(raw, 'running…', 'c-muted');
+  // Echo the command once (its own `> ` head) plus a running placeholder body.
+  const placeholder = _agentConAppend(raw, 'running…', 'c-muted');
   let r;
   try {
     r = await api('POST', '/exec/wait',
@@ -140,18 +153,24 @@ async function agentConsoleRun() {
   } catch (e) {
     r = null;
   }
-  // Replace the "running…" placeholder rather than stacking under it.
-  const out = document.getElementById('agentcon-out');
-  if (out && out.lastChild) out.removeChild(out.lastChild);
+  // Replace only the "running…" body — the command echo stays.
+  if (placeholder && placeholder.remove) placeholder.remove();
+  const done = (text, cls) => _agentConBody(text, cls);
   if (!r) {
-    _agentConAppend('', 'No response — the agent did not report back within '
-                        + 'the timeout. It may be offline, or the command may '
-                        + 'still be running on the host.', 'c-amber');
+    done('No response — the agent did not report back within the timeout. It '
+       + 'may be offline, or the command may still be running on the host.',
+         'c-amber');
+  } else if (r.approval_required) {
+    // v6.4.2 (audit): change approval is on, so /api/exec/wait 202'd and parked
+    // the command for a second admin. api() resolves (does not throw) on 202,
+    // so this used to fall into the success arm and print "(no output)". Show
+    // what actually happened.
+    done(String(r.message || 'Queued for approval by another admin — it will '
+              + 'run once approved.'), 'c-accent');
   } else if (r.error) {
-    _agentConAppend('', String(r.error), 'c-red');
+    done(String(r.error), 'c-red');
   } else if (r.timeout) {
-    _agentConAppend('', String(r.message || 'Timed out waiting for the agent.'),
-                    'c-amber');
+    done(String(r.message || 'Timed out waiting for the agent.'), 'c-amber');
   } else {
     // The agent reports {cmd, output, rc}; `output` on the response is that
     // whole record, not a string — String(r.output) would render
@@ -160,7 +179,7 @@ async function agentConsoleRun() {
     const text = String(rec.output != null ? rec.output : (r.output || ''))
                  || '(no output)';
     const rc = rec.rc;
-    _agentConAppend('', text + (rc ? `\n[exit ${rc}]` : ''), rc ? 'c-amber' : '');
+    done(text + (rc ? `\n[exit ${rc}]` : ''), rc ? 'c-amber' : '');
   }
   inp?.focus();
 }

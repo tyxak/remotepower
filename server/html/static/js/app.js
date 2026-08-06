@@ -19755,22 +19755,23 @@ function _homeActivityAttrs(event, p) {
     // KMIP page, where the certificate can actually be re-issued.
     case 'kmip_cert_expiring': case 'kmip_cert_renewed':
       return 'data-action-btn="_showPageBtn" data-page="kmip"';
+    // These are per-HOST — cert files and a rogue uid-0 account live on a
+    // specific device, so route to it. (v6.4.2 audit: the server-level cases
+    // below were briefly inserted between this label and its return, silently
+    // sending these four to the self page; restored.)
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
-    // v6.4.2: blank-password account — the drawer's Local accounts table is
-    // where the account and its flags are, so route to the host.
-    // v6.4.2: the subject is the server, not a host — the self page is where
-    // its version, uptime and internal health live.
-    case 'server_upgraded':
-    // v6.4.2: all four are about the server itself — Server status is where the
-    // sweep table, the scheduler heartbeat and the sidecar rows live.
-    case 'mitigation_unverified':
-    case 'sweep_failing': case 'sweep_recovered':
-    case 'sidecar_down': case 'sidecar_recovered':
-      return `${base} data-home-act="self"`;
     case 'empty_password_account': case 'empty_password_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v6.4.2: these are about the server ITSELF, not a host — Server status is
+    // where its version, the sweep table, the scheduler heartbeat and the
+    // sidecar rows live.
+    case 'server_upgraded':
+    case 'mitigation_unverified':
+    case 'sweep_failing': case 'sweep_recovered':
+    case 'sidecar_down': case 'sidecar_recovered':
+      return `${base} data-home-act="self"`;
     // v6.4.2: a control-plane privilege/security change is about RemotePower
     // itself, not a host — the audit log is where the actor and detail are.
     case 'control_plane_security_change':
@@ -26351,17 +26352,18 @@ let _reportArchive = [];
 async function loadReportArchive() {
   const tbody = document.getElementById('rarch-tbody');
   if (!tbody) return;
-  let data;
-  try {
-    data = await api('GET', '/report/archive');
-  } catch (_) {
-    // admin/auditor only — a viewer on the Reports page should see the rest of
-    // the page work, not an error card.
+  const data = await api('GET', '/report/archive').catch(() => null);
+  // v6.4.2 (audit): api() RESOLVES (does not throw) on a 403 — a viewer or a
+  // scoped caller gets `{error: …}`, not an exception — so the old catch never
+  // ran and the card painted an empty state instead of hiding. Hide the card
+  // when the archive is refused (or the request failed), so the rest of the
+  // Reports page still works.
+  if (!data || data.error || !Array.isArray(data.entries)) {
     const card = tbody.closest('.dash-card');
     if (card) card.classList.add('d-none');
     return;
   }
-  _reportArchive = (data && data.entries) || [];
+  _reportArchive = data.entries;
   const note = document.getElementById('rarch-note');
   if (note) {
     note.textContent = _reportArchive.length
@@ -29086,16 +29088,17 @@ let _ragPalOff = false;      // 403/400 → this install/caller has no knowledge
 async function _palKnowledge(query) {
   if (_ragPalOff || !query || query.length < 3) return [];
   if (_ragPalCache.q === query) return _ragPalCache.rows;
-  let r;
-  try {
-    r = await api('POST', '/ai/rag/search', { query, top_n: 6 });
-  } catch (_) {
-    // 400 (RAG off) or 403 (scoped caller) — both are permanent for this
-    // session, so stop asking rather than firing a request per keystroke.
+  const r = await api('POST', '/ai/rag/search', { query, top_n: 6 })
+    .catch(() => null);
+  // v6.4.2 (audit): api() RESOLVES on a 400 (RAG off) / 403 (scoped caller) —
+  // both permanent for this session — so the old catch never latched and every
+  // keystroke fired a fresh doomed request. Detect the refusal on the resolved
+  // body and stop asking.
+  if (!r || r.error) {
     _ragPalOff = true;
     return [];
   }
-  const rows = ((r && r.results) || []).map(h => ({
+  const rows = ((r.results) || []).map(h => ({
     label: h.title || h.id,
     kind: 'knowledge',
     sub: (h.source || 'knowledge') + (h.device ? ' · ' + h.device : ''),

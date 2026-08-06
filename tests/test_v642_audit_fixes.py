@@ -320,3 +320,193 @@ class TestItsmCloseLoopActuallyFires(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSweepFailingCountsConsecutive(unittest.TestCase):
+    """_streak was err_count - _alerted_at, a CUMULATIVE count since the last
+    recovery, so an alternating fail/succeed sweep accrued a fictional streak
+    and fired 'failed N times in a row' when it never was."""
+
+    def setUp(self):
+        self.d = pathlib.Path(tempfile.mkdtemp())
+        self._so = api.SELF_OBS_FILE
+        api.SELF_OBS_FILE = self.d / "so.json"
+        api._SELF_OBS = None
+        self.fired = []
+        self._fw = api.fire_webhook
+        api.fire_webhook = lambda e, p=None, **k: self.fired.append((e, (p or {}).get("detail", "")))
+
+    def tearDown(self):
+        api.SELF_OBS_FILE = self._so
+        api._SELF_OBS = None
+        api.fire_webhook = self._fw
+
+    def test_alternating_failures_never_fire(self):
+        for ok in (False, True, False, True, False, True, False):
+            api._self_obs_mark("monitors", ok)
+        self.assertEqual([e for e, _ in self.fired], [])
+
+    def test_three_consecutive_fire_once_with_a_true_message(self):
+        for _ in range(3):
+            api._self_obs_mark("monitors", False)
+        self.assertEqual([e for e, _ in self.fired], ["sweep_failing"])
+        self.assertIn("3 times in a row", self.fired[0][1])
+
+    def test_a_success_after_two_failures_resets(self):
+        api._self_obs_mark("monitors", False)
+        api._self_obs_mark("monitors", False)
+        api._self_obs_mark("monitors", True)   # reset
+        api._self_obs_mark("monitors", False)
+        api._self_obs_mark("monitors", False)  # only 2 consecutive now
+        self.assertEqual(self.fired, [])
+
+
+class TestMcpAcknowledgedStatus(unittest.TestCase):
+    """tool_list_alerts forwards status='acknowledged'; handle_alerts_list only
+    knew 'ack', so 'acknowledged' fell through to the open branch."""
+
+    def test_the_handler_recognises_acknowledged(self):
+        from srcpin import py_function
+        src = (_CGI / "api.py").read_text()
+        body = py_function(src, "handle_alerts_list")
+        self.assertIn("'acknowledged'", body)
+
+    def test_it_maps_to_the_ack_filter_not_open(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        af = api.ALERTS_FILE
+        api.ALERTS_FILE = d / "alerts.json"
+        now = 1
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "a1", "acknowledged_at": now, "resolved_at": None,
+             "event": "x", "device_id": None},
+            {"id": "a2", "acknowledged_at": None, "resolved_at": None,
+             "event": "y", "device_id": None}]})
+        api._invalidate_load_cache(api.ALERTS_FILE)
+        cap = {}
+        orig = {n: getattr(api, n) for n in
+                ("require_auth", "respond", "_env", "_filter_alerts_for_caller",
+                 "_annotate_alert_correlation")}
+        api.require_auth = lambda **k: "jakob"
+        api._filter_alerts_for_caller = lambda al: al
+        api._annotate_alert_correlation = lambda al: al
+
+        def _resp(s, b=None):
+            cap["s"], cap["b"] = s, b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+        api._env = lambda k, dv="": ("status=acknowledged" if k == "QUERY_STRING"
+                                     else "")
+        try:
+            try:
+                api.handle_alerts_list()
+            except api.HTTPError:
+                pass
+            ids = [a["id"] for a in (cap.get("b") or {}).get("alerts", [])]
+            self.assertEqual(ids, ["a1"])   # the acked one, not the open one
+        finally:
+            for n, v in orig.items():
+                setattr(api, n, v)
+            api.ALERTS_FILE = af
+
+
+class TestActivityFeedRoutingRestored(unittest.TestCase):
+    """The v6.4.2 server-level cases were inserted between the
+    cert_file/rogue_uid0 label and its return, sending those four
+    device-scoped events to the self page."""
+
+    def test_cert_and_uid0_route_to_the_host(self):
+        js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+        i = js.index("case 'cert_file_expiring':")
+        seg = js[i:i + 700]
+        # the return immediately following their label must be the host route
+        self.assertIn('data-home-act="${devId ? \'detail\' : \'devices\'}"', seg)
+        # …and it must come before the self-page block for the server events
+        self_i = seg.index('data-home-act="self"') if 'data-home-act="self"' in seg else len(seg)
+        host_i = seg.index("devId ? 'detail'")
+        self.assertLess(host_i, self_i)
+
+
+class TestThresholdPreviewIsHonestAboutCoverage(unittest.TestCase):
+    """The preview recomputes the checks engine only (~7 of ~90 thresholds), so
+    a change to the other ~84 showed zero blast radius and the UI said "no host
+    changes state" — false reassurance."""
+
+    def setUp(self):
+        self.d = pathlib.Path(tempfile.mkdtemp())
+        self._files = {}
+        for a in ("DEVICES_FILE", "CONFIG_FILE", "HARDWARE_FILE"):
+            self._files[a] = getattr(api, a)
+            setattr(api, a, self.d / pathlib.Path(getattr(api, a)).name)
+        now = 1
+        api.save(api.DEVICES_FILE, {"w0": {"name": "win", "last_seen": now,
+                                           "os": "Windows Server 2022",
+                                           "sysinfo": {"os": "Windows Server 2022",
+                                                       "cpu_percent": 88}}})
+        api.save(api.CONFIG_FILE, {})
+        for f in (api.DEVICES_FILE, api.CONFIG_FILE):
+            api._invalidate_load_cache(f)
+        self.cap = {}
+        self._orig = {n: getattr(api, n) for n in
+                      ("respond", "method", "get_json_body", "require_admin_auth")}
+        api.require_admin_auth = lambda: "jakob"
+        api.method = lambda: "POST"
+
+        def _resp(s, b=None):
+            self.cap["s"], self.cap["b"] = s, b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+        for a, v in self._files.items():
+            setattr(api, a, v)
+
+    def _preview(self, body):
+        api.get_json_body = lambda: body
+        try:
+            api.handle_threshold_preview()
+        except api.HTTPError:
+            pass
+        return self.cap.get("b")
+
+    def test_a_check_threshold_is_evaluated(self):
+        r = self._preview({"cpu_pct_warn": 65})
+        self.assertIn("cpu_pct_warn", r["evaluated"])
+        self.assertEqual(r["not_evaluated"], [])
+
+    def test_a_non_check_threshold_is_flagged_not_assessed(self):
+        """tls_warn_days fires through tls_monitor, not the checks
+        engine — the preview must say it could not assess it rather than
+        implying zero impact."""
+        r = self._preview({"tls_warn_days": 3})
+        self.assertIn("tls_warn_days", r["not_evaluated"])
+        self.assertEqual(r["evaluated"], [])
+
+    def test_a_mixed_change_partitions_correctly(self):
+        r = self._preview({"cpu_pct_warn": 65, "tls_warn_days": 3})
+        self.assertIn("cpu_pct_warn", r["evaluated"])
+        self.assertIn("tls_warn_days", r["not_evaluated"])
+
+    def test_the_note_names_the_uncovered_engines(self):
+        r = self._preview({"cpu_pct_warn": 65})
+        self.assertIn("not_evaluated", r["note"])
+
+
+class TestNetconfigAuthenticatesBeforeTheLookup(unittest.TestCase):
+    """handle_device_netconfig 404'd on a missing device BEFORE require_auth,
+    a pre-auth device-existence oracle."""
+
+    def test_auth_precedes_the_device_lookup_in_source(self):
+        from srcpin import py_function
+        src = (_CGI / "netappliance_handlers.py").read_text()
+        body = py_function(src, "handle_device_netconfig")
+        auth = min((body.index(x) for x in ("require_auth()", "require_admin_auth()")
+                    if x in body), default=len(body))
+        lookup = body.index("device_get(dev_id)")
+        self.assertLess(auth, lookup,
+                        "device lookup runs before authentication")
+
+
+if __name__ == "__main__":
+    unittest.main()

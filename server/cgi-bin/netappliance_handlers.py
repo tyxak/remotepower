@@ -532,13 +532,27 @@ def handle_device_netconfig(dev_id):
     """GET /api/devices/<id>/netconfig — archived revisions (metadata);
     POST — back up now. Under /api/devices/, so main()'s _enforce_device_scope
     covers tenancy and role scope before this runs."""
+    # v6.4.2 (audit): authenticate BEFORE the device lookup. The 404-on-missing
+    # ran first, so an unauthenticated caller could probe which device ids exist
+    # (main()'s _enforce_device_scope resolves an all-scope role for an
+    # anonymous caller and does not block). Every sibling under /api/devices/<id>/
+    # gates first; this now matches. GET needs any authed role; POST reads the
+    # appliance's full config, so it needs admin — gate per method up front.
+    _m = A.method()
+    if _m == 'GET':
+        A.require_auth()
+    elif _m == 'POST':
+        # A backup reads the appliance's full running config, including any
+        # secrets it embeds — the same bar as reading its firewall rules.
+        actor = A.require_admin_auth()
+    else:
+        A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'})
     dev = A.device_get(dev_id)
     if not dev:
         A.respond(404, {'error': 'device not found'})
-    if A.method() == 'GET':
-        A.require_auth()
+    if _m == 'GET':
         revs = (A.load(A.NETCONFIG_ARCHIVE_FILE) or {}).get(dev_id) or []
         A.respond(200, {
             'device_id': dev_id,
@@ -546,11 +560,6 @@ def handle_device_netconfig(dev_id):
             'revisions': [A._netconf_meta(r) for r in reversed(revs)],
             'max_revisions': _NETCONF_MAX_REVISIONS,
         })
-    if A.method() != 'POST':
-        A.respond(405, {'error': 'Method not allowed'})
-    # A backup reads the appliance's full running config, including any secrets
-    # it embeds — the same bar as reading its firewall rules.
-    actor = A.require_admin_auth()
     if not A._netconf_kind(dev):
         A.respond(400, {'error': 'no RouterOS or OPNsense API configured on this device'})
     try:

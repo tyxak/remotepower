@@ -3780,9 +3780,15 @@ def handle_litigation_hold_set():
     enabling AND disabling are audit-logged (lifting a hold is just as
     consequential as starting one). A reason is required to enable, since
     "why" is the whole point of a legally-defensible hold record."""
-    actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v6.4.2 (audit): a litigation hold freezes retention and lifting one is as
+    # consequential as starting it — a governance control. Require a fresh
+    # step-up re-auth, exactly as the four-eyes / audit-retention switches in
+    # handle_config_save do, so an admin cannot toggle it on a merely-valid
+    # session. (Degrades gracefully for a pure-SSO account with nothing to
+    # re-verify — see require_step_up.)
+    actor = require_step_up()
     body = get_json_obj()
     _rm_ok, _rm_err = request_models.validate(request_models.LitigationHoldSetRequest, body)
     if not _rm_ok: respond(400, {'error': _rm_err})
@@ -7510,9 +7516,7 @@ def run_audit_forward_retry_if_due():
     """
     cfg = _config_ro()
     st = _audit_forward_state()
-    entries = st.get('entries') or []
-    failing_since = int(st.get('failing_since') or 0)
-    if not entries and not failing_since:
+    if not (st.get('entries') or []) and not int(st.get('failing_since') or 0):
         return
     now = int(time.time())
     if now - int(st.get('last_retry') or 0) < _AUDIT_FORWARD_RETRY_INTERVAL:
@@ -7525,8 +7529,23 @@ def run_audit_forward_retry_if_due():
             w['last_retry'] = now
             w.pop('failing_since', None)
         return
+    # v6.4.2 (audit): CLAIM THE SLOT under the lock before forwarding — the same
+    # pattern run_netconfig_backup_if_due / run_snmp_if_history_if_due use. The
+    # old code checked last_retry and truncated by POSITION both OUTSIDE the
+    # lock, so two workers passing the (unlocked) interval gate drained the same
+    # rows (duplicate SIEM delivery) and the position slice deleted entries
+    # spooled in between without forwarding them. Re-check + stamp under the
+    # lock, snapshot the entries to drain (each carries a unique hash-chain
+    # `_hash`), and later evict exactly those by identity — new entries appended
+    # during the slow forward survive because they are not in the snapshot.
+    with _LockedUpdate(AUDIT_FORWARD_SPOOL_FILE) as w:
+        if now - int(w.get('last_retry') or 0) < _AUDIT_FORWARD_RETRY_INTERVAL:
+            return          # a concurrent worker already claimed this tick
+        w['last_retry'] = now
+        entries = list(w.get('entries') or [])
     sent, err = 0, ''
-    for e in list(entries):
+    drained_ids = []
+    for e in entries:
         try:
             why = _forward_audit(e, cfg)
         except Exception as _e:
@@ -7536,9 +7555,18 @@ def run_audit_forward_retry_if_due():
             err = why
             break
         sent += 1
+        drained_ids.append(id(e) if not isinstance(e, dict) else
+                           (e.get('_hash'), e.get('ts'), e.get('actor'),
+                            e.get('action')))
     pending = []
     with _LockedUpdate(AUDIT_FORWARD_SPOOL_FILE) as w:
-        rest = (w.get('entries') or [])[sent:]
+        # Remove exactly the entries that were forwarded, by identity, so a row
+        # spooled during the forward is never dropped unsent.
+        _drained = set(drained_ids)
+        rest = [e for e in (w.get('entries') or [])
+                if not (isinstance(e, dict)
+                        and (e.get('_hash'), e.get('ts'), e.get('actor'),
+                             e.get('action')) in _drained)]
         w['entries'] = rest
         w['last_retry'] = now
         w['last_attempt'] = now
@@ -26723,8 +26751,12 @@ _GOVERNANCE_CONFIG_KEYS = (
     'audit_log_retention_days',     # how long the evidence survives
     'audit_forward_enabled',        # whether the SIEM keeps getting it
     'tenancy_enforced',             # the hard multi-tenancy boundary
-    'read_only_mode',               # the global write kill-switch
-    'litigation_hold',              # the retention freeze
+    # v6.4.2 (audit): read_only_mode was listed but is NOT a config key —
+    # read-only is the RP_READ_ONLY env var with no API to toggle it, so that
+    # entry could never match. Dropped. `litigation_hold` IS a config key but
+    # its writer is handle_litigation_hold_set, not handle_config_save, so it is
+    # step-up-gated THERE (below) rather than here.
+    'litigation_hold',              # the retention freeze (gated at its own setter)
 )
 
 
@@ -55253,7 +55285,10 @@ def handle_alerts_list():
     all_alerts = _filter_alerts_for_caller(all_alerts)
     if status == 'all':
         filtered = list(all_alerts)
-    elif status == 'ack':
+    elif status in ('ack', 'acknowledged'):
+        # v6.4.2 (audit): the MCP tool's vocabulary is `acknowledged`; this
+        # handler only knew `ack`, so `acknowledged` fell through the else to
+        # `open` and the assistant was handed open rows for an acked query.
         filtered = [a for a in all_alerts
                     if a.get('acknowledged_at') and not a.get('resolved_at')]
     elif status == 'resolved':
@@ -68137,11 +68172,17 @@ def _self_obs_mark(label, ok, exc=None):
         if ok:
             sw['last_ok'] = now
             sw['ok_count'] = int(sw.get('ok_count', 0)) + 1
+            # v6.4.2 (audit): a success resets the CONSECUTIVE-failure counter.
+            # The alert claims "N times in a row"; the old count was cumulative
+            # since the last recovery-alert, so an alternating fail/succeed
+            # sweep accrued a fictional streak forever.
+            sw['consec_err'] = 0
         else:
             msg = (f'{exc.__class__.__name__}: {exc}' if exc else 'error')[:300]
             sw['last_err'] = now
             sw['err'] = msg
             sw['err_count'] = int(sw.get('err_count', 0)) + 1
+            sw['consec_err'] = int(sw.get('consec_err', 0)) + 1
             st['errors'].append({'ts': now, 'ctx': str(label), 'err': msg})
             del st['errors'][:-_SELF_OBS_MAX_ERRORS]
         # v6.4.2: a sweep that FAILS while the scheduler still lives had no
@@ -68161,7 +68202,7 @@ def _self_obs_mark(label, ok, exc=None):
         # the outbound healthchecks dead-man's-switch is for.
         _changed = (_prev != sw['last_outcome'])
         if str(label) not in _SELF_OBS_NO_ALERT:
-            _streak = int(sw.get('err_count', 0)) - int(sw.get('_alerted_at', 0))
+            _streak = int(sw.get('consec_err', 0))
             if (not ok) and not sw.get('_alerted') and _streak >= _SWEEP_FAIL_STREAK:
                 sw['_alerted'] = True
                 _pending_sweep_event = ('sweep_failing', {
@@ -68171,7 +68212,6 @@ def _self_obs_mark(label, ok, exc=None):
                 })
             elif ok and sw.get('_alerted'):
                 sw['_alerted'] = False
-                sw['_alerted_at'] = int(sw.get('err_count', 0))
                 _pending_sweep_event = ('sweep_recovered', {
                     'name': get_server_name(), 'sweep': str(label),
                     'detail': f'Maintenance sweep "{label}" is running again.',

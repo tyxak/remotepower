@@ -815,8 +815,24 @@ def handle_threshold_preview():
             proposed_vals[k] = int(nv) if nv == int(nv) else nv
     if not proposed_vals:
         A.respond(200, {'changed': {}, 'newly_breaching': [], 'newly_passing': [],
-                        'hosts_evaluated': 0,
+                        'hosts_evaluated': 0, 'not_evaluated': [],
                         'note': 'None of these values differ from what is saved.'})
+    # v6.4.2 (audit): the preview recomputes the CHECKS engine only, which reads
+    # ~7 of the ~90 alert-parameter thresholds. The rest fire through the metric
+    # ingest, the risk/reliability scoring, tls_monitor and the attention engine
+    # — none of which this preview evaluates. Reporting them as zero blast
+    # radius (the UI's "no host changes state") is precisely the kind of
+    # false-reassurance this feature exists to prevent. So partition the changed
+    # keys: probe which ones actually feed _checks_threshold_kwargs (no
+    # hardcoded list to drift), and surface the rest as "not assessed" rather
+    # than silently implying they are safe.
+    _base_kwargs = A._checks_threshold_kwargs(cfg)
+    _evaluated, _not_evaluated = {}, []
+    for k, v in proposed_vals.items():
+        if A._checks_threshold_kwargs({**cfg, k: v}) != _base_kwargs:
+            _evaluated[k] = v
+        else:
+            _not_evaluated.append(k)
     # SEC: scope-filtered like every other fleet-wide view — a preview that
     # counts hosts the caller cannot see is a host-count leak.
     devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
@@ -827,7 +843,7 @@ def handle_threshold_preview():
     now = int(A.time.time())
     ttl = A.get_online_ttl()
     before = _preview_check_map(devices, cfg, scripts, hw_all, cve_all, eta_all, now, ttl)
-    after = _preview_check_map(devices, {**cfg, **proposed_vals}, scripts,
+    after = _preview_check_map(devices, {**cfg, **_evaluated}, scripts,
                                hw_all, cve_all, eta_all, now, ttl)
     worse, better = {}, {}
     for did, rows in after.items():
@@ -857,12 +873,19 @@ def handle_threshold_preview():
         'newly_passing': _rows(better),
         'total_newly_breaching': sum(len(v) for v in worse.values()),
         'total_newly_passing': sum(len(v) for v in better.values()),
+        # v6.4.2 (audit): the changed thresholds this preview could NOT assess.
+        # Surfaced so "no host changes state" is never read as "all your changes
+        # are safe" — most alert parameters fire outside the checks engine.
+        'not_evaluated': sorted(_not_evaluated),
+        'evaluated': sorted(_evaluated),
         # Said explicitly because the obvious assumption is wrong, and a preview
         # that lets an operator believe it would be a worse kind of missing.
         'note': 'Counts are CHECK results recomputed against your proposed '
-                'values. Alerts already open are not resolved by a threshold '
-                'change — they clear on their own recover events, or by muting '
-                'them under Monitoring → Tuning.',
+                'values. Thresholds that fire through the metric, risk or '
+                'attention engine are not assessed by this preview (listed under '
+                'not_evaluated). Alerts already open are not resolved by a '
+                'threshold change — they clear on their own recover events, or '
+                'by muting them under Monitoring → Tuning.',
     })
 
 

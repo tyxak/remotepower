@@ -779,6 +779,13 @@ class TestRetentionMaintenance(_HandlerBase):
     """v3.12.0: configurable data retention + on-demand DB maintenance."""
     def setUp(self):
         super().setUp()
+        # v6.4.2 (audit): handle_litigation_hold_set now requires a fresh
+        # step-up re-auth (a hold freeze is a governance control). These tests
+        # exercise the hold LOGIC, not the step-up gate — TestStepUpAuth covers
+        # that — so stub it to the same admin the base fakes.
+        self._orig_step_up = api.require_step_up
+        api.require_step_up = lambda: 'jakob'
+        self.addCleanup(lambda: setattr(api, 'require_step_up', self._orig_step_up))
         for attr in ('HISTORY_FILE', 'FLEET_EVENTS_FILE', 'WEBHOOK_LOG_FILE',
                      'INBOUND_WEBHOOK_LOG_FILE', 'MON_HIST_FILE',
                      'RETENTION_STATE_FILE'):

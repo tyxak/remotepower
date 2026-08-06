@@ -138,6 +138,15 @@ ENTITY_FILES = {
     # ENTITY file → no _COLD_TO_ENTITY_* migration wave: there is no
     # pre-existing cold blob to split.
     'thermal_rollup.json',
+    # v6.4.2 (audit): snmp_if_hist.json — per-device SNMP interface history,
+    # {device_id: {iface: {samples:[…288…]}}} keyed by device_id and rewritten
+    # once PER SWITCH every 300s by _record_if_samples. As a cold blob each of
+    # those writes re-serialised the WHOLE fleet's per-port ring under the
+    # DB-wide BEGIN IMMEDIATE lock, blocking every other writer for the window.
+    # Its two v6.4.2 siblings (metrics_rollup / thermal_rollup) are ENTITY files
+    # for exactly this reason. Born an ENTITY file → no _COLD_TO_ENTITY_* wave
+    # (the file did not exist before this release).
+    'snmp_if_hist.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

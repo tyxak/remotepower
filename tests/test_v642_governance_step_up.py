@@ -69,17 +69,33 @@ class TestWhichKeysCount(unittest.TestCase):
 
     def test_the_evidence_switches_count_too(self):
         """Each of these weakens the thing that would record the change."""
+        # The switches handle_config_save actually gates. (v6.4.2 audit:
+        # read_only_mode is the RP_READ_ONLY env var with no config key and was
+        # dropped; litigation_hold has its OWN setter, handle_litigation_hold_set,
+        # which carries the step-up gate — it is not written through
+        # handle_config_save, so _governance_keys_touched does not report it.)
         for k, v in (("audit_worm_path", ""),
                      ("audit_log_retention_days", 1),
                      ("audit_forward_enabled", False),
                      ("mfa_required_roles", []),
                      ("ip_allowlist", ""),
                      ("sso_only", False),
-                     ("tenancy_enforced", False),
-                     ("read_only_mode", True),
-                     ("litigation_hold", {})):
+                     ("tenancy_enforced", False)):
             with self.subTest(key=k):
                 self.assertEqual(self.touched({k: v}), [k])
+
+    def test_read_only_mode_is_not_a_config_key(self):
+        """It was listed but read-only is an env var with no API — a dead entry
+        that could never match, removed in the v6.4.2 audit."""
+        self.assertNotIn("read_only_mode", api._GOVERNANCE_CONFIG_KEYS)
+
+    def test_the_litigation_hold_setter_is_step_up_gated(self):
+        """It is governance-consequential and has its own handler, so the gate
+        lives there rather than in handle_config_save."""
+        from srcpin import py_function
+        src = (_CGI / "api.py").read_text()
+        body = py_function(src, "handle_litigation_hold_set")
+        self.assertIn("require_step_up()", body)
 
     def test_a_junk_body_does_not_raise(self):
         for bad in ("nope", None, [], 7):
