@@ -159,6 +159,37 @@ def _traffic_restrict_control(facts):
                 "at the firewall.")
 
 
+def _av_control(facts):
+    """Anti-malware / protection from malicious software. Evidenced by the AV
+    posture the agent reports (clamav/rkhunter/Defender) — infection or
+    real-time-protection-off is a finding. NA when no host reports AV state
+    (the absence→PASS discipline: an empty offenders list on a fleet with no AV
+    telemetry is not clearance)."""
+    bad = facts.get('av_bad') or []
+    if bad:
+        return FAIL, (f"{len(bad)} host(s) with malware detected or real-time "
+                      "protection off: " + ", ".join(str(h) for h in bad[:10]))
+    if facts.get('av_data_devices'):
+        return PASS, "Every host reporting AV state is clean with real-time protection on."
+    return NOT_ASSESSED, ("No host has reported anti-malware state yet — deploy or "
+                          "enable an AV agent (clamav/rkhunter/Defender).")
+
+
+def _encryption_at_rest_control(facts):
+    """Encryption of data at rest — BitLocker (Windows OS volume) / FileVault
+    (macOS). Present-and-off is a finding; NA when no host reports encryption
+    state (Linux at-rest encryption — LUKS — is not yet collected, so a
+    Linux-only fleet reads NA, not a false PASS)."""
+    off = facts.get('encryption_off') or []
+    if off:
+        return FAIL, (f"{len(off)} host(s) with disk encryption off: "
+                      + ", ".join(str(h) for h in off[:10]))
+    if facts.get('encryption_data_devices'):
+        return PASS, "Every host reporting encryption state has its disk encrypted."
+    return NOT_ASSESSED, ("No host has reported disk-encryption state yet "
+                          "(BitLocker/FileVault).")
+
+
 def _access_review_control(facts):
     changes = facts.get('ssh_key_changes') or []
     if changes:
@@ -255,7 +286,12 @@ _CONTROLS = [
     ('pci', '4.2.1',  'Strong cryptography for transmission (TLS)', _tls_control,
      'Renew expiring certificates.'),
     ('pci', '1.2.1',  'Restrict inbound/outbound traffic',          _traffic_restrict_control,
-     'Verify firewall restrictions directly — RemotePower cannot assess them.'),
+     'Enable a default-deny host firewall on the listed hosts; verify network '
+     'firewall restrictions directly.'),
+    ('pci', '3.5.1',  'Render stored data unreadable (encryption at rest)', _encryption_at_rest_control,
+     'Enable BitLocker / FileVault on the listed hosts.'),
+    ('pci', '5.2.1',  'Deploy and maintain anti-malware',           _av_control,
+     'Deploy or re-enable anti-malware on the listed hosts.'),
     ('pci', '8.4.2',  'Multi-factor authentication for access',     _mfa_control,
      'Enable TOTP or OIDC for all console operators.'),
     ('pci', '10.2.1', 'Audit logs for all administrative actions',  _audit_control,
@@ -264,8 +300,14 @@ _CONTROLS = [
      'Review brute-force sources; block at the firewall.'),
 
     # HIPAA Security Rule
-    ('hipaa', '164.308(a)(5)(ii)(B)', 'Protection from malicious software', _patch_control,
-     'Apply pending security updates.'),
+    # v6.4.2 (audit): "Protection from malicious software" is now evidenced by
+    # actual AV posture, not pending-patch counts (the old mismapping). Patch /
+    # vulnerability posture stays represented by the risk-analysis (CVE) control
+    # below and PCI 6.3.3.
+    ('hipaa', '164.308(a)(5)(ii)(B)', 'Protection from malicious software', _av_control,
+     'Deploy or re-enable anti-malware on the listed hosts.'),
+    ('hipaa', '164.312(a)(2)(iv)', 'Encryption and decryption (data at rest)', _encryption_at_rest_control,
+     'Enable BitLocker / FileVault on the listed hosts.'),
     ('hipaa', '164.308(a)(1)(ii)(A)', 'Risk analysis (known vulnerabilities)', _cve_control,
      'Remediate outstanding critical/high CVEs.'),
     ('hipaa', '164.308(a)(5)(ii)(B)-eol', 'Supported (non-EOL) operating systems', _eol_control,

@@ -112,7 +112,12 @@ as your audit artifacts.
 
 The **Compliance** page scores a live control checklist from data the fleet
 already reports, across **PCI DSS, HIPAA, SOC 2, ACSC Essential Eight and
-SMB1001:2026** (pick the frameworks with the checkboxes). Every control lands
+SMB1001:2026** (pick the frameworks with the checkboxes). As of v6.4.2 the
+checklist assesses **host firewall state** (PCI 1.2.1 — previously declined as
+unassessable), **anti-malware / protection from malicious software** from the
+actual AV posture rather than patch counts (PCI 5.2.1, HIPAA
+164.308(a)(5)(ii)(B)), and **encryption at rest** on managed hosts —
+BitLocker / FileVault (PCI 3.5.1, HIPAA 164.312(a)(2)(iv)). Every control lands
 on one of four verdicts:
 
 - **Pass** — observed state satisfies the control.

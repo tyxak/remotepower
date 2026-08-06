@@ -331,7 +331,11 @@ def _demo_enrich_sysinfo(dev, rng, si):
         }
     elif 'macos' in _os:
         si['mac_posture'] = {
-            'filevault': True, 'firewall': True, 'gatekeeper': True,
+            # v6.4.2: vary FileVault so the encryption-at-rest checks, the
+            # encryption_off risk factor and the PCI 3.5.1 / HIPAA 164.312(a)(2)(iv)
+            # compliance controls have a host to flag in the demo.
+            'filevault': rng.choice([True, True, False]),
+            'firewall': True, 'gatekeeper': True,
             'sip': True, 'auto_security_update': False,
         }
     if 'laptop' in tags:

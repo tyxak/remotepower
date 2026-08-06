@@ -42666,26 +42666,61 @@ def _compliance_facts(devices=None):
     # tri-state: None (unreadable probe) is not counted as data or as off.
     firewall_off = []
     firewall_data_devices = 0
-    for dev in devices.values():
+    # v6.4.2 (audit): encryption-at-rest (BitLocker per OS volume / FileVault) and
+    # AV/malware posture. Both drove alerts, the Checks page and the risk score
+    # but no compliance CONTROL — HIPAA's "Protection from malicious software"
+    # was even evidenced by PATCH counts. Present-and-off only; absence is NA.
+    encryption_off = []
+    encryption_data_devices = 0
+    av_all = (load(AV_FILE) or {}) if backend_exists(AV_FILE) else {}
+    av_bad = []
+    av_data_devices = 0
+    for did, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False:
             continue
         si = dev.get('sysinfo') or {}
+        nm = dev.get('name', did)
         if si:
             sysinfo_devices += 1
         up = (si.get('packages') or {}).get('upgradable')
         if isinstance(up, int):
             patch_data_devices += 1
             if up >= patch_thresh:
-                pending_bad.append(dev.get('name', '?'))
+                pending_bad.append(nm)
         if si.get('reboot_required'):
-            reboot.append(dev.get('name', '?'))
+            reboot.append(nm)
         if dev.get('os'):
             os_known_devices += 1
         fw = si.get('firewall')
         if isinstance(fw, dict) and fw.get('active') is not None:
             firewall_data_devices += 1
             if fw.get('active') is False:
-                firewall_off.append(dev.get('name', '?'))
+                firewall_off.append(nm)
+        # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
+        # volume, list of {status}). Present-and-off only; absence is not data.
+        mp = si.get('mac_posture')
+        if isinstance(mp, dict) and 'filevault' in mp:
+            encryption_data_devices += 1
+            if not mp.get('filevault'):
+                encryption_off.append(nm)
+        else:
+            wp = si.get('win_posture')
+            bl = wp.get('bitlocker') if isinstance(wp, dict) else None
+            if isinstance(bl, list) and bl:
+                encryption_data_devices += 1
+                if any(isinstance(v, dict)
+                       and str(v.get('status', '')).lower() not in ('on', 'encrypted')
+                       for v in bl):
+                    encryption_off.append(nm)
+        # AV/malware posture from av_status.json (the same verdict the risk score
+        # and the av_infected/av_realtime_off alerts use). A host with an AV
+        # record is "reporting"; infection or real-time-protection-off is bad.
+        av_rec = av_all.get(did)
+        if isinstance(av_rec, dict) and av_rec:
+            av_data_devices += 1
+            _v = posture_signals.av_verdict(av_rec, _AV_TOOLS)
+            if _v.get('infected') or _v.get('realtime_off'):
+                av_bad.append(nm)
     facts['pending_patches_devices'] = pending_bad
     facts['reboot_required'] = reboot
     facts['patch_data_devices'] = patch_data_devices
@@ -42693,6 +42728,10 @@ def _compliance_facts(devices=None):
     facts['os_known_devices'] = os_known_devices
     facts['firewall_off'] = firewall_off
     facts['firewall_data_devices'] = firewall_data_devices
+    facts['encryption_off'] = encryption_off
+    facts['encryption_data_devices'] = encryption_data_devices
+    facts['av_bad'] = av_bad
+    facts['av_data_devices'] = av_data_devices
 
     # CVEs (critical+high) from the findings store. Match the CVE Findings page
     # exactly so Compliance can't disagree with it: (1) skip findings for devices
