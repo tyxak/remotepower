@@ -26624,11 +26624,72 @@ def handle_config_get():
     respond(200, safe)
 
 
+# v6.4.2: config keys that govern the CONTROLS, not the fleet. Changing one of
+# these weakens the thing that watches the admin changing it, so a merely-valid
+# admin session is not enough — the caller re-verifies their password/TOTP
+# first, exactly as minting a new admin already does.
+#
+# The gap this closes, in the words of an RFP: "show us that the person who
+# requests a change cannot also turn the approval requirement off." They could.
+# `handle_config_save` was a plain `require_admin_auth()`, so any admin could
+# POST `change_approval_enabled: false`, act unilaterally, and flip it back —
+# and the same one call could unset `audit_worm_path`, drop audit retention to
+# a day, empty the IP allowlist or lift the MFA requirement. `require_step_up`
+# existed with two call sites (create-admin, promote-to-admin), both guarding
+# privilege escalation; this is the same class of target.
+#
+# Step-up, deliberately, and NOT a new permission: a full administrative
+# permission namespace is a redesign across 284 `require_admin_auth()` sites.
+# This protects the governance switches from the people they govern, which is
+# the part that fails the audit, without pretending the rest is done.
+_GOVERNANCE_CONFIG_KEYS = (
+    'change_approval_enabled',      # the four-eyes control itself
+    'change_approval_no_self',      # …and its requester≠approver rule
+    'mfa_required_roles',           # who must carry a second factor
+    'sso_only',                     # whether local passwords still work
+    'ip_allowlist',                 # where the API may be reached from
+    'audit_worm_path',              # the append-only evidence sink
+    'audit_log_retention_days',     # how long the evidence survives
+    'audit_forward_enabled',        # whether the SIEM keeps getting it
+    'tenancy_enforced',             # the hard multi-tenancy boundary
+    'read_only_mode',               # the global write kill-switch
+    'litigation_hold',              # the retention freeze
+)
+
+
+def _governance_keys_touched(body, cfg):
+    """Which governance switches this save would actually CHANGE.
+
+    Compared against the stored value rather than merely present, because the
+    Settings page POSTs the whole form: gating on presence would demand a
+    re-auth for editing an unrelated field on the same pane, and a step-up
+    prompt that fires when nothing sensitive changed is one operators learn to
+    click through.
+    """
+    if not isinstance(body, dict):
+        return []
+    cfg = cfg or {}
+    out = []
+    for k in _GOVERNANCE_CONFIG_KEYS:
+        if k not in body:
+            continue
+        if body.get(k) != cfg.get(k):
+            out.append(k)
+    return out
+
+
 def handle_config_save():
     _cfg_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.ConfigSaveRequest)
     body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)
+    _gov = _governance_keys_touched(body, cfg)
+    if _gov:
+        require_step_up()
+        # Named in the audit trail. "config_save changed 41 keys" is not an
+        # answer to "who turned four-eyes off, and when".
+        audit_log(_cfg_actor, 'governance_config_change',
+                  detail='keys=' + ','.join(_gov[:20]))
     # v5.4.1 (D4): snapshot for the change-audit diff.
     # v6.4.2: a DEEP copy. Shallow, it shared every nested list/dict with `cfg`,
     # so an in-place edit (the slo_objects prune does `_m.pop('slo_ids')` over

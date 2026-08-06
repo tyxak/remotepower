@@ -5414,7 +5414,12 @@ async function saveSettings(btn) {
   if (_btn) { _btn.disabled = true; _btn.textContent = 'Saving…'; }
   let data;
   try {
-    data = await api('POST', '/config', payload);
+    // v6.4.2: changing a governance switch (four-eyes approval, MFA-required
+    // roles, the WORM sink, audit retention, the IP allowlist, tenancy) 403s
+    // with step_up_required until the admin re-verifies. withStepUp prompts
+    // and retries; every other settings save is unaffected because the server
+    // only demands it when one of those keys actually CHANGES.
+    data = await withStepUp(() => api('POST', '/config', payload));
   } catch (e) {
     // v5.6.0: never leave the button stuck on "Saving…" — a fetch rejection
     // (dropped/slow connection) used to hang it forever with no feedback.

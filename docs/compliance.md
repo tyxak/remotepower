@@ -23,6 +23,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | Session controls — concurrent-session caps, idle timeout, active-session revoke | CC6.1 | A.8.5 |
 | Service accounts — API keys hashed at rest, per-key device **scope**, source-IP allowlist, rate limit, expiry | CC6.1 | A.5.16, A.8.2 |
 | Privileged access — two-person break-glass credential reveal (audited) | CC6.1 | A.8.2, A.8.18 |
+| governance switches step-up gated — changing four-eyes approval, MFA-required roles, the WORM sink, audit retention/forwarding, the IP allowlist, SSO-only, tenancy or read-only mode requires the admin to re-verify their password/TOTP, and is audit-logged by name *(v6.4.2)* | CC6.1, CC8.1 | A.5.15, A.8.2, A.8.15 |
 
 ## Cryptography & data protection
 

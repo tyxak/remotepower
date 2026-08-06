@@ -2626,6 +2626,11 @@ class TestTenancyP2(_HandlerBase):
         self.assertEqual(api.load(api.DEVICES_FILE)['d1']['tenant'], 'acme')
 
     def test_config_flag_roundtrip(self):
+        # v6.4.2: tenancy_enforced is a GOVERNANCE key — turning the hard
+        # multi-tenancy boundary on or off now requires step-up re-auth.
+        _su = api.require_step_up
+        api.require_step_up = lambda: 'admin'
+        self.addCleanup(lambda: setattr(api, 'require_step_up', _su))
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {'tenancy_enforced': True}
         self.call(api.handle_config_save)

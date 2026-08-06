@@ -235,6 +235,13 @@ class TestAccountGuardrailsUI(_Base):
     UI and no config-save path — now settable in Settings → Security."""
 
     def test_config_save_accepts_guardrails(self):
+        # v6.4.2: mfa_required_roles is a GOVERNANCE key — changing it now
+        # requires step-up re-auth, because an admin who can quietly lift the
+        # MFA requirement can lift it on themselves. Stubbed here so the test
+        # keeps asserting what it is about (the value coercion), not the gate.
+        _su = api.require_step_up
+        api.require_step_up = lambda: 'admin'
+        self.addCleanup(lambda: setattr(api, 'require_step_up', _su))
         api.save(api.CONFIG_FILE, {})
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {
