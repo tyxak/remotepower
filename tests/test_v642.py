@@ -1,4 +1,4 @@
-"""v6.4.2 "Qu1etMatters" — release pins.
+"""v6.4.2 "Ver1tyMatters" — release pins.
 
 The CURRENT release carries the strict version pins; older test_vXYZ.py files
 have theirs loosened to shape checks. Headline: per-container alert mutes and a
@@ -23,7 +23,7 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 V = "6.4.2"
-CODENAME = "Qu1etMatters"
+CODENAME = "Ver1tyMatters"
 
 _JS = _ROOT / "server/html/static/js"
 

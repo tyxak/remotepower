@@ -59,7 +59,7 @@ holds long-form docs that don't fit there.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
 - **[security-review-6.4.2.md](security-review-6.4.2.md)** — the
- v6.4.2 "Qu1etMatters" pass. Unlike the passes before it, this one found real
+ v6.4.2 "Ver1tyMatters" pass. Unlike the passes before it, this one found real
  defects rather than confirming their absence, and all of them are fixed in the
  release: configuration secrets that stopped being encrypted at rest on one write
  path, a privacy control that did not redact compressed IPv6 addresses, an
@@ -96,7 +96,7 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
-- **[v6.4.2.md](v6.4.2.md)** — "Qu1etMatters": per-container alert mutes
+- **[v6.4.2.md](v6.4.2.md)** — "Ver1tyMatters": per-container alert mutes
  (silence one noisy container without silencing its host — inbox, webhooks,
  push and health score go quiet while fleet-event history and the SIEM stream
  keep recording), a real container log window (waits for the agent with a live

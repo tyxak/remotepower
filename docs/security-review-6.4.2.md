@@ -1,4 +1,4 @@
-# Security review — v6.4.2 "Qu1etMatters"
+# Security review — v6.4.2 "Ver1tyMatters"
 
 A security review of the v6.4.2 changes and of the surfaces those changes touch.
 

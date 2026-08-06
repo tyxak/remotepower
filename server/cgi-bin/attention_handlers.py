@@ -924,8 +924,15 @@ def _subject_scan(who, email=''):
         try:
             for f in A.AVATARS_DIR.glob(f'{who}.*'):
                 add('avatars/', 'avatar', f.name, 'profile image', True)
-        except Exception:
-            pass
+        except OSError as e:
+            # An unreadable avatar directory must not sink the whole report —
+            # but it must not be silent either. A subject-access report that
+            # under-reports because a directory listing failed is exactly the
+            # kind of quiet incompleteness this endpoint exists to prevent, so
+            # say so in the report rather than only in the log.
+            A.sys.stderr.write(f'[remotepower] avatar scan failed: {e}\n')
+            add('avatars/', 'avatar', '(unreadable)',
+                f'could not list the avatar directory: {str(e)[:80]}', False)
     toks = A.load(A.TOKENS_FILE) or {}
     n_tok = sum(1 for t in (toks.values() if isinstance(toks, dict) else [])
                 if isinstance(t, dict) and str(t.get('user', '')).lower() == who)

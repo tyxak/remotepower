@@ -182,7 +182,7 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.4.2 "Qu1etMatters"** — two things about containers that were quietly
+- **v6.4.2 "Ver1tyMatters"** — two things about containers that were quietly
   unfinished. **Silence one container** without silencing its host — the
   restart loop you already know about, the sidecar that exits by design —
   while its neighbours keep alerting; the mute stops the inbox, webhooks,
