@@ -47370,6 +47370,13 @@ _RISK_WEIGHTS = {
     'backup_stale': 8,       # a monitored backup is stale or missing
     'secrets_exposed': 10,   # unmuted credentials sitting in files on disk
     'patch_sla_breach': 5,   # oldest pending update is past the patch SLA
+    # v6.4.2 (audit): Windows/macOS endpoint posture scored nowhere — a Windows
+    # host with BitLocker off, its firewall profiles off and Defender disabled
+    # used to score identically to a hardened one, because _device_risk read
+    # only the Linux firewall. Windows Defender is already covered by av_bad
+    # (posture_signals.av_verdict includes 'defender'); firewall reuses
+    # firewall_off; encryption-at-rest was a gap for EVERY OS and gets its own.
+    'encryption_off': 12,    # BitLocker / FileVault off — disk not encrypted
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -47518,6 +47525,26 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 _add('firewall_off', w['firewall_off'], 'no host firewall active')
             elif fwb and not fw.get('rules'):
                 _add('firewall_off', w['firewall_off'], 'host firewall has no rules')
+    # ── v6.4.2: Windows / macOS endpoint posture (parity with Linux firewall) ─
+    # Defender is already scored via av_bad above, so it is NOT re-scored here.
+    wp = si.get('win_posture')
+    if isinstance(wp, dict):
+        wfw = wp.get('firewall')
+        if isinstance(wfw, list) and wfw and any(
+                isinstance(p, dict) and not p.get('enabled') for p in wfw):
+            _add('firewall_off', w['firewall_off'], 'Windows Firewall profile(s) off')
+        bl = wp.get('bitlocker')
+        if isinstance(bl, list) and bl and any(
+                isinstance(v, dict)
+                and str(v.get('status', '')).lower() not in ('on', 'encrypted')
+                for v in bl):
+            _add('encryption_off', w['encryption_off'], 'BitLocker off on an OS volume')
+    mp = si.get('mac_posture')
+    if isinstance(mp, dict):
+        if 'firewall' in mp and not mp.get('firewall'):
+            _add('firewall_off', w['firewall_off'], 'macOS application firewall off')
+        if 'filevault' in mp and not mp.get('filevault'):
+            _add('encryption_off', w['encryption_off'], 'FileVault off (disk not encrypted)')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)
