@@ -408,9 +408,12 @@ def build_itsm_close(fmt, dest, ticket_ref, ticket_id, message):
         auth = _itsm_basic(user, secret)
         if not auth:
             return None
-        return ("POST", f"/rest/api/2/issue/{urllib.parse.quote(ref, safe='')}/comment",
-                json.dumps({"body": message}).encode(),
-                {"Authorization": auth})
+        return (
+            "POST",
+            f"/rest/api/2/issue/{urllib.parse.quote(ref, safe='')}/comment",
+            json.dumps({"body": message}).encode(),
+            {"Authorization": auth},
+        )
     if fmt == "servicenow":
         auth = _itsm_basic(user, secret)
         sid = str(ticket_id or "").strip()
@@ -419,19 +422,26 @@ def build_itsm_close(fmt, dest, ticket_ref, ticket_id, message):
         # state 6 = Resolved. PATCH rather than a comment: ServiceNow's incident
         # table takes the resolution inline, and leaving an incident open with a
         # work note is not "closed" to anyone reading a queue.
-        return ("PATCH", f"/api/now/table/incident/{urllib.parse.quote(sid, safe='')}",
-                json.dumps({"state": "6", "close_notes": message,
-                            "close_code": "Resolved by caller"}).encode(),
-                {"Authorization": auth, "Accept": "application/json"})
+        return (
+            "PATCH",
+            f"/api/now/table/incident/{urllib.parse.quote(sid, safe='')}",
+            json.dumps(
+                {"state": "6", "close_notes": message, "close_code": "Resolved by caller"}
+            ).encode(),
+            {"Authorization": auth, "Accept": "application/json"},
+        )
     if fmt == "zendesk":
         auth = _itsm_basic(user, secret, zendesk=True)
         if not auth:
             return None
-        return ("PUT", f"/api/v2/tickets/{urllib.parse.quote(ref, safe='')}.json",
-                json.dumps({"ticket": {"status": "solved",
-                                       "comment": {"body": message,
-                                                   "public": False}}}).encode(),
-                {"Authorization": auth})
+        return (
+            "PUT",
+            f"/api/v2/tickets/{urllib.parse.quote(ref, safe='')}.json",
+            json.dumps(
+                {"ticket": {"status": "solved", "comment": {"body": message, "public": False}}}
+            ).encode(),
+            {"Authorization": auth},
+        )
     return None
 
 
@@ -441,8 +451,10 @@ def itsm_close_message(alert, by):
     who = f" by {by}" if by and by != "auto" else " automatically"
     host = alert.get("device_name") or alert.get("device_id") or ""
     where = f" on {host}" if host else ""
-    return (f"RemotePower alert resolved{who}: {what}{where}. "
-            f"Reference {alert.get('alertid') or alert.get('id') or '?'}.")
+    return (
+        f"RemotePower alert resolved{who}: {what}{where}. "
+        f"Reference {alert.get('alertid') or alert.get('id') or '?'}."
+    )
 
 
 def _parse_itsm_response(fmt, url, raw):
@@ -459,8 +471,11 @@ def _parse_itsm_response(fmt, url, raw):
         if fmt == "jira":
             key = data.get("key")
             if key:
-                return {"ticket_ref": str(key), "ticket_id": str(key),
-                        "ticket_url": f"{base}/browse/{key}"}
+                return {
+                    "ticket_ref": str(key),
+                    "ticket_id": str(key),
+                    "ticket_url": f"{base}/browse/{key}",
+                }
         elif fmt == "servicenow":
             res = data.get("result") or {}
             num, sid = res.get("number"), res.get("sys_id")
@@ -468,8 +483,7 @@ def _parse_itsm_response(fmt, url, raw):
                 link = f"{base}/nav_to.do?uri=incident.do?sys_id={sid}" if sid else ""
                 # v6.4.2: sys_id is what the close PATCH addresses; the INC
                 # number is only the human reference and cannot be PATCHed.
-                return {"ticket_ref": str(num), "ticket_id": str(sid or ""),
-                        "ticket_url": link}
+                return {"ticket_ref": str(num), "ticket_id": str(sid or ""), "ticket_url": link}
         elif fmt == "zendesk":
             t = data.get("ticket") or {}
             tid = t.get("id")
@@ -862,22 +876,32 @@ def _webhook_message(event, payload):
     elif event == "integration_metric_alert":
         # v6.4.2: fleet-level (no device) — the generic fallback would read
         # "integration_metric_alert: unknown".
-        return (f'{payload.get("label","?")}: {payload.get("metric","?")} is '
-                f'{payload.get("value","?")} ({payload.get("op","gt")} '
-                f'{payload.get("threshold","?")})')
+        return (
+            f'{payload.get("label","?")}: {payload.get("metric","?")} is '
+            f'{payload.get("value","?")} ({payload.get("op","gt")} '
+            f'{payload.get("threshold","?")})'
+        )
     elif event == "integration_metric_recovered":
-        return (f'{payload.get("label","?")}: {payload.get("metric","?")} is '
-                f'back within its threshold ({payload.get("value","?")})')
-    elif event in ("sweep_failing", "sweep_recovered", "sidecar_down",
-                   "sidecar_recovered", "mitigation_unverified"):
+        return (
+            f'{payload.get("label","?")}: {payload.get("metric","?")} is '
+            f'back within its threshold ({payload.get("value","?")})'
+        )
+    elif event in (
+        "sweep_failing",
+        "sweep_recovered",
+        "sidecar_down",
+        "sidecar_recovered",
+        "mitigation_unverified",
+    ):
         # v6.4.2: control-plane health. Fleet-level, so `name` is the server and
         # the generic fallback would read "sweep_failing: unknown".
         return str(payload.get("detail") or event)
     elif event == "server_upgraded":
         # v6.4.2: fleet-level — `name` is the server, and the generic fallback
         # would read "server_upgraded: unknown".
-        return (f'RemotePower upgraded from {payload.get("from", "?")} to '
-                f'{payload.get("to", "?")}')
+        return (
+            f'RemotePower upgraded from {payload.get("from", "?")} to ' f'{payload.get("to", "?")}'
+        )
     elif event == "snmp_trap_received":
         # v6.4.2: the generic fallback rendered "sw-core: Snmp trap received"
         # with no OID and no MIB name at all — an operator woken by this had
@@ -886,14 +910,17 @@ def _webhook_message(event, payload):
         who = payload.get("rule") or payload.get("oid_label") or ""
         n = payload.get("count", 1)
         head = f"{who} on {name}" if who else f"SNMP trap from {name}"
-        return (f'{head}: {n} trap(s), OID {payload.get("oid", "?")} = '
-                f'{payload.get("value", "?")}')
+        return (
+            f'{head}: {n} trap(s), OID {payload.get("oid", "?")} = ' f'{payload.get("value", "?")}'
+        )
     elif event == "audit_forward_failed":
         # Fleet-level. Lead with the count, because the compliance question is
         # "how much of the audit log is missing from the SIEM", not "is it down".
         n = payload.get("backlog", 0)
-        msg = (f'{n} audit entr{"y" if n == 1 else "ies"} could not be delivered '
-               f"to the SIEM and are spooled for retry")
+        msg = (
+            f'{n} audit entr{"y" if n == 1 else "ies"} could not be delivered '
+            f"to the SIEM and are spooled for retry"
+        )
         if payload.get("dropped"):
             msg += f' — {payload["dropped"]} already dropped past the spool cap'
         if payload.get("error"):
@@ -901,8 +928,10 @@ def _webhook_message(event, payload):
         return msg
     elif event == "audit_forward_recovered":
         n = payload.get("delivered", 0)
-        return (f"SIEM audit forwarding recovered — {n} spooled entr"
-                f'{"y" if n == 1 else "ies"} delivered')
+        return (
+            f"SIEM audit forwarding recovered — {n} spooled entr"
+            f'{"y" if n == 1 else "ies"} delivered'
+        )
     elif event == "priv_group_added":
         return (
             f'{name}: {payload.get("user","?")} gained privileged-group '

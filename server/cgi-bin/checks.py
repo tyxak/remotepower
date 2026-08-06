@@ -431,14 +431,15 @@ def _host_checks(
         if failed:
             status = "critical"
             out_txt = f"{len(failed)} could NOT be planted: " + ", ".join(
-                f"{c.get('path')} ({c.get('detail') or 'unknown error'})"
-                for c in failed[:3])
+                f"{c.get('path')} ({c.get('detail') or 'unknown error'})" for c in failed[:3]
+            )
         elif watching:
             status = "warning"
             out_txt = (
                 f"{len(watching)} path(s) already held a REAL file — watching it "
                 "for changes, NOT a honeytoken: "
-                + ", ".join(str(c.get("path")) for c in watching[:3]))
+                + ", ".join(str(c.get("path")) for c in watching[:3])
+            )
         elif armed:
             status = "ok"
             out_txt = f"{len(armed)} decoy(s) armed"
@@ -487,8 +488,7 @@ def _host_checks(
                 "Local account passwords",
                 "security",
                 "critical",
-                f"{len(blank)} account(s) with a BLANK password: "
-                + ", ".join(blank[:4]),
+                f"{len(blank)} account(s) with a BLANK password: " + ", ".join(blank[:4]),
             )
         elif security_hardening:
             add(
@@ -496,9 +496,11 @@ def _host_checks(
                 "Local account passwords",
                 "security",
                 "warning" if stale else "ok",
-                f"{len(stale)} password(s) over a year old: " + ", ".join(stale[:4])
-                if stale
-                else f"{len(accts)} account(s), none blank or stale",
+                (
+                    f"{len(stale)} password(s) over a year old: " + ", ".join(stale[:4])
+                    if stale
+                    else f"{len(accts)} account(s), none blank or stale"
+                ),
             )
 
     # ── v6.2.0: Windows security-posture checks (from sysinfo.win_posture) ──
@@ -686,18 +688,23 @@ def _host_checks(
     if isinstance(fw, dict) and fw.get("active") is not None:
         active = bool(fw.get("active"))
         backends = fw.get("backends")
-        on_names = ([b.get("name") for b in backends
-                     if isinstance(b, dict) and b.get("active")]
-                    if isinstance(backends, list) else [])
+        on_names = (
+            [b.get("name") for b in backends if isinstance(b, dict) and b.get("active")]
+            if isinstance(backends, list)
+            else []
+        )
         add(
             "linux_firewall",
             "Host firewall",
             "security",
             "ok" if active else "warning",
-            (", ".join(str(n) for n in on_names if n) + " active"
-             if active and on_names
-             else "active" if active
-             else "no active ruleset (nftables/iptables/ufw all inactive)"),
+            (
+                ", ".join(str(n) for n in on_names if n) + " active"
+                if active and on_names
+                else (
+                    "active" if active else "no active ruleset (nftables/iptables/ufw all inactive)"
+                )
+            ),
         )
 
     # sshd hardening. Values are the first token of each directive, lowercased.
@@ -715,16 +722,13 @@ def _host_checks(
             issues.append("root login with a password permitted")
         if pwa == "yes":
             issues.append("password authentication enabled")
-        status = ("critical" if pel == "yes"
-                  else "warning" if issues
-                  else "ok")
+        status = "critical" if pel == "yes" else "warning" if issues else "ok"
         add(
             "linux_ssh_hardening",
             "SSH daemon hardening",
             "security",
             status,
-            "; ".join(issues) if issues
-            else "root password login and empty passwords disallowed",
+            "; ".join(issues) if issues else "root password login and empty passwords disallowed",
         )
 
     # Automatic security updates — the Linux twin of mac_auto_update above.
@@ -739,8 +743,11 @@ def _host_checks(
             "Automatic security updates",
             "patch",
             "ok" if on else "warning",
-            (f"on ({mech})" if on and mech else "on" if on
-             else "off (no unattended-upgrades / dnf-automatic)"),
+            (
+                f"on ({mech})"
+                if on and mech
+                else "on" if on else "off (no unattended-upgrades / dnf-automatic)"
+            ),
         )
 
     # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
