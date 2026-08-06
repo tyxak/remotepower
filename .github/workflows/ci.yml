@@ -26,10 +26,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # v6.2.3: was 10 — the suite is ~8.5 min on a fast dev box and GitHub's
-    # 2-core runners are slower; a growing suite against a 10-min ceiling is
-    # a timeout-flake class waiting to fire on a release push.
-    timeout-minutes: 20
+    # v6.4.2: was 20 (v6.2.3: was 10). On a release push this job used to run
+    # the suite TWICE — `unittest discover` here, then `make dist` extracts the
+    # tarball and runs the whole suite AGAIN against the staged tree — so as the
+    # suite grew it blew the 20-min ceiling (the v6.4.2 release push timed out at
+    # 20m4s during the dist step). The staged-tree run now lives in its own
+    # parallel `dist` job below, so neither re-runs the other's suite inside one
+    # budget; each keeps a full 30-min ceiling with headroom.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -58,17 +62,37 @@ jobs:
           mkdir -p "$RP_DATA_DIR"
           python -m unittest discover -s tests -v 2>&1 | tail -40
 
-      - name: Verify tarball builds (no actual tests rerun — make dist
-              runs them itself)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # Release-push only: build the tarball and run the suite against the EXTRACTED
+  # staged tree — this catches "reads a file the dist strips" bugs that a source-
+  # tree `unittest discover` can't. Its OWN job so it runs in PARALLEL with
+  # `test` (each with a full budget) instead of sharing one and timing out.
+  dist:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
+
+      - name: Build + verify the release tarball (staged-tree suite)
         env:
           RP_DATA_DIR: /tmp/rp-dist-data
         run: |
           mkdir -p "$RP_DATA_DIR"
           # The Makefile expects a clean tree; ensure no leftover state.
           make clean
-          # SHA256 + tarball — these surface any "ships fine on dev but
-          # breaks on a fresh checkout" issues that aren't visible
-          # from `python -m unittest` alone.
+          # make dist builds the tarball AND runs the suite against the
+          # extracted staged tree — the "ships fine on dev, breaks on a fresh
+          # checkout" catch that `unittest discover` alone can't make.
           make dist
           ls -lh dist/
