@@ -22606,6 +22606,10 @@ function _renderDrawerActions() {
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
+    // v6.4.2: the agent console. The web terminal above is SSH, which a
+    // Windows host only answers if OpenSSH Server was installed separately;
+    // this runs through the agent's own exec channel on every platform.
+    ['terminal',  'Agent console',   () => { closeDeviceDrawer(); openAgentConsole(id, name); },                                                                                  false, agentless],
     ['tv',        'Remote desktop',  () => { closeDeviceDrawer(); openVnc(id, name); },                                                                                           false, false],
     ['monitor',   'RDP (Windows)',   () => { closeDeviceDrawer(); openRdp(id, name); },                                                                                           false, false],
     ['hardDrive', 'Files',           () => { closeDeviceDrawer(); openFiles(id, name); },                                                                                         false, false],

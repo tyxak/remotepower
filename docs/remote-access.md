@@ -60,3 +60,35 @@ strict public-key pattern before anything is queued.
   confirmation** gate (`require_confirmation`) where enabled.
 - No inbound firewall rule is ever needed on the client — the agent always dials
   out to the server over HTTPS.
+
+## Agent console *(v6.4.2)*
+
+The web terminal above opens an **SSH** session. On Windows that only works if
+OpenSSH Server was installed and exposed separately — which RemotePower's own
+Windows onboarding never does — so on most Windows fleets the terminal button
+used to present a login form that could only fail to connect.
+
+**Agent console** (device drawer → *Agent console*) runs commands through the
+agent's existing run-and-wait exec channel instead: **no SSH server, no inbound
+port, no second credential**. Pick PowerShell or `cmd.exe` on Windows, or the
+shell elsewhere, type a command, read the output, run the next one.
+
+Opening the web terminal on a Windows host now offers the console instead — and
+still lets you proceed with SSH, since some Windows fleets do run OpenSSH
+Server.
+
+**It is not a PTY, and does not pretend to be.** Each command runs as its own
+process, so:
+
+- there is no persistent shell state — `cd` does not carry over between
+  commands;
+- interactive programs (`vim`, a paging `more`, anything prompting for input)
+  will hang until the timeout;
+- output arrives when the command finishes, not as it is produced.
+
+For a full interactive desktop on Windows, use the **RDP tunnel** from the same
+drawer.
+
+Every command goes through the same path as the drawer's *Run command*:
+admin-only, per-device allowlist enforced, and audit-logged. The console is not
+a way around those controls.

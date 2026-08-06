@@ -55,10 +55,156 @@ function _loadXtermOnce() {
   })).then(() => { _webtermXtermLoaded = true; });
 }
 
+// ── v6.4.2: agent console ───────────────────────────────────────────────────
+// The web terminal is an asyncssh client: it asks for host / SSH user / port 22
+// / SSH password and opens a real SSH session. Windows hosts therefore only get
+// an interactive prompt if the operator separately installed and exposed
+// OpenSSH Server with a local password — which RemotePower's own Windows
+// onboarding never does. So the drawer's terminal button offered a modal that
+// simply fails to connect on most Windows fleets, and said nothing about why.
+//
+// Meanwhile `POST /api/exec/wait` has returned command output SYNCHRONOUSLY
+// since v5.6.0, and the Windows agent reports through the same `cmd_output`
+// path — so the iterate-and-see loop existed on the wire with no UI on top of
+// it. This is that UI.
+//
+// It is NOT a PTY and does not pretend to be: each command is its own process,
+// so there is no persistent shell state and no interactive program. What it
+// gives a Windows operator at 2am is the ability to run something, read the
+// output, and run the next thing — through a channel that is already
+// admin-gated, allowlist-enforced and audit-logged.
+let _agentConDev = null;
+
+const _AGENT_CON_SHELLS = {
+  windows: [['ps:', 'PowerShell'], ['cmd:', 'cmd.exe']],
+  other:   [['exec:', 'Shell']],
+};
+
+function openAgentConsole(id, name) {
+  const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
+  const win = /win/i.test(String(dev?.os || ''));
+  _agentConDev = { id, name, win };
+  const sel = document.getElementById('agentcon-shell');
+  if (sel) {
+    const opts = _AGENT_CON_SHELLS[win ? 'windows' : 'other'];
+    sel.innerHTML = opts.map(([v, l]) =>
+      `<option value="${escAttr(v)}">${escHtml(l)}</option>`).join('');
+  }
+  const sub = document.getElementById('agentcon-sub');
+  if (sub) {
+    sub.textContent = `${name} — commands run through the agent, so no SSH `
+      + 'server, inbound port or second credential is needed.';
+  }
+  const out = document.getElementById('agentcon-out');
+  if (out) out.textContent = '';
+  const inp = document.getElementById('agentcon-input');
+  if (inp) {
+    inp.placeholder = win ? "Get-Service | Where-Object Status -eq 'Stopped'"
+                          : 'systemctl --failed';
+    inp.value = '';
+  }
+  document.querySelector('#agent-console-modal .modal-title').textContent =
+    `Agent console — ${name}`;
+  openModal('agent-console-modal');
+  setTimeout(() => document.getElementById('agentcon-input')?.focus(), 60);
+}
+
+function _agentConAppend(cmd, text, cls) {
+  const out = document.getElementById('agentcon-out');
+  if (!out) return;
+  const head = document.createElement('div');
+  head.className = 'c-accent';
+  head.textContent = '> ' + cmd;
+  const body = document.createElement('div');
+  if (cls) body.className = cls;
+  // textContent, never innerHTML: this is remote command output from a host
+  // that may be compromised, which is precisely when an operator runs it.
+  body.textContent = text;
+  out.appendChild(head);
+  out.appendChild(body);
+  out.scrollTop = out.scrollHeight;
+}
+
+async function agentConsoleRun() {
+  if (!_agentConDev) return;
+  const inp = document.getElementById('agentcon-input');
+  const raw = (inp?.value || '').trim();
+  if (!raw) return;
+  const shell = document.getElementById('agentcon-shell')?.value || 'exec:';
+  inp.value = '';
+  _agentConAppend(raw, 'running…', 'c-muted');
+  let r;
+  try {
+    r = await api('POST', '/exec/wait',
+                  { device_id: _agentConDev.id, cmd: shell + raw, timeout: 90 });
+  } catch (e) {
+    r = null;
+  }
+  // Replace the "running…" placeholder rather than stacking under it.
+  const out = document.getElementById('agentcon-out');
+  if (out && out.lastChild) out.removeChild(out.lastChild);
+  if (!r) {
+    _agentConAppend('', 'No response — the agent did not report back within '
+                        + 'the timeout. It may be offline, or the command may '
+                        + 'still be running on the host.', 'c-amber');
+  } else if (r.error) {
+    _agentConAppend('', String(r.error), 'c-red');
+  } else if (r.timeout) {
+    _agentConAppend('', String(r.message || 'Timed out waiting for the agent.'),
+                    'c-amber');
+  } else {
+    // The agent reports {cmd, output, rc}; `output` on the response is that
+    // whole record, not a string — String(r.output) would render
+    // "[object Object]" into the console an operator is reading at 2am.
+    const rec = (r.output && typeof r.output === 'object') ? r.output : {};
+    const text = String(rec.output != null ? rec.output : (r.output || ''))
+                 || '(no output)';
+    const rc = rec.rc;
+    _agentConAppend('', text + (rc ? `\n[exit ${rc}]` : ''), rc ? 'c-amber' : '');
+  }
+  inp?.focus();
+}
+
+// Enter runs; the modal has one text input so this cannot steal a keystroke
+// from anything else.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.target && e.target.id === 'agentcon-input') {
+    e.preventDefault();
+    agentConsoleRun();
+  }
+});
+
 function openWebTerm(id, name) {
   // Find the device in our cached list to pre-fill the IP. The global
   // `devices` is populated by loadDevices() and refreshed periodically.
   const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
+  // v6.4.2: this modal opens an SSH session. On a Windows host that is only
+  // reachable if the operator separately installed and exposed OpenSSH Server
+  // — which RemotePower's own Windows onboarding never does — so the button
+  // used to present a login form that could only ever fail to connect, with no
+  // hint as to why. Offer the paths that DO work on Windows instead.
+  if (/win/i.test(String(dev?.os || ''))) {
+    uiConfirm({
+      title: 'This host is Windows',
+      message: 'The web terminal opens an SSH session, which needs OpenSSH '
+             + 'Server installed and running on the host — RemotePower does not '
+             + 'install it.\n\nOpen the agent console instead? It runs '
+             + 'PowerShell or cmd.exe through the agent, with no SSH server, no '
+             + 'inbound port and no second credential. (For a full desktop, use '
+             + 'the RDP tunnel from this device\'s drawer.)',
+      confirmText: 'Open agent console',
+      cancelText: 'Use SSH anyway',
+    }).then(ok => {
+      if (ok) openAgentConsole(id, name);
+      else _openWebTermModal(id, name, dev);
+    });
+    return;
+  }
+  _openWebTermModal(id, name, dev);
+}
+
+function _openWebTermModal(id, name, dev) {
   document.getElementById('webterm-device-id').value = id;
   document.getElementById('webterm-host').value = dev?.ip || '';
   document.getElementById('webterm-user').value = '';

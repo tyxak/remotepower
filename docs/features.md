@@ -231,6 +231,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
+| Agent console | Run PowerShell / `cmd.exe` / shell commands **through the agent** and read the output inline, iterating without SSH — no SSH server, no inbound port, no second credential *(v6.4.2)*. The web terminal is an SSH client, so on a Windows host without a separately-installed OpenSSH Server it could only fail to connect, and the drawer button said nothing about why; it now offers the console instead (and still lets you proceed with SSH). **Not a PTY:** each command is its own process, so no persistent `cd`, and interactive programs hang until the timeout — for a full desktop use the RDP tunnel. Runs over the existing run-and-wait exec channel, so it is admin-only, allowlist-enforced and audit-logged like any other command |
 | Web terminal | Real xterm.js SSH in the browser via a hardened daemon; asciinema v2 recordings (output-only default, opt-in keystroke) *(v1.11.11)* |
 | Graphical remote desktop | noVNC over the web-terminal daemon's SSH tunnel to loopback VNC; never network-exposed; Linux only *(v3.5.0)* |
 | RDP tunnel (Windows) | Opt-in (`rdp_enabled`): the drawer's RDP action mints an admin-reauth'd session that tunnels the host's loopback 3389 over the same SSH plumbing; an operator-side bridge exposes it as `localhost:PORT` for mstsc/Remmina (no in-browser RDP client — deliberate). RDP port stays loopback-only on the host *(v6.0.0)* |
