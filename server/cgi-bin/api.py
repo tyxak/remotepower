@@ -25840,6 +25840,16 @@ def _declarative_collections():
         'resolver_targets':      file_raw(RESOLVER_HEALTH_TARGETS_FILE),
         'ip_reputation_targets': file_raw(IP_REP_TARGETS_FILE),
         'inbound_webhooks':      file_raw(INBOUND_WEBHOOKS_FILE),
+        # v6.4.2 (audit): the rest of the operator DECISION stores — all
+        # secret-free. Dropping them from the "commit to version control" doc
+        # loses the mute/accept/suppress decisions on a rebuild. Device-keyed
+        # entries (alert mutes carry a device_id, cve_ignore is keyed by device
+        # id) restore against the same ids and are inert against absent ones —
+        # never harmful, unlike silently re-alerting on them.
+        'alert_mutes':           file_list(ALERT_MUTES_FILE, 'mutes'),
+        'na_suppress_rules':     file_list(NA_SUPPRESS_FILE, 'rules'),
+        'snmp_trap_rules':       file_list(SNMP_TRAP_RULES_FILE, 'rules'),
+        'cve_ignores':           file_raw(CVE_IGNORE_FILE),
     }
 
 
@@ -26038,6 +26048,10 @@ def _declarative_meta():
         'dmarc_targets':         {'kind': 'file_raw', 'file': DMARC_TARGETS_FILE},
         'resolver_targets':      {'kind': 'file_raw', 'file': RESOLVER_HEALTH_TARGETS_FILE},
         'ip_reputation_targets': {'kind': 'file_raw', 'file': IP_REP_TARGETS_FILE},
+        'alert_mutes':           {'kind': 'file_list', 'file': ALERT_MUTES_FILE, 'inner': 'mutes', 'id': 'id'},
+        'na_suppress_rules':     {'kind': 'file_list', 'file': NA_SUPPRESS_FILE, 'inner': 'rules', 'id': 'id'},
+        'snmp_trap_rules':       {'kind': 'file_list', 'file': SNMP_TRAP_RULES_FILE, 'inner': 'rules', 'id': 'id'},
+        'cve_ignores':           {'kind': 'file_raw', 'file': CVE_IGNORE_FILE},
         # webhook_destinations lives under CONFIG_FILE's `webhook_urls` key, so when
         # a config master key is armed we can export the full URL as an `enc:v2:`
         # ciphertext (name-agnostic config-secret decrypt restores it on load) →

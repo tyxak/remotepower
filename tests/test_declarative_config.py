@@ -321,3 +321,46 @@ class TestOperatorDecisionsAreExported(unittest.TestCase):
         meta = api._declarative_meta()
         self.assertNotEqual(meta["exposure_mutes"].get("importable"), False)
         self.assertNotEqual(meta["compliance_baseline"].get("importable"), False)
+
+
+class TestAllOperatorDecisionStoresExport(unittest.TestCase):
+    """v6.4.2 (audit): the remaining operator DECISION stores — alert mutes, NA
+    suppression rules, SNMP trap rules, CVE ignores — are secret-free and were
+    silently dropped from the "commit to version control" export, so a rebuild
+    lost every mute/accept/suppress decision. All now export."""
+
+    STORES = {
+        "alert_mutes": ("ALERT_MUTES_FILE", {"mutes": [{"id": "m1", "device_id": "h1",
+                                                        "event": "disk_low"}]}),
+        "na_suppress_rules": ("NA_SUPPRESS_FILE", {"rules": [{"id": "n1", "kind": "*",
+                                                             "scope": "all"}]}),
+        "snmp_trap_rules": ("SNMP_TRAP_RULES_FILE", {"rules": [{"id": "s1",
+                                                              "oid": "1.3.6",
+                                                              "severity": "high"}]}),
+        "cve_ignores": ("CVE_IGNORE_FILE", {"h1": {"CVE-2020-1": {"reason": "wontfix"}}}),
+    }
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._orig = {}
+        for _col, (attr, seed) in self.STORES.items():
+            self._orig[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+            api.save(getattr(api, attr), seed)
+            api._invalidate_load_cache(getattr(api, attr))
+
+    def tearDown(self):
+        for attr, v in self._orig.items():
+            setattr(api, attr, v)
+
+    def test_each_store_exports_its_data(self):
+        cols = api._declarative_collections()
+        for col in self.STORES:
+            with self.subTest(collection=col):
+                self.assertTrue(cols.get(col), f"{col} exported empty")
+
+    def test_each_store_has_meta(self):
+        meta = api._declarative_meta()
+        for col in self.STORES:
+            with self.subTest(collection=col):
+                self.assertIn(meta[col]["kind"], ("file_list", "file_raw"))
