@@ -17686,75 +17686,6 @@ function _msWorst(d) {
   const v = Object.values(d.metric_state || {});
   return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : null;
 }
-// v6.4.2: dashboard onboarding checklist.
-//
-// Default ON so a fresh install shows it without anyone finding it first, and
-// SELF-REMOVING: once no required step is outstanding the card hides itself, so
-// it does not become permanent clutter on a mature install. An explicit dismiss
-// is remembered in ui_prefs; the card is still re-addable from the widget
-// catalog like any other.
-let _setupStatusCache = null;
-async function _renderSetupWidget() {
-  const card = document.getElementById('home-w-setup');
-  if (!card) return;
-  const hide = () => card.classList.add('dash-off');
-  if (_uiPrefs && _uiPrefs.setup_card_dismissed) { hide(); return; }
-  let d = _setupStatusCache;
-  if (!d) {
-    d = await api('GET', '/setup-status').catch(() => null);
-    if (!d || !Array.isArray(d.steps)) { hide(); return; }
-    _setupStatusCache = d;
-  }
-  // Nothing REQUIRED left AND everything else done is the signal to get out of
-  // the way. The optional steps stay reachable in Settings -> Install; they are
-  // not worth a permanent dashboard card.
-  if (!(d.required_remaining || []).length && d.complete) { hide(); return; }
-  card.classList.remove('dash-off');
-  const rows = d.steps.map((st) => {
-    const cls = st.done ? 'c-green' : (st.required ? 'c-red' : 'c-muted');
-    // The notifications step reports configured-but-unverified separately —
-    // "configured" used to score a green tick while delivery had never once
-    // succeeded, which is exactly the state worth calling out here.
-    const right = st.done ? 'done'
-      : (st.configured && st.verified === false) ? 'never delivered'
-      : (st.required ? 'required' : 'optional');
-    return `<div class="dash-mini-row">`
-      + `<span class="dm-l"><button class="btn-icon" data-action="setupGoto"`
-      + ` data-arg="${escAttr(st.id)}" title="${escAttr(st.detail || '')}">`
-      + `${escHtml(st.title)}</button></span>`
-      + `<span class="dm-r ${cls}">${right}</span></div>`;
-  }).join('');
-  _setWidget('home-w-setup-body',
-    `<div class="dash-mini-head">${d.done}/${d.total} done`
-    + ((d.required_remaining || []).length
-        ? ` · <span class="c-red">${d.required_remaining.length} required left</span>` : '')
-    + `</div>${rows}`
-    + `<div class="mt-8"><button class="btn-icon" data-action="dismissSetupCard">Hide this card</button></div>`);
-}
-
-// Route a checklist row to the page/tab that actually fixes it. `page` and the
-// optional `tab` come from the server, so this stays one source of truth rather
-// than a second hardcoded map. The Settings tab is opened by CLICKING its real
-// button — each tab carries a data-action2 loader, and calling
-// switchSettingsTab directly would switch the pane without ever loading it.
-function setupGoto(stepId) {
-  const st = ((_setupStatusCache || {}).steps || []).find((x) => x.id === stepId);
-  if (!st) return;
-  showPage(st.page || 'settings');
-  if (st.tab) {
-    setTimeout(() => {
-      document.getElementById('settings-tab-btn-' + st.tab)?.click();
-    }, 60);
-  }
-}
-
-function dismissSetupCard() {
-  _uiPrefs.setup_card_dismissed = true;
-  _scheduleFlushUiPrefs();
-  document.getElementById('home-w-setup')?.classList.add('dash-off');
-  toast('Getting-started card hidden \u2014 the checklist is still in Settings \u2192 Install', 'success');
-}
-
 function _renderHomeWidgets(home) {
   _showHomelab = home.show_homelab !== false;   // v4.7.0: gate the homelab widget
   // Post-it: wire the textarea once (a 60s refresh must not clobber what's being
@@ -17930,11 +17861,6 @@ function _renderHomeWidgets(home) {
     bigStat('home-w-helpdesk-body', _hto, _hto === 1 ? 'open ticket' : 'open tickets',
             _hto ? 'c-amber' : 'c-green');
   }
-  // v6.4.2: the onboarding checklist, on the dashboard. It had exactly one
-  // renderer — Settings → Install — so the "N required steps left" state never
-  // appeared anywhere a new operator lands. Fire-and-forget: the checklist is a
-  // separate cheap endpoint, and a failure must never break the dashboard.
-  _renderSetupWidget();
   bigStat('home-w-crittotal-body', `${totC} / ${totH}`, 'critical / high', totC ? 'c-red' : 'c-amber');
   bigStat('home-w-updatestotal-body', totUpd, `across ${upd.length} host(s)`,
           totUpd ? 'c-amber' : 'c-green');
@@ -18274,7 +18200,6 @@ const DASH_WIDGETS = [
   // v6.4.2: onboarding checklist. NOT `opt` — a new operator must not have to
   // discover it to see it, which was the whole finding. Same order as
   // api.DASHBOARD_WIDGETS (a guardrail test pins the two lists equal).
-  { key: 'setup',    label: 'Getting started',                 size: 'md' },
   // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },

@@ -756,16 +756,6 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v6.2.2: helpdesk open-ticket count (distinct from the
                               # 'tickets' widget, which is actually the Alerts inbox)
                               'helpdesk',
-                              # v6.4.2: the onboarding checklist. GET /api/setup-status
-                              # had exactly ONE renderer — Settings → Install, a tab
-                              # reached only by opening Settings (which lands on
-                              # General) and then clicking Install. So the product
-                              # knew exactly what a new operator should do next and
-                              # showed it on no surface they would look at. Default
-                              # ON, and the renderer hides the card once the required
-                              # steps are done, so it removes itself rather than
-                              # becoming permanent clutter.
-                              'setup',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
