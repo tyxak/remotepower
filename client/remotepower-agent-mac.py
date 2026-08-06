@@ -554,6 +554,33 @@ def get_mac_posture():
         return {}
 
 
+def get_top_processes(limit=15):
+    """Top processes by memory (RSS %). Returns (top_list, name_set) — the SAME
+    {pid, name, cpu, mem} shape the Linux/Windows agents send (the server
+    sanitizer keeps `cpu`/`mem`, and the server-side `process` custom-check reads
+    sysinfo.proc_names). Needs psutil; ([], []) without it. cpu_percent(None) is
+    non-blocking (primed at import)."""
+    try:
+        import psutil
+    except Exception:
+        return [], []
+    procs = []
+    names = set()
+    for p in psutil.process_iter(['pid', 'name', 'memory_percent', 'cpu_percent']):
+        try:
+            pinfo = p.info
+            nm = pinfo.get('name') or ''
+            if nm:
+                names.add(nm)
+            procs.append({'pid': pinfo.get('pid'), 'name': nm,
+                          'cpu': round(pinfo.get('cpu_percent') or 0, 1),
+                          'mem': round(pinfo.get('memory_percent') or 0, 2)})
+        except Exception:
+            continue
+    procs.sort(key=lambda x: x.get('mem') or 0, reverse=True)
+    return procs[:limit], sorted(names)[:400]
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available, else a best-effort subset so a
     host without psutil still reports OS / cpu model / hostname."""
@@ -633,6 +660,21 @@ def collect_sysinfo():
             lp = collect_listening_ports()
             if lp:
                 info['listening_ports'] = lp
+        except Exception:
+            pass
+        # v6.4.2: top processes + the process-name set. macOS was the only agent
+        # not sending these (Linux/Windows both do), so every Mac's `process`
+        # custom-check returned 'unknown' and the Top-Processes drawer/fleet view
+        # rendered empty. psutil is already imported here, so it is fully
+        # portable. Inside the psutil block AND after `info` is built (never a
+        # collector before the dict is assigned — that UnboundLocalErrors under
+        # the try and ships the field dead).
+        try:
+            _top, _names = get_top_processes()
+            if _top:
+                info['top_processes'] = _top
+            if _names:
+                info['proc_names'] = _names
         except Exception:
             pass
     except ImportError:
