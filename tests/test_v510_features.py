@@ -49,6 +49,15 @@ class TestFail2banEventWiring(unittest.TestCase):
 
 
 class TestFail2banAlertCoalesce(unittest.TestCase):
+    def setUp(self):
+        # Reset the shared alert store: this test asserts the FIRST _record_alert
+        # creates a new row and the second coalesces into it, so a fail2ban_ban
+        # row leaked by an earlier test in this module (under pytest-randomly's
+        # shuffle) breaks the count. The class-4 order-dependence documented in
+        # CLAUDE.md — reset the store the test reads in setUp.
+        api.save(api.ALERTS_FILE, {"alerts": []})
+        api._invalidate_load_cache(api.ALERTS_FILE)
+
     def test_repeat_bans_coalesce_per_host(self):
         # Two bans on the same host (different IPs) collapse to ONE open alert
         # with a bumped count — payload carries no identity field, so identity
