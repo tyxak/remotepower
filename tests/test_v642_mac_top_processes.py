@@ -19,6 +19,15 @@ MAC = ROOT / "client" / "remotepower-agent-mac.py"
 class TestMacTopProcesses(unittest.TestCase):
     def test_get_top_processes_yields_the_shared_shape(self):
         spec = importlib.util.spec_from_file_location("rpmac_tp", MAC)
+        # get_top_processes needs psutil to enumerate; it gracefully returns
+        # ([], []) without it. The CI dep list (ci.yml) does not install psutil,
+        # so skip the live-enumeration assertion there rather than fail — the
+        # graceful-degradation path and the wiring are covered by the other two
+        # tests. (v6.4.1 gotcha: live-mode tests must skip without psutil.)
+        try:
+            import psutil  # noqa: F401
+        except ImportError:
+            self.skipTest("psutil not installed (CI dep list) — enumeration skipped")
         mac = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(mac)
