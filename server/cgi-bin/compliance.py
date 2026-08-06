@@ -137,11 +137,26 @@ def _exposure_detection_control(facts):
 
 
 def _traffic_restrict_control(facts):
-    """PCI 1.2.1 — "restrict inbound/outbound traffic". RemotePower observes
-    listening ports but does not assess or manage firewall rule sets, so it
-    cannot honestly attest this control."""
-    return NA, ("RemotePower detects listening-port changes but does not assess "
-                "firewall rule configuration — verify restrictions at the firewall.")
+    """PCI 1.2.1 — "restrict inbound/outbound traffic".
+
+    v6.4.2 (audit): the agent has reported per-host firewall state
+    (nftables/iptables/ufw active-ruleset) since v3.12.0, so the old blanket
+    "cannot assess" was a stale premise — it claimed a blind spot the product
+    doesn't have. This now attests the HOST-firewall layer honestly: FAIL when a
+    reporting host has no active ruleset, PASS when every reporting host does,
+    and NA only when genuinely no host has reported firewall state. Upstream /
+    network firewalls remain out of scope and are called out in the message."""
+    off = facts.get('firewall_off') or []
+    if off:
+        return FAIL, (f"{len(off)} host(s) with no active host firewall: "
+                      + ", ".join(str(h) for h in off[:10])
+                      + ". Enable nftables/ufw with a default-deny inbound policy.")
+    if facts.get('firewall_data_devices'):
+        return PASS, ("Every host that reported firewall state has an active "
+                      "ruleset. Upstream/network firewall restrictions are out of "
+                      "scope — verify those separately.")
+    return NA, ("No host has reported firewall state yet — verify restrictions "
+                "at the firewall.")
 
 
 def _access_review_control(facts):

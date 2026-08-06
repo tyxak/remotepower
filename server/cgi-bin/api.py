@@ -42637,6 +42637,11 @@ def _compliance_facts(devices=None):
     # count how many MONITORED hosts actually reported each signal, and the
     # control returns 'not assessed' (not PASS) when that count is 0.
     patch_data_devices = sysinfo_devices = os_known_devices = 0
+    # v6.4.2 (audit): host firewall state HAS been collected since v3.12.0, so
+    # PCI 1.2.1 no longer has to return a blanket "cannot assess". active is
+    # tri-state: None (unreadable probe) is not counted as data or as off.
+    firewall_off = []
+    firewall_data_devices = 0
     for dev in devices.values():
         if not isinstance(dev, dict) or dev.get('monitored') is False:
             continue
@@ -42652,11 +42657,18 @@ def _compliance_facts(devices=None):
             reboot.append(dev.get('name', '?'))
         if dev.get('os'):
             os_known_devices += 1
+        fw = si.get('firewall')
+        if isinstance(fw, dict) and fw.get('active') is not None:
+            firewall_data_devices += 1
+            if fw.get('active') is False:
+                firewall_off.append(dev.get('name', '?'))
     facts['pending_patches_devices'] = pending_bad
     facts['reboot_required'] = reboot
     facts['patch_data_devices'] = patch_data_devices
     facts['sysinfo_devices'] = sysinfo_devices
     facts['os_known_devices'] = os_known_devices
+    facts['firewall_off'] = firewall_off
+    facts['firewall_data_devices'] = firewall_data_devices
 
     # CVEs (critical+high) from the findings store. Match the CVE Findings page
     # exactly so Compliance can't disagree with it: (1) skip findings for devices

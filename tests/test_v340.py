@@ -309,7 +309,9 @@ class TestCompliance(unittest.TestCase):
         rep = self.c.build_report(facts)
         rows = {ctl['id']: ctl['status']
                 for fw in rep['frameworks'].values() for ctl in fw['controls']}
-        self.assertEqual(rows['1.2.1'], 'na')     # can't assess firewall rules
+        # v6.4.2: 1.2.1 now assesses HOST firewall state; with no firewall data
+        # in these facts it is still NA (never reported), not a false pass.
+        self.assertEqual(rows['1.2.1'], 'na')     # no host firewall data reported
         self.assertEqual(rows['CC7.1'], 'pass')   # detection is active
 
     def test_na_when_unmeasurable(self):
