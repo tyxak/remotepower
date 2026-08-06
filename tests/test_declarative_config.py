@@ -242,3 +242,45 @@ class TestWiring(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestLogAlertRulesAreBoundToTheirRealStore(unittest.TestCase):
+    """v6.4.2 (audit): log_alert_rules was exported via cfg_list('log_alert_rules'),
+    a config key nothing reads or writes — the real rules live in
+    LOG_RULES_GLOBAL_FILE. The export therefore always emitted [] while claiming
+    (in a doc that says "safe to commit to version control") to cover the rules;
+    a git rebuild would restore none of them. Now bound to the real store.
+    """
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._lg = api.LOG_RULES_GLOBAL_FILE
+        self._cf = api.CONFIG_FILE
+        api.LOG_RULES_GLOBAL_FILE = self.d / "log_rules_global.json"
+        api.CONFIG_FILE = self.d / "config.json"
+        api.save(api.LOG_RULES_GLOBAL_FILE,
+                 {"rules": [{"id": "r1", "unit": "sshd", "pattern": "fail",
+                             "severity": "high"}]})
+        api.save(api.CONFIG_FILE, {})
+        for f in (api.LOG_RULES_GLOBAL_FILE, api.CONFIG_FILE):
+            api._invalidate_load_cache(f)
+
+    def tearDown(self):
+        api.LOG_RULES_GLOBAL_FILE = self._lg
+        api.CONFIG_FILE = self._cf
+
+    def test_export_carries_the_real_rules(self):
+        cols = api._declarative_collections()
+        self.assertEqual(len(cols["log_alert_rules"]), 1)
+        self.assertEqual(cols["log_alert_rules"][0]["id"], "r1")
+
+    def test_meta_points_at_the_real_file(self):
+        meta = api._declarative_meta()["log_alert_rules"]
+        self.assertEqual(meta["kind"], "file_list")
+        self.assertEqual(Path(meta["file"]).name, "log_rules_global.json")
+        self.assertEqual(meta["inner"], "rules")
+
+    def test_it_is_no_longer_a_config_key_phantom(self):
+        """Nothing reads cfg['log_alert_rules']; the export must not read it."""
+        src = (_CGI / "api.py").read_text()
+        self.assertNotIn("cfg_list('log_alert_rules')", src)

@@ -25814,7 +25814,13 @@ def _declarative_collections():
         'service_baselines':     cfg_list('service_baselines'),
         'process_watches':       cfg_list('process_watches'),
         'backup_monitors':       cfg_list('backup_monitors'),
-        'log_alert_rules':       cfg_list('log_alert_rules'),
+        # v6.4.2 (audit): the fleet-wide log-alert rules live in their OWN store
+        # (LOG_RULES_GLOBAL_FILE), never under a config key — so cfg_list()
+        # exported an always-empty list. The declarative doc calls itself "safe
+        # to commit to version control", so this silently claimed to cover the
+        # rules while a git-driven rebuild would restore NONE of them. Bind it to
+        # the real store, like automation_rules/maintenance_windows below.
+        'log_alert_rules':       file_list(LOG_RULES_GLOBAL_FILE, 'rules'),
         'sla_targets':           cfg.get('sla_targets') if isinstance(cfg.get('sla_targets'), dict) else {},
         # own-file collections
         'automation_rules':      file_list(RULES_FILE, 'rules'),
@@ -26012,7 +26018,7 @@ def _declarative_meta():
         'service_baselines':     {'kind': 'cfg_list', 'key': 'service_baselines', 'id': None},
         'process_watches':       {'kind': 'cfg_list', 'key': 'process_watches', 'id': None},
         'backup_monitors':       {'kind': 'cfg_list', 'key': 'backup_monitors', 'id': 'path'},
-        'log_alert_rules':       {'kind': 'cfg_list', 'key': 'log_alert_rules', 'id': None},
+        'log_alert_rules':       {'kind': 'file_list', 'file': LOG_RULES_GLOBAL_FILE, 'inner': 'rules', 'id': 'id'},
         'sla_targets':           {'kind': 'cfg_dict', 'key': 'sla_targets'},
         'automation_rules':      {'kind': 'file_list', 'file': RULES_FILE, 'inner': 'rules', 'id': 'id'},
         'maintenance_windows':   {'kind': 'file_list', 'file': MAINT_FILE, 'inner': 'windows', 'id': 'id'},

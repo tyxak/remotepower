@@ -661,6 +661,76 @@ def _host_checks(
                 "on" if au else "off",
             )
 
+    # ── v6.4.2: Linux security-posture checks ────────────────────────────────
+    # The agent has collected host firewall state, sshd hardening and the
+    # auto-update mechanism for releases, and every one of them drove only the
+    # risk score and the advisory list — never a Checks-page row, never
+    # alertable — while the Windows and macOS equivalents above ARE check rows.
+    # This closes that cross-platform asymmetry. All three are derived from data
+    # already stored (sysinfo.firewall / .ssh_config / .autoupdate) and are
+    # Linux-only by construction (Windows/macOS report firewall under
+    # win_posture/mac_posture, not the top-level dict/keys read here).
+
+    # Host firewall. active is tri-state: True=active ruleset, False=no active
+    # ruleset, None=unknown (a locked-down probe) — mirror advisory.py and never
+    # flag unknown as off (that would invent a failing bill of health).
+    fw = si.get("firewall")
+    if isinstance(fw, dict) and fw.get("active") is not None:
+        active = bool(fw.get("active"))
+        backends = fw.get("backends")
+        on_names = ([b.get("name") for b in backends
+                     if isinstance(b, dict) and b.get("active")]
+                    if isinstance(backends, list) else [])
+        add(
+            "linux_firewall",
+            "Host firewall",
+            "security",
+            "ok" if active else "warning",
+            (", ".join(str(n) for n in on_names if n) + " active"
+             if active and on_names
+             else "active" if active
+             else "no active ruleset (nftables/iptables/ufw all inactive)"),
+        )
+
+    # sshd hardening. Values are the first token of each directive, lowercased.
+    sc = si.get("ssh_config")
+    if isinstance(sc, dict) and sc:
+        pel = str(sc.get("permit_empty_passwords", "")).lower()
+        prl = str(sc.get("permit_root_login", "")).lower()
+        pwa = str(sc.get("password_authentication", "")).lower()
+        issues = []
+        if pel == "yes":
+            issues.append("empty passwords permitted")
+        if prl == "yes":
+            issues.append("root login with a password permitted")
+        if pwa == "yes":
+            issues.append("password authentication enabled")
+        status = ("critical" if pel == "yes"
+                  else "warning" if issues
+                  else "ok")
+        add(
+            "linux_ssh_hardening",
+            "SSH daemon hardening",
+            "security",
+            status,
+            "; ".join(issues) if issues
+            else "root password login and empty passwords disallowed",
+        )
+
+    # Automatic security updates — the Linux twin of mac_auto_update above.
+    au = si.get("autoupdate")
+    if isinstance(au, dict) and "enabled" in au:
+        on = bool(au.get("enabled"))
+        mech = str(au.get("mechanism") or "").strip()
+        add(
+            "linux_auto_update",
+            "Automatic security updates",
+            "patch",
+            "ok" if on else "warning",
+            (f"on ({mech})" if on and mech else "on" if on
+             else "off (no unattended-upgrades / dnf-automatic)"),
+        )
+
     # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
     if custom_defs:
         out.extend(_custom_checks_for(dev_id, dev, custom_defs, disabled))
