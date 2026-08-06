@@ -10867,6 +10867,10 @@ def _record_alert(event, payload):
                     # v6.2.2: NIC interface name — the nic_errors alert's
                     # per-interface match key for nic_errors_cleared resolve.
                     'iface',
+                    # v6.4.2 (audit): audit-forward failure detail, so the
+                    # inbox row shows the spool backlog and the error instead of
+                    # an empty {}.
+                    'backlog', 'dropped', 'failing_since', 'error',
                     # v6.4.2: SNMP trap identity + the resolved MIB name. `rule`
                     # is in _ALERT_IDENTITY_FIELDS, so it has to be STORED too —
                     # an identity field the row doesn't carry discriminates
@@ -11082,6 +11086,18 @@ def _record_alert(event, payload):
     return alert
 
 
+# v6.4.2 (audit): recover events that clear a single fleet-level control-plane
+# alert with no device_id. They match their target purely by event name (there
+# is only ever one open), so _auto_resolve_alerts lets them past the
+# device-id/sub_match guard.
+_FLEET_SINGLETON_RECOVERS = frozenset((
+    'server_disk_ok',           # server_disk_low (pre-existing since v5.0.0)
+    'sweep_recovered',          # sweep_failing (v6.4.2)
+    'sidecar_recovered',        # sidecar_down (v6.4.2)
+    'audit_forward_recovered',  # audit_forward_failed (v6.4.2)
+))
+
+
 def _auto_resolve_alerts(event, payload):
     """If `event` is a recover event, mark matching open alerts resolved."""
     primary = _ALERT_RECOVER.get(event)
@@ -11275,9 +11291,18 @@ def _auto_resolve_alerts(event, payload):
         # v6.4.0: disk_predict_fail fires per disk; a device-id-only recovery
         # cleared every disk-prediction alert on the host. Match the disk.
         sub_match['disk'] = p.get('disk')
+    # v6.4.2 (audit): fleet-level SINGLETON recover events — the control-plane
+    # health alerts. Their firing sites build device-id-less payloads and there
+    # is exactly one open alert of each target at a time, so they match purely
+    # by event name. Without this they hit the guard below and the open
+    # sweep_failing / sidecar_down / audit_forward_failed / server_disk_low row
+    # is never resolved — it accumulates in the inbox forever. (server_disk_ok
+    # had the same bug pre-existing since v5.0.0; it is covered here too.)
+    _fleet_singleton = event in _FLEET_SINGLETON_RECOVERS
     # Require either a device_id OR enough sub_match keys to identify
-    # which alert this recovery resolves. Without either, bail.
-    if not dev_id and not any(v for v in sub_match.values()):
+    # which alert this recovery resolves. Without either, bail — unless it is a
+    # fleet-level singleton, which is identified by its target event alone.
+    if not dev_id and not any(v for v in sub_match.values()) and not _fleet_singleton:
         return
     # v6.4.2: recoveries whose sub_match key is unique across the WHOLE fleet,
     # so the device-id equality below must not also be required. An integration
@@ -11354,7 +11379,14 @@ def _auto_resolve_alerts(event, payload):
 
 
 def _itsm_dest_by_id(dest_id):
-    for d in (_config_ro().get('webhook_destinations') or []):
+    # v6.4.2 (audit): destinations live under `webhook_urls`, not
+    # `webhook_destinations` — the latter key is never written, so the original
+    # read always returned None and the entire outbound ITSM close loop was
+    # dead. `_webhook_destination_map` is the canonical lookup.
+    _dmap = _webhook_destination_map(_config_ro())
+    if str(dest_id) in _dmap:
+        return _dmap[str(dest_id)]
+    for d in ():
         if isinstance(d, dict) and str(d.get('id')) == str(dest_id):
             return d
     return None
@@ -25694,8 +25726,25 @@ def _redact_nonname_config_secrets(cfg, mask=False):
         _hit(cfg, k)
     _hit(cfg.get('metrics_push'), 'url')
     _hit(cfg.get('gitops'), 'auth_header')
+    def _hit_map(container, key):
+        # v6.4.2 (audit): a webhook destination's custom `headers` map exists to
+        # carry an Authorization / X-API-Key credential. The header NAME is not
+        # secret-shaped, so _SECRET_KEY_RE never catches it and neither did this
+        # redactor — so a bearer token shipped in cleartext in the support
+        # bundle (docstring: 'no secrets'), the declarative export ('safe to
+        # commit') and the encrypted-backup config redaction. Drop the whole map
+        # in drop-mode; mask each VALUE (keep the NAMES) in mask-mode, so a
+        # restorable backup still shows which headers were configured.
+        m = container.get(key) if isinstance(container, dict) else None
+        if not isinstance(m, dict) or not m:
+            return
+        if mask:
+            container[key] = {hk: '(redacted)' for hk in m}
+        else:
+            container.pop(key, None)
     for _wh in (cfg.get('webhook_urls') or []):
         _hit(_wh, 'url'); _hit(_wh, 'pushover_user')  # pushover_token is name-caught
+        _hit_map(_wh, 'headers')    # v6.4.2 (audit): custom-header credentials
     for _ig in (cfg.get('integrations') or []):
         _hit(_ig, 'url')            # basic-auth userinfo; sibling 'secret' is name-caught
     for _ca in (cfg.get('cloud_accounts') or []):
@@ -25780,16 +25829,23 @@ _DECLARATIVE_SETTING_KEYS = frozenset({
     # cadence + retention
     'online_ttl', 'min_online_ttl', 'monitor_interval', 'default_poll_interval',
     'offline_missed_polls', 'monitor_history_max', 'command_history_max',
-    'audit_log_retention_days', 'webhook_log_retention_days',
+    'webhook_log_retention_days',   # audit_log_retention_days is governance-gated (below)
     'history_retention_days', 'log_buffer_retention_hours',
     'attention_event_ttl_hours',
     # batch safety rails
     'batch_max_devices', 'batch_max_fleet_percent',
     # behavioural switches an operator tunes and would expect to survive
-    'external_scheduler', 'change_approval_enabled', 'approval_gated_kinds',
-    'change_approval_no_self', 'viewers_can_ack_alerts',
+    'external_scheduler', 'approval_gated_kinds', 'viewers_can_ack_alerts',
     'incident_auto_promote_enabled', 'incident_device_threshold',
     'quiet_hours', 'show_homelab', 'notifications_test_mode',
+    # v6.4.2 (audit): change_approval_enabled, change_approval_no_self and
+    # audit_log_retention_days are GOVERNANCE keys. handle_config_save gates
+    # them behind a fresh step-up re-auth so an admin cannot silently disable
+    # four-eyes and act. A document import runs under a plain require_admin_auth
+    # (and can be scheduler-driven, where there is no session to step up), so
+    # these are deliberately NOT declaratively settable — they must go through
+    # the interactive, step-up-gated Settings save. _declarative_apply refuses
+    # them explicitly (below) as belt-and-braces even if this list is widened.
     # module kill switches (_MODULES rows) are added below
 })
 
@@ -26085,7 +26141,12 @@ def _declarative_apply(doc, actor, dry_run=True):
         allowed = _declarative_settings_allowed()
         applied, refused = {}, []
         for k, v in _settings_in.items():
-            if k in allowed and not _SECRET_KEY_RE.search(str(k)):
+            # v6.4.2 (audit): governance switches are never declaratively
+            # settable — they carry a step-up gate that a document import cannot
+            # satisfy. Refuse even if a future edit re-adds them to `allowed`.
+            if k in _GOVERNANCE_CONFIG_KEYS:
+                refused.append(str(k)[:64])
+            elif k in allowed and not _SECRET_KEY_RE.search(str(k)):
                 applied[k] = v
             else:
                 refused.append(str(k)[:64])
@@ -52139,6 +52200,15 @@ def handle_longpoll_exec():
     body    = _read_valid(request_models.LongpollExecRequest)
     dev_id  = str(body.get('device_id', '')).strip()
     cmd_str = str(body.get('cmd', '')).strip()
+    # v6.4.2 (audit): the agent console lets the operator pick PowerShell / cmd /
+    # shell, sending the command already carrying its dispatch prefix (ps:/cmd:/
+    # exec:). This handler used to wrap EVERY command in exec:, so
+    # `ps:Get-Service` became `exec:ps:Get-Service` — run in PowerShell with a
+    # literal `ps:` in front — and `exec:systemctl` became `exec:exec:systemctl`.
+    # Queue an already-prefixed command verbatim; a bare command still gets
+    # exec: so every existing caller is unaffected.
+    _queued_cmd = (cmd_str if cmd_str.startswith(('exec:', 'ps:', 'cmd:'))
+                   else f'exec:{cmd_str}')
 
     try:
         timeout = int(body.get('timeout', 90))
@@ -52169,7 +52239,7 @@ def handle_longpoll_exec():
     # confirmation and return; there is nothing to wait for (a different admin
     # must approve, after which it runs via the normal queue → command history).
     if _config_ro().get('change_approval_enabled'):
-        cid = _create_confirmation('exec_command', dev_id, {'command': f'exec:{cmd_str}'},
+        cid = _create_confirmation('exec_command', dev_id, {'command': _queued_cmd},
                                    actor, None, None)
         audit_log(actor, 'change_approval_requested', f'exec(wait) on device={dev_id}')
         respond(202, {'ok': False, 'approval_required': True,
@@ -52182,7 +52252,7 @@ def handle_longpoll_exec():
 
     cmds = load(CMDS_FILE)
     if dev_id not in cmds: cmds[dev_id] = []
-    cmds[dev_id].append(f'exec:{cmd_str}')
+    cmds[dev_id].append(_queued_cmd)
     save(CMDS_FILE, cmds)
     log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec(wait):{cmd_str[:40]}')
 
