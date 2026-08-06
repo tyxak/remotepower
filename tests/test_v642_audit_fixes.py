@@ -492,6 +492,16 @@ class TestThresholdPreviewIsHonestAboutCoverage(unittest.TestCase):
         r = self._preview({"cpu_pct_warn": 65})
         self.assertIn("not_evaluated", r["note"])
 
+    def test_the_ui_renders_the_not_evaluated_block(self):
+        """The server fix is invisible unless the renderer surfaces it."""
+        js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+        i = js.index("threshold-preview")
+        seg = js[i:i + 2500]
+        self.assertIn("not_evaluated", seg)
+        self.assertIn("could not be previewed", seg)
+        # the false-reassurance line must now be qualified to host-checks only
+        self.assertIn("host-check", seg)
+
 
 class TestNetconfigAuthenticatesBeforeTheLookup(unittest.TestCase):
     """handle_device_netconfig 404'd on a missing device BEFORE require_auth,

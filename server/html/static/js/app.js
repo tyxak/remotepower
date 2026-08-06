@@ -21615,11 +21615,28 @@ async function previewThresholdImpact() {
     : '';
   const changed = Object.entries(r.changed)
     .map(([k, v]) => `<code>${escHtml(k)}</code> → ${escHtml(String(v))}`).join(', ');
+  // v6.4.2 (audit): the preview recomputes the checks engine only. Thresholds
+  // that fire through the metric / risk / attention engines are listed in
+  // not_evaluated — surface them so "no host changes state" is never misread as
+  // "all your changes are safe".
+  const notEval = r.not_evaluated || [];
+  const noChange = !(r.newly_breaching || []).length && !(r.newly_passing || []).length;
+  const notEvalBlock = notEval.length
+    ? `<div class="mt-6"><strong class="fs-13 c-amber">${notEval.length} `
+      + `changed threshold(s) could not be previewed here</strong>`
+      + `<div class="hint mt-4"><code>${escHtml(notEval.join(', '))}</code></div>`
+      + `<div class="hint mt-2">These fire through the metric, risk or attention `
+      + `engine rather than the host-checks engine, so their effect is not shown `
+      + `above — review them before saving.</div></div>`
+    : '';
   out.innerHTML = `<div class="fs-13">Comparing <strong>${r.hosts_evaluated}</strong> host(s) against: ${changed}</div>`
     + tbl(r.newly_breaching || [], 'c-amber', 'start breaching')
     + tbl(r.newly_passing || [], 'c-green', 'stop breaching')
-    + (!(r.newly_breaching || []).length && !(r.newly_passing || []).length
-        ? '<div class="hint mt-6">No host changes state at these values.</div>' : '')
+    + (noChange
+        ? `<div class="hint mt-6">No <em>host-check</em> changes state at these values.${
+            notEval.length ? ' (Other thresholds you changed are noted below.)' : ''}</div>`
+        : '')
+    + notEvalBlock
     + `<div class="hint mt-6">${escHtml(r.note || '')}</div>`;
 }
 
