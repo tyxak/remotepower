@@ -6,6 +6,22 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## Version check — 2026-08-06
+
+Upstream latest vs. what is pinned below, with the practical exposure noted so a
+maintainer with a browser to test in can decide:
+
+- **swagger-ui 5.32.6 → 5.32.8 available.** 5.32.8 carries DOMPurify fixes
+  (CVE-2026-41238/41239/41240). Practical exposure here is low: the API Reference
+  page renders RemotePower's OWN server-generated OpenAPI spec, is admin-authed,
+  and runs under `script-src 'self'` with no `unsafe-inline`, so the DOM-XSS
+  class is strongly mitigated regardless. Recommended on the next cut (fetch the
+  bundle from the tagged release and smoke-test the page in a browser — do not
+  swap a minified bundle unverified).
+- **xterm.js 5.5.0 → 6.0.0** and **xterm-addon-fit** are a MAJOR bump; defer
+  until the web terminal can be exercised in a browser (breaking-change risk).
+- noVNC 1.5.0, qrcode-generator, fonts: current / no security-relevant update.
+
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
