@@ -87,6 +87,3 @@ C:*
 .coverage
 .coverage.*
 
-# make check-fast per-backend logs
-.check-json.log
-.check-sqlite.log

@@ -245,31 +245,6 @@ codeql:
 
 check: test-both lint
 
-# v6.4.2: same coverage as `check` but the two INDEPENDENT backends (separate
-# processes + data dirs) run CONCURRENTLY instead of serially — ~halves the gate
-# wall-clock. Verdicts are grepped from each log, never trusted to the exit code:
-# a backgrounded `make` can report exit 0 even when unittest FAILED (CLAUDE.md
-# gotcha), so a red backend still fails here. `check` stays the serial,
-# authoritative gate (unchanged); use `check-fast` while iterating.
-check-fast:
-	@echo "==> check-fast: JSON + SQLite backends CONCURRENTLY, then lint"
-	@rm -f .check-json.log .check-sqlite.log
-	@$(MAKE) test        > .check-json.log   2>&1 & \
-	 $(MAKE) test-sqlite > .check-sqlite.log 2>&1 & \
-	 wait; \
-	 fail=0; \
-	 for b in json sqlite; do \
-	   if grep -qE '^OK' .check-$$b.log && ! grep -qE '^(FAILED|ERROR)' .check-$$b.log; then \
-	     echo "  $$b backend: $$(grep -E '^Ran ' .check-$$b.log | tail -1) -> OK"; \
-	   else \
-	     echo "  $$b backend: FAILED (see .check-$$b.log):"; \
-	     grep -E '^(FAILED|ERROR: |FAIL: )' .check-$$b.log | head -8; fail=1; \
-	   fi; \
-	 done; \
-	 [ $$fail -eq 0 ] || { echo "==> check-fast: a backend FAILED"; exit 1; }
-	@$(MAKE) lint
-	@echo "==> check-fast PASSED (both backends + lint)"
-
 # ── The PRE-PROD gate — run this BEFORE every prod tag/upload ────────────────
 # `make check` alone has THREE blind spots that each shipped a broken prod
 # release (v6.2.0): a test that reads a dist-excluded file passes in the source
