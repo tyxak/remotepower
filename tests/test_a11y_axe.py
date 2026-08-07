@@ -168,13 +168,100 @@ class TestAccessibilityAxe(unittest.TestCase):
         results = _run_axe(self.page, self.axe, _AXE_OPTIONS)
         self._assert_no_serious_violations(results, 'devices page')
 
-    def test_every_sidebar_page(self):
-        """v6.3.0: the full walk — axe on ALL sidebar pages, not just two.
+    # Concurrency for the two axe walks below. The stack runs gunicorn
+    # --workers 2 --threads 8 (16 request slots) and the box has many cores, so
+    # a handful of parallel browser contexts each auditing a SLICE of the pages
+    # turns a ~4.5-min serial walk into ~40s without overloading the server.
+    _AXE_LANES = 8
 
-        axe skips non-rendered elements, so each run audits the ACTIVE page
-        plus the shared chrome. Same two harness lessons as the smoke sweep:
-        pre-dismiss the first-run tour (its backdrop intercepts clicks) and
-        re-expand the accordion before every nav."""
+    def _axe_walk(self, targets, audit_one, settings_first=False):
+        """Audit `targets` CONCURRENTLY across _AXE_LANES async browser contexts.
+
+        Each lane opens its own context, logs in and injects axe ONCE, then
+        serially audits its round-robin slice via `audit_one(page, target)` (an
+        async fn returning that target's axe results). Returns an ordered list of
+        (target, results); a per-target exception is captured as {'_error': ...}
+        so one bad page can't abort the others (mirrors the old subTest isolation).
+
+        Playwright's SYNC API can't be driven from threads, so the walk uses the
+        ASYNC API in its own event loop. The sync setUpClass browser is untouched
+        — the smoke tests (login/dashboard/devices) still use it."""
+        import asyncio
+        import threading
+        from playwright.async_api import async_playwright
+        n = min(self._AXE_LANES, len(targets)) or 1
+        lanes = [targets[i::n] for i in range(n)]   # round-robin slices
+
+        async def _run_lane(browser, slice_):
+            ctx = await browser.new_context()
+            page = await ctx.new_page()
+            out = []
+            try:
+                await page.goto(self.base + '/index.html')
+                await page.evaluate("localStorage.setItem('rp_tour_done', '1')")
+                await page.fill('#login-user', 'admin')
+                await page.fill('#login-pass', 'remotepower')
+                await page.click('#login-form button[type="submit"]')
+                await page.wait_for_selector('#app', state='visible', timeout=15000)
+                if settings_first:
+                    await page.evaluate("showPage('settings')")
+                    await page.wait_for_selector('#page-settings.active', timeout=15000)
+                await page.evaluate(self.axe.axe_script)
+                for t in slice_:
+                    try:
+                        out.append((t, await audit_one(page, t)))
+                    except Exception as exc:  # keep auditing the rest of the slice
+                        out.append((t, {'_error': repr(exc)}))
+            finally:
+                await ctx.close()
+            return out
+
+        async def _run_all():
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                try:
+                    lane_results = await asyncio.gather(
+                        *(_run_lane(browser, s) for s in lanes))
+                finally:
+                    await browser.close()
+            merged = {}
+            for lane in lane_results:
+                for t, res in lane:
+                    merged[t] = res
+            return [(t, merged[t]) for t in targets]
+
+        # setUpClass holds a SYNC-Playwright event loop in this thread, so a bare
+        # asyncio.run() here raises "cannot be called from a running event loop".
+        # Drive the async walk on a DEDICATED thread with its own fresh loop.
+        box = {}
+
+        def _drive():
+            try:
+                box['result'] = asyncio.run(_run_all())
+            except BaseException as exc:  # surface on the caller's thread
+                box['error'] = exc
+
+        th = threading.Thread(target=_drive, name='axe-walk')
+        th.start()
+        th.join()
+        if 'error' in box:
+            raise box['error']
+        return box['result']
+
+    def _check_walk_result(self, target, results, label):
+        with self.subTest(target=target):
+            if isinstance(results, dict) and results.get('_error'):
+                self.fail(f'{label}: axe walk failed to reach the page: '
+                          f'{results["_error"]}')
+            self._assert_no_serious_violations(results, label)
+
+    def test_every_sidebar_page(self):
+        """v6.3.0: axe on ALL sidebar pages (not just two) — axe skips
+        non-rendered elements, so each run audits the ACTIVE page plus the shared
+        chrome. v6.4.2: the ~50-page walk runs CONCURRENTLY across browser
+        contexts (was ~4.5 min serial). Harness lessons: pre-dismiss the first-run
+        tour (its backdrop intercepts clicks) and re-expand the accordion before
+        every nav."""
         import re as _re
         from pathlib import Path as _P
         html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
@@ -184,25 +271,27 @@ class TestAccessibilityAxe(unittest.TestCase):
                 seen.add(m.group(1))
                 pages.append(m.group(1))
         self.assertGreater(len(pages), 50)
-        self.page.goto(self.base + '/index.html')
-        self.page.evaluate("localStorage.setItem('rp_tour_done', '1')")
-        self.page.fill('#login-user', 'admin')
-        self.page.fill('#login-pass', 'remotepower')
-        self.page.click('#login-form button[type="submit"]')
-        self.page.wait_for_selector('#app', state='visible', timeout=15000)
-        self.page.evaluate(self.axe.axe_script)   # inject once; SPA keeps it
-        for p in pages:
-            with self.subTest(page=p):
-                self.page.evaluate(
-                    "document.body.classList.remove('autohide-sidebar', 'sidebar-collapsed');"
-                    "document.querySelectorAll('.sidebar-group.collapsed')"
-                    ".forEach(g => g.classList.remove('collapsed'))")
-                self.page.click(f'.nav-btn[data-page="{p}"]', timeout=5000)
-                self.page.wait_for_selector(f'#page-{p}.active', timeout=10000)
-                self.page.wait_for_timeout(250)
-                results = self.page.evaluate(
-                    "axe.run(%s).then(r => r)" % json.dumps(_AXE_OPTIONS))
-                self._assert_no_serious_violations(results, f'page {p!r}')
+
+        async def _audit(page, p):
+            await page.evaluate(
+                "document.body.classList.remove('autohide-sidebar', 'sidebar-collapsed');"
+                "document.querySelectorAll('.sidebar-group.collapsed')"
+                ".forEach(g => g.classList.remove('collapsed'))")
+            await page.click(f'.nav-btn[data-page="{p}"]', timeout=5000)
+            await page.wait_for_selector(f'#page-{p}.active', timeout=10000)
+            # Under concurrent lanes the page's data-fetch + paint lags behind the
+            # 'active' class; auditing a half-rendered page yields false
+            # colour-contrast hits. Wait for the network to settle (bounded — some
+            # pages poll) plus a small paint buffer before axe runs.
+            try:
+                await page.wait_for_load_state('networkidle', timeout=4000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(400)
+            return await page.evaluate("axe.run(%s).then(r => r)" % json.dumps(_AXE_OPTIONS))
+
+        for p, results in self._axe_walk(pages, _audit):
+            self._check_walk_result(p, results, f'page {p!r}')
 
     def test_every_settings_pane(self):
         """v6.4.2: the sweep above walks PAGES, but Settings is one page whose
@@ -212,9 +301,8 @@ class TestAccessibilityAxe(unittest.TestCase):
         So thirteen of fourteen panes had never been audited, and real critical
         failures were living there: 368 unlabelled checkboxes in the
         notifications event matrix, an unnamed button in the AI pane, and two
-        colour-contrast failures. The gate was not weak, it was blind — no
-        number of re-runs on default-state pages would ever have surfaced them.
-        """
+        colour-contrast failures. The gate was not weak, it was blind. Walks all
+        panes CONCURRENTLY (v6.4.2)."""
         import re as _re
         from pathlib import Path as _P
         html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
@@ -223,22 +311,15 @@ class TestAccessibilityAxe(unittest.TestCase):
             if m.group(1) not in panes:
                 panes.append(m.group(1))
         self.assertGreater(len(panes), 8, 'settings tabs not discovered')
-        self.page.goto(self.base + '/index.html')
-        self.page.evaluate("localStorage.setItem('rp_tour_done', '1')")
-        self.page.fill('#login-user', 'admin')
-        self.page.fill('#login-pass', 'remotepower')
-        self.page.click('#login-form button[type="submit"]')
-        self.page.wait_for_selector('#app', state='visible', timeout=15000)
-        self.page.evaluate("showPage('settings')")
-        self.page.wait_for_selector('#page-settings.active', timeout=15000)
-        self.page.evaluate(self.axe.axe_script)
-        for pane in panes:
-            with self.subTest(pane=pane):
-                self.page.evaluate(f"switchSettingsTab({pane!r})")
-                self.page.wait_for_timeout(300)
-                results = self.page.evaluate(
-                    "axe.run('#page-settings', %s).then(r => r)" % json.dumps(_AXE_OPTIONS))
-                self._assert_no_serious_violations(results, f'settings pane {pane!r}')
+
+        async def _audit(page, pane):
+            await page.evaluate(f"switchSettingsTab({pane!r})")
+            await page.wait_for_timeout(300)
+            return await page.evaluate(
+                "axe.run('#page-settings', %s).then(r => r)" % json.dumps(_AXE_OPTIONS))
+
+        for pane, results in self._axe_walk(panes, _audit, settings_first=True):
+            self._check_walk_result(pane, results, f'settings pane {pane!r}')
 
 
 if __name__ == '__main__':
