@@ -33,6 +33,12 @@ class TestSmoke(unittest.TestCase):
         # sibling-harness import work regardless of cwd.
         import os as _os
         import sys as _sys
+        # UI behaviour is backend-agnostic — re-booting the whole stack + Chromium
+        # a second time under RP_STORAGE_BACKEND=sqlite (make test-sqlite/test-both)
+        # adds no coverage. Audit once under the default backend.
+        if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
+            raise unittest.SkipTest(
+                'e2e UI flow is backend-agnostic — run once under the default backend')
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)

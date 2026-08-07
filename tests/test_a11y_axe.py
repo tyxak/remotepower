@@ -86,6 +86,14 @@ class TestAccessibilityAxe(unittest.TestCase):
     def setUpClass(cls):
         import os as _os
         import sys as _sys
+        # This suite audits the RENDERED frontend (chrome + pages), which is
+        # identical regardless of the storage backend — so running the full
+        # ~5-min browser walk a SECOND time under RP_STORAGE_BACKEND=sqlite
+        # (via `make test-sqlite`/`test-both`) adds no coverage. Skip it there;
+        # the default-backend run in `make test` is authoritative for a11y.
+        if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
+            raise unittest.SkipTest(
+                'a11y is backend-agnostic — audited once under the default backend')
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)

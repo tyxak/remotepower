@@ -86,3 +86,7 @@ C:*
 # coverage.py database — a local artifact, was tracked by accident (v6.4.1)
 .coverage
 .coverage.*
+
+# make check-fast per-backend logs
+.check-json.log
+.check-sqlite.log
