@@ -414,7 +414,10 @@ dist: clean
 	@tar -xzf $(DIST_DIR)/$(DIST_NAME).tar.gz -C $(DIST_DIR)/.verify
 	@(cd $(DIST_DIR)/.verify/$(DIST_NAME) && $(PY) -m unittest discover -s tests) \
 	  > $(DIST_DIR)/$(DIST_NAME).test.log 2>&1 || \
-	  (echo "==> TESTS FAILED — see $(DIST_DIR)/$(DIST_NAME).test.log"; \
+	  (echo "==> TESTS FAILED — staged-tree failures (from $(DIST_DIR)/$(DIST_NAME).test.log):"; \
+	   grep -aE '^(FAIL|ERROR): |^Ran [0-9]+|^FAILED' $(DIST_DIR)/$(DIST_NAME).test.log | tail -60; \
+	   echo "--- last 60 lines of the run ---"; \
+	   tail -60 $(DIST_DIR)/$(DIST_NAME).test.log; \
 	   rm -rf $(DIST_DIR)/.verify; exit 1)
 	@tail -3 $(DIST_DIR)/$(DIST_NAME).test.log
 	@rm -rf $(DIST_DIR)/.verify $(DIST_DIR)/$(DIST_NAME).test.log
