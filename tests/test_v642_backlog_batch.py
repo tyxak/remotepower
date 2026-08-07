@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,11 +51,18 @@ def _js_function(src, name):
     return src[i:k + 1]
 
 
+# Resolve node's real path via the full PATH. Runners (e.g. GitHub Actions) put
+# node in a toolcache dir, NOT /usr/bin — so invoke it by absolute path and keep
+# the minimal env only for TZ hygiene. Passing a bare "node" with PATH=/usr/bin:/bin
+# made these tests pass locally (node in /usr/bin) but ERROR on CI (node elsewhere).
+_NODE_BIN = shutil.which("node")
+
+
 def _node(script, *argv, tz=None):
     env = {"PATH": "/usr/bin:/bin"}
     if tz:
         env["TZ"] = tz
-    p = subprocess.run(["node", "-e", script, *argv], capture_output=True,
+    p = subprocess.run([_NODE_BIN or "node", "-e", script, *argv], capture_output=True,
                        text=True, env=env, timeout=60)
     if p.returncode:
         raise AssertionError(f"node failed: {p.stderr[-800:]}")
