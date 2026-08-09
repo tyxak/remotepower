@@ -15,6 +15,45 @@ parameters**.
 - Unmonitored hosts are listed and flagged (inventory principle) — only
   monitored hosts alert.
 
+## Dead and unconnected sensors
+
+A hardware monitoring chip — Nuvoton NCT67xx, ITE IT87xx and friends — exposes
+every thermal pin on its die whether or not your board wired anything to that
+pin. An unconnected pin does not report "absent". It reports whatever rail its
+ADC floats to, which is frequently a plausible-looking number and occasionally
+an absurd one. A common real example is `nct6798-isa-0290/AUXTIN2` reading
+115-127 °C on a machine whose CPU cores are at 35 °C.
+
+Left alone, one dead pin becomes the host's *hottest sensor*, and from there
+sets the headline temperature, fires `temp_high`, and feeds the overheating risk
+factor. RemotePower handles this in two ways, on purpose of different strength:
+
+**Impossible readings are discarded.** A reading of exactly 127.0 °C or
+-128.0 °C — the signed-byte rails an open circuit produces — or one outside any
+physically meaningful range, never enters the store. Nothing is lost: these are
+not measurements.
+
+**Doubtful readings are flagged, never dropped.** A sensor reading at or above
+its *own* critical limit while the host is up and heartbeating is almost
+certainly a dead pin — hardware cuts power at crit, so a machine that is
+genuinely there is not genuinely past it. Expand the host and that sensor is
+marked **Implausible**. RemotePower will not silently discard it, because
+"almost certainly" is the wrong confidence level at which to stop alerting on a
+machine that might really be overheating.
+
+**You decide.** Next to each sensor is **Ignore**. An ignored sensor:
+
+- no longer counts as the host's hottest sensor,
+- no longer fires `temp_high` (and if it was the reason a `temp_high` was open,
+  that alert resolves on the next heartbeat),
+- no longer contributes to the overheating check or risk factor,
+- no longer appears in the temperature roll-up's max — so the chart stops
+  showing a spike that was never real.
+
+It stays in the per-sensor table, greyed, with **Restore** to count it again.
+The list is per device and is stored alongside that device's metric thresholds,
+so resetting your thresholds does not un-ignore a pin you deliberately muted.
+
 ## The temperature timeline
 
 Expand a row (the caret in the **Sensors** column) and you get two things: the
@@ -85,4 +124,7 @@ re-fetches a finer tier rather than stretching the points already on screen.
   metrics equivalent is `GET /api/devices/<id>/metrics/rollup`, in the same
   shape.
 - `GET /api/fleet/thermal` — the fleet table, including the raw ~24h sparkline
-  samples.
+  samples. Each per-sensor row carries `ignored` / `suspect` flags.
+- `GET|PATCH /api/devices/<id>/metric-thresholds` — `sensor_ignores` is a list
+  of sensor labels to leave out of this host's temperature. PATCH replaces the
+  list; an empty list clears it.

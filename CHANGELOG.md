@@ -2,6 +2,21 @@
 
 All notable changes to RemotePower. Newest first.
 
+## Unreleased (test)
+
+- **A dead board sensor is no longer your host's temperature.** An unconnected
+  pin on a monitoring chip reads whatever rail its ADC floats to — one real case
+  sat at 115-127 °C while the CPU was at 35 °C — and that pin was becoming the
+  host's hottest sensor, a permanent `temp_high`, and a 127 °C spike on the
+  chart. Impossible readings (the 127/-128 rails) are now dropped at ingest;
+  a sensor past its own critical limit is flagged **Implausible** and can be
+  ignored in one click, which drops it from the headline, the alert, the
+  overheating risk factor and the roll-up max. Never auto-dropped — the operator
+  decides. See `docs/thermal.md`.
+- Every dialog tier is **20px wider**, on the shared width scale.
+- The expanded Thermal row's sensor table now uses the standard ~360px cap
+  instead of 132px, so a typical host's sensors fit without scrolling.
+
 ## v6.4.2 — "Ver1tyMatters" — 2026-08-06
 
 Two things about containers that were quietly unfinished: you could not silence

@@ -110,10 +110,28 @@ class TestOneWidthScale(unittest.TestCase):
     def test_no_ad_hoc_940_overrides_remain(self):
         self.assertNotIn('max-width: min(940px, 94vw)', CSS)
 
-    def test_wide_tier_matches_the_cmdb_reference(self):
+    def test_wide_tier_is_the_standard_content_width(self):
+        # v6.4.2: every tier widened by 20px (940 -> 960); the tier still has
+        # to be a min(Npx, vw) so narrow viewports stay clamped.
         m = re.search(r'--modal-w-wide:\s*min\((\d+)px', CSS)
         self.assertTrue(m, 'wide tier is no longer a min(Npx, vw) value')
-        self.assertEqual(m.group(1), '940')
+        self.assertEqual(m.group(1), '960')
+
+    def test_tiers_stay_strictly_ordered(self):
+        """The durable invariant behind the literals: narrow < wide < xwide.
+
+        A tweak to one tier that crosses another would make .modal-wide
+        narrower than the default it is supposed to widen — silently, since
+        every dialog would still render.
+        """
+        def px(tok):
+            m = re.search(re.escape(tok) + r':\s*(?:min\()?(\d+)px', CSS)
+            self.assertTrue(m, f'{tok} is not a px value')
+            return int(m.group(1))
+        narrow, wide, xwide = (px('--modal-w'), px('--modal-w-wide'),
+                               px('--modal-w-xwide'))
+        self.assertLess(narrow, wide)
+        self.assertLess(wide, xwide)
 
     def test_per_modal_rules_reference_the_token_not_a_literal(self):
         for mid in ('#cmdb-asset-modal', '#ticket-detail-modal'):

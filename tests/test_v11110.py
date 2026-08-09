@@ -621,6 +621,84 @@ class TestMetricThresholdsEndpoint(unittest.TestCase):
         status, _ = _call(api.handle_device_metric_thresholds, "dev-test")
         self.assertIn(status, (401, 403))
 
+    # ── v6.4.2: per-sensor ignores ride this same endpoint ──────────────────
+    # Driven through the REAL handler, not the helpers: a value that a save
+    # path silently drops (the pydantic model strips it, the write loop never
+    # copies it) passes every unit test of the helper and still does nothing.
+
+    def test_get_reports_no_sensor_ignores_by_default(self):
+        _set_request("GET", "/api/devices/dev-test/metric-thresholds",
+                     headers=self._auth())
+        status, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["sensor_ignores"], [])
+
+    def test_patch_persists_sensor_ignores(self):
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": ["nct6798-isa-0290/AUXTIN2"]},
+                     headers=self._auth())
+        status, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["sensor_ignores"], ["nct6798-isa-0290/AUXTIN2"])
+        # …and it is readable back, and reaches the helper every consumer uses.
+        _set_request("GET", "/api/devices/dev-test/metric-thresholds",
+                     headers=self._auth())
+        _, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(body["sensor_ignores"], ["nct6798-isa-0290/AUXTIN2"])
+        dev = api.load(api.DEVICES_FILE)["dev-test"]
+        self.assertEqual(api._sensor_ignores(dev), {"nct6798-isa-0290/AUXTIN2"})
+
+    def test_empty_list_clears_the_ignores(self):
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": ["AUXTIN2"]}, headers=self._auth())
+        _call(api.handle_device_metric_thresholds, "dev-test")
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": []}, headers=self._auth())
+        _, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(body["sensor_ignores"], [])
+        self.assertNotIn("sensor_ignores", api.load(api.DEVICES_FILE)["dev-test"])
+
+    def test_sensor_ignores_survive_a_threshold_only_patch(self):
+        """A later unrelated PATCH must not wipe the ignore list."""
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": ["AUXTIN2"]}, headers=self._auth())
+        _call(api.handle_device_metric_thresholds, "dev-test")
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"mem_warn_percent": 70}, headers=self._auth())
+        _call(api.handle_device_metric_thresholds, "dev-test")
+        _set_request("GET", "/api/devices/dev-test/metric-thresholds",
+                     headers=self._auth())
+        _, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(body["sensor_ignores"], ["AUXTIN2"])
+
+    def test_threshold_reset_does_not_unignore_a_sensor(self):
+        """DELETE resets thresholds; an ignored dead pin must stay ignored."""
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": ["AUXTIN2"], "mem_warn_percent": 70},
+                     headers=self._auth())
+        _call(api.handle_device_metric_thresholds, "dev-test")
+        _set_request("DELETE", "/api/devices/dev-test/metric-thresholds",
+                     headers=self._auth())
+        _call(api.handle_device_metric_thresholds, "dev-test")
+        _set_request("GET", "/api/devices/dev-test/metric-thresholds",
+                     headers=self._auth())
+        _, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(body["overrides"], {})
+        self.assertEqual(body["sensor_ignores"], ["AUXTIN2"])
+
+    def test_rejects_a_non_list(self):
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": "AUXTIN2"}, headers=self._auth())
+        status, _ = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(status, 400)
+
+    def test_deduplicates_and_drops_blanks(self):
+        _set_request("PATCH", "/api/devices/dev-test/metric-thresholds",
+                     body={"sensor_ignores": ["A", "A", "", "B"]},
+                     headers=self._auth())
+        _, body = _call(api.handle_device_metric_thresholds, "dev-test")
+        self.assertEqual(body["sensor_ignores"], ["A", "B"])
+
 
 class TestNewWebhookEvents(unittest.TestCase):
     """Smoke check: the three new events are registered and produce sane messages."""

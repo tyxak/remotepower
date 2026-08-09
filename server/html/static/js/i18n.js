@@ -4017,6 +4017,12 @@
     // it is NOT a static text node and stays English (see docs/thermal.md).
     '24 hours': { fr: '24 heures', de: '24 Stunden', zh: '24 小时', hi: '24 घंटे', es: '24 horas', ar: '24 ساعة' },
     '8 days': { fr: '8 jours', de: '8 Tage', zh: '8 天', hi: '8 दिन', es: '8 días', ar: '8 أيام' },
+    // v6.4.2: thermal per-sensor ignore controls ('Ignored' and 'Ignore'
+    // already have entries above and are reused verbatim).
+    'State': { fr: 'État', de: 'Status', zh: '状态', hi: 'स्थिति', es: 'Estado', ar: 'الحالة' },
+    'Action': { fr: 'Action', de: 'Aktion', zh: '操作', hi: 'कार्रवाई', es: 'Acción', ar: 'إجراء' },
+    'Implausible': { fr: 'Invraisemblable', de: 'Unplausibel', zh: '不可信', hi: 'अविश्वसनीय', es: 'Inverosímil', ar: 'غير معقول' },
+    'Restore': { fr: 'Restaurer', de: 'Wiederherstellen', zh: '恢复', hi: 'पुनर्स्थापित करें', es: 'Restaurar', ar: 'استعادة' },
     '2 years': { fr: '2 ans', de: '2 Jahre', zh: '2 年', hi: '2 वर्ष', es: '2 años', ar: 'سنتان' },
     'Min': { fr: 'Min', de: 'Min', zh: '最低', hi: 'न्यूनतम', es: 'Mín', ar: 'الأدنى' },
     'Avg': { fr: 'Moy', de: 'Mittel', zh: '平均', hi: 'औसत', es: 'Prom', ar: 'المتوسط' },

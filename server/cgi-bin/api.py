@@ -14344,6 +14344,11 @@ def handle_device_metric_thresholds(dev_id):
             'overrides': overrides,
             'effective': effective,
             'defaults':  DEFAULT_METRIC_THRESHOLDS,
+            # v6.4.2: sensors this device's operator has taken out of the
+            # temperature picture (a dead/unconnected board pin). Kept OUT of
+            # `overrides` so a DELETE — "reset my thresholds" — does not also
+            # silently un-ignore a sensor the operator deliberately muted.
+            'sensor_ignores': sorted(_sensor_ignores(dev)),
             'recovery_buffer_percent': int(_config_ro().get(
                 'metric_recovery_buffer', METRIC_RECOVERY_BUFFER)),
         })
@@ -14432,6 +14437,24 @@ def handle_device_metric_thresholds(dev_id):
         if w >= c:
             respond(400, {'error': f'{warn_k} must be < {crit_k}'})
 
+    # v6.4.2: per-sensor ignores ride this endpoint rather than one of their
+    # own — "which sensors judge this device, and at what limits" is one idea,
+    # and the inline-handler ratchet is at its ceiling. Stored as a sibling
+    # device key (not inside `overrides`) because it is a list of labels, not
+    # a threshold, and _sensor_ignores reads it straight off the device.
+    sensor_ignores = None
+    if 'sensor_ignores' in body:
+        raw = body['sensor_ignores']
+        if not isinstance(raw, list):
+            respond(400, {'error': 'sensor_ignores must be a list of sensor labels'})
+        sensor_ignores = []
+        for lbl in raw[:MAX_TEMPS]:
+            if not isinstance(lbl, str):
+                respond(400, {'error': 'sensor_ignores entries must be strings'})
+            lbl = _sanitize_str(lbl, 64)
+            if lbl and lbl not in sensor_ignores:
+                sensor_ignores.append(lbl)
+
     # Reset metric state so next heartbeat re-fires alerts under new thresholds
     # (otherwise a metric currently in 'warning' state with old threshold 80
     # would silently stay 'warning' even if you raised threshold to 90).
@@ -14439,7 +14462,22 @@ def handle_device_metric_thresholds(dev_id):
         if dev_id in devices:
             devices[dev_id]['metric_thresholds'] = overrides
             devices[dev_id].pop('metric_state', None)
-    respond(200, {'ok': True, 'overrides': overrides})
+            if sensor_ignores is not None:
+                if sensor_ignores:
+                    devices[dev_id]['sensor_ignores'] = sensor_ignores
+                else:
+                    devices[dev_id].pop('sensor_ignores', None)
+                # No edge state to reset here: `_temp_high` lives on the
+                # hardware record, and the next heartbeat recomputes `_hot`
+                # without the ignored sensor. If that sensor was the only one
+                # over threshold the falling edge fires temp_normal, which
+                # auto-resolves the open temp_high — the behaviour we want.
+    _out = {'ok': True, 'overrides': overrides}
+    if sensor_ignores is not None:
+        _out['sensor_ignores'] = sensor_ignores
+        audit_log('device_sensor_ignores', dev_id,
+                  {'count': len(sensor_ignores)})
+    respond(200, _out)
 
 
 # ── W5-7: device profiles ───────────────────────────────────────────────────
@@ -21562,7 +21600,7 @@ def handle_heartbeat():
     # v3.14.0: also carries gpus / cert_files / accounts / ups posture sections.
     if any(k in body for k in ('smart', 'kernel', 'hardware', 'gpus', 'cert_files', 'accounts', 'ups')):
         try:
-            _ingest_hardware(dev_id, saved_dev['name'], body, now)
+            _ingest_hardware(dev_id, saved_dev['name'], body, now, dev=saved_dev)
         except Exception as e:
             sys.stderr.write(f"[remotepower] hardware ingest failed dev={dev_id}: {e}\n")
 
@@ -43920,7 +43958,87 @@ def _hw_temps(rec):
     return temps if isinstance(temps, list) else []
 
 
-def _ingest_hardware(dev_id, dev_name, body, now):
+# ─── v6.4.2: dead board sensors ──────────────────────────────────────────────
+# A hardware monitoring chip (Nuvoton NCT67xx, ITE IT87xx, …) exposes every
+# thermal pin on its die whether or not the board wired anything to that pin. An
+# unconnected pin does not read "absent" — it reads whatever rail its ADC floats
+# to. Often that is a signed-byte extreme (127 / -128); just as often it is an
+# arbitrary value well above anything physical. This project's own dev box has
+# nct6798/AUXTIN2 sitting at 115-127 °C while every CPU core reads 30-39 °C.
+#
+# Left alone, one dead pin becomes the host's "hottest sensor" and from there
+# drives the Thermal page headline, the temp_high alert, the overheating risk
+# factor and reliability grade, and the thermal roll-up's max. Two defences,
+# deliberately of different strength:
+#
+#   * SENTINEL RAILS are dropped at ingest. Exactly 127.0 / -128.0, or a value
+#     outside any physically meaningful range, is not a measurement — it is the
+#     ADC reporting an open circuit. Discarding it loses nothing.
+#   * EVERYTHING ELSE is only ever FLAGGED, never auto-dropped. A pin reading
+#     past its own critical limit is probably dead, but "probably" is the wrong
+#     confidence level at which to silently stop alerting on a host that might
+#     genuinely be cooking. The UI marks it implausible and offers one click to
+#     ignore it; the operator, who knows what the board actually has wired, is
+#     the one who decides. Never widen this into an auto-drop.
+_TEMP_RAIL_VALUES = (127.0, -128.0)
+_TEMP_PLAUSIBLE_MIN = -40.0
+_TEMP_PLAUSIBLE_MAX = 150.0
+
+
+def _temp_is_measurement(c):
+    """False for an ADC rail / out-of-range reading no real sensor produces."""
+    if not isinstance(c, (int, float)) or isinstance(c, bool):
+        return False
+    try:
+        fc = float(c)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if fc != fc or fc in _TEMP_RAIL_VALUES:      # NaN, or a sentinel rail
+        return False
+    return _TEMP_PLAUSIBLE_MIN <= fc <= _TEMP_PLAUSIBLE_MAX
+
+
+def _temp_suspect(t):
+    """True when a sensor reads at or above the CHIP'S OWN critical limit.
+
+    Hardware throttles and then cuts power at crit. A host that is up,
+    responsive and heartbeating while one of its pins claims to be past
+    critical is reporting a dead pin, not a fire. Advisory only — callers
+    surface this, they never drop on it.
+    """
+    if not isinstance(t, dict):
+        return False
+    c, cr = t.get('current_c'), t.get('crit_c')
+    return (isinstance(c, (int, float)) and isinstance(cr, (int, float))
+            and not isinstance(c, bool) and float(cr) > 0
+            and float(c) >= float(cr))
+
+
+def _sensor_ignores(dev):
+    """The operator's per-device set of ignored sensor labels."""
+    if not isinstance(dev, dict):
+        return set()
+    ig = dev.get('sensor_ignores')
+    return {str(x) for x in ig if isinstance(x, str)} if isinstance(ig, list) else set()
+
+
+def _hw_temps_live(dev, rec):
+    """`_hw_temps` minus the sensors this device's operator has ignored.
+
+    EVERY consumer that reduces temperatures to a number an operator acts on —
+    hottest-host, temp_high, the overheating check and risk factor, the roll-up
+    max — must read through here. Plain `_hw_temps` stays for the per-sensor
+    inventory views, which have to keep listing an ignored sensor (greyed out)
+    or there would be no way to un-ignore it.
+    """
+    ign = _sensor_ignores(dev)
+    if not ign:
+        return _hw_temps(rec)
+    return [t for t in _hw_temps(rec)
+            if not (isinstance(t, dict) and str(t.get('label') or '') in ign)]
+
+
+def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
     """Persist the agent's SMART / kernel / hardware report and fire
     edge-triggered events (smart_failure, kernel_outdated).
 
@@ -44075,13 +44193,17 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             safe['memory'] = dimms
         temps = hw.get('temps')
         if isinstance(temps, list):
+            # v6.4.2: drop ADC sentinel rails here, at the boundary, so a dead
+            # pin never enters the store at all — every downstream consumer
+            # (alert, risk, roll-up, UI) is then correct without each having to
+            # re-derive "is this a real measurement?". See _temp_is_measurement.
             safe['temps'] = [
                 {'label': _sanitize_str(str(t.get('label', '')), 64),
                  'current_c': round(float(t['current_c']), 1),
                  **({'crit_c': round(float(t['crit_c']), 1)}
                     if isinstance(t.get('crit_c'), (int, float)) else {})}
                 for t in temps[:MAX_TEMPS]
-                if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))
+                if isinstance(t, dict) and _temp_is_measurement(t.get('current_c'))
             ]
         raid = hw.get('raid')
         if isinstance(raid, list):
@@ -44098,8 +44220,13 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             _t_thresh = float(_config_ro().get('temp_alert_threshold_c', 85))
         except (TypeError, ValueError):
             _t_thresh = 85.0
+        # v6.4.2: an operator-ignored sensor must not fire temp_high. Without
+        # this the only escape from a dead pin's permanent "critical" alert is
+        # to mute the whole device's thermal alerting.
+        _t_ign = _sensor_ignores(dev)
         _hot = [t for t in (safe.get('temps') or [])
                 if isinstance(t.get('current_c'), (int, float))
+                and str(t.get('label') or '') not in _t_ign
                 and t['current_c'] >= _t_thresh]
         # v4.7.0: GPU temperatures participate in the SAME thermal alert — a
         # hot GPU fires temp_high (sensor labelled "GPU: <name>") and cooling
@@ -44125,7 +44252,8 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         # its own THERMAL_HIST_FILE lock, and DATA_DIR shares one SQLite
         # connection, so calling it in here would nest BEGIN IMMEDIATE → abort.
         _tvals = [t['current_c'] for t in (safe.get('temps') or [])
-                  if isinstance(t.get('current_c'), (int, float))]
+                  if isinstance(t.get('current_c'), (int, float))
+                  and str(t.get('label') or '') not in _t_ign]
         for _sd in (body.get('smart') or []):
             if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
                 _tvals.append(_sd['temperature_c'])
@@ -47708,7 +47836,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
              f"{eol.get('label', 'OS')} reaches end-of-life in {eol.get('days', 0)}d")
     # Overheating — hottest board/disk/GPU sensor vs the thermal thresholds.
     hottest_c = None
-    for _src, _key in ((_hw_temps(hw_rec), 'current_c'),
+    for _src, _key in ((_hw_temps_live(dev, hw_rec), 'current_c'),
                        (hw_rec.get('smart') or [], 'temperature_c'),
                        (hw_rec.get('gpus') or [], 'temp_c')):
         for _e in _src:
@@ -48029,7 +48157,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
                  f'health score trending down (~{abs(slope):.1f} points/day)')
 
     # ── heat kills hardware ───────────────────────────────────────────────────
-    temps = [t.get('current_c') for t in _hw_temps(hw_rec)
+    temps = [t.get('current_c') for t in _hw_temps_live(dev, hw_rec)
              if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))]
     # v6.2.2 batch 3: operator-configurable overheating threshold.
     _crit_c = float(_config_ro().get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
@@ -61092,6 +61220,11 @@ def handle_fleet_thermal():
         sensors = 0
         detail = []      # per-sensor breakdown (hover); capped below
         gpu_extra = None  # fan/util/power, carried when a GPU is the hottest sensor
+        # v6.4.2: the per-sensor breakdown lists EVERY sensor including the
+        # ignored ones (flagged, so the UI can grey them and offer un-ignore) —
+        # but an ignored sensor never competes for `hottest`, which is the
+        # number the page headlines and sorts on.
+        _ign = _sensor_ignores(d)
         for t in _hw_temps(hw):
             if not isinstance(t, dict):
                 continue
@@ -61101,7 +61234,14 @@ def handle_fleet_thermal():
             sensors += 1
             cr = t.get('crit_c') if isinstance(t.get('crit_c'), (int, float)) else None
             lbl = str(t.get('label') or 'sensor')
-            detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'sensor', 'crit': cr})
+            row = {'label': lbl, 'temp': round(float(c), 1), 'type': 'sensor', 'crit': cr}
+            if lbl in _ign:
+                row['ignored'] = True
+            elif _temp_suspect(t):
+                row['suspect'] = True
+            detail.append(row)
+            if lbl in _ign:
+                continue
             if hottest is None or c > hottest[0]:
                 hottest = (float(c), lbl, 'sensor', cr)
         for s in (hw.get('smart') or []):
