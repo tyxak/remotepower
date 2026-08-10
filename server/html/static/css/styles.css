@@ -6995,6 +6995,26 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .thermal-detail-row > td { background: var(--surface-2, rgba(127,127,127,0.05)); padding: 6px 12px 10px; }
 .thermal-sensor-table { font-size: 13px; }
 .thermal-sensor-table th { font-size: 11px; }
+/* v6.4.3: give Thermal health real room.
+   Both of its surfaces sat at the shared 360px cap: the fleet table (one row
+   per host) and the expanded drill-down (one row per SENSOR — a NAS with a
+   dozen disks overflows immediately). The result was a small scrolling window
+   in the middle of a large empty page, on the one page whose whole job is
+   comparing many hosts at once.
+   Viewport-relative rather than a bigger fixed number: 360px was a guess that
+   is wrong on every screen, while 72vh is roughly double on a 1000px viewport
+   and keeps growing on a tall monitor instead of needing another bump. These
+   still CAP AND SCROLL, so the box-overflow rule and its ratchet hold, and
+   .scrollable-table-wrap's sticky header is retained — which matters more the
+   longer the table gets. Page-scoped, the same shape #page-netmap already
+   uses, so the shared utility (and every other table) is untouched. */
+#page-thermal > .table-card { max-height: none; }
+#page-thermal .scrollable-table-wrap.audit-scroll { max-height: 72vh; }
+/* The drill-down nests INSIDE the table above, so it needs its own smaller
+   cap or the inner scroller would fight the outer one. */
+#page-thermal .thermal-detail-row .scrollable-table-wrap.audit-scroll {
+  max-height: 46vh;
+}
 
 /* Hide the page subtitle by DEFAULT so it never flashes as raw (untranslated)
    text on reload before JS runs; _applyPageSubtitleInfo adds .subtitle-shown
