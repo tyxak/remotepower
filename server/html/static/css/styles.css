@@ -2041,6 +2041,23 @@
   }
   input:where(:not([type=checkbox]):not([type=radio])):focus,
   select:focus, textarea:focus { border-color: var(--accent); }
+  /* v6.4.3 a11y: give the keyboard-focus ring back to text fields.
+     The global `:focus-visible { outline: 2px solid var(--accent) }` near the
+     top of this file is specificity (0,1,0), and so is `.form-input`, whose
+     BASE rule (not its :focus rule) sets `outline: none` — so the later one
+     won and every text input, select and textarea in the app focused with
+     nothing but a 1px border-colour change. The v4.3.0 comment on the global
+     rule anticipated a few opt-outs like .sidebar-search; .form-input is not
+     a few, it is essentially every field. Higher specificity AND later source
+     order, so both tie-breakers point the same way. `outline: none` stays on
+     the base rules: it suppresses the mouse-click ring, which is the whole
+     reason :focus-visible exists. */
+  .form-input:focus-visible,
+  input:where(:not([type=checkbox]):not([type=radio])):focus-visible,
+  select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
   /* v5.1.1: keep the native <option> list readable on every theme. Without explicit
    * colours, some browsers/OS render the highlighted (selected/hovered) option with
    * the accent colour for BOTH text and background — accent-on-accent (e.g. blue text
@@ -6999,6 +7016,15 @@ body.density-compact .group-title { margin-bottom: 6px; }
   font-family: var(--font-ui); font-size: 11.5px; font-weight: 400; line-height: 1;
   padding: 4px 7px; border-radius: 6px; cursor: pointer; border: none; background: none;
 }
+/* v6.4.3: hide the pill until it has something to say. It ships EMPTY —
+   _paintSiteHealth writes its content, and that only runs when /nav-counts
+   returns on the 60s refresh cycle — so for the first ~71 seconds of every
+   session it rendered as a bare 14x8px styled box in the topbar. `:empty`
+   makes it self-maintaining: no class to add on load, none to remove on
+   paint, and it also covers any future path that clears the content. It
+   cannot default to "Healthy" instead: that is a claim about the control
+   plane made before the control plane has been checked. */
+.site-health:empty { display: none; }
 .site-health b { font-weight: 600; }
 .site-health.ok  { color: var(--green); }
 .site-health.bad { color: var(--red); }

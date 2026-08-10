@@ -3145,8 +3145,8 @@ function _registerDevicesMinimalTable() {
       // click → openDetail covers the most common action. Less
       // visual noise, fewer fiddly edge cases.
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
-        <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
-        <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
+        <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42" aria-label="Select ${escAttr(d.name)}"></td>
+        <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" role="img" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
         <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
@@ -3189,7 +3189,7 @@ function _renderDevicesMinimal(filtered) {
     <table class="devices-minimal-table">
       <thead id="devices-minimal-thead">
         <tr>
-          <th class="isl-321"><input type="checkbox" id="dev-min-select-all" data-action-btn="toggleSelectAllMinimal" title="Select all visible" class="isl-42"></th>
+          <th class="isl-321"><input type="checkbox" id="dev-min-select-all" data-action-btn="toggleSelectAllMinimal" title="Select all visible" aria-label="Select all visible devices" class="isl-42"></th>
           <th data-col="status" class="isl-188">Status</th>
           <th data-col="name" class="isl-322">Name</th>
           <th data-col="hostname" class="isl-323">Hostname</th>

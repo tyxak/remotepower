@@ -593,7 +593,7 @@ function _alertRowHtml(a, role) {
     ? ' <span class="patch-badge fs-10" title="This records an event, not an ongoing condition — it will not clear on its own. Resolve it once you have looked.">confirm</span>'
     : '';
   const cb = isResolved ? '' :
-    `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
+    `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn" aria-label="Select alert: ${escAttr(a.event || a.id)}">`;
   const badge = role === 'root'
     ? ' <span class="alert-rc-badge rc-root">root cause</span>'
     : role === 'symptom' ? ' <span class="alert-rc-badge rc-symptom">symptom</span>'

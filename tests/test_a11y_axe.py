@@ -324,3 +324,152 @@ class TestAccessibilityAxe(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# ── v6.4.3: the same audit, against a POPULATED instance ─────────────────────
+#
+# Everything above walks a stack booted on an empty temp data dir, so every
+# table renders its empty state. That made a whole class of violation
+# structurally invisible: anything that only exists once there are rows. A
+# seeded run found, on pages the sweep above already "covered":
+#
+#   * 60 CRITICAL `label` violations — the per-row select checkboxes in the
+#     devices and alerts tables are built by JS with no accessible name, so a
+#     screen-reader user cannot tell which row a checkbox belongs to (or that
+#     bulk select exists). Fixed; this class is pinned at zero below.
+#   * 15 `aria-allowed-attr` — `aria-label` on a bare <span> status dot, which
+#     is invalid without a role. Fixed (role="img").
+#   * 48 `color-contrast`. NOT fixed, and deliberately baselined rather than
+#     papered over: the cause is row-level `opacity` (tr.offline 0.7,
+#     .muted-row / tr.decommissioned / .alerts-row.resolved 0.55,
+#     .chk-row.disabled td 0.5) compositing --muted, which passes at 4.98:1 on
+#     its own, down to 3.11:1 and below. The arithmetic says this cannot be
+#     tuned away: the minimum alpha that preserves AA with the current token is
+#     0.94 — i.e. no visible dimming at all — and even brightening --muted to a
+#     much lighter #a3aeba (7.68:1 base) still only reaches 4.43 at alpha 0.7.
+#     Expressing "de-emphasised row" as opacity is therefore incompatible with
+#     AA on the text inside it; fixing it means changing the MECHANISM (dim the
+#     non-text parts, or use a distinct dim colour that still clears 4.5:1),
+#     which is a design decision, not a lint fix. Tracked here, shrink-only, so
+#     it is a number someone can drive down instead of an invisible unknown.
+#
+# Cost: one extra stack plus the demo seeder, on a focused set of data-heavy
+# pages rather than all 74 — the empty-install sweep above already covers
+# breadth; this covers depth.
+_SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb')
+
+# Shrink-only. Lower it when the mechanism above changes; never raise it.
+_SEEDED_CONTRAST_CEILING = 48
+
+
+@unittest.skipUnless(_HAVE_PLAYWRIGHT and _HAVE_AXE,
+                     'playwright + axe-core-python not installed')
+class TestAccessibilityAxeSeeded(unittest.TestCase):
+    """axe over an instance that actually has rows in it."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os as _os
+        import subprocess as _sp
+        import sys as _sys
+        import tempfile as _tf
+        if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
+            raise unittest.SkipTest('a11y is backend-agnostic — audited once')
+        _here = _os.path.dirname(_os.path.abspath(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        _root = _os.path.dirname(_here)
+        seeder = _os.path.join(_root, 'packaging', 'seed-demo-data.py')
+        if not _os.path.exists(seeder):
+            raise unittest.SkipTest('demo seeder not in this tree')
+        data_dir = _tf.mkdtemp(prefix='rp-a11y-seeded-')
+        # --apply is required; without it the seeder is a dry run and you get
+        # an EMPTY dir, i.e. silently the same blind spot this class exists to
+        # remove.
+        proc = _sp.run([_sys.executable, seeder, '--data-dir', data_dir, '--apply'],
+                       capture_output=True, cwd=_root, timeout=600)
+        if proc.returncode != 0:
+            raise unittest.SkipTest(
+                'demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:])
+        from e2e_harness import start_stack
+        cls._pw = sync_playwright().start()
+        try:
+            cls.browser = cls._pw.chromium.launch()
+        except Exception as exc:
+            cls._pw.stop()
+            raise unittest.SkipTest(f'chromium not available: {exc}')
+        try:
+            cls.base, cls._shutdown = start_stack(data_dir=data_dir)
+        except Exception as exc:
+            cls.browser.close()
+            cls._pw.stop()
+            raise unittest.SkipTest(f'app stack not available: {exc}')
+        cls.axe = Axe()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        finally:
+            cls._shutdown()
+
+    def _walk(self):
+        """{rule_id: node_count} for every critical/serious violation across
+        the seeded pages."""
+        page = self.browser.new_page()
+        try:
+            page.goto(self.base + '/index.html')
+            # The seeder builds its own operator accounts; there is no 'admin'.
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            totals = {}
+            for name in _SEEDED_PAGES:
+                page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
+                page.wait_for_timeout(1500)
+                for v in (_run_axe(page, self.axe, _AXE_OPTIONS).get('violations') or []):
+                    if v.get('impact') not in _SERIOUS_IMPACTS:
+                        continue
+                    totals[v['id']] = totals.get(v['id'], 0) + len(v.get('nodes') or [])
+            return totals
+        finally:
+            page.close()
+
+    def test_populated_pages(self):
+        totals = self._walk()
+        contrast = totals.pop('color-contrast', 0)
+        self.assertEqual(
+            totals, {},
+            'critical/serious a11y violations that only appear once there is '
+            f'data on the page: {totals}. The empty-install sweep cannot see '
+            'these — a row control with no accessible name has no row to live '
+            'in until the table has one.')
+        self.assertLessEqual(
+            contrast, _SEEDED_CONTRAST_CEILING,
+            f'{contrast} color-contrast violations on populated pages (ceiling '
+            f'{_SEEDED_CONTRAST_CEILING}). See the note above this class: the '
+            'cause is row-level opacity compositing --muted below 4.5:1, and '
+            'it needs a mechanism change rather than a colour tweak.')
+
+    def test_the_seed_actually_produced_rows(self):
+        """Guard the guard. If the seeder silently no-ops this whole class
+        degrades into a second copy of the empty-install sweep and reports
+        success for testing nothing."""
+        page = self.browser.new_page()
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            page.evaluate("() => { try { showPage('devices') } catch (e) {} }")
+            page.wait_for_timeout(1500)
+            rows = page.evaluate(
+                "() => document.querySelectorAll('#page-devices tbody tr').length")
+            self.assertGreater(rows, 5, 'seeded instance rendered no device rows')
+        finally:
+            page.close()

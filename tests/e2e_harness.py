@@ -72,8 +72,18 @@ def _free_port():
     return port
 
 
-def start_stack():
-    data_dir = tempfile.mkdtemp(prefix='rp-e2e-data-')
+def start_stack(data_dir=None):
+    """Boot the real gunicorn+wsgi stack. Returns (base_url, shutdown).
+
+    `data_dir` lets a caller boot against a PRE-POPULATED store. It defaults to
+    a fresh temp dir, which is what every existing caller wants — but it meant
+    the a11y sweep, which walks all 74 pages, only ever saw EMPTY ONES. Every
+    table rendered its empty state, so any violation that lives in a populated
+    row (an unnamed control inside a row, a status pill's contrast, a header
+    that only exists once there is data) was structurally invisible to a gate
+    whose whole purpose is to see it.
+    """
+    data_dir = data_dir or tempfile.mkdtemp(prefix='rp-e2e-data-')
     gunicorn_port = _free_port()
 
     worker = subprocess.Popen(
@@ -115,8 +125,14 @@ def start_stack():
     # fixup a few times over ~1.5s to absorb a straggler worker.
     _fix_cmd = [sys.executable, '-c',
                 'import sys; sys.path.insert(0, sys.argv[1]); import api; '
-                'u = api.load(api.USERS_FILE); '
-                "u['admin']['must_change_password'] = False; "
+                # Clear the flag for EVERY user, not just 'admin'. A caller
+                # booting against a pre-populated data_dir (the seeded a11y
+                # sweep) has its own operator accounts and no 'admin' at all,
+                # and the hardcoded subscript raised KeyError before the stack
+                # could come up.
+                'u = api.load(api.USERS_FILE) or {}; '
+                '[v.update(must_change_password=False) '
+                ' for v in u.values() if isinstance(v, dict)]; '
                 'api.save(api.USERS_FILE, u)',
                 str(_CGI)]
     for attempt in range(5):
