@@ -96,6 +96,13 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.4.3.md](v6.4.3.md)** — "Gu4rdMatters": the checks rather than the code
+ they check. Six guardrails were reporting success while measuring nothing —
+ the Postgres backend run by no gate, undefined-name detection at 238 findings
+ and 100% false positives, the accessibility sweep walking every page against
+ an empty database, the translation gate stopping at the app chrome — plus the
+ surfaces that told you something untrue: success toasts on refusals,
+ single-use PINs that were not, "?" in push notifications.
 - **[v6.4.2.md](v6.4.2.md)** — "Ver1tyMatters": per-container alert mutes
  (silence one noisy container without silencing its host — inbox, webhooks,
  push and health score go quiet while fleet-event history and the SIEM stream
@@ -111,12 +118,7 @@ The three most recent per-release notes are kept here:
  Advisory's revived inputs, six new risk factors); an SNMP OID browser; device
  rename; installer flags for the optional receivers; and two monitor fixes —
  an actionable rejection message and a stale monitor no longer blocking saves.
-- **[v6.4.0.md](v6.4.0.md)** — "Sh1eldMatters": agentic diagnosis — a hail-mary
- log sweep ("Diagnose from logs": a bounded, secret-redacted snapshot of the
- host's recently-modified /var/log tails with an AI root-cause read) and
- agentic alert triage (the model investigates one alert through read-only
- evidence tools and stores a verdict + evidence trail on the alert).
-Older release notes (v6.3.0 and earlier) live in
+Older release notes (v6.4.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

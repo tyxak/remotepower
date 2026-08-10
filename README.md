@@ -17,7 +17,7 @@ five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.4.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.4.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -182,6 +182,17 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.4.3 "Gu4rdMatters"** — the checks rather than the code they check. Six
+  guardrails were reporting success while measuring nothing: the **Postgres
+  backend** — the enterprise default — was run by no gate at all while 28 tests
+  written for it skipped themselves for want of a server; undefined-name
+  detection returned 238 findings on the server of which every one was a false
+  positive; the accessibility sweep walked all 74 pages against an **empty
+  database**, so anything living in a populated row was invisible to it. Plus
+  the surfaces that told you something untrue — a green "queued" toast on an
+  action the server had refused, enrollment PINs documented as single-use that
+  were not, "?" in push notifications — and an interface pass that found the
+  icon-spacing rule matching none of the ~195 buttons it was written for.
 - **v6.4.2 "Ver1tyMatters"** — a truth-in-reporting release. **Per-container
   alert mutes** (silence one container without silencing its host) and a real
   container **log window**, then a long correctness pass: an adversarial audit
@@ -220,14 +231,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   laptops, weekly restore drills, laptop battery health, an "agents
   outdated" filter, a Postgres migration CLI, app-wide axe-verified
   accessibility, and deploy/self-update restarting the sidecar daemons.
-- **v6.2.3 "Un1fyMatters"** — a consolidation and tidy-up pass: an optional
-  listen port on Create tunnel, an ACME certificates page that loads on
-  navigation (no manual Refresh), clearer feedback when a package snapshot
-  captures nothing, and a removed duplicate dampening setting — on top of a
-  project-wide sweep that collapsed repeated code idioms, deleted dead code and
-  de-duplicated the docs.
-Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
-
 ## Security
 
 Security-reviewed every release and pentested as hard as we can — the bar is

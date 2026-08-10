@@ -2,7 +2,23 @@
 
 All notable changes to RemotePower. Newest first.
 
-## Unreleased (test)
+## v6.4.3 — "Gu4rdMatters" — unreleased (test)
+
+A release about the checks rather than the code they check. Six guardrails
+turned out to be reporting success while measuring nothing: the Postgres
+backend — the enterprise default — was run by no gate at all, `ruff --select
+F821` was returning 238 findings of which every single one was a false
+positive, the accessibility sweep walked all 74 pages against an empty
+database so anything living in a populated row was invisible to it, the i18n
+gate stopped at the app chrome, and the box-overflow ratchet read only static
+HTML while counting a compliant table against its own budget. Alongside them,
+a set of surfaces that told the operator something untrue: a green "queued"
+toast on a refusal the server had already rejected, a Documentation page
+denying a restore feature sitting three clicks away, enrollment PINs
+documented as single-use that were not, and push notifications rendering "?"
+where a character should be. Every new guardrail here was demonstrated to FAIL
+before it was committed, because a gate nobody has seen fail is indistinguishable
+from one that cannot.
 
 - **The Postgres backend is now actually tested.** Postgres has been the
   enterprise default since v6.1.0, but no gate ran a line of it: `make check`
@@ -40,6 +56,58 @@ All notable changes to RemotePower. Newest first.
 - Every dialog tier is **20px wider**, on the shared width scale.
 - The expanded Thermal row's sensor table now uses the standard ~360px cap
   instead of 132px, so a typical host's sensors fit without scrolling.
+- **A success toast on a refusal, at eleven places.** `api()` throws only on a
+  network failure — every HTTP status but 401 resolves — so `try { await
+  api(…); toast('…','success') } catch {}` had a dead catch and went green on a
+  400 or 403. Deploying from the app catalog reported "queued" while the server
+  answered "compose deploys are disabled on this device", which is the state of
+  every device by default. Revoking the status token repainted the box to
+  "revoked" while the token stayed live. Batch actions now report "N of M"
+  instead of claiming all of them.
+- **The "Related" page links were erased in every non-English language.** 60 of
+  63 pages rendered none: the subtitle is translated by replacing its whole
+  markup, which destroyed the chip row appended into it. You got the translated
+  subtitle or the links, never both.
+- **Enrollment PINs are genuinely single-use now.** They were documented as
+  such and were not — the check-and-delete ran without the store lock, while
+  the sibling credential fourteen lines above had been fixed a release earlier.
+- **The Documentation page no longer denies features the product has.** It said
+  "No in-UI restore — backups are tarballs you extract yourself" three clicks
+  from the Restore button, and contradicted the very document it linked to. The
+  manual path it recommended is the one that does NOT take a safety snapshot
+  first.
+- **Push notifications no longer show "?".** Titles ride in an HTTP header,
+  which cannot carry the typography the messages use — seven characters in play
+  could not be represented at all. Header copy is now transliterated so it stays
+  readable ("recovered - 12", "agent -> server", "disk >= 90%"); anything still
+  non-Latin is encoded losslessly rather than replaced.
+- **The accessibility gate had only ever run against an empty install**, so
+  every table showed its empty state and anything living in a row was invisible
+  to it. Against real data it found 60 critical violations: the per-row select
+  checkboxes in Devices and Alerts had no accessible name, so a screen-reader
+  user could not tell which row they were selecting.
+- **Keyboard focus is visible in text fields again.** A base rule set `outline:
+  none` and outranked the global focus ring on source order, so every input,
+  select and textarea focused with nothing but a faint border tint.
+- **A refused delete no longer stays deleted.** Four settings lists removed the
+  row from memory before asking the server, and kept it removed when the server
+  said no — so it came back on reload and vanished again on the next save.
+- **Visual corrections.** The rule meant to space a button's icon from its label
+  matched none of the ~195 buttons that have both. The four sign-in buttons
+  stacked at three different heights. The CMDB asset Tickets panel rendered
+  110px of content inside a 38px sliver. Every card on the Documentation page
+  had its summary shattered into narrow columns. Two pages destroyed their own
+  Documentation link a moment after you opened them.
+- **The literal word "undefined" is no longer shown to operators** on a handful
+  of pages when a record is missing or access is refused, and the Devices page
+  no longer paints a blank body while it loads.
+- **More of the interface speaks your language.** The translation gate only ever
+  checked the app chrome, so dropdown options, column headers and field labels
+  had quietly drifted out of it; 72 strings were translated into all six
+  languages and the rest are now recorded as deliberately English. Three
+  entries had been dead since the day they landed because of how they were
+  written.
+
 
 ## v6.4.2 — "Ver1tyMatters" — 2026-08-06
 

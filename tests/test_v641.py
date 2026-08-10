@@ -129,11 +129,20 @@ class TestKmipShipsInThisRelease(unittest.TestCase):
                       "KMIP ships in 6.4.1, not the already-released 6.4.0")
 
     def test_kmip_is_not_claimed_by_the_shipped_release(self):
-        """v6.4.0 is already in production — it must not advertise 6.4.1 work."""
+        """v6.4.0 is already in production — it must not advertise 6.4.1 work.
+
+        The CHANGELOG is the durable half and keeps every release forever, so
+        that assertion stands. The per-version doc does NOT: docs/vX.Y.Z.md is
+        keep-3, and v6.4.0.md was deleted at the v6.4.3 bump. Reading a file
+        the retention policy is designed to remove would turn a routine bump
+        into a red suite, so it is checked only while it exists.
+        """
         chg = (_ROOT / "CHANGELOG.md").read_text()
         v640 = chg[chg.index("## v6.4.0"):chg.index("## v6.3.0")]
         self.assertNotIn("KMIP key server", v640)
-        self.assertNotIn("KMIP", (_ROOT / "docs/v6.4.0.md").read_text())
+        doc = _ROOT / "docs/v6.4.0.md"
+        if doc.exists():
+            self.assertNotIn("KMIP", doc.read_text())
 
 
 if __name__ == "__main__":
