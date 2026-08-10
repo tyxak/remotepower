@@ -63,6 +63,12 @@ def _rack_elevation(rack, rack_id, cmdb, devices):
     for did, rec in (cmdb or {}).items():
         if not isinstance(rec, dict) or rec.get('rack_id') != rack_id:
             continue
+        # v6.4.3 (SECURITY): `devices` is the CALLER'S roster, so a record for a
+        # device they cannot see is skipped outright. Filtering only the name
+        # join below would still leak the id — `name` falls back to `did`, so a
+        # foreign host would render as its own device id.
+        if did not in (devices or {}):
+            continue
         u = int(rec.get('rack_unit') or 0)
         if u < 1:
             continue
@@ -89,8 +95,13 @@ def handle_racks():
         A.require_auth()
         racks = A.load(A.RACKS_FILE) or {}
         cmdb = A._cmdb_load()
+        # Count only racks-worth-of-devices this caller can see, or the placed
+        # figure discloses another tenant's fleet size.
+        _vis = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
         counts = {}
-        for rec in cmdb.values():
+        for did, rec in cmdb.items():
+            if did not in _vis:
+                continue
             rid = isinstance(rec, dict) and rec.get('rack_id')
             if rid:
                 counts[rid] = counts.get(rid, 0) + 1
@@ -179,7 +190,11 @@ def handle_rack_elevation(rid):
     rack = (A.load(A.RACKS_FILE) or {}).get(rid)
     if not isinstance(rack, dict):
         A.respond(404, {'error': 'rack not found'})
-    model = A._rack_elevation(rack, rid, A._cmdb_load(), A.load(A.DEVICES_FILE) or {})
+    # Scoped roster, same as handle_ipam_occupancy's sibling call below: this
+    # route sits under /api/racks/, which _enforce_device_scope does not cover
+    # (it only guards /api/devices/<id>/…), so the filter has to be here.
+    model = A._rack_elevation(rack, rid, A._cmdb_load(),
+                              A._scope_filter_devices(A.load(A.DEVICES_FILE) or {}))
     model['id'] = rid
     model['name'] = rack.get('name', rid)
     A.respond(200, model)

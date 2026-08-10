@@ -69,6 +69,14 @@ holds long-form docs that don't fit there.
  export that did not neutralise spreadsheet formula cells — plus a set of
  monitoring controls that were evaluating nothing, and the concurrency defects
  behind a lost device row and a reverted security setting.
+- **[security-review-6.4.3.md](security-review-6.4.3.md)** — the v6.4.3
+ "Gu4rdMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
+ though every caller were an unrestricted admin (metrics, calendar feed, rack
+ elevation) — long-standing, read-only, no credential exposed, all fixed here;
+ plus a Linux-only safety gate bypassable by editing rather than creating a
+ job. Each reproduced from the lowest-privilege account before and after the
+ fix, with regression tests asserting both that restricted callers see less
+ AND that the machine scrape still sees everything.
 - **[security-review-6.4.1.md](security-review-6.4.1.md)** — the
  v6.4.1 "Cust0dyMatters" pass, weighted toward the new **KMIP key server** as the
  highest-consequence surface the release adds: every trust boundary traced by
@@ -80,22 +88,6 @@ holds long-form docs that don't fit there.
  the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
  of unlocking storage against a server that storage hosts); no
  Critical/High/Medium ships.
-- **[security-review-6.4.0.md](security-review-6.4.0.md)** — the
- v6.4.0 "Sh1eldMatters" pass — SAST clean (F821 agent + all handler modules,
- gitleaks clean, Bandit by-design only) plus three parallel adversarial reviewers
- over the new agentic-triage, NetFlow/IPFIX flow receiver, dependency-verification,
- incident-memory and detection-self-test code. The binary flow parser and the AI
- surfaces were found notably well-hardened; three LOW defects fixed (a cross-tenant
- AI-triage scoreboard count leak, an unbounded flow-sidecar map → DoS, and an AI
- daily-cap debited before validation); no Critical/High/Medium ships.
-
-## Release notes
-
-The full release history — every version, newest first — lives in
-[`CHANGELOG.md`](../CHANGELOG.md) at the repository root.
-
-The three most recent per-release notes are kept here:
-
 - **[v6.4.3.md](v6.4.3.md)** — "Gu4rdMatters": the checks rather than the code
  they check. Six guardrails were reporting success while measuring nothing —
  the Postgres backend run by no gate, undefined-name detection at 238 findings

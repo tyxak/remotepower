@@ -56,6 +56,21 @@ from one that cannot.
 - Every dialog tier is **20px wider**, on the shared width scale.
 - The expanded Thermal row's sensor table now uses the standard ~360px cap
   instead of 132px, so a typical host's sensors fit without scrolling.
+- **Three fleet-wide views were answering as though everyone were an admin.**
+  The metrics endpoint returned every device's hostname, memory use and
+  last-seen to any signed-in user; the calendar feed returned every tenant's
+  scheduled jobs and maintenance windows; and rack elevation returned the
+  identifiers and hostnames of other tenants' devices sharing a rack. All three
+  are read paths — no credential, secret or command channel was exposed, and
+  nothing could be changed through them — and all three predate this release.
+  The machine scrape deliberately keeps its instance-wide view, since narrowing
+  that would break fleet monitoring rather than protect anything. See
+  `docs/security-review-6.4.3.md`.
+- **A Linux-only safety gate could be bypassed by editing instead of
+  creating.** File-backup jobs refuse a Windows or macOS target on creation;
+  editing an existing job onto one was accepted, and the scheduler then
+  dispatched a command those hosts cannot run, indefinitely, while the job
+  looked healthy.
 - **A success toast on a refusal, at eleven places.** `api()` throws only on a
   network failure — every HTTP status but 401 resolves — so `try { await
   api(…); toast('…','success') } catch {}` had a dead catch and went green on a

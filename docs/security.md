@@ -33,10 +33,13 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. That pass built on **v6.4.0** (see
-[security-review-6.4.0.md](security-review-6.4.0.md), three parallel adversarial
-reviewers over the agentic-triage, flow-receiver and dependency-verification
-code, with the binary flow parser found notably well-hardened) and on
+High, or Medium finding ships**. **v6.4.3** (see [security-review-6.4.3.md](security-review-6.4.3.md)) went
+looking specifically at fleet-wide READ endpoints and found three that
+authenticated the caller and then answered as though every caller were an
+unrestricted administrator — metrics, the calendar feed and rack elevation.
+All three were long-standing rather than new, all are read paths exposing no
+credential or command channel, and all are fixed in the release that describes
+them. That pass built on
 [security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
 toward the **KMIP key server** — the highest-consequence surface that release
 added, since it holds encryption keys for other people's storage. Every trust

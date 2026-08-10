@@ -14319,7 +14319,7 @@ def handle_device_metric_thresholds(dev_id):
     rather than silently clamped — better to fail loudly than alert at
     a threshold the user didn't intend.
     """
-    require_admin_auth()
+    _actor = require_admin_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
@@ -14475,8 +14475,15 @@ def handle_device_metric_thresholds(dev_id):
     _out = {'ok': True, 'overrides': overrides}
     if sensor_ignores is not None:
         _out['sensor_ignores'] = sensor_ignores
-        audit_log('device_sensor_ignores', dev_id,
-                  {'count': len(sensor_ignores)})
+        # v6.4.3: actor first. This shipped with the arguments shifted by one —
+        # actor='device_sensor_ignores', action=<device id>, detail=<dict> — so
+        # the row that records SILENCING A CRITICAL TEMPERATURE ALERT named no
+        # operator. _sanitize_str coerces the dict without complaint, which is
+        # why nothing failed. Every other call site passes a username or one of
+        # the documented pseudo-actors.
+        audit_log(_actor, 'device_sensor_ignores',
+                  f'dev={dev_id} count={len(sensor_ignores)} '
+                  f'sensors={",".join(sensor_ignores)[:200]}')
     respond(200, _out)
 
 
@@ -62961,6 +62968,7 @@ def handle_schedule_ics(device_id=None):
     with an RRULE for the common daily/weekly/monthly patterns."""
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     qs_token = (qs.get('token') or [''])[0]
+    _ics_visible = None   # None = instance-wide (status-token feed)
     authed = False
     if qs_token:
         cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
@@ -62973,6 +62981,15 @@ def handle_schedule_ics(device_id=None):
                 token = auth[7:].strip()
         username, _role = verify_token(token)
         authed = bool(username)
+        # v6.4.3 (SECURITY): an operator sees only their own devices. The
+        # status-token feed above stays instance-wide by design (it is a
+        # calendar subscription, not a session). Without this the fleet-level
+        # route handed every tenant's job summaries, device names and
+        # maintenance windows to anyone logged in — and a device-scoped window
+        # renders its target id in the DESCRIPTION, so foreign device ids
+        # leaked outright. The per-device route is already covered by
+        # _enforce_device_scope; this is the unfiltered aggregate.
+        _ics_visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
     if not authed:
         print('Status: 401 Unauthorized')
         print('Content-Type: text/plain; charset=utf-8')
@@ -63000,6 +63017,9 @@ def handle_schedule_ics(device_id=None):
         return ev
 
     for job in (load(SCHEDULE_FILE) or {}).get('jobs') or []:
+        if _ics_visible is not None and job.get('device_id') \
+                and job.get('device_id') not in _ics_visible:
+            continue
         if device_id and job.get('device_id') != device_id:
             continue
         dn = job.get('device_name') or job.get('device_id', '')
@@ -63016,6 +63036,16 @@ def handle_schedule_ics(device_id=None):
                              dtend=_ics_dt(int(job['run_at']) + 900))
 
     for w in (load(MAINT_FILE) or {}).get('windows') or []:
+        # A device-scoped window names its target in the DESCRIPTION, so it is
+        # only safe for a caller who can see that device. Group/tag/site
+        # windows are omitted for a scoped caller rather than rendered with a
+        # target string they may not be entitled to resolve.
+        if _ics_visible is not None:
+            if w.get('scope') == 'device':
+                if str(w.get('target')) not in _ics_visible:
+                    continue
+            elif w.get('scope'):
+                continue
         if device_id and not (w.get('scope') == 'device' and str(w.get('target')) == str(device_id)):
             continue
         if w.get('start') and w.get('end'):
@@ -63042,9 +63072,66 @@ def handle_schedule_ics(device_id=None):
     sys.exit(0)
 
 
-def _build_metrics_ctx():
+def _metrics_scope_ctx(ctx, visible):
+    """Reduce a metrics context to the devices `visible` allows.
+
+    Filtering ctx['devices'] alone is NOT enough, and that is the trap: the
+    exporter's _dev_labels() falls back to `d.get('name', dev_id)`, so a
+    device-keyed store that still holds a foreign id emits
+    `device="dev-x" name="dev-x"` — the identifier leaks anyway, just without a
+    hostname attached. Every per-device family has to be reduced too.
+
+    Two shapes are handled: a dict keyed BY device id, and a list of records
+    CARRYING a device id. A record with no device id is a fleet aggregate and
+    is left alone — it is not per-device data.
+    """
+    vis = set(visible)
+
+    def _by_key(d):
+        return {k: v for k, v in (d or {}).items() if k in vis}
+
+    def _by_field(rows):
+        out = []
+        for r in rows or []:
+            if not isinstance(r, dict):
+                out.append(r)
+                continue
+            dev = r.get('device_id') or r.get('device') or r.get('id')
+            if dev and dev not in vis:
+                continue
+            out.append(r)
+        return out
+
+    for key in ('devices', 'pending_cmds', 'cve_findings', 'cve_ignore',
+                'services', 'hardware', 'backup_state', 'disk_fill_eta',
+                'device_uptime', 'compliance'):
+        if isinstance(ctx.get(key), dict):
+            ctx[key] = _by_key(ctx[key])
+    for key in ('schedule', 'fleet_events', 'slo', 'risk', 'reliability',
+                'health'):
+        v = ctx.get(key)
+        if isinstance(v, list):
+            ctx[key] = _by_field(v)
+        elif isinstance(v, dict):
+            # aggregate blocks that carry a per-device list inside them
+            for sub in ('devices', 'rows', 'items', 'hosts'):
+                if isinstance(v.get(sub), list):
+                    v[sub] = _by_field(v[sub])
+    return ctx
+
+
+def _build_metrics_ctx(visible=None):
     """Assemble the context generate_metrics() needs. Shared by the /api/metrics
-    scrape endpoint and the v3.14.0 metrics-push so the two never diverge."""
+    scrape endpoint and the v3.14.0 metrics-push so the two never diverge.
+
+    `visible` is the device-id set the CALLER may see, or None for the
+    instance-wide view. None is correct for the status-token scrape and for the
+    metrics push — neither is a logged-in operator. It is NOT correct for the
+    session-token branch of /api/metrics, which is how a tenant viewer was
+    served the whole fleet's per-device telemetry: the handler bound the role
+    to a throwaway (`username, _role = verify_token(...)`) and never consulted
+    it. The sibling handle_prometheus_sd already draws this distinction; this
+    now matches it."""
     now = int(time.time())
     cfg = load(CONFIG_FILE)
     mon_hist = load(MON_HIST_FILE)
@@ -63060,13 +63147,20 @@ def _build_metrics_ctx():
                 maint_active += 1
         except Exception:
             pass
-    return {
+    # Build the DERIVED families from the caller's roster, not the raw store,
+    # so a scoped caller's disk-fill/compliance/uptime rows cannot re-widen
+    # what _metrics_scope_ctx then filters.
+    _mctx_devs = load(DEVICES_FILE) or {}
+    if visible is not None:
+        _vis = set(visible)
+        _mctx_devs = {k: v for k, v in _mctx_devs.items() if k in _vis}
+    ctx = {
         'server_version':  SERVER_VERSION,
         'slo':             _compute_slo(),   # v5.4.1 (F3): SLO/error-budget gauges
         'control_uptime':  _control_uptime(),  # v5.4.1 (G3): observed self-availability
         'now':             now,
         'online_ttl':      get_online_ttl(),
-        'devices':         load(DEVICES_FILE),
+        'devices':         _mctx_devs,
         'monitors':        cfg.get('monitors') or [],
         'monitor_state':   monitor_state,
         'schedule':        load(SCHEDULE_FILE),
@@ -63094,10 +63188,10 @@ def _build_metrics_ctx():
         # control plane's own DR run and has a completely different shape.
         'backup_state':      load(DATA_DIR / 'backup_state.json'),
         'backup_monitors':   cfg.get('backup_monitors') or [],
-        'disk_fill_eta':     _disk_fill_eta(load(DEVICES_FILE) or {}),
+        'disk_fill_eta':     _disk_fill_eta(_mctx_devs),
         'risk':              _fleet_risk_cached(),
         'reliability':       _fleet_reliability_cached(),
-        'compliance':        _compute_compliance(load(DEVICES_FILE) or {}),
+        'compliance':        _compute_compliance(_mctx_devs),
         # v6.4.2: per-device uptime/SLA and framework compliance — the two
         # posture numbers the product computed for its own screens and never
         # exported. Rows are built HERE, not in the exporter, because the
@@ -63106,15 +63200,16 @@ def _build_metrics_ctx():
         # NOT via handle_fleet_sla(): that is a handler ending in respond(), and
         # it applies _scope_filter_devices, which is wrong for a scrape — a
         # metrics endpoint is not a logged-in operator with a role scope.
-        'device_uptime':        _metrics_device_uptime(now),
+        'device_uptime':        _metrics_device_uptime(now, _mdu_devices=_mctx_devs),
         'device_uptime_window': '30d',
         # _compliance_facts(None) is the documented SYSTEM whole-fleet path
         # (its docstring names the RAG corpus builder as the precedent).
         'framework_compliance': _metrics_framework_compliance(),
     }
+    return ctx if visible is None else _metrics_scope_ctx(ctx, visible)
 
 
-def _metrics_device_uptime(now, days=30):
+def _metrics_device_uptime(now, days=30, _mdu_devices=None):
     """Per-device uptime rows for the exporter, over the SLA window.
 
     Uses the same pure helpers handle_fleet_sla does — _uptime_pct,
@@ -63125,7 +63220,7 @@ def _metrics_device_uptime(now, days=30):
     try:
         window_start = now - days * 86400
         uptime = load(UPTIME_FILE) or {}
-        devices = load(DEVICES_FILE) or {}
+        devices = _mdu_devices if _mdu_devices is not None else (load(DEVICES_FILE) or {})
         windows = (load(MAINT_FILE) or {}).get('windows') or []
         targets = (_config_ro() or {}).get('sla_targets') or {}
         rows = []
@@ -63180,6 +63275,14 @@ def handle_prometheus_metrics():
     # scrape configs. Falls through to session-token auth otherwise.
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     qs_token = (qs.get('token') or [''])[0]
+    # v6.4.3 (SECURITY): which devices this caller may see. The status-token
+    # scrape is instance-wide BY DESIGN — it is a machine scrape, not an
+    # operator — so it keeps None. A SESSION caller is an operator and gets
+    # their scope, which is what this endpoint never applied: it bound the role
+    # to a throwaway and served every device's telemetry to anyone logged in,
+    # so a tenant viewer could read another tenant's hostnames, memory and
+    # last-seen. Same distinction handle_prometheus_sd already draws.
+    _metrics_visible = None
     if qs_token:
         cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
         if _ct_token_eq(qs_token, cfg_token):
@@ -63206,6 +63309,11 @@ def handle_prometheus_metrics():
             print()
             print('Unauthorized')
             sys.exit(0)
+        # An operator, not a scrape: reduce to what their role scope and tenant
+        # allow. _scope_filter_devices folds in BOTH, and no-ops for an
+        # unscoped admin on a single-tenant install, so the common case is
+        # unchanged.
+        _metrics_visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
 
     # v4.4.0 (RELIABILITY): never let a single malformed store record 500 the
     # whole scrape — that breaks Prometheus monitoring fleet-wide. Degrade to a
@@ -63213,7 +63321,8 @@ def handle_prometheus_metrics():
     # operator can alert on. (generate_metrics also skips non-dict records
     # internally, so this is the belt to that suspenders.)
     try:
-        body = prometheus_export.generate_metrics(_build_metrics_ctx())
+        body = prometheus_export.generate_metrics(
+            _build_metrics_ctx(visible=_metrics_visible))
         scrape_error = 0
     except Exception as e:
         log_json('error', 'metrics scrape failed', error=str(e))

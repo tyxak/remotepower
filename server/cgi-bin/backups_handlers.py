@@ -968,6 +968,20 @@ def handle_backup_job_update(job_id):
         targets = [d for d in A._resolve_targets(body) if d in devices]
         if not targets:
             A.respond(400, {'error': 'select at least one device you can manage'})
+        # v6.4.3: the SAME Linux-only gate the create path applies. Without it
+        # the create gate was trivially bypassed — save a job with a Linux
+        # target, then edit it onto a Windows host — and the cron sweep
+        # dispatches a bash rsync/tar to that host on every tick forever. The
+        # type is read AFTER the 'spec' branch above, which can itself flip the
+        # job to 'file' in this same request.
+        if job.get('type') == 'file':
+            targets, os_skipped = A._split_targets_by_os_support(
+                targets, supported=('linux',))
+            if not targets:
+                A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
+                                f'{len(os_skipped)} target(s) skipped '
+                                f'({", ".join(os_skipped[:5])}). Use a command job '
+                                'with a platform-native tool for these hosts.'})
         job['device_ids'] = targets
         job['device_id'] = targets[0]
         job['device_name'] = A._backup_targets_summary(targets, devices)
