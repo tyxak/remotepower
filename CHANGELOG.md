@@ -56,6 +56,12 @@ from one that cannot.
 - Every dialog tier is **20px wider**, on the shared width scale.
 - The expanded Thermal row's sensor table now uses the standard ~360px cap
   instead of 132px, so a typical host's sensors fit without scrolling.
+- **The read-path optimisation was saving 1%.** `_load_ro()` exists so a
+  read-only page does not pay a full copy of the fleet on every poll — but its
+  cold path went through the copying reader, and every request starts cold, so
+  the common case paid it anyway. Measured on a 400-device fleet: 34.9 ms
+  before, 9.0 ms after. Dashboards, the devices list and the alert inbox all
+  read this way, several times each, once a minute, per open tab.
 - **Three fleet-wide views were answering as though everyone were an admin.**
   The metrics endpoint returned every device's hostname, memory use and
   last-seen to any signed-in user; the calendar feed returned every tenant's
