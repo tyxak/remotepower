@@ -21940,10 +21940,15 @@ async function addCloudAccount() {
   } else { _cloudAccounts.pop(); toast(r?.error || 'Failed', 'error'); }
 }
 async function removeCloudAccount(idx) {
+  // v6.4.3: splice a COPY and only adopt it once the server has accepted.
+  // This spliced the module-level array FIRST, so a refused delete stayed
+  // gone in memory and rode into the next config save — the row came back
+  // on reload, then vanished again the next time anything else was saved.
+  const prev = _cloudAccounts.slice();
   _cloudAccounts.splice(idx, 1);
-  const r = await _saveCloudAccounts();
+  const r = await _saveCloudAccounts();   // reads the module-level array
   if (r?.ok) { renderCloudAccounts(_cloudAccounts); toast('Removed', 'info'); }
-  else toast('Failed', 'error');
+  else { _cloudAccounts = prev; toast(r?.error || 'Failed', 'error'); }
 }
 let _cloudImporting = false;
 async function runCloudImport(ev) {
@@ -22004,10 +22009,15 @@ async function addProcessWatch() {
 }
 
 async function removeProcessWatch(idx) {
-  _processWatches.splice(idx, 1);
-  const r = await api('POST', '/config', {process_watches: _processWatches});
-  if (r?.ok) { renderProcessWatches(_processWatches); toast('Removed', 'info'); }
-  else toast('Failed', 'error');
+  // v6.4.3: splice a COPY and only adopt it once the server has accepted.
+  // This spliced the module-level array FIRST, so a refused delete stayed
+  // gone in memory and rode into the next config save — the row came back
+  // on reload, then vanished again the next time anything else was saved.
+  const next = _processWatches.slice();
+  next.splice(idx, 1);
+  const r = await api('POST', '/config', {process_watches: next});
+  if (r?.ok) { _processWatches = next; renderProcessWatches(_processWatches); toast('Removed', 'info'); }
+  else toast(r?.error || 'Failed', 'error');
 }
 
 // ══ v2.9.0: Device Drawer ═════════════════════════════════════════════════════
@@ -27251,8 +27261,14 @@ async function removeLogIgnorePattern(idx) {
       async () => { const u = await api('POST', '/config', { log_ignore_patterns: beforePats }); if (u?.ok) { _logIgnorePatterns = beforePats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
       async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
       'Pattern removed');
+  } else {
+    // v6.4.3: roll back, like the sibling above already does. beforePats was
+    // captured for the undo stack and never used on the failure path, so a
+    // refused delete stayed gone in memory and rode into the next save.
+    _logIgnorePatterns = beforePats.slice();
+    _renderLogIgnoreList();
+    toast(r?.error || 'Failed', 'error');
   }
-  else toast('Failed', 'error');
 }
 
 // Extend loadDashboardSettings to populate log ignore patterns

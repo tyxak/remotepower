@@ -760,7 +760,7 @@ async function invoiceView(iid) {
         <div><strong>${escHtml(inv.site_name || '')}</strong><br>${escHtml(inv.billing_contact || '')}<br>${escHtml(inv.billing_address || '').replace(/\n/g, '<br>')}</div>
         <div class="meta-sm-nm">Period: ${escHtml((inv.period && inv.period.from) || '')} → ${escHtml((inv.period && inv.period.to) || '')}</div>
       </div>
-      <table class="data-table mt-12"><thead><tr><th>Description</th><th class="num">Qty/Hours</th><th class="num">Unit</th><th class="num">Amount (${escHtml(inv.currency)})</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="scrollable-table-wrap audit-scroll"><table class="data-table mt-12"><thead><tr><th>Description</th><th class="num">Qty/Hours</th><th class="num">Unit</th><th class="num">Amount (${escHtml(inv.currency)})</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="ws-totals mt-12">
         <div>Subtotal: <strong>${_bMoney(inv.subtotal, inv.currency)}</strong></div>
         <div>VAT ${escHtml(String(inv.vat_rate))}%: <strong>${_bMoney(inv.vat_amount, inv.currency)}</strong></div>

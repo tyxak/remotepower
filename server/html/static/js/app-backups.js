@@ -506,12 +506,20 @@ async function addBackupMonitor() {
 }
 
 async function removeBackupMonitor(idx) {
-  _backupMonitors.splice(idx, 1);
-  if (_backupEditIdx === idx) _backupEditIdx = -1;
-  else if (_backupEditIdx > idx) _backupEditIdx -= 1;
-  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
-  if (r?.ok) { renderBackupMonitors(_backupMonitors); toast('Removed', 'info'); }
-  else toast('Failed', 'error');
+  // v6.4.3: splice a COPY and only adopt it once the server has accepted.
+  // This spliced the module-level array FIRST, so a refused delete stayed
+  // gone in memory and rode into the next config save — the row came back
+  // on reload, then vanished again the next time anything else was saved.
+  const next = _backupMonitors.slice();
+  next.splice(idx, 1);
+  const r = await api('POST', '/config', {backup_monitors: next});
+  if (r?.ok) {
+    _backupMonitors = next;
+    if (_backupEditIdx === idx) _backupEditIdx = -1;
+    else if (_backupEditIdx > idx) _backupEditIdx -= 1;
+    renderBackupMonitors(_backupMonitors);
+    toast('Removed', 'info');
+  } else toast(r?.error || 'Failed', 'error');
 }
 
 async function runBackupNow() {
