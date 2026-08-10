@@ -1530,7 +1530,21 @@
   .devices-minimal-table tbody tr:hover {
     background: rgba(59,126,255,0.04);
   }
-  .devices-minimal-table tbody tr.offline {
+  /* v6.4.3: de-emphasise an offline row by COLOUR, not by fading the whole
+     row. `opacity: 0.7` here dropped the already-muted cells inside it — the
+     host and last-seen columns are .hint — from 4.98:1 to 3.11:1. You cannot
+     dim the dimmest text on the page and stay AA.
+     Dropping the full-contrast cells to --muted is a 14.69:1 -> 4.98:1 fall,
+     a far bigger perceptual change than a 30% fade, and it still passes. The
+     cells that were ALREADY muted are left alone, so nothing double-dims.
+     Non-text (the status dot, glyphs) may still fade — WCAG 1.4.3 governs
+     text, and the dot carries an aria-label besides.
+     Recessing the row background to var(--bg) was the other candidate and is
+     rejected: it helps the dark theme (5.53:1) and BREAKS the light one
+     (4.03:1), because there --bg moves toward the text rather than away. */
+  .devices-minimal-table tbody tr.offline td,
+  .devices-minimal-table tbody tr.offline td a { color: var(--muted); }
+  .devices-minimal-table tbody tr.offline :is(svg, .status-dot, img) {
     opacity: 0.7;
   }
   .devices-minimal-table tbody td {
@@ -1637,7 +1651,9 @@
     border: 1px solid var(--border); }
   tr.decommissioned { opacity: 0.55; filter: grayscale(0.85); }
   /* v5.0.0: NAT/public IP shown as a child of the primary interface. */
-  .cmdb-nat-child { padding-left: 10px; margin-top: 2px; opacity: 0.85; }
+  /* v6.4.3: opacity removed — its content is already .c-muted/.meta-sm, and
+     the 10px indent is what signals 'child of the row above'. */
+  .cmdb-nat-child { padding-left: 10px; margin-top: 2px; }
   .device-header {
     display: flex;
     align-items: flex-start;
@@ -5439,7 +5455,12 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-448 { padding: 10px 12px; cursor: pointer; display: flex; gap: 12px; align-items: center; flex-wrap: wrap }
 .isl-449 { margin: 0; padding: 12px; background: var(--surface); border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto }
 .isl-450 { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: var(--amber); color: #000; font-weight: 600 }
-.isl-451 { opacity: .75 }
+/* v6.4.3: opacity REMOVED. This is on every row of the Containers table
+   unconditionally — not a de-emphasis state, just a blanket 25% fade — and
+   it dragged the already-muted cells inside each row from 4.98:1 to 3.38:1.
+   33 of the 48 contrast violations on a populated instance were this one
+   declaration. Nothing replaces it: the rows were never meant to be dim. */
+.isl-451 { }
 .isl-452 { background: var(--amber); color: #000; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 500 }
 .isl-453 { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 11px }
 /* .isl-454 — dynamic colour, applied via data-color attribute */
@@ -5594,7 +5615,10 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-594 { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px }
 .isl-595 { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border) }
 .isl-596 { margin-top: 8px; display: flex; gap: 8px }
-.isl-598 { opacity: 0.65 }
+/* v6.4.3: opacity removed — double-dimming. These rows mark 'no results
+   yet', and the cell inside them (.isl-599) is already var(--muted). The
+   0.65 took it to 2.86:1. The muted cell colour IS the de-emphasis. */
+.isl-598 { }
 .isl-599 { color: var(--muted); font-style: italic }
 .isl-600 { font-size: 11px; padding: 2px 8px; margin-right: 4px }
 .isl-601 { font-size: 11px; padding: 2px 8px; color: var(--red); border-color: rgba(239,68,68,0.3) }
@@ -6013,7 +6037,14 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.sev-pill.sev-critical { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+/* v6.4.3 (a11y): var(--red) as TEXT on its own tint composites to 4.32:1 —
+   under AA. Same shape as .patch-badge.crit above, same remedy: a dedicated
+   ink colour for the label while the BORDER keeps the fill colour. The
+   light-theme override follows, because its --red fails on a light tint too
+   (3.74:1) — a latent failure the a11y suite cannot see, since it audits the
+   default theme only. */
+.sev-pill.sev-critical { background: rgba(220,53,69,0.15); color: #ec7a70; border: 1px solid var(--red); }
+body.light .sev-pill.sev-critical { color: #a4232b; }
 .sev-pill.sev-high     { background: rgba(255,140,0,0.15); color: #ff8c00; border: 1px solid #ff8c00; }
 .sev-pill.sev-medium   { background: rgba(255,193,7,0.15); color: #d4a017; border: 1px solid #d4a017; }
 .sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: #8a95a1; border: 1px solid var(--muted); }

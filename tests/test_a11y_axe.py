@@ -339,27 +339,33 @@ if __name__ == '__main__':
 #     bulk select exists). Fixed; this class is pinned at zero below.
 #   * 15 `aria-allowed-attr` — `aria-label` on a bare <span> status dot, which
 #     is invalid without a role. Fixed (role="img").
-#   * 48 `color-contrast`. NOT fixed, and deliberately baselined rather than
-#     papered over: the cause is row-level `opacity` (tr.offline 0.7,
-#     .muted-row / tr.decommissioned / .alerts-row.resolved 0.55,
-#     .chk-row.disabled td 0.5) compositing --muted, which passes at 4.98:1 on
-#     its own, down to 3.11:1 and below. The arithmetic says this cannot be
-#     tuned away: the minimum alpha that preserves AA with the current token is
-#     0.94 — i.e. no visible dimming at all — and even brightening --muted to a
-#     much lighter #a3aeba (7.68:1 base) still only reaches 4.43 at alpha 0.7.
-#     Expressing "de-emphasised row" as opacity is therefore incompatible with
-#     AA on the text inside it; fixing it means changing the MECHANISM (dim the
-#     non-text parts, or use a distinct dim colour that still clears 4.5:1),
-#     which is a design decision, not a lint fix. Tracked here, shrink-only, so
-#     it is a number someone can drive down instead of an invisible unknown.
+#   * 48 `color-contrast` — ALL FIXED, and the diagnosis is worth recording
+#     because the first one was wrong. The initial read was "row-level opacity
+#     is structurally incompatible with AA": --muted passes at 4.98:1 alone,
+#     any dimming pushes it under, and the arithmetic said the minimum alpha
+#     preserving AA is 0.94 — no visible dimming at all. The arithmetic was
+#     right and the CONCLUSION was wrong, because it never asked which
+#     elements were actually failing. Walking each violating node up to its
+#     nearest dimmed ancestor gave a completely different answer:
+#         33  .isl-451 @0.75      every Containers row, unconditionally
+#         12  .isl-598 @0.65      "no results yet" rows, already muted inside
+#          2  .cmdb-nat-child @0.85
+#          1  .sev-pill.sev-critical   (not opacity — --red as text on its tint)
+#     Not five row-state rules and not a design language problem: three stray
+#     opacity declarations, the largest of which was not a de-emphasis state at
+#     all but a blanket 25% fade on every row of one table. Removing them costs
+#     nothing, because in each case the content underneath was ALREADY muted —
+#     the opacity was double-dimming text that had done its de-emphasis job.
+#     The lesson: measure which nodes fail before theorising about why.
 #
 # Cost: one extra stack plus the demo seeder, on a focused set of data-heavy
 # pages rather than all 74 — the empty-install sweep above already covers
 # breadth; this covers depth.
 _SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb')
 
-# Shrink-only. Lower it when the mechanism above changes; never raise it.
-_SEEDED_CONTRAST_CEILING = 48
+# ZERO, not a baseline. Every violation was a stray opacity declaration and
+# they are all gone, so there is nothing to grandfather.
+_SEEDED_CONTRAST_CEILING = 0
 
 
 @unittest.skipUnless(_HAVE_PLAYWRIGHT and _HAVE_AXE,
@@ -373,6 +379,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         import subprocess as _sp
         import sys as _sys
         import tempfile as _tf
+        import time as _time
         if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('a11y is backend-agnostic — audited once')
         _here = _os.path.dirname(_os.path.abspath(__file__))
@@ -391,6 +398,32 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         if proc.returncode != 0:
             raise unittest.SkipTest(
                 'demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:])
+        # Force HALF the seeded devices offline, deterministically.
+        #
+        # Offline rows carry their own styling, and the violation that made
+        # this ceiling non-zero lived in one of them — but whether any device
+        # is offline depends on how much wall-clock elapsed since the seed.
+        # Running this class alone, nothing had aged yet and it saw zero; in
+        # the full suite the empty-install sweep runs ~155s first, devices
+        # crossed the threshold, and two violations appeared. A gate whose
+        # coverage depends on how long the PREVIOUS tests took is exactly the
+        # "reports success while measuring nothing" shape this file exists to
+        # catch, so pin the state instead of hoping for it. Half, not all, so
+        # both the online and offline row treatments are audited.
+        import json as _json
+        _dev = _os.path.join(data_dir, 'devices.json')
+        try:
+            with open(_dev) as fh:
+                _devices = _json.load(fh)
+            _old = int(_time.time()) - 86400
+            for _i, _k in enumerate(sorted(_devices)):
+                if _i % 2 == 0 and isinstance(_devices[_k], dict):
+                    _devices[_k]['last_seen'] = _old
+            with open(_dev, 'w') as fh:
+                _json.dump(_devices, fh)
+        except (OSError, ValueError) as exc:
+            raise unittest.SkipTest(f'could not age the seeded devices: {exc}')
+
         from e2e_harness import start_stack
         cls._pw = sync_playwright().start()
         try:
@@ -417,6 +450,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
     def _walk(self):
         """{rule_id: node_count} for every critical/serious violation across
         the seeded pages."""
+        self.detail = []
         page = self.browser.new_page()
         try:
             page.goto(self.base + '/index.html')
@@ -434,6 +468,16 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
                     if v.get('impact') not in _SERIOUS_IMPACTS:
                         continue
                     totals[v['id']] = totals.get(v['id'], 0) + len(v.get('nodes') or [])
+                    # Record WHICH nodes. A bare count tells you a number
+                    # changed and nothing about what to open — the first run
+                    # of this class reported "2" and cost a full re-run to
+                    # identify them.
+                    for node in (v.get('nodes') or []):
+                        self.detail.append(
+                            f"{name}: [{v['id']}] "
+                            f"{(node.get('target') or ['?'])[0]} :: "
+                            f"{node.get('html', '')[:90]} :: "
+                            f"{(node.get('failureSummary') or '').splitlines()[-1][:120]}")
             return totals
         finally:
             page.close()
@@ -449,10 +493,12 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
             'in until the table has one.')
         self.assertLessEqual(
             contrast, _SEEDED_CONTRAST_CEILING,
-            f'{contrast} color-contrast violations on populated pages (ceiling '
-            f'{_SEEDED_CONTRAST_CEILING}). See the note above this class: the '
-            'cause is row-level opacity compositing --muted below 4.5:1, and '
-            'it needs a mechanism change rather than a colour tweak.')
+            f'{contrast} color-contrast violation(s) on populated pages '
+            f'(ceiling {_SEEDED_CONTRAST_CEILING}). Before theorising about '
+            f'the palette, walk each failing node up to its nearest ancestor '
+            f'with opacity < 1 — every previous instance of this was a stray '
+            f'opacity declaration double-dimming text that was already '
+            f'muted.\n' + '\n'.join(self.detail))
 
     def test_the_seed_actually_produced_rows(self):
         """Guard the guard. If the seeder silently no-ops this whole class
