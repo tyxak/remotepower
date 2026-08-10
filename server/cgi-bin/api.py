@@ -18871,16 +18871,23 @@ def handle_enroll_pin():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     pin = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
-    pins = load(PINS_FILE)
     now = int(time.time())
     # v5.8.0 (B3.1): store PINs HASHED at rest (like device/enroll tokens) so a
     # leaked pins.json can't be replayed to enroll a rogue device. The 6-digit
     # space is small but the 10-min TTL + per-IP rate limit at register time
     # bound brute force; hashing removes the at-rest exposure. Keyed by hash;
     # legacy plaintext-keyed entries (6-digit key) are still accepted on verify.
-    pins = {k: v for k, v in pins.items() if now - v.get('created', 0) < PIN_TTL}
-    pins[_hash_device_token(pin)] = {'created': now}
-    save(PINS_FILE, pins)
+    #
+    # Under the store lock: this was a bare load → prune → insert → save, so a
+    # mint racing a concurrent CONSUME could read the store before the consume's
+    # delete and write it back — resurrecting a PIN that had just been used.
+    # Prune IN PLACE; rebinding `pins` to a comprehension would leave the
+    # context manager saving the original object.
+    with _LockedUpdate(PINS_FILE) as pins:
+        for _stale in [k for k, v in pins.items()
+                       if now - v.get('created', 0) >= PIN_TTL]:
+            del pins[_stale]
+        pins[_hash_device_token(pin)] = {'created': now}
     respond(200, {'pin': pin, 'expires': now + PIN_TTL})
 
 
@@ -19285,9 +19292,11 @@ def handle_enroll_register():
     # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
     # a long pre-shared one-time-use token (non-interactive — Ansible,
     # cloud-init, etc.). Either path validates and consumes its credential
-    # before creating the device. Both are atomic: the credential is
-    # deleted before the device is created so a leaked credential can't
-    # enroll twice.
+    # before creating the device. Both are atomic because the check-and-delete
+    # happens UNDER THE STORE LOCK — not merely because the delete precedes the
+    # device create, which is what this comment used to claim. Ordering alone
+    # does not stop two concurrent enrolls from both passing the existence
+    # check; only the lock does.
     pin = str(body.get('pin', '')).strip()
     enroll_token = str(body.get('enrollment_token', '')).strip()
     default_group = ''
@@ -19321,20 +19330,29 @@ def handle_enroll_register():
         # PIN path (existing flow).
         if not re.match(r'^\d{6}$', pin):
             respond(400, {'error': 'Invalid PIN format'})
-        pins = load(PINS_FILE)
         now = int(time.time())
         # v5.8.0 (B3.1): PINs are stored hashed; look up by hash. Accept a legacy
         # plaintext-keyed entry too (pre-upgrade PINs mid-TTL) so an in-flight
         # enrollment doesn't break across the upgrade. Consume whichever matched.
+        #
+        # Consume under the store lock, for exactly the reason the token branch
+        # above does: this was a lock-free load → check → delete → save, so two
+        # concurrent enrolls racing the same PIN could BOTH pass the existence
+        # check and both enroll — while docs/security.md promises PINs are
+        # "single-use". The sibling credential was fixed in v6.4.0; this one was
+        # missed because the guardrail written for that fix asserted only on the
+        # TOKEN store's name. (The 403 respond inside the lock aborts the save
+        # and releases it — same pattern as the token branch.)
         pin_hash = _hash_device_token(pin)
-        entry = pins.get(pin_hash)
-        stored_key = pin_hash
-        if not entry and pin in pins:
-            entry = pins.get(pin)
-            stored_key = pin
-        if not entry or (now - entry.get('created', 0)) > PIN_TTL:
-            respond(403, {'error': 'Invalid or expired PIN'})
-        del pins[stored_key]; save(PINS_FILE, pins)
+        with _LockedUpdate(PINS_FILE) as pins:
+            entry = pins.get(pin_hash)
+            stored_key = pin_hash
+            if not entry and pin in pins:
+                entry = pins.get(pin)
+                stored_key = pin
+            if not entry or (now - entry.get('created', 0)) > PIN_TTL:
+                respond(403, {'error': 'Invalid or expired PIN'})
+            del pins[stored_key]
     else:
         respond(400, {'error': 'Either pin or enrollment_token is required'})
 

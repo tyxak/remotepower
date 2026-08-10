@@ -60,16 +60,43 @@ class TestAlertCapKeepsOpenAlerts(unittest.TestCase):
 
 
 class TestEnrollTokenConsumeIsLocked(unittest.TestCase):
+    """Both enrollment credentials are single-use, and both must prove it.
+
+    The original version of this class asserted only on ENROLL_TOKENS_FILE. It
+    extracted the WHOLE handler body — which also contains the PIN branch — and
+    spelled its negative assertion with the token store's literal name, so the
+    PIN branch's lock-free `pins = load(PINS_FILE)` sat inside the inspected
+    text and passed for two releases while docs/security.md promised PINs were
+    single-use. A guard named after one instance of a class does not cover the
+    class; the loop below is the fix.
+    """
+
+    CONSUMED_STORES = ("ENROLL_TOKENS_FILE", "PINS_FILE")
+
     def test_consume_happens_under_the_store_lock(self):
         src = (_CGI / "api.py").read_text()
-        # the whole handler that parses+consumes the token, not a window past
-        # the "Invalid enrollment token format" guard
+        # the whole handler that parses+consumes the credential, not a window
+        # past the "Invalid enrollment token format" guard
         block = py_function(src, "handle_enroll_register")
-        self.assertIn("_LockedUpdate(ENROLL_TOKENS_FILE)", block,
-                      "enroll-token consume must be atomic (docs promise "
-                      "'consumed atomically — same one can't enroll twice')")
-        self.assertNotIn("tokens = load(ENROLL_TOKENS_FILE)", block,
-                         "lock-free load→check→delete→save is the TOCTOU shape")
+        for store in self.CONSUMED_STORES:
+            self.assertIn(f"_LockedUpdate({store})", block,
+                          f"{store} consume must be atomic (the docs promise "
+                          f"single-use: the same credential can't enroll twice)")
+            self.assertNotIn(f"load({store})", block,
+                             f"bare load({store}) in the consume path — "
+                             f"lock-free load→check→delete→save is the TOCTOU "
+                             f"shape this test exists to stop")
+
+    def test_the_mint_paths_are_locked_too(self):
+        """A locked consume is still racy if the MINT is a bare read-modify-
+        write: a mint that loaded the store before a concurrent consume's
+        delete writes the whole map back and resurrects the used credential."""
+        src = (_CGI / "api.py").read_text()
+        for fn, store in (("handle_enroll_pin", "PINS_FILE"),):
+            block = py_function(src, fn)
+            self.assertIn(f"_LockedUpdate({store})", block, f"{fn} mint")
+            self.assertNotIn(f"save({store}", block,
+                             f"{fn}: the context manager owns the save")
 
 
 class TestImageSwitchesAreWritable(unittest.TestCase):

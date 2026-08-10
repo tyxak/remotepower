@@ -6502,7 +6502,7 @@ let toastId = 0;
 function toast(msg, type = 'info', opts = {}) {
   if (!opts.transient) _recordToast(msg, type);   // v6.3.0 (UX wave 3): notification-center history
   const id = 'toast-' + (++toastId);
-  const icons = {success: 'check', error: 'x', info: 'info'};
+  const icons = {success: 'check', error: 'x', info: 'info', warning: 'warning'};
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.id = id;
@@ -9103,7 +9103,10 @@ async function saveRetention() {
     body[key] = v;
   }
   const res = await api('POST', '/config', body);
-  if (res) toast('Retention settings saved', 'success');
+  // api() RESOLVES on 400/403 — `if (res)` is truthy for {error:…}, so this
+  // toasted success on a refusal (and double-toasted in demo mode).
+  if (!res || res.error) { toast(res?.error || 'Failed', 'error'); return; }
+  toast('Retention settings saved', 'success');
 }
 async function runMaintenance() {
   if (!await uiConfirm({ message: 'Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.', confirmText: 'Run maintenance', danger: true })) return;
@@ -13415,11 +13418,12 @@ async function saveIntegrations() {
   const status = document.getElementById('integrations-save-status');
   if (status) status.textContent = 'Saving…';
   try {
-    await api('POST', '/integrations', {
+    const r = await api('POST', '/integrations', {
       integrations: _integrations,
       interval: iv ? parseInt(iv.value, 10) || 300 : 300,
       show_homelab: cb ? cb.checked : true,
     });
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); if (status) status.textContent = ''; return; }
     if (status) status.textContent = 'Saved ✓';
     toast('Integrations saved', 'success');
     await loadIntegrations();
@@ -20378,10 +20382,11 @@ async function snapshotCreate() {
   const desc = document.getElementById('snapshot-new-desc').value.trim();
   if (!name) { toast('Enter a snapshot name', 'error', {transient: true}); return; }
   try {
-    await api('POST', '/proxmox/snapshot', {
+    const r = await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'create',
       name: name, description: desc,
     });
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     toast('Snapshot creation started', 'success');
     document.getElementById('snapshot-new-name').value = '';
     document.getElementById('snapshot-new-desc').value = '';
@@ -20408,6 +20413,7 @@ async function snapshotRollback(name) {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'rollback', name: name,
       confirm: typed.trim(),
     });
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     toast('Rollback started', 'success');
     setTimeout(loadSnapshots, 1500);
   } catch (e) {
@@ -20423,6 +20429,7 @@ async function snapshotDelete(name) {
     await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'delete', name: name,
     });
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     toast('Snapshot deleted', 'success');
     setTimeout(loadSnapshots, 1000);
   } catch (e) {
@@ -20631,7 +20638,8 @@ async function saveSshUsername() {
     delete _uiPrefs.default_ssh_username;
   }
   try {
-    await api('POST', '/ui-prefs', _uiPrefs);
+    const r = await api('POST', '/ui-prefs', _uiPrefs);
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     toast('SSH username saved', 'success');
   } catch (e) {
     toast('Save failed: ' + (e.message || String(e)), 'error');
@@ -20869,7 +20877,10 @@ async function generateStatusToken() {
 async function revokeStatusToken() {
   if (!await uiConfirm('Disable the status endpoint? External dashboards will stop working.')) return;
   try {
-    await api('POST', '/status-token', {enabled: false});
+    const r = await api('POST', '/status-token', {enabled: false});
+    // Repaint only on success: this used to show the endpoint as revoked
+    // while the token was still live on the server.
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     const box = document.getElementById('status-token-box');
     if (box) box.innerHTML =
       '<button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>';
@@ -21081,7 +21092,11 @@ async function saveStatusPage() {
     incident_days: Math.max(1, Math.min(90, parseInt(document.getElementById('cfg-sp-days').value, 10) || 30)),
     components: comps,
   } };
-  try { await api('POST', '/config', body); toast('Status page saved', 'success'); }
+  try {
+    const r = await api('POST', '/config', body);
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    toast('Status page saved', 'success');
+  }
   catch (e) { toast('Failed: ' + (e.message || String(e)), 'error'); }
 }
 
@@ -22212,6 +22227,11 @@ function switchDrawerTab(tab) {
 // applied by _icon() below. New icons should be added with body-only
 // markup from https://lucide.dev/icons/.
 const _ICONS = {
+  // Lucide `triangle-alert`. Added with the toast 'warning' variant: the type
+  // was already in use at 17 call sites with no CSS rule and no icon, so it
+  // rendered as an unstyled info toast — the partial-success outcome it exists
+  // to signal was indistinguishable from a clean success.
+  warning:     '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   undo:        '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo:        '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   bell:        '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
@@ -27754,14 +27774,21 @@ async function restoreAllIgnored(category) {
   const entries = (data && data[category]) || [];
   if (!entries.length) return;
   if (!await uiConfirm(`Restore all ${entries.length} ignored ${category.replace('_', ' ')}?`)) return;
+  let _ok = 0;
   for (const e of entries) {
     const body = { category };
     if (category === 'needs_attention') body.key = e.key;
     else if (category === 'stale_containers') { body.device_id = e.device_id; body.container = e.container; }
     else if (category === 'devices') body.id = e.id;
-    await api('POST', '/ignored/remove', body);
+    const r = await api('POST', '/ignored/remove', body);
+    if (r && !r.error) _ok++;
   }
-  toast(`Restored ${entries.length} item${entries.length === 1 ? '' : 's'}`, 'success');
+  // Report what actually happened: an unchecked loop claimed every item was
+  // restored even when the server refused all of them.
+  if (!_ok) { toast('Nothing could be restored', 'error'); return; }
+  toast(_ok === entries.length
+    ? `Restored ${_ok} item${_ok === 1 ? '' : 's'}`
+    : `Restored ${_ok} of ${entries.length} items`, _ok === entries.length ? 'success' : 'warning');
   loadIgnoredItems();
 }
 

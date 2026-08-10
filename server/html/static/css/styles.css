@@ -2223,11 +2223,16 @@
   .toast.success { border-left: 3px solid var(--green); }
   .toast.error   { border-left: 3px solid var(--red); }
   .toast.info    { border-left: 3px solid var(--accent); }
+  /* v6.4.3: 'warning' was a live toast type with no rule — 17 call sites
+     rendered as an unstyled info toast, so a partial success looked
+     identical to a clean one. */
+  .toast.warning { border-left: 3px solid var(--amber); }
   /* v6.3.1: severity-tint treatment (same idiom as .adv-sev-* / .board-tile). */
   @supports (background: color-mix(in srgb, red 6%, white)) {
     .toast.success { background: color-mix(in srgb, var(--green) 8%, var(--surface)); }
     .toast.error   { background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
     .toast.info    { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+    .toast.warning { background: color-mix(in srgb, var(--amber) 8%, var(--surface)); }
   }
   .toast-icon    { font-size: 16px; }
   /* v6.3.0 (UX wave 1): inline action button — the "Undo" pattern */

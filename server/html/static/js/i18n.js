@@ -985,6 +985,8 @@
     // ── help ──
     'About':       { fr: 'À propos', de: 'Über', zh: '关于', hi: 'परिचय', es: 'Acerca de', ar: 'حول' },
     'Documentation': { fr: 'Documentation', de: 'Dokumentation', zh: '文档', hi: 'दस्तावेज़', es: 'Documentación', ar: 'التوثيق' },
+    // Lead-in label on the .rel-pages chip row that ends each page subtitle.
+    'Related':     { fr: 'Connexes', de: 'Verwandt', zh: '相关', hi: 'संबंधित', es: 'Relacionado', ar: 'ذات صلة' },
     // ── My Account: language card ──
     'Language':    { fr: 'Langue', de: 'Sprache', zh: '语言', hi: 'भाषा', es: 'Idioma', ar: 'اللغة' },
     'Choose the interface language. Saved to your account and synced across devices.':
@@ -4343,14 +4345,45 @@
     if (root && root.nodeType === 1 && root.classList && root.classList.contains('page-subtitle')) list.push(root);
     for (var j = 0; j < list.length; j++) {
       var el = list[j];
+      // v6.4.3: PARK app-appended widgets before touching innerHTML.
+      //
+      // A subtitle is translated by WHOLE-innerHTML replacement keyed on its
+      // ORIGINAL markup, so any element another module appends is doubly
+      // broken: it changes `cur` so the HTMLDICT key stops matching, and then
+      // the rewrite that follows destroys it. app.js's `.rel-pages` Related-
+      // chip row is appended here, and the result was that 60 of 63 pages
+      // rendered ZERO chips in every non-English language — the three
+      // survivors survived only because their subtitle had no HTMLDICT row,
+      // so you got the translated subtitle or the chips, never both.
+      //
+      // Detaching BEFORE `cur` is computed also means the first-seen capture
+      // in _origHTML is chip-free, so the key stays stable no matter which
+      // order the page render and the first apply() happen in.
+      var parked = [], _extras = el.querySelectorAll('.rel-pages');
+      for (var p = 0; p < _extras.length; p++) parked.push(_extras[p]);
+      for (var p2 = 0; p2 < parked.length; p2++) {
+        if (parked[p2].parentNode) parked[p2].parentNode.removeChild(parked[p2]);
+      }
+
       var cur = _normWS(el.innerHTML);   // compute once per element, not 3x
       var en = _origHTML ? _origHTML.get(el) : undefined;
       if (en === undefined) { en = cur; if (_origHTML) _origHTML.set(el, en); }
-      if (current === 'en') { if (cur !== en) el.innerHTML = en; continue; }
-      var row = HTMLDICT[en];
-      var out = row && row[current];
-      if (out) { if (cur !== _normWS(out)) el.innerHTML = out; }
-      else if (cur !== en) { el.innerHTML = en; }
+      if (current === 'en') { if (cur !== en) el.innerHTML = en; }
+      else {
+        var row = HTMLDICT[en];
+        var out = row && row[current];
+        if (out) { if (cur !== _normWS(out)) el.innerHTML = out; }
+        else if (cur !== en) { el.innerHTML = en; }
+      }
+
+      // Restore, then translate the row's OWN text. _skipText refuses to walk
+      // into a .page-subtitle (the innerHTML path owns it), so the chip labels
+      // and the "Related" lead-in would otherwise stay English forever. Passing
+      // the row itself as the walk root stops the ancestor scan below it.
+      for (var p3 = 0; p3 < parked.length; p3++) {
+        el.appendChild(parked[p3]);
+        translateTextNodes(parked[p3]);
+      }
     }
   }
 

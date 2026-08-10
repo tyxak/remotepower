@@ -26,7 +26,14 @@ _HTML = ROOT / "server" / "html" / "index.html"
 _JS = ROOT / "server" / "html" / "static" / "js" / "app.js"
 _DOCS = ROOT / "docs"
 
-_HREF = re.compile(r'href="docs/([A-Za-z0-9._-]+\.md)"')
+# Deliberately matches an OPTIONAL leading slash so the scan sees absolute doc
+# links too. It used to require the relative form, which meant four `/docs/`
+# links were invisible to every assertion in this file — including the
+# resolves-on-disk one — while ALSO being the only links the in-app doc viewer
+# could not intercept (app.js delegates on a[href^="docs/"]). A link the gate
+# cannot see and the viewer cannot open is the worst of both.
+_HREF = re.compile(r'href="/?docs/([A-Za-z0-9._-]+\.md)"')
+_ABS_HREF = re.compile(r'href="/docs/')
 
 
 class TestEveryDocLinkResolves(unittest.TestCase):
@@ -65,6 +72,44 @@ class TestEveryDocLinkResolves(unittest.TestCase):
         """A gate that matches nothing is the false-green shape this codebase
         keeps hitting."""
         self.assertGreater(len(_HREF.findall(_HTML.read_text())), 100)
+
+    def test_no_doc_link_is_absolute(self):
+        """Every doc link must be RELATIVE, or the in-app viewer can't open it.
+
+        app.js:1812 delegates on `a[href^="docs/"]`. An `/docs/…` link doesn't
+        match, so it leaves the SPA and does a full page load to a raw markdown
+        file — reproducing exactly the behaviour the viewer was built to
+        replace. Four of them shipped this way, and every one had a relative
+        sibling elsewhere in the same file pointing at the same topic, so the
+        page was inconsistent with itself rather than with some other component.
+        """
+        for path in (_HTML, _JS):
+            n = len(_ABS_HREF.findall(path.read_text()))
+            self.assertEqual(
+                n, 0,
+                f"{path.name}: {n} doc link(s) use an absolute /docs/ path — "
+                f'drop the leading slash so a[href^="docs/"] can intercept it')
+
+    def test_no_doc_card_denies_a_capability_the_ui_actually_has(self):
+        """The Documentation page must not tell operators a feature is absent
+        while the button for it sits in the same file.
+
+        It said "No in-UI restore — backups are tarballs you extract yourself"
+        while `data-action="pickRestoreFile"` was ~2,500 lines above it, and it
+        contradicted the very doc it linked to. The harm is not the wrong
+        sentence; it is that the manual path it recommends is the one that does
+        NOT take a pre-restore safety snapshot.
+        """
+        html = _HTML.read_text()
+        actions = {m.lower() for m in
+                   re.findall(r'data-action="([A-Za-z0-9_]+)"', html)}
+        problems = []
+        for claim in re.findall(r'No in-(?:UI|app) ([a-z]+)', html):
+            hits = [a for a in actions if claim.lower() in a]
+            if hits:
+                problems.append(f'the page claims "No in-UI {claim}" but '
+                                f'data-action(s) {sorted(hits)} exist')
+        self.assertEqual(problems, [], "\n  ".join(problems))
 
 
 class TestTheViewerKeepsTheOperatorInTheApp(unittest.TestCase):

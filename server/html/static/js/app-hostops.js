@@ -99,6 +99,7 @@ async function catalogDeploy(appId) {
   if (!await uiConfirm({ message: `Deploy ${label} to ${_catalogDev.name}? It will run via Docker Compose on the host.`, confirmText: 'Deploy' })) return;
   try {
     const r = await api('POST', '/app-catalog/deploy', { device_id: _catalogDev.id, app_id: appId });
+    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
     toast(`${label} ${r.action === 'redeploy' ? 'redeploy' : 'deploy'} queued`, 'success');
   } catch (e) { toast(String(e), 'error'); }
 }

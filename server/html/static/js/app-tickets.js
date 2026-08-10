@@ -468,10 +468,17 @@ async function saveTicketField(tid) {
   const openChildren = (window._tkCurrentChildren || []).filter(c => c.status !== 'resolved' && c.status !== 'closed');
   if ((newStatus === 'resolved' || newStatus === 'closed') && openChildren.length) {
     if (await uiConfirm(`Also set ${openChildren.length} open sub-ticket${openChildren.length === 1 ? '' : 's'} to "${_TK_STATUS[newStatus]}"?`)) {
+      let done = 0;
       for (const c of openChildren) {
-        await api('PATCH', '/tickets/' + encodeURIComponent(c.id), { status: newStatus });
+        const cr = await api('PATCH', '/tickets/' + encodeURIComponent(c.id), { status: newStatus });
+        if (cr?.ok) done++;
       }
-      toast(`${openChildren.length} sub-ticket${openChildren.length === 1 ? '' : 's'} ${newStatus}`, 'success');
+      // The ticket's own update above is guarded; this loop was not, and
+      // reported every child updated even when each PATCH was refused.
+      toast(done === openChildren.length
+        ? `${done} sub-ticket${done === 1 ? '' : 's'} ${newStatus}`
+        : `${done} of ${openChildren.length} sub-tickets ${newStatus}`,
+        done === openChildren.length ? 'success' : 'warning');
     }
   }
   openTicket(tid); loadTickets();
