@@ -20,6 +20,7 @@ _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from apisrc import api_source as _api_source  # noqa: E402  api.py + *_handlers.py
+from srcpin import py_function  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v611-test-"))
 _spec = importlib.util.spec_from_file_location("api_v611_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -63,7 +64,14 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f"v{self.V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
+        # Content-bounded, not a fixed [:2000] prefix: the "Unreleased
+        # (test)" section above the newest release grows with every
+        # entry, so a character count silently stops covering the very
+        # header it checks for (it did, at 21 call sites at once).
+        _cl = (_ROOT / "CHANGELOG.md").read_text()
+        self.assertTrue(
+            _cl[_cl.index("\n## v"):].startswith(f"\n## v{self.V}"),
+            "CHANGELOG.md's newest released entry is not this version")
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
@@ -99,8 +107,7 @@ class TestApiKeyTenantIsolationFix(unittest.TestCase):
         self.assertIn("def _caller_effective_tenant", self.SRC)
 
     def test_apikeys_list_is_tenant_scoped(self):
-        i = self.SRC.index("def handle_apikeys_list")
-        body = self.SRC[i : i + 1500]
+        body = py_function(self.SRC, "handle_apikeys_list")
         self.assertIn("tenant", body.lower())
 
 
@@ -192,8 +199,7 @@ class TestPatchSnapshotEnforceExists(unittest.TestCase):
 
     def test_pacman_refused(self):
         self.assertIn("def _pinned_install_cmd_for", self.SRC)
-        i = self.SRC.index("def _pinned_install_cmd_for")
-        body = self.SRC[i : i + 2500]
+        body = py_function(self.SRC, "_pinned_install_cmd_for")
         self.assertIn("pacman", body.lower())
 
     def test_route_registered(self):

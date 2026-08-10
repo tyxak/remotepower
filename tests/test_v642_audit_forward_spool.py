@@ -34,7 +34,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(_CGI))
+
+from srcpin import balanced_block  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-afwd-"))
 
 _spec = importlib.util.spec_from_file_location("api_afwd", _CGI / "api.py")
@@ -366,10 +369,11 @@ class TestRegistries(unittest.TestCase):
         if not js.exists():
             self.skipTest("excluded from this tree")
         src = js.read_text()
-        i = src.index("FLEET_EVENTS")
+        fleet_events = balanced_block(src, "const FLEET_EVENTS = new Set(",
+                                      "(", ")")
         for ev in ("audit_forward_failed", "audit_forward_recovered"):
             with self.subTest(event=ev):
-                self.assertIn(f"'{ev}'", src[i:i + 12000])
+                self.assertIn(f"'{ev}'", fleet_events)
                 self.assertIn(f"case '{ev}'", src)
 
     def test_the_push_message_is_not_the_generic_fallback(self):

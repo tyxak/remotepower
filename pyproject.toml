@@ -2,7 +2,14 @@
 # Used by `make lint`, `make format`, and `make typecheck`.
 #
 # Dev-tool versions are PINNED (installed by `make install-dev`):
-#   black 26.5.1 · isort 8.0.1 · mypy 2.1.0
+#   black 26.5.1 · isort 8.0.1 · mypy 2.1.0 · ruff 0.15.21
+#
+# ruff is used for ONE rule — F821 (undefined name) — over all shipped server,
+# agent and sidecar Python. Deliberately not a general linter here: a broad
+# rule set over a 71k-line monolith that predates it produces noise, and a
+# noisy gate gets switched off, taking the real signal with it. Its config
+# lives in tools/ruff-api-builtins.toml (generated) rather than in this file,
+# because ruff's `builtins` setting is global and must apply to api.py only.
 # Rationale: formatter output changes between releases; an unpinned black
 # eventually flags files its predecessor formatted and `make lint` rots.
 # Bump all three deliberately, re-run `make format` on LINT_SRC, and commit

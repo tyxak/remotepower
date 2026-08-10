@@ -23,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402  growth-proof source windows
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v640-swp-"))
 _spec = importlib.util.spec_from_file_location("api_v640_swp", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -60,8 +62,9 @@ class TestAlertCapKeepsOpenAlerts(unittest.TestCase):
 class TestEnrollTokenConsumeIsLocked(unittest.TestCase):
     def test_consume_happens_under_the_store_lock(self):
         src = (_CGI / "api.py").read_text()
-        i = src.index("Invalid enrollment token format")
-        block = src[i:i + 1500]
+        # the whole handler that parses+consumes the token, not a window past
+        # the "Invalid enrollment token format" guard
+        block = py_function(src, "handle_enroll_register")
         self.assertIn("_LockedUpdate(ENROLL_TOKENS_FILE)", block,
                       "enroll-token consume must be atomic (docs promise "
                       "'consumed atomically — same one can't enroll twice')")

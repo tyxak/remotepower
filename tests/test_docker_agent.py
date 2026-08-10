@@ -4,12 +4,16 @@ host-DB package parsing, container-mode scanner gating + self-update disable,
 and the Docker artifacts / UI wiring that make binding a host trivial."""
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _AGENT_PY = _ROOT / 'client' / 'remotepower-agent.py'
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import js_function  # noqa: E402
 
 
 def load_agent(host_root=None, container=None):
@@ -238,8 +242,7 @@ class TestEnrollUI(unittest.TestCase):
     def test_snippet_built_without_innerhtml_interpolation(self):
         # The token must be set via textContent/dataset, never interpolated into
         # an innerHTML string — assert the function uses createElement + textContent.
-        i = self.js.index('async function generateDockerEnroll(')
-        body = self.js[i:i + 2600]
+        body = js_function(self.js, 'generateDockerEnroll')
         self.assertIn('createElement', body)
         self.assertIn('textContent', body)
         self.assertNotIn('.innerHTML', body)

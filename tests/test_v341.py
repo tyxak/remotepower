@@ -16,6 +16,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import html_page, py_function
 import re
 import sys
 import unittest
@@ -182,15 +183,13 @@ class TestV341Backend(unittest.TestCase):
 
     def test_both_timelines_share_the_collector(self):
         # The roadmap's intent: fleet-wide reuses the per-device merge core.
-        for fn in ('def handle_device_timeline', 'def handle_fleet_timeline'):
-            idx = self.API.find(fn)
-            self.assertGreater(idx, 0, f'{fn} missing')
-            self.assertIn('_timeline_collect(', self.API[idx:idx + 1400],
+        for fn in ('handle_device_timeline', 'handle_fleet_timeline'):
+            body = py_function(self.API, fn)
+            self.assertIn('_timeline_collect(', body,
                           f'{fn} should call the shared _timeline_collect')
 
     def test_fleet_timeline_excludes_unmonitored(self):
-        idx = self.API.find('def handle_fleet_timeline')
-        body = self.API[idx:idx + 1400]
+        body = py_function(self.API, 'handle_fleet_timeline')
         self.assertIn("monitored') is not False", body)
 
     def test_health_in_home_bundle(self):
@@ -271,13 +270,16 @@ class TestV341Frontend(unittest.TestCase):
 
     def test_no_inline_style_in_new_markup(self):
         # New pages must not introduce inline style= attributes (CSP L1).
-        for marker in ('id="page-timeline"', 'id="page-reports"', 'id="home-health"'):
-            idx = self.HTML.find(marker)
-            self.assertNotEqual(idx, -1)
-            # Scan the ~1200 chars following the marker for a style= attribute.
-            window = self.HTML[idx:idx + 1200]
-            self.assertNotIn('style=', window,
-                             f'inline style= found near {marker} (CSP violation)')
+        for page in ('timeline', 'reports'):
+            section = html_page(self.HTML, page)
+            self.assertNotIn('style=', section,
+                             f'inline style= found in page-{page} (CSP violation)')
+        # The health card is a dash-card inside page-home, not its own page
+        # section, so it has no srcpin extractor — scan the markup after it.
+        idx = self.HTML.find('id="home-health"')
+        self.assertNotEqual(idx, -1)
+        self.assertNotIn('style=', self.HTML[idx:idx + 1200],
+                         'inline style= found near home-health (CSP violation)')
 
 
 class TestV341QuickWins(unittest.TestCase):
@@ -351,8 +353,7 @@ class TestV341SmallTrio(unittest.TestCase):
         self.assertIn('def _cron_to_ics(', self.API)
         self.assertIn('BEGIN:VCALENDAR', self.API)
         # Auth via status token (so calendar apps can subscribe).
-        idx = self.API.find('def handle_schedule_ics')
-        self.assertIn('status_token', self.API[idx:idx + 1200])
+        self.assertIn('status_token', py_function(self.API, 'handle_schedule_ics'))
 
     def test_quiet_hours(self):
         self.assertIn('def _quiet_hours_active(', self.API)

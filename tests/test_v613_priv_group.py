@@ -22,7 +22,10 @@ from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(_ROOT / "tests"))
 sys.path.insert(0, str(_CGI))
+
+from srcpin import py_function  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v613-priv-"))
 _spec = importlib.util.spec_from_file_location("api_v613_priv", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -143,8 +146,7 @@ class TestRegistryWiring(unittest.TestCase):
         """`user` + `detail` must be whitelisted or the stored alert loses its
         evidence — the silent-drop class that broke the v4.9.0 recover events."""
         src = (_CGI / "api.py").read_text()
-        start = src.index("def _record_alert(")
-        window = src[start:start + 6000]
+        window = py_function(src, "_record_alert")
         self.assertIn("'user'", window)
         self.assertIn("'detail'", window)
 

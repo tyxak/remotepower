@@ -6,7 +6,11 @@ gated by an operator-owned sentinel the server can't clear. Read-only
 assessments + passive collection keep running (they're off the command path).
 """
 import pathlib
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402  (growth-proof source pins)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 AGENT = (ROOT / 'client' / 'remotepower-agent.py').read_text()
@@ -24,23 +28,19 @@ class TestAuditModeLinuxAgent(unittest.TestCase):
         self.assertIn("def _audit_mode():", AGENT)
 
     def test_execute_command_refuses(self):
-        i = AGENT.index('def execute_command(cmd):')
-        # v5.1.0: a `files:` op is dispatched BEFORE the blanket guard (it carries
-        # its own audit policy — reads allowed, mutations refused), so the blanket
-        # _audit_mode() guard moved a few lines down; widen the head window.
-        # v6.1.1: files:archive: dispatched even earlier still (its own channel,
-        # see _handle_file_archive) pushed the guard further down again.
-        head = AGENT[i:i + 1200]
-        self.assertIn('_audit_mode()', head)
-        self.assertIn('audit (read-only) mode', head)
+        # The guard's position inside execute_command keeps moving (files: and
+        # files:archive: dispatch ahead of it, each with its own audit policy),
+        # which used to mean re-widening a head window every release. Pin the
+        # whole def instead.
+        body = py_function(AGENT, 'execute_command')
+        self.assertIn('_audit_mode()', body)
+        self.assertIn('audit (read-only) mode', body)
 
     def test_apply_host_config_refuses(self):
-        i = AGENT.index('def apply_host_config(desired):')
-        self.assertIn('_audit_mode()', AGENT[i:i + 900])
+        self.assertIn('_audit_mode()', py_function(AGENT, 'apply_host_config'))
 
     def test_self_update_skipped(self):
-        i = AGENT.index('def check_for_update(')
-        self.assertIn('skipping self-update', AGENT[i:i + 2200])
+        self.assertIn('skipping self-update', py_function(AGENT, 'check_for_update'))
 
     def test_sysinfo_reports_flag(self):
         self.assertIn("'audit_mode': _audit_mode()", AGENT)

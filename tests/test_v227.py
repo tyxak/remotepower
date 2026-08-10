@@ -9,8 +9,13 @@ a 72px top padding. This release deletes the icon-rail block and has
 the drawer block explicitly restore labels / alignment / padding.
 """
 
+import sys as _cj_sys
 import unittest
 from pathlib import Path
+from pathlib import Path as _cj_Path
+
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from srcpin import balanced_block  # noqa: E402
 
 _ROOT = Path(__file__).parent.parent
 
@@ -40,8 +45,11 @@ class TestMobileDrawerFix(unittest.TestCase):
 
     def test_drawer_sane_top_padding(self):
         # The drawer block overrides the rail's 72px top padding.
-        idx = self.css.find('@media (max-width: 720px)')
-        block = self.css[idx:idx + 1400]
+        # The WHOLE mobile media query, brace-balanced — a fixed 1400-char
+        # window used to truncate as the drawer block grew, quietly making
+        # the assertNotIn below vacuous.
+        block = balanced_block(self.css, '@media (max-width: 720px)',
+                               '{', '}')
         # v6.0.0: bottom padding went to 0 — the sticky .side-foot owns the
         # drawer's bottom edge (16px floated it above the edge).
         self.assertIn('padding: 12px 10px 0;', block,

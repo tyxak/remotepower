@@ -27,7 +27,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
+from srcpin import py_function  # noqa: E402  (growth-proof source pins)
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-traprules-"))
 
 _spec = importlib.util.spec_from_file_location("api_traprules", _CGI / "api.py")
@@ -138,8 +140,7 @@ class TestTheAlertPlumbing(unittest.TestCase):
     def test_the_payload_keys_are_stored(self):
         """An identity field the row does not carry discriminates nothing."""
         src = (_CGI / "api.py").read_text()
-        i = src.index("def _record_alert(")
-        block = src[i:i + 6000]
+        block = py_function(src, "_record_alert")
         for key in ("'rule', 'oid', 'oid_label'",):
             self.assertIn(key, block)
 
@@ -380,8 +381,7 @@ class TestTheWastedAsset(unittest.TestCase):
         self.assertEqual(snmp.oid_label("1.3.6.1.2.1.1.3.0"), "sysUpTime")
         api_src = (_CGI / "api.py").read_text()
         self.assertIn("oid_label(", api_src)
-        i = api_src.index("def handle_snmp_trap_in(")
-        self.assertIn("oid_label(", api_src[i:i + 4000])
+        self.assertIn("oid_label(", py_function(api_src, "handle_snmp_trap_in"))
 
 
 class TestUiWiring(unittest.TestCase):

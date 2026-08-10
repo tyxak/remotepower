@@ -28,7 +28,7 @@ _spec.loader.exec_module(api)
 
 import backup_crypto  # noqa: E402
 from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
-from srcpin import py_function, js_function  # noqa: E402  growth-proof source windows
+from srcpin import py_function, js_function, html_page  # noqa: E402  growth-proof source windows
 
 API_SRC = _apisrc_combined()
 APP = client_js()
@@ -1008,17 +1008,15 @@ class TestT6Design(unittest.TestCase):
     def test_no_emoji_in_v5_surfaces(self):
         import re
         emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿]")
-        for name, src in (("app.js", APP), ("index.html", HTML)):
-            # the board/vitals code must use SVG icons, not emoji
-            i = src.find("board-vitals")
-            if i >= 0:
-                self.assertIsNone(emoji.search(src[i:i + 4000]),
-                                  f"emoji found near board code in {name}")
+        # the board/vitals code must use SVG icons, not emoji
+        self.assertIsNone(emoji.search(js_function(APP, "loadBoard")),
+                          "emoji found in the board renderer (app.js)")
+        self.assertIsNone(emoji.search(html_page(HTML, "board")),
+                          "emoji found in the board markup (index.html)")
 
     def test_no_inline_style_or_handlers_in_board_markup(self):
         # CSP discipline: the board page markup must not carry style= or on*=.
-        i = HTML.index('id="page-board"')
-        block = HTML[i:HTML.index('id="page-home"')]
+        block = html_page(HTML, "board")
         self.assertNotIn("style=", block)
         self.assertNotIn("onclick=", block)
 

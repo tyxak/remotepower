@@ -4,6 +4,30 @@ All notable changes to RemotePower. Newest first.
 
 ## Unreleased (test)
 
+- **The Postgres backend is now actually tested.** Postgres has been the
+  enterprise default since v6.1.0, but no gate ran a line of it: `make check`
+  covers JSON and SQLite, and the Postgres target was reachable only from a
+  target nothing called. The 28 tests covering it existed and silently skipped
+  themselves for want of a server — which is why three backend parity bugs
+  reached releases, one of them noted in the source as impossible to catch
+  locally. CI now runs them for real against a throwaway database, configured so
+  an unreachable server fails the build instead of vanishing into a skip.
+- **A linter that had gone blind can see again.** `ruff --select F821`
+  (undefined name) is the check that catches a typo'd name no amount of
+  source-text assertion can — the class that once shipped an agent function
+  dead. On the server it was reporting 238 findings, every one a false positive
+  from handlers bound in at runtime, so a real one would never have been noticed.
+  The bound names are now generated into an exemption list, the count is zero,
+  and the check runs as part of `make lint` over all shipped server, agent and
+  sidecar code.
+- **Test pins no longer guess how long the code is.** 91 assertions pinned a
+  region of the source by slicing a hardcoded character count from an anchor,
+  which silently stops covering its target as the code grows — and with
+  `assertNotIn`, silently passes while checking nothing. 83 were converted to
+  anchor-based extraction; a shrink-only ratchet stops new ones appearing. The
+  same mistake in another shape — 26 checks that read the changelog and looked
+  only at its first 2,000 characters — broke the moment this entry was written,
+  and is now anchored on the release header instead of a character count.
 - **A dead board sensor is no longer your host's temperature.** An unconnected
   pin on a monitoring chip reads whatever rail its ADC floats to — one real case
   sat at 115-127 °C while the CPU was at 35 °C — and that pin was becoming the

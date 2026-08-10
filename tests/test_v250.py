@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from routing_harness import routes_to
-from srcpin import py_function
+from srcpin import js_function, py_function
 
 _ROOT = Path(__file__).parent.parent
 
@@ -158,8 +158,7 @@ class TestAPIHandlers(unittest.TestCase):
                       'first-run case must be handled to suppress initial alerts')
 
     def test_delete_clears_device_results(self):
-        idx = self.api.find('def handle_custom_script_delete(')
-        block = self.api[idx: idx + 1000]
+        block = py_function(self.api, 'handle_custom_script_delete')
         self.assertIn('custom_script_results', block,
                       'delete must remove stored results from device records')
 
@@ -244,57 +243,43 @@ class TestAgent(unittest.TestCase):
         self.assertIn('def run_custom_scripts(', self.agent)
 
     def test_run_custom_scripts_uses_temp_file(self):
-        idx = self.agent.find('def run_custom_scripts(')
-        block = self.agent[idx: idx + 3000]
+        block = py_function(self.agent, 'run_custom_scripts')
         self.assertIn('mkstemp', block, 'must use tempfile.mkstemp for security')
 
     def test_run_custom_scripts_chmod_700(self):
-        idx = self.agent.find('def run_custom_scripts(')
-        block = self.agent[idx: idx + 3000]
+        block = py_function(self.agent, 'run_custom_scripts')
         self.assertIn('S_IRWXU', block, 'temp file must be chmod 700 (S_IRWXU)')
 
     def test_run_custom_scripts_deletes_temp_file(self):
-        idx = self.agent.find('def run_custom_scripts(')
-        block = self.agent[idx: idx + 3000]
+        block = py_function(self.agent, 'run_custom_scripts')
         self.assertIn('os.unlink', block, 'temp file must be deleted after execution')
 
     def test_run_custom_scripts_handles_timeout(self):
-        idx = self.agent.find('def run_custom_scripts(')
-        block = self.agent[idx: idx + 3000]
+        block = py_function(self.agent, 'run_custom_scripts')
         self.assertIn('TimeoutExpired', block)
 
     def test_run_custom_scripts_caps_output(self):
-        idx = self.agent.find('def run_custom_scripts(')
-        block = self.agent[idx: idx + 3000]
+        block = py_function(self.agent, 'run_custom_scripts')
         self.assertIn('4096', block, 'output must be capped at 4096 bytes')
 
     def test_custom_scripts_variable_in_heartbeat(self):
-        idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 8000]
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn('custom_scripts', block)
 
     def test_pending_script_results_in_heartbeat(self):
-        idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 8000]
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn('pending_script_results', block)
 
     def test_custom_script_results_in_payload(self):
-        idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 32000]
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn("'custom_script_results'", block)
 
     def test_custom_scripts_updated_from_response(self):
-        idx = self.agent.find('def heartbeat(')
-        # Widened again in v6.2.2 (the delta-sysinfo block landed above this
-        # marker). This fixed-size source window is inherently brittle:
-        # anything added to heartbeat() ABOVE this marker eventually pushes it
-        # out of range — which is exactly what happened, again (3rd time).
-        block = self.agent[idx: idx + 60000]
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):
-        idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 32000]
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn('SCRIPT_CHECK_EVERY', block)
 
     def test_agent_binary_in_sync(self):
@@ -384,8 +369,7 @@ class TestFrontend(unittest.TestCase):
         self.assertIn('loadCustomScripts', context)
 
     def test_ai_strips_markdown_fences(self):
-        idx = self.js.find('function csGenerateWithAI(')
-        block = self.js[idx: idx + 2000]
+        block = js_function(self.js, 'csGenerateWithAI')
         self.assertIn('```', block,
                       'AI generator must strip markdown code fences from output')
 

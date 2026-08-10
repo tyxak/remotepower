@@ -601,11 +601,8 @@ class TestUrlBarSync(unittest.TestCase):
         """switchSettingsTab should use replaceState, not pushState/assign,
         so clicking through tabs doesn't bloat browser history."""
         js = client_js()
-        idx = js.find('function switchSettingsTab(')
-        if idx == -1:
-            # Some builds inline this; grep for the body
-            idx = js.find('switchSettingsTab')
-        block = js[idx:idx + 1500]
+        from tests import srcpin
+        block = srcpin.js_function(js, 'switchSettingsTab')
         self.assertIn('replaceState', block,
             'switchSettingsTab should use history.replaceState')
 

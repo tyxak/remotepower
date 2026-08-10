@@ -48,11 +48,32 @@ def _require_sources(test):
         test.skipTest('ci.yml/Makefile excluded from the dist tree')
 
 
+def _pkg_tokens(line):
+    """Package tokens from a pip-install line, with shell quoting removed.
+
+    An extra has to be quoted (`'psycopg[binary]'`) so bash can't glob the
+    brackets; the quotes are shell syntax, not part of the package name."""
+    return {tok.strip('\'"') for tok in line.split()}
+
+
+def _ci_pip_lines():
+    """EVERY `pip install …` line in ci.yml, as sets of package tokens.
+
+    findall, not search: ci.yml carries one pip line PER JOB (test + dist).
+    The original helper used re.search and therefore read only the first, so
+    the dist job's list was compared against nothing and could drift silently
+    — in the one guard whose entire job is keeping prod CI green."""
+    lines = re.findall(r'pip install (?!--)(.+)', CI_YML.read_text())
+    assert lines, 'ci.yml: could not find any pip install line'
+    return [_pkg_tokens(ln) for ln in lines]
+
+
 def _ci_pip_deps():
-    """The package list from ci.yml's `pip install …` step (excluding pip)."""
-    m = re.search(r'pip install (?!--)(.+)', CI_YML.read_text())
-    assert m, 'ci.yml: could not find the pip install line'
-    return set(m.group(1).split())
+    """The package list every ci.yml job installs.
+
+    Safe to take the first only because test_every_ci_pip_line_is_identical
+    pins them equal."""
+    return _ci_pip_lines()[0]
 
 
 def _top_level_imports(path):
@@ -89,7 +110,47 @@ class TestCiListsInSync(unittest.TestCase):
         _require_sources(self)
         m = re.search(r'^CI_DEPS\s*:=\s*(.+)$', MAKEFILE.read_text(), re.M)
         assert m, 'Makefile: CI_DEPS not found'
-        self.assertEqual(set(m.group(1).split()), _ci_pip_deps())
+        self.assertEqual(_pkg_tokens(m.group(1)), _ci_pip_deps())
+
+    def test_every_ci_pip_line_is_identical(self):
+        """ci.yml has one pip line per job. They must all install the same set:
+        a package present for `test` but missing for `dist` (or the reverse)
+        red-Xs exactly one job on the release push, and the CI_DEPS pin above
+        only ever compared the FIRST line, so the drift was invisible."""
+        _require_sources(self)
+        lines = _ci_pip_lines()
+        for n, deps in enumerate(lines[1:], start=2):
+            self.assertEqual(
+                lines[0], deps,
+                f'ci.yml pip line #{n} installs a different set than line #1 '
+                f'(only in #1: {sorted(lines[0] - deps)}; '
+                f'only in #{n}: {sorted(deps - lines[0])}). Every job must '
+                f'install the same list — see the pin note in ci.yml.')
+
+    def test_postgres_backend_is_actually_exercised_by_ci(self):
+        """The enterprise-DEFAULT storage backend must be run by a gate.
+
+        `make check` is JSON + SQLite only; `test-pg` self-skips without a DSN.
+        For three years that combination meant storage_pg.py's write paths —
+        which carry comments on three parity bugs that SHIPPED — were covered
+        by 28 tests that never executed. This pins the three things that make
+        the CI job real: a Postgres service, a DSN pointed at it, and
+        RP_PG_REQUIRE, without which an unreachable server downgrades to a
+        skip and the job goes green having tested nothing."""
+        _require_sources(self)
+        ci = CI_YML.read_text()
+        self.assertIn('image: postgres:', ci,
+                      'ci.yml: no Postgres service container')
+        self.assertIn('RP_PG_TEST_DSN:', ci,
+                      'ci.yml: Postgres service present but no DSN handed to the suite')
+        self.assertRegex(ci, r'RP_PG_REQUIRE:\s*"?1"?',
+                         'ci.yml: RP_PG_REQUIRE is unset, so tests/test_pg.py '
+                         'SKIPS on an unreachable server instead of failing — '
+                         'a green gate that proves nothing')
+        self.assertRegex(
+            MAKEFILE.read_text(), re.compile(r'^pre-release:.*\btest-pg\b', re.M),
+            'Makefile: test-pg is not in the pre-release chain, so the local '
+            'pre-tag gate still skips the Postgres backend entirely')
 
     def test_ci_parity_uses_the_ci_runner(self):
         """ci-parity must run `python -m unittest discover` (the ci.yml

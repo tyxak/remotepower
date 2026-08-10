@@ -34,6 +34,34 @@ jobs:
     # parallel `dist` job below, so neither re-runs the other's suite inside one
     # budget; each keeps a full 30-min ceiling with headroom.
     timeout-minutes: 30
+
+    # Postgres is the ENTERPRISE DEFAULT backend (v6.1.0), and until this job
+    # existed no gate ran a line of it: `make check` covers JSON + SQLite, and
+    # `test-pg` was reachable only from `test-all`, which nothing called. The
+    # cost of that was not theoretical — storage_pg.py carries comments on
+    # three parity bugs that SHIPPED, one of them noting it "could not be
+    # caught locally, because tests/test_pg.py skips without a live server".
+    # The 28 tests covering exactly those cases were already written. This
+    # service is what finally runs them.
+    #
+    # Throwaway container, torn down with the job: trust auth, no password, no
+    # credential literal in this file. storage_pg._ensure_schema() creates every
+    # table on first connect (CREATE TABLE IF NOT EXISTS), so an empty database
+    # is all it needs.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rp_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v7
 
@@ -48,16 +76,27 @@ jobs:
       # fail at import (they exec api.py to get at internal helpers).
       # flask + gunicorn are the app server since v6.1.0 (wsgi.py) — the
       # WSGI entrypoint tests import wsgi.py, which imports flask.
+      # psycopg drives the Postgres backend tests against the service above.
+      # KEEP THIS LINE AND THE dist JOB'S IDENTICAL — tests/test_ci_green_parity.py
+      # pins every pip line in this file equal to each other AND to Makefile CI_DEPS.
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
 
       - name: Run test suite
         env:
           # Tests respect this; otherwise api.py tries to mkdir
           # /var/lib/remotepower at import time and fails on CI.
           RP_DATA_DIR: /tmp/rp-test-data
+          # The Postgres service above. RP_PG_REQUIRE=1 is the load-bearing
+          # half: without it tests/test_pg.py PROBES the DSN and silently
+          # downgrades an unreachable server to "skip" — which would make this
+          # whole job a green gate that proves nothing, the exact false-green
+          # class CLAUDE.md documents. With it set, an unreachable or broken
+          # Postgres fails the build instead of vanishing.
+          RP_PG_TEST_DSN: postgresql://postgres@localhost:5432/rp_test
+          RP_PG_REQUIRE: "1"
         run: |
           mkdir -p "$RP_DATA_DIR"
           python -m unittest discover -s tests -v 2>&1 | tail -40
@@ -79,10 +118,14 @@ jobs:
           python-version: "3.14"
           cache: pip
 
+      # Identical to the test job's line by design — see the pin note there.
+      # This job has no Postgres service: its purpose is the staged-tree
+      # file-exclusion catch, and tests/test_pg.py correctly self-skips with no
+      # DSN configured. psycopg is installed only to keep the two lines equal.
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
 
       - name: Build + verify the release tarball (staged-tree suite)
         env:

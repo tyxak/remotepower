@@ -20,6 +20,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-auditfix-"))
 
@@ -494,9 +495,10 @@ class TestThresholdPreviewIsHonestAboutCoverage(unittest.TestCase):
 
     def test_the_ui_renders_the_not_evaluated_block(self):
         """The server fix is invisible unless the renderer surfaces it."""
+        from srcpin import js_function
         js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
-        i = js.index("threshold-preview")
-        seg = js[i:i + 2500]
+        seg = js_function(js, "previewThresholdImpact")
+        self.assertIn("threshold-preview", seg)
         self.assertIn("not_evaluated", seg)
         self.assertIn("could not be previewed", seg)
         # the false-reassurance line must now be qualified to host-checks only

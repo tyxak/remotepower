@@ -15,8 +15,11 @@ from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-sched-test-"))
+
+from srcpin import py_function  # noqa: E402
 
 import scheduler  # noqa: E402  (imports api)
 api = scheduler.api
@@ -160,14 +163,13 @@ class TestRequestPathGuard(unittest.TestCase):
 
     def test_main_safe_guarded_by_flag(self):
         src = (_CGI / "api.py").read_text()
-        i = src.index('def main():')
-        self.assertIn('_ext_sched = _external_scheduler_active()', src[i:i + 4000])
-        self.assertIn('if _ext_sched:', src[i:i + 4000])
+        body = py_function(src, 'main')
+        self.assertIn('_ext_sched = _external_scheduler_active()', body)
+        self.assertIn('if _ext_sched:', body)
 
     def test_self_test_nudges_scheduler_on_postgres(self):
         src = (_CGI / "api.py").read_text()
-        i = src.index('def handle_self_test(')
-        block = src[i:i + 6000]
+        block = py_function(src, 'handle_self_test')
         self.assertIn("_storage_backend() == 'postgres' and not _external_scheduler_active()", block)
         self.assertIn("'Maintenance scheduler'", block)
 

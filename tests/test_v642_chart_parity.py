@@ -24,8 +24,12 @@ projection semantics that make it a forecast rather than a chart of the past.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import balanced_block  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 _JS = ROOT / "server" / "html" / "static" / "js" / "app.js"
@@ -167,8 +171,8 @@ class TestAnnotationsMovedToTheComponent(unittest.TestCase):
 
     def test_the_label_is_escaped(self):
         body = _fn(self.js, "renderTimeSeries")
-        i = body.index("opts.annotations")
-        self.assertIn("escHtml(a.label", body[i:i + 1200])
+        loop = balanced_block(body, "for (const a of (opts.annotations", "{", "}")
+        self.assertIn("escHtml(a.label", loop)
 
 
 class TestTheDeadHelpersWentWithIt(unittest.TestCase):

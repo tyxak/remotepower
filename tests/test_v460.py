@@ -54,7 +54,10 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_readme_and_changelog(self):
         self.assertRegex((_ROOT / 'README.md').read_text(), r'version-\d+\.\d+\.\d+-blue')
-        self.assertRegex((_ROOT / 'CHANGELOG.md').read_text()[:2000], r'v\d+\.\d+\.\d+')
+        # Anchored on the newest released header rather than a 2000-char
+        # prefix, which the growing Unreleased section pushes it out of.
+        _cl = (_ROOT / 'CHANGELOG.md').read_text()
+        self.assertRegex(_cl[_cl.index('\n## v') + 1:], r'^## v\d+\.\d+\.\d+')
 
     def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / 'docs').glob('v[0-9]*.md'))

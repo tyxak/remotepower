@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
 _CLIENT = ROOT / "client"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v642-parse-"))
 
@@ -145,11 +146,11 @@ class TestDuplicateMacSeesSecondaryNics(unittest.TestCase):
     def test_the_cmdb_interface_spec_still_has_no_mac(self):
         """If a `mac` field is ever added to the CMDB interface rows, that is a
         second source worth folding in — this fails to say so."""
+        import srcpin
         spec_src = (_CGI / "api.py").read_text()
-        i = spec_src.index("_CMDB_LIST_SPECS")
-        window = spec_src[i:i + 4000]
-        j = window.index("'interfaces'")
-        self.assertNotIn("'mac'", window[j:j + 300],
+        specs = srcpin.balanced_block(spec_src, "_CMDB_LIST_SPECS = ", "{", "}")
+        row = srcpin.balanced_block(specs, "'interfaces':", "{", "}")
+        self.assertNotIn("'mac'", row,
                          "CMDB interface rows now carry a MAC — fold it into the "
                          "duplicate-MAC sweep alongside sysinfo.network")
 

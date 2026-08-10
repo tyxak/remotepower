@@ -16,6 +16,9 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import balanced_block  # noqa: E402
+
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v610-test-"))
 _spec = importlib.util.spec_from_file_location("api_v610_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -56,7 +59,14 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f"v{self.V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
+        # Content-bounded, not a fixed [:2000] prefix: the "Unreleased
+        # (test)" section above the newest release grows with every
+        # entry, so a character count silently stops covering the very
+        # header it checks for (it did, at 21 call sites at once).
+        _cl = (_ROOT / "CHANGELOG.md").read_text()
+        self.assertTrue(
+            _cl[_cl.index("\n## v"):].startswith(f"\n## v{self.V}"),
+            "CHANGELOG.md's newest released entry is not this version")
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
@@ -362,8 +372,11 @@ class TestInstallDemoPostgresOption(unittest.TestCase):
         block = self.SRC[i : i + 200]
         self.assertIn('listen      [::]:80;', block)
         # The heredoc must interpolate the variable, not the literal line.
+        # Bounded by its own EOF terminator, not a char count -- an 800-char
+        # window covered under a third of the vhost, so a hardcoded listen
+        # line added lower down would have sailed past the assertNotIn.
         heredoc_i = self.SRC.index("NGINX_BODY=$(cat <<EOF")
-        heredoc = self.SRC[heredoc_i : heredoc_i + 800]
+        heredoc = self.SRC[heredoc_i : self.SRC.index("\nEOF\n", heredoc_i)]
         self.assertIn("$IPV6_LISTEN", heredoc)
         self.assertNotIn("    listen      [::]:80;", heredoc)
 
@@ -675,8 +688,7 @@ class TestServiceWorkerApiRequestNotDuplicated(unittest.TestCase):
         # The old bug: `if (...) return;` with no respondWith() at all lets
         # the browser's own fallback fetch fire independently of the already
         # in-flight preload request.
-        i = self.SRC.index("url.pathname.startsWith('/api/')")
-        block = self.SRC[i : i + 120]
+        block = balanced_block(self.SRC, "url.pathname.startsWith('/api/')", "{", "}")
         self.assertNotIn(") return;", block)
 
     def test_cache_name_bumped_past_the_fix(self):

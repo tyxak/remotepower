@@ -15,7 +15,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CGI = ROOT / 'server' / 'cgi-bin'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(CGI))
+
+from srcpin import py_function    # noqa: E402
 
 import storage                    # noqa: E402
 import storage_pg                 # noqa: E402
@@ -262,9 +265,8 @@ class TestLoadRo(unittest.TestCase):
 
     def test_nav_counts_uses_it(self):
         src = (CGI / 'api.py').read_text()
-        i = src.index('def handle_nav_counts')
-        body = src[i:i + 6000]
-        self.assertIn('_load_ro(DEVICES_FILE)', body)
+        self.assertIn('_load_ro(DEVICES_FILE)',
+                      py_function(src, 'handle_nav_counts'))
 
 
 if __name__ == '__main__':

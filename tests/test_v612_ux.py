@@ -22,7 +22,9 @@ from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(_ROOT / "tests"))
 sys.path.insert(0, str(_CGI))
+from srcpin import js_function, py_function  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v612-ux-"))
 _spec = importlib.util.spec_from_file_location("api_v612_ux", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -36,15 +38,13 @@ _AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
 class TestTabAlertBadge(unittest.TestCase):
     def test_title_and_favicon_are_driven_from_the_badge_chokepoint(self):
         self.assertIn("_paintTabAlertBadge(n);", _APP)
-        i = _APP.index("function _paintTabAlertBadge")
-        block = _APP[i : i + 2000]
+        block = js_function(_APP, "_paintTabAlertBadge")
         self.assertIn("document.title", block)
         self.assertIn("canvas", block)
 
     def test_the_base_title_is_captured_once_so_prefixes_cannot_stack(self):
         # Repeated paints must not produce "(1) (2) (3) RemotePower".
-        i = _APP.index("function _paintTabAlertBadge")
-        block = _APP[i : i + 2000]
+        block = js_function(_APP, "_paintTabAlertBadge")
         self.assertIn("if (_tabBaseTitle === null) _tabBaseTitle = document.title;", block)
 
     def test_branding_reapplies_the_badge(self):
@@ -55,8 +55,7 @@ class TestTabAlertBadge(unittest.TestCase):
         self.assertIn("_paintTabAlertBadge", _APP[i : i + 600])
 
     def test_zero_alerts_restores_the_original_favicon(self):
-        i = _APP.index("function _paintTabAlertBadge")
-        block = _APP[i : i + 2000]
+        block = js_function(_APP, "_paintTabAlertBadge")
         self.assertIn("if (n === 0) { link.href = _tabFaviconOriginal; return; }", block)
 
 
@@ -92,8 +91,7 @@ class TestTemperatureUnit(unittest.TestCase):
 
     def test_a_delta_does_not_get_the_offset(self):
         # "5°C of headroom" must render as 9°F, NOT 41°F. Scale, don't offset.
-        i = _APP.index("function fmtTempDelta")
-        block = _APP[i : i + 400]
+        block = js_function(_APP, "fmtTempDelta")
         self.assertIn("* 9 / 5", block)
         self.assertNotIn("+ 32", block)
 
@@ -110,8 +108,9 @@ class TestNumericUptime(unittest.TestCase):
         self.assertIn("'uptime_seconds': get_uptime_seconds()", _AGENT)
 
     def test_agent_reads_the_host_not_the_container(self):
-        i = _AGENT.index("def get_uptime_seconds")
-        self.assertIn("host_path('/proc/uptime')", _AGENT[i : i + 700])
+        self.assertIn(
+            "host_path('/proc/uptime')", py_function(_AGENT, "get_uptime_seconds")
+        )
 
     def test_the_sanitizer_persists_it(self):
         # safe_si is a whitelist: a field the agent sends but the sanitizer
@@ -157,15 +156,13 @@ class TestCopyDeviceSummary(unittest.TestCase):
         self.assertIn("'Copy summary'", _APP)
 
     def test_it_does_not_leak_ip_or_device_id_into_a_public_paste(self):
-        i = _APP.index("async function copyDeviceSummary")
-        block = _APP[i : i + 1800]
+        block = js_function(_APP, "copyDeviceSummary")
         self.assertNotIn("d.ip", block)
         self.assertNotIn("`ID:", block)
 
     def test_it_uses_the_real_uptime_field(self):
         # `uptime` is the prose field that actually exists on sysinfo.
-        i = _APP.index("async function copyDeviceSummary")
-        block = _APP[i : i + 1800]
+        block = js_function(_APP, "copyDeviceSummary")
         self.assertIn("si.uptime", block)
         self.assertNotIn("d.uptime_s ", block)
 

@@ -13,6 +13,19 @@ construct instead:
 The extractors are deliberately dumb scanners (quote/comment aware brace
 counting) — good enough for this repo's code style; they raise ValueError
 loudly rather than returning a truncated region.
+
+PYTHON AND JAVASCRIPT ONLY — do NOT point these at shell, HTML or Makefiles.
+`_scan_balanced` knows `//` and `/* */` comments and treats `'` as a string
+delimiter. In a shell script a `#` comment is not skipped, so an apostrophe in
+prose ("isn't") opens a phantom string and brace tracking is lost. Measured on
+install.sh's `transport_state()`: the real body is 672 chars and
+`balanced_block(src, 'transport_state()', '{', '}')` returns 9,278 — it runs
+past the closing brace through eight other functions. That failure is SILENT
+and over-broad, which is worse than the fixed window it would replace. Windows
+over shell scripts, HTML elements and Makefile recipes are therefore left as
+fixed slices on purpose (see tests/test_srcpin_ratchet.py for the remaining
+set). `js_function` is safe by luck here — a bash `name()` matches none of its
+definition anchors, so it raises rather than mis-extracting.
 """
 
 import re

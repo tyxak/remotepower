@@ -20,6 +20,7 @@ import sys as _as_sys
 from pathlib import Path as _as_Path
 _as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
 from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
+from srcpin import py_function
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
@@ -65,8 +66,7 @@ class TestNoBareDevicesSave(unittest.TestCase):
         # If _rollout_tick is ever refactored off the bare save, drop it from the
         # allowlist (don't let the allowlist rot into a silent escape hatch).
         self.assertIn("def _rollout_tick(", API_SRC)
-        i = API_SRC.index("def _rollout_tick(")
-        self.assertRegex(API_SRC[i:i + 2000],
+        self.assertRegex(py_function(API_SRC, "_rollout_tick"),
                          r"(?:A\.)?save\((?:A\.)?DEVICES_FILE, devices\)")
 
 

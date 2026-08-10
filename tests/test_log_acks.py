@@ -23,7 +23,10 @@ from pathlib import Path
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
 
 _CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
+
+from srcpin import py_function  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location('api', _CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
@@ -208,8 +211,7 @@ class TestEvidenceReachesTheFeed(unittest.TestCase):
 
     def test_fleet_event_whitelist_carries_a_sample_line(self):
         src = (_CGI / 'api.py').read_text()
-        i = src.index("for key in ('device_id', 'device_name', 'name', 'host',")
-        block = src[i:i + 6000]
+        block = py_function(src, '_record_fleet_event')
         self.assertIn("'sample'", block)
         self.assertIn("summary['sample']", block)
 
@@ -290,8 +292,10 @@ class TestBothFireSitesHonourRuleAcks(unittest.TestCase):
         the match would still burn the regex and, worse, still fire."""
         src = (_CGI / 'api.py').read_text()
         self.assertEqual(src.count('rule_acked(dev_id'), 2, 'both fire sites')
-        for i in [i for i in range(len(src)) if src.startswith('rule_acked(dev_id', i)]:
-            after = src[i:i + 2500]
+        for fn in ('_eval_syslog_rules', 'handle_log_submit'):
+            body = py_function(src, fn)
+            self.assertIn('rule_acked(dev_id', body, f'{fn} is a fire site')
+            after = body[body.index('rule_acked(dev_id'):]
             # the gate short-circuits immediately...
             self.assertIn('continue', after[:220])
             # ...and does so before this rule's matches are ever collected
@@ -710,11 +714,10 @@ class TestEvidenceIsRecoveredFromTheBuffer(unittest.TestCase):
         """It is the whole fleet's log buffer — re-reading it per event would be
         the most expensive thing in the digest."""
         src = (_CGI / 'api.py').read_text()
-        i = src.index('def _compute_attention')
-        blk = src[i:i + 60000]
-        self.assertIn('_log_buf_cache = [None]', blk)
-        fn = src[src.index('def _log_alert_evidence('):src.index('def _log_alert_acked(')]
-        self.assertIn('if buf_cache[0] is None:', fn)
+        self.assertIn('_log_buf_cache = [None]',
+                      py_function(src, '_compute_attention'))
+        self.assertIn('if buf_cache[0] is None:',
+                      py_function(src, '_log_alert_evidence'))
 
 
 if __name__ == '__main__':

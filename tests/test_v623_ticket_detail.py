@@ -13,6 +13,8 @@ from pathlib import Path
 
 CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v623-td-'))
 _spec = importlib.util.spec_from_file_location('api_v623_td', CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
@@ -58,8 +60,7 @@ class TestAlertDetailHelper(unittest.TestCase):
         # the ticket sample lines only work because 'sample' is whitelisted into
         # the stored alert payload (it used to be dropped).
         src = (CGI / 'api.py').read_text()
-        i = src.index('def _record_alert(')
-        self.assertIn("'sample'", src[i:i + 6000])
+        self.assertIn("'sample'", py_function(src, '_record_alert'))
 
     def test_no_note_when_there_is_nothing_to_add(self):
         al = {'event': 'mystery', 'device_id': 'd1', 'title': 'x', 'payload': {}}

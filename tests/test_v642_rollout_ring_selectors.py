@@ -29,7 +29,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(_CGI))
+
+from srcpin import py_function  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-ringsel-"))
 
 _spec = importlib.util.spec_from_file_location("api_ringsel", _CGI / "api.py")
@@ -215,8 +218,8 @@ class TestAutoPatchRingsAgree(unittest.TestCase):
         src = (_CGI / "api.py").read_text()
         pv = (_CGI / "provisioning_handlers.py").read_text()
         def types(text, fn):
-            i = text.index(f"def {fn}(")
-            m = re.search(r"if st not in \(([^)]*)\)", text[i:i + 3000], re.S)
+            body = py_function(text, fn)
+            m = re.search(r"if st not in \(([^)]*)\)", body, re.S)
             return set(re.findall(r"'([a-z]+)'", m.group(1)))
         self.assertEqual(types(src, "_autopatch_clean_rings"),
                          types(pv, "handle_rollouts_create"))

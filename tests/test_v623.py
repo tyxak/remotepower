@@ -62,7 +62,14 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f"v{V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
+        # Content-bounded, not a fixed [:2000] prefix: the "Unreleased
+        # (test)" section above the newest release grows with every
+        # entry, so a character count silently stops covering the very
+        # header it checks for (it did, at 21 call sites at once).
+        _cl = (_ROOT / "CHANGELOG.md").read_text()
+        self.assertTrue(
+            _cl[_cl.index("\n## v"):].startswith(f"\n## v{V}"),
+            "CHANGELOG.md's newest released entry is not this version")
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{V}.md").exists())

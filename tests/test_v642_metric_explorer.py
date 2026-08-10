@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_v642_app_core import DOM_SHIM  # noqa: E402
+from srcpin import js_function  # noqa: E402  growth-proof source windows
 
 try:
     from py_mini_racer import MiniRacer
@@ -154,8 +155,7 @@ class TestMetricExplorerIsWiredIn(unittest.TestCase):
 
     def test_showpage_mounts_it_explicitly(self):
         app = _APP.read_text()
-        i = app.index("function showPage(")
-        body = app[i:i + 12000]
+        body = js_function(app, "showPage")
         m = re.search(r"if\s*\(name\s*===\s*'trends'\)\s*(\{[^}]*\}|[^\n]*)", body)
         self.assertIsNotNone(m, "showPage no longer routes the trends page")
         self.assertIn("mountMetricExplorer()", m.group(1),

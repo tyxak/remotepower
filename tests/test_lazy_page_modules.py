@@ -14,8 +14,12 @@ halves exist, just not wired to each other.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import js_function  # noqa: E402
 
 _JS = Path(__file__).resolve().parent.parent / 'server' / 'html' / 'static' / 'js'
 _APP = _JS / 'app.js'
@@ -48,9 +52,7 @@ def _showpage_calls():
     Covers the braced form too (`{ loadProtectChecks(); loadGuardVault(); }`),
     which is where a second, unregistered call is easiest to miss.
     """
-    src = _APP.read_text(encoding='utf-8')
-    i = src.index('function showPage(')
-    body = src[i:i + 12000]
+    body = js_function(_APP.read_text(encoding='utf-8'), 'showPage')
     out = []
     for page, tail in re.findall(
             r"if\s*\(name\s*===\s*'([\w-]+)'\)\s*(\{[^}]*\}|[^\n]*)", body):

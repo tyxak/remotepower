@@ -315,5 +315,8 @@ class TestChangeApprovalRecordsWhoAndWhy(unittest.TestCase):
         i = html.index('id="confirmations-thead"')
         head = html[i:html.index("</thead>", i)]
         self.assertEqual(head.count("<th "), 8)
-        self.assertIn('colspan="8"', html[i:i + 1400],
+        # Bound by the table's own close tag, not a char count: a fixed window
+        # silently stops covering the empty-state row as the header grows.
+        table = html[i:html.index("</table>", i)]
+        self.assertIn('colspan="8"', table,
                       "the empty-state row is narrower than the table")

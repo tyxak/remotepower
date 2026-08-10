@@ -9,8 +9,12 @@ import importlib.util
 import json
 import re
 import os
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import js_function, py_function  # noqa: E402
 
 _ROOT = Path(__file__).parent.parent
 os.environ.setdefault('RP_SERVER_URL', 'https://x')
@@ -397,8 +401,7 @@ class TestScanModeIsAlwaysStated(unittest.TestCase):
 
     def test_the_mode_is_shown_on_scans_WITH_findings(self):
         js = self._js()
-        i = js.index('function viewScan(')
-        blk = js[i:i + 3000]
+        blk = js_function(js, 'viewScan')
         self.assertEqual(blk.count('_scanModeHtml(data)'), 2,
                          'the mode must render on BOTH the empty and non-empty '
                          'branches')
@@ -440,8 +443,8 @@ class TestScannerVersionIsVisible(unittest.TestCase):
     def test_the_server_records_it_on_authentication(self):
         api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         self.assertIn('HTTP_X_RP_SCANNER_VERSION', api_src)
-        fn = api_src[api_src.index('def require_satellite_scanner('):]
-        self.assertIn('_note_scanner_version', fn[:1200])
+        self.assertIn('_note_scanner_version',
+                      py_function(api_src, 'require_satellite_scanner'))
 
     def test_recording_it_can_never_fail_a_scan(self):
         api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
@@ -549,8 +552,8 @@ class TestTheFixIsSpelledOut(unittest.TestCase):
 
     def test_the_note_gives_the_env_file_the_installer_actually_writes(self):
         js = self._js()
-        i = js.index('wpscan_vuln_db === false')
-        blk = js[i:i + 2200]
+        blk = js_function(js, '_scanZeroExplanation')
+        self.assertIn('wpscan_vuln_db === false', blk)
         self.assertIn('/etc/remotepower/scanner.env', blk)
         self.assertIn('RP_WPSCAN_API_TOKEN', blk)
         self.assertIn('systemctl restart remotepower-scanner', blk)

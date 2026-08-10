@@ -30,6 +30,7 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 from clientjs import client_js
+from srcpin import js_function
 
 # v3.14.0 strict version pins were promoted to the v4.0.0 release; tests/test_v400.py
 # now owns the canonical version-bump guardrail (this release shipped AS 4.0.0).
@@ -3370,8 +3371,7 @@ class TestRosterAndTransport(unittest.TestCase):
     AGENT_X = (_ROOT / "client/remotepower-agent").read_text()
 
     def test_roster_capped_15_and_sorted_by_offline(self):
-        idx = self.APP.find('async function _renderHomeFleet')
-        chunk = self.APP[idx:idx + 3300]
+        chunk = js_function(self.APP, '_renderHomeFleet')
         self.assertIn('MAX_ROWS = 15', chunk)
         self.assertIn('offlineScore', chunk)
         self.assertNotIn('.slice(0, 30)', chunk)   # old uncapped behaviour gone
@@ -3477,13 +3477,10 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
         self.assertIn('function _capFleetRows', self.APP)
         # every directly-rendered roll-up renderer must route through the cap
         for fn in ('_renderStorage', '_renderThermal', '_renderSshKeys', '_renderPower'):
-            i = self.APP.find(f'function {fn}(')
-            self.assertNotEqual(i, -1, fn)
-            self.assertIn('_capFleetRows', self.APP[i:i + 1400], fn)
+            self.assertIn('_capFleetRows', js_function(self.APP, fn), fn)
 
     def test_snmp_metrics_row_has_trend_button(self):
-        i = self.APP.find('function _snmpMetricsRow')
-        chunk = self.APP[i:i + 4500]
+        chunk = js_function(self.APP, '_snmpMetricsRow')
         self.assertIn('data-action="openMetrics"', chunk)
 
     def test_report_issue_button_wired(self):
@@ -3497,8 +3494,7 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
 
     def test_report_issue_carries_no_credentials(self):
         # The reportIssue body must never pull the auth token or fleet data.
-        i = self.APP.find('function reportIssue')
-        chunk = self.APP[i:i + 1600]
+        chunk = js_function(self.APP, 'reportIssue')
         self.assertNotIn('getToken', chunk)
         self.assertNotIn('/devices', chunk)
 

@@ -16,6 +16,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402
 
 MAC_AGENT = (_ROOT / "client/remotepower-agent-mac.py").read_text()
 
@@ -108,8 +110,7 @@ class TestMacAgentSelfUpdate(unittest.TestCase):
         self.assertIn("return _self_update()", MAC_AGENT)
 
     def test_verifies_sha_with_constant_time_compare(self):
-        i = MAC_AGENT.index("def _self_update")
-        body = MAC_AGENT[i:i + 4000]
+        body = py_function(MAC_AGENT, "_self_update")
         self.assertIn("compare_digest", body)
         self.assertIn("/api/agent/mac/version", body)
         self.assertIn("/api/agent/mac/download", body)
@@ -117,13 +118,11 @@ class TestMacAgentSelfUpdate(unittest.TestCase):
         self.assertIn("os.replace", body)
 
     def test_update_refused_in_audit_mode(self):
-        i = MAC_AGENT.index("def _self_update")
-        self.assertIn("_audit_mode()", MAC_AGENT[i:i + 1200])
+        self.assertIn("_audit_mode()", py_function(MAC_AGENT, "_self_update"))
 
     def test_http_helpers_refuse_plain_http(self):
-        for fn in ("def _http_get_json", "def _http_get_bytes"):
-            i = MAC_AGENT.index(fn)
-            self.assertIn("https://", MAC_AGENT[i:i + 400], fn)
+        for fn in ("_http_get_json", "_http_get_bytes"):
+            self.assertIn("https://", py_function(MAC_AGENT, fn), fn)
 
     def test_restart_only_after_report(self):
         # the re-exec happens in the run loop AFTER the update result was sent,

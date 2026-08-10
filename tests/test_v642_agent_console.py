@@ -22,6 +22,7 @@ through a channel that is already admin-gated, allowlist-enforced and audited.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -29,6 +30,12 @@ ROOT = Path(__file__).resolve().parent.parent
 _JS = ROOT / "server" / "html" / "static" / "js"
 _HTML = ROOT / "server" / "html" / "index.html"
 _CGI = ROOT / "server" / "cgi-bin"
+
+# srcpin lives next to this file; without the insert the imports below only
+# resolve when a SIBLING test module happened to prime sys.path first (they
+# ERRORed on `python3 -m unittest tests.test_v642_agent_console`).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402
 
 
 def _fn(js, name, kw="function"):
@@ -193,7 +200,6 @@ class TestTheServerSideIsUnchanged(unittest.TestCase):
     loosened server-side to make the console work."""
 
     def test_exec_wait_is_still_admin_only(self):
-        from srcpin import py_function
         src = (_CGI / "api.py").read_text()
         body = py_function(src, "handle_longpoll_exec")
         self.assertIn("require_admin_auth()", body)
@@ -201,13 +207,11 @@ class TestTheServerSideIsUnchanged(unittest.TestCase):
     def test_it_still_scope_gates_the_body_device_id(self):
         """It resolves device_id from the BODY, so main()'s
         _enforce_device_scope never runs on it."""
-        from srcpin import py_function
         src = (_CGI / "api.py").read_text()
         body = py_function(src, "handle_longpoll_exec")
         self.assertIn("_scope_block_device", body)
 
     def test_the_command_length_cap_is_intact(self):
-        from srcpin import py_function
         src = (_CGI / "api.py").read_text()
         self.assertIn("cmd too long", py_function(src, "handle_longpoll_exec"))
 

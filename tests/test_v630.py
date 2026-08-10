@@ -322,9 +322,9 @@ class TestWave2QuickWins(unittest.TestCase):
     def test_dispatcher_auto_inflight(self):
         # v6.4.0: the inline in-flight block became the shared _btnInflight
         # helper (spinner + done-pulse, now covering data-action-btn too).
+        from tests import srcpin
         app = _js("app.js")
-        i = app.index("function _btnInflight")
-        chunk = app[i:i + 1200]
+        chunk = srcpin.js_function(app, "_btnInflight")
         self.assertIn("btn-inflight", chunk)
         self.assertIn("aria-busy", chunk)
         # restore must run on BOTH resolve and reject
@@ -451,9 +451,9 @@ class TestWave4(unittest.TestCase):
         self.assertIn("_applyColumnVis", render_fn)
 
     def test_last_visible_column_protected(self):
+        from tests import srcpin
         app = _js("app.js")
-        i = app.index("function toggleCol")
-        chunk = app[i:i + 1500]
+        chunk = srcpin.js_function(app, "toggleCol")
         self.assertIn("At least one column must stay visible", chunk)
 
     def test_hidden_cols_persisted_server_side(self):

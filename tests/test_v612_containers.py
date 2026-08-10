@@ -25,8 +25,10 @@ from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v612-cnt-"))
+from srcpin import py_function  # noqa: E402
 _spec = importlib.util.spec_from_file_location("api_v612_cnt", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -291,8 +293,8 @@ class TestScheduledContainerActions(unittest.TestCase):
         # The agent parses container:<runtime>:<action>:<id> — a three-part
         # string is rejected as malformed, so the runtime must be looked up.
         src = (_CGI / "api.py").read_text()
-        i = src.index("elif is_creq:")
-        block = src[i : i + 1400]
+        block = py_function(src, "process_schedule")
+        self.assertIn("elif is_creq:", block)
         self.assertIn("f'container:{_rt}:restart:{cname}'", block)
         self.assertIn("('docker', 'podman')", block)
 

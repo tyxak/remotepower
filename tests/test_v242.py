@@ -23,6 +23,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function
 import importlib.util
 import os
 import sys
@@ -124,15 +125,13 @@ class TestSshFrontend(unittest.TestCase):
     def test_quickssh_has_clipboard_fallback(self):
         # quickSsh must attempt ssh:// AND offer a copy fallback —
         # a browser can't open a terminal on its own.
-        idx = self.js.find('function quickSsh')
-        chunk = self.js[idx:idx + 1200]
+        chunk = js_function(self.js, 'quickSsh')
         self.assertIn('ssh://', chunk)
         self.assertIn('clipboard', chunk)
 
     def test_ssh_icon_uses_ip_then_hostname(self):
         # sshLinkIcon falls back to hostname when there's no IP.
-        idx = self.js.find('function sshLinkIcon')
-        chunk = self.js[idx:idx + 400]
+        chunk = js_function(self.js, 'sshLinkIcon')
         self.assertIn('d.ip', chunk)
         self.assertIn('d.hostname', chunk)
 

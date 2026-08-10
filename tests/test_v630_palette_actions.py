@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from srcpin import js_function  # noqa: E402
+from srcpin import balanced_block, js_function  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _APP = (_ROOT / 'server/html/static/js/app.js').read_text()
@@ -27,8 +27,7 @@ class TestPaletteActionRunner(unittest.TestCase):
 
     def test_verbs_gated_to_agent_backed(self):
         # The verb block must be inside `if (!d.agentless)`.
-        i = self.fn.index('if (!d.agentless)')
-        block = self.fn[i:i + 1400]
+        block = balanced_block(self.fn, 'if (!d.agentless)', '{', '}')
         for verb in ('Run command on ', 'Reboot ', 'Shut down ', 'Web terminal'):
             self.assertIn(verb, block, f'{verb!r} not gated on !agentless')
 

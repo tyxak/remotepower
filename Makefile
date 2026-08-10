@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check pre-release ci-parity clean install-dev dist release version scan-demo
+.PHONY: help test test-fast test-sqlite test-both test-pg test-all format lint typecheck bandit bandit-baseline codeql check pre-release ci-parity clean install-dev dist release version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -98,7 +98,7 @@ scan-demo:
 # previous version formatted — which is exactly how `make lint` silently
 # broke between v4.2.0 and v4.3.0.
 install-dev:
-	$(PIP) install $(PIP_FLAGS) 'black==26.5.1' 'isort==8.0.1' 'mypy==2.1.0'
+	$(PIP) install $(PIP_FLAGS) 'black==26.5.1' 'isort==8.0.1' 'mypy==2.1.0' 'ruff==0.15.21'
 
 test:
 	$(PY) -m unittest discover -s tests -v
@@ -159,7 +159,19 @@ test-both: test test-sqlite
 # v3.14.0 (#1): Postgres backend integration tests. They self-skip unless a DSN
 # is provided (RP_PG_TEST_DSN env or ~/.rp_pg_test_dsn) and psycopg is installed,
 # so this is safe to run anywhere — it just no-ops without a target database.
+#
+# That self-skip is why this target sat outside every gate for three years while
+# Postgres was the enterprise DEFAULT backend, and why storage_pg.py documents
+# three parity bugs that shipped. CI now runs it for real against a service
+# container with RP_PG_REQUIRE=1 (see .github/workflows/ci.yml). Locally it still
+# no-ops without a DSN — so it says so out loud rather than printing "OK" and
+# letting you believe Postgres was covered.
 test-pg:
+	@if [ -z "$$RP_PG_TEST_DSN" ] && [ ! -f "$$HOME/.rp_pg_test_dsn" ]; then \
+	  echo "ⓘ  test-pg: no DSN configured — the Postgres suite will SKIP, not pass."; \
+	  echo "   Real coverage comes from the CI job. To run it here, point"; \
+	  echo "   RP_PG_TEST_DSN at a throwaway database (the tests TRUNCATE tables)."; \
+	fi
 	$(PY) -m unittest tests.test_pg -v
 
 # Full matrix: JSON + SQLite + (when a DSN is configured) Postgres.
@@ -169,10 +181,35 @@ format:
 	$(PY) -m isort $(LINT_SRC)
 	$(PY) -m black $(LINT_SRC)
 
+# F821 (undefined name) over ALL shipped server + agent + sidecar Python — not
+# just the black/mypy baseline. This is the detector CLAUDE.md names for its
+# first false-green class (a source-TEXT test proves a line EXISTS, never that
+# the name in it RESOLVES: the agent's `apply_host_config` shipped with an
+# undefined `_re` that killed the whole apply while every substring assertion
+# passed). It worked on the agent and was DEAD on the server — api.py returned
+# 238 hits, all false positives from the 30 runtime-bound *_handlers.py modules,
+# so a genuine typo there was invisible in the noise.
+#
+# TWO passes, because ruff's `builtins` is a GLOBAL setting and not per-file:
+# api.py gets the generated 513-name exemption; every other file gets none, so
+# the check stays sharp everywhere else. Regenerate after a carve:
+#     python3 tools/gen_ruff_builtins.py
+# (tests/test_ruff_f821_gate.py fails if the committed list goes stale.)
+# tests/ is in scope on purpose: a test is the EASIEST place for an undefined
+# name to hide, because a typo'd helper in a branch that rarely runs never gets
+# executed. This very change introduced one (a py_function call with no import)
+# and F821 named it instantly.
+RUFF_F821_SRC := server/cgi-bin client server/flow server/syslog server/push \
+                 server/kmip tools mcp tests
+
 lint:
 	$(PY) -m isort --check-only $(LINT_SRC)
 	$(PY) -m black --check $(LINT_SRC)
 	$(PY) -m mypy $(TYPECHECK_SRC)
+	$(PY) -m ruff check --select F821 \
+	  --config tools/ruff-api-builtins.toml server/cgi-bin/api.py
+	$(PY) -m ruff check --select F821 $(RUFF_F821_SRC) \
+	  --exclude server/cgi-bin/api.py
 
 typecheck:
 	$(PY) -m mypy $(TYPECHECK_SRC)
@@ -246,19 +283,22 @@ codeql:
 check: test-both lint
 
 # ── The PRE-PROD gate — run this BEFORE every prod tag/upload ────────────────
-# `make check` alone has THREE blind spots that each shipped a broken prod
+# `make check` alone has FOUR blind spots that each shipped a broken prod
 # release (v6.2.0): a test that reads a dist-excluded file passes in the source
 # tree but errors in the tarball; CodeQL default setup on prod ignores the
-# config and fires FP rules local never shows; and prod CI runs Python 3.14
-# (matching dev) with a fixed dep list. This target closes all three.
-#   make pre-release            # check + dist + CodeQL-parity + CI-3.14 parity
+# config and fires FP rules local never shows; prod CI runs Python 3.14
+# (matching dev) with a fixed dep list; and `check` runs only two of the THREE
+# storage backends, leaving the enterprise-default Postgres write path — 1,490
+# lines with three documented shipped parity bugs — untested by any gate.
+# This target closes all four.
+#   make pre-release       # check + Postgres + dist + CodeQL-parity + CI-3.14 parity
 # CodeQL parity uses PARITY=1 (simulates prod DEFAULT setup) UNLESS the advanced
 # codeql.yml workflow is active on prod — then a plain `tools/codeql-local.sh`
 # predicts prod and you can set PARITY=0.
 # bandit joins the gate at v6.4.1. It had been a standalone target wired into
 # NOTHING, so it rotted to red unnoticed — a gate nobody runs is not a gate,
 # and a permanently-red one trains you to ignore it.
-pre-release: check dist ci-parity bandit
+pre-release: check test-pg dist ci-parity bandit
 	@echo ""
 	@echo "==> CodeQL GATE: config-honoring scan (== prod's ADVANCED codeql.yml setup)"
 	@# This is the pass/fail gate: prod runs the advanced codeql.yml workflow
@@ -296,7 +336,7 @@ CI_PY := 3.14
 # `import pytest` in a test passes a pytest-based parity run and then red-Xs
 # prod CI at import time. tests/test_ci_green_parity.py pins this list == the
 # ci.yml pip line, so neither can drift without the other.
-CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
+CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
 ci-parity:
 	@command -v uv >/dev/null 2>&1 || { echo "⚠ uv not installed — skipping CI-$(CI_PY) parity (pip install uv). Prod CI runs $(CI_PY); dev is $$(python3 --version)."; exit 0; }
 	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list + the ci.yml runner (unittest discover)"

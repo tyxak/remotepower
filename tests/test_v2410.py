@@ -25,6 +25,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function
 import importlib.machinery
 import importlib.util
 import os
@@ -212,8 +213,7 @@ class TestFrontend(unittest.TestCase):
         cls.js = client_js()
 
     def test_stripe_uses_real_endpoint(self):
-        idx = self.js.find('function _renderHomeFleet')
-        chunk = self.js[idx:idx + 2600]
+        chunk = js_function(self.js, '_renderHomeFleet')
         self.assertIn("/fleet/uptime7d", chunk)
         # The old hardcoded 6x'unknown' mock must be gone as the
         # primary path (only kept as a labelled fallback).

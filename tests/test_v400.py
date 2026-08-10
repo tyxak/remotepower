@@ -66,8 +66,12 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex(txt, r"version-\d+\.\d+\.\d+-blue")
 
     def test_changelog_top_entry(self):
+        # Anchored on the newest released header, not a 2000-char prefix:
+        # the Unreleased section grows and pushes the header out of the
+        # window, after which this passes on any "v1.2.3" it happens to
+        # find in the prose above.
         txt = (_ROOT / "CHANGELOG.md").read_text()
-        self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
+        self.assertRegex(txt[txt.index("\n## v") + 1:], r"^## v\d+\.\d+\.\d+")
 
     def test_version_doc_exists(self):
         # loosened: v4.0.0 has since rotated out of the kept set — assert the

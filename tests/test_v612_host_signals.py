@@ -31,7 +31,9 @@ from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
+from srcpin import py_function  # noqa: E402
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v612-hs-"))
 _spec = importlib.util.spec_from_file_location("api_v612_hs", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -42,21 +44,18 @@ _AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
 
 class TestPacmanKernelBranch(unittest.TestCase):
     def test_the_arch_branch_finally_exists(self):
-        i = _AGENT.index("def get_kernel_status")
-        block = _AGENT[i : i + 4000]
+        block = py_function(_AGENT, "get_kernel_status")
         self.assertIn("_which('pacman')", block)
         self.assertIn("pkgbase", block)
 
     def test_it_reads_the_host_not_the_container(self):
-        i = _AGENT.index("def get_kernel_status")
-        block = _AGENT[i : i + 4000]
+        block = py_function(_AGENT, "get_kernel_status")
         self.assertIn("host_path(f'/usr/lib/modules/{run}')", block)
 
     def test_a_removed_modules_dir_means_reboot(self):
         # pacman deletes the running kernel's modules during an upgrade — that
         # alone unambiguously means a reboot is required.
-        i = _AGENT.index("def get_kernel_status")
-        block = _AGENT[i : i + 4000]
+        block = py_function(_AGENT, "get_kernel_status")
         self.assertIn("not os.path.isdir(mod_dir)", block)
 
 
@@ -139,16 +138,15 @@ class TestSnapshotFreshness(unittest.TestCase):
 
 class TestSmartSelfTest(unittest.TestCase):
     def test_the_agent_reads_the_selftest_log(self):
-        i = _AGENT.index("def get_smart_status")
-        block = _AGENT[i : i + 6000]
+        block = py_function(_AGENT, "get_smart_status")
         self.assertIn("'-l', 'selftest'", block)
         self.assertIn("Available Spare", block)
 
     def test_the_server_persists_the_new_fields(self):
-        # The SMART sanitizer is a whitelist.
+        # The SMART sanitizer is a whitelist — it lives in _ingest_hardware.
         src = (_CGI / "api.py").read_text()
-        i = src.index("entry['wear_pct'] = int(w)")
-        block = src[i : i + 1200]
+        block = py_function(src, "_ingest_hardware")
+        self.assertIn("entry['wear_pct'] = int(w)", block)
         for k in ("spare_pct", "selftest_result", "selftest_hours"):
             self.assertIn(k, block, f"{k} must be persisted")
 
@@ -187,8 +185,8 @@ class TestEccErrors(unittest.TestCase):
         self.assertEqual(self.fired[0][1]["new_ce"], 2)
 
     def test_hosts_without_edac_report_nothing(self):
-        i = _AGENT.index("def get_ecc_errors")
-        self.assertIn("if not os.path.isdir(base):", _AGENT[i : i + 900])
+        self.assertIn("if not os.path.isdir(base):",
+                      py_function(_AGENT, "get_ecc_errors"))
 
 
 class TestUnitFlapping(unittest.TestCase):
@@ -257,8 +255,7 @@ class TestZramAndAutoUpdate(unittest.TestCase):
         # unattended-upgrades can be ENABLED while the periodic switch is 0,
         # which means it does not apply updates — reporting "patches itself"
         # then would be a lie.
-        i = _AGENT.index("def get_autoupdate_posture")
-        block = _AGENT[i : i + 2200]
+        block = py_function(_AGENT, "get_autoupdate_posture")
         self.assertIn("APT::Periodic::Unattended-Upgrade", block)
 
     def test_the_drawer_says_when_swap_is_zram(self):

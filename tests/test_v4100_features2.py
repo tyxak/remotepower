@@ -34,8 +34,7 @@ APP = client_js()
 
 class TestBackupVerifyAgent(unittest.TestCase):
     def test_tool_detection(self):
-        i = AGENT.index('def _detect_backup_tool(')
-        self.assertIn('restic', AGENT[i:i + 600])
+        self.assertIn('restic', py_function(AGENT, '_detect_backup_tool'))
         self.assertIn('collect_backup_verify', AGENT)
         # wired into the heartbeat payload
         self.assertIn("payload['backup_verify']", AGENT)
@@ -61,8 +60,7 @@ class TestBackupVerifyServer(unittest.TestCase):
         self.assertIn("fire_webhook('backup_verify_failed'", API_SRC)
 
     def test_endpoint_surfaces_verify(self):
-        i = API_SRC.index('def handle_device_backups(')
-        self.assertIn('verify_status', API_SRC[i:i + 2000])
+        self.assertIn('verify_status', py_function(API_SRC, 'handle_device_backups'))
 
 
 class TestPerSiteReport(unittest.TestCase):
@@ -94,13 +92,11 @@ class TestHealthGatedRollouts(unittest.TestCase):
         self.assertIn('health_gate', py_function(API_SRC, 'handle_rollouts_create'))
 
     def test_advance_has_gate_and_pending(self):
-        i = API_SRC.index('def _rollout_advance(')
-        block = API_SRC[i:i + 4500]
+        block = py_function(API_SRC, '_rollout_advance')
         self.assertIn("hg.get('enabled')", block)
         self.assertIn("pending.append(('rollout_halted'", block)
         # fire happens AFTER the lock in _rollout_tick (no lock-nesting)
-        j = API_SRC.index('def _rollout_tick(')
-        tick = API_SRC[j:j + 2200]   # widened: issue #8 added a residual-explainer comment
+        tick = py_function(API_SRC, '_rollout_tick')
         self.assertIn('fire_webhook(_ev, _pl)', tick)
 
     def test_ui_inputs(self):

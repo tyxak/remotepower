@@ -21,6 +21,7 @@ _ROOT = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 sys.path.insert(0, str(Path(__file__).parent))
+from srcpin import py_function  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("api_v3130", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -61,8 +62,12 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex(txt, r"version-\d+\.\d+\.\d+-blue")
 
     def test_changelog_top_entry(self):
+        # Anchored on the newest released header, not a 2000-char prefix:
+        # the Unreleased section grows and pushes the header out of the
+        # window, after which this passes on any "v1.2.3" it happens to
+        # find in the prose above.
         txt = (_ROOT / "CHANGELOG.md").read_text()
-        self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
+        self.assertRegex(txt[txt.index("\n## v") + 1:], r"^## v\d+\.\d+\.\d+")
 
     def test_version_doc_exists(self):
         # v4.4.0: the keep-last-5 housekeeping aged out the final v3.x doc, so
@@ -148,7 +153,7 @@ class TestSecurityHardening(unittest.TestCase):
         # The agent-supplied SCAP HTML is served under a self-contained
         # sandboxed CSP (in the report download handler) regardless of the
         # upstream policy.
-        block = self.src.split("def handle_scap_report_download")[1][:2000]
+        block = py_function(self.src, "handle_scap_report_download")
         self.assertIn("Content-Security-Policy", block)
         self.assertIn("sandbox;", block)
         self.assertIn("X-Frame-Options: DENY", block)

@@ -38,6 +38,8 @@ _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 sys.path.insert(0, str(Path(__file__).parent))
 
+from srcpin import js_function  # noqa: E402
+
 _spec = importlib.util.spec_from_file_location("api_v642_docs", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -208,9 +210,7 @@ class TestAccessibilityClaimsMatchTheCode(unittest.TestCase):
 
     def test_command_palette_dialog_limitation_is_stated_while_it_exists(self):
         app = self.js["app.js"]
-        i = app.find("function openCommandPalette")
-        self.assertGreater(i, 0)
-        body = app[i:i + 4000]
+        body = js_function(app, "openCommandPalette")
         if "role', 'dialog'" in body or 'role="dialog"' in body:
             return
         self.assertRegex(self.doc, r"(?i)command palette is not exposed as a dialog")
