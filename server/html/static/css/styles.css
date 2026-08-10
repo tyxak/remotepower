@@ -1324,19 +1324,27 @@
     font-family: var(--font);
   }
   .btn-secondary:hover { background: var(--hair-2); }
-  /* v3.9.0: inline Lucide glyphs in non-flex buttons sit on the baseline;
-     nudge them onto the optical centre of the label. */
   /* v6.4.1: .btn-icon svg has always been pinned to 14px, but .btn-primary /
      .btn-secondary had no width rule — so the markup attribute won and the
      glyphs drifted (13px on 12 buttons, 15px on one, 14px on the rest),
      visibly mismatched where they sit side by side in one row. Pinning it
      here fixes every existing site and stops the markup drifting again. */
-  .btn-primary svg, .btn-secondary svg { width: 14px; height: 14px; vertical-align: -2px; }
-  /* v3.14.0 fix: put a gap between an icon and its label so they aren't glued
-     together. Only when the svg has a text sibling — icon-only buttons (the svg
-     is the only child) keep no trailing space. Covers btn-icon too. */
-  .btn-primary svg:not(:only-child),
-  .btn-secondary svg:not(:only-child) { margin-right: 5px; }
+  .btn-primary svg, .btn-secondary svg { width: 14px; height: 14px; }
+  /* v6.4.3: the icon/label gap, done the way .btn-icon just above already
+     does it — one idiom, not two.
+     What this replaces: `.btn-primary svg:not(:only-child) { margin-right: 5px }`,
+     which matched ZERO of the 195 icon+label buttons in the app. A label is a
+     TEXT node, so the svg IS the only ELEMENT child and :not(:only-child) is
+     never true. The comment on it described the intent perfectly ("only when
+     the svg has a text sibling"), which is exactly why nobody re-checked it
+     for three releases; it also claimed to cover .btn-icon, which it did not.
+     inline-flex, not flex: keeps these inline like a <button>'s default, where
+     .btn-icon is free to be block-level. justify-content is load-bearing —
+     `.modal-actions button { flex: 1 }` at <=720px stretches these, and
+     without it the label left-jams inside the widened box. */
+  .btn-primary, .btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  }
   .btn-icon {
     background: transparent;
     border: 1px solid var(--hair);
@@ -2450,8 +2458,18 @@
     background: var(--accent-soft); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 12px; margin: -16px 0 24px; color: var(--text);
   }
+  /* v6.4.3: the four login buttons stacked at three different heights —
+     39px (Sign in), 45.5px (the SSO/SAML <a>s) and 41px (the passkey
+     <button>), on a card where they sit directly on top of each other. Two
+     causes, both here: `border: none` meant the variants that add a 1px
+     border grew by 2px, and no line-height meant an <a> inherited the body's
+     1.5 while a <button> used `normal`. A transparent border equalises the
+     box (.login-btn-oidc is later at equal specificity, so its real border
+     still wins) and an explicit line-height stops the element type deciding
+     the height. */
   .login-btn {
-    width: 100%; background: var(--accent); color: var(--accent-contrast, #fff); border: none;
+    width: 100%; background: var(--accent); color: var(--accent-contrast, #fff);
+    border: 1px solid transparent; line-height: 1.15;
     padding: 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
     cursor: pointer; transition: background 0.2s; margin-top: 8px;
     font-family: var(--font);
@@ -6662,8 +6680,21 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    .btn-primary, a ~33px input and a ~34px .btn-icon at three different
    heights. Direct-child scoped, and textareas are deliberately not in the
    target list, so multi-line fields are untouched. */
-:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap, .settings-row, .modal-actions)
-  > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, input.form-input, select.form-input) {
+/* v6.4.3: the contract is opt-in BY EXACT CLASS NAME, so it only ever applied
+   to rows someone remembered to add. A rendered sweep of every container with
+   >=2 sibling controls found 11 rows spreading >=2px, the worst at 5.0px
+   (form-input 36 / btn-secondary 33 / btn-primary 31). Added the row wrappers
+   actually in use — .row-8 alone is 108 markup sites — plus the four
+   device-action buttons and select.select-sm, which are controls that sit in
+   these rows but were never in the child list. Still an allowlist rather than
+   `> :is(button, input, select)`: a blanket child selector would also capture
+   controls in card bodies and modals that are deliberately taller. */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
+    .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
+    .settings-row, .modal-actions)
+  > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, .btn-update,
+        .btn-upgrade, .btn-shutdown, .btn-reboot, input.form-input, select.form-input,
+        select.select-sm) {
   height: 34px;
   min-height: 34px;
   padding-top: 0;
@@ -6671,12 +6702,15 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   box-sizing: border-box;
 }
 /* non-flex buttons in those rows: centre icon + label within the fixed height */
-:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap, .settings-row, .modal-actions)
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
+    .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
+    .settings-row, .modal-actions)
   > :is(.btn, .btn-secondary, .btn-primary) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;   /* v6.4.3: was 6px — one icon/label gap app-wide (.btn-icon and
+                 the global .btn-primary/.btn-secondary rule both use 5px) */
 }
 
 /* ── v3.12.0: device combobox (filterbox replacing a device <select>) ─────────
