@@ -242,7 +242,16 @@ async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-body').innerHTML = _skeletonBlock(6);
   openModal('cve-detail-modal');
   const data = await api('GET', `/devices/${devId}/cve`);
-  if (!data) return;
+  // A refusal (404 deleted device, 403 out-of-scope / other tenant) resolves
+  // with {error} and NO findings array — the old `if (!data) return` let it
+  // through and `data.findings.length` threw mid-template, leaving the modal
+  // stuck on its skeleton. `error` alone is not the marker: it is a legal 200
+  // field (the scanner's own note, rendered inline below).
+  if (!data || !Array.isArray(data.findings)) {
+    _errorState('cve-detail-body', () => openDeviceCVE(devId, devName),
+      {msg: (data && data.error) || 'Could not load CVE findings for this device.'});
+    return;
+  }
   const sevColor = {critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? _fmtAbsTs(data.scanned_at) : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
   html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button><button class="btn-icon" data-action="sbomCaptureBaseline" data-arg="${escAttr(devId)}" title="Snapshot the current package set as the SBOM diff baseline">${_icon('copy',14)} Baseline</button><button class="btn-icon" data-action="sbomShowDiff" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" title="Show package changes since the captured baseline">${_icon('list',14)} Changes since baseline</button></div>`;
@@ -280,8 +289,9 @@ async function _confirmCveIgnore() {
   const reason = document.getElementById('cve-ignore-reason').value.trim();
   const scopeSel = document.querySelector('input[name="cve-ignore-scope"]:checked');
   const scope = (scopeSel && scopeSel.value === 'global') ? 'global' : devId;
-  const btn = document.getElementById('cve-ignore-confirm');
-  if (btn) btn.disabled = true;
+  // Busy state comes from the dispatcher's _btnInflight — the button carries
+  // data-action="_confirmCveIgnore", so disabling it here suppressed the
+  // spinner + aria-busy + completion pulse.
   try {
     const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
     if (result && result.ok) {
@@ -292,8 +302,6 @@ async function _confirmCveIgnore() {
     }
   } catch (e) {
     toast('Ignore failed: ' + (e.message || String(e)), 'error');
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 

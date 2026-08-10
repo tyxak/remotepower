@@ -295,7 +295,7 @@ async function loadAlertMttr() {
   const tb = document.getElementById('mttr-tbody');
   if (summary) summary.textContent = 'Loading…';
   const data = await api('GET', `/alerts/resolution-stats?days=${encodeURIComponent(days)}`);
-  if (!data) { if (summary) summary.textContent = 'Failed to load'; return; }
+  if (!data || data.resolved_count == null) { if (summary) summary.textContent = (data && data.error) || 'Failed to load'; return; }
   if (summary) summary.textContent =
     `${data.resolved_count} resolved · MTTR mean ${_fmtDuration(data.mttr_mean)} · median ${_fmtDuration(data.mttr_median)} · MTTA ${_fmtDuration(data.mtta_mean)}`;
   if (hostsBox) {

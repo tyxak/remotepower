@@ -32,6 +32,11 @@ async function loadFirewall() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/firewall');
+    // api() resolves with {error} on 4xx/5xx — without this the summary reads
+    // "undefined host(s) · 0 with no active firewall", asserting the fleet is
+    // clean when the request in fact failed. Throw, not return: loadFail2ban()
+    // runs after the catch and must still fire.
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _firewallResp = data;
     const sm = document.getElementById('firewall-summary');
     if (sm) {

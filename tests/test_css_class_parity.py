@@ -35,7 +35,7 @@ LEGACY_UNSTYLED = {
     "mw-300", "netmap-scope-wrap", "noprint", "os-icon", "pad-4", "pad-6",
     "pill", "pl-16", "prompt-maxtok", "prompt-numctx", "prompt-temp",
     "prompt-topp", "recovery-code", "row-16-wrap", "row-flex", "rp-tag",
-    "settings-filter-row", "skeleton-block", "th-actions", "theme-card-name",
+    "settings-filter-row", "th-actions", "theme-card-name",
     "tk-th-cb",
 }
 

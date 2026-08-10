@@ -98,10 +98,12 @@ async function runAnsiblePlaybook() {
   if (!body.ssh_user) { toast('SSH user required', 'error', {transient: true}); return; }
   if (!body.ssh_key.trim() && !body.ssh_password) { toast('Provide an SSH key or password', 'error'); return; }
   const out = document.getElementById('ansible-run-output');
-  const btn = document.getElementById('ansible-run-btn');
-  btn.disabled = true; out.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Running… (up to 15 min)</div>`;
+  // #ansible-run-btn is dispatched via data-action, so _btnInflight owns the
+  // busy state and restores it on resolve AND reject. The hand-rolled pair
+  // suppressed that and, having no try/finally, left the button stuck if the
+  // fetch itself failed.
+  out.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Running… (up to 15 min)</div>`;
   const d = await api('POST', '/ansible/playbooks/' + encodeURIComponent(id) + '/run', body);
-  btn.disabled = false;
   if (!d) { out.innerHTML = '<span class="c-red">Run failed.</span>'; return; }
   if (d.error && !d.output) { out.innerHTML = `<span class="c-red">${escHtml(d.error)}</span>`; loadAnsible(); return; }
   const cls = d.rc === 0 ? 'c-green' : 'c-red';
@@ -186,7 +188,7 @@ async function iacGenerate(btn, withAi) {
   const fmt   = document.getElementById('iac-format-select')?.value;
   const cats  = _iacSelectedCategories();
 
-  if (!devId)       { toast('Select a device first', 'error'); return; }
+  if (!devId)       { toast('Pick a device first', 'error'); return; }
   if (!cats.length) { toast('Select at least one category', 'error', {transient: true}); return; }
   if (!fmt)         { toast('Select an output format', 'error'); return; }
 

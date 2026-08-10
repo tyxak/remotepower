@@ -48,6 +48,9 @@ async function loadThermal() {
   _thermalRollups.clear();
   try {
     const data = await api('GET', '/fleet/thermal');
+    // api() resolves with {error} on 4xx/5xx — without this the summary
+    // renders "undefined hosts · undefined hot" over an empty table.
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _thermalResp = data;
     if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
     _renderThermal();

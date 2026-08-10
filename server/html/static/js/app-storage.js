@@ -12,6 +12,9 @@ async function loadStorage() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/storage');
+    // api() resolves with {error} on 4xx/5xx — without this the summary
+    // renders "undefined pools · undefined degraded" over an empty table.
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _storageResp = data;
     if (summary) summary.textContent = `${data.count} pools · ${data.degraded} degraded`;
     _renderStorage();

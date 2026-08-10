@@ -2931,6 +2931,13 @@ input.form-input[type="text"][data-token],
 .skeleton-line.long  { width: 90%; }
 .skeleton-circle { width: 14px; height: 14px; border-radius: 50%; vertical-align: middle; }
 .skeleton-row td  { padding: 12px 10px; }
+/* The div-container sibling of .skeleton-row — emitted by _skeletonBlock() for
+   modal bodies / cards / lists. Without a rule the wrapper is a bare block and
+   its inline-block .skeleton-line children pick up line-box leading, so the gap
+   between bars varies with the inherited line-height instead of matching the
+   6px rhythm the static skeleton markup in index.html uses. */
+.skeleton-block  { display: flex; flex-direction: column; gap: 6px; }
+.skeleton-block > .skeleton-line { margin: 0; }
 .skeleton-card   { padding: 18px; border: 1px solid var(--border);
                    border-radius: 8px; background: var(--surface); }
 @media (prefers-reduced-motion: reduce) {

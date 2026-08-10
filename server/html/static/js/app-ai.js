@@ -1570,12 +1570,11 @@ function aiInsightCopy() {
 }
 
 async function aiAnomalyScan() {
-  const btn = document.getElementById('ai-anomaly-btn');
+  // Busy state comes from the dispatcher's _btnInflight (#ai-anomaly-btn is a
+  // data-action button); a hand-rolled disable would suppress it.
   const out = document.getElementById('ai-anomaly-results');
-  if (btn) btn.disabled = true;
   out.innerHTML = '<div class="c-muted">Scanning the fleet…</div>';
   const r = await api('POST', '/ai/anomaly', {});
-  if (btn) btn.disabled = false;
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
   const items = r.anomalies || [];
   if (!items.length) {
@@ -1613,11 +1612,10 @@ async function aiCronBuild() {
   const out = document.getElementById('ai-cron-result');
   const desc = (input.value || '').trim();
   if (!desc) { toast('Describe a schedule first', 'error'); return; }
-  const btn = document.getElementById('ai-cron-btn');
-  if (btn) btn.disabled = true;
+  // Busy state comes from the dispatcher's _btnInflight (#ai-cron-btn is a
+  // data-action button); a hand-rolled disable would suppress it.
   out.innerHTML = '<div class="c-muted">Thinking…</div>';
   const r = await api('POST', '/ai/cron', {description: desc});
-  if (btn) btn.disabled = false;
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
   if (!r.valid) {
     out.innerHTML = `<div class="c-amber">Couldn't build a valid expression: ${escHtml(r.explanation || r.error || '')}</div>`;

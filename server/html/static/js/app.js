@@ -3959,7 +3959,7 @@ function editSloObject(id) {
 }
 async function saveSloObject() {
   const name = (document.getElementById('slo-name')?.value || '').trim();
-  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const target = parseFloat(document.getElementById('slo-target')?.value || '99.9');
   if (!(target > 0 && target < 100)) { toast('Target % must be between 0 and 100 (exclusive)', 'error'); return; }
   const windowDays = Math.max(1, Math.min(365, parseInt(document.getElementById('slo-window')?.value, 10) || 30));
@@ -7051,7 +7051,7 @@ async function addScheduleJob() {
   let command = document.getElementById('sched-command').value;
   if (command === 'script') {
     const sid = document.getElementById('sched-script-id').value;
-    if (!sid) { toast('Select a script', 'error'); return; }
+    if (!sid) { toast('Pick a script first', 'error'); return; }
     command = `script:${sid}`;
   }
   const cron = _buildSchedCron();
@@ -7060,7 +7060,7 @@ async function addScheduleJob() {
     payload.cron = cron;
   } else {
     const dt = document.getElementById('sched-datetime').value;
-    if (!dt) { toast('Select a date and time', 'error'); return; }
+    if (!dt) { toast('Pick a date and time', 'error'); return; }
     payload.run_at = Math.floor(new Date(dt).getTime() / 1000);
   }
   const wasEdit = !!_scheduleEditId;
@@ -8035,7 +8035,7 @@ async function loadRisk() {
   tableCtl.wireSortOnly('risk-thead', 'risk', () => _renderRisk());
   tbody.innerHTML = _skeletonRows(4);
   const data = await api('GET', '/risk');
-  if (!data) { _errorState(tbody, loadRisk, { colspan: 4 }); return; }
+  if (!data || data.total == null) { _errorState(tbody, loadRisk, { colspan: 4, msg: (data && data.error) || 'Failed to load.' }); return; }
   _setRiskCuts(data.risk_levels);   // config cutoffs for the badge word + colour
   _riskResp = data;
   const s = document.getElementById('risk-summary');
@@ -9799,7 +9799,7 @@ async function saveDeviceProfile() {
   const val = id => (document.getElementById(id)?.value || '').trim();
   const lines = id => val(id).split('\n').map(s => s.trim()).filter(Boolean);
   const name = val('dp-name');
-  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const body = { name, services_watched: lines('dp-units'), log_watch: lines('dp-logs'), drift_files: lines('dp-drift') };
   const poll = parseInt(val('dp-poll'), 10);
   if (!isNaN(poll)) body.poll_interval = poll;
@@ -10041,7 +10041,7 @@ async function viewRackElevation(id) {
   const wrap = document.getElementById('rack-elevation-wrap');
   if (!wrap) return;
   const m = await api('GET', `/racks/${encodeURIComponent(id)}/elevation`).catch(() => null);
-  if (!m) { toast('Failed to load elevation', 'error'); return; }
+  if (!m || m.name == null) { toast((m && m.error) || 'Failed to load elevation', 'error'); return; }
   const H = m.height_u || 42;
   const byUnit = {};
   (m.assets || []).forEach(a => { byUnit[a.rack_unit] = a; });
@@ -10140,7 +10140,7 @@ async function viewSubnetOccupancy(id) {
   const wrap = document.getElementById('ipam-occupancy-wrap');
   if (!wrap) return;
   const m = await api('GET', `/ipam/subnets/${encodeURIComponent(id)}/occupancy`).catch(() => null);
-  if (!m) { toast('Failed to load occupancy', 'error'); return; }
+  if (!m || m.total == null) { toast((m && m.error) || 'Failed to load occupancy', 'error'); return; }
   const rows = (m.addresses || []).map(a => {
     const devs = a.devices.map(d => `${escHtml(d.name)} (${escHtml(d.source)})`).join(', ') || (a.reserved_label ? '—' : '');
     const cls = a.conflict ? ' class="c-red fw-500"' : '';
@@ -10377,7 +10377,7 @@ function _autopatchPopulateDevices(currentId) {
   const sel = document.getElementById('autopatch-target-device');
   if (!sel) return;
   const list = (typeof devices !== 'undefined' ? devices : []);
-  sel.innerHTML = '<option value="">Select a device…</option>' +
+  sel.innerHTML = '<option value="">Pick a device…</option>' +
     list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id === currentId ? ' selected' : ''}>${escHtml(dv.name)}</option>`).join('');
   if (currentId) sel.value = currentId;
   try { enhanceDeviceCombos(document.getElementById('autopatch-modal')); } catch (_) {}
@@ -11124,7 +11124,7 @@ async function loadPatchCatalog() {
   const body = document.getElementById('patch-catalog-body');
   if (!body) return;
   const r = await api('GET', '/patch-catalog').catch(() => null);
-  if (!r) { body.innerHTML = '<div class="c-red">Failed to load patch catalog.</div>'; return; }
+  if (!r || r.total_packages == null || !Array.isArray(r.devices_without_detail)) { body.innerHTML = '<div class="c-red">Failed to load patch catalog.</div>'; return; }
   const sum = document.getElementById('patch-catalog-summary');
   if (sum) sum.textContent = `${r.total_packages} distinct package(s) with an update pending across the fleet`
     + (r.devices_without_detail.length ? ` · ${r.devices_without_detail.length} host(s) report a count only (older agent)` : '');
@@ -11277,7 +11277,7 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this device.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -11928,6 +11928,12 @@ const _ROLLOUT_STATE_CLASS = {
 // v3.4.2: install / batch-job tracker — per-host checkmarks, live while running.
 let _batchPollTimer = null;
 const _batchExpanded = new Set();
+// v6.4.3: last per_device payload painted into each expanded job's detail box,
+// keyed by job id. The 5s poll would otherwise rewrite byte-identical markup
+// every tick and reset the (now capped, scrolling) host list's scroll position
+// mid-read. Cleared whenever the outer list is rebuilt — that recreates the
+// boxes empty, so a stale entry would leave one stuck on "Loading…".
+let _batchDetailPrev = {};
 const _JOB_ICON = {
   ok: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   fail: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
@@ -11944,15 +11950,22 @@ async function loadBatchJobs() {
   // v5.8.0 (PERF): this polls every 5s; skip the full innerHTML rebuild when the
   // job set is byte-identical (mirrors loadDevices' _devicesRawPrev guard). The
   // expanded-detail render + poll re-arm below still run every tick.
-  const _raw = JSON.stringify(r.jobs);
+  // v6.4.3 (BUG): the EXPANDED SET is part of what this markup encodes (the
+  // detail box + the Hosts/Hide-hosts label), so it must be in the dedup key.
+  // Without it, expanding a settled job produced a byte-identical jobs payload
+  // (handle_batch_jobs_list returns only id/kind/label/created/actor/counts),
+  // the rebuild was skipped, no #batch-detail-<id> box was ever created, and
+  // _renderJobDetail returned at `if (!box)` — the button did nothing at all.
+  const _raw = JSON.stringify(r.jobs) + '|' + Array.from(_batchExpanded).sort().join(',');
   if (window._batchJobsPrev !== _raw) {
     window._batchJobsPrev = _raw;
+    _batchDetailPrev = {};   // the detail boxes below are recreated empty
     out.innerHTML = r.jobs.map(j => {
       const badge = j.failed
         ? `<span class="ro-badge rs-failed">${j.done}/${j.total} ok · ${j.failed} failed</span>`
         : j.pending === 0 ? `<span class="ro-badge rs-done">${j.done}/${j.total} done</span>`
         : `<span class="ro-badge rs-running">${j.done}/${j.total} · ${j.pending} pending</span>`;
-      const det = _batchExpanded.has(j.id) ? `<div class="batch-detail mt-8" id="batch-detail-${escAttr(j.id)}"><div class="c-muted fs-12">Loading…</div></div>` : '';
+      const det = _batchExpanded.has(j.id) ? `<div class="batch-detail mt-8 scroll-cap-sm" id="batch-detail-${escAttr(j.id)}"><div class="c-muted fs-12">Loading…</div></div>` : '';
       return `<div class="dash-card mb-8">
         <div class="row-8-center">
           <strong>${escHtml(j.label || j.kind)}</strong>
@@ -11972,6 +11985,12 @@ async function loadBatchJobs() {
 }
 
 function toggleJobDetail(id) {
+  // v6.4.3: the data-action dispatcher coerces `!isNaN(v) ? Number(v) : v`, and a
+  // secrets.token_hex(8) job id can parse as a number ('1234567890123456', or
+  // '12e4567890123456' -> Infinity). Re-stringify so it matches the string ids in
+  // _batchExpanded and in the batch-detail-<id> element id. See the
+  // frontend-id-coercion note in CLAUDE.md.
+  id = String(id);
   if (_batchExpanded.has(id)) _batchExpanded.delete(id); else _batchExpanded.add(id);
   loadBatchJobs();
 }
@@ -11987,7 +12006,17 @@ async function _renderJobDetail(id) {
   const box = document.getElementById('batch-detail-' + id);
   if (!box) return;
   const r = await api('GET', '/exec/batch/' + encodeURIComponent(id)).catch(() => null);
-  if (!r || !r.per_device) { box.innerHTML = '<div class="c-red fs-12">Failed to load hosts.</div>'; return; }
+  if (!r || !r.per_device) {
+    delete _batchDetailPrev[id];
+    box.innerHTML = '<div class="c-red fs-12">Failed to load hosts.</div>';
+    return;
+  }
+  // v6.4.3: unchanged since the last tick — leave the DOM, and the capped host
+  // list's scroll position, alone. The 5s poll would otherwise rewrite
+  // byte-identical markup and jump the operator back to the top mid-read.
+  const raw = JSON.stringify(r.per_device);
+  if (_batchDetailPrev[id] === raw) return;
+  _batchDetailPrev[id] = raw;
   box.innerHTML = Object.entries(r.per_device).map(([dev, p]) => {
     if (!p.queued) return `<div class="batch-host">${_JOB_ICON.skip} <span>${escHtml(p.name || dev)}</span> <span class="c-muted fs-11">(${escHtml(p.reason || 'skipped')})</span></div>`;
     const st = p.status || 'pending';
@@ -15684,6 +15713,9 @@ async function loadFail2ban() {
   tbody.innerHTML = _skeletonRows(5);
   try {
     const data = await api('GET', '/fail2ban');
+    // api() resolves with {error} on 4xx/5xx — without this the summary
+    // renders "undefined host(s) · 0 banned IP(s)".
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _fail2banResp = data;
     const sm = document.getElementById('fail2ban-summary');
     if (sm) {
@@ -15806,6 +15838,9 @@ function _fwMarkPending(btn) {
   const row = btn.closest('.fw-rule-row, .fw-ban-row');
   if (row) row.classList.add('fw-pending');
   btn.disabled = true;
+  // The dispatcher's _btnInflight restore runs one microtask after this
+  // handler's promise settles and would re-enable the button; this opts out.
+  btn.dataset.keepDisabled = '';
   btn.textContent = 'queued';
 }
 function _fwQueuedNote(panelId) {
@@ -15835,6 +15870,11 @@ async function loadExposure() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/exposure' + (_exposureScope ? `?scope=${_exposureScope}` : ''));
+    // api() resolves with {error} on 4xx/5xx — without this the summary reads
+    // "undefined sockets · world 0 · lan 0 · local 0", i.e. a failed load looks
+    // like "nothing is world-exposed". Throw, not return: loadSecrets() runs
+    // after the catch.
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _exposureResp = data;
     if (summary) {
       const c = data.counts || {};
@@ -16198,6 +16238,9 @@ async function loadSshKeys() {
   tbody.innerHTML = _skeletonRows(7);
   try {
     const data = await api('GET', '/ssh-keys');
+    // api() resolves with {error} on 4xx/5xx — without this the summary
+    // renders "undefined keys · undefined weak · undefined reused".
+    if (!data || data.count == null) throw new Error((data && data.error) || 'unexpected response');
     _sshKeysResp = data;
     if (summary) summary.textContent = `${data.count} key${data.count === 1 ? '' : 's'} · ${data.weak} weak · ${data.reused} reused`;
     _renderSshKeys();
@@ -16471,7 +16514,7 @@ async function loadSoftwareCatalog() {
   if (!body) return;
   body.innerHTML = _skeletonBlock();
   const r = await api('GET', '/inventory/catalog').catch(() => null);
-  if (!r) { body.innerHTML = '<div class="c-red">Failed to load software inventory.</div>'; return; }
+  if (!r || r.total == null) { body.innerHTML = '<div class="c-red">Failed to load software inventory.</div>'; return; }
   _swCatalog = r.packages || [];
   const sum = document.getElementById('swcatalog-summary');
   if (sum) sum.textContent = `${r.total} package${r.total === 1 ? '' : 's'}${r.truncated ? ' (showing first 1000)' : ''}`;
@@ -20799,7 +20842,7 @@ function loadMailwatchForDevice() {
 
 async function saveMailwatch() {
   const sel = document.getElementById('mailwatch-device');
-  if (!sel || !sel.value) { toast('Select a device first', 'error'); return; }
+  if (!sel || !sel.value) { toast('Pick a device first', 'error'); return; }
   const devId = sel.value;
   const paths = document.getElementById('mailwatch-paths').value
     .split('\n').map(s => s.trim()).filter(Boolean);
@@ -21011,11 +21054,11 @@ function _renderSpComponents() {
       <div class="hint-mb6">Devices:</div>
       <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button aria-label="Remove" class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
       <input type="text" class="form-input sp-devsearch" data-i="${i}" placeholder="Search devices to add…" autocomplete="off">
-      <div class="sp-devres hidden" data-i="${i}"></div>
+      <div class="sp-devres hidden scroll-cap-sm" data-i="${i}"></div>
       <div class="hint-mb6">Monitors:</div>
       <div>${c.monitors.map(m => `<span class="group-badge">${escHtml(m)} <button aria-label="Remove" class="btn-icon" data-action="spRemoveMon" data-arg="${i}" data-arg2="${escAttr(m)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
       <input type="text" class="form-input sp-monsearch" data-i="${i}" placeholder="Search monitors to add…" autocomplete="off">
-      <div class="sp-monres hidden" data-i="${i}"></div>
+      <div class="sp-monres hidden scroll-cap-sm" data-i="${i}"></div>
     </div>`).join('');
   _wireSpInputs();
 }
@@ -21048,7 +21091,7 @@ async function _spDevResults(i, term) {
   if (q) m = m.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q));
   m = m.slice(0, 15);
   box.innerHTML = m.length
-    ? m.map(d => `<div class="pointer mb-8" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    ? m.map(d => `<div class="pointer p-6" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
     : '<div class="hint">No matching devices.</div>';
   box.classList.remove('hidden');
 }
@@ -21068,7 +21111,7 @@ async function _spMonResults(i, term) {
   if (q) m = m.filter(lbl => lbl.toLowerCase().includes(q));
   m = m.slice(0, 15);
   box.innerHTML = m.length
-    ? m.map(lbl => `<div class="pointer mb-8" data-action="spAddMon" data-arg="${i}" data-arg2="${escAttr(lbl)}" tabindex="0">${escHtml(lbl)}</div>`).join('')
+    ? m.map(lbl => `<div class="pointer p-6" data-action="spAddMon" data-arg="${i}" data-arg2="${escAttr(lbl)}" tabindex="0">${escHtml(lbl)}</div>`).join('')
     : '<div class="hint">No matching monitors.</div>';
   box.classList.remove('hidden');
 }
@@ -21954,14 +21997,13 @@ let _cloudImporting = false;
 async function runCloudImport(ev) {
   if (_cloudImporting) return;   // guard against concurrent provider enumerations
   _cloudImporting = true;
-  const btn = ev && ev.currentTarget ? ev.currentTarget : document.querySelector('[data-action="runCloudImport"]');
-  const origBtn = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; }
+  // The button is dispatched via data-action, so _btnInflight owns its busy
+  // state; `ev` was never actually passed (no data-pass-btn), which made the
+  // currentTarget branch and the innerHTML save/restore dead code.
   const st = document.getElementById('cloud-import-status');
   if (st) st.textContent = 'Importing…';
   const r = await api('POST', '/cloud/import', {}).catch(() => null);
   _cloudImporting = false;
-  if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
   if (r?.ok) {
     const msg = `Imported ${r.imported}, updated ${r.updated}` + (r.errors?.length ? `, ${r.errors.length} error(s)` : '');
     if (st) st.textContent = msg;
@@ -28532,6 +28574,16 @@ function _btnInflight(el, ret) {
   el.classList.add('btn-inflight');
   el.setAttribute('aria-busy', 'true');
   const _restore = () => {
+    // A handler may deliberately LOCK its own button for good — a one-shot
+    // queued action whose control must not become clickable again. Restoring
+    // it here silently undid that: fail2ban "Unban" ended up reading "queued"
+    // while still firing a second unban on click. Opt out with
+    // data-keep-disabled; the busy affordances still clear.
+    if (el.dataset.keepDisabled !== undefined) {
+      el.classList.remove('btn-inflight');
+      el.removeAttribute('aria-busy');
+      return;
+    }
     el.disabled = false;
     el.classList.remove('btn-inflight');
     el.removeAttribute('aria-busy');

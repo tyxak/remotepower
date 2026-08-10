@@ -330,7 +330,7 @@ async function restoreBackupJob(id) {
     const labels = targets.map((t, i) => `${i + 1}. ${byId[t] || t} [${String(t).slice(-6)}]`);
     const pick = await uiPrompt({
       title: 'Restore to which host?',
-      message: `This job targets ${targets.length} devices. Enter the NUMBER of the host to restore into:\n\n` + labels.join('\n'),
+      message: `This job targets ${targets.length} hosts. Enter the NUMBER of the host to restore into:\n\n` + labels.join('\n'),
       value: '1',
       confirmText: 'Continue',
     });

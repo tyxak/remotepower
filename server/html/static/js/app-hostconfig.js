@@ -433,9 +433,11 @@ async function csGenerateWithAI() {
   const prompt = document.getElementById('cs-ai-prompt').value.trim();
   if (!prompt) { toast('Describe what the script should check', 'error'); return; }
 
-  const btn    = document.getElementById('cs-ai-btn');
+  // No hand-rolled disable: the delegated dispatcher's _btnInflight already
+  // disables #cs-ai-btn, shows the spinner + aria-busy and restores on BOTH
+  // resolve and reject. Setting it here suppressed all of that — _btnInflight
+  // bails when the button is already disabled by the time the handler yields.
   const status = document.getElementById('cs-ai-status');
-  btn.disabled = true;
   status.textContent = 'Generating…';
   status.style.color = 'var(--accent)';
 
@@ -469,8 +471,6 @@ async function csGenerateWithAI() {
   } catch (e) {
     status.textContent = `✗ ${e.message || 'AI generation failed'}`;
     status.style.color = 'var(--red)';
-  } finally {
-    btn.disabled = false;
   }
 }
 

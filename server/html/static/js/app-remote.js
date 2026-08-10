@@ -750,7 +750,19 @@ async function filesConnect() {
       obj.error ? reject(new Error(obj.error)) : resolve(obj);
     }
   };
-  ws.onclose = () => { if (_sftpSession) _sftpSession.pending.forEach(p => p.reject(new Error('disconnected'))); };
+  ws.onclose = () => {
+    if (_sftpSession) _sftpSession.pending.forEach(p => p.reject(new Error('disconnected')));
+    // The daemon can close the socket without ever sending an {error} frame
+    // (expired or already-consumed ticket, daemon not running). onerror does
+    // not fire for that, so the button sat disabled on "Authenticating…"
+    // forever with nothing on screen and no way to retry short of a reload.
+    if (btn.disabled) { btn.disabled = false; btn.textContent = 'Connect'; }
+    if (errEl.style.display !== 'block'
+        && document.getElementById('files-modal')?.classList.contains('active')) {
+      errEl.textContent = 'Connection closed before the session started.';
+      errEl.style.display = 'block';
+    }
+  };
   ws.onerror = () => { errEl.textContent = 'WebSocket error.'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Connect'; };
 }
 function _sftpReq(req) {
