@@ -152,6 +152,30 @@ class TestCiListsInSync(unittest.TestCase):
             'Makefile: test-pg is not in the pre-release chain, so the local '
             'pre-tag gate still skips the Postgres backend entirely')
 
+    def test_pre_release_demands_postgres_actually_RAN(self):
+        """Having test-pg in the chain is not enough — it has to have run.
+
+        tests/test_pg.py self-skips its database-backed cases when the DSN is
+        absent OR unreachable, while a handful of source-level checks in the
+        same file still pass, so the suite prints OK either way. This box has a
+        DSN pointing at a dead port, so every local run skipped 24 of 28 tests
+        and reported success. PG_STRICT=1 turns that into a failure, and
+        pre-release sets it as a target-specific variable, which GNU make
+        propagates to prerequisites."""
+        mk = MAKEFILE.read_text()
+        self.assertRegex(mk, re.compile(r'^pre-release:\s*PG_STRICT\s*=\s*1', re.M),
+                         'pre-release must set PG_STRICT=1 or a skipped Postgres '
+                         'suite passes the prod gate')
+        i = mk.index('test-pg:')
+        recipe = mk[i:mk.index('\ntest-all:', i)]
+        self.assertIn('PG_STRICT', recipe,
+                      'test-pg ignores PG_STRICT — the strict flag does nothing')
+        self.assertRegex(
+            recipe, r'no Postgres DSN\|DSN configured but unreachable',
+            'the skip detector must key on test_pg.py\'s OWN skip reasons; '
+            'checking whether a DSN exists misses the configured-but-dead case, '
+            'which is the one that looks like coverage')
+
     def test_ci_parity_uses_the_ci_runner(self):
         """ci-parity must run `python -m unittest discover` (the ci.yml
         runner), not pytest — the two differ in collection AND in which

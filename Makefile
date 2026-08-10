@@ -166,13 +166,44 @@ test-both: test test-sqlite
 # container with RP_PG_REQUIRE=1 (see .github/workflows/ci.yml). Locally it still
 # no-ops without a DSN — so it says so out loud rather than printing "OK" and
 # letting you believe Postgres was covered.
+# The notice below keys on whether tests actually RAN, not on whether a DSN is
+# configured. The first version of it checked for a DSN — and this box HAS one,
+# pointing at a port with nothing listening, so every run skipped all 28 tests
+# while the notice stayed silent and `make test-pg` printed OK. A configured
+# but dead DSN is the worst of the three states: it looks like coverage.
+#
+# PG_STRICT=1 turns that skip into a FAILURE, and pre-release sets it. A prod
+# gate reporting green while the enterprise-DEFAULT backend was never exercised
+# is the exact false-green this release exists to remove — and it would be a
+# poor joke to reintroduce it in the gate that ships the fix.
 test-pg:
-	@if [ -z "$$RP_PG_TEST_DSN" ] && [ ! -f "$$HOME/.rp_pg_test_dsn" ]; then \
-	  echo "ⓘ  test-pg: no DSN configured — the Postgres suite will SKIP, not pass."; \
-	  echo "   Real coverage comes from the CI job. To run it here, point"; \
-	  echo "   RP_PG_TEST_DSN at a throwaway database (the tests TRUNCATE tables)."; \
-	fi
-	$(PY) -m unittest tests.test_pg -v
+	@LOG=$$(mktemp /tmp/rp-testpg-XXXXXX.log); \
+	 RPD=$$(mktemp -d /tmp/rp-testpg-data-XXXXXX); \
+	 RP_DATA_DIR=$$RPD $(PY) -m unittest tests.test_pg -v > $$LOG 2>&1; ec=$$?; \
+	 rm -rf "$$RPD"; \
+	 tot=$$(grep -oE '^Ran [0-9]+' $$LOG | awk '{print $$2}'); \
+	 skipped=$$(grep -cE "no Postgres DSN|DSN configured but unreachable" $$LOG || true); \
+	 ran=$$(grep -cE '\.\.\. ok$$' $$LOG || true); \
+	 tail -3 $$LOG; \
+	 if [ "$$skipped" -gt 0 ]; then \
+	   echo ""; \
+	   echo "⚠  ─────────────────────────────────────────────────────────────"; \
+	   echo "⚠  test-pg: $$skipped of $${tot:-?} tests SKIPPED — the database-backed"; \
+	   echo "⚠  ones did not run, so Postgres was NOT exercised. (A handful of"; \
+	   echo "⚠  source-level checks in the same file DO run without a server,"; \
+	   echo "⚠  which is why the suite still prints OK.)"; \
+	   echo "⚠  The enterprise-default backend has no coverage from this run."; \
+	   echo "⚠  Point RP_PG_TEST_DSN at a THROWAWAY database (the tests"; \
+	   echo "⚠  TRUNCATE tables), or accept CI as the only place it runs."; \
+	   echo "⚠  ─────────────────────────────────────────────────────────────"; \
+	   if [ -n "$(PG_STRICT)" ]; then \
+	     echo "✗ PG_STRICT=1 — a skipped Postgres suite fails this gate."; \
+	     rm -f $$LOG; exit 1; \
+	   fi; \
+	 else \
+	   echo "✓ test-pg: all $${tot:-?} tests ran against a real Postgres ($$ran ok)."; \
+	 fi; \
+	 rm -f $$LOG; exit $$ec
 
 # Full matrix: JSON + SQLite + (when a DSN is configured) Postgres.
 test-all: test-both test-pg
@@ -298,6 +329,7 @@ check: test-both lint
 # bandit joins the gate at v6.4.1. It had been a standalone target wired into
 # NOTHING, so it rotted to red unnoticed — a gate nobody runs is not a gate,
 # and a permanently-red one trains you to ignore it.
+pre-release: PG_STRICT = 1
 pre-release: check test-pg dist ci-parity bandit
 	@echo ""
 	@echo "==> CodeQL GATE: config-honoring scan (== prod's ADVANCED codeql.yml setup)"
