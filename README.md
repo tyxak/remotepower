@@ -271,6 +271,8 @@ reference, architecture, and the changelog. Prefer the source? It's all in
 - **Found a security issue?** — report it privately per [SECURITY.md](SECURITY.md); don't open a public issue.
 - **Contributing code or docs?** — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

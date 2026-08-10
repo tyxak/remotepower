@@ -7051,7 +7051,7 @@ async function addScheduleJob() {
   let command = document.getElementById('sched-command').value;
   if (command === 'script') {
     const sid = document.getElementById('sched-script-id').value;
-    if (!sid) { toast('Pick a script first', 'error'); return; }
+    if (!sid) { toast('Pick a script first', 'error', {transient: true}); return; }
     command = `script:${sid}`;
   }
   const cron = _buildSchedCron();
@@ -7060,7 +7060,7 @@ async function addScheduleJob() {
     payload.cron = cron;
   } else {
     const dt = document.getElementById('sched-datetime').value;
-    if (!dt) { toast('Pick a date and time', 'error'); return; }
+    if (!dt) { toast('Pick a date and time', 'error', {transient: true}); return; }
     payload.run_at = Math.floor(new Date(dt).getTime() / 1000);
   }
   const wasEdit = !!_scheduleEditId;
@@ -20842,7 +20842,7 @@ function loadMailwatchForDevice() {
 
 async function saveMailwatch() {
   const sel = document.getElementById('mailwatch-device');
-  if (!sel || !sel.value) { toast('Pick a device first', 'error'); return; }
+  if (!sel || !sel.value) { toast('Pick a device first', 'error', {transient: true}); return; }
   const devId = sel.value;
   const paths = document.getElementById('mailwatch-paths').value
     .split('\n').map(s => s.trim()).filter(Boolean);

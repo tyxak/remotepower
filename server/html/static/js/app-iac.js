@@ -188,7 +188,7 @@ async function iacGenerate(btn, withAi) {
   const fmt   = document.getElementById('iac-format-select')?.value;
   const cats  = _iacSelectedCategories();
 
-  if (!devId)       { toast('Pick a device first', 'error'); return; }
+  if (!devId)       { toast('Pick a device first', 'error', {transient: true}); return; }
   if (!cats.length) { toast('Select at least one category', 'error', {transient: true}); return; }
   if (!fmt)         { toast('Select an output format', 'error'); return; }
 
