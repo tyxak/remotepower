@@ -19,6 +19,7 @@ LINT + TYPECHECK baseline.
 import json
 import time
 import urllib.parse
+from email.header import Header as _EmailHeader
 
 # ── injected by api.configure() ─────────────────────────────────────────────
 SERVER_VERSION = "0"  # api.SERVER_VERSION
@@ -151,7 +152,7 @@ def _build_ntfy_body(event, title, message, priority):
     ntfy_prio = {0: 3, 1: 4, 2: 5}.get(priority, 3)
     body = (message or "").encode()
     headers = {
-        "Title": title,
+        "Title": _ascii_header(title),
         "Priority": str(ntfy_prio),
         "Tags": _tags_fn(event),
     }
@@ -498,6 +499,54 @@ def _parse_itsm_response(fmt, url, raw):
     return None
 
 
+# ── HTTP header text must be ASCII ───────────────────────────────────────────
+# An HTTP header is latin-1 at best, and ntfy/Gotify substitute "?" for
+# anything they cannot represent. Our notification titles are full of
+# typographic characters — the em dash alone appears ~103 times in the message
+# builders — so a perfectly good title arrived on the phone as
+# "SIEM audit forwarding recovered ? 12 spooled entries".
+#
+# The BODY is unaffected (JSON, or text/plain;charset=utf-8) and keeps the real
+# typography, which is what email, Slack and the web UI render. Only the header
+# copy is folded down to ASCII, and only these characters — the ones actually
+# used in this codebase — are transliterated, so the result reads naturally
+# instead of losing information:
+_HEADER_TRANSLIT = {
+    "\u2014": "-",  # — em dash
+    "\u2013": "-",  # – en dash
+    "\u2026": "...",  # … ellipsis
+    "\u2192": "->",  # → rightwards arrow
+    "\u2194": "<->",  # ↔ left-right arrow
+    "\u2265": ">=",  # ≥
+    "\u2264": "<=",  # ≤
+    "\u2260": "!=",  # ≠
+    "\u00b7": "-",  # · middle dot
+    "\u00d7": "x",  # × multiplication sign
+    "\u00b0": " deg",  # ° degree
+    "\u2018": "'",
+    "\u2019": "'",  # curly single quotes
+    "\u201c": '"',
+    "\u201d": '"',  # curly double quotes
+    "\u00a0": " ",  # non-breaking space
+}
+
+
+def _ascii_header(value):
+    """A header-safe rendering of `value`.
+
+    Transliterates the typography above, then — only if something non-ASCII
+    remains, e.g. a device named in Chinese or a hostname with accents — falls
+    back to RFC 2047 encoding, which ntfy documents support for and which is
+    lossless. Never silently drops characters, and never emits a bare "?".
+    """
+    s = "".join(_HEADER_TRANSLIT.get(ch, ch) for ch in str(value))
+    try:
+        s.encode("ascii")
+        return s
+    except UnicodeEncodeError:
+        return _EmailHeader(s, "utf-8").encode()
+
+
 def _build_generic_body(event, title, message, priority, safe_payload):
     """Generic JSON body + push-friendly extension headers. Catches anything
     that isn't a recognised hosted service — your homelab Gotify, an internal
@@ -514,7 +563,7 @@ def _build_generic_body(event, title, message, priority, safe_payload):
         }
     ).encode()
     headers = {
-        "X-Title": title,
+        "X-Title": _ascii_header(title),
         "X-Priority": str(priority),
         "X-Tags": _tags_fn(event),
     }

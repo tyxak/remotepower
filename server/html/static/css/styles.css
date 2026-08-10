@@ -963,15 +963,25 @@
     transition: border-color 0.15s;
   }
   .doc-card[open] { border-color: var(--accent); }
+  /* v6.4.3: NOT display:flex. The flex+gap was there to sit the ▸ marker
+     beside the text, and it works for a one-word summary — but every one of
+     these 89 summaries is PROSE containing <strong>/<em>/<code>, and a flex
+     container turns each inline element and each text run between them into
+     its OWN flex item. The result was the summary shattered into narrow
+     vertical columns with 10px gutters, worst on the longest one (the
+     "What's new" card). Block layout lets the prose flow; the marker is
+     positioned out of flow, which also puts it on the FIRST LINE of a
+     multi-line summary instead of vertically centred against the whole
+     paragraph. padding-left matches .doc-body's 32px so the summary text and
+     the body text share a left edge. */
   .doc-card summary {
-    padding: 14px 18px;
+    padding: 14px 18px 14px 32px;
+    position: relative;
     cursor: pointer;
     list-style: none;
     font-size: 13px;
     color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 10px;
+    display: block;
     user-select: none;
   }
   .doc-card summary::-webkit-details-marker { display: none; }
@@ -980,7 +990,9 @@
     color: var(--muted);
     font-size: 12px;
     transition: transform 0.15s;
-    flex-shrink: 0;
+    position: absolute;
+    left: 18px;
+    top: 14px;
   }
   .doc-card[open] summary::before { transform: rotate(90deg); }
   .doc-card summary:hover { background: var(--surface2); }
@@ -1150,6 +1162,15 @@
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #storage-maint-output { white-space: pre-wrap; font-family: var(--font-mono); font-size: 13px; }
   #cmdb-asset-modal > .modal > [id^="cmdb-tab-"] { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  /* v6.4.3: the Tickets box must not be shrunk to a sliver.
+     The modal above is a FIXED-HEIGHT flex column, the tab panel below takes
+     `flex: 1 1 auto`, and this box specified no flex at all — so it inherited
+     the default flex-shrink:1. Normally `min-height:auto` would stop a flex
+     item collapsing below its content, but that protection does not apply to a
+     scroll container, and .scroll-cap sets overflow-y:auto. Result: 110px of
+     content rendered in 38px, i.e. the "tiny scroll window". `flex: none`
+     makes it size to its content, still capped at .scroll-cap's 340px. */
+  #cmdb-asset-modal > .modal > #cmdb-asset-tickets { flex: none; }
   /* v5.0.0: the Properties tab is a responsive 2-column grid so the short
    * inputs (Asset ID, Server function, …) sit half-width instead of spanning
    * the whole wider modal. Wide blocks — interfaces editor, the read-only info
