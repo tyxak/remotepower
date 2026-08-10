@@ -414,7 +414,7 @@ async function loadDnsRecords() {
   if (tb) tb.innerHTML = _skeletonRows(5);
   const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`, undefined, _dnsExtra());
   if (!data || data.error) {
-    if (tb) tb.innerHTML = `<tr><td colspan="6" class="isl-533">${escHtml((data && data.error) || 'Failed to load records')}</td></tr>`;
+    if (tb) tb.innerHTML = `<tr><td colspan="6" class="empty-state-error">${escHtml((data && data.error) || 'Failed to load records')}</td></tr>`;
     return;
   }
   _dnsRecords = data.records || [];
@@ -432,7 +432,7 @@ function _renderDnsRecords() {
     content: (r.content || '').toLowerCase(),
     ttl: r.ttl || 0,
   }));
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="6" class="isl-533">No records in this zone.</td></tr>`; return; }
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="6" class="empty-state-sm">No records in this zone.</td></tr>`; return; }
   tb.innerHTML = rows.map(r => {
     const flags = [];
     if (r.proxied) flags.push('proxied');
@@ -628,7 +628,7 @@ async function loadAcme() {
   if (!tbody) return;
   tbody.innerHTML = _skeletonRows(8);
   const data = await api('GET', '/acme');
-  if (!data) { tbody.innerHTML = '<tr><td colspan="8" class="isl-670">Failed to load.</td></tr>'; return; }
+  if (!data) { tbody.innerHTML = '<tr><td colspan="8" class="empty-state-error">Failed to load.</td></tr>'; return; }
   _acmeData = data;
   _acmeRenderTable();
 }

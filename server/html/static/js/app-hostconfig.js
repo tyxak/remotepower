@@ -24,7 +24,7 @@ function loadCustomScripts() {
     loadMonitoringProfiles();
   }).catch(() => {
     const tbody = document.getElementById('cs-results-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="isl-597">Failed to load. Refresh to retry.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-state-error">Failed to load. Refresh to retry.</td></tr>';
   });
 }
 

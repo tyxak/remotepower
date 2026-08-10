@@ -380,11 +380,22 @@ async function viewScan(scanId) {
 }
 
 async function deleteScan(scanId) {
-  const res = await api('DELETE', '/scans/' + encodeURIComponent(scanId));
-  if (!res) return;
-  if (res.error) { toast(res.error, 'error'); return; }
-  toast('Scan removed.', 'success');
-  loadScans();
+  // Undoable like its two siblings. The row is found by data-scan-id rather
+  // than data-arg (this button dispatches through data-action-btn), so the
+  // hide is spelled out instead of reusing _hideRowByAction.
+  undoableDelete({
+    label: 'Scan removed',
+    hide: () => {
+      const esc = (window.CSS && CSS.escape) ? CSS.escape(String(scanId)) : String(scanId);
+      const btn = document.querySelector(
+        `[data-action-btn="_deleteScanBtn"][data-scan-id="${esc}"]`);
+      const row = btn && btn.closest('tr');
+      if (row) row.classList.add('d-none');
+    },
+    commit: () => api('DELETE', '/scans/' + encodeURIComponent(scanId)),
+    undo: () => loadScans(),
+    after: () => loadScans(),
+  });
 }
 
 async function clearScans() {
@@ -609,7 +620,15 @@ async function addNetscanSchedule() {
 }
 
 async function deleteNetscanSchedule(id) {
-  const res = await api('DELETE', '/netscan-schedules/' + encodeURIComponent(id));
-  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
-  loadNetscanSchedules();
+  // v6.4.3: same contract as deleteScanSchedule directly above — its rows are
+  // the same `.mb-8` cards, and there is no reason the two sibling deletes on
+  // one page should behave differently. This one was single-click,
+  // irreversible and SILENT on success.
+  undoableDelete({
+    label: 'Discovery schedule deleted',
+    hide: () => _hideRowByAction('deleteNetscanSchedule', id, '.mb-8'),
+    commit: () => api('DELETE', '/netscan-schedules/' + encodeURIComponent(id)),
+    undo: () => loadNetscanSchedules(),
+    after: () => loadNetscanSchedules(),
+  });
 }

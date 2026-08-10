@@ -5493,7 +5493,12 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-530 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 16px }
 .isl-531 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px }
 .isl-532 { max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.55; padding: 8px 16px }
-.isl-533 { text-align: center; color: var(--red); padding: 30px }
+/* v6.4.3: one named class for 'this table failed to load'. It replaces
+   .isl-533 / .isl-597 / .isl-670, three anonymous classes with identical
+   intent and three different paddings (30 / 20 / 24px), so the same message
+   sat at a different height depending on which page you were on. 24px is
+   the middle value and matches .empty-state-sm, its neutral counterpart. */
+.empty-state-error { text-align: center; color: var(--red); padding: 24px; }
 .isl-534 { text-align: center; color: var(--muted); padding: 30px }
 /* .isl-535 — dynamic colour, applied via data-color attribute */
 /* .isl-536 — dynamic colour, applied via data-color attribute */
@@ -5561,7 +5566,6 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-594 { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px }
 .isl-595 { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border) }
 .isl-596 { margin-top: 8px; display: flex; gap: 8px }
-.isl-597 { text-align: center; color: var(--red); padding: 20px }
 .isl-598 { opacity: 0.65 }
 .isl-599 { color: var(--muted); font-style: italic }
 .isl-600 { font-size: 11px; padding: 2px 8px; margin-right: 4px }
@@ -5764,7 +5768,6 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .isl-667 { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end }
 .isl-668 { margin: 0 0 8px 0 }
 .isl-669 { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; background: var(--surface2) }
-.isl-670 { text-align: center; color: var(--red); padding: 24px }
 .isl-671 { opacity: .7 }
 .isl-672 { font-size: 12px; color: var(--muted); font-style: italic }
 .isl-673 { opacity: .85 }

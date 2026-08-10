@@ -16,7 +16,7 @@ async function loadStorage() {
     if (summary) summary.textContent = `${data.count} pools · ${data.degraded} degraded`;
     _renderStorage();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 

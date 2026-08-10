@@ -15842,7 +15842,7 @@ async function loadExposure() {
     }
     _renderExposure();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
   loadSecrets();   // v3.14.0 #35: the secrets card lives on the same page
 }
@@ -15882,7 +15882,7 @@ async function loadSecrets() {
     _secretsResp = await api('GET', '/fleet/secrets');
     _renderSecrets();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderSecrets() {
@@ -16202,7 +16202,7 @@ async function loadSshKeys() {
     if (summary) summary.textContent = `${data.count} key${data.count === 1 ? '' : 's'} · ${data.weak} weak · ${data.reused} reused`;
     _renderSshKeys();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 let _sshKeyFpFilter = '';
@@ -16531,7 +16531,7 @@ async function loadSoftwarePolicy() {
     const summary = document.getElementById('swpol-summary');
     if (summary) summary.textContent = `${(_swPolicy.rules||[]).length} rules · ${_swViolations.length} violations`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderSwRules() {
