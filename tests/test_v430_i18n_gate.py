@@ -10,6 +10,7 @@ label and every page title in index.html must have a DICT entry carrying all
 five non-English languages.
 """
 import html as _html
+import json
 import re
 import unittest
 from pathlib import Path
@@ -260,3 +261,175 @@ class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# ── v6.4.3: the categories the chrome-only gate never scanned ────────────────
+#
+# The gate above covers nav labels, .page-title, .page-subtitle, .section-title
+# and static <button> text. <option>, <th> and <label> were unguarded, so their
+# coverage decayed silently — 146 strings had drifted out of DICT, 88 of them
+# <option> values, i.e. the text in every dropdown in the product.
+#
+# 72 were translated. The 74 below are DELIBERATELY English and this is the
+# machine-readable record of that decision, which did not previously exist
+# anywhere (CLAUDE.md notes data-no-i18n is used zero times). They fall into
+# four groups, and translating any of them would be a REGRESSION:
+#
+#   * Product and vendor names — PostgreSQL, Cloudflare, Grafana Loki, Zabbix,
+#     nmap, nuclei, firewalld, iPXE. A localised brand name is just wrong.
+#   * Protocol / crypto / format tokens — tcp, udp, JSON, RSA 2048,
+#     ECDSA P-384, DKIM, SPF, TTL, OID prefix. These are wire values or
+#     standards, not prose.
+#   * Enum VALUES the operator matches against config and API payloads —
+#     prod, dev, staging, stable, beta, asc, desc, agent, site. Translating the
+#     label while the value stays English breaks the mapping in the reader's
+#     head.
+#   * Established abbreviations that are not expanded in any language here —
+#     UPS, NAS, PDU, IoT, MFA, EDR, SLA, MTTR, ID.
+#
+# Adding to this list is a decision that needs one of those four reasons.
+_DELIBERATE_ENGLISH = {
+    "AWS EC2",
+    "Anthropic (Claude)",
+    "Authentik",
+    "Cloudflare",
+    "DKIM",
+    "DeepSeek",
+    "DigitalOcean",
+    "ECDSA P-384",
+    "EDR",
+    "Elasticsearch",
+    "Grafana Loki",
+    "Grafana legacy alerting",
+    "Hetzner Cloud",
+    "ID",
+    "IoT",
+    "JSON",
+    "Lenovo",
+    "Lenovo ClientID",
+    "MFA",
+    "MTTR",
+    "NAS",
+    "Nagios / Icinga",
+    "OID prefix",
+    "OpenAI",
+    "OpenAI (ChatGPT)",
+    "PDU",
+    "PostgreSQL",
+    "PowerShell",
+    "Prometheus Alertmanager (also Grafana unified alerting)",
+    "RSA 2048",
+    "RemotePower generic — {severity, title, body, device}",
+    "SLA",
+    "SPF",
+    "Server Camp",
+    "Splunk HEC",
+    "Syslog",
+    "TTL",
+    "Tasmota",
+    "Terraform",
+    "UPS",
+    "Uptime Kuma (JSON)",
+    "Zabbix (XML)",
+    "agent",
+    "asc",
+    "at",
+    "beta",
+    "cloud-init",
+    "cmd.exe",
+    "desc",
+    "dev",
+    "firewalld",
+    "iPXE",
+    "info",
+    "medium",
+    "min_version",
+    "nikto",
+    "nmap",
+    "not",
+    "nuclei",
+    "openclaw — local (WebSocket gateway)",
+    "opencode — local (agent server)",
+    "prod",
+    "site",
+    "stable",
+    "staging",
+    "tcp",
+    "test",
+    "udp",
+    "ufw",
+    "version <",
+    "version =",
+    "version >",
+    "version ≤",
+    "version ≥",
+}
+
+_UNGUARDED_PATTERNS = (
+    ('option',  r'<option[^>]*>([^<]{2,60})</option>'),
+    ('th',      r'<th[^>]*>([^<]{2,60})</th>'),
+    ('label',   r'<label[^>]*>([^<]{2,60})</label>'),
+)
+
+
+class TestUnguardedCategoriesAreTranslated(unittest.TestCase):
+    """Ceiling ZERO. Everything currently untranslated is either in DICT or in
+    the deliberate list above, so a NEW untranslated dropdown option, column
+    header or field label fails the build instead of decaying quietly."""
+
+    def _missing(self):
+        entries = _dict_entries()
+        out = {}
+        for cat, pat in _UNGUARDED_PATTERNS:
+            miss = set()
+            for raw in re.findall(pat, INDEX):
+                text = _html.unescape(re.sub(r'\s+', ' ', raw)).strip()
+                if not text or not re.search(r'[A-Za-z]{2}', text):
+                    continue          # numbers, symbols, punctuation-only
+                if text in entries or text in _DELIBERATE_ENGLISH:
+                    continue
+                miss.add(text)
+            if miss:
+                out[cat] = sorted(miss)
+        return out
+
+    def test_no_untranslated_option_th_or_label(self):
+        missing = self._missing()
+        self.assertEqual(
+            missing, {},
+            'untranslated user-visible text in a category the chrome gate does '
+            'not cover:\n' + json.dumps(missing, indent=2, ensure_ascii=False)
+            + '\nAdd a DICT entry in i18n.js carrying all six non-English '
+              'languages, or — if it is a brand name, a protocol token, an enum '
+              'value or an abbreviation — add it to _DELIBERATE_ENGLISH with '
+              'which of those four it is.')
+
+    def test_every_translated_entry_has_all_languages(self):
+        """A partial entry renders English for the missing languages, which
+        looks identical to no entry at all."""
+        entries = _dict_entries()
+        partial = {}
+        for cat, pat in _UNGUARDED_PATTERNS:
+            for raw in re.findall(pat, INDEX):
+                text = _html.unescape(re.sub(r'\s+', ' ', raw)).strip()
+                langs = entries.get(text)
+                if langs and not set(LANGS).issubset(langs):
+                    partial[text] = sorted(set(LANGS) - langs)
+        self.assertEqual(partial, {},
+                         'DICT entries missing languages: '
+                         + json.dumps(partial, indent=2, ensure_ascii=False))
+
+    def test_the_deliberate_list_is_not_stale(self):
+        """An entry that no longer appears in the markup is dead weight, and a
+        stale exemption is how a real gap hides.
+
+        Compared against the EXTRACTED text, not a raw substring search: the
+        markup stores `version &lt;`, so searching the raw HTML for the
+        unescaped `version <` reports a live exemption as stale."""
+        present = set()
+        for _cat, pat in _UNGUARDED_PATTERNS:
+            for raw in re.findall(pat, INDEX):
+                present.add(_html.unescape(re.sub(r'\s+', ' ', raw)).strip())
+        stale = sorted(_DELIBERATE_ENGLISH - present)
+        self.assertEqual(stale, [],
+                         'these are exempted but no longer in index.html: %s' % stale)
