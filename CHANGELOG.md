@@ -154,6 +154,15 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **The device drawer was never checked for accessibility, and had six
+  problems.** Every settings field in it — Name, Group, Tags, Poll interval and
+  the rest — was labelled by plain text rather than a real label, so a screen
+  reader announced an unnamed text box, and one heading in the Audit tab sat
+  below the contrast floor. The accessibility audit could not have found any of
+  it: the drawer is not a modal, so the sweep added earlier in this release
+  looked straight past it, and the command palette is built on the fly so it
+  appears in no markup at all. Both are audited now, along with nine tabbed
+  panels inside dialogs that were only ever checked on their first tab.
 - **Four more history stores stopped rewriting the whole fleet.** Thermal,
   SMART, GPU and custom-metric history each re-serialised every device's
   records every time a single host reported — together holding a 400-device

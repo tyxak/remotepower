@@ -834,9 +834,19 @@ function cmdbRenderDocs(docs) {
         <span class="meta-sm-nm">▸</span>
         <span class="isl-433">${cmdbEscHtml(doc.title || '(untitled)')}</span>
         <span class="hint">${meta}</span>
+      </summary>
+      <!-- v6.4.3: the Edit/Delete buttons were INSIDE <summary>, which is
+           itself a control — two independently activatable elements nested,
+           which axe reports as nested-interactive (serious) and which leaves
+           a keyboard user unable to reach them predictably. Moved out as
+           SIBLINGS, the same restructure .nav-star got in v6.1.1. The gate
+           could not see this: the CMDB modal's Documentation tab is
+           display:none until its tab is clicked, and the modal walk opens
+           dialogs with bare openModal(). -->
+      <div class="cmdb-doc-actions">
         <button class="btn-icon isl-434" data-stop-prop="1" data-prevent-default="1" data-action="cmdbDocEditOpen" data-arg="${doc.id}" >Edit</button>
         <button class="btn-icon isl-435" data-stop-prop="1" data-prevent-default="1" data-action="cmdbDocDelete" data-arg="${doc.id}" >Delete</button>
-      </summary>
+      </div>
       <div class="isl-436">
         ${cmdbRenderMarkdown(doc.body || '')}
       </div>

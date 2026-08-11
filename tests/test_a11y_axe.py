@@ -522,6 +522,106 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
             f'opacity declaration double-dimming text that was already '
             f'muted.\n' + '\n'.join(self.detail))
 
+    def test_the_device_drawer(self):
+        """v6.4.3: the drawer had NEVER been audited by anything.
+
+        The modal walk added earlier in this release discovers its targets by
+        regexing `class="…modal-overlay…"` out of index.html — and the drawer's
+        class is `device-drawer`, so it matched nothing. It is `display: none`
+        until `.open`, and axe does not scan a display:none subtree, so the
+        page walks could not see it either. Measured behind that gap: 4-6
+        CRITICAL (`label`, `select-name`) and 5-6 SERIOUS `color-contrast`.
+
+        Needs the SEEDED stack — an empty install has no device row to click.
+        """
+        self.detail = []          # _walk() creates this; these methods do not call it
+        page = self.browser.new_page()
+        try:
+            page.goto(self.base + '/index.html')
+            page.evaluate("localStorage.setItem('rp_tour_done', '1')")
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(4000)
+            page.evaluate(self.axe.axe_script)      # axe is NOT global by default
+            page.evaluate("() => { try { showPage('devices') } catch (e) {} }")
+            page.wait_for_timeout(1500)
+            # The real opener is openDeviceDrawer(id, name, tab) — take the id
+            # from a rendered row's data-arg, i.e. what a user actually clicks.
+            dev_id = page.evaluate(
+                "() => { const el = document.querySelector("
+                "  '[data-action=\"openDeviceDrawer\"][data-arg]');"
+                "  return el ? el.getAttribute('data-arg') : null; }")
+            if not dev_id:
+                self.skipTest('no rendered device row to open the drawer from')
+            page.evaluate(
+                "id => { try { openDeviceDrawer(id, 'x', 'actions') } catch (e) {} }",
+                dev_id)
+            page.wait_for_timeout(1500)
+            # A walk where nothing opened measures nothing and reports success —
+            # the same guard the modal walk carries.
+            self.assertTrue(
+                page.evaluate("() => !!document.querySelector('#device-drawer.open')"),
+                'the drawer did not open, so this audited an invisible subtree')
+            found = {}
+            for tab in ('actions', 'audit'):
+                page.evaluate("t => { try { switchDrawerTab(t) } catch (e) {} }", tab)
+                page.wait_for_timeout(900)
+                res = page.evaluate(
+                    "axe.run('#device-drawer', %s).then(r => r)"
+                    % json.dumps(_AXE_OPTIONS))
+                for v in (res.get('violations') or []):
+                    if v.get('impact') not in _SERIOUS_IMPACTS:
+                        continue
+                    found[v['id']] = found.get(v['id'], 0) + len(v.get('nodes') or [])
+                    for node in (v.get('nodes') or []):
+                        self.detail.append(
+                            f"drawer/{tab}: [{v['id']}] "
+                            f"{(node.get('target') or ['?'])[0]} :: "
+                            f"{node.get('html', '')[:90]}")
+            self.assertEqual(found, {}, 'critical/serious a11y violations in the '
+                             'device drawer — the product\'s primary device '
+                             'surface, unaudited until v6.4.3:\n'
+                             + '\n'.join(self.detail))
+        finally:
+            page.close()
+
+    def test_the_command_palette(self):
+        """Also never audited, and for a different reason: the palette has no
+        static markup at all — app.js builds `#cmd-palette-overlay` at runtime,
+        so no index.html regex could ever have found it.
+
+        It scores ZERO today (it was given dialog/combobox/listbox semantics in
+        v6.4.2), so this lands as a clean ratchet rather than a fix. That is
+        worth stating: a walk added at zero has never been observed failing,
+        which is exactly what this release says is untrustworthy — so the
+        assertion below is deliberately the same shape as the drawer's, and the
+        first real violation will trip it.
+        """
+        page = self.browser.new_page()
+        try:
+            page.goto(self.base + '/index.html')
+            page.evaluate("localStorage.setItem('rp_tour_done', '1')")
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(3000)
+            page.evaluate(self.axe.axe_script)      # axe is NOT global by default
+            page.evaluate("() => { try { openCommandPalette() } catch (e) {} }")
+            page.wait_for_timeout(900)
+            if not page.evaluate("() => !!document.querySelector('#cmd-palette-overlay')"):
+                self.skipTest('command palette did not open')
+            res = page.evaluate("axe.run('#cmd-palette-overlay', %s).then(r => r)"
+                                % json.dumps(_AXE_OPTIONS))
+            bad = {v['id']: len(v.get('nodes') or [])
+                   for v in (res.get('violations') or [])
+                   if v.get('impact') in _SERIOUS_IMPACTS}
+            self.assertEqual(bad, {}, f'command palette a11y violations: {bad}')
+        finally:
+            page.close()
+
     def test_the_seed_actually_produced_rows(self):
         """Guard the guard. If the seeder silently no-ops this whole class
         degrades into a second copy of the empty-install sweep and reports

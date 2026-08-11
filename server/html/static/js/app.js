@@ -22878,20 +22878,20 @@ function _renderDrawerSettings() {
 
   document.getElementById('drawer-settings-form').innerHTML = `
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Name</span>
+      <label class="drawer-setting-label" for="ds-name">Name</label>
       <input class="form-input isl-619" id="ds-name" value="${escAttr(d.name||'')}" maxlength="64" placeholder="${escAttr(d.hostname||'display name')}">
       <span class="hint">Display name only — the reported hostname (${escHtml(d.hostname||'unknown')}) is unaffected.</span>
     </div>
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Group</span>
+      <label class="drawer-setting-label" for="ds-group">Group</label>
       <input class="form-input isl-619" id="ds-group" value="${escAttr(d.group||'')}">
     </div>
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Tags</span>
+      <label class="drawer-setting-label" for="ds-tags">Tags</label>
       <input class="form-input isl-619" id="ds-tags" value="${escAttr((d.tags||[]).join(', '))}" placeholder="prod, web, linux">
     </div>
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Icon</span>
+      <label class="drawer-setting-label" for="ds-icon">Icon</label>
       <input class="form-input isl-620" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="e.g. monitor, server, cloud">
     </div>
     <div class="drawer-setting-row">
@@ -22911,7 +22911,7 @@ function _renderDrawerSettings() {
     </div>
     ${isAgentless ? `
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Reachability</span>
+      <label class="drawer-setting-label" for="ds-reachability">Reachability</label>
       <select class="form-input isl-621" id="ds-reachability" data-change="onReachabilityModeChange">
         <option value="icmp" ${(d.reachability || 'icmp') === 'icmp' ? 'selected' : ''}>ICMP ping</option>
         <option value="manual" ${(d.reachability || 'icmp') === 'manual' ? 'selected' : ''}>Manual (set Up/Down)</option>
@@ -22924,25 +22924,25 @@ function _renderDrawerSettings() {
       <span class="hint">ICMP pings the host each sweep; Manual for hosts that block ping; SSH polls metrics + runs commands over SSH (agent-free).</span>
     </div>
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">SSH user / port</span>
+      <label class="drawer-setting-label" for="ds-ssh-user">SSH user / port</label>
       <input class="form-input isl-619" id="ds-ssh-user" value="${escAttr(d.ssh_user||'')}" placeholder="root">
       <input class="form-input isl-621" id="ds-ssh-port" type="number" value="${d.ssh_port||22}" min="1" max="65535">
       <button class="btn-icon" data-action="sshPollDevice" data-arg="${escAttr(d.id)}">Poll over SSH</button>
       <span class="hint">Uses the global SSH key (Settings → Security → Agentless SSH). Save first, then Poll.</span>
     </div>` : ''}
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Poll interval</span>
+      <label class="drawer-setting-label" for="ds-poll">Poll interval</label>
       <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
       <span class="hint">seconds</span>
     </div>
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Offline alert delay</span>
+      <label class="drawer-setting-label" for="ds-alert-delay">Offline alert delay</label>
       <input class="form-input isl-621" id="ds-alert-delay" type="number" value="${d.offline_alert_delay_min||0}" min="0" max="1440">
       <span class="hint">minutes of extra silence before this host raises a <em>device offline</em> alert (0 = default). Use it for a box on a flaky link you don't want paging on every blip.</span>
     </div>
     ${isAgentless ? '' : `
     <div class="drawer-setting-row">
-      <span class="drawer-setting-label">Release channel</span>
+      <label class="drawer-setting-label" for="ds-channel">Release channel</label>
       <select class="form-input isl-621" id="ds-channel">
         <option value="stable" ${(d.update_channel||'stable')!=='beta'?'selected':''}>Stable</option>
         <option value="beta" ${(d.update_channel||'stable')==='beta'?'selected':''}>Beta</option>

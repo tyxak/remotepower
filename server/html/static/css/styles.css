@@ -4328,7 +4328,13 @@ td .kev-badge { margin-left: 0; }
 /* v3.4.0: audit-section group labels (drawer) */
 .audit-group-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-  font-weight: 700; color: var(--muted); opacity: .8;
+  /* v6.4.3: `opacity: .8` removed. --muted alone is 4.98:1; multiplied by .8 it
+     renders #6a7580 = 3.66:1, under the 4.5:1 AA floor — axe measured exactly
+     that. It is the FOURTH stray opacity on a --muted label, and the seeded
+     a11y walk's own comment says this class is "ZERO, not a baseline… they are
+     all gone, so there is nothing to grandfather". This one survived because it
+     lives in the device drawer, which no axe walk had ever opened. */
+  font-weight: 700; color: var(--muted);
   margin: 14px 0 4px; padding-left: 2px;
 }
 .audit-group-label:first-child { margin-top: 2px; }
@@ -5453,6 +5459,12 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-432 { padding: 10px 14px; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; user-select: none }
 .isl-433 { font-weight: 620; font-size: 13px }
 .isl-434 { padding: 3px 8px; font-size: 11px }
+/* v6.4.3: the doc-card Edit/Delete pair, moved OUT of <summary> so the
+   buttons are siblings of the disclosure control rather than nested
+   inside it (axe nested-interactive). Right-aligned in the open body,
+   which is where they now live. */
+.cmdb-doc-actions { display: flex; gap: 6px; justify-content: flex-end;
+  padding: 0 14px 10px; }
 .isl-435 { padding: 3px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
 .isl-436 { padding: 0 14px 14px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.55 }
 .isl-437 { background: var(--surface); padding: 10px; border-radius: 6px; overflow-x: auto }
