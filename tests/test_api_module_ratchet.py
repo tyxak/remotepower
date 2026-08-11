@@ -88,7 +88,16 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # table, main()'s _safe(...) cadence and scheduler.py's CADENCE resolve unchanged
 # (api.py re-imports the names); tests/apisrc.py reads the COMBINED source.
 # api.py was AT the ceiling before this, which is why it went first.
-INLINE_HANDLER_CEILING = 617
+# 617→605 (v6.4.3): PROXMOX VE guest lifecycle → proxmox_handlers.py. The
+# ceiling had reached ZERO slack again, so the next core-spine handler would
+# have failed the build. Proxmox was the cleanest remaining candidate on the
+# measure that matters: its 13 functions (12 handlers + _refresh_snapshot_cache,
+# which only handle_proxmox_list calls) reference just 20 distinct api globals,
+# all of them ordinary bound-module fare — respond / load / CONFIG_FILE /
+# require_admin_auth / audit_log / _read_valid — and none of the notify/event
+# core the ratchet exists to protect. The pure protocol layer already lived in
+# proxmox_client.py, so only the request-coupled half moved.
+INLINE_HANDLER_CEILING = 605
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

@@ -17,7 +17,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from routing_harness import routes_to  # noqa: E402
+from routing_harness import routes_to
+import apisrc  # noqa: E402  # noqa: E402
 
 API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
 PCLIENT = (REPO_ROOT / 'server' / 'cgi-bin' / 'proxmox_client.py').read_text()
@@ -148,7 +149,8 @@ class TestV370ProxmoxVm(unittest.TestCase):
         self.assertIn('def create_qemu(', PCLIENT)
         self.assertIn('def list_isos(', PCLIENT)
         self.assertIn("content=iso", PCLIENT)
-        self.assertIn('def handle_proxmox_qemu_create(', API)
+        # v6.4.3: carved into proxmox_handlers.py — read the combined source.
+        self.assertIn('def handle_proxmox_qemu_create(', apisrc.api_source())
     def test_frontend(self):
         self.assertIn('function openVmCreateWizard(', client_js())
         self.assertIn('id="vm-create-modal"', HTML)

@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from routing_harness import routes_to  # noqa: E402
+import apisrc  # noqa: E402
+
 
 
 class TestVersionBumps(unittest.TestCase):
@@ -558,8 +560,12 @@ class TestProxmoxLxcWizard(unittest.TestCase):
         self.assertEqual(cap['data']['unprivileged'], 1)
 
     def test_server_wiring(self):
+        # v6.4.3: the handlers moved to proxmox_handlers.py, so `def handle_x`
+        # lives in the COMBINED source. The route table and its ORDERING stay
+        # in raw api.py — that is what the assertLess below measures.
         api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.assertIn('def handle_proxmox_lxc_create', api)
+        src = apisrc.api_source()
+        self.assertIn('def handle_proxmox_lxc_create', src)
         self.assertIn("'/api/proxmox/lxc/create-options'", api)
         self.assertIn("'/api/proxmox/lxc/create'", api)
         # create routes MUST precede the generic /lxc/ POST action route
@@ -606,9 +612,10 @@ class TestProxmoxLxcDelete(unittest.TestCase):
 
     def test_server_wiring(self):
         api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.assertIn('def handle_proxmox_lxc_delete', api)
+        src = apisrc.api_source()      # v6.4.3 carve — see TestProxmoxLxcWizard
+        self.assertIn('def handle_proxmox_lxc_delete', src)
         self.assertIn("pi.startswith('/api/proxmox/lxc/') and m == 'DELETE'", api)
-        self.assertIn("'proxmox_lxc_delete'", api)
+        self.assertIn("'proxmox_lxc_delete'", src)
         app = client_js()
         self.assertIn('function lxcDeleteOpen', app)
         self.assertIn('function confirmLxcDelete', app)

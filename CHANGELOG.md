@@ -142,6 +142,16 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The api.py handler ratchet had run out of room.** It caps how many request
+  handlers may live inline in the monolith, and it was sitting at exactly its
+  ceiling — so the next core-spine handler anyone wrote would have failed the
+  build rather than merely being discouraged. The Proxmox VE guest lifecycle
+  (13 functions, ~500 lines) moved into its own bound module, taking the count
+  to 605. It was the cleanest remaining candidate on the measure that matters:
+  it reaches only 20 distinct services from the rest of the server, none of
+  them the notification/event core the ratchet exists to protect, and its pure
+  protocol layer already lived in a sibling module. No behaviour changes —
+  routes, permissions and audit records resolve exactly as before.
 - **The four-eyes justification could never be recorded.** A parked change
   stores a reason and a ticket reference, `_park_for_approval` accepts them,
   and the Confirmations table renders them — but `_approval_context`, the
