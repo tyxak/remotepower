@@ -166,3 +166,50 @@ class TestBothHalvesOfThePromotion(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestThePerRowHelpersAreSafeOnAnyPath(unittest.TestCase):
+    """A write must never land where `load()` will not look.
+
+    `_entity_read_one` / `_entity_write_one` dispatched on the BACKEND alone.
+    On SQLite/Postgres a write to a path that is NOT in `storage.ENTITY_FILES`
+    went into the entity table, while `load()` — which dispatches on
+    `storage._classify()`, i.e. the registry — carried on reading the kv row.
+    The value was written somewhere nothing reads: silent, and only on the DB
+    backends.
+
+    This predates the v6.4.3 promotion; the promotion is just what exercised
+    it. It surfaced because a test rebinds CUSTOM_METRICS_HIST_FILE to a
+    different basename, which is precisely what an operator-supplied path, a
+    test fixture or a future rename does.
+
+    Both helpers now check registration and fall back to the load/save path
+    otherwise, so they are correct on ANY path rather than only on the handful
+    the registry happens to list.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='rp-v643ent-'))
+
+    def test_an_unregistered_path_round_trips(self):
+        odd = self.tmp / 'not_registered_anywhere.json'
+        api.save(odd, {})
+        api._invalidate_load_cache(odd)
+        api._entity_write_one(odd, 'd1', {'hello': 'world'})
+        api._invalidate_load_cache(odd)
+        self.assertEqual((api.load(odd) or {}).get('d1'), {'hello': 'world'},
+                         'the write went somewhere load() does not read')
+
+    def test_read_one_agrees_with_load_on_an_unregistered_path(self):
+        odd = self.tmp / 'not_registered_either.json'
+        api.save(odd, {'d1': {'v': 1}})
+        api._invalidate_load_cache(odd)
+        self.assertEqual(api._entity_read_one(odd, 'd1', None), {'v': 1})
+
+    def test_a_registered_path_still_uses_the_fast_path(self):
+        """The other direction — the guard must not disable the optimisation
+        it is protecting. Without this the safe answer is 'never use entity
+        storage', which would silently undo every promotion in this release."""
+        self.assertTrue(api._is_entity_store(api.THERMAL_HIST_FILE))
+        self.assertTrue(api._is_entity_store(api.SNMP_IF_HIST_FILE))
+        self.assertFalse(api._is_entity_store(self.tmp / 'nope.json'))

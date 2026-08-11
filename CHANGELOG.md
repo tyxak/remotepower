@@ -154,6 +154,13 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **A write could land where nothing would read it.** The per-device
+  read/write helpers decided by storage backend alone, so on the database
+  backends a write to a store that had not been registered for per-row access
+  went into one table while reads went on consulting another — silently, and
+  only on those backends. Both helpers now check registration and fall back
+  correctly. This predates the history changes above; promoting those stores is
+  simply what exercised it.
 - **The device drawer was never checked for accessibility, and had six
   problems.** Every settings field in it — Name, Group, Tags, Poll interval and
   the rest — was labelled by plain text rather than a real label, so a screen

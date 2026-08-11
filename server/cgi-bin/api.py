@@ -4470,13 +4470,34 @@ def _invalidate_load_cache(path):
         _LOAD_CACHE[path] = (None, False)
 
 
+def _is_entity_store(store_file):
+    """Whether this path is registered as an ENTITY store for the DB backends.
+
+    v6.4.3: `_entity_read_one`/`_entity_write_one` dispatched on the BACKEND
+    alone. On SQLite/Postgres that meant a write to an UNREGISTERED file landed
+    in the entity table while `load()` — which dispatches on
+    `storage._classify()`, i.e. the registry — went on reading the kv row. The
+    data was written somewhere nothing reads: silent, backend-specific loss.
+
+    Found when a test rebound CUSTOM_METRICS_HIST_FILE to a different basename
+    ('cm_hist.json'), which is exactly what an operator-supplied path or a
+    future rename would do. Guarding here makes both helpers safe on any path
+    rather than only on the four or five the registry happens to list.
+    """
+    try:
+        import storage as _s
+        return _s._classify(store_file) == 'entity'
+    except Exception:
+        return False
+
+
 def _entity_read_one(store_file, dev_id, default=None):
     """v5.0.0 (perf): O(1) per-device read for an ENTITY-promoted store
     (containers/update_logs/cmds/uptime) on a DB backend, instead of load()ing
     and json-parsing the whole-fleet blob. Falls back to load()[dev_id] on the
     JSON backend (no per-row store there)."""
     _m = _dbmod()
-    if _m is not None:
+    if _m is not None and _is_entity_store(store_file):
         try:
             return _m.entity_get(store_file, dev_id, default)
         except Exception:
@@ -4491,7 +4512,7 @@ def _entity_write_one(store_file, dev_id, value):
     update_logs, uptime), so a write skipped under lock contention is simply
     re-reported on the next beat rather than failing the heartbeat."""
     _m = _dbmod()
-    if _m is not None:
+    if _m is not None and _is_entity_store(store_file):
         try:
             _m.entity_set(store_file, dev_id, value)
             _invalidate_load_cache(store_file)
