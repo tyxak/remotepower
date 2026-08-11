@@ -154,6 +154,16 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **Device profiles could set a threshold that never fires, and quietly undo
+  your per-mount tuning.** A profile with a warning level *above* its critical
+  level was accepted and stamped across the fleet — the warning could then
+  never fire while critical fired far too early — and a value outside the
+  allowed range was dropped without a word under a "Profile saved" toast. Both
+  are refused now. Applying a profile also replaced a device's whole threshold
+  set, destroying per-mount overrides, while the dialog promised it "only
+  stamps the fields it defines"; it now merges, which is what that sentence
+  always claimed. And device profiles are tenant-isolated — a tenant
+  administrator could previously list, edit and delete another tenant's.
 - **Rotating the credential-vault passphrase destroyed most of the vault.**
   Four separate stores are encrypted under that one passphrase — per-device
   credentials, scoped credentials, DNS provider tokens, and the KMIP key

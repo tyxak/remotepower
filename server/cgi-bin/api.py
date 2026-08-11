@@ -14657,17 +14657,44 @@ def _validate_device_profile(body):
         if not isinstance(mt, dict):
             respond(400, {'error': 'metric_thresholds must be a dict'})
         clean = {}
-        for k in ('disk_warn_percent', 'disk_crit_percent', 'mem_warn_percent',
-                  'mem_crit_percent', 'swap_warn_percent', 'swap_crit_percent',
-                  'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'):
-            if k in mt and isinstance(mt[k], (int, float)) and 1 <= mt[k] <= 99:
-                clean[k] = float(mt[k])
-        for k in ('cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
-            if k in mt and isinstance(mt[k], (int, float)) and 0.1 <= mt[k] <= 100:
-                clean[k] = float(mt[k])
-        for k in ('temp_warn_celsius', 'temp_crit_celsius'):
-            if k in mt and isinstance(mt[k], (int, float)) and 0 <= mt[k] <= 200:
-                clean[k] = float(mt[k])
+        # v6.4.3: a value outside the range used to be SILENTLY DROPPED — the
+        # key simply never landed in `clean`, the profile saved, and the toast
+        # said "Profile saved". The operator then believed a threshold was set
+        # that did not exist. Same shape as the Alert-parameters bug fixed
+        # earlier in this release: refuse the input rather than quietly
+        # substituting something else for it.
+        _RANGES = (
+            (('disk_warn_percent', 'disk_crit_percent', 'mem_warn_percent',
+              'mem_crit_percent', 'swap_warn_percent', 'swap_crit_percent',
+              'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'), 1, 99, 'percent'),
+            (('cpu_warn_load_ratio', 'cpu_crit_load_ratio'), 0.1, 100, 'load ratio'),
+            (('temp_warn_celsius', 'temp_crit_celsius'), 0, 200, 'celsius'),
+        )
+        _known = {k for keys, _lo, _hi, _u in _RANGES for k in keys}
+        for k, v in mt.items():
+            if k not in _known:
+                continue
+            lo, hi, unit = next((lo, hi, u) for keys, lo, hi, u in _RANGES if k in keys)
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                respond(400, {'error': f'{k} must be a number'})
+            if not (lo <= v <= hi):
+                respond(400, {'error': f'{k} must be {lo}–{hi} ({unit})'})
+            clean[k] = float(v)
+        # v6.4.3: warn must be BELOW crit. The per-device PATCH has always
+        # enforced this; the profile path did not, so a profile with
+        # mem_warn=90 / mem_crit=50 was accepted and stamped across the fleet —
+        # making `warning` unreachable while `critical` fired at 50%. A
+        # threshold pair that cannot both fire is never what anyone meant.
+        for _w, _c, _label in (('disk_warn_percent', 'disk_crit_percent', 'disk'),
+                               ('mem_warn_percent', 'mem_crit_percent', 'memory'),
+                               ('swap_warn_percent', 'swap_crit_percent', 'swap'),
+                               ('snmp_cpu_warn_percent', 'snmp_cpu_crit_percent', 'SNMP CPU'),
+                               ('cpu_warn_load_ratio', 'cpu_crit_load_ratio', 'CPU load'),
+                               ('temp_warn_celsius', 'temp_crit_celsius', 'temperature')):
+            if _w in clean and _c in clean and clean[_w] >= clean[_c]:
+                respond(400, {'error': f'{_label}: warning ({clean[_w]:g}) must be '
+                                       f'below critical ({clean[_c]:g}) — otherwise '
+                                       'the warning level can never fire'})
         out['metric_thresholds'] = clean
     return out
 
@@ -14681,8 +14708,24 @@ def _apply_profile_to_device(dev, profile):
         if f in profile:
             updated[f] = profile[f]
     if 'metric_thresholds' in profile:
+        # v6.4.3: MERGE, don't replace. Overwriting the whole dict silently
+        # destroyed a device's per-mount overrides (`disk_per_mount`) and any
+        # threshold the profile does not define — while the modal promised
+        # "applying a profile only stamps the fields it defines". That was true
+        # between top-level fields and false INSIDE metric_thresholds, which is
+        # exactly where an operator has done the fiddly per-mount work.
+        merged = dict(dev.get('metric_thresholds') or {})
+        merged.update(profile['metric_thresholds'] or {})
+        updated['metric_thresholds'] = merged
         updated.pop('metric_state', None)
     return updated
+
+
+def _profile_visible(profile):
+    """Whether the caller may see/manage this device profile under tenancy.
+    No-op (True) for a superadmin and when tenancy is off."""
+    gate = _tenant_gate()
+    return gate is None or (profile.get('tenant') or DEFAULT_TENANT) == gate
 
 
 def handle_device_profiles():
@@ -14690,8 +14733,15 @@ def handle_device_profiles():
     actor = require_admin_auth()
     if method() == 'GET':
         profs = load(DEVICE_PROFILES_FILE) or {}
+        # v6.4.3 (SECURITY): own tenant only. Device profiles had NO tenant
+        # dimension at all, so a tenant-scoped admin listed, edited and DELETED
+        # another tenant's profiles. Smart groups — their sibling from the same
+        # batch — already stamp and gate on `tenant`; this mirrors them.
+        gate = _tenant_gate()
         respond(200, {'profiles': [dict(p, id=pid) for pid, p in profs.items()
-                                    if isinstance(p, dict)]})
+                                    if isinstance(p, dict)
+                                    and (gate is None
+                                         or (p.get('tenant') or DEFAULT_TENANT) == gate)]})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.DeviceProfilesRequest)
@@ -14703,7 +14753,8 @@ def handle_device_profiles():
     with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
         if len(profs) >= 100:
             respond(400, {'error': 'profile limit reached (max 100)'})
-        profs[pid] = dict(fields, name=name, created=int(time.time()))
+        profs[pid] = dict(fields, name=name, created=int(time.time()),
+                          tenant=_caller_effective_tenant(actor))
     audit_log(actor, 'device_profile_create', detail=f'name={name} id={pid}')
     respond(201, {'ok': True, 'id': pid})
 
@@ -14714,6 +14765,11 @@ def handle_device_profile(pid):
     pid = _sanitize_str(pid, 32)
     if method() == 'DELETE':
         with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
+            _p = profs.get(pid)
+            # v6.4.3 (SECURITY): 404 rather than 403 — a tenant admin must not
+            # be able to probe for another tenant's profile ids.
+            if isinstance(_p, dict) and not _profile_visible(_p):
+                respond(404, {'error': 'profile not found'})
             existed = profs.pop(pid, None) is not None
         if not existed:
             respond(404, {'error': 'profile not found'})
@@ -14725,7 +14781,7 @@ def handle_device_profile(pid):
     fields = _validate_device_profile(body)
     with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
         p = profs.get(pid)
-        if not isinstance(p, dict):
+        if not isinstance(p, dict) or not _profile_visible(p):
             respond(404, {'error': 'profile not found'})
         if 'name' in body:
             nm = _sanitize_str(str(body['name']), 64).strip()
@@ -14746,7 +14802,7 @@ def handle_device_profile_apply(pid):
         respond(405, {'error': 'Method not allowed'})
     pid = _sanitize_str(pid, 32)
     profile = (load(DEVICE_PROFILES_FILE) or {}).get(pid)
-    if not isinstance(profile, dict):
+    if not isinstance(profile, dict) or not _profile_visible(profile):
         respond(404, {'error': 'profile not found'})
     body = _read_valid(request_models.DeviceProfileApplyRequest)
     ids = body.get('device_ids')
