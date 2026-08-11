@@ -26,9 +26,12 @@ it is worth being explicit about where privilege is actually held, because the
 answer is narrower than "the whole thing runs as root".
 
 **The server does not run as root.** The app server, scheduler and push daemon
-run as `www-data` under `NoNewPrivileges=true`, `ProtectSystem=full`,
-`ProtectHome=true` and `PrivateTmp=true`. Nothing in the web tier — the API, the
-UI, the dashboard you log into — holds root.
+run as the web-server user — `www-data` on Debian/Ubuntu, `nginx` on RHEL,
+`http` on Arch — under `NoNewPrivileges=true`, `ProtectHome=true` and
+`PrivateTmp=true`, with `ProtectSystem=full` on the app server and scheduler
+and the stricter `ProtectSystem=strict` on the push daemon, which needs nothing
+writable at all. Nothing in the web tier — the API, the UI, the dashboard you
+log into — holds root.
 
 **The agent runs as root, by design.** Applying a patch, restarting a unit or
 reading SMART data is what the agent is *for*: `dpkg` / `pacman` / `systemctl` /

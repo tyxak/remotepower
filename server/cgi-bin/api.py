@@ -22661,6 +22661,58 @@ def handle_process_kill(dev_id):
     _queue_command(dev_id, f'kill:{sig}:{pid}', actor)   # responds 200 + exits
 
 
+# v6.4.3: which agents actually IMPLEMENT each queued verb.
+#
+# A verb the target agent doesn't handle is queued, delivered, and answered with
+# "unsupported command" — but the queue path returned 200 and the UI toasted
+# success, so the operator saw an action succeed and nothing happen. The macOS
+# agent handles 7 of the 18 verbs the server can send; the Windows agent handles
+# 14. This is the same success-toast-then-silence class CLAUDE.md names, reached
+# through the command channel rather than a heartbeat flag.
+#
+# Only verbs with a REAL platform gap are listed — anything absent is treated as
+# universally supported, so a new verb is never silently blocked by this table.
+# `tests/test_v643_verb_parity.py` derives the same matrix from the three agent
+# sources and fails when this table and the agents disagree, in either
+# direction: a verb implemented later but still listed here would keep being
+# refused, which is the quieter and more annoying failure of the two.
+_VERB_OS_SUPPORT = {
+    'container:':      ('linux', 'windows'),
+    'compose:':        ('linux',),
+    'compose_deploy:': ('linux',),
+    'svc:':            ('linux', 'windows'),
+    'kill:':           ('linux', 'windows'),
+    'files:':          ('linux', 'windows'),
+    'uninstall':       ('linux', 'windows'),
+    'winget:':         ('windows',),
+    'ps:':             ('windows',),
+    'cmd:':            ('windows',),
+    'speedtest':       ('linux',),
+    'netscan':         ('linux',),
+    'suspend':         ('linux',),
+    'upgrade':         ('windows', 'darwin'),   # Linux patches via exec:<bash>
+}
+_OS_LABEL = {'linux': 'Linux', 'windows': 'Windows', 'darwin': 'macOS'}
+
+
+def _verb_unsupported_on(dev, command):
+    """(verb, family) when this device's agent cannot run `command`, else None.
+
+    Matches the longest applicable key so 'upgrade:<pkg>' resolves via 'upgrade'
+    and a prefix verb ('svc:foo') via its prefix.
+    """
+    s = str(command)
+    verb = next((k for k in _VERB_OS_SUPPORT
+                 if (s == k or s.startswith(k)) if k.endswith(':')), None)
+    if verb is None:
+        base = s.split(':', 1)[0]
+        verb = base if base in _VERB_OS_SUPPORT else None
+    if verb is None:
+        return None
+    fam = _device_os_family(dev)
+    return None if fam in _VERB_OS_SUPPORT[verb] else (verb, fam)
+
+
 def _command_block_reason(dev, command):
     """v6.2.0: the shared, NON-responding pre-flight for any path that queues a
     command on a host. Returns (status, message) when the command must not be
@@ -22694,6 +22746,15 @@ def _command_block_reason(dev, command):
         return (409, 'Device is in audit (read-only) mode — exec/reboot/actions are '
                      'disabled. Remove /etc/remotepower/audit-mode on the host to '
                      're-enable.')
+    # v6.4.3: same reasoning as audit mode one line up — the agent would answer
+    # "unsupported command", so refuse now with a message that names the gap
+    # instead of a success toast followed by silence.
+    _vu = _verb_unsupported_on(dev, command)
+    if _vu:
+        _verb, _fam = _vu
+        _ok = ', '.join(_OS_LABEL.get(f, f) for f in _VERB_OS_SUPPORT[_verb])
+        return (409, f'The {_fam and _OS_LABEL.get(_fam, _fam)} agent does not implement '
+                     f'"{_verb.rstrip(":")}" — it is available on {_ok} hosts only.')
     return None
 
 
@@ -22861,6 +22922,13 @@ def _queue_command_batch(dev_ids, command, actor):
             # (read-only) host so bulk ops report a clear error, not false success.
             if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
                 results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
+            # v6.4.3: and mirror the OS-support gate, so a mixed-platform batch
+            # reports the hosts whose agent cannot run this verb instead of
+            # counting them as queued successes.
+            _vu = _verb_unsupported_on(devices[dev_id], command)
+            if _vu:
+                results[dev_id] = {'ok': False, 'error':
+                    f'Not implemented by the {_OS_LABEL.get(_vu[1], _vu[1])} agent'}; continue
             if dev_id not in cmds:
                 cmds[dev_id] = []
             if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
@@ -22910,6 +22978,13 @@ def _queue_command_map(dev_cmds, actor):
                 results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
             if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
                 results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
+            # v6.4.3: and mirror the OS-support gate, so a mixed-platform batch
+            # reports the hosts whose agent cannot run this verb instead of
+            # counting them as queued successes.
+            _vu = _verb_unsupported_on(devices[dev_id], command)
+            if _vu:
+                results[dev_id] = {'ok': False, 'error':
+                    f'Not implemented by the {_OS_LABEL.get(_vu[1], _vu[1])} agent'}; continue
             if dev_id not in cmds:
                 cmds[dev_id] = []
             if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
@@ -35341,17 +35416,37 @@ def handle_image_cve_scan():
         # scoped operator could queue scans on out-of-scope hosts. _scope_filter_
         # devices folds in BOTH role scope and tenant.
         _scoped = _scope_filter_devices(dict(devices))
+        # v6.4.3: trivy is driven by the Linux agent alone — `force_image_scan`
+        # is read there and nowhere else, so a Windows host reporting containers
+        # (agent-win does collect them) was queued, counted in the toast, and
+        # never scanned. Split the batch honestly like SCAP and file backups do.
+        # The family is read off the dict already held under the lock rather
+        # than via _split_targets_by_os_support, which would re-load + deepcopy
+        # the whole device store inside the write lock for no new information.
+        os_skipped = []
         for d in targets:
             if d not in _scoped:
                 continue
+            if _device_os_family(devices.get(d)) != 'linux':
+                os_skipped.append((devices.get(d) or {}).get('name', d))
+                continue
             devices[d]['force_image_scan'] = True
             queued.append(d)
-    audit_log(actor, 'image_cve_scan_queued', detail=f'devices={len(queued)}')
+    audit_log(actor, 'image_cve_scan_queued',
+              detail=f'devices={len(queued)} skipped_os={len(os_skipped)}')
+    if queued:
+        _msg = (f'Image scan queued on {len(queued)} host(s) — trivy runs on '
+                'the next heartbeat; results appear within a few minutes.')
+    elif os_skipped:
+        _msg = ''      # the skipped sentence below says the whole story
+    else:
+        _msg = 'No hosts with running containers to scan.'
+    if os_skipped:
+        _msg = (_msg + ' ' if _msg else '') + (
+            f'{len(os_skipped)} non-Linux host(s) skipped '
+            f'({", ".join(os_skipped[:5])}) — image scanning runs on Linux only.')
     respond(200, {'ok': True, 'queued': len(queued),
-                  'message': (f'Image scan queued on {len(queued)} host(s) — trivy runs on '
-                              'the next heartbeat; results appear within a few minutes.')
-                             if queued else
-                             'No hosts with running containers to scan.'})
+                  'skipped_unsupported': os_skipped, 'message': _msg})
 
 
 def handle_disk_usage(dev_id):
@@ -51429,6 +51524,15 @@ def handle_scans_create():
         if terr:
             respond(400, {'error': terr})
         target_device_id, target_name = dev_id, dev.get('name', dev_id)
+        # v6.4.3: an on-host audit is executed by the device's own agent, and
+        # lynis is wired in the Linux agent only. Queued against a Windows or
+        # macOS host the job was still handed out by _claim_agent_scan on the
+        # next heartbeat, flipped to `running`, and sat there until the reaper
+        # timed it out — an hour of "scanning" that never started.
+        if is_host and _device_os_family(dev) != 'linux':
+            respond(400, {'error': f'{tool} host audits run on Linux hosts only — '
+                                   f'{dev.get("name", dev_id)} is a '
+                                   f'{_device_os_family(dev)} host.'})
         # v4.2.0 (#1): optional vhost — scan a hostname (the right Host header /
         # vhost on this device) instead of its bare IP. Gated by ownership: the
         # vhost must be an already-VERIFIED scan target, so this can't be abused
@@ -51721,6 +51825,12 @@ def _claim_agent_scan(dev_id):
                and v.get('runner') == 'agent'
                and v.get('target_device_id') == dev_id
                for v in peek.values()):
+        return None
+    # v6.4.3: never hand an on-host audit to an agent that cannot run one.
+    # handle_scans_create now refuses these at the door, but a job queued by an
+    # older client — or by a schedule created before that gate existed — would
+    # otherwise still be claimed here, marked `running`, and abandoned.
+    if _device_os_family(device_get(dev_id)) != 'linux':
         return None
     claimed = None
     with _LockedUpdate(SCANS_FILE) as scans:
@@ -58556,6 +58666,12 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
                 d[device_id]['force_package_scan'] = True
 
     elif action == 'force_acme_rescan':
+        # Same Linux-only refusal as handle_force_acme_rescan — an AI caller
+        # that gets a bare {'ok': True} here will report the rescan as done.
+        _fam = _device_os_family(device_get(device_id))
+        if _fam != 'linux':
+            return {'ok': False, 'error': 'ACME certificate scanning is implemented for '
+                                          f'the Linux agent only — this is a {_fam} host.'}
         with _LockedUpdate(DEVICES_FILE) as d:
             if device_id in d:
                 d[device_id]['force_acme_rescan'] = True
@@ -69707,6 +69823,19 @@ def handle_iac_request():
         if dev is None:
             respond(404, {'error': 'device not found'}); return
         if agent_cats:
+            # v6.4.3: `force_iac_collect` is read by the Linux agent only. On a
+            # Windows/macOS host the flag was set, never consumed, and the page
+            # blamed the agent after a 3-minute timeout. Refuse up front and
+            # name the categories that need it — the server-resolvable ones
+            # still work, so the operator can retry with those.
+            _fam = _device_os_family(dev)
+            if _fam != 'linux':
+                respond(400, {'error': (
+                    f'{", ".join(sorted(agent_cats))} must be collected by the agent, '
+                    f'which is implemented for Linux only — this is a {_fam} host. '
+                    'Re-run without those categories for the parts the server can '
+                    'resolve on its own.')})
+                return
             dev['force_iac_collect'] = {
                 'request_id': request_id,
                 'categories': agent_cats,
@@ -70419,6 +70548,13 @@ def handle_force_acme_rescan(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devs:
         if dev_id not in devs:
             respond(404, {'error': 'device not found'}); return
+        # v6.4.3: acme.sh state is read by the Linux agent only — the Windows
+        # and macOS agents document force_acme_rescan as a key they ignore. The
+        # flag was set anyway, the toast said "queued", and it never fired.
+        _fam = _device_os_family(devs.get(dev_id))
+        if _fam != 'linux':
+            respond(400, {'error': f'ACME certificate scanning is implemented for the '
+                                   f'Linux agent only — this is a {_fam} host.'}); return
         devs[dev_id]['force_acme_rescan'] = True
     audit_log(actor, 'acme_force_rescan', detail=f'device={dev_id}')
     respond(200, {'ok': True, 'message':

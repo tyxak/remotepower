@@ -128,6 +128,14 @@ class TestBackupDoesNotSwallowSnapshots(unittest.TestCase):
         self.assertIn('_BACKUP_SNAPSHOT_DIR', line)
 
     def test_a_real_backup_omits_the_snapshot_dir(self):
+        # v6.4.3: assert against the directory the writer will ACTUALLY use.
+        # `_run_data_backup` honours `config.backup.path` and falls back to
+        # `_default_backup_dir()`; this test globbed the fallback unconditionally
+        # and so failed whenever another module had left a `path` override in
+        # the shared config — a failure that named backups but was caused
+        # somewhere else entirely.
+        _bcfg = (api.load(api.CONFIG_FILE) or {}).get('backup') or {}
+        out_dir = Path(_bcfg.get('path') or api._default_backup_dir())
         d = Path(api.DATA_DIR)
         snap = d / api._BACKUP_SNAPSHOT_DIR
         snap.mkdir(parents=True, exist_ok=True)
@@ -138,8 +146,9 @@ class TestBackupDoesNotSwallowSnapshots(unittest.TestCase):
             api._run_data_backup(triggered_by='manual')
         finally:
             api._backup_passphrase = real_pp
-        newest = max(Path(api._default_backup_dir()).glob('remotepower_data_*'),
-                     key=lambda f: f.stat().st_mtime)
+        archives = list(out_dir.glob('remotepower_data_*'))
+        self.assertTrue(archives, f'no archive was written under {out_dir}')
+        newest = max(archives, key=lambda f: f.stat().st_mtime)
         with tarfile.open(newest) as t:
             names = t.getnames()
         self.assertFalse([n for n in names if api._BACKUP_SNAPSHOT_DIR in n],

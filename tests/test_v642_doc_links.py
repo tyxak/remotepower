@@ -182,5 +182,48 @@ class TestTheDocsFilterIsMultiToken(unittest.TestCase):
         self.assertNotIn("summary.includes(q) || body.includes(q)", body)
 
 
+class TestDocsDoNotLinkToEachOtherIntoNothing(unittest.TestCase):
+    """v6.4.3: the scan above covers app → docs. Nothing covered docs → docs,
+    and `docs/compliance.md` had been pointing at `pii.md` — a file that has
+    never existed under that name (it is `pii-scan.md`) — since the PII scanner
+    shipped. Same failure the tls.md case above pins, one hop further out.
+
+    README.md and SECURITY.md are included: they are the entry points a reader
+    arrives through. CHANGELOG.md is deliberately NOT, because it is the
+    complete dated history and its `See docs/vX.Y.Z.md` pointers are expected
+    to dangle once retention deletes the version doc — that is stated policy,
+    not rot.
+    """
+
+    _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+    def _dead(self, path):
+        out = []
+        for m in self._LINK.finditer(path.read_text()):
+            target = m.group(1).split("#")[0].strip()
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            if not (path.parent / target).exists():
+                out.append(f"{path.name} → {target}")
+        return out
+
+    def test_every_docs_page(self):
+        dead = [d for p in sorted(_DOCS.glob("*.md")) for d in self._dead(p)]
+        self.assertEqual(dead, [], "dead relative links between docs: " + str(dead))
+
+    def test_the_readme_and_security_policy(self):
+        dead = []
+        for name in ("README.md", "SECURITY.md"):
+            p = ROOT / name
+            if p.exists():
+                dead += self._dead(p)
+        self.assertEqual(dead, [], "dead relative links: " + str(dead))
+
+    def test_the_scan_finds_links_at_all(self):
+        """Without this, deleting every doc would make the two tests above pass."""
+        self.assertGreater(
+            len(self._LINK.findall((_DOCS / "README.md").read_text())), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

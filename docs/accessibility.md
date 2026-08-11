@@ -39,6 +39,15 @@ Three sources, all reproducible from the repository:
   enabled** — there are no disabled rules and no exemptions. `color-contrast`
   and `nested-interactive` are both fully enforced; the last exemption was
   removed in v6.1.1, and `tests/test_v430_a11y.py` asserts it cannot come back.
+- **Automated again, this time with data on the screen** (v6.4.3). The sweep
+  above walks an *empty* install, where a table has no rows and a status pill
+  has no state — so anything that only exists inside a populated row was
+  structurally invisible to it. A second pass now seeds the demo dataset, ages
+  half the devices so both the online and offline presentations render, and
+  re-audits Devices, Alerts, Monitors, Containers and CMDB. It found 48
+  contrast failures on the first run that the empty-install sweep had never
+  been able to see; the ceiling is now zero, and the assertion names the
+  offending nodes rather than reporting a count.
 - **Structural ratchets, no browser needed.** `tests/test_a11y_labels.py`
   re-implements the accessible-name computation and fails the build if the
   number of form controls without an accessible name in `index.html` rises
@@ -100,10 +109,17 @@ as the more interesting half of this document.
 
 **Presentation**
 
-- **Colour contrast meets WCAG AA** across all shipped themes and is enforced
-  by the axe `color-contrast` rule with no exemptions. Each theme's accent has
-  a computed foreground (`--accent-contrast`) sized for it, and the muted text
-  colour was retuned per theme where it fell short against the surface.
+- **Colour contrast meets WCAG AA**, with two different mechanisms behind that
+  sentence — worth separating, because they give different strengths of
+  assurance. In the **default theme**, contrast is enforced end-to-end by the
+  axe `color-contrast` rule with no exemptions, run against real rendered
+  pages. In the **other themes**, contrast was tuned by hand and is checked at
+  the token level: `tests/test_v642_css.py` replays the stylesheet's cascade
+  for every theme and accent preset and fails if any accent-as-text pairing
+  drops below AA. Each theme's accent has a computed foreground
+  (`--accent-contrast`) sized for it, and the muted text colour was retuned per
+  theme where it fell short against the surface. So: every theme is checked,
+  but only the default one is checked by a browser looking at the real page.
 - **Reduced motion is respected.** `@media (prefers-reduced-motion: reduce)`
   blocks disable the status-dot pulse, page/row transitions, ring animations
   and every other informative-motion effect.
@@ -158,6 +174,13 @@ they were invisible to the gate entirely, and real critical failures were living
 there: 368 unlabelled checkboxes in the notification event matrix, an unnamed
 button, and two colour-contrast failures. The pane sweep found the last of those
 the first time it ran.
+
+The same blindness had a second form, closed in v6.4.3: the sweep ran against
+an **empty database**. A page with no rows renders none of the controls that
+live in rows, so "zero violations" meant "zero violations in the chrome". The
+seeded pass described above found 48 contrast failures the moment there was
+data to render — all of them stray `opacity` declarations dimming text that was
+already muted, none of them visible without rows.
 
 Still not opened by the gate: the ~133 modal overlays and the device drawer.
 A violation inside one of those remains invisible to automation.
@@ -249,7 +272,7 @@ do not read this as either a pass or a fail.
 | 1.3.4 Orientation | AA | Supports | No orientation lock; the layout reflows to mobile. |
 | 1.3.5 Identify Input Purpose | AA | Partially supports | Login fields use standard `autocomplete`; most operational fields (device names, thresholds, filters) have no WCAG-defined input purpose to identify. |
 | 1.4.1 Use of Colour | A | Supports | Status is carried by text/badges alongside colour; the active nav item uses `aria-current`, not colour alone. |
-| 1.4.3 Contrast (Minimum) | AA | Supports | Enforced by the axe `color-contrast` rule with no exemptions, across every shipped theme. |
+| 1.4.3 Contrast (Minimum) | AA | Supports | Default theme: enforced by the axe `color-contrast` rule on rendered pages, no exemptions. Other themes: every accent/surface pairing checked at the token level by `tests/test_v642_css.py`. |
 | 1.4.4 Resize Text | AA | Supports | Relative layout; no `user-scalable=no`. |
 | 1.4.5 Images of Text | AA | Supports | All UI text is real text; icons are SVG. |
 | 1.4.10 Reflow | AA | Not evaluated | The layout is responsive to mobile widths, but 400%-zoom reflow has not been formally tested. |

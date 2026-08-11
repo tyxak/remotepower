@@ -455,6 +455,14 @@ class _NoRedirect(request.HTTPRedirectHandler):
 
 _OPENER = request.build_opener(_NoRedirect, request.HTTPSHandler(context=_SSL_CTX))
 
+# v6.4.3: bound every response the agent reads off the wire. A read with no
+# size argument lets a compromised or impersonated server hand this
+# root-privileged process an unbounded body and exhaust the host's memory. The
+# caps had drifted three ways across the three agents, and the macOS agent had
+# none at all. One pair of names, identical values, in all three.
+MAX_JSON_RESP = 4 * 1024 * 1024      # any JSON reply (heartbeat, enroll, config)
+MAX_DOWNLOAD  = 64 * 1024 * 1024     # a self-update binary
+
 # v6.1.1 (#1): OPTIONAL push-channel listener. Same "try/except ImportError,
 # feature just doesn't activate" pattern this file already uses for psutil --
 # NOT hand-rolled WebSocket framing in the core agent. This is a deliberate
@@ -634,7 +642,7 @@ def _ka_request(url, body, headers, timeout):
         try:
             conn.request('POST', path, body=body, headers=headers)
             resp = conn.getresponse()
-            data = resp.read(1024 * 1024)   # cap at 1 MB (as before)
+            data = resp.read(MAX_JSON_RESP)
         except (_http_client.HTTPException, OSError):
             _ka_drop()
             if reused and attempt == 0:
@@ -660,7 +668,7 @@ def http_post(url, data, timeout=10):
     if os.environ.get('RP_NO_KEEPALIVE') == '1' or _ka_proxied(url):
         req = request.Request(url, data=body, headers=headers)
         with _OPENER.open(req, timeout=timeout) as resp:
-            return json.loads(resp.read(1024 * 1024))  # cap at 1 MB
+            return json.loads(resp.read(MAX_JSON_RESP))
     return json.loads(_ka_request(url, body, headers, timeout))
 
 def http_get(url, timeout=10):
@@ -668,14 +676,14 @@ def http_get(url, timeout=10):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read(1024 * 1024))
+        return json.loads(resp.read(MAX_JSON_RESP))
 
 def http_get_binary(url, timeout=30):
     if not url.startswith('https://'):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return resp.read(64 * 1024 * 1024)  # cap at 64 MB
+        return resp.read(MAX_DOWNLOAD)
 
 # ─── Credentials ───────────────────────────────────────────────────────────────
 def load_credentials():

@@ -252,8 +252,14 @@ async function queueScan() {
   const res = await api('POST', '/scans', { device_id: _scanSelectedDevice.id, ...opts });
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
+  // v6.4.3: an on-host audit (lynis) is executed by the device's OWN agent on
+  // its next heartbeat, not by a scanner satellite. The satellite sentence was
+  // printed for every single-tool scan, so the operator watched the wrong thing
+  // and, on a fleet with no satellite, concluded the scan was stuck.
   toast(res.count ? `Queued ${res.count} scans (one per tool).`
-                  : 'Scan queued — runs on the next scanner-satellite poll.', 'success');
+        : res.scan?.runner === 'agent'
+          ? 'Host audit queued — runs on this host’s own agent at its next heartbeat.'
+          : 'Scan queued — runs on the next scanner-satellite poll.', 'success');
   loadScans();
 }
 

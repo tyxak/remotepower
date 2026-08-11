@@ -69,7 +69,7 @@ RemotePower holds personal data about **people**, not only about hosts:
 operator accounts and avatars, the Contacts directory (name / role / company /
 email / phone / notes), ticket authors and assignees, ticket comment authors,
 time-billing entries, and audit `actor` fields. (This is distinct from the
-[PII scanner](pii.md), which finds regulated data on the hosts you manage.)
+[PII scanner](pii-scan.md), which finds regulated data on the hosts you manage.)
 
 | capability | SOC 2 | ISO 27001:2022 |
 |---|---|---|

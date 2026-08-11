@@ -962,6 +962,7 @@ def handle_backup_job_update(job_id):
             A.respond(400, {'error': f'invalid file-backup spec: {err}'})
         job['spec'] = body['spec']
         job['type'] = 'file'
+    os_skipped = []
     if 'device_ids' in body or 'device_id' in body:
         # v6.3.0 baseline: re-target the job (tenant/scope-filtered).
         devices = A.load(A.DEVICES_FILE)
@@ -994,7 +995,13 @@ def handle_backup_job_update(job_id):
         job['enabled'] = bool(body['enabled'])
     A.save(A.BACKUP_JOBS_FILE, data)
     A.audit_log(actor, 'backup_job_update', detail=f'job={job_id}')
-    A.respond(200, {'ok': True})
+    # Report the dropped hosts the same way the create path does, or the edit
+    # answers "ok" while having silently narrowed the target list.
+    A.respond(200, {'ok': True,
+                    'skipped_unsupported': os_skipped,
+                    'note': (f'{len(os_skipped)} non-Linux host(s) were left out of '
+                             f'this file job: {", ".join(os_skipped[:5])}'
+                             if os_skipped else '')})
 
 
 def handle_backup_jobs_list():

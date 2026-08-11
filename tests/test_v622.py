@@ -152,6 +152,22 @@ class TestBackupSkipsUnreadable(unittest.TestCase):
             self.skipTest("root reads mode-0 files — scenario not reproducible")
         bdir = tempfile.mkdtemp(prefix="rp-bk-")
         cfg = api.load(api.CONFIG_FILE) or {}
+        # v6.4.3: restore whatever was there. CONFIG_FILE is shared across every
+        # test module in the process, and leaving `backup.path` pointing at this
+        # scratch dir silently redirected a LATER module's backup — its own
+        # assertion then globbed the default directory, found nothing, and
+        # failed with `max() arg is empty` in a file that had nothing to do with
+        # this one. Order-dependent, so it appeared and vanished with the
+        # selection. (CLAUDE.md's shared-store class.)
+        _prev = cfg.get("backup")
+        def _restore():
+            c = api.load(api.CONFIG_FILE) or {}
+            if _prev is None:
+                c.pop("backup", None)
+            else:
+                c["backup"] = _prev
+            api.save(api.CONFIG_FILE, c)
+        self.addCleanup(_restore)
         cfg["backup"] = {"enabled": True, "path": bdir}
         api.save(api.CONFIG_FILE, cfg)
         bad = api.DATA_DIR / "secrets_scan_last"

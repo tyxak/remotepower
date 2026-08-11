@@ -255,7 +255,15 @@ async function saveBackupJob() {
   if (body.cron && body.cron.split(/\s+/).length !== 5) { toast('Cron needs 5 fields (min hour day month weekday)', 'error'); return; }
   const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
                : await api('POST', '/backup-jobs', body);
-  if (d?.ok) { toast(id ? 'Job saved' : 'Job created', 'success'); closeModal('backupjob-modal'); loadBackupJobs(); }
+  if (d?.ok) {
+    closeModal('backupjob-modal'); loadBackupJobs();
+    // v6.4.3: a file job is Linux-only, so a mixed batch comes back with the
+    // non-Linux hosts dropped and named in `note`. Reporting a flat "Job
+    // saved" hid that — the operator believed hosts were covered that were
+    // silently left out.
+    if (d.note) toast((id ? 'Job saved' : 'Job created') + ' — ' + d.note, 'warning');
+    else toast(id ? 'Job saved' : 'Job created', 'success');
+  }
   else toast(d?.error || 'Failed', 'error');
 }
 

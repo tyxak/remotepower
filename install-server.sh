@@ -303,6 +303,17 @@ case $PKG_MGR in
   pacman) NGINX_USER=http     ;;
 esac
 
+# v6.4.3: every shipped unit hardcodes User=/Group=www-data (the Debian name),
+# and only the push daemon was being rewritten to the distro's web user. On
+# RHEL and Arch `www-data` does not exist, so systemd failed remotepower-wsgi
+# and remotepower-scheduler with status=217/USER — and the data dir is chowned
+# to $NGINX_USER above, so even a hand-created www-data could not read it. One
+# helper, applied to every unit that ships the literal.
+render_unit_user() {
+    [[ "$NGINX_USER" == "www-data" ]] && return 0
+    sed -i "s/^User=www-data/User=${NGINX_USER}/; s/^Group=www-data/Group=${NGINX_USER}/" "$1"
+}
+
 # ── Directories ─────────────────────────────────────────────────────────────────
 info "Creating directories..."
 install -d -m 755 /var/www/remotepower/cgi-bin
@@ -494,6 +505,7 @@ success "Nginx configured"
 info "Starting the app server (gunicorn + wsgi.py)..."
 install -m 644 "$SCRIPT_DIR/server/conf/remotepower-wsgi.service" \
     /etc/systemd/system/remotepower-wsgi.service
+render_unit_user /etc/systemd/system/remotepower-wsgi.service
 install -d -m 755 -o root -g root /etc/remotepower
 systemctl daemon-reload
 systemctl enable --now remotepower-wsgi \
@@ -650,6 +662,7 @@ if [[ "$WITH_SCHEDULER" == "1" ]]; then
     info "Enabling the out-of-band maintenance scheduler..."
     install -m 644 "$SCRIPT_DIR/server/conf/remotepower-scheduler.service" \
         /etc/systemd/system/remotepower-scheduler.service
+    render_unit_user /etc/systemd/system/remotepower-scheduler.service
     install -d -m 755 -o root -g root /etc/remotepower
     touch /etc/remotepower/api.env && chmod 600 /etc/remotepower/api.env
     if ! grep -q '^RP_EXTERNAL_SCHEDULER=1' /etc/remotepower/api.env 2>/dev/null; then
@@ -677,10 +690,7 @@ if [[ "$WITH_PUSH" == "1" ]]; then
         /etc/systemd/system/remotepower-push.service
     # The unit ships User=www-data; run as the distro's web user (RHEL=nginx,
     # Arch=http) so it can read the data dir + cgi-bin.
-    if [[ "$NGINX_USER" != "www-data" ]]; then
-        sed -i "s/^User=www-data/User=${NGINX_USER}/; s/^Group=www-data/Group=${NGINX_USER}/" \
-            /etc/systemd/system/remotepower-push.service
-    fi
+    render_unit_user /etc/systemd/system/remotepower-push.service
     systemctl daemon-reload
     systemctl enable --now remotepower-push \
         && success "Agent push daemon installed (remotepower-push on 127.0.0.1:8766)" \

@@ -165,6 +165,14 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_NoRedirect,
                                       urllib.request.HTTPSHandler(context=_SSL_CTX))
+
+# v6.4.3: bound every response the agent reads off the wire. A read with no
+# size argument lets a compromised or impersonated server hand this
+# root-privileged process an unbounded body and exhaust the host's memory. The
+# caps had drifted three ways across the three agents, and the macOS agent had
+# none at all. One pair of names, identical values, in all three.
+MAX_JSON_RESP = 4 * 1024 * 1024      # any JSON reply (heartbeat, enroll, config)
+MAX_DOWNLOAD  = 64 * 1024 * 1024     # a self-update binary
 EXEC_TIMEOUT = 300
 MAX_OUTPUT = 32 * 1024
 
@@ -426,7 +434,7 @@ def _http_get_json_win(url, timeout=15):
         raise ValueError('server URL must use HTTPS')
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Win/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read(4 * 1024 * 1024).decode('utf-8'))
+        return json.loads(resp.read(MAX_JSON_RESP).decode('utf-8'))
 
 
 def _http_get_bytes_win(url, timeout=60):
@@ -434,7 +442,7 @@ def _http_get_bytes_win(url, timeout=60):
         raise ValueError('server URL must use HTTPS')
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Win/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return resp.read(64 * 1024 * 1024)
+        return resp.read(MAX_DOWNLOAD)
 
 
 def _self_update():
@@ -2061,7 +2069,7 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
                                           'User-Agent': f'RemotePower-Win/{VERSION}'})
     try:
         with _OPENER.open(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode('utf-8'))
+            return json.loads(resp.read(MAX_JSON_RESP).decode('utf-8'))
     except urllib.error.HTTPError as e:
         # Surface the server's JSON {"error": "..."} instead of letting a raw
         # HTTPError traceback bury it. Enrollment 400/403s ("Invalid enrollment

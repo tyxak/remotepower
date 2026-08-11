@@ -77,6 +77,43 @@ from one that cannot.
   editing an existing job onto one was accepted, and the scheduler then
   dispatched a command those hosts cannot run, indefinitely, while the job
   looked healthy.
+- **Eleven of eighteen commands did nothing on macOS, and the button said they
+  had.** The macOS agent implements seven of the verbs the server can send it
+  and the Windows agent fourteen; the rest were queued, delivered, answered
+  `unsupported command` into a result row nobody reads, and reported as
+  success. The server now holds the per-platform support matrix, refuses at the
+  queue with a message naming the gap, and reports skipped hosts in a
+  mixed-platform batch instead of counting them as queued. A guard derives the
+  same matrix from the three agent sources and fails when the table and the
+  agents disagree in either direction — a verb wrongly still listed as
+  unsupported would be refused on a platform that had grown support, which is
+  the quieter of the two failures.
+- **Five more features set a flag only the Linux agent reads.** The
+  container-image CVE scan auto-targeted every host reporting containers,
+  including Windows; the IaC collector accepted a Windows or macOS host and
+  then blamed the agent for a three-minute timeout; an on-host `lynis` audit
+  was queued, claimed on the next heartbeat, marked *running*, and abandoned
+  until the reaper timed it out an hour later; ACME rescan and DNS credential
+  import returned "queued" forever. All five now refuse up front. The lynis
+  toast also stops telling you to wait for a scanner satellite when the job
+  runs on the host's own agent.
+- **Two honest refusals the interface threw away.** v6.4.2 taught host-config
+  save and file-backup save to answer "saved, but this platform cannot do it";
+  neither client read the answer, so the operator still got the green toast —
+  which is worse than not having added the refusal, because the code then looks
+  like it handles the case. Both now show it, and a guard enumerates every
+  handler that reports an OS-skipped target and fails if its client does not
+  read the result.
+- **The macOS agent read server responses without a size limit.** The three
+  agents had drifted to 1 MB, 4 MB and unbounded; the agent runs as root, so an
+  unbounded read is a memory-exhaustion primitive for anything that can answer
+  as the server. One pair of limits now, identical in all three.
+- **The app server and scheduler could not start on RHEL or Arch.** Both units
+  ship `User=www-data`, and the installer was rendering the distro's actual web
+  user into only one of the three units it installs — so on RHEL and Arch
+  systemd refused `remotepower-wsgi` and `remotepower-scheduler` with
+  `status=217/USER`, and the data directory is chowned to the distro user
+  anyway, so a hand-created `www-data` would not have helped either.
 - **A success toast on a refusal, at eleven places.** `api()` throws only on a
   network failure — every HTTP status but 401 resolves — so `try { await
   api(…); toast('…','success') } catch {}` had a dead catch and went green on a

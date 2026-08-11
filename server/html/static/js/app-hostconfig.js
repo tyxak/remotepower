@@ -778,6 +778,16 @@ async function saveHostConfig() {
   const r = await api('PUT', `/devices/${_hcDevId}/host-config`, desired);
   if (!r) return;
   closeModal('host-config-modal');
+  // v6.4.3: the server answers `supported:false` + a `note` when the target is
+  // a Windows/macOS host — desired-state APPLY is implemented in the Linux
+  // agent only. That refusal shipped in v6.4.2 and was thrown away here, so
+  // the operator still read "enforcement ON, agent will apply it" about a
+  // machine that ignores the whole feature. Say what actually happened.
+  if (r.supported === false) {
+    toast(r.note || 'Saved as a policy record — this platform does not apply host config.',
+          'warning');
+    return;
+  }
   toast(enforce
     ? 'Host config saved — enforcement ON, agent will apply it on next poll (~60s).'
     : 'Host config saved as a drift baseline (monitor only — not applied).', 'success');

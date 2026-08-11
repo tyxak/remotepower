@@ -245,8 +245,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~11,000 lines), one main `app.js` (~26,600
-lines), and ~43 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~11,500 lines), one main `app.js` (~30,400
+lines), and ~44 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 
@@ -319,19 +319,28 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 
 ## Testing and release engineering
 
-The test suite is ~8,900 methods across 445 files, and the real gate runs the
-*entire* suite twice — once on the JSON backend, once on SQLite — because the
-cross-backend bugs are the ones that reach production. (Production CI adds a third
-dimension: it runs on the Python version the servers ship with, which has caught
-version-specific breakage a local run couldn't.)
+The test suite is ~11,100 methods across 545 files, and the real gate runs the
+*entire* suite three times — on the JSON backend, on SQLite, and against a real
+PostgreSQL — because the cross-backend bugs are the ones that reach production.
+Postgres is the enterprise default and was, until v6.4.3, run by no gate at
+all: the tests written for it skipped themselves when no server was present,
+which reads as a pass. `RP_PG_REQUIRE` / `PG_STRICT` now make that skip a
+failure, so the gate cannot go green by declining to test. (Production CI adds
+a further dimension: it runs on the Python version the servers ship with, which
+has caught version-specific breakage a local run couldn't.)
 
 A few testing patterns are unusual and worth knowing about:
 
 - **Source-inspection tests.** Some tests read the source of a handler and assert
   it *contains* a security-relevant call — that it audits, re-verifies a password,
-  or gates an incompatible update. They're brittle to line shifts (a fixed-size
-  window pins the check), but they catch a whole class of "someone deleted the
-  audit call" regression that behavioral tests miss.
+  or gates an incompatible update. They catch a whole class of "someone deleted
+  the audit call" regression that behavioural tests miss. They used to be
+  brittle: a fixed-size character window around the line, which every unrelated
+  insertion above it shifted out of range. Those are now anchored by construct
+  instead (`tests/srcpin.py` extracts a function or a balanced block by name),
+  and a ratchet stops new fixed windows being added. The remaining honest
+  weakness is unchanged — a source-text test proves a line exists, never that it
+  works, so it is a complement to a behavioural test and not a substitute.
 - **Property-based + fuzz testing.** Hypothesis generates thousands of adversarial
   inputs to prove invariants — that a sanitizer never crashes, that the two
   storage backends always agree on a round-trip, that request validation turns

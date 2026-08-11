@@ -324,6 +324,14 @@ def handle_dns_import_from_agent():
         dev = devices.get(dev_id)
         if not isinstance(dev, dict):
             A.respond(404, {'error': 'unknown device'})
+        # v6.4.3: the harvest is implemented in the Linux agent only (it reads
+        # acme.sh's on-disk credential files). Queueing it against a Windows or
+        # macOS host returned "queued — refresh in a moment" forever.
+        _fam = A._device_os_family(dev)
+        if _fam != 'linux':
+            A.respond(400, {'error': 'DNS credential import reads acme.sh state on the '
+                                     f'host and is implemented for Linux only — this is '
+                                     f'a {_fam} host.'})
         dev['dns_harvest_pending'] = True
         devices[dev_id] = dev
     A.audit_log(actor, 'dns_import_from_agent_requested', detail=f'device={dev_id}')

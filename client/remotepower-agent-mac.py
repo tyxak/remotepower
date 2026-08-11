@@ -254,6 +254,14 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect,
                                       urllib.request.HTTPSHandler(context=_SSL_CTX))
 
+# v6.4.3: bound every response the agent reads off the wire. A read with no
+# size argument lets a compromised or impersonated server hand this
+# root-privileged process an unbounded body and exhaust the host's memory. The
+# caps had drifted three ways across the three agents, and the macOS agent had
+# none at all. One pair of names, identical values, in all three.
+MAX_JSON_RESP = 4 * 1024 * 1024      # any JSON reply (heartbeat, enroll, config)
+MAX_DOWNLOAD  = 64 * 1024 * 1024     # a self-update binary
+
 
 def _data_dir():
     # launchd daemons run as root; fall back to the user dir for a manual run.
@@ -2007,7 +2015,7 @@ def _http_get_json(url, timeout=HTTP_TIMEOUT):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Mac/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
+        return json.loads(resp.read(MAX_JSON_RESP).decode('utf-8'))
 
 
 def _http_get_bytes(url, timeout=90):
@@ -2016,7 +2024,7 @@ def _http_get_bytes(url, timeout=90):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Mac/{VERSION}'})
     with _OPENER.open(req, timeout=timeout) as resp:
-        return resp.read()
+        return resp.read(MAX_DOWNLOAD)
 
 
 # Set by a successful _self_update(); the run loop re-execs into the NEW file
@@ -2138,7 +2146,7 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
                                           'User-Agent': f'RemotePower-Mac/{VERSION}'})
     try:
         with _OPENER.open(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode('utf-8'))
+            return json.loads(resp.read(MAX_JSON_RESP).decode('utf-8'))
     except urllib.error.HTTPError as e:
         # Surface the server's JSON {"error": "..."} instead of a raw HTTPError
         # traceback — enrollment 400/403s are operator-actionable.
