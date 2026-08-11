@@ -116,7 +116,14 @@ the server after a loss:
   `backend_exists()` so it behaves correctly on the SQLite/Postgres backends.
 - A **scheduled restore drill** *(v6.3.0)* runs the same
   decrypt→decompress→structure-check as the manual test-restore against the
-  latest archive, weekly by default (`backup.drill_days`, 0 disables, max 90 —
+  latest archive — **and, when an off-host destination is configured, against
+  the copy there too** *(v6.4.3)*. Until then the drill globbed the local
+  directory only, so the off-host copy — the one that exists because it
+  survives losing this machine — had never been verified by anything; a green
+  drill meant the archive on the box that just burned down was fine. If the
+  off-host archive fails, the whole drill fails: a pass has to mean "the backup
+  you would actually restore from works", not "one of the two does". Weekly by
+  default (`backup.drill_days`, 0 disables, max 90 —
   settable via `POST /api/config` `{"backup": {"drill_days": N}}`). A failing
   drill fires `restore_drill_failed` (path `self:dr-archive`) into the alert
   inbox and notification channels; the next passing drill auto-resolves it via

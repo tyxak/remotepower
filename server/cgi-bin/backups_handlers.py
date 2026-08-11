@@ -1205,13 +1205,13 @@ def handle_backup_run():
     A.respond(200, result)
 
 
-def _restore_drill_core():
-    """Decrypt → decompress → structure-check the LATEST self-DR archive into a
-    scratch dir; nothing touches live data. Returns a result dict — shared by
-    the manual POST /api/backup/test-restore and the scheduled drill (v6.3.0).
-    `http` in the result is a status hint for the manual handler only."""
-    cfg = A.load(A.CONFIG_FILE) or {}
-    base = (cfg.get('backup') or {}).get('path') or _default_backup_dir()
+def _drill_one_dir(base):
+    """Decrypt → decompress → structure-check the newest archive in one
+    directory. Returns the same result dict the drill has always returned.
+
+    Split out in v6.4.3 so the OFF-HOST copy can be checked with exactly the
+    same rigour as the local one — see _restore_drill_core.
+    """
     p_base = A.Path(base)
     files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
                          + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
@@ -1281,6 +1281,43 @@ def _restore_drill_core():
                 'error': f'restore test failed: {str(e)[:200]}'}
     finally:
         shutil.rmtree(str(scratch), ignore_errors=True)
+
+
+def _restore_drill_core():
+    """Drill the local archive AND, when configured, the off-host mirror.
+
+    v6.4.3: this used to glob the LOCAL backup directory only, so the off-host
+    copy had never been verified by anything. That copy is the entire point of
+    configuring an off-host destination — it is the one that survives losing
+    the machine — and a drill that proves only the local archive restorable
+    proves the wrong artifact. The mirror step reports whether the COPY
+    succeeded; nothing checked the result was readable.
+
+    The overall verdict is a conjunction: if an off-host destination is
+    configured and its archive fails, the drill FAILS. A green drill must mean
+    "the backup I would actually restore from works", not "one of them does".
+    """
+    cfg = A.load(A.CONFIG_FILE) or {}
+    bk = cfg.get('backup') or {}
+    local = _drill_one_dir(bk.get('path') or _default_backup_dir())
+
+    offsite_dir = (bk.get('offsite_dir') or '').strip()
+    if not offsite_dir:
+        return local
+
+    off = _drill_one_dir(offsite_dir)
+    out = dict(local)
+    out['offsite'] = dict(off, dir=offsite_dir)
+    if not off.get('ok'):
+        out['ok'] = False
+        _why = ('no archive found at the off-host destination'
+                if off.get('no_archives') else (off.get('error') or 'unknown'))
+        out['error'] = (f'off-host copy at {offsite_dir} did not verify: {_why}'
+                        + (f' (the local archive passed: {local.get("file")})'
+                           if local.get('ok') else
+                           f' — and the local archive also failed: {local.get("error")}'))
+        out.setdefault('http', 500)
+    return out
 
 
 def _maybe_run_restore_drill():

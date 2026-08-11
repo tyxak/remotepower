@@ -390,6 +390,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
+| Off-host drill verification | The scheduled restore drill decrypts and structure-checks the off-host mirror as well as the local archive, and fails if either does not verify. It previously globbed the local directory only, so the copy that survives losing the machine was never tested *(v6.4.3)* |
 | Per-device backups | Watched-path age + fresh/stale state in the drawer *(v3.4.2)* |
 | Backup orchestration | Define a backup command per device (restic/borg/rsync); on-demand or cron *(v3.6.0)* |
 | Structured file backup + restore | Guided file-backup job (no shell): pick source paths + method (rsync/tar.gz) + destination (SSH key-auth / NFS / SMB); the server generates + strictly validates the command (no operator shell text, no credentials in the command). Per-job **Restore** pulls it back to a chosen path — admin-only, typed confirmation, audited. `POST /api/backup-jobs/{id}/restore` *(v6.3.0)* |

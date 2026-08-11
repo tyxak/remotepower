@@ -154,6 +154,13 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **The restore drill now tests the off-host copy as well.** It checked the
+  local archive only — so a passing drill meant the backup on the machine you
+  just lost was fine, while the off-host copy, which exists for exactly that
+  scenario, had never been verified by anything. If an off-host destination is
+  configured and its archive does not verify, the drill fails: a pass has to
+  mean the backup you would actually restore from works. Installs without an
+  off-host destination behave exactly as before.
 - **"Backups mirrored off-host" said ok while the mirror was failing.** The
   Security-posture row graded whether a destination was *configured*, not
   whether the last mirror *worked* — so it turned green the moment you set a
