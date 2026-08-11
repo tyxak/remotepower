@@ -142,6 +142,21 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The memory, swap and CPU-load forecast now tells someone.** RemotePower has
+  been projecting days-to-saturation for those three since v6.4.2, from the
+  same daily samples as the disk-fill ETA that has raised an alert for eight
+  releases — and the resource half reached nothing at all. A host projected to
+  exhaust its memory in three days was visible only if you opened that one
+  device's drawer and scrolled to the forecast card. It raises an alert now,
+  per resource, so a host saturating memory and swap independently gets two,
+  and clearing one does not silence the other. The ceilings and floors it
+  projects against are operator-tunable on Settings → Alert parameters —
+  the forecast has accepted those overrides since it shipped and nothing ever
+  passed them.
+- **Documented Postgres row-level security accurately.** The docs described it
+  as covering the devices table; it has covered four tables for some time,
+  including how fleet-level rows stay visible and what happens when a device
+  moves tenant. Understating what ships is still being wrong about it.
 - **Monitoring your disks stopped keeping them awake.** SMART polling spun up
   every sleeping drive on every hardware cycle — roughly every five minutes —
   to ask whether it was healthy, which defeats spin-down completely and spends

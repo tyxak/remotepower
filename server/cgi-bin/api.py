@@ -2122,6 +2122,10 @@ EVENT_REGISTRY = {
     'disk_predict_cleared': dict(
         label='A disk no longer looks like it is failing', kind='hardware',
         title='Disk Prediction Cleared', resolves=('disk_predict_fail',)),
+    'resource_saturation_cleared': dict(
+        label='A resource is no longer projected to saturate', kind='hardware',
+        title='Resource Saturation Cleared',
+        resolves=('resource_saturation_predicted',)),
     'port_closed': dict(
         label='A newly-detected listening port is gone', kind='new_port',
         title='Port Closed', resolves=('new_port_detected',)),
@@ -2287,6 +2291,16 @@ EVENT_REGISTRY = {
     'disk_predict_fail': dict(
         label='A disk is predicted to fail (SMART trend)', kind='disk_predict',
         title='Disk Predicted To Fail', severity='high', tags='warning,floppy_disk'),
+    # v6.4.3: the RESOURCE half of the same projection. forecast_resources has
+    # shipped since v6.4.2 — memory / swap / CPU-load days-to-saturation, fitted
+    # from the same daily samples as the disk-fill ETA — and reached no alert,
+    # no Needs-Attention item and no check. It was visible only to someone who
+    # opened that one device's drawer and scrolled to the forecast card. The
+    # projection was correct and nobody was ever told.
+    'resource_saturation_predicted': dict(
+        label='Memory, swap or CPU load is projected to saturate',
+        kind='disk_predict', title='Resource Saturation Predicted',
+        severity='high', tags='warning,chart_with_upwards_trend'),
     'ups_on_battery': dict(
         label='UPS switched to battery power', kind='ups', title='UPS On Battery',
         severity='critical', tags='rotating_light,battery'),
@@ -11385,6 +11399,14 @@ def _auto_resolve_alerts(event, payload):
         # v6.4.0: disk_predict_fail fires per disk; a device-id-only recovery
         # cleared every disk-prediction alert on the host. Match the disk.
         sub_match['disk'] = p.get('disk')
+    elif event == 'resource_saturation_cleared':
+        # v6.4.3: same rule for the resource half. One host can be projected to
+        # saturate memory AND swap independently, so a device-id-only recovery
+        # would clear both when only one improved — and the still-saturating one
+        # never re-fires, because its edge state says it has already alerted.
+        # `metric` is in _ALERT_IDENTITY_FIELDS and the _record_alert whitelist
+        # already, so the rows stay distinct and this key is actually stored.
+        sub_match['metric'] = p.get('metric')
     # v6.4.2 (audit): fleet-level SINGLETON recover events — the control-plane
     # health alerts. Their firing sites build device-id-less payloads and there
     # is exactly one open alert of each target at a time, so they match purely
@@ -26780,6 +26802,9 @@ def handle_config_get():
     # mirror the code constants so an unconfigured server behaves identically; kept
     # as real floats so the GET body round-trips fractional values (never truncated).
     safe.setdefault('forecast_min_r2', float(forecast._MIN_R2))                 # R² floor for a disk-fill projection
+    for _m, _d in forecast.RESOURCE_DEFS.items():                               # v6.4.3 saturation bounds
+        safe.setdefault(f'forecast_ceiling_{_m}', float(_d['ceiling']))
+        safe.setdefault(f'forecast_floor_{_m}', float(_d['floor']))
     safe.setdefault('reliability_realloc_growth_per_day', float(_REALLOC_GROWTH_PER_DAY))  # realloc-sector growth/day → factor
     safe.setdefault('reliability_health_decline_per_day', float(_HEALTH_DECLINE_PER_DAY))  # health-score decline/day → factor
     safe.setdefault('cvss_band_critical', float(cve_scanner._CVSS_BAND_DEFAULT_CRITICAL))  # CVSS ≥ → critical
@@ -28345,6 +28370,17 @@ def handle_config_save():
     # real float so the save/load round-trip never truncates a fractional tuning.
     for _tk, _lo, _hi in (
         ('forecast_min_r2',                     0.0, 1.0),
+        # v6.4.3: resource-saturation ceilings/floors. forecast_resources has
+        # accepted these as parameters since it shipped and NO CALLER EVER
+        # PASSED THEM — the override was documented in a docstring and
+        # unreachable from anywhere. Percentages, so the float loop: a 99.5%
+        # ceiling truncated to 99 by the int loop would be a different policy.
+        ('forecast_ceiling_memory',             1.0, 100.0),
+        ('forecast_floor_memory',               0.0, 100.0),
+        ('forecast_ceiling_swap',               1.0, 100.0),
+        ('forecast_floor_swap',                 0.0, 100.0),
+        ('forecast_ceiling_load',               1.0, 1000.0),
+        ('forecast_floor_load',                 0.0, 1000.0),
         ('reliability_realloc_growth_per_day',  0.0, 1000.0),
         ('reliability_health_decline_per_day',  0.0, 1000.0),
         ('cvss_band_critical',                  0.0, 10.0),
@@ -44899,6 +44935,109 @@ def _maybe_check_disk_predictions():
                 'device_id': r['device_id'], 'name': r['device'],
                 'disk': r.get('disk', ''), 'eta_days': r.get('eta_days'),
                 'reason': '; '.join(r.get('reasons') or [])[:200]})
+        except Exception:
+            pass
+    _check_resource_saturation(now)
+
+
+def _resource_forecast_bounds():
+    """Operator overrides for the resource-saturation ceilings and floors.
+
+    `forecast.forecast_resources` has accepted `ceilings=` / `floors=` since it
+    shipped, documented as "optional {metric: percent} overrides so an operator
+    can..." — and NO CALLER EVER PASSED THEM. Half a feature: the plumbing
+    existed inside forecast.py, nothing threaded config into it, and the
+    docstring described a capability that could not be reached from anywhere.
+
+    Same shape as _forecast_min_r2 above (forecast.py has no api import, so the
+    config read happens here and the values are passed in). A blank or
+    unparseable value falls back to the module default rather than to zero,
+    which would make every host instantly saturated.
+    """
+    cfg = _config_ro() or {}
+    ceilings, floors = {}, {}
+    for metric in forecast.RESOURCE_METRICS:
+        for kind, out in (('ceiling', ceilings), ('floor', floors)):
+            raw = cfg.get(f'forecast_{kind}_{metric}')
+            if raw is None or raw == '':
+                continue
+            try:
+                out[metric] = float(raw)
+            except (TypeError, ValueError):
+                continue
+    return ceilings, floors
+
+
+def _check_resource_saturation(now):
+    """Edge-triggered alert for a memory / swap / CPU-load saturation forecast.
+
+    forecast_resources shipped in v6.4.2 and reached NOTHING — no alert, no
+    Needs-Attention item, no check row. A host projected to exhaust its memory
+    in three days was visible only to an operator who opened that device's
+    drawer and scrolled to the forecast card. The disk half of the identical
+    projection has fired `disk_predict_fail` since v4.6.0.
+
+    Mirrors that sweep exactly: same 6-hourly cadence slot, same
+    state-file edge trigger, same clear-on-improvement. Keyed per (device,
+    metric) because one host can saturate memory and swap independently —
+    `metric` is already in _ALERT_IDENTITY_FIELDS and the _record_alert
+    whitelist, so the rows stay distinct and the recover event can match one
+    without clearing the other.
+    """
+    warn_days = int((_config_ro() or {}).get('disk_forecast_warn_days', 21) or 21)
+    min_r2 = _forecast_min_r2()
+    ceilings, floors = _resource_forecast_bounds()
+    hist = _load_ro(METRICS_HIST_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
+    state_file = DATA_DIR / 'resource_predict_state.json'
+    prev = set((load(state_file) or {}).get('alerted') or [])
+    cur, fresh = set(), []
+    for dev_id, rec in (hist.items() if isinstance(hist, dict) else []):
+        dev = devices.get(dev_id)
+        # `monitored` defaults True — the same shape the other alerting
+        # sweeps use. (I wrote `_is_monitored(dev)` first; no such helper
+        # exists. F821 caught it, which is the entire reason that gate was
+        # made real in this release.)
+        if not isinstance(dev, dict) or not dev.get('monitored', True):
+            continue
+        samples = (rec or {}).get('samples') or []
+        try:
+            rows = forecast.forecast_resources(
+                samples, min_r2=min_r2, ceilings=ceilings, floors=floors)
+        except Exception:
+            continue
+        for r in rows or []:
+            days = r.get('days_to_saturation')
+            # `stalled` / `noisy` / `beyond_horizon` are forecast.py's own
+            # confidence signals — firing through them would alert on a flat
+            # line with a rounding-error slope.
+            if (days is None or r.get('stalled') or r.get('noisy')
+                    or r.get('beyond_horizon') or r.get('below_floor')):
+                continue
+            if days > warn_days:
+                continue
+            key = f"{dev_id}|{r.get('metric')}"
+            cur.add(key)
+            if key not in prev:
+                fresh.append((dev_id, dev.get('name', dev_id), r))
+    save(state_file, {'alerted': sorted(cur)})
+    for gone in sorted(prev - cur):
+        did, _sep, metric = str(gone).partition('|')
+        try:
+            fire_webhook('resource_saturation_cleared',
+                         {'device_id': did, 'metric': metric})
+        except Exception:
+            pass
+    for dev_id, name, r in fresh:
+        try:
+            fire_webhook('resource_saturation_predicted', {
+                'device_id': dev_id, 'name': name,
+                'metric': r.get('metric'), 'label': r.get('label'),
+                'eta_days': r.get('days_to_saturation'),
+                'current': r.get('current'), 'ceiling': r.get('ceiling'),
+                'detail': (f"{r.get('label')} at {r.get('current')}% is "
+                           f"projected to reach {r.get('ceiling')}% in "
+                           f"{r.get('days_to_saturation')} day(s)")[:200]})
         except Exception:
             pass
 

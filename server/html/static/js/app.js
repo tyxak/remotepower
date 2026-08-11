@@ -19484,7 +19484,8 @@ function _renderHomeActivity(fleetEvents) {
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     // v6.0.1: read-only remount (silent data-loss) + mail-queue backlog
     'readonly_fs', 'readonly_fs_cleared', 'mailq_high', 'mailq_normal',
-    'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
+    'disk_predict_fail', 'resource_saturation_predicted', 'resource_saturation_cleared',
+    'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
     'gateway_latency_high', 'gateway_latency_normal',   // v6.4.0
     'battery_health_low', 'battery_health_ok',           // v6.4.0
@@ -19786,7 +19787,12 @@ function _homeActivityAttrs(event, p) {
     case 'mailq_high': case 'mailq_normal':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
-    case 'disk_predict_fail': case 'ups_on_battery': case 'ups_critical': case 'ups_on_line':
+    case 'disk_predict_fail':
+    // v6.4.3: the resource half of the same projection — memory / swap / CPU
+    // load days-to-saturation. Same destination: the affected host's drawer,
+    // where the forecast card lives.
+    case 'resource_saturation_predicted': case 'resource_saturation_cleared':
+    case 'ups_on_battery': case 'ups_critical': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
     // v6.4.0: gateway-latency + battery-health → the affected host's drawer
@@ -21489,6 +21495,12 @@ const _ALERT_PARAM_FIELDS = [
   // parseInt'd on save — 0.5 would truncate to 0; see _ALERT_PARAM_FLOAT_KEYS +
   // the float branch in saveAlertParams.
   ['ap-forecast-min-r2',           'forecast_min_r2',            0.5],
+  ['ap-forecast-ceiling-memory',   'forecast_ceiling_memory',    90],
+  ['ap-forecast-floor-memory',     'forecast_floor_memory',      60],
+  ['ap-forecast-ceiling-swap',     'forecast_ceiling_swap',      80],
+  ['ap-forecast-floor-swap',       'forecast_floor_swap',        5],
+  ['ap-forecast-ceiling-load',     'forecast_ceiling_load',      100],
+  ['ap-forecast-floor-load',       'forecast_floor_load',        50],
   ['ap-rel-realloc-growth',        'reliability_realloc_growth_per_day', 0.05],
   ['ap-rel-health-decline',        'reliability_health_decline_per_day', 0.5],
   ['ap-cvss-crit',                 'cvss_band_critical',         9.0],
@@ -21499,7 +21511,11 @@ const _ALERT_PARAM_FIELDS = [
 // v6.2.2 batch 6: config keys whose alert-param input holds a FLOAT — saveAlertParams
 // must parseFloat (not parseInt) these or a fractional tuning (0.5, 0.05) truncates to 0.
 const _ALERT_PARAM_FLOAT_KEYS = new Set([
-  'forecast_min_r2', 'reliability_realloc_growth_per_day',
+  'forecast_min_r2',
+  'forecast_ceiling_memory', 'forecast_floor_memory',
+  'forecast_ceiling_swap', 'forecast_floor_swap',
+  'forecast_ceiling_load', 'forecast_floor_load',
+  'reliability_realloc_growth_per_day',
   'reliability_health_decline_per_day', 'cvss_band_critical',
   'cvss_band_high', 'cvss_band_medium',
 ]);

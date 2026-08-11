@@ -60,9 +60,12 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
 
   Hard multi-tenancy (optional, v5.5.0):
     • App-layer — tenancy_enforced confines tenant admins to their own devices.
-    • Postgres row-level security — tenancy_rls adds FORCE RLS on the devices
-      table keyed on a per-request GUC, applied live; DB-enforced defense-in-depth
-      beneath the app-layer scope. Both default off, flipped from Settings.
+    • Postgres row-level security — tenancy_rls adds FORCE RLS on FOUR tables
+      (devices, entity, listrow, metric_samples) keyed on a per-request GUC,
+      applied live; DB-enforced defense-in-depth beneath the app-layer scope.
+      Rows with no owning device carry a '__shared__' tenant so fleet-level
+      data stays visible to everyone, and moving a device between tenants
+      cascades to its derived rows. Both default off, flipped from Settings.
 
 Agent push channel (installed by default; --no-push opts out):
   • remotepower-push    — wake-nudge daemon. Installed and enabled by the

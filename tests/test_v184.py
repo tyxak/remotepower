@@ -326,7 +326,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
             'timer_failed_cleared',
             'db_integrity_failed', 'mount_issue',
-            'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)
+            'disk_predict_fail',
+    'resource_saturation_predicted',
+    'resource_saturation_cleared', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)
             'cert_file_expiring', 'rogue_uid0',
             'empty_password_account',                 # v6.4.2 blank /etc/shadow password
             'server_upgraded',                       # v6.4.2 controller version change

@@ -4176,6 +4176,12 @@
     //    three dashboard stat tiles. The remaining backlog is held by a
     //    shrink-only ratchet in tests/test_v430_i18n_gate.py rather than
     //    guessed at — CLAUDE.md: a wrong translation is worse than English.
+    'Memory saturation ceiling %': { fr: 'Plafond de saturation mémoire %', de: 'Sättigungsgrenze Arbeitsspeicher %', zh: '内存饱和上限 %', hi: 'मेमोरी संतृप्ति सीमा %', es: 'Techo de saturación de memoria %', ar: 'سقف تشبّع الذاكرة %' },
+    'Memory forecast floor %': { fr: 'Seuil de prévision mémoire %', de: 'Prognose-Untergrenze Arbeitsspeicher %', zh: '内存预测下限 %', hi: 'मेमोरी पूर्वानुमान न्यूनतम %', es: 'Suelo de previsión de memoria %', ar: 'حد أدنى لتوقّع الذاكرة %' },
+    'Swap saturation ceiling %': { fr: 'Plafond de saturation du swap %', de: 'Sättigungsgrenze Auslagerung %', zh: '交换分区饱和上限 %', hi: 'स्वैप संतृप्ति सीमा %', es: 'Techo de saturación de intercambio %', ar: 'سقف تشبّع التبديل %' },
+    'Swap forecast floor %': { fr: 'Seuil de prévision du swap %', de: 'Prognose-Untergrenze Auslagerung %', zh: '交换分区预测下限 %', hi: 'स्वैप पूर्वानुमान न्यूनतम %', es: 'Suelo de previsión de intercambio %', ar: 'حد أدنى لتوقّع التبديل %' },
+    'CPU load saturation ceiling %': { fr: 'Plafond de saturation de charge CPU %', de: 'Sättigungsgrenze CPU-Last %', zh: 'CPU 负载饱和上限 %', hi: 'CPU लोड संतृप्ति सीमा %', es: 'Techo de saturación de carga de CPU %', ar: 'سقف تشبّع حِمل المعالج %' },
+    'CPU load forecast floor %': { fr: 'Seuil de prévision de charge CPU %', de: 'Prognose-Untergrenze CPU-Last %', zh: 'CPU 负载预测下限 %', hi: 'CPU लोड पूर्वानुमान न्यूनतम %', es: 'Suelo de previsión de carga de CPU %', ar: 'حد أدنى لتوقّع حِمل المعالج %' },
     'Filter': { fr: 'Filtrer', de: 'Filtern', zh: '筛选', hi: 'फ़िल्टर करें', es: 'Filtrar', ar: 'تصفية' },
     'Filter devices': { fr: 'Filtrer les appareils', de: 'Geräte filtern', zh: '筛选设备', hi: 'डिवाइस फ़िल्टर करें', es: 'Filtrar dispositivos', ar: 'تصفية الأجهزة' },
     'Filter events': { fr: 'Filtrer les événements', de: 'Ereignisse filtern', zh: '筛选事件', hi: 'ईवेंट फ़िल्टर करें', es: 'Filtrar eventos', ar: 'تصفية الأحداث' },

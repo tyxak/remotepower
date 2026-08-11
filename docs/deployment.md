@@ -155,12 +155,21 @@ Both are **config switches, applied live — there is no migration script to run
   `default` tenant until reassigned.
 - **Postgres row-level security** — the deeper, DB-enforced layer beneath it
   (`tenancy_rls`, default off; **Postgres backend only**). When enabled the app adds
-  a `tenant_id` column to the `devices` table, a trigger to keep it in sync with each
-  device's tenant, and a `FORCE ROW LEVEL SECURITY` policy keyed on a per-request
+  a `tenant_id` column to **four** tables — `devices` and the three that derive from
+  it (`entity`, `listrow`, `metric_samples`) — a trigger to keep each in sync with
+  its device's tenant, and a `FORCE ROW LEVEL SECURITY` policy keyed on a per-request
   `app.rp_tenant` GUC — all **idempotently and at runtime** on the first request after
   you flip the switch (no downtime, no `ALTER` by hand). It fails *closed* (an unset
-  GUC matches no rows). This is defense-in-depth: even a bug in the app-layer scope
-  would not leak another tenant's device rows.
+  GUC matches no rows). A row with no owning device — a fleet-level alert, an
+  instance-wide setting — is tagged `__shared__` and stays visible to every tenant,
+  and moving a device to a different tenant cascades to its derived rows rather than
+  stranding them. This is defense-in-depth: even a bug in the app-layer scope would
+  not leak another tenant's rows.
+
+  What RLS does **not** cover: the singleton stores (tickets, CMDB, billing), which
+  are one document for the whole deployment rather than per-device rows. `GET
+  /api/tenancy/readiness` reports exactly which stores are isolated at which layer,
+  so you can see this before relying on it rather than discovering it later.
 
 Disable either by un-ticking it; the RLS objects are harmless if left in place, and
 the policy is bypassed (`app.rp_tenant = '*'`) for agent/system/tool paths.
