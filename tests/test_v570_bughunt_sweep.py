@@ -31,7 +31,9 @@ class TestSSRFClassifiers(unittest.TestCase):
     """proxmox_client / routeros / opnsense each hand-roll _peer_ip_blocked;
     the sweep hardened all three to match api._ip_class_blocked."""
 
-    MODULES = ('proxmox_client', 'routeros', 'opnsense')
+    # v6.4.3: was three of the five copies. The two it did NOT cover were free
+    # to diverge, and one had — see TestOneClassifierOnly below.
+    MODULES = ('proxmox_client', 'routeros', 'opnsense', 'ai_provider')
     # Endpoints an SSRF attacker targets that a naive is_link_local check misses.
     METADATA = ('fd00:ec2::254', '100.100.100.200', '192.0.0.192')
     # IPv6 forms embedding the v4 metadata IP 169.254.169.254.
@@ -226,3 +228,72 @@ class TestExportRedaction(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestOneClassifierOnly(unittest.TestCase):
+    """Five hand-rolled copies of the SSRF peer-IP classifier, one guard over
+    three of them. The two uncovered copies were free to diverge and one did.
+
+    `ai_provider` tested `is_reserved` BEFORE loopback. `::1` is both, so with
+    `allow_loopback=True` — which `insecure_ssl` sets, and which exists exactly
+    so an operator can point the AI at a local Ollama — the reserved test fired
+    first and blocked it. The identical setup on `127.0.0.1` worked. api.py's
+    canonical version carries a comment about precisely this ordering; the copy
+    had lost it.
+
+    So these tests do not check that the copies AGREE — they check there are no
+    copies. A behavioural guard over N implementations can only ever catch the
+    drift it thought to test for.
+    """
+
+    FORKED = ('api', 'ai_provider', 'opnsense', 'routeros', 'proxmox_client')
+
+    def _src(self, name):
+        return (CGI / f'{name}.py').read_text()
+
+    def test_no_module_reimplements_the_classification(self):
+        """The tells are the constants. Any module that names a metadata IP or
+        unwraps the NAT64 prefix itself is classifying, not delegating."""
+        offenders = []
+        for name in self.FORKED:
+            src = self._src(name)
+            for tell in ('0x0064ff9b', 'ipv4_mapped', "'100.100.100.200'",
+                         "'192.0.0.192'", "'fd00:ec2::254'"):
+                if tell in src:
+                    offenders.append(f'{name}: still contains {tell}')
+        self.assertEqual(offenders, [], '\n'.join(
+            ['these modules re-implement the SSRF classifier instead of '
+             'calling ssrf_ip:'] + offenders))
+
+    def test_each_one_actually_calls_the_shared_module(self):
+        for name in self.FORKED:
+            with self.subTest(module=name):
+                self.assertIn('ssrf_ip.', self._src(name),
+                              f'{name} names no ssrf_ip call — if its outbound '
+                              'feature was removed, drop it from FORKED')
+
+    def test_the_shared_module_decides_loopback_before_reserved(self):
+        """The exact ordering the drifted copy had lost. `::1` must track
+        `127.0.0.1` in both directions, or a local AI provider over IPv6 is
+        unreachable while the v4 one works."""
+        import ssrf_ip
+        for ip in ('127.0.0.1', '::1'):
+            with self.subTest(ip=ip):
+                self.assertTrue(ssrf_ip.blocked(ip, allow_loopback=False))
+                self.assertFalse(ssrf_ip.blocked(ip, allow_loopback=True))
+
+    def test_the_shared_module_is_a_leaf(self):
+        """The objection in the old ai_provider comment — "can't import api
+        here, circular" — was true of api and is why the copies existed. It
+        must never become true of this module."""
+        import ast
+        tree = ast.parse(self._src('ssrf_ip'))
+        imported = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                imported |= {a.name.split('.')[0] for a in n.names}
+            elif isinstance(n, ast.ImportFrom) and n.module:
+                imported.add(n.module.split('.')[0])
+        self.assertEqual(imported, {'ipaddress'},
+                         f'ssrf_ip must stay importable from anywhere; it now '
+                         f'imports {sorted(imported)}')

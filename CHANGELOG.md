@@ -142,6 +142,18 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **A local AI provider on IPv6 loopback was blocked; the same one on IPv4 was
+  not.** The SSRF guard that decides whether an outbound host is safe existed
+  as six hand-written copies, and a drift guard covered three of them. One of
+  the uncovered copies tested "is this a reserved address" before "is this
+  loopback" — and `::1` is both, so pointing the AI at a local Ollama over IPv6
+  was refused while `127.0.0.1` worked. The original carries a comment about
+  exactly that ordering; the copy had lost it. There is now one implementation
+  that everything calls, and the guard tests for the absence of copies rather
+  than for their agreement, because a test over six implementations can only
+  catch the drift someone thought to check. Writing it found the sixth copy —
+  the one that builds the rejection message, under a note asking whoever edited
+  it to keep two implementations in step by hand.
 - **The api.py handler ratchet had run out of room.** It caps how many request
   handlers may live inline in the monolith, and it was sitting at exactly its
   ceiling — so the next core-spine handler anyone wrote would have failed the

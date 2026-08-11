@@ -24,6 +24,7 @@ config.json is written 0600 by the api.py save path.
 Everything here is stdlib-only (urllib + ssl + json) to match the
 rest of RemotePower — no `requests`, no `proxmoxer`.
 """
+import ssrf_ip
 
 import json
 import re
@@ -84,27 +85,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 # IP at connect time so a rebound host is refused before the token is sent.
 # Stdlib-only, mirroring the rest of this module. RFC1918/LAN stays allowed.
 def _peer_ip_blocked(ip_str: str) -> bool:
-    import ipaddress
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    # v5.7.0 SSRF: unwrap IPv6 forms that embed an IPv4 addr (v4-mapped,
-    # 6to4, NAT64 64:ff9b::/96) and re-classify the inner v4 — otherwise a v4
-    # metadata/loopback target is smuggled past the v6 checks (mirrors the
-    # canonical api._ip_class_blocked).
-    if isinstance(ip, ipaddress.IPv6Address):
-        inner = ip.ipv4_mapped or ip.sixtofour
-        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
-            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
-        if inner is not None:
-            ip = inner
-    # Cloud instance-metadata endpoints not caught by is_link_local
-    # (AWS IMDSv6 ULA, Alibaba, Oracle-legacy).
-    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
-        return True
-    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified
-                or ip.is_multicast or ip.is_reserved)
+    """Connect-time peer SSRF check — delegates to the ONE classifier.
+
+    v6.4.3: this was a hand-rolled copy of api._ip_class_blocked, one of five.
+    The bodies were byte-identical across three modules and had DRIFTED in a
+    fourth, so the copies were a liability with no upside. See ssrf_ip.py.
+    """
+    return ssrf_ip.peer_blocked(ip_str)
 
 
 import http.client as _httpclient

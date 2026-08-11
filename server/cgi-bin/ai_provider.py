@@ -44,6 +44,7 @@ Design notes:
 * Failures return a structured dict {ok: False, error: str}. The
   caller decides whether to surface raw or wrapped.
 """
+import ssrf_ip
 
 import json
 import os
@@ -144,31 +145,16 @@ import http.client as _httpclient
 # Cloud instance-metadata endpoints that are NOT caught by is_link_local:
 # AWS IMDSv6 ULA, Alibaba, Oracle (legacy). 169.254.169.254 is already covered
 # by is_link_local. Blocked explicitly so a rebind to metadata can't leak creds.
-_META_IPS = frozenset({'fd00:ec2::254', '100.100.100.200', '192.0.0.192'})
 
 
 def _peer_ip_blocked(ip_str, allow_loopback=False):
-    import ipaddress
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    # Unwrap IPv6 forms embedding an IPv4 and re-classify the inner v4 — else a
-    # v4 metadata/loopback target is smuggled past the v6 checks: v4-mapped
-    # (::ffff:a.b.c.d), 6to4 (2002::/16), NAT64 (64:ff9b::/96). Mirrors the
-    # shared api._ip_class_blocked (can't import api here — circular).
-    if isinstance(ip, ipaddress.IPv6Address):
-        inner = ip.ipv4_mapped or ip.sixtofour
-        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
-            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
-        if inner is not None:
-            ip = inner
-    if str(ip) in _META_IPS:
-        return True
-    if (ip.is_link_local or ip.is_unspecified   # 169.254.169.254 metadata, 0.0.0.0
-            or ip.is_multicast or ip.is_reserved):
-        return True
-    return bool(ip.is_loopback) and not allow_loopback
+    """Connect-time peer SSRF check — delegates to the ONE classifier.
+
+    v6.4.3: this was a hand-rolled copy of api._ip_class_blocked, one of five.
+    The bodies were byte-identical across three modules and had DRIFTED in a
+    fourth, so the copies were a liability with no upside. See ssrf_ip.py.
+    """
+    return ssrf_ip.peer_blocked(ip_str, allow_loopback)
 
 
 def _ssrf_opener(ctx, allow_loopback=False):

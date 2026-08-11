@@ -866,6 +866,7 @@ import image_registry as image_registry_mod
 # v2.3.0: Proxmox VE integration — server-side API client for QEMU VMs
 # and LXC containers on a single Proxmox node.
 import proxmox_client
+import ssrf_ip
 # v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
@@ -6982,33 +6983,18 @@ def current_username():
 
 def _ip_block_reason(ip_str, allow_loopback=True):
     """Human-readable class name for an IP the SSRF guard rejects, else None.
-    Mirrors _ip_class_blocked's decisions exactly — keep the two in step."""
-    import ipaddress
+
+    v6.4.3: delegates to ssrf_ip, which DERIVES its boolean from this same
+    ladder — so the message and the decision can no longer disagree. This
+    function used to be a full second copy of the classification under a
+    docstring saying "keep the two in step". An instruction to a human is not
+    a mechanism; the identical arrangement between api and ai_provider is what
+    silently drifted and broke local AI providers on IPv6 loopback.
+    """
     try:
-        ip = ipaddress.ip_address(ip_str)
+        return ssrf_ip.block_reason(ip_str, allow_loopback)
     except ValueError:
         return None
-    if isinstance(ip, ipaddress.IPv6Address):
-        inner = ip.ipv4_mapped or ip.sixtofour
-        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
-            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
-        if inner is not None:
-            ip = inner
-    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
-        return 'a cloud instance-metadata address'
-    if ip.is_loopback:
-        return None if allow_loopback else 'a loopback address'
-    if ip.is_link_local:
-        return 'a link-local / cloud-metadata address'
-    if ip.is_unspecified:
-        return 'the unspecified address 0.0.0.0 (a filtering resolver such as ' \
-               'Pi-hole or AdGuard answers this way for a blocked domain)'
-    if ip.is_multicast:
-        return 'a multicast address'
-    if ip.is_reserved:
-        return 'a reserved address'
-    return None
-
 
 def _monitor_host_block_reason(host, allow_loopback):
     """Why the SSRF guard rejected `host`, phrased for the operator.
@@ -12462,37 +12448,17 @@ def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
 
 
 def _ip_class_blocked(ip_str, allow_loopback=True):
-    """Per-IP SSRF classifier shared by the pre-flight DNS check and the
-    connect-time peer recheck. Returns True for the host classes an SSRF
-    attacker would target: link-local (covers 169.254.169.254 cloud
-    metadata), unspecified (0.0.0.0), multicast and reserved, and — when
-    allow_loopback is False — loopback. RFC1918 private ranges are allowed
-    by design (LAN fleet)."""
-    import ipaddress
-    ip = ipaddress.ip_address(ip_str)
-    # Unwrap IPv6 forms that embed an IPv4 address and re-classify the inner
-    # v4 — otherwise a v4 metadata/loopback target can be smuggled past the
-    # v6 checks: v4-mapped (::ffff:a.b.c.d), 6to4 (2002::/16), and the NAT64
-    # well-known prefix (64:ff9b::/96 wrapping 169.254.169.254).
-    if isinstance(ip, ipaddress.IPv6Address):
-        inner = ip.ipv4_mapped or ip.sixtofour
-        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
-            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
-        if inner is not None:
-            ip = inner
-    # Cloud instance-metadata endpoints not caught by is_link_local: AWS IMDSv6
-    # ULA, Alibaba, Oracle-legacy. (169.254.169.254 is already link-local.)
-    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
-        return True
-    # Decide loopback first: ::1 is also is_reserved, so the reserved check
-    # below would otherwise block a loopback target even when allowed.
-    if ip.is_loopback:
-        return not allow_loopback
-    if (ip.is_link_local or ip.is_unspecified
-            or ip.is_multicast or ip.is_reserved):
-        return True
-    return False
+    """Per-IP SSRF classifier — see ssrf_ip.blocked for the full rationale.
 
+    v6.4.3: the body moved to ssrf_ip.py, the ONE implementation. Four other
+    modules had hand-rolled copies of it and one had drifted: ai_provider
+    checked loopback after `is_reserved`, and `::1` is both, so an operator
+    pointing the AI at a local Ollama over IPv6 loopback was blocked while the
+    same setup on 127.0.0.1 worked. This wrapper stays because ~6 call sites
+    and several tests name it, and because the default here is
+    allow_loopback=True while every peer check wants False.
+    """
+    return ssrf_ip.blocked(ip_str, allow_loopback)
 
 # ── v3.8.0: connect-time SSRF re-validation (closes the DNS-rebinding TOCTOU) ──
 # The pre-flight _url_targets_local_or_meta() resolves the hostname and
