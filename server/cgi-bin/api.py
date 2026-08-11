@@ -27065,11 +27065,45 @@ def _governance_keys_touched(body, cfg):
     return out
 
 
+# v6.4.3: tunables whose save block predates the "blank clears the override"
+# convention the two threshold loops implement. Popped at the top of
+# handle_config_save so a cleared field on Settings -> Alert parameters behaves
+# the same everywhere instead of 400-ing the entire form.
+# patch_alert_threshold is absent deliberately — it already handles blank AND
+# clears a companion key (patch_alerted) that a generic pop would leave behind.
+_BLANKABLE_CONFIG_KEYS = (
+    'snmp_failures_before_alert',
+    'metric_failures_before_alert',
+    'container_stale_ttl',
+    'disk_watchdog_pct',
+    'ups_critical_battery_pct',
+    'ups_critical_runtime_s',
+    'scrub_overdue_days',
+    'snapshot_stale_days',
+    'incident_device_threshold',
+    'health_alert_threshold',
+)
+
+
 def handle_config_save():
     _cfg_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.ConfigSaveRequest)
     body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)
+
+    # v6.4.3 — BLANK CLEARS THE OVERRIDE, for every tunable threshold.
+    #
+    # The two threshold loops further down have always honoured this: an empty
+    # value pops the key so the shipped default applies again. Eleven other
+    # tunables on the same Settings page grew their own hand-written save
+    # blocks over the years and never learned it — `int('')` raises, so ten of
+    # them answered a cleared field with a 400 that aborts the WHOLE save (the
+    # other 91 fields on the form silently do not persist either), and the page
+    # offered no other way back to a default.
+    #
+    # Popped BEFORE those blocks run, because each one is `if key in body:` —
+    # removing the key is enough and needs no reindentation of ten separate
+    # try/except ladders.
     _gov = _governance_keys_touched(body, cfg)
     if _gov:
         require_step_up()
@@ -27084,6 +27118,18 @@ def handle_config_save():
     # the pre-restore revision both under-reported it, and the touched-key merge
     # below would have dropped it entirely.
     _cfg_before = copy.deepcopy(cfg or {})
+
+    # MUST run AFTER the snapshot above. The write-back at the end of this
+    # handler applies only the keys this request CHANGED, diffed against
+    # `_cfg_before` — so popping a key BEFORE the snapshot makes the pop
+    # invisible: cfg and _cfg_before agree the key is absent, it never lands in
+    # `_touched`, and the live store keeps the old value. The first version of
+    # this block sat four lines higher and did exactly that; every clearing
+    # test failed and the handler still returned 200.
+    for _bk in _BLANKABLE_CONFIG_KEYS:
+        if _bk in body and (body[_bk] is None or body[_bk] == ''):
+            cfg.pop(_bk, None)
+            body.pop(_bk, None)
 
     if 'webhook_url' in body:
         url = str(body['webhook_url']).strip()
@@ -29284,7 +29330,9 @@ def handle_config_save():
         try:
             cfg['scrub_overdue_days'] = max(1, min(3650, int(body['scrub_overdue_days'])))
         except (TypeError, ValueError):
-            pass
+            # was `pass` — an unparseable value was discarded in
+            # silence under a "Settings saved" toast.
+            respond(400, {'error': 'scrub_overdue_days must be an integer'})
     # v6.1.2: snapshot staleness. 0 = OFF (the default) — plenty of pools are
     # legitimately not snapshotted, so this only alerts once an operator says
     # "these pools SHOULD have a snapshot at least every N days".
@@ -29292,7 +29340,9 @@ def handle_config_save():
         try:
             cfg['snapshot_stale_days'] = max(0, min(3650, int(body['snapshot_stale_days'])))
         except (TypeError, ValueError):
-            pass
+            # was `pass` — an unparseable value was discarded in
+            # silence under a "Settings saved" toast.
+            respond(400, {'error': 'snapshot_stale_days must be an integer'})
     # v6.1.2: unit-flap threshold — restarts BETWEEN two heartbeats that count as
     # flapping. 0 = off (default), because a Restart=always unit that legitimately
     # bounces occasionally shouldn't page anyone.

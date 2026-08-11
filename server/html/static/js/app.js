@@ -21712,14 +21712,52 @@ async function previewThresholdImpact() {
 }
 
 async function saveAlertParams(btn) {
+  // This used to be `payload[key] = Number.isNaN(n) ? dflt : n`, and that one
+  // line produced two silent wrong answers across 84 threshold fields:
+  //
+  //   * A TYPO SAVED THE SHIPPED DEFAULT. Type "5O" for 50 and the field parsed
+  //     to NaN, the shipped default went to the server in its place, and the
+  //     operator got "Settings saved". They had every reason to believe the
+  //     threshold was 50. The server has always rejected an unparseable value
+  //     with a clear 400 — the client just never let one reach it.
+  //   * CLEARING A FIELD DID NOT CLEAR THE OVERRIDE. Blank is how you go back
+  //     to the default: the server pops the key for a blankable parameter. The
+  //     client sent the default as a NUMBER instead, which stores it as an
+  //     explicit override that merely happens to equal the default today — so
+  //     the install silently pins the old value the next time the shipped
+  //     default changes.
+  //
+  // Now: blank goes to the server as '' so it pops, and anything unparseable
+  // stops the save, marks the field and focuses it (WCAG 2.1 SC 3.3.1 — the
+  // aria-invalid attribute also carries a visible state, see styles.css).
   const payload = {};
-  for (const [id, key, dflt] of _ALERT_PARAM_FIELDS) {
+  const bad = [];
+  for (const [id, key] of _ALERT_PARAM_FIELDS) {
     const el = document.getElementById(id);
+    if (!el) continue;
+    el.removeAttribute('aria-invalid');
+    const raw = String(el.value ?? '').trim();
+    if (raw === '') { payload[key] = ''; continue; }   // clears the override
     // Float keys parseFloat (0.5 must not truncate to 0); everything else parseInt.
-    const n = _ALERT_PARAM_FLOAT_KEYS.has(key)
-      ? parseFloat(el?.value)
-      : parseInt(el?.value, 10);
-    payload[key] = Number.isNaN(n) ? dflt : n;
+    const n = _ALERT_PARAM_FLOAT_KEYS.has(key) ? parseFloat(raw)
+                                               : parseInt(raw, 10);
+    // parseInt('12abc') is 12, which is not what the operator typed — compare
+    // against the whole string so a partially-numeric entry is refused too.
+    if (!Number.isFinite(n) || !/^-?\d+(\.\d+)?$/.test(raw)) {
+      bad.push([el, key]);
+      continue;
+    }
+    payload[key] = n;
+  }
+  if (bad.length) {
+    for (const [el] of bad) el.setAttribute('aria-invalid', 'true');
+    bad[0][0].focus();
+    bad[0][0].scrollIntoView({block: 'center', behavior: 'smooth'});
+    toast(bad.length === 1
+      ? `${bad[0][1]} must be a number — nothing was saved`
+      : `${bad.length} parameters are not numbers — nothing was saved`,
+      'error');
+    return;
   }
   const r = await api('POST', '/config', payload);
   if (r?.ok) { toast('Settings saved', 'success'); loadAlertParams(); }

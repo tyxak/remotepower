@@ -142,6 +142,20 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **A typo in an alert threshold saved the shipped default and said "Settings
+  saved".** The Alert parameters page carries 92 numeric fields; anything that
+  did not parse as a number was silently replaced by the value RemotePower
+  ships with, and the operator was told it worked. Clearing a field was just as
+  wrong in the other direction — instead of removing the override so the
+  default applies again, it stored the default as an explicit override, which
+  quietly pins the old number the next time that default moves. Bad input now
+  stops the save, marks the field and says which one; a cleared field clears
+  the override, on every tunable rather than the two-thirds that already did.
+  Ten of the others answered a cleared field by rejecting the whole form, so
+  the other 91 fields you had just edited did not save either, and two
+  discarded unparseable input without a word. A field marked invalid is also
+  visible now — the attribute was being set for screen readers with no styling
+  behind it, so a sighted operator saw nothing at all.
 - **The accessibility surface had no translation gate at all.** The engine has
   been translating `placeholder`, `title` and `aria-label` for releases — what
   was missing was the dictionary behind it, and nothing was watching, so 1,081

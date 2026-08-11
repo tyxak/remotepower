@@ -2531,6 +2531,20 @@
   .login-btn:hover { background: var(--accent2); }
   .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
   .login-error.show { display: block; }
+
+  /* v6.4.3: a field marked aria-invalid had NO visual state — the attribute was
+   * being set for screen readers and a sighted operator saw nothing at all,
+   * which is half of WCAG 2.1 SC 3.3.1 rather than all of it. One rule covers
+   * every form: the attribute is already the single source of truth, so this
+   * cannot drift out of sync with the JS the way a parallel .is-invalid class
+   * would. The ring is deliberate as well as the border — a border colour
+   * alone fails SC 1.4.1 for anyone who cannot distinguish it. */
+  [aria-invalid="true"] {
+    border-color: var(--red) !important;
+    box-shadow: 0 0 0 2px var(--red-soft);
+  }
+  [aria-invalid="true"]:focus,
+  [aria-invalid="true"]:focus-visible { border-color: var(--red) !important; }
   /* v2.2.7: the 768px sidebar icon-rail block was removed here.
    * It collided with the 720px mobile drawer block below — both
    * applied under 720px, producing a wide drawer full of unlabelled
