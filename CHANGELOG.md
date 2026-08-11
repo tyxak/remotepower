@@ -142,6 +142,18 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **Every dialog now has a name a screen reader can announce.** Confirmations
+  and prompts are `role="dialog"` labelled by their title element — and the
+  title was empty unless the caller passed one, which 143 of them did not
+  (the `uiConfirm('Delete this?')` short form cannot pass one at all). A
+  screen-reader user got "dialog" and nothing else on most confirmations in
+  the product. Both now default to a title, translated in all six languages.
+- **The accessibility audit now opens the dialogs.** It walked every page and
+  every Settings pane and never opened a modal — and there are 138 of them,
+  each hidden until something opens it, which the audit tool does not scan at
+  all. Modals are where the forms are, so that was the surface where it
+  mattered most. The nameless-dialog bug above was the first thing the new
+  walk found.
 - **An SSO login could quietly become a platform operator.** On a multi-tenant
   install, a user created by OIDC, SAML, SCIM or LDAP was stamped with no
   tenant — and a user with no tenant belongs to the built-in default one, where

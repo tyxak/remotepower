@@ -6050,7 +6050,16 @@ function uiConfirm(opts = {}) {
     if (_uiPromptResolve) { const r = _uiPromptResolve; _uiPromptResolve = null; r(null); }
     _uiPromptResolve = resolve;
     _uiPromptConfirmMode = true;
-    const { title = '', message = '', confirmText = 'OK', danger = false } = opts;
+    // v6.4.3: a DEFAULT title, because an empty one leaves the dialog with no
+    // accessible name. The overlay is `role="dialog"
+    // aria-labelledby="ui-prompt-title"`, and aria-labelledby pointing at an
+    // empty node yields an empty name — it does NOT fall back to anything. So
+    // a screen reader announced "dialog" and stopped. 94 callers use the
+    // `uiConfirm('Delete this?')` string form, which cannot pass a title at
+    // all, and 49 more omit it from the object form: 143 nameless dialogs,
+    // which is most of the confirmations in the product. Found by the axe
+    // modal walk added in this release — the first surface it looked at.
+    const { title = 'Confirm', message = '', confirmText = 'OK', danger = false } = opts;
     document.getElementById('ui-prompt-title').textContent = title;
     const msg = document.getElementById('ui-prompt-message');
     msg.textContent = message; msg.classList.toggle('d-none', !message);
@@ -6071,7 +6080,9 @@ function uiPrompt(opts = {}) {
     if (_uiPromptResolve) { const r = _uiPromptResolve; _uiPromptResolve = null; r(null); }
     _uiPromptResolve = resolve;
     _uiPromptConfirmMode = false;
-    const { title = '', message = '', value = '', placeholder = '',
+    // See uiConfirm above — an empty title means the dialog has no accessible
+    // name at all.
+    const { title = 'Input required', message = '', value = '', placeholder = '',
             type = 'text', confirmText = 'OK', danger = false,
             multiline = false } = opts;
     document.getElementById('ui-prompt-title').textContent = title;
