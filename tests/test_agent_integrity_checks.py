@@ -417,6 +417,51 @@ class TestAgentEval(unittest.TestCase):
             {'id': 'e2', 'type': 'egress_flagged', 'param': '192.0.2.0/24'})
         self.assertEqual(st, 'ok', out)
 
+    def test_egress_hit_names_the_owning_process(self):
+        """v6.4.3: a hit used to say WHICH bad address was reached and nothing
+        about WHAT reached it, so every alert began a manual hunt on the box.
+        The socket inode was already in /proc/net/tcp column 9.
+
+        Driven against this machine's own live sockets rather than a fixture —
+        a fixture here would encode my assumption about /proc's format, which
+        is the exact trap that makes a dead feature look wired."""
+        import os
+        if not os.path.exists('/proc/net/tcp'):
+            self.skipTest('no /proc/net/tcp on this platform')
+        inodes = []
+        with open('/proc/net/tcp') as fh:
+            for ln in fh.read().splitlines()[1:400]:
+                f = ln.split()
+                if len(f) > 9 and f[9] != '0':
+                    inodes.append(f[9])
+        if not inodes:
+            self.skipTest('no sockets with an inode to resolve')
+        got = agent._pids_for_sockets(inodes[:60])
+        # Not all resolve — sockets owned by other users are unreadable to a
+        # non-root test runner, and that is the intended best-effort behaviour.
+        # What must hold is the SHAPE and that it resolves something at all.
+        self.assertTrue(got, 'resolved nothing from live sockets — the '
+                             '/proc/*/fd walk is not working')
+        for ino, who in got.items():
+            self.assertIn(ino, set(inodes[:60]))
+            self.assertRegex(who, r'^.+\(\d+\)$', f'expected name(pid), got {who!r}')
+
+    def test_the_resolver_is_not_called_on_the_clean_path(self):
+        """It is O(processes x fds). A check that walked /proc on every poll for
+        every host would be a self-inflicted load problem, so the walk must be
+        reachable only from the hit branch."""
+        import inspect
+        src = inspect.getsource(agent._eval_one_agent_check)
+        i = src.index('_pids_for_sockets(')
+        before = src[:i]
+        self.assertIn('if hits:', before,
+                      'the resolver is reachable without a hit — it must run '
+                      'only for addresses that actually matched')
+
+    def test_the_resolver_tolerates_nothing_to_do(self):
+        self.assertEqual(agent._pids_for_sockets([]), {})
+        self.assertEqual(agent._pids_for_sockets(['999999999']), {})
+
     def test_parse_hex_ip_roundtrip(self):
         # 127.0.0.1 in /proc/net/tcp little-endian hex is 0100007F
         self.assertEqual(agent._parse_hex_ip('0100007F'), '127.0.0.1')

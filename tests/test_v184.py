@@ -320,6 +320,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'remediation_failed',
             # v6.3.1: flow-verified declared-dependency link went silent / recovered
             'dependency_missing', 'dependency_restored',
+            'flow_export_stale', 'flow_export_resumed',
             # v6.1.2 (#40): SSH host-key change (MITM / reimage tripwire)
             'hostkey_changed',
             'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',

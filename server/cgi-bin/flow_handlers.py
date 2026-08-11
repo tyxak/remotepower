@@ -412,3 +412,88 @@ def run_flow_dep_check_if_due():
             A.fire_webhook(event, payload)
         except Exception:
             pass
+
+
+def run_flow_export_check_if_due():
+    """Fire flow_export_stale / flow_export_resumed for enrolled exporters that
+    stop (and restart) sending.
+
+    v6.4.3. A router whose export config, capability token or udp/2055 path
+    breaks is INVISIBLE today: nothing says "your exporter stopped", the
+    drawer's top-talkers view simply freezes on its last window, and
+    `_dependency_health` quietly degrades once that window ages past
+    _DEP_EVIDENCE_TTL — turning a dead exporter into phantom "dependency
+    missing" alerts about links that are perfectly fine. Reported from a
+    production host where flowd dropped every packet for hours while the Self
+    page rendered "Healthy · Running".
+
+    Deliberately mirrors run_flow_dep_check_if_due rather than inventing a
+    second idiom:
+      * edge-triggered on the transition, so it fires once, not every sweep;
+      * `ever_seen` gates it, so a token created and never used is not an
+        outage (the _dependency_health precedent);
+      * fire_webhook is collected and called AFTER the lock — self-locking
+        helpers inside _LockedUpdate is the recurring nesting bug.
+
+    The threshold is HOURS, not minutes, and that is not conservatism: flowd
+    skips empty windows (`if not recs: continue`), so an idle standby link and
+    a dead exporter look identical on the wire. Anything tighter would page on
+    a quiet Sunday.
+    """
+    now = int(time.time())
+    cfg = A._config_ro() or {}
+    # NB `or <default>` would coerce a configured 0 back to the default — the
+    # falsy-zero trap this codebase has hit before. An operator setting 0 means
+    # "every sweep", and a test setting 0 means "do not make me wait".
+    def _num(key, default):
+        v = cfg.get(key, default)
+        try:
+            return max(0, int(v))
+        except (TypeError, ValueError):
+            return default
+    every = _num('flow_export_check_seconds', 900)
+    silence_s = _num('flow_export_silence_seconds', A._FLOW_SILENT_S)
+    pending = []
+    with A._LockedUpdate(A.FLOW_DEPS_FILE) as store:
+        if now - int(store.get('export_last_run') or 0) < every:
+            return
+        toks = [t for t in ((A.load(A.INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
+                if isinstance(t, dict) and t.get('kind') == 'flow'
+                and t.get('enabled', True) and t.get('scope_device_id')]
+        devices = A.load(A.DEVICES_FILE) or {}
+        state = store.get('exporters') if isinstance(store.get('exporters'), dict) else {}
+        live = set()
+        for t in toks:
+            did = str(t.get('scope_device_id') or '')
+            dev = devices.get(did)
+            if not dev:
+                continue                      # device deleted; token is orphaned
+            live.add(did)
+            est = state.get(did) if isinstance(state.get(did), dict) else {}
+            last = int(t.get('last_seen') or 0)
+            if last > int(est.get('last_seen') or 0):
+                est['last_seen'] = last
+                est['ever_seen'] = True
+                if est.get('alerted'):
+                    est['alerted'] = False
+                    pending.append(('flow_export_resumed', {
+                        'device_id': did, 'name': dev.get('name', did),
+                        'detail': 'flow export resumed'}))
+            elif (est.get('ever_seen') and not est.get('alerted')
+                  and last and (now - last) >= silence_s):
+                est['alerted'] = True
+                pending.append(('flow_export_stale', {
+                    'device_id': did, 'name': dev.get('name', did),
+                    'detail': f'no NetFlow/IPFIX export for '
+                              f'{(now - last) // 3600}h — check the exporter\'s '
+                              f'config, its token, and udp/2055 reachability'}))
+            state[did] = est
+        for gone in set(state) - live:
+            state.pop(gone, None)             # token or device removed
+        store['exporters'] = state
+        store['export_last_run'] = now
+    for event, payload in pending:
+        try:
+            A.fire_webhook(event, payload)
+        except Exception:
+            pass

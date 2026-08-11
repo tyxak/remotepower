@@ -524,6 +524,7 @@ builtins = [
     "run_ct_watch_if_due",
     "run_dmarc_imap_if_due",
     "run_flow_dep_check_if_due",
+    "run_flow_export_check_if_due",
     "run_incident_memory_if_due",
     "run_ipam_conflicts_if_due",
     "run_metric_rollup_if_due",

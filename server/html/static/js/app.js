@@ -3910,7 +3910,10 @@ function _sloStatusOf(o) {
 }
 // Natural precision: 99.9 renders as "99.9", not "99.900" (trailing zeros
 // read as false precision on a target the operator typed).
-function _sloPct(v) { return String(parseFloat(Number(v).toFixed(4))); }
+// v6.4.3: Number(undefined).toFixed() is "NaN", so an SLO with no measurement
+// rendered the literal string NaN as its percentage. An absent number is not
+// zero either — say so.
+function _sloPct(v) { const n = Number(v); return Number.isFinite(n) ? String(parseFloat(n.toFixed(4))) : '—'; }
 function _registerSloTable() {
   if (_sloRegistered) return;
   _sloRegistered = true;
@@ -6430,7 +6433,14 @@ function enhanceDeviceCombos(root) {
 // v6.3.0 (UX wave 11): absolute-timestamp tooltip companion to timeAgo() —
 // "3h ago" answers "roughly when"; hovering answers "exactly when".
 function _absTs(ts) { return ts ? _fmtAbsTs(parseInt(ts)) : ''; }
-function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty; let diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
+// v6.4.3: a missing or unparseable timestamp used to fall all the way through
+// to the days branch and render "NaNd ago" — the same undefined-in-the-UI class
+// fixed elsewhere this release, across 48 call sites. A bare 0 (an unset epoch
+// field, which several stores use for "never") rendered "20676d ago", which is
+// worse than useless because it looks like a real measurement.
+function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty;
+  const _n = parseInt(ts); if (!Number.isFinite(_n) || _n <= 0) return (opts && opts.empty !== undefined) ? opts.empty : 'never';
+  let diff = Math.floor(Date.now() / 1000 - _n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
 // Everything is STORED in Celsius — the agent reports °C, thresholds are °C,
@@ -19461,6 +19471,7 @@ function _renderHomeActivity(fleetEvents) {
     'ping_missed', 'ping_recovered',                          // v6.1.2
     'remediation_failed',                                     // v6.3.1 auto-fix verify
     'dependency_missing', 'dependency_restored',              // v6.3.1 flow-verified depends_on
+    'flow_export_stale', 'flow_export_resumed',               // v6.4.3 exporter went silent
     'hostkey_changed',                                        // v6.1.2 (#40)
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
@@ -19741,6 +19752,7 @@ function _homeActivityAttrs(event, p) {
       return `data-home-act="netmap"`;
     case 'remediation_failed':   // v6.3.1 — the rule + ledger live on Automations
       return `data-home-act="automation"`;
+    case 'flow_export_stale': case 'flow_export_resumed':    // v6.4.3 — same page: the exporter IS the link
     case 'dependency_missing': case 'dependency_restored':   // v6.3.1 — link health on the Network page
       return `${base} data-home-act="netmap"`;
     case 'hostkey_changed':   // v6.1.2 (#40) — the drawer shows the fingerprints

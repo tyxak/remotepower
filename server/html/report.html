@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>RemotePower — Fleet posture report</title>
   <link rel="icon" href="favicon.ico">
-  <link rel="stylesheet" href="static/css/report.css?v=6.4.3-78">
+  <link rel="stylesheet" href="static/css/report.css?v=6.4.3-79">
 </head>
 <body>
   <div class="toolbar"><button id="pr-print" type="button">Print / Save as PDF</button></div>
@@ -21,6 +21,15 @@
     <div id="pr-sections"></div>
     <div id="pr-foot" class="foot"></div>
   </div>
-  <script src="static/js/report.js?v=6.4.3-78"></script>
+  <!-- v6.4.3: the printable report is the one page that LEAVES the building,
+       and it was the only operator-facing surface with no translation at all.
+       Deferred deliberately: the dictionary is 1.4 MB, so the report paints
+       first and translation applies after — the engine self-inits on
+       DOMContentLoaded and its MutationObserver picks up whatever report.js
+       renders, whether that is synchronous or after a fetch. The cost is
+       near zero in practice because this page is opened FROM the authed SPA
+       at the same ?v=, so the file is already in cache. -->
+  <script defer src="static/js/i18n.js?v=6.4.3-79"></script>
+  <script src="static/js/report.js?v=6.4.3-79"></script>
 </body>
 </html>

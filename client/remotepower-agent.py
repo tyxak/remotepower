@@ -784,6 +784,56 @@ def _safe_state_read_big(name: str, cap: int = 1_000_000) -> str | None:
     return None
 
 
+def _pids_for_sockets(inodes):
+    """{socket inode: 'name(pid)'} for the sockets named — the process that owns
+    each connection.
+
+    v6.4.3: `egress_flagged` reported WHICH bad address a host reached and had
+    no way to say WHAT reached it, so every hit began a manual hunt on the box.
+    The inode is already sitting in /proc/net/tcp column 9; the only missing
+    step was walking /proc/*/fd for the matching `socket:[N]` link.
+
+    Called ONLY for addresses that actually matched, because this is O(procs x
+    fds) — a few thousand readlinks on a busy host. On the overwhelmingly common
+    no-hit path it is never called at all, so the check costs exactly what it
+    did before. Best-effort throughout: a process that exits mid-walk, or one
+    owned by another user on a non-root agent, simply does not resolve, and an
+    unresolved socket is reported as the address alone rather than dropped.
+    """
+    if not inodes:
+        return {}
+    want = {str(i) for i in inodes}
+    found = {}
+    try:
+        pids = [d for d in os.listdir(host_path('/proc')) if d.isdigit()]
+    except OSError:
+        return {}
+    for pid in pids:
+        if not want - set(found):
+            break                      # every socket accounted for
+        fddir = host_path(f'/proc/{pid}/fd')
+        try:
+            fds = os.listdir(fddir)
+        except OSError:
+            continue                   # gone, or not ours to read
+        for fd in fds:
+            try:
+                link = os.readlink(os.path.join(fddir, fd))
+            except OSError:
+                continue
+            if not link.startswith('socket:['):
+                continue
+            ino = link[8:-1]
+            if ino in want and ino not in found:
+                try:
+                    with open(host_path(f'/proc/{pid}/comm')) as fh:
+                        name = fh.read().strip()[:32] or '?'
+                except OSError:
+                    name = '?'
+                found[ino] = f'{name}({pid})'
+    return found
+
+
 def _parse_hex_ip(h: str):
     """Convert a /proc/net/tcp{,6} hex address (little-endian words) to a
     printable IP. Returns None on anything unexpected."""
@@ -7279,6 +7329,7 @@ def _eval_one_agent_check(c):
                 'entries must be addresses or CIDRs, not hostnames'
                 if _bad else 'no flagged ranges configured — check not evaluated')
         hits = set()
+        hit_inodes = {}          # socket inode -> remote ip, for attribution
         for pf in ('/proc/net/tcp', '/proc/net/tcp6'):
             try:
                 with open(pf) as fh:
@@ -7300,9 +7351,24 @@ def _eval_one_agent_check(c):
                 except ValueError:
                     continue
                 if any(ipo in nw for nw in nets):
+                    # v6.4.3: keep the socket inode (column 9) alongside the
+                    # address so the owning process can be named below.
                     hits.add(ip)
+                    if len(fld) > 9:
+                        hit_inodes.setdefault(fld[9], ip)
         if hits:
-            return 'critical', 'outbound to flagged: ' + ', '.join(sorted(hits)[:5])
+            # Resolve ONLY the matched sockets — see _pids_for_sockets on why
+            # this must not run on the clean path.
+            procs = _pids_for_sockets(hit_inodes.keys())
+            by_ip = {}
+            for ino, ip in hit_inodes.items():
+                if ino in procs:
+                    by_ip.setdefault(ip, set()).add(procs[ino])
+            parts = []
+            for ip in sorted(hits)[:5]:
+                who = ', '.join(sorted(by_ip.get(ip, ())))
+                parts.append(f'{ip} ({who})' if who else ip)
+            return 'critical', 'outbound to flagged: ' + ', '.join(parts)
         return 'ok', 'no flagged endpoints'
     return 'unknown', 'unknown check type'
 

@@ -142,6 +142,31 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **A stopped NetFlow exporter is now noticed.** A router whose export config,
+  token or udp/2055 path breaks was invisible: nothing said so, the top-talkers
+  view simply froze on its last window, and dependency verification quietly
+  degraded into phantom "link broken" alerts about links that were fine. There
+  is now a paired alert for an exporter going silent and coming back, gated so
+  a token created mid-setup is not an outage, and thresholded in hours because
+  an idle standby link and a dead exporter look identical on the wire.
+- **A flagged-egress hit now names the process.** The check reported which
+  known-bad address a host reached and nothing about what reached it, so every
+  alert began a manual hunt on the box. The socket owner is resolved only for
+  addresses that actually matched, so a clean check costs exactly what it did.
+- **Times and percentages no longer render as `NaN`.** A missing timestamp
+  produced the literal "NaNd ago" across 48 places, an unset one produced
+  "20676d ago" — the epoch, which looks like a real measurement — and an
+  unmeasured SLO printed "NaN" as its percentage.
+- **The printable report is translated.** It was the only operator-facing
+  surface with no translation at all, and it is the one that leaves the
+  building.
+- **`make help` described a Makefile from years ago** — it advertised "1064+
+  tests" against 11,320 and omitted `pre-release`, the gate a production push
+  cannot skip. A check now fails if a target is added without documenting it.
+- **A correlation badge failed colour contrast** once there were correlated
+  alerts to render it: it painted its own grey wash and then used a colour
+  measured against the un-tinted surface, lightening the background out from
+  under itself.
 - **A security check reported all-clear without looking.** The `egress_flagged`
   check answers "is this host talking to known-bad addresses" — and returned a
   green OK when it had no usable ranges to check against. Worse than it sounds:

@@ -6081,7 +6081,15 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .alert-rc-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
                   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
 .alert-rc-badge.rc-root { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
-.alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
+/* v6.4.3: --muted-on-tint, not --muted. The badge paints its OWN 15% grey
+   wash and then chose a colour picked against the un-tinted surface, so it
+   lightened its backdrop out from under itself: 4.86:1 on --surface became
+   4.2:1 on the wash, under the 4.5 AA floor at this 10px size. The token
+   already existed for exactly this shape and had one user. Surfaced only when
+   the seeded a11y pass finally had symptom-tagged alerts to render — an
+   empty-database sweep can never see a badge that needs correlated rows.
+   (Border keeps --muted: a 1px edge is a non-text element, floor 3:1.) */
+.alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted-on-tint); border: 1px solid var(--muted); }
 /* v6.4.2: this alert is downstream of a declared upstream that is offline.
    Amber, not red: the host really is down, but fixing IT is not the job — the
    upstream is. Distinct from rc-root (fix this) and rc-symptom (ignore this). */

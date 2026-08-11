@@ -1484,6 +1484,7 @@ for _fl_name in (
         # v6.3.1: flow-derived dependency verification
         '_dep_ip_index', '_dep_observed_edges', '_dep_online', '_dependency_health',
         'handle_dependency_health', 'run_flow_dep_check_if_due',
+        'run_flow_export_check_if_due',
 ):
     globals()[_fl_name] = getattr(flow_handlers_mod, _fl_name)
 del _fl_name
@@ -2525,6 +2526,22 @@ EVENT_REGISTRY = {
         label='A declared service dependency stopped exchanging traffic',
         kind='dependency', title='Service Dependency Broken', severity='high',
         priority=4, tags='warning,link'),
+    # v6.4.3: an enrolled flow exporter that has stopped exporting. The whole
+    # agentless flow feature is invisible when this happens — no page says
+    # "your router stopped talking", the top-talkers view just freezes on its
+    # last window, and dependency verification quietly degrades once that
+    # window ages past _DEP_EVIDENCE_TTL. Found the hard way: a production
+    # flowd was dropping every packet for hours while the Self page called it
+    # Healthy. sub_match on device_id.
+    'flow_export_stale': dict(
+        label='A NetFlow/IPFIX exporter stopped sending',
+        kind='dependency', title='Flow Export Stopped', severity='medium',
+        tags='warning,radio'),
+    'flow_export_resumed': dict(
+        label='A NetFlow/IPFIX exporter started sending again',
+        kind='dependency', title='Flow Export Resumed', priority=2,
+        tags='white_check_mark,radio',
+        resolves=('flow_export_stale',)),
     'dependency_restored': dict(
         label='A broken service dependency is exchanging traffic again',
         kind='dependency', title='Service Dependency Restored',
@@ -68815,6 +68832,7 @@ def main():
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
+    _safe(run_flow_export_check_if_due, 'run_flow_export_check_if_due')  # v6.4.3 exporter went silent
     _safe(run_incident_memory_if_due, 'run_incident_memory_if_due')   # v6.3.1 harvest resolved triaged incidents
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
