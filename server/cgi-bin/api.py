@@ -63741,73 +63741,20 @@ def handle_maintenance_add():
         respond(405, {'error': 'Method not allowed'})
 
     body = _read_valid(request_models.MaintenanceAddRequest)
-    reason = _sanitize_str(body.get('reason', ''), 128)
-    scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
-    target = _sanitize_str(body.get('target', ''), 128)
-    start  = _sanitize_str(body.get('start', ''), 32)
-    end    = _sanitize_str(body.get('end', ''), 32)
-    cron   = _sanitize_str(body.get('cron', ''), 64)
-
-    try:
-        duration = int(body.get('duration', 0) or 0)
-    except (TypeError, ValueError):
-        duration = 0
-
-    events = body.get('events') or []
-    if not isinstance(events, list):
-        events = []
-    events = [e for e in events if e in SUPPRESSIBLE_EVENTS][:10]
-
-    if scope not in ('device', 'group', 'global'):
-        respond(400, {'error': 'scope must be device, group, or global'})
-    if scope == 'device' and not _validate_id(target):
-        respond(400, {'error': 'device-scoped window requires a valid target device_id'})
-    if scope == 'group' and not target:
-        respond(400, {'error': 'group-scoped window requires a target group name'})
-
-    # Must be either (start+end) or (cron+duration) — not both, not neither
-    has_oneshot = bool(start and end)
-    has_cron    = bool(cron and duration > 0)
-    if has_oneshot == has_cron:
-        respond(400, {'error': 'specify exactly one of (start+end) or (cron+duration)'})
-
-    if has_oneshot:
-        try:
-            s = _parse_iso(start); e = _parse_iso(end)
-            if e <= s:
-                respond(400, {'error': 'end must be after start'})
-        except ValueError:
-            respond(400, {'error': 'invalid ISO-8601 timestamp'})
-
-    if has_cron:
-        if _cron_match(cron, int(time.time())) is False and len(cron.split()) != 5:
-            respond(400, {'error': 'cron must have 5 space-separated fields'})
-        if duration < 60 or duration > 86400 * 7:
-            respond(400, {'error': 'duration must be 60..604800 seconds'})
-
-    window = {
-        'id':       secrets.token_hex(8),
-        'reason':   reason,
-        'scope':    scope,
-        'target':   target,
-        'start':    start,
-        'end':      end,
-        'cron':     cron,
-        'duration': duration,
-        'events':   events,
-        # v3.4.2: when set, exec/upgrade commands for covered devices are HELD
-        # until one of the device's gating windows is active (change-window
-        # gating — distinct from the alert suppression above).
-        'gate_exec': bool(body.get('gate_exec')),
-        # v6.4.2: opt-in publication on the PUBLIC status page. Off by default,
-        # and it publishes `public_title` — never `reason`, which is internal
-        # free text an operator writes for colleagues ("swapping the failing
-        # PSU in rack 3") and must not appear on a customer-facing URL.
-        'public':       bool(body.get('public')),
-        'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
+    # _validate_maintenance_body has always described itself as "shared
+    # validation for maintenance add + update" and only update called it: add
+    # carried its own byte-identical copy of all six checks. Two copies of a
+    # rule is one rule and one time bomb — tighten the scope check on the edit
+    # path and creation still lets the bad value through, with no error
+    # anywhere to say so. Add now goes through the same function, which is what
+    # its name claimed all along.
+    clean = _validate_maintenance_body(body)
+    scope, target, reason = clean['scope'], clean['target'], clean['reason']
+    window = dict(clean, **{
+        'id':         secrets.token_hex(8),
         'created_by': actor,
         'created_at': int(time.time()),
-    }
+    })
 
     maint = load(MAINT_FILE)
     windows = maint.get('windows') or []
@@ -63863,9 +63810,14 @@ def _validate_maintenance_body(body):
         'reason': reason, 'scope': scope, 'target': target,
         'start': start, 'end': end, 'cron': cron,
         'duration': duration, 'events': events,
+        # v3.4.2: when set, exec/upgrade commands for covered devices are HELD
+        # until one of the device's gating windows is active (change-window
+        # gating — distinct from the alert suppression above).
         'gate_exec': bool(body.get('gate_exec')),
-        # handle_maintenance_update does new_win.update(clean) — a key missing
-        # from this dict is SILENTLY CLEARED on every edit of the window.
+        # BOTH callers build the stored window from this dict — add via
+        # dict(clean, id=…), update via new_win.update(clean) — so a key
+        # missing here is silently dropped at create AND silently cleared on
+        # every edit.
         'public':       bool(body.get('public')),
         'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
     }

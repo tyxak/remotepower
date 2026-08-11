@@ -513,3 +513,113 @@ class TestUnguardedCategoriesAreTranslated(unittest.TestCase):
         self.assertEqual(stale, [],
                          'these are exempted but appear in neither index.html '
                          'nor any app*.js: %s' % stale)
+
+
+# ── v6.4.3 (third pass): the attributes ──────────────────────────────────────
+#
+# `placeholder`, `title` and `aria-label` are the strings a screen-reader user
+# actually hears. The ENGINE has translated all three for releases —
+# i18n.js's `translateAttrs` walks `[placeholder],[title],[aria-label]` and
+# rewrites them through the same DICT as everything else. What was missing was
+# the dictionary behind it, and nothing was watching, so 1,081 attribute
+# strings had accumulated in English. A blind spot on the accessibility surface
+# specifically, which is the worst place to have one.
+#
+# WHY THIS IS A BASELINE AND NOT CEILING ZERO. The other three categories are
+# at zero because they could be driven there. This one cannot be, honestly:
+# ~360 of the placeholders are example DATA the operator copies — cron lines,
+# PEM blocks, `/var/log/nginx/error.log`, `192.168.1.0/24` — and translating
+# those would be actively wrong. Sorting a thousand strings into "prose" and
+# "example" by regex is guesswork, and CLAUDE.md is explicit that a wrong
+# translation is worse than English. So the debt is recorded exactly and can
+# only shrink.
+#
+# WHY A FROZEN SET RATHER THAN A COUNT. A numeric ceiling has a hole this one
+# does not: translate five strings, add five untranslated ones, and the total is
+# unchanged while the UI got worse. Pinning the set means a NEW untranslated
+# attribute fails by name, and clearing one shows up as a deletion in the diff.
+_ATTR_BACKLOG_FILE = _ROOT / 'tests' / 'data' / 'i18n_attr_backlog.txt'
+_ATTR_PATTERNS = (
+    ('placeholder', r'placeholder="([^"]{2,120})"'),
+    ('title',       r'\btitle="([^"]{2,120})"'),
+    ('aria-label',  r'aria-label="([^"]{2,120})"'),
+)
+
+
+def _attr_strings():
+    """Every fixed attribute literal in the static HTML and the app bundles."""
+    found = set()
+    for _cat, pat in _ATTR_PATTERNS:
+        for _where, source in _SCAN_SOURCES:
+            found |= _extract(pat, source)
+    # The baseline is line-delimited, so a value carrying a newline (a
+    # multi-line placeholder example) is folded the same way on both sides.
+    return {t.replace('\n', ' ').replace('\r', ' ') for t in found}
+
+
+def _attr_backlog():
+    if not _ATTR_BACKLOG_FILE.exists():
+        return None                      # excluded from the dist tree
+    return {ln for ln in
+            _ATTR_BACKLOG_FILE.read_text(encoding='utf-8').splitlines() if ln}
+
+
+class TestAttributeTranslationRatchet(unittest.TestCase):
+    """`placeholder` / `title` / `aria-label` — shrink-only."""
+
+    def setUp(self):
+        self.backlog = _attr_backlog()
+        if self.backlog is None:
+            self.skipTest('tests/data excluded from this tree')
+
+    def test_no_new_untranslated_attribute(self):
+        entries = _dict_entries()
+        new = sorted(t for t in _attr_strings()
+                     if t not in entries
+                     and t not in _DELIBERATE_ENGLISH
+                     and t not in self.backlog)
+        self.assertEqual(new, [], '\n'.join([
+            'these placeholder / title / aria-label strings are new and have no '
+            'translation:', *('  ' + t for t in new),
+            '',
+            'A screen reader announces these verbatim, so in the six non-English '
+            'languages they are read out in English. Add a DICT entry in '
+            'i18n.js carrying all six languages.',
+            '',
+            'If the string is example DATA the operator copies — a path, a cron '
+            'expression, an IP, a certificate — it must stay English: add it to '
+            f'{_ATTR_BACKLOG_FILE.name}. That file is the recorded debt and is '
+            'allowed to shrink, never grow.']))
+
+    def test_the_backlog_only_shrinks(self):
+        """An entry that is now translated, or no longer in the markup, must be
+        deleted from the baseline. Otherwise the file drifts into a list of
+        strings nobody can act on, and a real gap hides among them — the stale
+        exemption problem the category above already had once."""
+        entries = _dict_entries()
+        present = _attr_strings()
+        stale = sorted(t for t in self.backlog
+                       if t not in present or t in entries)
+        self.assertEqual(stale, [], '\n'.join([
+            'these are recorded as untranslated but are now translated or gone '
+            'from the markup — delete them from '
+            f'{_ATTR_BACKLOG_FILE.name}:', *('  ' + t for t in stale[:40])]))
+
+    def test_the_recorded_debt_is_shrinking_not_invented(self):
+        """Guard the guard. A baseline that silently grew to cover everything
+        would make the test above pass forever while measuring nothing."""
+        self.assertLessEqual(len(self.backlog), 1008,
+                             'the attribute backlog may only shrink; it was '
+                             '1,081 before the v6.4.3 batch and 984 after')
+        self.assertGreater(len(self.backlog), 0)
+
+    def test_a_translated_attribute_carries_all_six_languages(self):
+        entries = _dict_entries()
+        partial = {}
+        for text in sorted(_attr_strings()):
+            langs = entries.get(text)
+            if langs and not set(LANGS).issubset(langs):
+                partial[text] = sorted(set(LANGS) - langs)
+        self.assertEqual(partial, {},
+                         'attribute translations missing languages: '
+                         + json.dumps(partial, indent=2, ensure_ascii=False))

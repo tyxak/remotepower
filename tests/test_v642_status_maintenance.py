@@ -150,16 +150,47 @@ class TestWindowFieldSurvivesAnEdit(unittest.TestCase):
     the documented whitelist class. Three places or the flag drops."""
 
     def test_validate_returns_the_public_fields(self):
-        import inspect
-        src = inspect.getsource(api._validate_maintenance_body)
-        self.assertIn("'public'", src)
-        self.assertIn("'public_title'", src)
+        """Called directly, so this one is behavioural already."""
+        clean = api._validate_maintenance_body({
+            'scope': 'global', 'cron': '0 3 * * *', 'duration': 3600,
+            'public': True, 'public_title': 'Upgrade'})
+        self.assertEqual(clean['public'], True)
+        self.assertEqual(clean['public_title'], 'Upgrade')
 
     def test_the_create_path_stores_them(self):
-        import inspect
-        src = inspect.getsource(api.handle_maintenance_add)
-        self.assertIn("'public'", src)
-        self.assertIn("'public_title'", src)
+        """DRIVES handle_maintenance_add and reads the stored window.
+
+        This used to `inspect.getsource` the handler and look for the literal
+        "'public'", which proves a line EXISTS and never that it RUNS — the
+        false-green class CLAUDE.md names first. It also broke the moment the
+        handler stopped duplicating _validate_maintenance_body and started
+        calling it, reporting a refactor that FIXED a drift hazard as a
+        regression. A source grep cannot follow a function call; the store can.
+        """
+        body = {'scope': 'global', 'cron': '0 3 * * *', 'duration': 3600,
+                'reason': _REASON, 'public': True, 'public_title': 'Upgrade'}
+        saved = {}
+        orig = (api.require_admin_auth, api.method, api.get_json_body,
+                api.audit_log, api.save, api.load)
+        api.require_admin_auth = lambda *a, **k: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda *a, **k: dict(body)
+        api.audit_log = lambda *a, **k: None
+        api.load = lambda f, *a, **k: {} if f == api.MAINT_FILE else orig[5](f, *a, **k)
+        api.save = lambda f, d, *a, **k: saved.update(d) if f == api.MAINT_FILE else None
+        try:
+            api.handle_maintenance_add()
+        except (SystemExit, api.HTTPError):
+            pass
+        finally:
+            (api.require_admin_auth, api.method, api.get_json_body,
+             api.audit_log, api.save, api.load) = orig
+        windows = saved.get('windows') or []
+        self.assertEqual(len(windows), 1, 'the create path stored no window')
+        self.assertIs(windows[0].get('public'), True)
+        self.assertEqual(windows[0].get('public_title'), 'Upgrade')
+        # and the internal reason must be stored but never be the public title
+        self.assertEqual(windows[0].get('reason'), _REASON)
 
     def test_the_request_model_accepts_them(self):
         import request_models

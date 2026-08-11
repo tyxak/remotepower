@@ -124,10 +124,28 @@ s_release_artifacts() {  # manual — gpg pinentry gotcha: sign the BUILT tarbal
   confirm || return 0
   [[ -f "dist/remotepower-${NVER}.tar.gz" ]] || die "tarball missing"
   [[ -f "dist/remotepower-${NVER}.tar.gz.asc" ]] || die "signature missing"
-  # leak-check: nothing internal ships (the tarball packs the working tree)
+  # Leak-check: nothing internal ships. The tarball packs the WORKING TREE, so
+  # a gitignored file is included unless the Makefile's hand-maintained
+  # --exclude list names it — this grep is the net under that list, and it has
+  # to be the net, because the list is the thing most likely to be wrong.
+  #
+  # THE ANCHORS USED TO BE DEAD. `make dist` passes
+  # --transform 's,^\.,remotepower-X.Y.Z,', so every member is
+  # `remotepower-6.4.3/site/index.html` — a `^site/` pattern can never match
+  # anything in the archive it is checking. site/, deploy/ and design/ were
+  # therefore unguarded for as long as the check has existed, and the failure
+  # is silent by construction: a leak-check that matches nothing prints
+  # "clean". (.claude/ did leak into the published v5.2.0–v5.7.0 tarballs by
+  # exactly this route, just via a different hole.)
+  #
+  # Now anchored on a path boundary instead, and extended to the rest of what
+  # the Makefile promises to exclude — the agent-context files, the memory
+  # directory, and key/cert material. tests/test_promote_leak_check.py plants
+  # one of each in a scratch archive and fails if this pattern misses it.
   local leaks
   leaks="$(tar -tzf "dist/remotepower-${NVER}.tar.gz" | grep -E \
-    'CLAUDE\.md|opencode\.md|-internal\.md|\.claude/|\.git/|api\.env|\.enc$|\.ssh|^site/|^deploy/|^design/' || true)"
+    '(^|/)(CLAUDE|opencode|AGENTS|MEMORY|SOUL|IDENTITY|USER|DREAMS|HEARTBEAT|TOOLS|BOOTSTRAP)\.md$|-internal\.md$|(^|/)\.(claude|cursor|git|ssh)/|(^|/)(site|deploy|design|memory)/|(^|/)api\.env$|\.(enc|key|pem|env)$' \
+    || true)"
   [[ -z "$leaks" ]] || die "TARBALL LEAK: $leaks"
   info "tarball leak-check clean"
 }

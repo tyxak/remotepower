@@ -1,0 +1,984 @@
+# Markdown supported  Headings, bold, italic, code, links, lists.
+# Markdown supported Headings, bold, italic, code, links, lists
+# m h dom mon dow command
+# m h dom mon dow command 0 3 * * 0 /usr/local/bin/weekly-cleanup.sh @reboot /usr/local/bin/startup.sh
+#!/bin/bash # Your check here systemctl is-active --quiet nginx
+#!/usr/bin/env bash set -euo pipefail  # your script here…
+## Steps 1. …
+(any)
+(blank = use the SAML NameID)
+(blank for whole fleet)
+(empty = use default)
+(inherit / none)
+(inherit / provider default)
+(keep current)
+(leave blank to omit)
+(optional)
+(secret — passed as env, never written to disk)
+(uid={u})
+(unchanged)
+(you)
+-----BEGIN CERTIFICATE----- MIID… -----END CERTIFICATE-----
+-----BEGIN OPENSSH PRIVATE KEY----- …
+/backup/db-latest.tar.gz
+/backups/host1
+/dev/md0
+/dev/sdb
+/dev/sdb /dev/sdc
+/etc
+/etc /home /opt /srv
+/etc /var/www
+/etc/nginx/nginx.conf
+/etc/nginx/nginx.conf /etc/ssh/sshd_config
+/etc/nginx/nginx.conf\n/etc/hosts
+/etc/remotepower/smb.cred
+/export/backups
+/home /srv /var/www /opt
+/mnt/offsite/remotepower (leave blank for local-host only)
+/root/.aws/credentials.bak /home/deploy/.ssh/id_rsa.old C:\Users\Public\Documents\payroll-2026.xlsx
+/usr/local/sbin/remotepower-server-update
+/var
+/var /home /opt /srv
+/var/lib/GeoLite2-ASN.mmdb
+/var/lib/GeoLite2-Country.mmdb
+/var/lib/remotepower/backups
+/var/log/myapp/*.log {  daily  rotate 7  compress  missingok  notifempty }
+/var/log/myapp/*.log { daily rotate 7 compress missingok notifempty }
+/var/log/myapp/application.log
+/var/log/nginx/error.log
+/var/log/remotepower-audit.jsonl (blank = off)
+/var/mail/vhosts/example.com/jmo/new
+0 3 * * 0 (every Sunday 03:00)
+0 = no reminder
+0 = not placed
+0 = off
+0 = provider default
+0 = unlimited
+0 or 1
+10.0.0.0/8 192.168.1.42 fd00::/8
+127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
+127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
+192.168.1.1 / host:22 / https://…
+5-field cron: minute hour day-of-month month day-of-week
+@ for the zone apex, or a host like www
+A newer image is available in the registry
+A newer kernel is installed — reboot to apply
+A quick guided walkthrough of the main areas
+AI runbook for this finding
+AI triage verdict stored — click to view
+AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert
+AI: access & credential review — over-privileged accounts, stale keys
+AI: assess backup / disaster-recovery readiness and gaps
+AI: audit this firewall for gaps
+AI: diagnose this container
+AI: diagnose this service
+AI: draft a rule from a plain-English description
+AI: explain these container logs
+AI: explain this command output
+AI: explain this ruleset + flag risks
+AI: explain what changed and whether it's risky
+AI: how to remediate this control
+AI: is this version safe / any known CVEs?
+AI: network dependency review — single points of failure, unmanaged hosts
+AI: prioritise these updates
+AI: prioritise this device's CVEs
+AI: prioritise which CVEs to patch first, and why
+AI: review blueprints and flag drift between IaC and live hosts
+AI: review virtualization hygiene — stale snapshots, orphaned guests
+AI: should this be exposed? how to lock it down
+AI: triage config/file drift — benign vs. misconfig vs. compromise
+AI: triage this cert
+AI: unbilled hours, invoices to send, time-tracking gaps
+AI: why is this filling, and what to clean up?
+ASSET-12345
+About RemotePower — version and project info
+Accept the current state as the new baseline — clears this check and resolves its alert
+Accept the current version and stop alerting until a newer one ships
+Actively exploited in the wild (CISA KEV)
+Actually send this text (and any attached files) as an email to the contact, and log it on the ticket
+Add a note or reply…
+Add another ring (up to 10)
+Add interface
+Add or remove tags on the selected devices
+Add this host as an agentless device
+Add time on this day
+Affected hosts / matching findings
+Affected-host burn-down
+Alert tuning — find the noisiest alerts and silence them per host + alert type
+Alert volume per day (last 6 weeks, loaded alerts)
+Alerts about these containers are silenced
+Alerts select all
+Allow compose deploys on this device
+Already applied — re-applying changes nothing
+An operator's own resolution note — they were there
+Apply a layout code from a teammate
+Apply a recommended set of checks to the whole fleet, a group, or a tag in one click
+Apply a recommended set of hardening and tamper-detection checks to a host, group, tag or the whole fleet
+Apply this query
+Approve — auto-patch un-pins it so it upgrades
+Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?
+Ask MikroTik whether a newer RouterOS is available
+Ask OPNsense whether updates are available
+Ask anything. Ctrl/⌘+Enter to send
+Ask the agent to send its full installed-package list now
+Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV
+Ask the governed executor to pick a saved remediation matching this verdict — a human approves before anything runs
+Assessable, but the telemetry that would assess it has not run yet — a monitoring blind spot, never counted as a pass.
+Assign this ticket to you and your team
+Attach files to the email reply (max 15 MB each)
+Attach files to this reply
+Authorized penetration testing / vulnerability scans
+Auto-patch pins this package on Linux hosts so it is held back
+Auto-patch will un-pin this package so it upgrades
+Auto-quarantine is on for this check
+Autopatch gate threshold
+Availability target percent
+Avatar file
+Ban an IP in this jail
+Billing — worksheet, invoices and per-customer rates & fees (admin / finance)
+Billing, time tracking, reports and the knowledge base
+Blast-radius cap: an event storm must not run the script fleet-wide
+Block this appliance from the KMIP server
+Browse, view and edit files on a host (allowlisted paths, audited) — no SSH needed
+Built-in ticket
+Built-in ticket system (helpdesk)
+CHG-1042
+CIDR subnet to scan from the selected device
+CRC errors / uncorrectable sectors — these drive the FAILED verdict
+CT watch domains, one per line
+CVE-2026-1234 CVE-2026-5678
+Cal import file
+Cancel — remove from queue if still pending
+Captured from the stored AI triage verdict
+Centre the timeline on a moment
+Change/ticket reference
+Chat ID (e.g. -1001234567890)
+Check for a DSM update; if found, apply it and reboot the NAS
+Check how far this record has propagated across public resolvers
+Check the tamper-evident hash-chain for any altered or removed entries
+Check-in period in minutes
+Checklist / instructions…
+Choose a target host above
+Choose what to reclaim (images, cache, networks, containers, volumes) and see what each freed.
+Chronological stream of fleet events and command runs — fleet or one device
+Clear every device's pending queue — nothing waiting will be delivered
+Clear the command history shown here (also clears the Command History page)
+Clear the decision
+Clear the list
+Clear the search, severity and device filters
+Clear this group from every device (the devices stay)
+Click Render to fill the template…
+Click for details
+Click for full output
+Click to copy
+ClientID (stored — leave blank to keep)
+Clone — prefill a new monitor from this one
+Cloudflare zone id
+Cmdb func filter
+Collect logs first
+Command contains
+Command contains… e.g. firewalld
+Command output
+Commands waiting for each agent's next heartbeat — view or cancel pending work
+Common subtree
+Company or internal team
+Compliance profiles, the audit trail and mail-domain reputation
+Component name
+Config-as-code JSON file to import
+Configuration Management Database — asset metadata, docs and per-device credentials
+Connectivity — VPN access, DNS and files
+Consecutive verify-failures before the rule turns itself off (0 = never)
+Content retrieval refused for sensitive files
+Copy a code that recreates this layout
+Copy a direct link to this device view
+Copy the whole log to the clipboard
+Copy visible rows as JSON (honors filter & sort)
+Count this sensor again
+Cron jobs and systemd timers on a host — view and edit
+Cron visibility, schedules, tasks, the calendar and maintenance windows
+Crontab content
+Crontab user
+Custom
+Custom monitoring scripts run on each host; their pass/fail shows here as a check
+Customer accepted
+Customer declined
+Customer satisfaction
+Customer-facing web 99.9%
+DELETE VOLUMES
+DNS name to resolve
+DNS zone
+Debug — show exactly what data and context is sent to the AI for this insight (no model call)
+Decline — auto-patch holds it back on Linux hosts
+Decommissioned — a retired asset. Monitoring, alerts, health and SLA are suppressed.
+Decommissioned — retired asset, fully silenced
+Decommissioned — retired, fully silenced
+Define your own protect check, or pick one from the catalog
+Delete baseline
+Delete from the vault
+Delete role
+Delete the selected devices
+Delete this container
+Delete this rule
+Delete this snapshot
+Delete tunnel
+Delete user
+Delete view
+Device Control — manage and remotely control every enrolled device
+Docker / Podman / Kubernetes containers from agents, plus Proxmox LXC
+Download + install the update — REBOOTS the router
+Download Agent integrity as CSV
+Download Resource anomalies as CSV
+Download Software metering as CSV
+Download Uptime (SLA) as CSV
+Download a CycloneDX SBOM (with CVE findings) for this host
+Download an SPDX 2.3 SBOM for this host
+Download every monitor definition as JSON this Import accepts
+Download the gzipped archive of evicted (retention-aged) audit entries
+Download the lines matching the current filters as CSV
+Download the lines matching the current filters as newline-delimited JSON
+Download this site's posture report as CSV (devices, patches, SLA, CVEs, health)
+Download this site's posture report as raw JSON
+Download this table as CSV
+Dpol mode
+Dpol scope
+Dry run flagged dangerous patterns
+Duplicate
+Duplicate — prefill a new check from this one
+Duplicate — prefill a new script from this one
+EPSS — probability of exploitation in the next 30 days
+Edit client
+Edit name, role, expiry and rate limit (the key secret stays the same)
+Edit role
+Edit this check
+Edit tunnel
+Elevated API latency
+Email this invoice to the customer's billing contact
+Encrypt the plaintext backup archives already on disk
+Error-budget burn rate — over 1 means the budget is blown
+Every (minutes)
+Every alert about this container is silenced
+Every tag and group in use, with device counts — rename, merge or delete a tag across the whole fleet
+Everything the fleet is raising right now — the full digest behind the dashboard card
+Excluded
+Expected JSON value (optional)
+Export the running config
+Export this week to CSV
+Export visible rows (CSV — honors filter & sort)
+Exposure scope
+Fetch the logs again from the host
+Fetch this container's recent logs
+Fetch this container's recent logs and show them here
+Field
+File content
+Files upload input
+Fill variables and render
+Fills at the current rate, but more than 2 years out — not an actionable risk
+Filter LXC containers
+Filter RAG sources
+Filter SLO objects by compliance
+Filter SLO objects by name, probe, status
+Filter SNMP devices by name, sysName, group
+Filter active mutes
+Filter alert parameters
+Filter audit log by action
+Filter baseline templates
+Filter blueprints
+Filter blueprints…
+Filter by SNMP polling status (only meaningful for agentless devices with SNMP enabled)
+Filter by actor, action, or detail
+Filter by actor, device, or command
+Filter by device or container name
+Filter by device, actor, or command
+Filter by device, command, or actor
+Filter by device, event, or title
+Filter by device, group, ecosystem
+Filter by device, group, unit
+Filter by device, type, path, preview
+Filter by device, type, path, preview…
+Filter by domain or status
+Filter by domain or status…
+Filter by host, check, group, or output
+Filter by host, check, group, or output…
+Filter by host, issuer, status
+Filter by host, kind or reason…
+Filter by image, tag, or registry
+Filter by label, type, target, status
+Filter by name or device
+Filter by name, command, or description
+Filter by name, device
+Filter by name, group, mount path
+Filter by name, probe, status…
+Filter by name, role, or user
+Filter by reason, scope, target
+Filter by target, status
+Filter by target, status…
+Filter by title, URL, or description
+Filter by unit or text…
+Filter by username or role
+Filter channel routing
+Filter checks… (name, type, path, scope)
+Filter client / operation
+Filter client / operation…
+Filter custom scripts by status
+Filter device / GPU
+Filter device / GPU…
+Filter device / action / prompt
+Filter device / backend
+Filter device / backend…
+Filter device / disk
+Filter device / jail
+Filter device / jail…
+Filter device / package
+Filter device / pool
+Filter device / port / process
+Filter device / sensor
+Filter device / user / key
+Filter device, mount or resource
+Filter devices / factors
+Filter devices by smart group
+Filter devices…
+Filter domain, device
+Filter event, host, or cause…
+Filter events…
+Filter groups…
+Filter host
+Filter host, kind or detail
+Filter host, kind or detail…
+Filter host…
+Filter ignored items
+Filter ignored items… (name, CVE, container)
+Filter kinds or events…
+Filter lines…
+Filter log ignore patterns
+Filter logs by unit
+Filter muted services
+Filter mutes… (device, event)
+Filter mutes… (device, process, port)
+Filter package name (e.g. openssl)
+Filter parameters… (e.g. disk, tls, temp, health, inode)
+Filter patterns…
+Filter port, process, device
+Filter ports…
+Filter prior incidents
+Filter protect checks
+Filter quarantine vault
+Filter rollouts
+Filter security settings
+Filter security settings…
+Filter sources…
+Filter stack / device / status
+Filter suppressions
+Filter tags…
+Filter templates… (name, path, description)
+Filter the map by group
+Filter the map by site
+Filter the map by tag
+Filter timeline by device
+Filter to a smart group's live members
+Filter uptime by device
+Filter vault… (host, path)
+Fire this schedule now
+Fix: run the guided remediation playbook for this alert
+Fleet online / offline share
+Fleet overview — health, alerts and composable dashboard widgets
+Fleet posture report — health, patches, CVEs and compliance, exportable or emailed
+Flow steps
+Force a fresh package scan now — re-runs the post-upgrade verification instead of waiting for the periodic scan
+Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)
+Force renew now
+Free-form chat against the configured AI provider, with local-model stats
+Full name
+GID (opt)
+GPU state across the fleet — NVIDIA & AMD utilisation, memory, temperature, power
+Generate a key to see the public key here
+Get-Service | Where-Object Status -eq 'Stopped'
+Grace (minutes)
+Grace period in minutes
+Group (optional)
+Group the fleet by location, team or customer — one level above device groups
+Hand off to a group — clears the assignee and sets the ticket to Pending Internal
+Hc text cron
+Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)
+Helpful — the verdict matched reality
+Hi, we believe {ticket_id} is resolved…
+Hide for 30 days
+Hide the top bar (reclaim space)
+Hide this device from the Containers page
+Host firewall rulesets and fail2ban jails across the fleet — view and edit
+How many containers use it
+How many lines to fetch
+How to rotate the VPN keys
+How to use RemotePower — quick reference for common tasks
+INBOX
+IP reputation (DNSBL/blocklist) monitor + DMARC / SPF / DKIM email-auth posture and aggregate (RUA) reports
+Ignore this alert permanently (review later in Settings → Ignored items)
+Ignore — delete this row from the log list (does not affect cert state)
+Image CVE scan cadence in hours
+Import format
+Incident status
+Insert canned reply
+Install target type
+Install target value
+Integrity Guard (protect) check
+Integrity Guard — files auto-quarantined on your hosts, with restore or delete
+Internal contact directory (team phonebook)
+Inv op
+Investigate
+Invoiced — locked
+Issue a new cert
+Issue a replacement certificate — the appliance keeps its stored keys
+Issue type (default Task)
+JSON field path (optional)
+Job name
+Job name, e.g. NAS nightly backup
+Jump to a device or page, or run an action — try “reboot”, “terminal”, “run command”…
+Jump to this week
+KMIP key server — store Synology / TrueNAS / vSphere encryption keys here instead of on the appliance
+Knowledge base — operator-authored IT documentation (SOPs, how-tos, runbooks)
+Label (e.g. Pushover crit-only)
+Last ~4h, sampled each hardware cycle (~5 min)
+Latitude
+Leave blank to keep the stored password
+Leave kiosk mode (Esc)
+Lift this mute — alerts resume
+Linked ticket
+Links scope filter
+Linux
+Linux baseline, Web server pack…
+Live checks, logs, services, metrics, boards and integrated-software health across the fleet
+Live monitor — remote checks, device metrics, listening ports, custom scripts and processes in one place
+Locally-built or loaded image — no registry to compare against
+Log billable or internal hours against this ticket
+Log of every command sent to devices
+Maintenance windows that suppress alerts for devices, groups or the whole fleet
+Make every widget the same width
+Manage DNS zones and records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun)
+Manage who can access the dashboard and what they can do — roles and permissions
+Mark as the primary interface
+Mark paid
+Mark sent
+Master ticket with sub-tickets
+Match type
+Merge this group into another one
+Merge this tag into another one
+Minutes between scans
+Minutes between scans (15-10080)
+Minutes silent before alerting
+Monitoring config to import
+Move index storage
+Multi-line bash scripts — lint then run on one device or a batch
+Mute every finding on this host
+Mute this exact alert from this host
+My App
+NAT / public IP
+NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets
+Named non-expiring API keys for scripts and CI pipelines
+Network throughput (RX/TX) per device, rolled up fleet-wide or by group / tag / site
+Network topology map from connected_to links and tunnels — drag to reposition
+Never run
+New reply from customer
+Next device (])
+Next week
+No alert from this event has been resolved in this window, so there is nothing to judge it by yet
+No attached probe has checks inside the window yet
+No justification was recorded with this request — approving it means approving on the action name alone
+No memory or CPU limit — this container can consume the whole host
+Not being probed — history and uptime% are kept
+Notifications (recent messages)
+OID to walk
+OS patches, auto-patching and staged rollouts
+On an issued invoice — locked
+One-click deploy of curated self-hosted apps via Docker Compose
+Open Logs filtered to this device + unit
+Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data.
+Open an incident ticket from this alert
+Open ssh:// link in your default handler
+Open the full OpenSCAP HTML report
+Open the full email correspondence in a clean, printable window
+Open the full-width OPNsense console
+Open the full-width RouterOS console
+Open the linked ticket
+Open the page that can lift this
+Open the page this item is about
+Open the runbook for this alert
+Open ticket on this host
+Open what this chunk describes
+Open-alerts trend (this session, one point per badge poll)
+Operational alert inbox — acknowledge, resolve and track every fired event
+Operator
+Optional notes
+Oti device
+Oti target value
+P12 file
+PCI DSS / HIPAA / SOC 2 checklist scored from collected data — audit-prep aid
+Package vulnerabilities per device via OSV.dev — installed packages vs known CVEs
+Passive = safe. Active = intrusive (sends attack traffic)
+Passive = safe. Active = intrusive (sends attack traffic).
+Passwd username
+Paste your Nagios .cfg, Uptime Kuma backup JSON, Zabbix export XML, or a RemotePower monitor export…
+Patch device filter
+Patch group filter
+Pause — stop probing but keep the monitor and its history
+Pending actions awaiting a second admin's approval (MCP writes + change-approval)
+Pending case #123
+Pending reboot — /run/reboot-required exists on this host
+Pending system updates across all devices
+Per-host service checks (CheckMK-style)
+Per-mount disk-fill projection from each host's daily usage trend
+Permanently destroy this key
+Physical telemetry — GPUs, power, thermals, storage and disk health
+Pin the named packages so an upgrade-all won't move them (apt-mark hold / versionlock / zypper lock)
+Post an update…
+Posture digest cadence
+Posture, vulnerabilities, exposure, certificates and risk across the fleet
+Preshared key configured (post-quantum-resistant peer)
+Previous device ([)
+Previous week
+Primary
+Probed by a relay satellite
+Project key (e.g. OPS)
+Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render
+Proxmox node
+Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)
+Q3 critical KEV cleanup
+Quarterly restore drill
+Queue a one-shot secrets scan on every agent host — the agent runs it on its next heartbeat
+Queue a shutdown or reboot at a specific time
+Queue a trivy scan now on every host running containers
+Quick = fast/shallow. Full = thorough (all ports/severities, slower)
+Quick = fast/shallow. Full = thorough (all ports/severities, slower).
+Quick AI investigate
+Quick AI investigate (one-shot explanation + suggested fixes, no stored verdict)
+Quick RDP
+Quick SSH
+Quiet hours are active — non-critical notifications are held until the window ends
+REMOVE KMIP
+RX/TX history
+Rack A1
+Rank hosts by real exploitability: critical CVEs weighted by whether the host has world-reachable ports
+Re-fetch every 30 seconds while this window stays open
+Re: your support request
+Reboot scope type
+Reboot the firewall
+Reboot the router
+Receive / transmit drops
+Receive / transmit errors
+Reclaimable by docker system prune
+Record a reply you sent by another channel (phone, in person…) — does NOT send an email
+Refresh network metrics
+Remote path
+RemotePower
+RemotePower health
+RemotePower structurally cannot assess this control.
+Remove all finished scans (done/failed/cancelled) and their findings
+Remove domain
+Remove every destroyed record from the inventory
+Remove from dashboard
+Remove route
+Remove the activity history — the clear itself stays recorded
+Remove this applied check from this host — it stops evaluating there
+Remove this client registration entirely
+Remove this destroyed record from the inventory
+Remove this scan and its findings
+Remove this tag from every device
+Remove user
+Rename this group on every device in it
+Rename this tag on every device that carries it
+Render a printable report and save it as PDF
+Resolve and record what fixed it — the note shows on the resolved row and in the MTTR timeline
+Resolve with a note
+Resolved — please confirm
+Restart the app-server service now
+Restore file input
+Restore the default layout
+Restore this backup to the host
+Restore this configuration state
+Restore to its original path
+Resume alerting on this container
+Resume alerting on updates for this image
+Resume probing
+Reveal — copies the password to the clipboard (audited)
+Revoke and remove
+Ring type
+Ring value
+Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel
+Roll-up tier
+Rolling log buffer — search, tail live and manage alert rules
+Rotate: mint a replacement key and deactivate this one
+Run a quick health check: storage, disk, audit chain, agent reachability
+Run and schedule authorized security scans (the Pentest page)
+Run on the server — plan / apply / destroy
+Run output appears here…
+Run the OPNsense firmware upgrade — may REBOOT the firewall
+Run the configured update script now
+SHA-256 fingerprint
+SLA scope
+SLO name
+SMB credentials file
+SNMP poll failing
+SNMP polling failed for 6+ hours
+SSD/NVMe wear (used %); projected life from wear rate
+Saturates at the current rate, but more than 6 months out — not an actionable risk
+Save an internal note — NOT emailed to anyone
+Save the internet/reach/DNS fields above as the default that pre-fills new tunnels
+Save the whole log as a .log file
+Saved filter views — name the current filters and share the link
+Scan satellite
+Scan tool
+Sched monthly time
+Sched weekly time
+Schedule a recurring scan (uses the cron + tool/profile below)
+Scheduled
+Scope by
+Scope target
+Scope type
+Scope value (site id / group / tag)
+Scope values
+Scoped to one site
+Search VMs by name or VMID
+Search a device by name / IP / tag…
+Search a device to add to the ticket
+Search a device to add…
+Search a device to attach to the ticket
+Search a device…
+Search a site…
+Search a user to assign
+Search a user… (blank = unassigned)
+Search apps by name, category or description…
+Search articles…
+Search by #number, subject, device, group, assignee…
+Search by name, role, company, email…
+Search devices by name / IP / group…
+Search devices by name or group
+Search devices by name or group…
+Search devices to add…
+Search devices to apply the profile to
+Search device…
+Search monitors to add…
+Search name, asset_id, IP, function, docs
+Search pattern
+Search the check catalog
+Search ~100 ready-made checks…
+Security audit trail — logins, commands and session revocations
+Select all visible
+Select device for trends
+Select ticket
+Send a redacted summary — titles, severities and host counts only, never the evidence — to the AI advisor
+Set group, site, monitoring and other attributes on the selected devices
+Set warning / critical temperature thresholds
+Shared bookmark dashboard — link cards grouped by category
+Shared events across all users — backups, deploys, renewals and more
+Shared kanban board — drag cards between columns, optionally linked to a device
+Shared with your team
+Short summary
+Show / hide columns
+Show exactly what data and context was sent to the AI for this request (no model call)
+Show metric trend over time
+Show package changes since the captured baseline
+Show the devices carrying this tag
+Show the devices in this group
+Show the report as it stood on this date
+Show the timeline around this alert
+Show the top bar
+Show where it's installed
+Show, hide, resize and reorder dashboard widgets
+Signature
+Silence this alert from this host
+Slack, , PagerDuty
+Snapshot A
+Snapshot B
+Snapshot name
+Snapshot the current package set as the SBOM diff baseline
+Snooze for 24h (returns automatically)
+Source paths
+Source the client last connected from
+Stack alerts under a per-host header; when a host is offline its symptom alerts fold under the root cause.
+Start this jail
+Stays muted until you lift it
+Stop counting this sensor — it will not set the host temperature, fire temp_high, or affect the risk score
+Stop monitoring this IP
+Stop monitoring this name
+Stop this jail
+Street, city, tax ID…
+Sub-ticket
+Swpol type
+TLS certificate + domain/DNS expiry monitoring and ACME (Let’s Encrypt) certificates
+Tags (comma-sep)
+Target type
+Target uptime %, e.g. 99.9. Devices below it over the report window are flagged as breaching their SLA / error budget.
+Target value
+Tasks device filter
+Template name
+Template name (optional)
+Test an OID against the rules
+Test value
+Thank you for contacting support…
+The agent couldn't read this ruleset — usually it isn't running as root
+The app catalog, scripts, automation rules, IaC, provisioning and the command queue
+The device HOSTNAME, tag, or group this target applies to (leave blank for the Default scope).
+The triage verdict was rated helpful
+The triage verdict was rated unhelpful
+This records an event, not an ongoing condition — it will not clear on its own. Resolve it once you have looked.
+Ticket or change reference
+Timeline: what else happened on this host around the time this alert first fired
+Toggle compact density (more rows per screen)
+Too large to archive the body — only the hash and size were kept, so change detection still works
+Trend range
+Turn this accepted quote into an invoice (once only)
+Type DELETE VOLUMES to confirm
+Type a name…
+Type a username
+Type a username…
+UI prompt input
+UI prompt textarea
+Un-clear — this line alerts again
+Unassign
+Uncategorised
+Unknown OS
+Unmonitored — collecting, no alerts
+Unmonitored — data collected, no alerts
+Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)
+Upgrading to v5.0.0
+User (exact)
+Users, keys, signing, server status, settings, AI and documentation
+VNC session
+VPN client TTL unit
+VPN tunnel TTL unit
+View / print
+View clients
+Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots
+Void (frees its hours to re-bill)
+Watch another user's timesheet
+Watched config files — alerts when a file hash diverges from its baseline
+We're investigating reports of…
+Weak/legacy key type
+Web tier
+Welcome to production. All access is logged
+What did you do?
+What this app does
+What this objective covers and who cares
+What to fix first — one prioritized list across OS, exposure, identity, integrity and applications
+Which scanner satellite runs network scans. Pick the one that can reach the target (e.g. on its network segment).
+Why is this expected?
+Why this reboot is needed
+Why this shutdown is needed
+Wildcard cert
+Window around that moment
+Window in days
+Windows
+WireGuard configuration QR code
+World map of sites
+Wrong or unhelpful
+Your business name
+Your dashboard sticky note — saved to your account
+Your dashboard sticky note — saved to your account.
+Your weekly timesheet — log billable and internal hours by day
+[connection] id=remotepower-managed type=ethernet
+[connection] id=remotepower-managed type=ethernet
+^web- / 10.20.0.0/16
+aa:bb:cc:dd:ee:ff
+admin
+alice
+alice-laptop
+auth password (min 8, keep current if blank)
+auto
+aws/dev
+backup
+backup.example.com
+backups
+blocked_pct lt 5 high queries_today gt 1000000
+broad
+canary
+canary = tag:canary wave 2 = group:staging rest = group:prod
+canary = tag:canary wave 2 = group:staging rest = group:prod
+cn=remotepower,ou=services,dc=example,dc=com
+cn=remotepower-admins,ou=groups,dc=example,dc=com
+cn=remotepower-users,ou=groups,dc=example,dc=com
+comma,separated
+comma-separated
+comma-separated tenant ids
+comma-separated values
+comma-separated, e.g. prod, edge
+comment
+contact@customer
+context (optional)
+crit %
+cron, e.g. 0 3 * * * (daily 03:00)
+data
+default
+default (300s)
+deploy
+deploy-script
+description
+destination_net (optional)
+destination_port (optional)
+device_offline cve_found monitor_down
+devices this credential is inherited by
+dmarc@example.com
+docker compose down
+docker compose pull + up -d
+docker compose up -d
+docker system df — images / volumes / build cache, and what a prune would reclaim
+dst-address (optional)
+dst-port (optional)
+e.g. Acme Fleet Status
+e.g. Authorized use only. Activity is monitored and logged.
+e.g. Core services
+e.g. Customer contact: ops@acme.com. Change freeze until Q3.
+e.g. DC1 on-call
+e.g. Maintenance window Saturday 02:00 UTC. New on-call: Jane.
+e.g. NOC, Support, Platform
+e.g. Network admin, On-call
+e.g. before_upgrade
+e.g. debian / arm64
+e.g. hq, dc1
+e.g. web-server set
+error|critical|FATAL
+etc/hostname
+eth0 / ens18
+eu-west-1
+eval\s*\(\s*(base64_decode|gzinflate)
+example.com
+example.com or 203.0.113.5
+expected value (blank = must exist)
+group / tag / device (blank for all)
+group / tag / site / smart-group / id,id
+group / tag / smart-group name
+group / tag name
+group / tag name, or device id
+groupname
+groups
+home.example.com
+homelab
+host / namespace
+hostname / tag / group
+hot-web
+http://collector:4318 (›/v1/metrics added)
+http://pushgateway.example.com:9091
+https://auth.example.com/application/o/remotepower/
+https://esx1.local/
+https://hc-ping.com/00000000-0000-0000-0000-000000000000
+https://idp.example.com/saml/metadata
+https://idp.example.com/saml/sso
+https://ntfy.sh/your-topic
+https://portal.example.com
+https://raw.githubusercontent.com/org/repo/main/remotepower.json
+https://service.lan:port
+https://siem.example.com/ingest
+https://splunk.example.com:8088/services/collector
+https://…
+https://… (leave blank to keep)
+imap.example.com
+integrity verification enabled
+interface (e.g. lan, wan)
+interface (e.g. wan)
+jakob ALL=(ALL) NOPASSWD:ALL
+kind (e.g. drift, cve_found) or blank = any
+kms.lan 192.168.1.10
+label
+label (optional)
+ldaps://ldap.example.com:636
+leave blank to skip
+local IP (optional)
+mailto:ops@example.com
+me@example.com
+monitor
+multiple versions across the fleet
+name e.g. mail.example.com
+name e.g. www.example.com
+name to monitor
+name@example.com
+nameserver 1.1.1.1 nameserver 8.8.8.8 search example.com
+nameserver 1.1.1.1 nameserver 8.8.8.8 search example.com
+nas-01
+network share (NFS/SMB/CIFS)
+network/vpn
+network:  version: 2  ethernets:  eth0:  dhcp4: true
+network: version: 2 ethernets: eth0: dhcp4: true
+nginx
+nginx = 10 teamviewer = 0 openssl = 0 | libssl3, openssl-libs
+nginx = 10 teamviewer = 0 openssl = 0 | libssl3, openssl-libs
+nginx must run
+nginx, sshd, postfix
+nginx.service
+nginx.service docker.service ssh.service
+nginx.service docker.service ssh.service
+nginx.service php-fpm.service
+nginx.service postgresql.service sshd.service
+nginx.service postgresql.service sshd.service
+operator, auditor
+ops-staging
+ops@example.com
+optional
+ou=Users,dc=example,dc=com
+out-interface (srcnat) / in-interface (dstnat)
+password (optional)
+pilot
+port
+postfix/
+postgres
+postgresql://user:password@host:5432/remotepower
+priv password (min 8, keep current if blank)
+probe@example.com
+prod, db
+prod, dc1
+prod, web, linux
+proto
+protocol (any/TCP/UDP/…)
+protocol (tcp/udp/…)
+public
+pve
+received / sent
+record type
+regex (e.g. error|critical) — blank shows live tail
+region | AWS region | eu-west-1 node_count | Node count | 3
+region | AWS region | eu-west-1 node_count | Node count | 3
+remotepower
+remotepower-admins
+remotepower@example.com
+restart count
+road-warriors
+root
+root@pam!remotepower
+rotate-nginx-logs.sh
+rp.internal, 10.0.0.5 (hostnames / IPs, comma-separated)
+search agent device
+sec-ops=auditor finance-team=finance sre=admin
+secret / API token
+services:  app:  image: nginx:latest  ports:  - 8080:80
+site id / group / tag
+smtp.example.com
+source_net (e.g. 192.168.1.0/24)
+source_net (e.g. any or 192.168.1.0/24)
+src-address (e.g. 192.168.2.50)
+src-address (optional)
+sshd : Failed password\nnginx : 5[0-9][0-9]
+sshd.service remotepower-agent.service
+status.healthy / items.0.state
+status@example.com, ops@example.com
+store
+subnet, e.g. 192.168.1.0/24
+systemctl status *\nnginx -t
+systemctl status nginx df -h free -m
+systemd units watched per device — history, logs and configuration
+tank/data@auto-2026-06-01 or /mnt/btrfs/.snapshots/…
+target — translation address (required)
+target_port (optional)
+time range
+to-addresses (e.g. 10.0.0.5)
+to-ports (e.g. 8080)
+ups1
+user
+username
+value
+value (optional)
+version
+vhost (optional)
+vpn, wireguard
+warn %
+web-server.tf
+web1
+why
+www.example.com api.example.com
+{device}: {unit} rejected {count} — {sample0}
+•••••••• (leave blank to keep current)

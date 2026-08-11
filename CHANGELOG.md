@@ -142,6 +142,37 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The accessibility surface had no translation gate at all.** The engine has
+  been translating `placeholder`, `title` and `aria-label` for releases — what
+  was missing was the dictionary behind it, and nothing was watching, so 1,081
+  attribute strings had accumulated in English. A screen reader in any of the
+  six other languages announced them verbatim. The chrome a keyboard user hits
+  on every page — every search and filter box, pagination, sort, the density
+  and column toggles, undo/redo, the three dashboard tiles — is translated now,
+  and the rest is recorded exactly so it can only shrink. It is a recorded
+  backlog rather than a demand for zero on purpose: about a third of those
+  strings are example DATA an operator copies, like a cron line or a log path,
+  and translating those would be actively wrong.
+- **Code that is the same in two agents now has to stay the same.** A large
+  part of the Windows and macOS agents is not platform-specific at all — a
+  checksum, a path allowlist, a state file — and 28 function bodies were
+  identical with nothing holding them that way. A bug fixed in one was fixed in
+  one, which is how a feature comes to work on two platforms out of three with
+  no error anywhere to say so. The comparison ignores comments and formatting,
+  because a gate whose first run reports 16 findings that are all reworded
+  docstrings gets switched off and takes the real ones with it.
+- **The release tarball's leak-check could not see three of the directories it
+  named.** `make dist` prefixes every archive entry with the release directory
+  name, so the check's `^site/`, `^deploy/` and `^design/` patterns had nothing
+  to match — the marketing site, the deploy scripts and the design sources were
+  unguarded for as long as the check had existed, and a pattern that matches
+  nothing reports "clean". Fixed, extended to the rest of what must never
+  ship, and now tested by building a real archive with a planted file of each
+  kind rather than by reading the regex.
+- **Two copies of the maintenance-window validation became one.** The shared
+  validator has always described itself as covering both create and edit; only
+  edit called it. Tightening a rule on one path would have left the other
+  accepting the bad value silently.
 - **Part of the SQLite test run was never testing SQLite.** One test module
   cleared the storage-backend setting as it was imported, and the runner imports
   every module before running any of them — so three modules quietly exercised
