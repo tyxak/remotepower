@@ -117,7 +117,7 @@ checklist assesses **host firewall state** (PCI 1.2.1 — previously declined as
 unassessable), **anti-malware / protection from malicious software** from the
 actual AV posture rather than patch counts (PCI 5.2.1, HIPAA
 164.308(a)(5)(ii)(B)), and **encryption at rest** on managed hosts —
-BitLocker / FileVault (PCI 3.5.1, HIPAA 164.312(a)(2)(iv)). Every control lands
+BitLocker / FileVault / LUKS (PCI 3.5.1, HIPAA 164.312(a)(2)(iv)). Every control lands
 on one of four verdicts:
 
 - **Pass** — observed state satisfies the control.

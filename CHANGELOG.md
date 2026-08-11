@@ -142,6 +142,15 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The encryption-at-rest control could never pass on a Linux fleet.** It read
+  BitLocker on Windows and FileVault on macOS, and nothing at all on Linux — so
+  an all-Linux fleet, which is most of them, saw "not assessed" on that SOC 2 /
+  ISO / PCI control permanently, no matter how thoroughly its disks were
+  encrypted. The agent now reports dm-crypt / LUKS state, and it reaches the
+  Checks page, both fleet reports and the control itself. A host that cannot
+  see device-mapper still reports nothing rather than "unencrypted" — being
+  unable to look is not the same as looking and finding nothing, and treating
+  it as a finding would fail hosts that are in fact encrypted.
 - **Restoring a quarantined file on Windows or macOS said it was queued and
   was not.** Integrity Guard is Linux-only — both agents list the directive
   among the things they deliberately ignore — but the server accepted it for

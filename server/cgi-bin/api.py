@@ -20447,6 +20447,41 @@ def handle_heartbeat():
                         safe_mp[_bk] = _mp[_bk]
                 if safe_mp:
                     safe_si['mac_posture'] = safe_mp
+            # v6.4.3: Linux at-rest encryption (dm-crypt / LUKS), the third leg
+            # of a control that had only BitLocker and FileVault — so an
+            # all-Linux fleet read NOT ASSESSED on encryption-at-rest forever,
+            # no matter how thoroughly its disks were encrypted. A field the
+            # agent sends but safe_si drops never reaches the check or the UI,
+            # so this whitelist is load-bearing, not hygiene.
+            if isinstance(si.get('disk_encryption'), dict):
+                _de = si['disk_encryption']
+                safe_de = {}
+                if isinstance(_de.get('encrypted'), bool):
+                    safe_de['encrypted'] = _de['encrypted']
+                for _ik in ('crypt_count', 'dm_count'):
+                    if isinstance(_de.get(_ik), int):
+                        safe_de[_ik] = max(0, min(4096, _de[_ik]))
+                _cd = _de.get('crypt_devices')
+                if isinstance(_cd, list):
+                    safe_cd = []
+                    for _d in _cd[:16]:
+                        if not isinstance(_d, dict):
+                            continue
+                        safe_cd.append({
+                            'dm':   _sanitize_str(str(_d.get('dm', '')), 16),
+                            'name': _sanitize_str(str(_d.get('name', '')), 64),
+                            'type': _sanitize_str(str(_d.get('type', '')), 16),
+                        })
+                    if safe_cd:
+                        safe_de['crypt_devices'] = safe_cd
+                _em = _de.get('encrypted_mounts')
+                if isinstance(_em, list):
+                    safe_em = [_sanitize_str(str(_m), 128) for _m in _em[:32]
+                               if isinstance(_m, str)]
+                    if safe_em:
+                        safe_de['encrypted_mounts'] = safe_em
+                if safe_de:
+                    safe_si['disk_encryption'] = safe_de
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
@@ -42609,9 +42644,17 @@ def _compliance_facts(devices=None):
         # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
         # volume, list of {status}). Present-and-off only; absence is not data.
         mp = si.get('mac_posture')
+        de = si.get('disk_encryption')
         if isinstance(mp, dict) and 'filevault' in mp:
             encryption_data_devices += 1
             if not mp.get('filevault'):
+                encryption_off.append(nm)
+        elif isinstance(de, dict) and isinstance(de.get('encrypted'), bool):
+            # v6.4.3: Linux dm-crypt/LUKS. The agent returns {} rather than
+            # encrypted:False when it cannot see device-mapper at all, so a
+            # host that reaches here really did answer the question.
+            encryption_data_devices += 1
+            if not de['encrypted']:
                 encryption_off.append(nm)
         else:
             wp = si.get('win_posture')

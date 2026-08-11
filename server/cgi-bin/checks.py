@@ -623,6 +623,34 @@ def _host_checks(
     # ── v6.3.0: macOS security-posture checks (from sysinfo.mac_posture) ──
     # Parity with the Windows posture rows above; render ONLY when the macOS agent
     # reported posture, so a Linux/Windows host never shows an empty FileVault row.
+    # ── v6.4.3: Linux at-rest encryption (dm-crypt / LUKS) ──
+    # Parity with win_bitlocker and mac_filevault above. Rendered ONLY when the
+    # agent actually answered — it returns {} rather than encrypted:False when
+    # device-mapper is not visible, so a host that cannot see is silent rather
+    # than reported as unencrypted.
+    de = si.get("disk_encryption")
+    if isinstance(de, dict) and isinstance(de.get("encrypted"), bool):
+        enc = de["encrypted"]
+        mounts = de.get("encrypted_mounts") or []
+        kinds = sorted({str(d.get("type") or "").upper()
+                        for d in (de.get("crypt_devices") or [])
+                        if isinstance(d, dict) and d.get("type")})
+        if enc:
+            detail = (", ".join(kinds) or "dm-crypt")
+            if mounts:
+                detail += f" — {len(mounts)} mount(s): " + ", ".join(mounts[:4])
+                if len(mounts) > 4:
+                    detail += f", +{len(mounts) - 4} more"
+        else:
+            detail = "no encrypted volume found"
+        add(
+            "linux_disk_encryption",
+            "Disk encryption (LUKS)",
+            "security",
+            "ok" if enc else "warning",
+            detail,
+        )
+
     mp = si.get("mac_posture")
     if isinstance(mp, dict):
         if "filevault" in mp:

@@ -6631,6 +6631,85 @@ def get_usb_devices():
     return out
 
 
+def get_disk_encryption():
+    """At-rest encryption posture for this host — the Linux half of a control
+    that had only Windows and macOS.
+
+    `compliance._encryption_at_rest_control` reads BitLocker (Windows) and
+    FileVault (macOS) and returns NOT ASSESSED when neither is present. Linux
+    was never collected, so on an all-Linux fleet — the common RemotePower
+    deployment — the SOC 2 / ISO encryption-at-rest control read "not assessed"
+    permanently and could not be satisfied by any amount of actual encryption.
+    The control's own docstring said so.
+
+    Read from sysfs rather than by shelling out to `lsblk`/`cryptsetup`:
+    device-mapper publishes the mapping target in
+    /sys/block/dm-N/dm/uuid, which begins `CRYPT-LUKS1-`/`CRYPT-LUKS2-` for a
+    LUKS volume and `CRYPT-PLAIN-`/`CRYPT-BITLK-`/`CRYPT-VERITY-` for the other
+    dm-crypt flavours. No root required, no subprocess, no parsing of a tool
+    whose output format changes between distros.
+
+    Returns {} when device-mapper is not present at all (a container, a VM
+    image with no dm support) — ABSENCE IS NOT EVIDENCE OF ABSENCE, and
+    reporting `encrypted: False` there would turn "we cannot see" into a
+    compliance FAIL on hosts that may well be encrypted.
+    """
+    base = host_path('/sys/block')
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return {}
+    dm_names = [n for n in names if n.startswith('dm-')]
+    if not dm_names:
+        # No device-mapper devices. That is not "unencrypted" — it is "no
+        # answer" — unless the kernel plainly has no dm support at all, which
+        # we also cannot distinguish here. Report nothing.
+        return {}
+
+    crypt_devices, plain_devices = [], []
+    for dm in dm_names:
+        uuid = _safe_read(os.path.join(base, dm, 'dm', 'uuid'), 512) or ''
+        uuid = uuid.strip()
+        if not uuid:
+            continue
+        name = (_safe_read(os.path.join(base, dm, 'dm', 'name'), 256) or '').strip()
+        entry = {'dm': dm, 'name': name[:64]}
+        if uuid.startswith('CRYPT-'):
+            # CRYPT-LUKS2-<uuid>-<name> → the flavour is the second field.
+            parts = uuid.split('-')
+            entry['type'] = parts[1][:16] if len(parts) > 1 else 'CRYPT'
+            crypt_devices.append(entry)
+        else:
+            plain_devices.append(entry)
+
+    if not crypt_devices and not plain_devices:
+        return {}
+    out = {
+        'encrypted': bool(crypt_devices),
+        'crypt_devices': crypt_devices[:16],
+        'crypt_count': len(crypt_devices),
+        'dm_count': len(dm_names),
+    }
+    # Which mounted filesystems sit on a crypt mapping. This is what an auditor
+    # actually asks — "is the DATA encrypted", not "does the box own a crypt
+    # device somewhere". Best-effort: /proc/self/mounts gives the source device
+    # and /sys/block/dm-N/dm/name gives the mapper name it would appear as.
+    crypt_mapper_names = {e['name'] for e in crypt_devices if e.get('name')}
+    if crypt_mapper_names:
+        encrypted_mounts = []
+        mounts = _safe_read(host_path('/proc/self/mounts'), 200_000) or ''
+        for line in mounts.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            src, mnt = parts[0], parts[1]
+            if src.startswith('/dev/mapper/') and src.rsplit('/', 1)[-1] in crypt_mapper_names:
+                encrypted_mounts.append(unhost_path(mnt)[:128])
+        if encrypted_mounts:
+            out['encrypted_mounts'] = sorted(set(encrypted_mounts))[:32]
+    return out
+
+
 def get_autoupdate_posture():
     """v6.1.2: does this host patch ITSELF?
 
@@ -10826,6 +10905,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo['autoupdate'] = get_autoupdate_posture()
             except Exception as e:
                 log.debug(f'autoupdate probe error: {e}')
+            try:
+                # INSIDE `if send_sysinfo:` and AFTER `sysinfo = {...}` — a
+                # collector placed in the earlier per-container-cadence block
+                # references sysinfo before assignment, and the surrounding
+                # try/except swallows the UnboundLocalError, so the signal is
+                # silently never sent. Four v6.1.2 collectors shipped dead that
+                # way; tests/test_v612_agent_sysinfo_scope.py now guards it.
+                _de = get_disk_encryption()
+                if _de:
+                    sysinfo['disk_encryption'] = _de
+            except Exception as e:
+                log.debug(f'disk encryption probe error: {e}')
             try:
                 sc = get_ssh_config()
                 if sc:

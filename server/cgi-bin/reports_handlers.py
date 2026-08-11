@@ -253,9 +253,14 @@ def _build_fleet_report(site_id=None):
         # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
         # volume). Present-and-off only; absence is not counted.
         mp = si.get('mac_posture')
+        de = si.get('disk_encryption')
         if isinstance(mp, dict) and 'filevault' in mp:
             pos['encryption_reporting'] += 1
             if not mp.get('filevault'):
+                pos['encryption_off'].append(nm)
+        elif isinstance(de, dict) and isinstance(de.get('encrypted'), bool):
+            pos['encryption_reporting'] += 1          # v6.4.3: Linux LUKS
+            if not de['encrypted']:
                 pos['encryption_off'].append(nm)
         else:
             wp = si.get('win_posture')

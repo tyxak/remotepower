@@ -177,9 +177,15 @@ def _av_control(facts):
 
 def _encryption_at_rest_control(facts):
     """Encryption of data at rest — BitLocker (Windows OS volume) / FileVault
-    (macOS). Present-and-off is a finding; NA when no host reports encryption
-    state (Linux at-rest encryption — LUKS — is not yet collected, so a
-    Linux-only fleet reads NA, not a false PASS)."""
+    (macOS) / dm-crypt+LUKS (Linux, v6.4.3). Present-and-off is a finding; NA
+    when no host reports encryption state at all.
+
+    Until v6.4.3 Linux was not collected, so an all-Linux fleet — the common
+    RemotePower deployment — read NOT ASSESSED here permanently and the control
+    could not be satisfied by any amount of actual encryption. The Linux agent
+    reads the dm-crypt mapping target from sysfs and reports {} rather than
+    encrypted:False when device-mapper is not visible, so "we cannot see" still
+    stays NA instead of becoming a false FAIL."""
     off = facts.get('encryption_off') or []
     if off:
         return FAIL, (f"{len(off)} host(s) with disk encryption off: "
@@ -187,7 +193,7 @@ def _encryption_at_rest_control(facts):
     if facts.get('encryption_data_devices'):
         return PASS, "Every host reporting encryption state has its disk encrypted."
     return NOT_ASSESSED, ("No host has reported disk-encryption state yet "
-                          "(BitLocker/FileVault).")
+                          "(BitLocker / FileVault / LUKS).")
 
 
 def _access_review_control(facts):
@@ -289,7 +295,7 @@ _CONTROLS = [
      'Enable a default-deny host firewall on the listed hosts; verify network '
      'firewall restrictions directly.'),
     ('pci', '3.5.1',  'Render stored data unreadable (encryption at rest)', _encryption_at_rest_control,
-     'Enable BitLocker / FileVault on the listed hosts.'),
+     'Enable BitLocker / FileVault / LUKS on the listed hosts.'),
     ('pci', '5.2.1',  'Deploy and maintain anti-malware',           _av_control,
      'Deploy or re-enable anti-malware on the listed hosts.'),
     ('pci', '8.4.2',  'Multi-factor authentication for access',     _mfa_control,
@@ -307,7 +313,7 @@ _CONTROLS = [
     ('hipaa', '164.308(a)(5)(ii)(B)', 'Protection from malicious software', _av_control,
      'Deploy or re-enable anti-malware on the listed hosts.'),
     ('hipaa', '164.312(a)(2)(iv)', 'Encryption and decryption (data at rest)', _encryption_at_rest_control,
-     'Enable BitLocker / FileVault on the listed hosts.'),
+     'Enable BitLocker / FileVault / LUKS on the listed hosts.'),
     ('hipaa', '164.308(a)(1)(ii)(A)', 'Risk analysis (known vulnerabilities)', _cve_control,
      'Remediate outstanding critical/high CVEs.'),
     ('hipaa', '164.308(a)(5)(ii)(B)-eol', 'Supported (non-EOL) operating systems', _eol_control,
