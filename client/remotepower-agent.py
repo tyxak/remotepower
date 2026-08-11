@@ -7266,7 +7266,18 @@ def _eval_one_agent_check(c):
             except ValueError:
                 continue
         if not nets:
-            return 'ok', 'no flagged ranges configured'
+            # v6.4.3: this returned 'ok', 'no flagged ranges configured' — a
+            # GREEN check for "we did not look", on a check whose entire job is
+            # answering "is this host talking to known-bad addresses". Note the
+            # `except ValueError: continue` above silently drops each entry it
+            # cannot parse, so pasting a threat feed of HOSTNAMES rather than
+            # CIDRs empties `nets` and the host reports all-clear forever.
+            # Not-configured and nothing-found must not look the same.
+            _bad = [t for t in re.split(r'[\s,]+', param.strip()) if t]
+            return 'unknown', (
+                f'no usable IP/CIDR ranges in {len(_bad)} configured value(s) — '
+                'entries must be addresses or CIDRs, not hostnames'
+                if _bad else 'no flagged ranges configured — check not evaluated')
         hits = set()
         for pf in ('/proc/net/tcp', '/proc/net/tcp6'):
             try:

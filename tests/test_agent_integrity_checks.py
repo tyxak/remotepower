@@ -388,14 +388,34 @@ class TestAgentEval(unittest.TestCase):
         agent._apply_guard_actions([{'id': 'rb2', 'op': 'rebaseline'}])
         self.assertEqual(agent._eval_one_agent_check(c)[0], 'ok')
 
-    def test_egress_empty_and_no_match(self):
+    def test_egress_unconfigured_is_not_a_pass(self):
+        """v6.4.3: this asserted 'ok' for an EMPTY param — a green check on the
+        one question the check exists to answer ("is this host talking to
+        known-bad addresses"), returned without looking at a single socket.
+
+        It matters more than an empty param suggests: the parser does
+        `except ValueError: continue` per token, so a threat feed pasted as
+        HOSTNAMES rather than CIDRs drops every entry and lands here too. The
+        host then reports all-clear forever, and the more carefully someone
+        configures it the more confident the wrong answer looks."""
         st, out = agent._eval_one_agent_check(
             {'id': 'e1', 'type': 'egress_flagged', 'param': ''})
-        self.assertEqual(st, 'ok')
+        self.assertEqual(st, 'unknown', out)
+
+        # unparseable entries are the same state — configured, still not evaluated
+        st, out = agent._eval_one_agent_check(
+            {'id': 'e1b', 'type': 'egress_flagged',
+             'param': 'evil.example.com, another.bad.host'})
+        self.assertEqual(st, 'unknown', out)
+        self.assertIn('not hostnames', out)
+
+    def test_egress_configured_and_clean_is_a_pass(self):
+        """The other half, and the reason the states must differ: a range that
+        parsed and matched nothing IS a real all-clear."""
         # RFC-5737 documentation range — nothing on the box connects there
         st, out = agent._eval_one_agent_check(
             {'id': 'e2', 'type': 'egress_flagged', 'param': '192.0.2.0/24'})
-        self.assertEqual(st, 'ok')
+        self.assertEqual(st, 'ok', out)
 
     def test_parse_hex_ip_roundtrip(self):
         # 127.0.0.1 in /proc/net/tcp little-endian hex is 0100007F

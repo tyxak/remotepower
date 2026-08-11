@@ -142,6 +142,22 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **A security check reported all-clear without looking.** The `egress_flagged`
+  check answers "is this host talking to known-bad addresses" — and returned a
+  green OK when it had no usable ranges to check against. Worse than it sounds:
+  it drops each entry it cannot parse, so a threat feed pasted as hostnames
+  rather than address ranges empties the list and the host reports clean
+  forever. The more carefully it was configured, the more confident the wrong
+  answer looked. It now reports **unknown** and says why. A test had pinned the
+  old behaviour, treating "nothing configured" and "nothing found" as the same
+  result; they are now separate.
+- **Flow retention was documented as 4 hours and is 4 minutes.** The comment
+  said "~4h at 10s flush" beside a 24-snapshot cap — out by sixty times, and
+  anyone sizing a feature off it would have been too. The retention is
+  unchanged (that history drives a short sparkline and nothing else); it now
+  says what it does. The latest flow snapshot was also never expired, so a
+  device whose exporter died months ago still showed its final window as
+  current; it now carries its age.
 - **The NetFlow and syslog receivers dropped every packet on a Postgres
   install, and the dashboard called them healthy.** Reported from production.
   Both daemons look for the app's storage layer by walking up from their own

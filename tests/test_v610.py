@@ -538,6 +538,35 @@ class TestInstallShUpdateCommand(unittest.TestCase):
 
     SRC = (Path(__file__).parent.parent / "install.sh").read_text()
 
+    @classmethod
+    def _fn(cls, name):
+        """The body of a shell function, bounded by its CLOSING BRACE.
+
+        v6.4.3: these tests sliced a hardcoded character count from
+        `SRC.index("cmd_update()")` — 1500, 2000 and 2500. The function is 1784
+        characters, so two of the three read past its end into `cmd_agent()`,
+        and an assertIn there could pass against the WRONG function. That is
+        the fixed-window class this release removed elsewhere; srcpin does not
+        apply, because its scanner only understands `//` comments and an
+        apostrophe in a `#` comment makes it overshoot a shell body badly
+        (measured at 9,278 chars for a 672-char function). So: bound by the
+        content, which for this file's style is `}` at column zero.
+        """
+        i = cls.SRC.index(f'{name}() {{')
+        j = cls.SRC.index('\n}\n', i) + len('\n}\n')
+        return cls.SRC[i:j]
+
+    def test_the_extractor_stops_at_the_function_end(self):
+        """Guard the guard. Without this, a broken extractor returning the rest
+        of the file would make every assertion below trivially true — which is
+        exactly the failure it was written to fix."""
+        body = self._fn('cmd_update')
+        self.assertIn('Detecting current install', body)
+        self.assertNotIn('cmd_agent()', body,
+                         'the extraction runs past cmd_update into the next '
+                         'function; an assertion here could match the wrong one')
+        self.assertLess(len(body), 2500)
+
     def test_bash_syntax_valid(self):
         import subprocess
 
@@ -564,13 +593,11 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         self.assertIn("docker compose", body)
 
     def test_detects_no_existing_install(self):
-        i = self.SRC.index("cmd_update()")
-        body = self.SRC[i : i + 1500]
+        body = self._fn('cmd_update')
         self.assertIn("/var/www/remotepower", body)
 
     def test_dispatches_to_deploy_or_convert(self):
-        i = self.SRC.index("cmd_update()")
-        body = self.SRC[i : i + 2000]
+        body = self._fn('cmd_update')
         self.assertIn("deploy-server.sh", body)
 
     def test_cheap_deploy_path_also_verifies_flask_importable(self):
@@ -579,8 +606,7 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         # Flask is installed (a pre-v6.1.0 experimental WSGI bridge used the
         # same unit name without needing it). The cheap deploy-only path
         # must not be taken unless Flask is confirmed importable too.
-        i = self.SRC.index("cmd_update()")
-        body = self.SRC[i : i + 2500]
+        body = self._fn('cmd_update')
         i_check = body.index("systemctl is-active --quiet remotepower-wsgi")
         cond = body[i_check : i_check + 150]
         self.assertIn("import flask", cond)

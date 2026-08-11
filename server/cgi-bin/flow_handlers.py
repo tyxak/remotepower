@@ -49,8 +49,15 @@ import time
 # sender) and keeps a small rolling history so the UI can show a short trend.
 _FLOW_MAX_TALKERS = 30
 _FLOW_MAX_CONVS = 30
-_FLOW_HISTORY = 24          # rollup snapshots kept per device (~4h at 10s flush)
-_FLOW_TTL_S = 6 * 3600      # drop snapshots older than this
+# v6.4.3: the comment here read "~4h at 10s flush". flowd's FLUSH_S is 10.0,
+# so 24 snapshots is FOUR MINUTES — wrong by 60x, and anyone sizing a feature
+# off it would have been too. _FLOW_TTL_S is consequently dead code for any
+# continuously-active exporter: the [-24:] slice always bites first. Both are
+# left as they are (the history feeds a short sparkline and nothing else), but
+# they now say what they do. A trend longer than this needs a real store, not
+# a bigger slice — see docs/flow.md.
+_FLOW_HISTORY = 24          # rollup snapshots kept per device (~4 MINUTES at a 10s flush)
+_FLOW_TTL_S = 6 * 3600      # upper bound; only binds when an exporter goes idle
 
 
 def _flow_num(v, cap=None):
@@ -177,7 +184,16 @@ def handle_device_flows(dev_id):
         A.respond(404, {'error': 'device not found'})
         return
     rec = (A.load(A.FLOW_FILE) or {}).get(dev_id) or {}
-    A.respond(200, {'latest': rec.get('latest') or {},
+    # v6.4.3: `latest` is never expired — only `history` gets the cutoff — so a
+    # device whose exporter died months ago still returns its final window, and
+    # the drawer renders it under "Latest window" as though it were current.
+    # Stamp the age and let the client decide; dropping it outright would lose
+    # the last-known state, which is genuinely useful when diagnosing WHY the
+    # export stopped.
+    _lat = rec.get('latest') or {}
+    _age = max(0, int(time.time()) - int(_lat.get('ts') or 0)) if _lat else None
+    A.respond(200, {'latest': _lat, 'latest_age_seconds': _age,
+                    'stale': bool(_age is not None and _age > _FLOW_TTL_S),
                     'history': rec.get('history') or []})
 
 
