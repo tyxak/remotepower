@@ -44,6 +44,35 @@ class TestAsciiHeader(unittest.TestCase):
         self.assertEqual(out, 'SIEM audit forwarding recovered - 12 spooled entries')
         self.assertNotIn('?', out)
 
+    def test_the_result_never_contains_cr_or_lf(self):
+        """v6.4.3: a function named `_ascii_header` handing back an embedded
+        newline is a trap for whoever calls it next. http.client rejects such a
+        value, so this is not the control that stops header injection — but the
+        RFC 2047 arm also FOLDS long values across lines on its own, and that
+        arm fires on any non-ASCII input, which is the common case for a device
+        named in a non-Latin script."""
+        for value in ('evil\r\nX-Injected: 1',
+                      'evil\nX-Injected: 1',
+                      'évil\r\nX-Injected: 1',           # non-ASCII arm
+                      'Report éé ' + 'A' * 200,      # long → would fold
+                      '上海-web-01 ' + 'B' * 200):
+                with self.subTest(value=value[:24]):
+                    out = self.n._ascii_header(value)
+                    self.assertNotIn('\r', out)
+                    self.assertNotIn('\n', out)
+
+    def test_a_plain_value_is_returned_unchanged(self):
+        """Positive control: without it, a helper that returned '' for
+        everything would satisfy the assertions above."""
+        self.assertEqual(self.n._ascii_header('device offline'), 'device offline')
+
+    def test_the_em_dash_still_transliterates_rather_than_encoding(self):
+        """The original bug this helper exists for. An em dash must become '-'
+        and stay readable, not turn the whole title into an =?utf-8?...?= blob
+        that some clients render literally."""
+        self.assertEqual(self.n._ascii_header('RemotePower — device offline'),
+                         'RemotePower - device offline')
+
     def test_every_character_actually_used_survives_readably(self):
         """Not just 'is ASCII' — the transliteration must preserve MEANING.
         Dropping the arrow out of 'agent -> server' or the >= out of a

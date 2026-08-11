@@ -540,11 +540,21 @@ def _ascii_header(value):
     lossless. Never silently drops characters, and never emits a bare "?".
     """
     s = "".join(_HEADER_TRANSLIT.get(ch, ch) for ch in str(value))
+    # v6.4.3: the function is named for header safety, so make it actually
+    # deliver that rather than relying on the caller. http.client already
+    # rejects a header value containing CR or LF, so this is not the control
+    # that stops header injection — but a function called _ascii_header that
+    # hands back an embedded newline is a trap for the next caller, and the
+    # RFC 2047 arm below emits its own folding newlines, which would have to
+    # be special-cased by anyone reasoning about this.
+    s = s.replace("\r", " ").replace("\n", " ")
     try:
         s.encode("ascii")
         return s
     except UnicodeEncodeError:
-        return _EmailHeader(s, "utf-8").encode()
+        # Single-line: the default folds long values across lines, and a header
+        # this feeds is set programmatically, not written into a MIME document.
+        return _EmailHeader(s, "utf-8").encode(maxlinelen=10000, linesep=" ")
 
 
 def _build_generic_body(event, title, message, priority, safe_payload):

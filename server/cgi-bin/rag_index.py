@@ -2354,7 +2354,13 @@ def build_sudo_corpus(store, devices=None, now=0):
         for e in evs[-8:]:
             if isinstance(e, dict) and e.get('command'):
                 who = e.get('user') or e.get('by') or ''
-                lines.append(f"- {dname}: {who + ': ' if who else ''}{str(e.get('command'))[:200]}")
+                # v6.4.3: name the effective user too. "who ran what AS ROOT on
+                # X" is the question the access_review advisor is grounded to
+                # answer, and without the target every line read as though it
+                # had — a `sudo -u backup` and a `sudo -i` were indistinguishable.
+                _as = str(e.get('target') or 'root')[:32]
+                lines.append(f"- {dname}: {who + ' ' if who else ''}"
+                             f"(as {_as}): {str(e.get('command'))[:200]}")
     if lines:
         docs.append(make_doc(
             'access/sudo', 'sudo_log', 'sudo_trail',

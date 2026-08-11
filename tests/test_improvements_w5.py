@@ -545,8 +545,9 @@ class TestLldp(_HandlerBase):
                  'peer_port': 'Gi0/1', 'mgmt_ip': '10.0.0.1'}]}})
         for f in (api.DEVICES_FILE, api.LLDP_NEIGHBORS_FILE):
             api._invalidate_load_cache(f)
-        sugg = api._lldp_suggestions()
+        sugg, unresolved = api._lldp_suggestions()
         self.assertEqual(len(sugg), 1)
+        self.assertEqual(unresolved, 0)
         self.assertEqual(sugg[0]['device_id'], 'host')
         self.assertEqual(sugg[0]['peer_id'], 'sw')
 
@@ -567,7 +568,26 @@ class TestLldp(_HandlerBase):
         api.save(api.LLDP_DISMISS_FILE, {'pairs': ['host:sw']})
         for f in (api.DEVICES_FILE, api.LLDP_NEIGHBORS_FILE, api.LLDP_DISMISS_FILE):
             api._invalidate_load_cache(f)
-        self.assertEqual(api._lldp_suggestions(), [])
+        self.assertEqual(api._lldp_suggestions()[0], [])
+
+    def test_a_neighbour_that_is_not_an_enrolled_device_is_counted(self):
+        """v6.4.3: LLDP finds switches, routers and APs — which is most of what
+        it finds, and none of it is enrolled. Those were dropped silently, so
+        the card sat empty telling the operator to install lldpd on a fleet
+        where lldpd was installed and working."""
+        api.save(api.DEVICES_FILE, {'host': {'name': 'h', 'ip': '10.0.0.50'}})
+        api.save(api.LLDP_NEIGHBORS_FILE, {
+            'host': {'ts': 1, 'neighbors': [
+                {'local_if': 'eth0', 'peer_name': 'core-sw-not-enrolled',
+                 'mgmt_ip': '10.0.0.1'},
+                {'local_if': 'eth1', 'peer_name': 'ap-lobby', 'mgmt_ip': '10.0.0.2'}]}})
+        api.save(api.LLDP_DISMISS_FILE, {'pairs': []})
+        for f in (api.DEVICES_FILE, api.LLDP_NEIGHBORS_FILE, api.LLDP_DISMISS_FILE):
+            api._invalidate_load_cache(f)
+        sugg, unresolved = api._lldp_suggestions()
+        self.assertEqual(sugg, [], 'neither peer is enrolled — nothing to suggest')
+        self.assertEqual(unresolved, 2, 'both neighbours must still be COUNTED, '
+                                        'or the page cannot say why it is empty')
 
 
 if __name__ == '__main__':

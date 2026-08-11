@@ -12876,8 +12876,17 @@ def run_webhook_digests_if_due():
             remaining[dest_id] = q      # not due yet
             continue
         to_send.append((dest, items))
-    # persist the not-yet-due remainder BEFORE sending (sends are slow/after lock)
-    save(WEBHOOK_DIGEST_FILE, remaining)
+    # v6.4.3: persist the not-yet-due remainder BEFORE sending (sends are slow),
+    # but only when something actually changed. This runs from main() on EVERY
+    # request, and it was rewriting the whole store on every tick for as long
+    # as any digest was pending — so holding one notification for a 60-minute
+    # window meant a full store write per request for an hour, none of which
+    # altered a byte. The write that remains takes the lock: an unlocked
+    # read-modify-write here races a concurrent enqueue and drops it.
+    if to_send or remaining != store:
+        with _LockedUpdate(WEBHOOK_DIGEST_FILE) as st:
+            st.clear()
+            st.update(remaining)
     for dest, items in to_send:
         title = f'{len(items)} notifications'
         lines = [f'- {it.get("title") or it.get("event")}: {it.get("message", "")}'
@@ -19845,6 +19854,26 @@ def handle_heartbeat():
                         safe_sc[_sk] = _sanitize_str(_sv, 32)
                 if safe_sc:
                     safe_si['ssh_config'] = safe_sc
+            # v6.4.3: the host's own hostname. All three agents send it on
+            # every heartbeat and safe_si dropped it, so `dev['hostname']` was
+            # whatever the host was called at ENROLMENT — frozen for the life
+            # of the device. Renaming a host (or re-imaging it onto the same
+            # enrolment) left the old name showing on the drawer, in offline
+            # and patch alert payloads, and in the LLDP/dependency topology
+            # matching, which resolves neighbours BY hostname and so quietly
+            # stopped matching. `name` is deliberately untouched: that one is
+            # operator-editable and must not be overwritten by the host.
+            _hn = si.get('hostname')
+            if isinstance(_hn, str) and _hn:
+                safe_si['hostname'] = _sanitize_hostname(_hn)
+            # v6.4.3: whether the agent has psutil. Windows and macOS send
+            # `psutil: False` explicitly, as an honest "my metrics are
+            # limited" — and it was dropped, so three empty states could only
+            # guess at the cause and told the operator to check a dependency
+            # the agent had already reported on.
+            _ps = si.get('psutil')
+            if isinstance(_ps, bool):
+                safe_si['psutil'] = _ps
             # v6.3.0: chassis class — the offline sweep's laptop grace and the
             # drawer read this; safe_si is a WHITELIST, drop = feature dead.
             _ch = si.get('chassis')
@@ -20684,6 +20713,14 @@ def handle_heartbeat():
                 _merged.update(safe_si)
                 safe_si = _merged
             dev['sysinfo'] = safe_si
+            # v6.4.3: keep the stored hostname current. It was captured once at
+            # enrolment and never again, so a renamed host kept its old name
+            # everywhere the device record is read. Only ever refreshed from a
+            # non-empty reported value, and `name` is left alone — that field
+            # is the operator's.
+            _rep_hn = safe_si.get('hostname')
+            if _rep_hn and _rep_hn != dev.get('hostname'):
+                dev['hostname'] = _rep_hn
             # Cache the sanitised sysinfo for the post-lock consumers (port
             # audit, v3.4.0 daily metrics sampler). Without this, the
             # `saved_dev.get('sysinfo')` reads below always saw {} — the port
@@ -39343,6 +39380,14 @@ def _lldp_suggestions():
             if isinstance(nic, dict) and nic.get('ip'):
                 ip_to_dev.setdefault(str(nic['ip']), did)
     out = []
+    # v6.4.3: count the neighbours we SAW but could not resolve to an enrolled
+    # device. On most fleets that is the majority of them — switches, routers
+    # and APs are exactly what LLDP finds and exactly what is not enrolled — and
+    # dropping them silently left an empty card whose empty state told the
+    # operator to install lldpd, which was already installed and working. The
+    # suggestions list is unchanged; this is only so the page can say why it is
+    # empty.
+    unresolved = 0
     for did, rec in neigh.items():
         if did not in devices:
             continue
@@ -39352,7 +39397,10 @@ def _lldp_suggestions():
         for n in (rec.get('neighbors') or []):
             peer = ip_to_dev.get(str(n.get('mgmt_ip') or '')) \
                 or name_to_dev.get(str(n.get('peer_name') or '').strip().lower())
-            if not peer or peer == did or peer == declared or peer in seen:
+            if not peer:
+                unresolved += 1
+                continue
+            if peer == did or peer == declared or peer in seen:
                 continue
             if f'{did}:{peer}' in dismissed:
                 continue
@@ -39364,7 +39412,7 @@ def _lldp_suggestions():
                 'evidence': f"{n.get('local_if', '?')} → {n.get('peer_name', '')}"
                             f"{(' ' + n.get('peer_port')) if n.get('peer_port') else ''}",
             })
-    return out
+    return out, unresolved
 
 
 def handle_lldp_suggestions():
@@ -39372,7 +39420,8 @@ def handle_lldp_suggestions():
     POST {device_id, peer_id, action: accept|dismiss}. Accept sets connected_to."""
     if method() == 'GET':
         require_auth()
-        respond(200, {'ok': True, 'suggestions': _lldp_suggestions()})
+        _sugg, _unres = _lldp_suggestions()
+        respond(200, {'ok': True, 'suggestions': _sugg, 'unresolved': _unres})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
@@ -47078,15 +47127,19 @@ def _compute_attention():
     # v3.7.0: CMDB credential rotation due. Reads the per-credential
     # rotate_after_days policy; flags any whose age since last rotation exceeds
     # it. Device name resolved from the device record.
+    # v6.4.3: this re-loaded (and deepcopied) the whole device store 570 lines
+    # after `devices` was already bound, purely to resolve a name — and the
+    # loop only visits ids that are in `monitored`, which is derived from that
+    # same store and already holds the record. The try/except is narrowed to
+    # the _cmdb_load it was actually there for.
     try:
         _cmdb_rot = _cmdb_load() or {}
-        _devs_rot = load(DEVICES_FILE) or {}
     except Exception:
-        _cmdb_rot = {}; _devs_rot = {}
+        _cmdb_rot = {}
     for _dev_id, _rec in _cmdb_rot.items():
         if _dev_id not in monitored:
             continue
-        dname = _devs_rot.get(_dev_id, {}).get('name', _dev_id)
+        dname = monitored[_dev_id].get('name', _dev_id)
         for c in (_rec.get('credentials') or []):
             rad = int(c.get('rotate_after_days', 0) or 0)
             if not rad:
@@ -48340,7 +48393,7 @@ def _compute_fleet_reliability():
     devices = load(DEVICES_FILE) or {}
     hw = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
     smart_hist = (load(SMART_HIST_FILE) or {}) if backend_exists(SMART_HIST_FILE) else {}
-    health_hist = (load(HEALTH_HIST_FILE) or {}) if backend_exists(HEALTH_HIST_FILE) else {}
+    health_hist = (_load_ro(HEALTH_HIST_FILE) or {}) if backend_exists(HEALTH_HIST_FILE) else {}
     uptime = (load(UPTIME_FILE) or {}) if backend_exists(UPTIME_FILE) else {}
     svcs = (load(SERVICES_FILE) or {}) if backend_exists(SERVICES_FILE) else {}
     posture = (load(POSTURE_STATE_FILE) or {}) if backend_exists(POSTURE_STATE_FILE) else {}
@@ -48432,12 +48485,19 @@ def _device_set_fingerprint():
     added or removed — and that changes the device *key set*, while a heartbeat
     does not.
 
-    So: bust on membership, tolerate ≤TTL-stale telemetry. Cheap — `load()` is
-    memoised per request, and the expensive part of these rollups is the
-    per-device CVE/date work, not the read.
+    So: bust on membership, tolerate ≤TTL-stale telemetry.
+
+    v6.4.3: this used `load()` under a comment calling it "cheap — `load()` is
+    memoised per request". The memoisation removes the PARSE, not the copy:
+    `load()` deepcopies the whole store on every hit, warm or cold. So a
+    function whose entire output is a hash of the key set was materialising
+    every device document to call `.keys()` on them — several times per
+    request, since each cached rollup calls this. `_load_ro` hands back the
+    shared object; `.keys()` cannot mutate it, which is the contract that
+    makes that safe.
     """
     try:
-        ids = sorted((load(DEVICES_FILE) or {}).keys())
+        ids = sorted((_load_ro(DEVICES_FILE) or {}).keys())
     except Exception:
         return '-'
     return hashlib.sha256('|'.join(ids).encode()).hexdigest()[:16]
@@ -48720,7 +48780,9 @@ def _maybe_sample_health(now=None):
     # entering _LockedUpdate unconditionally did a BEGIN IMMEDIATE + full-blob
     # rewrite on every heartbeat/poll just to re-confirm "already sampled today".
     # The in-lock check below still guards the race (two requests racing the gate).
-    _hh = load(HEALTH_HIST_FILE) or {}
+    # v6.4.3: _load_ro, matching _maybe_sample_compliance's identical gate —
+    # a read-only pre-gate should not pay for a copy it never writes to.
+    _hh = _load_ro(HEALTH_HIST_FILE) or {}
     _hf = _hh.get('fleet') or []
     if _hf and _hf[-1].get('date') == day:
         return
@@ -48761,7 +48823,7 @@ def handle_fleet_health_history():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     dev_id = (qs.get('device') or [''])[0].strip()
-    store = load(HEALTH_HIST_FILE) or {}
+    store = _load_ro(HEALTH_HIST_FILE) or {}
     if dev_id:
         _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device series
         series = (store.get('devices') or {}).get(dev_id) or []
@@ -49493,7 +49555,9 @@ def handle_home():
         'health':       _fleet_health(),
         # v3.4.1: compact fleet score trend (last 30 daily samples) for the
         # home health panel's sparkline — one cheap file read, no recompute.
-        'health_history': (load(HEALTH_HIST_FILE) or {}).get('fleet', [])[-30:],
+        # v6.4.3: _load_ro — this reads one key and slices it; the whole
+        # per-device tree was being deepcopied to reach the fleet series.
+        'health_history': (_load_ro(HEALTH_HIST_FILE) or {}).get('fleet', [])[-30:],
         # Echo the few config flags the Home renderer reads, so the page
         # doesn't need a separate /api/config round-trip.
         'config': {
@@ -57570,19 +57634,23 @@ def _resolve_inbound_device(token_cfg, body):
       2. Body carries `device` (name match against devices.json).
       3. Body carries `device_id` (direct match).
     """
+    # v6.4.3: the two ID branches are single-key lookups on a hot ingest path
+    # and were deepcopying the whole fleet to read one record. The NAME branch
+    # genuinely needs the whole store — it scans for a match — but it is
+    # read-only, so _load_ro serves it without the copy.
     pinned = token_cfg.get('scope_device_id')
     if pinned:
-        d = load(DEVICES_FILE).get(pinned) or {}
+        d = device_get(pinned) or {}
         return pinned, d.get('name', '')
     if isinstance(body, dict):
         dev_id_in = body.get('device_id')
         if dev_id_in:
-            d = load(DEVICES_FILE).get(dev_id_in) or {}
+            d = device_get(dev_id_in) or {}
             if d:
                 return dev_id_in, d.get('name', '')
         dev_name = body.get('device') or body.get('hostname')
         if dev_name:
-            devs = load(DEVICES_FILE)
+            devs = _load_ro(DEVICES_FILE) or {}
             for did, d in devs.items():
                 if (d.get('name') == dev_name
                         or d.get('hostname') == dev_name):
@@ -58204,8 +58272,10 @@ def handle_syslog_in(token_str):
         _log_inbound('syslog', match.get('id'), match.get('label'),
                      '400', 'token not pinned to device')
         respond(400, {'error': 'syslog tokens must be pinned to a device — recreate with scope_device_id'})
-    devs = load(DEVICES_FILE)
-    dev = devs.get(dev_id)
+    # v6.4.3: a single-key lookup on a continuously-hit ingest endpoint. The
+    # token is required to be device-pinned four lines up, so this was never a
+    # scan — it deepcopied the whole fleet to read one entry, per inbound POST.
+    dev = device_get(dev_id)
     if not dev:
         _log_inbound('syslog', match.get('id'), match.get('label'),
                      '404', 'target device deleted')

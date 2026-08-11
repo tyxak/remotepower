@@ -33,6 +33,14 @@ and the stricter `ProtectSystem=strict` on the push daemon, which needs nothing
 writable at all. Nothing in the web tier — the API, the UI, the dashboard you
 log into — holds root.
 
+Two ambient capabilities are the exception worth naming, because "unprivileged"
+should not be read as "no capabilities at all". The app server and the scheduler
+hold `CAP_NET_RAW`, which is what lets them ping an agentless device for
+reachability, and `CAP_NET_ADMIN`, which is what reads WireGuard peer statistics
+directly when `RP_WG_DIRECT` is set. An install that uses neither agentless
+reachability nor the WireGuard Access page can delete the `AmbientCapabilities=`
+line from both units and lose nothing else.
+
 **The agent runs as root, by design.** Applying a patch, restarting a unit or
 reading SMART data is what the agent is *for*: `dpkg` / `pacman` / `systemctl` /
 `smartctl` cannot be driven usefully without privilege. An unprivileged agent

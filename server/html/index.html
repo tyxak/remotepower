@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-72">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-73">
 
 </head>
 <body>
@@ -4598,8 +4598,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.4.3 gu4rdmatters guard guardrails gate postgres backend tested f821 undefined name accessibility seeded translation i18n option label column header success toast refusal enrollment pin single use documentation restore notification question mark focus ring refused delete undefined thermal temperature sensor dead pin adc rail 127 -128 implausible ignore sensor sensor_ignores overheating temp_high hottest host thermal window bigger taller platform refusal windows macos unsupported command verb parity lynis iac image scan acme rescan">
-            <summary><strong>What's new — v6.4.3 &ldquo;Gu4rdMatters&rdquo;</strong> — a release about the checks rather than the code they check. Six guardrails turned out to be <strong>reporting success while measuring nothing</strong>: the <strong>Postgres backend</strong> — the enterprise default — was run by no gate at all, while 28 tests written for it sat in the tree skipping themselves for want of a server; the undefined-name check was returning <strong>238 findings of which every one was a false positive</strong>; the accessibility sweep walked all 74 pages against an <strong>empty database</strong>, so anything living in a populated row was invisible to it; the translation gate stopped at the app chrome; and the box-overflow ratchet read only static markup while counting a compliant table against its own budget. Alongside them, surfaces that told you something untrue: a green <strong>&ldquo;queued&rdquo; toast on a refusal</strong> the server had already rejected (including deploying an app to any device with compose off, which is every device by default), this page <strong>denying a restore feature</strong> sitting three clicks away, <strong>enrollment PINs documented as single-use</strong> that were not, push notifications rendering <code>?</code> where a character should be, and the literal word <code>undefined</code> painted into headings when a record was missing. Every new guardrail here was demonstrated to <em>fail</em> before it was committed. Separately, <strong>Thermal health</strong> gets the screen it needed and stops being fooled by a dead board sensor: an ADC open-circuit rail is discarded on arrival, while a pin reading past its own critical limit on a healthy host is flagged <strong>Implausible</strong> rather than silently dropped — with one click to ignore it, because until now a single dead pin drove the page headline, the alert, the risk factor and the roll-up maximum.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.4.3 gu4rdmatters guard guardrails gate postgres backend tested f821 undefined name accessibility seeded translation i18n option label column header success toast refusal enrollment pin single use documentation restore notification question mark focus ring refused delete undefined thermal temperature sensor dead pin adc rail 127 -128 implausible ignore sensor sensor_ignores overheating temp_high hottest host thermal window bigger taller platform refusal windows macos unsupported command verb parity lynis iac image scan acme rescan hostname renamed host psutil missing metrics empty state x11 forwarding x11forwarding ssh hardening sudo ran as target effective user access review lldp neighbour neighbor switch router unresolved deepcopy load_ro performance digest">
+            <summary><strong>What's new — v6.4.3 &ldquo;Gu4rdMatters&rdquo;</strong> — a release about the checks rather than the code they check. Six guardrails turned out to be <strong>reporting success while measuring nothing</strong>: the <strong>Postgres backend</strong> — the enterprise default — was run by no gate at all, while 28 tests written for it sat in the tree skipping themselves for want of a server; the undefined-name check was returning <strong>238 findings of which every one was a false positive</strong>; the accessibility sweep walked all 74 pages against an <strong>empty database</strong>, so anything living in a populated row was invisible to it; the translation gate stopped at the app chrome; and the box-overflow ratchet read only static markup while counting a compliant table against its own budget. Alongside them, surfaces that told you something untrue: a green <strong>&ldquo;queued&rdquo; toast on a refusal</strong> the server had already rejected (including deploying an app to any device with compose off, which is every device by default), this page <strong>denying a restore feature</strong> sitting three clicks away, <strong>enrollment PINs documented as single-use</strong> that were not, push notifications rendering <code>?</code> where a character should be, and the literal word <code>undefined</code> painted into headings when a record was missing. Every new guardrail here was demonstrated to <em>fail</em> before it was committed. Separately, <strong>Thermal health</strong> gets the screen it needed and stops being fooled by a dead board sensor: an ADC open-circuit rail is discarded on arrival, while a pin reading past its own critical limit on a healthy host is flagged <strong>Implausible</strong> rather than silently dropped — with one click to ignore it, because until now a single dead pin drove the page headline, the alert, the risk factor and the roll-up maximum. And four signals the product collected and then discarded now reach the surfaces that need them: a host’s own <strong>hostname</strong> (frozen at enrolment until now, which quietly broke topology matching), the agent’s honest <strong>“I have no psutil”</strong> signal, <strong>X11 forwarding</strong> in the SSH hardening check, and <strong>who a privileged command actually ran as</strong> — <code>sudo -u backup</code> and <code>sudo -i</code> were indistinguishable in an access review.</summary>
             <div class="doc-body">
               <p><strong>Checks that now check something.</strong> Postgres runs in CI against a real throwaway database, configured so an unreachable server fails the build instead of quietly skipping — three backend parity bugs had already reached releases, one recorded in the source as impossible to catch locally. Undefined-name detection works on the server again, over all shipped server, agent and sidecar code plus the test suite, where a typo in a rarely-taken branch hides best. Accessibility is audited with data on the page, which is the only way to see the 60 critical violations it found: the per-row select checkboxes in Devices and Alerts had no accessible name, so a screen-reader user could not tell which row they were selecting.</p>
               <p><strong>Things that were telling you something untrue.</strong> Eleven places toasted success on an action the server had refused. Enrollment PINs are genuinely single-use now. Push notification titles are transliterated so they stay readable (&ldquo;recovered - 12&rdquo;, &ldquo;agent -&gt; server&rdquo;) instead of losing characters to a <code>?</code>. Two pages destroyed their own Documentation link a moment after you opened them. A refused delete no longer stays deleted in memory, coming back on reload and vanishing again on the next save.</p>
@@ -11489,38 +11489,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.3-72"></script>
+<script defer src="static/js/app.js?v=6.4.3-73"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-containers.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-network.js?v=6.4.3-72"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-containers.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-network.js?v=6.4.3-73"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.3-72"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.3-73"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-dns.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-drift.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-cve.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-backups.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-iac.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-virt.js?v=6.4.3-72"></script>
+<script defer src="static/js/app-ai.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-dns.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-drift.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-cve.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-backups.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-iac.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-virt.js?v=6.4.3-73"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-logs.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-remote.js?v=6.4.3-72"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.3-72"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-logs.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-remote.js?v=6.4.3-73"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.3-73"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.3-72"></script>
+<script defer src="static/js/app-self.js?v=6.4.3-73"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11530,6 +11530,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.3-72"></script>
+<script defer src="static/js/sw-register.js?v=6.4.3-73"></script>
 </body>
 </html>

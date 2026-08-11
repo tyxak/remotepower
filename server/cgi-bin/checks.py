@@ -722,6 +722,15 @@ def _host_checks(
             issues.append("root login with a password permitted")
         if pwa == "yes":
             issues.append("password authentication enabled")
+        # v6.4.3: the agent has collected x11_forwarding and the heartbeat has
+        # whitelisted it into the store since the sshd collector shipped, and
+        # nothing read it — the field existed end to end and meant nothing.
+        # X11 forwarding lets a host the user SSHes FROM read that session's
+        # keystrokes and windows, so it is a lateral-movement path in exactly
+        # the direction this check covers. Advisory, never critical: plenty of
+        # workstations enable it deliberately.
+        if str(sc.get("x11_forwarding", "")).lower() == "yes":
+            issues.append("X11 forwarding enabled")
         status = "critical" if pel == "yes" else "warning" if issues else "ok"
         add(
             "linux_ssh_hardening",

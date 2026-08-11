@@ -8808,8 +8808,18 @@ async function _loadMetrics() {
   const picker = '<div class="metric-range-picker">' + _METRIC_RANGES.map(r =>
     `<button class="metric-range-btn${r.secs === range ? ' sel' : ''}" data-action="setMetricsRange" data-arg="${r.secs}">${r.label}</button>`).join('') + '</div>';
   if (!data || !data.metrics || !data.metrics.length) {
-    body.innerHTML = picker +
-      '<div class="empty-state">No metrics recorded for this host yet. CPU/RAM/disk tracking needs <code>psutil</code> on the agent, and a recent heartbeat.</div>';
+    // v6.4.3: the Windows and macOS agents SEND `psutil: false` when the
+    // library is missing — an honest "my metrics are limited". Until this
+    // release the server dropped it, so this state could only guess and told
+    // every operator to go check a dependency the agent had already reported
+    // on. When we know, say so; when we don't, keep the general advice.
+    const noPsutil = _drawerDeviceData?.sysinfo?.psutil === false;
+    body.innerHTML = picker + '<div class="empty-state">' + (noPsutil
+      ? 'This agent reports that <code>psutil</code> is not installed, so CPU, memory and disk '
+        + 'percentages are not collected. Install it on the host and the agent picks it up '
+        + 'on its next restart.'
+      : 'No metrics recorded for this host yet. CPU/RAM/disk tracking needs <code>psutil</code> '
+        + 'on the agent, and a recent heartbeat.') + '</div>';
     return;
   }
   const metrics = data.metrics;
@@ -21290,7 +21300,15 @@ async function loadProcesses() {
   );
 
   if (!_processRows.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No process data yet — requires psutil on the agent. Updates every ~60 s.</td></tr>';
+    // v6.4.3: name the hosts that have already told us why, instead of
+    // implying the whole fleet might be missing a dependency.
+    const noPs = monitored.filter(d => sysmap[d.id]?.psutil === false).length;
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">'
+      + (noPs
+         ? `No process data — ${noPs} agent${noPs === 1 ? '' : 's'} report that psutil is not `
+           + 'installed, which is what collects the process table.'
+         : 'No process data yet — requires psutil on the agent. Updates every ~60 s.')
+      + '</td></tr>';
     return;
   }
   _renderProcessesFiltered();
@@ -22527,10 +22545,16 @@ async function loadSudoLog(id) {
   if (!r || !r.ok) { box.innerHTML = '<div class="meta-sm-nm">Not available (admin/auditor only).</div>'; return; }
   const ev = r.events || [];
   if (!ev.length) { box.innerHTML = '<div class="meta-sm-nm">No sudo activity recorded.</div>'; return; }
+  // v6.4.3: `target` is the effective user the command RAN AS — `sudo -u
+  // postgres psql` and a bare `sudo psql` are materially different privileged
+  // actions, and the server has parsed, sanitised, stored and returned this
+  // field all along while both tables showed only who invoked it. Empty means
+  // bare sudo, which is root.
   box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">'
-    + '<thead><tr class="c-muted"><th>When</th><th>User</th><th>Command</th></tr></thead><tbody>'
+    + '<thead><tr class="c-muted"><th>When</th><th>User</th><th>Ran as</th><th>Command</th></tr></thead><tbody>'
     + ev.map(e => `<tr><td class="fs-11">${escHtml(_fmtAbsTs((e.ts||0)))}</td>`
         + `<td class="fs-11"><code>${escHtml(e.user||'')}</code></td>`
+        + `<td class="fs-11"><code>${escHtml(e.target||'root')}</code></td>`
         + `<td class="fs-11 ff-mono">${escHtml(e.command||'')}</td></tr>`).join('')
     + '</tbody></table></div>';
 }
@@ -22571,13 +22595,16 @@ async function runSudoSearch() {
   }
   body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">'
     + '<thead id="sudo-search-thead"><tr><th data-col="ts">When</th><th data-col="device">Device</th>'
-    + '<th data-col="user">User</th><th data-col="command">Command</th></tr></thead><tbody>'
+    + '<th data-col="user">User</th><th data-col="target">Ran as</th>'
+    + '<th data-col="command">Command</th></tr></thead><tbody>'
     + tableCtl.sortRows('sudosearch', ev.slice(), e => ({
-        ts: e.ts || 0, device: e.device_name || '', user: e.user || '', command: e.command || '',
+        ts: e.ts || 0, device: e.device_name || '', user: e.user || '',
+        target: e.target || 'root', command: e.command || '',
       })).map(e =>
         `<tr><td class="fs-11">${escHtml(_fmtAbsTs(e.ts || 0))}</td>`
         + `<td class="fs-11 fw-500">${escHtml(e.device_name || '')}</td>`
         + `<td class="fs-11"><code>${escHtml(e.user || '')}</code></td>`
+        + `<td class="fs-11"><code>${escHtml(e.target || 'root')}</code></td>`
         + `<td class="fs-11 ff-mono">${escHtml(e.command || '')}</td></tr>`).join('')
     + '</tbody></table></div>';
   tableCtl.wireSortOnly('sudo-search-thead', 'sudosearch', () => runSudoSearch());

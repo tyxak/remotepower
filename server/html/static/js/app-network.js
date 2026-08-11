@@ -371,7 +371,18 @@ async function loadLldpSuggestions() {
   const r = await api('GET', '/lldp-suggestions');
   if (!r || !r.ok) { box.innerHTML = '<div class="c-muted">Not available.</div>'; return; }
   const s = r.suggestions || [];
-  if (!s.length) { box.innerHTML = '<div class="c-muted">No LLDP topology suggestions (install lldpd on hosts to discover neighbors).</div>'; return; }
+  if (!s.length) {
+    // v6.4.3: this card can only suggest an edge between TWO ENROLLED devices,
+    // and LLDP mostly finds switches, routers and APs, which are not enrolled.
+    // The old empty state told you to install lldpd — wrong and misleading on
+    // a fleet where lldpd was installed and reporting neighbours the whole time.
+    box.innerHTML = r.unresolved
+      ? `<div class="c-muted">${r.unresolved} LLDP neighbour${r.unresolved === 1 ? '' : 's'} seen, `
+        + 'none of which is an enrolled device — this card links two hosts RemotePower '
+        + 'already manages, so switches, routers and access points do not appear here.</div>'
+      : '<div class="c-muted">No LLDP neighbours reported yet (install lldpd on hosts to discover them).</div>';
+    return;
+  }
   box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
     + '<thead><tr><th>Device</th><th>↔ Neighbor</th><th>Link</th><th></th></tr></thead><tbody>'
     + s.map(x => `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.peer_name)}</td>`

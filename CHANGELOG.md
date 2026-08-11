@@ -108,6 +108,36 @@ from one that cannot.
   agents had drifted to 1 MB, 4 MB and unbounded; the agent runs as root, so an
   unbounded read is a memory-exhaustion primitive for anything that can answer
   as the server. One pair of limits now, identical in all three.
+- **Four signals the product collected and then threw away.** The host's own
+  hostname is sent on every heartbeat by all three agents and was dropped by
+  the sanitiser, so the stored value was whatever the machine was called at
+  ENROLMENT — frozen for the life of the device, and quietly breaking the LLDP
+  and dependency matching that resolves neighbours by hostname. `psutil: false`
+  — the Windows and macOS agents' explicit "my metrics are limited" — was
+  dropped too, so three empty states could only guess and told the operator to
+  check a dependency the agent had already reported on. The sshd collector's
+  `x11_forwarding` was collected AND stored and read by nothing; it is now part
+  of the SSH hardening check, advisory rather than critical. And the sudo audit
+  trail parsed, sanitised, stored and returned the effective user of every
+  privileged command while both tables showed only who invoked it — `sudo -u
+  backup` and `sudo -i` were indistinguishable in an access review.
+- **The LLDP card told you to install something you had already installed.**
+  It can only suggest a link between two ENROLLED devices, and LLDP mostly
+  finds switches, routers and access points, which are not. Every one of those
+  was dropped silently and the empty state advised installing lldpd. It now
+  says how many neighbours were seen and why none of them can appear.
+- **Read paths that paid for a copy they never wrote to.** Three carried a
+  comment asserting the read was cheap, which is why nobody looked again:
+  `_device_set_fingerprint`, whose entire output is a hash of the device key
+  set, was materialising every device document to call `.keys()` (18.5 ms →
+  0.01 ms at 400 devices); the dashboard's health sparkline deepcopied the
+  whole per-device history tree — some 72,000 records — to slice 30 elements
+  off one list (114.7 ms → 38.2 ms cold, 68.9 ms → ~0 ms warm); and the syslog
+  and inbound-alert receivers copied the entire fleet to look up one device,
+  per inbound POST. The digest sweep also rewrote its whole store on every
+  request for as long as any notification was held — an hour of writes, per
+  request, that changed nothing — and did so without the lock, which loses a
+  concurrent enqueue.
 - **The app server and scheduler could not start on RHEL or Arch.** Both units
   ship `User=www-data`, and the installer was rendering the distro's actual web
   user into only one of the three units it installs — so on RHEL and Arch
