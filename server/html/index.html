@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-86">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-87">
 
 </head>
 <body>
@@ -8939,7 +8939,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">A tunnel is a WireGuard hub interface. Clients you issue under it dial in and reach whatever you scope it to.</div>
   <div class="form-group"><label class="form-label" for="vpn-tunnel-name">Name</label><input type="text" id="vpn-tunnel-name" class="form-input" autocomplete="off" maxlength="64" placeholder="road-warriors" data-input="vpnReachPreview"></div>
   <div class="form-group"><label class="form-label" for="vpn-tunnel-port">Listen port</label><input type="number" id="vpn-tunnel-port" class="form-input mw-160" min="1" max="65535" autocomplete="off" placeholder="auto"><span class="hint">UDP port the hub listens on. Leave blank to auto-assign the next free port. Fixed once the tunnel exists.</span></div>
-  <div class="form-group"><label class="form-label"><input type="checkbox" id="vpn-tunnel-allow-internet" data-change="vpnReachPreview"> Allow internet (full tunnel)</label><span class="hint">On = clients route all traffic (0.0.0.0/0, ::/0) through the hub. Off = split tunnel — only the scoped fleet / dashboard reach.</span></div>
+  <div class="form-group"><label class="form-label"><input type="checkbox" id="vpn-tunnel-allow-internet" data-change="vpnReachPreview"> Allow internet (full tunnel)</label><span class="hint">On = clients route all IPv4 traffic (0.0.0.0/0) through the hub. Off = split tunnel — only the scoped fleet / dashboard reach. <strong>IPv6 is not routed</strong>: the hub is IPv4-only, so on a dual-stack client IPv6 traffic keeps using the local connection and does not go through the tunnel.</span></div>
   <div class="form-group"><label class="form-label" for="vpn-tunnel-reach-type">Reach</label><select id="vpn-tunnel-reach-type" class="form-input" data-change="vpnReachTypeChanged"><option value="none">Dashboard only</option><option value="all">Entire fleet</option><option value="site">A site</option><option value="group">A group</option><option value="tag">A tag</option></select></div>
   <div class="form-group d-none" id="vpn-tunnel-reach-value-row"><label class="form-label" for="vpn-tunnel-reach-value">Scope value</label><input type="text" id="vpn-tunnel-reach-value" class="form-input" autocomplete="off" placeholder="site id / group / tag" data-input="vpnReachPreview"></div>
   <div class="form-group"><label class="form-label" for="vpn-tunnel-dns">DNS (optional)</label><input type="text" id="vpn-tunnel-dns" class="form-input" autocomplete="off" placeholder="e.g. 10.0.0.1"></div>
@@ -11521,38 +11521,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.3-86"></script>
+<script defer src="static/js/app.js?v=6.4.3-87"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-containers.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-network.js?v=6.4.3-86"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-containers.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-network.js?v=6.4.3-87"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.3-86"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.3-87"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-dns.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-drift.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-cve.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-backups.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-iac.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-virt.js?v=6.4.3-86"></script>
+<script defer src="static/js/app-ai.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-dns.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-drift.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-cve.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-backups.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-iac.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-virt.js?v=6.4.3-87"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-logs.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-remote.js?v=6.4.3-86"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.3-86"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-logs.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-remote.js?v=6.4.3-87"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.3-87"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.3-86"></script>
+<script defer src="static/js/app-self.js?v=6.4.3-87"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11562,6 +11562,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.3-86"></script>
+<script defer src="static/js/sw-register.js?v=6.4.3-87"></script>
 </body>
 </html>

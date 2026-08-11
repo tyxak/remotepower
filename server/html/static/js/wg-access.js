@@ -728,7 +728,11 @@
       lines.push('PublicKey = ' + (o.hubPublicKey || ''));
       if (o.presharedKey) lines.push('PresharedKey = ' + o.presharedKey);
       lines.push('Endpoint = ' + (o.endpoint || ''));
-      lines.push('AllowedIPs = ' + (o.allowedIps || '0.0.0.0/0, ::/0'));
+      // v6.4.3: fallback was '0.0.0.0/0, ::/0' — dead code that the hint
+      // text was then written against. The server is IPv4-only (no v6 pool,
+      // no ip6 masquerade anywhere in wg_access.py), so it never sends ::/0
+      // and this branch never ran. Matching reality rather than aspiration.
+      lines.push('AllowedIPs = ' + (o.allowedIps || '0.0.0.0/0'));
       lines.push('PersistentKeepalive = 25');
       return lines.join('\n') + '\n';
     },

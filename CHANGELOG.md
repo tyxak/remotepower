@@ -154,6 +154,20 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **"Full tunnel" said it routed IPv6 and never did.** The setting's
+  description promised clients route all traffic including `::/0` through the
+  hub. WG Access is IPv4-only — no IPv6 pool, no IPv6 masquerade anywhere — so
+  on a dual-stack client IPv6 traffic has always kept using the local
+  connection and bypassed the tunnel, which is the opposite of what anyone
+  enabling "full tunnel" for privacy would expect. The behaviour is unchanged
+  (routing `::/0` into a hub that cannot forward it would break IPv6 rather
+  than protect it); what changed is that the interface and the documentation
+  now say so plainly.
+- **The device roster stopped sending a field nothing reads.** The list of
+  devices is re-fetched every minute from every page, and roughly a third of it
+  was a per-host process list that no part of the interface displays. It is
+  still collected and still drives the process checks and the AI corpus — it
+  just no longer rides along on every poll.
 - **A write could land where nothing would read it.** The per-device
   read/write helpers decided by storage backend alone, so on the database
   backends a write to a store that had not been registered for per-row access

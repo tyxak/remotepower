@@ -147,7 +147,19 @@ def alloc_client_ip(pool_cidr, used_ips) -> str:
 def client_allowed_ips(tunnel, reach_cidrs) -> str:
     """The AllowedIPs string a client's config gets, from the tunnel's flags.
 
-    * internet on  → full tunnel (0.0.0.0/0)
+    * internet on  → full tunnel (0.0.0.0/0 — IPv4 ONLY)
+
+    v6.4.3: the Settings hint claimed "0.0.0.0/0, ::/0" and the client-side
+    config fallback said the same. Neither was true: there is no IPv6 anywhere
+    in WG Access — no v6 pool, no ip6 masquerade, no inet6 rules — so ::/0 was
+    never sent. On a dual-stack client that means IPv6 traffic BYPASSES the
+    tunnel entirely, which is the opposite of what "full tunnel" implies and is
+    exactly the leak a kill-switch would exist to stop.
+
+    Sending ::/0 anyway would blackhole IPv6 rather than protect it (the hub
+    cannot forward it), so the fix here is to stop claiming it. Real IPv6
+    support is a feature, not a one-line change, and the text now says what the
+    product does.
     * fleet scope  → hub /32 + each reachable device /32
     * neither      → dashboard-only: just the hub /32
     """
