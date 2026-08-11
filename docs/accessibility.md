@@ -24,7 +24,7 @@ and we make no Section 508 or EN 301 549 conformance claim.
 
 **Self-assessed conformance level: partially supports WCAG 2.1 AA.** The gap
 that prevents a "supports" claim is a single, specific one — form errors are
-not identified programmatically (SC 3.3.1) — and it is described in full below.
+not identified programmatically on most forms (SC 3.3.1) — and it is described in full below.
 
 ---
 
@@ -138,15 +138,24 @@ as the more interesting half of this document.
 These are real, current, and each one is a reason a criterion below is marked
 *partially supports* or *does not support*.
 
-### 1. Form errors are not identified programmatically — WCAG 2.1 AA failure (SC 3.3.1)
+### 1. Most form errors are not identified programmatically — WCAG 2.1 AA partial failure (SC 3.3.1)
 
-`aria-invalid` and `aria-describedby` appear **zero times** anywhere in the
-interface, and there is no inline field-error presentation at all. Every
-client-side validation failure — "Name is required", "Pick at least one
-device", "Username and password required" — is delivered as a **toast**: a
+**Four forms** mark the offending field with `aria-invalid` and move focus to
+it — sign-in, the step-up prompt, adding a user, and Settings → Alert
+parameters *(the last added in v6.4.3, which also gave `aria-invalid` a visible
+style; before that the attribute was set for screen readers with no visual
+counterpart, which is half of this criterion)*.
+
+**Everywhere else — roughly 180 validation paths — still does not.** A
+client-side validation failure like "Name is required", "Pick at least one
+device" or "Username and password required" is delivered as a **toast**: a
 transient message in the polite live region at the corner of the screen, which
 **auto-dismisses after 3.5 seconds** and is not associated with the field that
-caused it.
+caused it. Nothing marks the field, and focus does not move, so a screen-reader
+user hears that something is wrong without being told which control to fix.
+
+The honest summary is *partial*: the mechanism exists and is correct where it
+is used, and it is used on a small fraction of the forms.
 
 Two consequences, both bad for a screen-reader or cognitively-impaired user:
 
@@ -312,7 +321,7 @@ do not read this as either a pass or a fail.
 | 3.2.2 On Input | A | Supports | Changing a control's value does not submit or navigate; explicit Save/Apply throughout. |
 | 3.2.3 Consistent Navigation | AA | Supports | One sidebar, one topbar, same order on every page. |
 | 3.2.4 Consistent Identification | AA | Supports | Actions with the same function use the same icon and label everywhere. |
-| **3.3.1 Error Identification** | **A** | **Does not support** | Validation errors are auto-dismissing toasts with no `aria-invalid`, no `aria-describedby`, and no association to the offending field (limitation 1). |
+| **3.3.1 Error Identification** | **A** | **Partially supports** | Four forms (sign-in, step-up, add-user, Alert parameters) mark the offending field with `aria-invalid`, style it visibly and move focus to it. The remaining ~180 validation paths deliver an auto-dismissing toast with no `aria-invalid`, no `aria-describedby` and no association to the field (limitation 1). |
 | 3.3.2 Labels or Instructions | A | Supports | Every control in the static interface has an accessible name and most have hint text; the command palette input gained an `aria-label` in v6.4.2 rather than relying on its placeholder. |
 | 3.3.3 Error Suggestion | AA | Partially supports | Message text usually says what to fix ("Pick at least one device"); it is not programmatically attached to the field. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Supports | Destructive fan-out operations require explicit — sometimes typed — confirmation; low-risk deletes are deferred with Undo; configuration history allows rollback. |

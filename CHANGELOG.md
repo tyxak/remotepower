@@ -154,6 +154,15 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **The accessibility statement was wrong about our own accessibility.** It
+  said error-marking appeared "zero times" in the interface; four forms have it
+  and one of those was added in this release. The check meant to keep that
+  statement honest had switched itself off — it stopped asserting the moment
+  *any* marking appeared, so a partial fix disarmed it, and it had been
+  measuring nothing since early August. It now grades actual coverage, so
+  "partial" is a state of its own: claiming full support for error
+  identification fails, and so does claiming none. The statement now says four
+  forms of roughly 180.
 - **"Full tunnel" said it routed IPv6 and never did.** The setting's
   description promised clients route all traffic including `::/0` through the
   hub. WG Access is IPv4-only — no IPv6 pool, no IPv6 masquerade anywhere — so

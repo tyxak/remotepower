@@ -183,19 +183,59 @@ class TestAccessibilityClaimsMatchTheCode(unittest.TestCase):
     # -- claims of things that are NOT implemented (one-directional) -------
 
     def test_form_error_identification_gap_is_stated_while_it_exists(self):
-        """SC 3.3.1: no aria-invalid / aria-describedby anywhere. If that is
-        ever fixed, this stops asserting — an understated doc is stale, not
-        dangerous — but while the gap exists the statement must own it."""
-        present = sum(src.count("aria-invalid") + src.count("aria-describedby")
+        """SC 3.3.1: the conformance row must match the ACTUAL coverage.
+
+        v6.4.3: this test used to open with `if present: return` — the moment a
+        single `aria-invalid` appeared anywhere, it stopped asserting. That
+        escape hatch was written when there were ZERO and read as "if this is
+        ever fixed, stop nagging". It was not disarmed by a test edit; a
+        PRODUCT change disarmed it three days later, and it has asserted
+        nothing since — while the statement went on saying aria-invalid appears
+        "zero times" (it appears 8), and while flipping the row to "Supports"
+        would still have passed. A guardrail that a partial fix switches off is
+        the exact shape this release is named after.
+
+        Now it grades on COVERAGE, so partial implementation is a distinct
+        state from both none and all:
+          0 marking sites      -> the row must say "Does not support"
+          some, not most       -> must say "Partially supports", never
+                                  "Supports"
+          broad coverage       -> free; an understated doc is stale, not
+                                  dangerous
+        """
+        import re as _re
+        marking = sum(src.count("aria-invalid") + src.count("aria-describedby")
                       for src in [self.index] + list(self.js.values()))
-        if present:
+        refusals = sum(
+            len(_re.findall(
+                r"toast\((?:'|\")[^'\"]*"
+                r"(required|must be|Enter |Pick |Choose |Select |Invalid|invalid)",
+                src))
+            for src in self.js.values())
+        row = _re.search(r"^\|[^|]*3\.3\.1[^\n]*$", self.doc, _re.M)
+        self.assertIsNotNone(row, "the 3.3.1 conformance row is missing")
+        row = row.group(0)
+
+        if marking == 0:
+            self.assertIn("Does not support", row,
+                          "no field-marking mechanism exists anywhere")
+            self.assertIn("aria-invalid", self.doc,
+                          "the statement must name the missing mechanism")
             return
-        self.assertRegex(
-            self.doc, r"3\.3\.1[^|]*\|[^|]*\|[^|]*Does not support",
-            "aria-invalid/aria-describedby appear nowhere in the interface, so "
-            "SC 3.3.1 must be marked 'Does not support'")
-        self.assertIn("aria-invalid", self.doc,
-                      "the statement must name the missing mechanism")
+
+        # Partial: the honest state, and the one the old escape hatch erased.
+        if refusals and marking < refusals * 0.5:
+            self.assertNotIn("| Supports", row,
+                             f"only {marking} field-marking site(s) against "
+                             f"{refusals} validation refusals — claiming full "
+                             "support for SC 3.3.1 is an overclaim")
+            self.assertIn("Partially supports", row,
+                          f"{marking} of ~{refusals} refusals mark their "
+                          "field; the row must say so rather than claiming "
+                          "either extreme")
+            self.assertNotIn("zero times", self.doc,
+                             "the statement still says aria-invalid appears "
+                             f"zero times; it appears {marking} times")
 
     def test_modal_bypass_limitation_is_stated_while_it_exists(self):
         bypass = {name: src.count("classList.add('active')")
