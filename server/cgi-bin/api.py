@@ -450,6 +450,11 @@ PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (
 LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
 FLOW_FILE        = DATA_DIR / 'flow.json'              # v6.3.1: latest NetFlow/IPFIX rollup per device (agentless flow receiver)
 FLOW_DEPS_FILE   = DATA_DIR / 'flow_deps.json'         # v6.3.1: per-edge observed state for the flow-derived dependency map
+# v6.4.3: how long an enrolled flow exporter may go silent before Server
+# status counts it as stopped. flowd flushes every 10s but skips empty
+# windows, so a genuinely idle link is indistinguishable from a dead one —
+# hence hours, not minutes. Anything tighter would flag quiet standby links.
+_FLOW_SILENT_S = 3 * 3600
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
 INCIDENT_MEMORY_FILE = DATA_DIR / 'incident_memory.json'  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
@@ -31996,6 +32001,15 @@ def _subsystems_status(now):
         ftoks = [t for t in ((load(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
                  if isinstance(t, dict) and t.get('kind') == 'flow']
         flast = max((int(t.get('last_seen') or 0) for t in ftoks), default=0)
+        # v6.4.3: `flast` is the NEWEST ingest across every exporter, so on a
+        # fleet with five routers exporting, four can stop and the card still
+        # reads "5 exporter(s) · last export 8s ago". One healthy exporter
+        # masks the rest — the same shape as a receiver that reports Running
+        # while dropping everything. Count the silent ones separately.
+        _fnow = int(time.time())
+        _fstale = sum(1 for t in ftoks
+                      if _fnow - int(t.get('last_seen') or 0) > _FLOW_SILENT_S)
+        _fnever = sum(1 for t in ftoks if not t.get('last_seen'))
         funit = 'unavailable'
         if shutil.which('systemctl'):
             try:
@@ -32005,6 +32019,7 @@ def _subsystems_status(now):
             except Exception:
                 funit = 'unavailable'
         out['flow'] = {'sources': len(ftoks), 'last_ingest': flast or None,
+                       'stale_sources': _fstale, 'never_seen': _fnever,
                        'unit': funit}
     except Exception:
         pass

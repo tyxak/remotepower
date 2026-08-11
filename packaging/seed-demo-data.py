@@ -5245,7 +5245,15 @@ def build_flow() -> dict:
              'proto': 6, 'bytes': 884_112_003, 'pkts': 774_112},
         ],
         'protos': {'tcp': 36_112_884, 'udp': 2_004_882, 'icmp': 104_138},
-    }}}
+    },
+        # v6.4.3: the rolling history _ingest_flow maintains — {ts, total_bytes,
+        # flows} only. It was absent here, so the drawer's trend sparkline had
+        # nothing to draw on a demo install and no history consumer was ever
+        # exercised. 24 entries is what the server keeps (~4 minutes at a 10s
+        # flush — see _FLOW_HISTORY, whose comment used to claim 4 hours).
+        'history': [{'ts': t - 10 * m,
+                     'total_bytes': 4_200_000 - m * 90_000,
+                     'flows': 900 - m * 12} for m in range(24, 0, -1)]}}
 
 
 def build_incident_memory() -> dict:

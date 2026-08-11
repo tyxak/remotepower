@@ -113,9 +113,17 @@ function _selfSidecarRows(s) {
   const flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
   const flowRow = fl.unit === 'active'
     ? (fl.sources
-        ? { label: 'Flow receiver', state: fl.last_ingest ? 'ok' : 'warn',
-            status: fl.last_ingest ? 'Running' : 'Running — nothing received yet',
-            detail: `${fl.sources} exporter(s) · ${flAgo}` }
+        ? (fl.stale_sources
+            // v6.4.3: `last export` is the NEWEST across all exporters, so four
+            // of five going silent still reads as recent. Say how many stopped.
+            ? { label: 'Flow receiver', state: 'warn',
+                status: `Running — ${fl.stale_sources} of ${fl.sources} exporter(s) silent`,
+                detail: `no export from ${fl.stale_sources} enrolled exporter(s) for over 3h`
+                      + `${fl.never_seen ? ` (${fl.never_seen} never seen at all)` : ''}`
+                      + ` · newest ${flAgo}` }
+            : { label: 'Flow receiver', state: fl.last_ingest ? 'ok' : 'warn',
+                status: fl.last_ingest ? 'Running' : 'Running — nothing received yet',
+                detail: `${fl.sources} exporter(s) · ${flAgo}` })
         : { label: 'Flow receiver', state: 'warn',
             status: 'Running — no exporters mapped',
             detail: 'the daemon is up but its exporter map is empty, so every '
