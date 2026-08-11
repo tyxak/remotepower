@@ -18210,6 +18210,22 @@ function _renderHomeWidgets(home) {
   } else {
     _setWidget('home-w-integrations-body', '<div class="hint">No integrations configured.</div>');
   }
+  // v6.4.3: WireGuard clients connected / total. The datum is only present for
+  // admin/auditor — /api/home is require_auth() and the VPN endpoints are not,
+  // so the server withholds it rather than widening VPN read access to every
+  // role. Absent datum → the widget says so instead of rendering "0 / 0",
+  // which would read as "the VPN is down" to someone who simply cannot see it.
+  const vpnw = home.widgets && home.widgets.vpn;
+  if (vpnw) {
+    const conn = vpnw.connected || 0, tot = vpnw.total || 0;
+    _setWidget('home-w-vpn-body', tot
+      ? `<div class="dash-num ${conn ? 'c-success' : 'c-muted'}">${conn}<span class="hint"> / ${tot}</span></div>`
+        + `<div class="hint">connected across ${vpnw.tunnels || 0} tunnel${(vpnw.tunnels || 0) === 1 ? '' : 's'}</div>`
+      : '<div class="hint">No VPN clients configured.</div>');
+  } else {
+    _setWidget('home-w-vpn-body',
+      '<div class="hint">Requires the admin or auditor role.</div>');
+  }
   // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
   const af = (home.tickets && home.tickets.open) || [];
   _setWidget('home-w-alertsfeed-body', af.length
@@ -18311,6 +18327,7 @@ const DASH_WIDGETS = [
   { key: 'bandwidth',   label: 'Top bandwidth',         opt: true, size: 'sm' },
   { key: 'checksrollup', label: 'Checks roll-up',       opt: true, size: 'sm' },
   { key: 'integrations', label: 'Integration health',   opt: true, size: 'lg' },
+  { key: 'vpn',      label: 'VPN clients',                  opt: true, size: 'sm' },
   { key: 'alertsfeed',  label: 'Alerts (ack / resolve)', opt: true, size: 'md' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },

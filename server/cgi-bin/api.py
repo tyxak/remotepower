@@ -753,6 +753,10 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'tls', 'bruteforce', 'bandwidth', 'checksrollup',
                               # v4.7.0: homelab software integration health rollup
                               'integrations',
+                              # v6.4.3: WireGuard clients connected / total.
+                              # Key must match /[a-z]+/ — the lockstep guard's
+                              # regex rejects digits and underscores.
+                              'vpn',
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
                               'health', 'heatmap', 'overview', 'roster', 'links', 'postit',
@@ -49087,6 +49091,39 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     def _g(k):
         return want is None or k in want
     out = {}
+    # v6.4.3: WireGuard clients connected / total.
+    #
+    # GATED TO admin+auditor DELIBERATELY. /api/home is `require_auth()` — every
+    # role reaches it, including viewer, mcp and finance — while the VPN
+    # endpoints are `require_admin_or_auditor_auth()`. Emitting this
+    # unconditionally would quietly widen VPN read access to every
+    # authenticated role, which is a product decision nobody made. So the datum
+    # is simply absent for other roles and the widget renders nothing; the
+    # boundary stays exactly where it was.
+    #
+    # Two COUNTS only — never client names, public keys or endpoints. The
+    # dashboard needs "is anyone connected", not the roster.
+    if _g('vpn'):
+        try:
+            _u, _r = verify_token(get_token_from_request())
+            _rr = _resolve_role(_r) if _u else {}
+            if _rr.get('admin') or _rr.get('auditor') or _r == 'auditor':
+                _tuns = (load(VPN_FILE) or {}).get('tunnels') or []
+                _tot = _conn = 0
+                for _t in _tuns:
+                    if not isinstance(_t, dict):
+                        continue
+                    for _c in (_t.get('clients') or []):
+                        if not isinstance(_c, dict):
+                            continue
+                        _tot += 1
+                        if wg_access.client_status(
+                                _c.get('last_handshake', 0), now) == 'connected':
+                            _conn += 1
+                out['vpn'] = {'connected': _conn, 'total': _tot,
+                              'tunnels': len(_tuns)}
+        except Exception:
+            pass
     _oom_win = _oom_recent_window()   # hoisted: read config once per widget build
     # Load the hardware record once and share it across the smart/ups/temp, tls
     # and checks-roll-up widgets — avoids re-deep-copying hardware.json per

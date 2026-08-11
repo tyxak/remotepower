@@ -154,6 +154,12 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **A VPN clients dashboard widget** — how many WireGuard clients are connected,
+  across how many tunnels. Connects and disconnects already reached the activity
+  feed; what was missing was the standing count. It shows only numbers, and only
+  to the roles that can already read VPN data — the dashboard endpoint is open
+  to every signed-in role, so publishing VPN details there would have widened
+  who can see them.
 - **A tenant administrator could read another tenant's stored passwords in
   plaintext.** The CMDB credential endpoints — reveal, add, update, delete —
   checked that you were an admin and nothing else, and `/api/cmdb/` is not

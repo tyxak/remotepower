@@ -4182,6 +4182,7 @@
     'Swap forecast floor %': { fr: 'Seuil de prévision du swap %', de: 'Prognose-Untergrenze Auslagerung %', zh: '交换分区预测下限 %', hi: 'स्वैप पूर्वानुमान न्यूनतम %', es: 'Suelo de previsión de intercambio %', ar: 'حد أدنى لتوقّع التبديل %' },
     'CPU load saturation ceiling %': { fr: 'Plafond de saturation de charge CPU %', de: 'Sättigungsgrenze CPU-Last %', zh: 'CPU 负载饱和上限 %', hi: 'CPU लोड संतृप्ति सीमा %', es: 'Techo de saturación de carga de CPU %', ar: 'سقف تشبّع حِمل المعالج %' },
     'CPU load forecast floor %': { fr: 'Seuil de prévision de charge CPU %', de: 'Prognose-Untergrenze CPU-Last %', zh: 'CPU 负载预测下限 %', hi: 'CPU लोड पूर्वानुमान न्यूनतम %', es: 'Suelo de previsión de carga de CPU %', ar: 'حد أدنى لتوقّع حِمل المعالج %' },
+    'VPN clients': { fr: 'Clients VPN', de: 'VPN-Clients', zh: 'VPN 客户端', hi: 'VPN क्लाइंट', es: 'Clientes VPN', ar: 'عملاء VPN' },
     'Confirm': { fr: 'Confirmer', de: 'Bestätigen', zh: '确认', hi: 'पुष्टि करें', es: 'Confirmar', ar: 'تأكيد' },
     'Input required': { fr: 'Saisie requise', de: 'Eingabe erforderlich', zh: '需要输入', hi: 'इनपुट आवश्यक', es: 'Entrada obligatoria', ar: 'إدخال مطلوب' },
     'Filter': { fr: 'Filtrer', de: 'Filtern', zh: '筛选', hi: 'फ़िल्टर करें', es: 'Filtrar', ar: 'تصفية' },
