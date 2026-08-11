@@ -133,14 +133,30 @@ class TestWiring(unittest.TestCase):
     def test_agent_reads_sysfs_not_lsusb(self):
         """usbutils is not in the agent image; sysfs IS mounted. lsusb would
         return nothing in a container, silently."""
+        import ast
+
+        import srcpin
         src = _AGENT.read_text()
         self.assertIn("/sys/bus/usb/devices", src)
-        fn = src[src.index("def get_usb_devices"):src.index("def get_autoupdate_posture")]
-        # No shell-out at all: the collector must read sysfs directly. (The
-        # docstring names lsusb to explain why it is NOT used, so grep for the
-        # subprocess call rather than the word.)
-        self.assertNotIn("subprocess", fn)
-        self.assertIn("host_path(", fn, "must go through host_path for containers")
+        # srcpin, NOT a slice between two `def` markers. The old form took
+        # everything from `def get_usb_devices` to `def get_autoupdate_posture`,
+        # so inserting ANY function between them silently widened the window —
+        # v6.4.3 added two, and this test then failed because one of THEIR
+        # docstrings contains the word "subprocess". It was reporting on code it
+        # was never meant to read.
+        #
+        # And the docstrings are stripped, because the comment right here used
+        # to say "grep for the subprocess call rather than the word" while
+        # grepping for the word. Assert against what runs.
+        fn = srcpin.py_function(src, "get_usb_devices")
+        tree = ast.parse(fn)
+        node = tree.body[0]
+        if (node.body and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)):
+            node.body.pop(0)
+        code = ast.unparse(node)
+        self.assertNotIn("subprocess", code)
+        self.assertIn("host_path(", code, "must go through host_path for containers")
 
     def test_frontend_has_both_spots(self):
         js = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()

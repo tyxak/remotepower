@@ -38,6 +38,14 @@ REFUSAL_SURFACES = {
     'handle_backup_job_update': ('app-backups.js', ('note',)),
     'handle_scap_scan': ('app-compliance.js', ('note',)),
     'handle_image_cve_scan': ('app-cve.js', ('message',)),
+    # v6.4.3: Integrity Guard is Linux-only (both the Windows and macOS agents
+    # list `guard_actions` among the keys they drop). A fleet-scoped rebaseline
+    # queues the Linux hosts and NAMES the rest; the client must say so, or a
+    # partial run reads as a complete one. This entry was added because THIS
+    # TEST caught the new refusal in the full gate run — the enumeration below
+    # noticed a handler splitting targets by OS with no registered reader,
+    # which is exactly what it exists for.
+    'handle_guard_action': ('app-checks.js', ('skipped', 'skipped_reason')),
 }
 
 
