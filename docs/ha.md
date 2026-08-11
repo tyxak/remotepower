@@ -101,7 +101,7 @@ backups answer "the data is wrong".
 
 ## Capacity target and how to verify it
 
-The reference topology is sized and tested against an explicit target —
+The reference topology is sized against an explicit target —
 verify on your hardware rather than trusting ours:
 
 - **Target: 1,000 devices at a 60 s poll** ≈ 17 heartbeats/s sustained (plus

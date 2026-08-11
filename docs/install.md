@@ -176,7 +176,7 @@ Interactive CLI for adding users, changing passwords, deleting accounts, and lis
 served by **gunicorn** through a real Flask app (`server/cgi-bin/wsgi.py`,
 thread-local request isolation, no fork) — paired with a dedicated,
 leader-elected maintenance scheduler that runs the cadence off the request
-path (measured ~25× lower request latency on a networked Postgres backend),
+path (roughly an order of magnitude lower request latency on a networked Postgres backend — see wsgi.md for what that figure is and is not),
 plus a co-located scanner satellite for Security → Pentest. This is the
 **only** server (the earlier CGI/fcgiwrap and SCGI-worker paths are retired);
 `--no-scheduler`/`--no-postgres`/`--no-scanner` opt back down to a lighter

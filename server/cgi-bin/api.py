@@ -62378,6 +62378,13 @@ def _spawn_cve_scan(actor, target):
         _run_detached(lambda: _cve_scan_worker(actor, target))
 
 
+# v6.4.3: how long a `running` CVE-scan marker is believed after its last
+# checkpoint. The worker checkpoints every 3 devices, so silence for this
+# long means it died. Was 1800 s inline, which locked an operator out of
+# retrying for 30 minutes after any crash.
+_CVE_SCAN_STALE_S = 300
+
+
 def _cve_scan_worker(actor, target):
     """The fleet-wide CVE scan body — runs in the detached worker. Writes
     progress to CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE."""
@@ -62434,6 +62441,22 @@ def _cve_scan_worker(actor, target):
                 scanned += 1
         # checkpoint progress every few devices so the UI can show a bar
         if i % 3 == 0 or i == total - 1:
+            # v6.4.3: checkpoint the FINDINGS too, not just the progress bar.
+            #
+            # Progress was persisted every 3 devices and findings exactly once,
+            # after the loop — so a worker killed at done=16 of 40 left
+            # cve_findings.json holding NOTHING. 100 % of completed work
+            # discarded, however far it got, while the progress bar had been
+            # faithfully reporting how much of it was being thrown away.
+            #
+            # A fleet CVE scan is minutes of network I/O against the OSV API;
+            # losing all of it to a deploy or an OOM is the expensive kind of
+            # crash. Same cadence as the progress write, so the extra cost is
+            # one store write per three devices.
+            try:
+                save(CVE_FINDINGS_FILE, findings_all, non_blocking=True)
+            except LockBusy:
+                pass          # a contended checkpoint is fine — the next one wins
             save(CVE_SCAN_STATUS_FILE, {'running': i < total - 1, 'total': total,
                                             'done': i + 1, 'scanned': scanned,
                                             'skipped': skipped, 'errors': errors,
@@ -62465,8 +62488,21 @@ def handle_cve_scan():
         _scope_block_device(target)   # SEC: scans that device's packages
     # Refuse to stack a second concurrent scan (stale >30 min markers ignored).
     st = load(CVE_SCAN_STATUS_FILE) or {}
-    if st.get('running') and (int(time.time()) - (st.get('updated') or 0)) < 1800:
-        respond(409, {'error': 'A scan is already running', 'status': st})
+    # v6.4.3: a crashed worker leaves `running: True` and nothing ever clears
+    # it — there is no reaper, and the only routes are this one and
+    # /scan-status, so there was no way to cancel. The 1800 s staleness window
+    # below already meant the operator's retry was refused for HALF AN HOUR
+    # after a crash. Two changes: the window is shorter (a live worker
+    # checkpoints every 3 devices, so 5 minutes of silence means it is gone),
+    # and the refusal now tells the operator when it will clear instead of
+    # just saying no.
+    _age = int(time.time()) - (st.get('updated') or 0)
+    if st.get('running') and _age < _CVE_SCAN_STALE_S:
+        respond(409, {'error': 'A scan is already running', 'status': st,
+                      'retry_after_seconds': max(0, _CVE_SCAN_STALE_S - _age),
+                      'detail': ('If the previous scan crashed, this clears '
+                                 f'{_CVE_SCAN_STALE_S // 60} minutes after its '
+                                 'last checkpoint.')})
     total = 1 if target else len(load(PACKAGES_FILE) or {})
     # v6.1.2: the status marker is written non_blocking so a wedged writer can
     # never hang the request — but a CONTENDED write then raises LockBusy, which

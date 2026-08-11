@@ -154,9 +154,10 @@ in `server/conf/remotepower-wsgi.service`'s `ExecStart` (`install-server.sh`
 installs it by default; a fresh install ships `--workers 4 --threads 8`).
 Request state (context, output buffer, DB connections) is thread-local, so a
 worker serves requests concurrently on threads with no fork and no
-per-request startup cost — validated correct under load on both the SQLite
-and Postgres backends (no load-cache, correlation-id, or response-body bleed
-across threads).
+per-request startup cost. Thread-safety is covered by targeted concurrency
+tests on both the SQLite and Postgres backends (no load-cache, correlation-id
+or response-body bleed across threads) — those are correctness tests, not a
+load benchmark; see the note on the arithmetic above.
 
 - **Workers** ≈ CPU cores (each is a real process — more than that just adds
   memory/context-switch overhead without more throughput on a CPU-bound host).
@@ -189,7 +190,7 @@ systemctl restart remotepower-wsgi
 A host file-lock plus (on Postgres) a `pg_advisory_lock` make it **leader-elected**:
 run one scheduler per node and exactly one — the elected leader — executes the
 sweeps, so it is HA-safe across the load-balanced topology in Step 4. Measured
-**~25× lower request latency** on a networked Postgres backend (the request path
+**roughly an order of magnitude lower request latency** on a networked Postgres backend (a single staging observation, not a benchmark — see wsgi.md; the request path
 no longer makes the per-request due-checks). Roll back by disabling the unit,
 removing `RP_EXTERNAL_SCHEDULER` from `api.env`, and restarting the worker — the
 request path resumes the cadence.

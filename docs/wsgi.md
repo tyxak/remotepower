@@ -90,11 +90,16 @@ systemctl restart remotepower-wsgi
 - **Interval:** `RP_SCHEDULER_INTERVAL` seconds (default 60). Sweeps are
   each `_if_due`-gated, so the interval just controls how often "what's due"
   is checked.
-- **Measured win:** on a networked Postgres backend the per-request cadence
-  costs one "is it due?" DB round-trip per sweep. In a staging test that was **~0.68
-  s/request on the request path vs ~0.027 s with the scheduler off-path — a
-  ~25× latency drop.** On a networked DB, keeping it on is strongly
-  recommended (it's the default).
+- **Why it matters:** on a networked Postgres backend the per-request cadence
+  costs one "is it due?" DB round-trip per sweep, and there are ~33 sweeps. A
+  one-off staging observation put that at roughly **0.7 s/request on the
+  request path versus ~0.03 s with the scheduler off-path**. Treat those as an
+  order-of-magnitude illustration, not a benchmark: it was a single environment
+  with a particular network latency to the database, and the repo carries no
+  harness that reproduces it. The direction is the durable part — a per-request
+  cadence multiplies your DB round-trip time by the number of sweeps. On a
+  networked DB, keeping the scheduler off-path is strongly recommended (it is
+  the default).
 
 ---
 
