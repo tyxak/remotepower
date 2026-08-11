@@ -6654,6 +6654,125 @@ def get_usb_devices():
     return out
 
 
+def get_platform_health():
+    """Four small host signals that homelab fleets ask for and had no source.
+
+    All four are cheap sysfs reads through host_path(), so the containerized
+    agent sees the HOST and not its own slim image, and none of them shells
+    out — no `vcgencmd`, no `sensors`, no `iwconfig`, so nothing depends on a
+    package being installed or on a tool's output format staying put.
+
+      throttle   Raspberry Pi under-voltage and thermal throttling. The single
+                 most common cause of "my Pi is randomly unstable", and
+                 completely invisible from every other metric: the CPU is fine,
+                 the memory is fine, and the board is browning out under a bad
+                 PSU or a long USB cable. The firmware exposes a bitmask that
+                 distinguishes HAPPENING NOW from HAS HAPPENED SINCE BOOT, and
+                 both matter — an intermittent brownout at 3am is exactly the
+                 kind of thing nobody is watching for.
+      fans       Fan RPM from hwmon. A fan reading 0 while the box is hot is a
+                 failed fan, which no temperature reading tells you until the
+                 thermal damage is already underway.
+      governor   The cpufreq governor. `powersave` on a server is a common and
+                 silent misconfiguration — the machine is simply slow, forever,
+                 and nothing reports why.
+      wifi       Link quality / signal for wireless hosts, from
+                 /proc/net/wireless. A host at 20% signal is not down, so
+                 nothing alerts, and it drops packets and looks like an
+                 application problem.
+
+    Every key is omitted when its source is absent, so a plain x86 server sends
+    nothing here rather than a dict full of nulls that consumers must special
+    case.
+    """
+    out = {}
+
+    # ── Raspberry Pi throttle/under-voltage bitmask ──
+    # Bits: 0 under-voltage NOW, 1 arm-freq capped now, 2 throttled now,
+    #       3 soft temp limit now; 16..19 the same four "has occurred since
+    #       boot". Reported separately: a current brownout needs action now, a
+    #       historical one explains last night's corruption.
+    raw = (_safe_read(host_path(
+        '/sys/devices/platform/soc/soc:firmware/get_throttled'), 64) or '').strip()
+    if raw:
+        try:
+            bits = int(raw, 16 if raw.lower().startswith('0x') else 10)
+        except ValueError:
+            bits = None
+        if bits is not None:
+            out['throttle'] = {
+                'undervolt_now':      bool(bits & 0x1),
+                'freq_capped_now':    bool(bits & 0x2),
+                'throttled_now':      bool(bits & 0x4),
+                'soft_temp_now':      bool(bits & 0x8),
+                'undervolt_since_boot':   bool(bits & 0x10000),
+                'freq_capped_since_boot': bool(bits & 0x20000),
+                'throttled_since_boot':   bool(bits & 0x40000),
+                'soft_temp_since_boot':   bool(bits & 0x80000),
+                'raw': raw[:16],
+            }
+
+    # ── fan RPM (hwmon) ──
+    try:
+        import glob as _g
+        fans = []
+        for fin in sorted(_g.glob(host_path('/sys/class/hwmon/hwmon*/fan[0-9]*_input')))[:16]:
+            rpm = (_safe_read(unhost_path(fin), 32) or '').strip()
+            if not rpm.isdigit():
+                continue
+            base = unhost_path(fin)
+            chip = (_safe_read(base.rsplit('/', 1)[0] + '/name', 64) or '').strip()
+            lbl = (_safe_read(base.replace('_input', '_label'), 64) or '').strip()
+            fans.append({
+                'name': (lbl or base.rsplit('/', 1)[-1].replace('_input', ''))[:32],
+                'chip': chip[:32],
+                'rpm': int(rpm),
+            })
+        if fans:
+            out['fans'] = fans
+    except Exception:
+        pass
+
+    # ── cpufreq governor ──
+    gov = (_safe_read(host_path(
+        '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'), 64) or '').strip()
+    if gov:
+        out['governor'] = gov[:32]
+        drv = (_safe_read(host_path(
+            '/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver'), 64) or '').strip()
+        if drv:
+            out['governor_driver'] = drv[:32]
+
+    # ── wireless link quality ──
+    # /proc/net/wireless columns: iface: status link level noise ...
+    # `link` is a driver-relative quality figure; most drivers use 0..70, so
+    # report BOTH the raw value and dBm rather than inventing a percentage that
+    # would be wrong on the drivers that do not.
+    wl = _safe_read(host_path('/proc/net/wireless'), 8192) or ''
+    wifi = []
+    for line in wl.splitlines()[2:]:            # two header lines
+        if ':' not in line:
+            continue
+        iface, _sep, rest = line.partition(':')
+        parts = rest.split()
+        if len(parts) < 3:
+            continue
+        def _n(tok):
+            try:
+                return float(tok.rstrip('.'))
+            except ValueError:
+                return None
+        wifi.append({
+            'iface': iface.strip()[:32],
+            'link':  _n(parts[1]),
+            'level_dbm': _n(parts[2]),
+            'noise_dbm': _n(parts[3]) if len(parts) > 3 else None,
+        })
+    if wifi:
+        out['wifi'] = wifi
+    return out
+
+
 def get_disk_encryption():
     """At-rest encryption posture for this host — the Linux half of a control
     that had only Windows and macOS.
@@ -10928,6 +11047,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo['autoupdate'] = get_autoupdate_posture()
             except Exception as e:
                 log.debug(f'autoupdate probe error: {e}')
+            try:
+                _ph = get_platform_health()
+                if _ph:
+                    sysinfo['platform_health'] = _ph
+            except Exception as e:
+                log.debug(f'platform health probe error: {e}')
             try:
                 # INSIDE `if send_sysinfo:` and AFTER `sysinfo = {...}` — a
                 # collector placed in the earlier per-container-cadence block

@@ -623,6 +623,100 @@ def _host_checks(
     # ── v6.3.0: macOS security-posture checks (from sysinfo.mac_posture) ──
     # Parity with the Windows posture rows above; render ONLY when the macOS agent
     # reported posture, so a Linux/Windows host never shows an empty FileVault row.
+    # ── v6.4.3: platform health (Pi throttle, fans, governor, wireless) ──
+    ph = si.get("platform_health")
+    if isinstance(ph, dict):
+        th = ph.get("throttle")
+        if isinstance(th, dict):
+            # The firmware is unambiguous here, which is why this is the ONLY
+            # one of the four that raises a status. Under-voltage on a Pi is the
+            # commonest cause of "randomly unstable" and is invisible in every
+            # other metric: CPU fine, memory fine, board browning out under a
+            # bad PSU or a long cable. NOW and SINCE-BOOT are different facts —
+            # an intermittent 3am brownout explains yesterday's corruption and
+            # needs saying even though nothing is wrong this second.
+            now_bad = [k for k in ("undervolt_now", "throttled_now",
+                                   "freq_capped_now", "soft_temp_now")
+                       if th.get(k)]
+            ever_bad = [k for k in ("undervolt_since_boot", "throttled_since_boot",
+                                    "freq_capped_since_boot", "soft_temp_since_boot")
+                        if th.get(k)]
+            if now_bad:
+                detail = "now: " + ", ".join(k.replace("_now", "").replace("_", " ")
+                                             for k in now_bad)
+            elif ever_bad:
+                detail = ("since boot: "
+                          + ", ".join(k.replace("_since_boot", "").replace("_", " ")
+                                      for k in ever_bad))
+            else:
+                detail = "no under-voltage or throttling"
+            add(
+                "pi_throttle",
+                "Power / thermal throttling",
+                "hardware",
+                "critical" if th.get("undervolt_now")
+                else "warning" if (now_bad or ever_bad) else "ok",
+                detail,
+            )
+        fans = ph.get("fans")
+        if isinstance(fans, list) and fans:
+            spinning = [f for f in fans
+                        if isinstance(f, dict) and (f.get("rpm") or 0) > 0]
+            # INFORMATIONAL ONLY, and deliberately so. A fan reading 0 is
+            # usually an EMPTY HEADER, not a failed fan — the machine this was
+            # written on reports six fan inputs of which three are unconnected
+            # and read 0 forever. Flagging 0 RPM would warn on most desktops
+            # and every board with spare headers. Telling a stopped fan from an
+            # empty header needs per-fan history (it was spinning and now is
+            # not), which is a separate change; until then this reports and
+            # does not judge.
+            add(
+                "fan_rpm",
+                "Chassis fans",
+                "hardware",
+                "ok",
+                f"{len(spinning)}/{len(fans)} reporting RPM — "
+                + ", ".join(f"{f.get('name')} {f.get('rpm')}"
+                            for f in fans[:4] if isinstance(f, dict)),
+            )
+        gov = ph.get("governor")
+        if isinstance(gov, str) and gov:
+            # Also informational. `powersave` under intel_pstate is the DEFAULT
+            # on most distributions and performs fine — it is not the same
+            # thing as acpi-cpufreq's powersave, and warning on the string
+            # would fire on a large share of healthy servers. Report the value
+            # and let the operator judge.
+            drv = ph.get("governor_driver")
+            add(
+                "cpu_governor",
+                "CPU frequency governor",
+                "hardware",
+                "ok",
+                f"{gov}" + (f" ({drv})" if drv else ""),
+            )
+        wifi = ph.get("wifi")
+        if isinstance(wifi, list) and wifi:
+            for w in wifi[:4]:
+                if not isinstance(w, dict):
+                    continue
+                lvl = w.get("level_dbm")
+                # -70 dBm is the usual "usable but degraded" line; below -80 is
+                # where retransmits start dominating. A weak link is not DOWN,
+                # so nothing else notices it — it just drops packets and gets
+                # blamed on the application.
+                status = "ok"
+                if isinstance(lvl, (int, float)):
+                    status = ("warning" if lvl <= -75
+                              else "ok")
+                add(
+                    f"wifi_link_{w.get('iface')}",
+                    f"Wireless link ({w.get('iface')})",
+                    "hardware",
+                    status,
+                    (f"{lvl} dBm" if lvl is not None else "no signal reading")
+                    + (f", quality {w.get('link')}" if w.get("link") is not None else ""),
+                )
+
     # ── v6.4.3: Linux at-rest encryption (dm-crypt / LUKS) ──
     # Parity with win_bitlocker and mac_filevault above. Rendered ONLY when the
     # agent actually answered — it returns {} rather than encrypted:False when

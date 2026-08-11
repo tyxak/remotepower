@@ -20469,6 +20469,59 @@ def handle_heartbeat():
                         safe_mp[_bk] = _mp[_bk]
                 if safe_mp:
                     safe_si['mac_posture'] = safe_mp
+            # v6.4.3: four small platform signals (Pi throttle/under-voltage,
+            # fan RPM, cpufreq governor, wireless link) — see
+            # agent get_platform_health(). Each sub-key is optional; a plain
+            # x86 server sends only governor+fans.
+            if isinstance(si.get('platform_health'), dict):
+                _ph = si['platform_health']
+                safe_ph = {}
+                _th = _ph.get('throttle')
+                if isinstance(_th, dict):
+                    safe_th = {k: bool(_th[k]) for k in (
+                        'undervolt_now', 'freq_capped_now', 'throttled_now',
+                        'soft_temp_now', 'undervolt_since_boot',
+                        'freq_capped_since_boot', 'throttled_since_boot',
+                        'soft_temp_since_boot') if isinstance(_th.get(k), bool)}
+                    if isinstance(_th.get('raw'), str):
+                        safe_th['raw'] = _sanitize_str(_th['raw'], 16)
+                    if safe_th:
+                        safe_ph['throttle'] = safe_th
+                _fans = _ph.get('fans')
+                if isinstance(_fans, list):
+                    safe_fans = []
+                    for _f in _fans[:16]:
+                        if not isinstance(_f, dict):
+                            continue
+                        _r = _f.get('rpm')
+                        if not isinstance(_r, (int, float)):
+                            continue
+                        safe_fans.append({
+                            'name': _sanitize_str(str(_f.get('name', '')), 32),
+                            'chip': _sanitize_str(str(_f.get('chip', '')), 32),
+                            'rpm':  max(0, min(100000, int(_r))),
+                        })
+                    if safe_fans:
+                        safe_ph['fans'] = safe_fans
+                for _gk in ('governor', 'governor_driver'):
+                    if isinstance(_ph.get(_gk), str) and _ph[_gk]:
+                        safe_ph[_gk] = _sanitize_str(_ph[_gk], 32)
+                _wifi = _ph.get('wifi')
+                if isinstance(_wifi, list):
+                    safe_wifi = []
+                    for _w in _wifi[:8]:
+                        if not isinstance(_w, dict):
+                            continue
+                        _e = {'iface': _sanitize_str(str(_w.get('iface', '')), 32)}
+                        for _nk in ('link', 'level_dbm', 'noise_dbm'):
+                            _v = _w.get(_nk)
+                            if isinstance(_v, (int, float)) and -1e4 < _v < 1e4:
+                                _e[_nk] = float(_v)
+                        safe_wifi.append(_e)
+                    if safe_wifi:
+                        safe_ph['wifi'] = safe_wifi
+                if safe_ph:
+                    safe_si['platform_health'] = safe_ph
             # v6.4.3: Linux at-rest encryption (dm-crypt / LUKS), the third leg
             # of a control that had only BitLocker and FileVault — so an
             # all-Linux fleet read NOT ASSESSED on encryption-at-rest forever,

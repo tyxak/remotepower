@@ -142,6 +142,18 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **Four small host signals that homelab fleets kept asking for.** Raspberry Pi
+  under-voltage and thermal throttling — the commonest cause of "my Pi is
+  randomly unstable", and invisible in every other metric, because the CPU and
+  memory look fine while the board browns out under a bad PSU. Fan RPM, so a
+  stopped fan is visible before the temperature tells you. The CPU frequency
+  governor. And wireless link quality, since a host at -85 dBm is not *down* —
+  it just drops packets and gets blamed on the application. All four are read
+  straight from the kernel, so nothing needs `vcgencmd`, `sensors` or
+  `iwconfig` installed. Only the throttling one raises a status: a fan reading
+  0 RPM is usually an empty header, and `powersave` is the default governor on
+  most distributions, so warning about either would cry wolf on healthy
+  hardware.
 - **The memory, swap and CPU-load forecast now tells someone.** RemotePower has
   been projecting days-to-saturation for those three since v6.4.2, from the
   same daily samples as the disk-fill ETA that has raised an alert for eight
