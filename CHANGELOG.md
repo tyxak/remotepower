@@ -142,6 +142,15 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **An SSO login could quietly become a platform operator.** On a multi-tenant
+  install, a user created by OIDC, SAML, SCIM or LDAP was stamped with no
+  tenant — and a user with no tenant belongs to the built-in default one, where
+  an admin can see *every* tenant. So an IdP group mapped to admin silently
+  produced cross-tenant access, and there was no setting anywhere that could
+  express "admin **of** this customer". There is one now, and until it is set
+  RemotePower creates that account as a viewer rather than guessing, recording
+  in the audit log what it did and why. Installs running a single organisation
+  are unaffected: the stamped tenant is the one those users already resolved to.
 - **Four small host signals that homelab fleets kept asking for.** Raspberry Pi
   under-voltage and thermal throttling — the commonest cause of "my Pi is
   randomly unstable", and invisible in every other metric, because the CPU and

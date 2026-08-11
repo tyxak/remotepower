@@ -219,17 +219,28 @@ A deactivated account is refused at login even with valid credentials (local
 Skip this if you run one organisation on the instance — tenancy is off by
 default and none of it applies.
 
-**No account-creation path stamps a tenant.** Not `POST /api/users`, not
-Settings → Users, not OIDC/SAML JIT provisioning, not SCIM. Every one of them
-writes a user record with **no `tenant_id`**, which resolves to the built-in
-`default` tenant.
+**SSO-provisioned accounts land in the tenant you name** — set
+**Settings → Security → Tenant for SSO-provisioned users**
+(`sso_default_tenant`). OIDC, SAML, SCIM and LDAP all stamp it.
 
-That matters because a user with `role=admin` in the `default` tenant is a
-**platform superadmin** — the account that sees and manages *every* tenant. So
-creating a customer's administrator through any of the routes above, including
-an IdP group that maps to `admin`, silently produces a superadmin.
+This matters because a user with `role=admin` in the built-in `default` tenant
+is a **platform superadmin** — the account that sees and manages *every*
+tenant. Until v6.4.3 no SSO path stamped a tenant at all, so an account created
+by an IdP group that mapped to `admin` silently became one, and there was no
+way to express "admin *of* Acme" anywhere in the configuration.
 
-The only thing that ever sets `tenant_id` is an explicit assignment:
+RemotePower now refuses to do that by accident. In exactly that situation —
+multi-tenancy enforced, `sso_default_tenant` unset, mapped role `admin` — the
+account is created as a **viewer** and the audit log records the demotion and
+its reason. Set the field (to `default` if a platform operator really is what
+you want, or to a tenant id for an admin scoped to it) and the mapped role
+applies. With multi-tenancy off it changes nothing: everyone already resolves
+to the default tenant.
+
+**`POST /api/users` and Settings → Users still do not stamp a tenant** — an
+admin creating an account by hand is a deliberate act, not a federated one, and
+the account resolves to `default` unless assigned. Assign it explicitly:
+
 
 ```bash
 curl -sS -X POST https://rp.example.com/api/tenants/<tenant-id>/users \
@@ -242,13 +253,15 @@ Practical consequences for a federated multi-tenant deployment:
 - **One IdP per instance.** `sso_group_roles` (the group→role map) is
   instance-wide, and only a platform superadmin may change it. There is no
   per-tenant IdP and no per-tenant group map.
-- **A group that maps to `admin` mints superadmins.** Until each JIT-provisioned
-  account is assigned to its tenant, it has platform-wide reach. Either keep
-  federated groups mapped to non-admin roles, or reconcile new accounts to
-  their tenant as part of onboarding.
-- **SCIM does not carry tenancy either.** The IdP can create, role-assign and
-  deactivate users, but it cannot place them in a tenant — that assignment stays
-  a superadmin action against `/api/tenants/{id}/users`.
+- **A group that maps to `admin` no longer mints superadmins by accident** —
+  see above. It still cannot express a PER-GROUP tenant: every JIT-provisioned
+  user from this instance's IdP lands in the one tenant `sso_default_tenant`
+  names. Federating several customers from one IdP still needs each account
+  reconciled to its tenant during onboarding.
+- **SCIM carries no tenant of its own.** The IdP can create, role-assign and
+  deactivate users; which tenant they land in comes from
+  `sso_default_tenant`, not from the SCIM payload. Moving a user between
+  tenants stays a superadmin action against `/api/tenants/{id}/users`.
 - **API keys do inherit the creating user's tenant**, so a tenant admin's key
   stays confined to that tenant.
 - **Audit it periodically.** `GET /api/tenants` returns a `user_count` per

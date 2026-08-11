@@ -5291,16 +5291,70 @@ def _role_from_groups(groups, cfg, admin_group_key, casefold=False):
     return 'admin' if 'admin' in matched else matched[0]
 
 
+def _sso_provision_tenant(cfg=None):
+    """Which tenant a JIT-provisioned SSO user belongs to.
+
+    `sso_default_tenant`, or the built-in default when unset. An unknown id
+    falls back to the default rather than stranding the user in a tenant that
+    does not exist — _user_tenant() applies the same rule on read, so the two
+    agree.
+    """
+    cfg = cfg if cfg is not None else (_config_ro() or {})
+    tid = str(cfg.get('sso_default_tenant') or '').strip()
+    if not tid:
+        return DEFAULT_TENANT
+    return tid if tid in _load_tenants() else DEFAULT_TENANT
+
+
 def _provision_or_promote_user(username, role, metadata, source):
     """JIT-provision an SSO user, or promote a viewer→their group-mapped role on
     match. Never auto-demotes (an operator may have changed the role for cause;
     an existing admin / custom-role user is never downgraded). `metadata` is merged
     only on create (e.g. {'oidc_subject': …} / {'saml_name_id': …}). Returns the
-    current user record (a copy)."""
+    current user record (a copy).
+
+    v6.4.3 (SECURITY): STAMPS A TENANT, and refuses to mint a superadmin by
+    omission.
+
+    A user record with no `tenant_id` resolves through `_user_tenant()` to
+    DEFAULT_TENANT, and `_caller_is_superadmin()` is exactly
+    `role == 'admin' and tenant == DEFAULT_TENANT`. No SSO path stamped a
+    tenant. So on a `tenancy_enforced` install, ANY user whose IdP group mapped
+    to admin was silently provisioned as a PLATFORM OPERATOR with visibility
+    into every tenant — including tenants they have no relationship with. There
+    was also no way to express "admin OF tenant X" anywhere in the SSO config,
+    so a multi-tenant operator could not have avoided it.
+
+    Two changes, and only the second alters existing behaviour:
+
+    1. `tenant_id` is stamped on create from `sso_default_tenant`. With
+       tenancy off this is DEFAULT_TENANT, which is what every user resolves to
+       today — so single-tenant installs, the overwhelming majority, see no
+       change at all.
+
+    2. FAIL CLOSED when the combination is dangerous: tenancy enforced, the
+       resolved tenant is the default (i.e. superadmin territory), the mapped
+       role is admin, and the operator has NOT said where SSO users belong. The
+       user is provisioned as a viewer instead and the demotion is audited by
+       name. Silently minting a cross-tenant platform operator from an IdP
+       group membership is not something anyone wants by accident, and a viewer
+       can be promoted by a real superadmin in one click — whereas the reverse
+       mistake is invisible until it is a breach. Setting `sso_default_tenant`
+       (to `default` if that is genuinely what you want) restores the full role.
+    """
     # Audit AFTER the lock is released — audit_log takes its own
     # AUDIT_LOG_FILE lock, and nesting locks (or SQLite transactions)
     # inside the USERS_FILE update would deadlock/abort.
     pending_audit = None
+    _cfg = _config_ro() or {}
+    _tenant = _sso_provision_tenant(_cfg)
+    _demoted = False
+    if (role == 'admin' and _tenant == DEFAULT_TENANT
+            and bool(_cfg.get('tenancy_enforced'))
+            and not str(_cfg.get('sso_default_tenant') or '').strip()):
+        # See the docstring: this exact combination is a superadmin minted by
+        # omission. Fail closed.
+        role, _demoted = 'viewer', True
     with _LockedUpdate(USERS_FILE) as users:
         user = users.get(username)
         if not user:
@@ -5308,11 +5362,17 @@ def _provision_or_promote_user(username, role, metadata, source):
                 'role':          role,
                 'password_hash': '!' + secrets.token_hex(32),  # never matches
                 'created':       int(time.time()),
+                'tenant_id':     _tenant,
             }
             rec.update(metadata or {})
             users[username] = rec
             pending_audit = (f'{source}_auto_provision',
-                             f'created from {source}, role={role}')
+                             f'created from {source}, role={role}, '
+                             f'tenant={_tenant}'
+                             + (' (admin DEMOTED to viewer: tenancy is enforced '
+                                'and sso_default_tenant is unset, so an admin '
+                                'in the default tenant would be a cross-tenant '
+                                'superadmin)' if _demoted else ''))
             result = dict(rec)
         else:
             # v5.4.1 (D5): promote a viewer up to whatever role their groups now
@@ -13615,6 +13675,20 @@ def handle_login():
                 # create them with the role determined by group membership.
                 if not user:
                     new_role = _ldap_eff_role
+                    # v6.4.3 (SECURITY): stamp a tenant, and fail closed on
+                    # the superadmin-by-omission case — see
+                    # _provision_or_promote_user's docstring. This path builds
+                    # its own record (it carries ldap_dn and friends) so it did
+                    # NOT get the fix for free, and an LDAP group mapped to
+                    # admin minted a cross-tenant platform operator exactly the
+                    # same way the OIDC/SAML ones did. Found by the guard that
+                    # allowlists this path — an exemption that still asserts.
+                    _ldap_cfg = _config_ro() or {}
+                    _ldap_tenant = _sso_provision_tenant(_ldap_cfg)
+                    if (new_role == 'admin' and _ldap_tenant == DEFAULT_TENANT
+                            and bool(_ldap_cfg.get('tenancy_enforced'))
+                            and not str(_ldap_cfg.get('sso_default_tenant') or '').strip()):
+                        new_role = 'viewer'
                     users[username] = {
                         'role':            new_role,
                         # Store a placeholder hash that nothing matches —
@@ -13622,6 +13696,7 @@ def handle_login():
                         # through to LDAP again.
                         'password_hash':   '!' + secrets.token_hex(32),
                         'created':         int(time.time()),
+                        'tenant_id':       _ldap_tenant,
                         'ldap_dn':         ldap_user_info.dn,
                         'ldap_full_name':  ldap_user_info.full_name,
                         'ldap_email':      ldap_user_info.email,
@@ -26899,6 +26974,7 @@ def handle_config_get():
     safe.setdefault('password_require_classes', False)  # v5.4.1 (D1)
     safe.setdefault('password_breach_check',  False)  # v5.4.1 (D1): HIBP k-anon, opt-in
     safe.setdefault('sso_only',               False)  # v5.4.1 (D2): mandate IdP auth
+    safe.setdefault('sso_default_tenant',     '')     # v6.4.3: tenant for JIT-provisioned SSO users
     safe.setdefault('idle_timeout_minutes',   0)      # v5.4.1 (D3): 0 = off
     safe.setdefault('max_devices',            MAX_DEVICES)  # v5.4.1 (A7): enroll cap
     safe.setdefault('audit_hmac_auto_rotate_days', 0)  # master-improvement-scoping #26: 0 = off
@@ -29392,6 +29468,17 @@ def handle_config_save():
     # v5.4.1 (D5): SSO/IdP group→role matrix (shared by OIDC + SAML). A dict of
     # {group_name: role_name}; role_name is any builtin or custom role. Sanitised +
     # bounded; unknown roles are ignored at resolve time (_role_from_groups).
+    if 'sso_default_tenant' in body:
+        # v6.4.3: which tenant JIT-provisioned SSO users land in. Validated
+        # against the tenant list so a typo cannot strand every future SSO
+        # login in a tenant that does not exist; blank clears it.
+        _sdt = _sanitize_str(str(body['sso_default_tenant'] or ''), 64).strip()
+        if not _sdt:
+            cfg.pop('sso_default_tenant', None)
+        elif _sdt in _load_tenants():
+            cfg['sso_default_tenant'] = _sdt
+        else:
+            respond(400, {'error': f'unknown tenant: {_sdt}'})
     if 'sso_group_roles' in body:
         # v6.1.1 (#16 follow-up): sso_group_roles is a single INSTANCE-WIDE map
         # (one shared IdP for the whole deployment, api.py's _saml_cfg/OIDC

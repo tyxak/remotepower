@@ -4654,6 +4654,7 @@ async function loadSettings() {
     const _setv = (id, v) => { const e = document.getElementById(id); if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v ?? 0; } };
     _setv('cfg-idle-timeout', data.idle_timeout_minutes);
     _setv('cfg-sso-only', data.sso_only);
+    _setv('cfg-sso-default-tenant', data.sso_default_tenant || '');
     _setv('cfg-pw-min-length', data.password_min_length);
     _setv('cfg-pw-classes', data.password_require_classes);
     _setv('cfg-pw-breach', data.password_breach_check);
@@ -5266,6 +5267,7 @@ async function saveSettings(btn) {
     // v5.4.1 enterprise hardening knobs
     payload.idle_timeout_minutes = parseInt(document.getElementById('cfg-idle-timeout')?.value || '0', 10) || 0;
     payload.sso_only = !!document.getElementById('cfg-sso-only')?.checked;
+    payload.sso_default_tenant = document.getElementById('cfg-sso-default-tenant')?.value.trim() || '';
     payload.password_min_length = parseInt(document.getElementById('cfg-pw-min-length')?.value || '0', 10) || 0;
     payload.password_require_classes = !!document.getElementById('cfg-pw-classes')?.checked;
     payload.password_breach_check = !!document.getElementById('cfg-pw-breach')?.checked;
