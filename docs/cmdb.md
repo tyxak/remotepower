@@ -311,10 +311,23 @@ shouldn't happen, but here we are), it's dropped and a
 lost. Your old backup still has the original ciphertext if you need
 to recover it.
 
-The rotation is atomic in the sense that a crash mid-rotation leaves
-the vault recoverable with the old passphrase: the credential file is
-written last, so a partial write doesn't strand you with a new vault
-file pointing at credentials encrypted under the old key.
+Rotation re-encrypts **every** store keyed by this passphrase — per-device
+credentials, scoped credentials, DNS provider tokens, and the KMIP CA and
+server-certificate private keys plus any stored key material. Before v6.4.3 it
+re-encrypted only the per-device credentials, so a completely successful
+rotation permanently orphaned the rest.
+
+If any stored secret fails to decrypt under the old passphrase, the rotation
+**aborts and changes nothing** rather than dropping that secret. Add
+`"preview": true` to the request to see what a rotation would touch without
+performing it.
+
+What it is not: several stores cannot be written in a single transaction, so a
+crash *between* store writes still leaves a split state. Two things make that
+recoverable rather than terminal — the vault metadata is committed **last**,
+after every ciphertext has been written, and the previous salt and canary are
+retained under `previous` in the vault file so the old key can still be derived
+from the old passphrase.
 
 Curl:
 
@@ -524,10 +537,16 @@ the vault is configured but locked. Unlock it. The list endpoint
 itself doesn't require a key, but if a previous response was cached
 or the page was opened before unlock, refresh the asset modal.
 
-**Rotation reports `dropped=N` for `N>0`** — `N` credentials had
-ciphertext that didn't decrypt under the old key. Either someone
-hand-edited `cmdb.json`, or a previous rotation crashed at exactly the
-wrong moment. Check `cmdb_vault_change_drop` audit entries to see
+**Rotation returns 409 "a stored secret could not be decrypted"** — one or
+more secrets did not decrypt under the old passphrase, and **nothing was
+changed**. Either someone hand-edited a store, or an earlier rotation did not
+finish. Restore the vault metadata from backup before retrying.
+
+(Before v6.4.3 this case was reported as `dropped=N` and the offending secrets
+were DELETED, with a 200 and a success toast — so retrying after a failed
+rotation destroyed everything it could not read. If you are on an older version,
+do not retry a rotation that reported drops.) Check `cmdb_vault_change_drop`
+audit entries to see
 which assets and which credential IDs. If you have a backup from
 before the desync, restoring just those credentials from the old
 file's `nonce`/`ct` is straightforward — the old passphrase still

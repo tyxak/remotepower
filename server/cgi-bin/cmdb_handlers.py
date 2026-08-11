@@ -1234,19 +1234,143 @@ def handle_cmdb_update(dev_id: str) -> None:
     A.respond(200, {'ok': True, 'record': A._cmdb_strip_creds(rec)})
 
 
-def handle_cmdb_vault_change() -> None:
-    """``POST /api/cmdb/vault/change`` — rotate passphrase, re-encrypt credentials.
+def _vault_rekey_plan(old_key, new_key):
+    """Every ciphertext in the deployment that is encrypted under the CMDB
+    vault key, decrypted under `old_key` and re-encrypted under `new_key`.
 
-    Walks every credential in the CMDB, decrypts under the old key, and
-    re-encrypts under the new key. The new vault metadata is written
-    first so a crash mid-rotation leaves the vault openable with the
-    old passphrase. Credentials that fail to decrypt during rotation
-    (corrupt entries) are dropped and logged as
-    ``cmdb_vault_change_drop`` for the admin to investigate.
+    Returns (writes, count) where `writes` is [(FILE, new_document), ...] and
+    `count` is how many secrets were re-encrypted. Raises VaultError on the
+    FIRST value that will not decrypt — see the caller for why that matters.
+
+    FOUR stores share this one passphrase, and until v6.4.3 the rotation
+    re-encrypted ONE of them:
+
+      CMDB_FILE          per-device credentials          (was rotated)
+      SCOPED_VAULT_FILE  group/tag-scoped credentials    (was orphaned)
+      CONFIG_FILE        dns_vault_creds provider tokens (was orphaned)
+      KMIP_FILE          the KMIP CA and server-cert PRIVATE KEYS, and every
+                         stored key object's material    (was orphaned)
+
+    Because the rotation also replaces the vault salt and canary, the old key
+    became underivable — so every ordinary, entirely SUCCESSFUL rotation
+    permanently destroyed the other three. The KMIP one is the worst of them:
+    that CA key is what the key server signs client certificates with, so
+    losing it means every appliance stops being able to fetch its keys, and
+    encrypted volumes fail to mount at the next reboot.
+    """
+    writes, count = [], 0
+
+    # ── per-device credentials (cmdb.json) ──
+    cmdb = A._cmdb_load()
+    for _dev_id, rec in (cmdb.items() if isinstance(cmdb, dict) else []):
+        for c in (rec.get('credentials') or []):
+            pt = A.cmdb_vault.decrypt(old_key, {'nonce': c.get('nonce', ''),
+                                                'ct': c.get('ct', '')})
+            blob = A.cmdb_vault.encrypt(new_key, pt)
+            c['nonce'], c['ct'] = blob['nonce'], blob['ct']
+            count += 1
+    writes.append((A.CMDB_FILE, cmdb))
+
+    # ── scoped credentials ──
+    scoped = A.load(A.SCOPED_VAULT_FILE) or {}
+    for c in (scoped.get('creds') or []):
+        if not isinstance(c, dict) or 'ct' not in c:
+            continue
+        pt = A.cmdb_vault.decrypt(old_key, {'nonce': c.get('nonce', ''),
+                                            'ct': c.get('ct', '')})
+        blob = A.cmdb_vault.encrypt(new_key, pt)
+        c['nonce'], c['ct'] = blob['nonce'], blob['ct']
+        count += 1
+    writes.append((A.SCOPED_VAULT_FILE, scoped))
+
+    # ── DNS provider tokens (config.json -> dns_vault_creds) ──
+    cfg = A.load(A.CONFIG_FILE) or {}
+    dns = cfg.get('dns_vault_creds')
+    if isinstance(dns, dict):
+        for _provider, fields in dns.items():
+            if not isinstance(fields, dict):
+                continue
+            for fname, blob in list(fields.items()):
+                if not (isinstance(blob, dict) and 'ct' in blob):
+                    continue
+                pt = A.cmdb_vault.decrypt(old_key, blob)
+                fields[fname] = A.cmdb_vault.encrypt(new_key, pt)
+                count += 1
+        writes.append((A.CONFIG_FILE, cfg))
+
+    # ── KMIP: CA + server-cert private keys, and every object's material ──
+    kmip = A.load(A.KMIP_FILE) or {}
+    touched_kmip = False
+    for section in ('ca', 'server_cert'):
+        blob = (kmip.get(section) or {}).get('key_enc')
+        if isinstance(blob, dict) and 'ct' in blob:
+            pt = A.cmdb_vault.decrypt(old_key, blob)
+            kmip[section]['key_enc'] = A.cmdb_vault.encrypt(new_key, pt)
+            count += 1
+            touched_kmip = True
+    for c in (kmip.get('clients') or []):
+        blob = c.get('key_enc') if isinstance(c, dict) else None
+        if isinstance(blob, dict) and 'ct' in blob:
+            pt = A.cmdb_vault.decrypt(old_key, blob)
+            c['key_enc'] = A.cmdb_vault.encrypt(new_key, pt)
+            count += 1
+            touched_kmip = True
+    if touched_kmip:
+        writes.append((A.KMIP_FILE, kmip))
+
+    # KMIP key OBJECTS hold raw bytes, so they use the bytes codec.
+    objs = A.load(A.KMIP_OBJECTS_FILE) or {}
+    touched_objs = False
+    for _uid, obj in (objs.items() if isinstance(objs, dict) else []):
+        blob = obj.get('material') if isinstance(obj, dict) else None
+        if isinstance(blob, dict) and 'ct' in blob:
+            raw = A.cmdb_vault.decrypt_bytes(old_key, blob)
+            obj['material'] = A.cmdb_vault.encrypt_bytes(new_key, raw)
+            count += 1
+            touched_objs = True
+    if touched_objs:
+        writes.append((A.KMIP_OBJECTS_FILE, objs))
+
+    return writes, count
+
+
+def handle_cmdb_vault_change() -> None:
+    """``POST /api/cmdb/vault/change`` — rotate passphrase, re-encrypt secrets.
+
+    Re-encrypts EVERY store keyed by the vault passphrase — per-device
+    credentials, scoped credentials, DNS provider tokens, and the KMIP CA /
+    server-cert private keys and key-object material — see
+    ``_vault_rekey_plan`` for why that list matters.
+
+    v6.4.3 fixed three things about this handler that were each independently
+    destructive:
+
+    1. IT ROTATED ONE OF FOUR STORES. The other three were left encrypted
+       under a key that no longer existed, on every SUCCESSFUL rotation.
+
+    2. A VALUE THAT WOULD NOT DECRYPT WAS DROPPED. The loop caught VaultError
+       and `continue`d, calling it a corrupt entry. The realistic way to reach
+       that state is a previous half-finished rotation — so the operator's
+       natural response, retrying, DELETED every secret it could not read and
+       answered 200 with a success toast. It aborts now: nothing is written
+       unless everything decrypts.
+
+    3. THE NEW METADATA WAS WRITTEN FIRST, and the docstring claimed this left
+       the vault "openable with the old passphrase". The opposite was true —
+       the salt and canary are replaced in place, so writing meta first and
+       failing afterwards makes the OLD key underivable while the ciphertext is
+       still encrypted under it. Metadata is written LAST now, after every
+       ciphertext store is durably rewritten, and the previous metadata is
+       retained under ``previous`` so a crash between the two is recoverable
+       rather than terminal.
+
+    Honest about what this is NOT: several stores cannot be written in one
+    atomic transaction, so a crash *between* store writes still leaves a split
+    state. What changed is that the split is now recoverable (the old salt is
+    kept) and far less likely (all decryption happens before any write).
 
     Returns:
-        ``{'ok': True, 'key': <hex>, 'rotated': <int>}`` where ``rotated``
-        is the count of credentials successfully re-encrypted.
+        ``{'ok': True, 'key': <hex>, 'rotated': <int>, 'stores': <int>}``
     """
     actor = A.require_admin_auth()
     if A.method() != 'POST':
@@ -1275,38 +1399,47 @@ def handle_cmdb_vault_change() -> None:
         A.respond(400, {'error': str(e)})
     new_key = A.cmdb_vault.derive_key_from_meta(new_pw, new_meta)
 
-    # Re-encrypt every credential in cmdb.json. We build the new file fully
-    # before persisting it so a crash mid-rotation can't corrupt the vault.
-    cmdb = A._cmdb_load()
-    rotated = 0
-    for dev_id, rec in cmdb.items():
-        new_creds = []
-        for c in (rec.get('credentials') or []):
-            try:
-                pw_pt = A.cmdb_vault.decrypt(old_key,
-                                           {'nonce': c.get('nonce', ''), 'ct': c.get('ct', '')})
-            except A.cmdb_vault.VaultError:
-                # Corrupt entry — drop it but log so the admin notices
-                A.audit_log(actor, 'cmdb_vault_change_drop',
-                          detail=f'device={dev_id} cred={c.get("id","?")} reason=decrypt_failed')
-                continue
-            blob = A.cmdb_vault.encrypt(new_key, pw_pt)
-            new_c = dict(c)
-            new_c['nonce'] = blob['nonce']
-            new_c['ct']    = blob['ct']
-            new_creds.append(new_c)
-            rotated += 1
-        rec['credentials'] = new_creds
+    # DRY RUN: {"preview": true} reports what a rotation would touch and
+    # changes nothing. There was no way to find out before committing.
+    preview = bool(body.get('preview'))
+
+    # Decrypt and re-encrypt EVERYTHING before writing ANYTHING. A value that
+    # will not decrypt aborts here, with the vault untouched — see point 2
+    # above for what the old drop-and-continue did to a retry.
+    try:
+        writes, count = _vault_rekey_plan(old_key, new_key)
+    except A.cmdb_vault.VaultError as e:
+        A.audit_log(actor, 'cmdb_vault_change_aborted',
+                    detail=f'undecryptable secret; vault unchanged: {str(e)[:120]}')
+        A.respond(409, {
+            'error': 'a stored secret could not be decrypted with the old '
+                     'passphrase — nothing was changed. This usually means an '
+                     'earlier rotation did not finish. Restore the vault '
+                     'metadata from backup before retrying.',
+            'detail': str(e)[:200]})
+
+    if preview:
+        A.respond(200, {'ok': True, 'preview': True, 'would_rotate': count,
+                        'stores': [str(f.name) for f, _d in writes]})
+
+    # Ciphertext FIRST, metadata LAST.
+    for path, doc in writes:
+        A.save(path, doc)
 
     new_meta['created_at']   = meta.get('created_at') or int(time.time())
     new_meta['created_by']   = meta.get('created_by') or actor
     new_meta['rotated_at']   = int(time.time())
     new_meta['rotated_by']   = actor
-
+    # Keep the PREVIOUS salt/canary. It is not a key and grants nothing without
+    # the old passphrase, but without it a crash between the writes above and
+    # this one is unrecoverable — the old key becomes underivable.
+    new_meta['previous']     = {k: v for k, v in meta.items() if k != 'previous'}
     A.save(A.CMDB_VAULT_FILE, new_meta)
-    A.save(A.CMDB_FILE, cmdb)
-    A.audit_log(actor, 'cmdb_vault_change', detail=f'rotated_credentials={rotated}')
-    A.respond(200, {'ok': True, 'key': new_key.hex(), 'rotated': rotated})
+
+    A.audit_log(actor, 'cmdb_vault_change',
+                detail=f'rotated_secrets={count} stores={len(writes)}')
+    A.respond(200, {'ok': True, 'key': new_key.hex(), 'rotated': count,
+                    'stores': len(writes)})
 
 
 def handle_cmdb_vault_setup() -> None:

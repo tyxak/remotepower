@@ -154,6 +154,23 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **Rotating the credential-vault passphrase destroyed most of the vault.**
+  Four separate stores are encrypted under that one passphrase — per-device
+  credentials, scoped credentials, DNS provider tokens, and the KMIP key
+  server's own CA and certificate private keys — and the rotation re-encrypted
+  the first. Because it also replaces the vault's salt, the old key stopped
+  existing, so every ordinary *successful* rotation permanently orphaned the
+  other three while reporting success. The KMIP one is the quietest and the
+  worst: nothing fails until an appliance next needs a certificate, and then
+  encrypted volumes do not mount at the following reboot. Worse still, a secret
+  that would not decrypt was treated as corrupt and **deleted** — so the
+  natural response to a half-finished rotation, retrying it, wiped every
+  credential it could not read and answered with a success toast. Rotation now
+  covers every store, aborts and changes nothing if any secret will not
+  decrypt, commits the new passphrase only after the re-encrypted secrets are
+  written, and keeps the previous salt so an interrupted rotation stays
+  recoverable. `"preview": true` reports what a rotation would touch without
+  doing it.
 - **A tenant administrator could make itself a platform operator.** Creating a
   user stamped no tenant, and an account with no tenant belongs to the built-in
   default one — where an admin sees *every* tenant. So a tenant admin, confined
