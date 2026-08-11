@@ -289,6 +289,64 @@ if __name__ == '__main__':
 #
 # Adding to this list is a decision that needs one of those four reasons.
 _DELIBERATE_ENGLISH = {
+    "Src → Dst",
+    "→ target:port",
+    "→ to-addr:port",
+    "(no ISO — empty VM)",
+    "(no disk storage)",
+    "(no root-disk storage)",
+    "(no templates found — download one in Proxmox)",
+    "0 (striping, no redundancy)",
+    "1 (mirror)",
+    "1000 rows",
+    "2000 rows",
+    "256 rows",
+    "512 rows",
+    "AES-128",
+    "CRC / Unc.",
+    "CVE",
+    "Crit·ality",
+    "Err",
+    "Errs",
+    "FS",
+    "MD5",
+    'Names (comma-separated; ignored for "All")',
+    "OID",
+    "Oper",
+    "Proto",
+    "RX",
+    "Rev",
+    "SHA-1",
+    "SHA-224",
+    "SHA-256",
+    "SHA-384",
+    "SHA-512",
+    "TX",
+    "Temperature (0.0–2.0)",
+    "UID",
+    "Upgrade packages — apt/dnf/yum/pacman",
+    "accept",
+    "authorized_keys",
+    "block",
+    "btrfs",
+    "drop",
+    "dst-nat",
+    "dstnat",
+    "ext4",
+    "forward",
+    "input",
+    "kWh/mo",
+    "masquerade",
+    "max_tokens (1–16000)",
+    "num_ctx (Ollama/LocalAI)",
+    "output",
+    "pass",
+    "redirect",
+    "reject",
+    "src-nat",
+    "srcnat",
+    "top_p (0.0–1.0)",
+    "xfs",
     "AWS EC2",
     "Anthropic (Claude)",
     "Authentik",
@@ -365,6 +423,32 @@ _DELIBERATE_ENGLISH = {
     "version ≥",
 }
 
+# v6.4.3 (second pass): the same three categories, but the gate only ever read
+# index.html — so a column header, dropdown option or field label rendered from
+# a JavaScript template literal was invisible to it. That is most of the newer
+# UI: 93 such strings had accumulated, 48 of them protocol tokens and
+# filesystem names that must stay English, the rest genuinely missed.
+#
+# Interpolated text (`${...}`) is skipped: a header built from a variable has no
+# fixed string to translate, and the engine works on rendered text nodes anyway.
+_JS = '\n'.join(
+    p.read_text() for p in
+    sorted((_ROOT / 'server' / 'html' / 'static' / 'js').glob('app*.js')))
+_SCAN_SOURCES = (('index.html', INDEX), ('app*.js', _JS))
+
+
+def _extract(pattern, source):
+    """Every literal the pattern finds in one source, normalised."""
+    out = set()
+    for raw in re.findall(pattern, source):
+        if '${' in raw or "' +" in raw or '+ \'' in raw:
+            continue          # interpolated / concatenated — not a fixed string
+        text = _html.unescape(re.sub(r'\s+', ' ', raw)).strip()
+        if text and re.search(r'[A-Za-z]{2}', text):
+            out.add(text)
+    return out
+
+
 _UNGUARDED_PATTERNS = (
     ('option',  r'<option[^>]*>([^<]{2,60})</option>'),
     ('th',      r'<th[^>]*>([^<]{2,60})</th>'),
@@ -381,16 +465,11 @@ class TestUnguardedCategoriesAreTranslated(unittest.TestCase):
         entries = _dict_entries()
         out = {}
         for cat, pat in _UNGUARDED_PATTERNS:
-            miss = set()
-            for raw in re.findall(pat, INDEX):
-                text = _html.unescape(re.sub(r'\s+', ' ', raw)).strip()
-                if not text or not re.search(r'[A-Za-z]{2}', text):
-                    continue          # numbers, symbols, punctuation-only
-                if text in entries or text in _DELIBERATE_ENGLISH:
-                    continue
-                miss.add(text)
-            if miss:
-                out[cat] = sorted(miss)
+            for where, source in _SCAN_SOURCES:
+                miss = {t for t in _extract(pat, source)
+                        if t not in entries and t not in _DELIBERATE_ENGLISH}
+                if miss:
+                    out[f'{cat} ({where})'] = sorted(miss)
         return out
 
     def test_no_untranslated_option_th_or_label(self):
@@ -428,8 +507,9 @@ class TestUnguardedCategoriesAreTranslated(unittest.TestCase):
         unescaped `version <` reports a live exemption as stale."""
         present = set()
         for _cat, pat in _UNGUARDED_PATTERNS:
-            for raw in re.findall(pat, INDEX):
-                present.add(_html.unescape(re.sub(r'\s+', ' ', raw)).strip())
+            for _where, source in _SCAN_SOURCES:
+                present |= _extract(pat, source)
         stale = sorted(_DELIBERATE_ENGLISH - present)
         self.assertEqual(stale, [],
-                         'these are exempted but no longer in index.html: %s' % stale)
+                         'these are exempted but appear in neither index.html '
+                         'nor any app*.js: %s' % stale)

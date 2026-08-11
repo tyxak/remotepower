@@ -142,6 +142,15 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The translation gate could not see the JavaScript-rendered interface.** It
+  read only the static page, so every dropdown option, column header and field
+  label built from a template literal — most of the newer UI — was invisible to
+  it. 93 such strings had accumulated. 34 are now translated into all six
+  languages, and 59 are recorded as deliberately English with which of the four
+  reasons applies: filesystem names, hash algorithms, nftables verbs, field
+  abbreviations and parameter labels that name an actual config key. A new
+  untranslated string in either source now fails the build and says which file
+  it is in.
 - **A local AI provider on IPv6 loopback was blocked; the same one on IPv4 was
   not.** The SSRF guard that decides whether an outbound host is safe existed
   as six hand-written copies, and a drift guard covered three of them. One of
