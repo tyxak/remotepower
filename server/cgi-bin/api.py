@@ -13886,6 +13886,14 @@ def _bf_active(dev_bf, cutoff, threshold):
     return result
 
 
+# v6.4.3: sysinfo keys withheld from the ROSTER response (GET /api/devices).
+# Not from storage, and not from any other endpoint — only from the payload
+# that every open page re-fetches once a minute. A key belongs here when no
+# client file reads it off this response; verify with a grep over
+# server/html/static/js before adding one.
+_ROSTER_SYSINFO_OMIT = frozenset({'proc_names'})
+
+
 def handle_devices_list():
     require_auth()
     _scope   = _caller_scope()   # v3.4.2 RBAC: filter roster to role scope
@@ -13984,7 +13992,23 @@ def handle_devices_list():
             # v3.3.0: heavy fields only when ?slim=1 is NOT set. Home + nav
             # loaders skip them; the Devices page + CMDB modal opt in by
             # not passing the flag.
-            row['sysinfo']            = dev.get('sysinfo', {})
+            # v6.4.3 (perf): project sysinfo MINUS the fields no response
+            # consumer reads. `proc_names` alone is ~31-45 % of this payload on
+            # a 400-device fleet, and this endpoint is polled every 60 s from
+            # EVERY page (a global timer, not just the Devices page) and again
+            # on tab refocus. Nothing in any app*.js reads it — the only hits
+            # are a comment and store-side tests.
+            #
+            # It stays STORED and keeps feeding the process custom-checks, the
+            # RAG corpus and _eval_custom_check, all of which read the device
+            # record directly rather than this response. Dropping it from the
+            # wire changes what is transmitted, not what is collected. Listed
+            # in the upgrade notes as an API behaviour change because there is
+            # no GET /api/devices/<id> to fall back to.
+            _si = dev.get('sysinfo') or {}
+            row['sysinfo'] = ({k: v for k, v in _si.items()
+                               if k not in _ROSTER_SYSINFO_OMIT}
+                              if isinstance(_si, dict) else {})
             row['brute_force_active'] = _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh)
             row['listening_ports']    = pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or []
             # v3.4.0: hardware-health badge flags (best-effort; absent for
