@@ -582,9 +582,21 @@ async function rebaselineCheck(deviceId, checkId, scope) {
                       { device_id: deviceId || '', id: checkId, op: 'rebaseline' });
   if (r && r.ok) {
     const n = r.devices || 1;
+    // A fleet-scoped rebaseline can now be PARTIAL: Integrity Guard is
+    // Linux-only, so non-Linux hosts in scope are skipped server-side rather
+    // than queued to an agent that ignores the directive. Reporting that as an
+    // unqualified success is the same lie the skip was added to remove.
+    const skipped = Array.isArray(r.skipped) ? r.skipped : [];
     toast(`New baseline accepted on ${n} host${n === 1 ? '' : 's'} — the agent `
           + 'applies it and the check returns to OK on its next check-in (usually '
-          + 'within a poll or two).', 'success', { duration: 6000 });
+          + 'within a poll or two).'
+          + (skipped.length
+              ? ` ${skipped.length} host${skipped.length === 1 ? '' : 's'} skipped `
+                + `(${r.skipped_reason || 'unsupported platform'}): `
+                + skipped.slice(0, 3).join(', ')
+                + (skipped.length > 3 ? `, +${skipped.length - 3} more` : '')
+              : ''),
+          skipped.length ? 'warning' : 'success', { duration: 6000 });
     // Optimistically flag the affected rows so the operator sees it took effect
     // immediately, rather than staring at a stale "critical" until the agent
     // reports back.

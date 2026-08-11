@@ -38451,6 +38451,19 @@ def run_deadman_check_if_due():
     now = int(time.time())
     newly_late = []
     changed = False
+    # v6.4.3 PERF: decide from the cheap read whether anything can change
+    # before taking the write lock. `_LockedUpdate` saves on every clean exit —
+    # it has no dirty tracking — so entering it unconditionally took a file
+    # lock and rewrote the whole deadman store on EVERY REQUEST for any
+    # install with at least one job, to change nothing the overwhelming
+    # majority of the time. This sweep runs from main()'s cadence, so "every
+    # request" is literal.
+    if not any(isinstance(j, dict) and j.get('last_ping') and not j.get('late')
+               and now > (int(j['last_ping'])
+                          + int(j.get('period_minutes', 60)) * 60
+                          + int(j.get('grace_minutes', 10)) * 60)
+               for j in jobs):
+        return
     with _LockedUpdate(DEADMAN_FILE) as st:
         for j in st.get('jobs') or []:
             if not isinstance(j, dict) or not j.get('last_ping'):
@@ -55283,8 +55296,28 @@ def _maybe_auto_resolve_promoted_incidents():
     """Resolve an open auto-promoted incident once every alert that drove it
     has cleared (resolved_at set) — mirrors the manual ticket-conversion
     auto-ack pattern, for incidents instead of tickets."""
-    alerts = (load(ALERTS_FILE) or {}).get('alerts') or []
+    alerts = (_load_ro(ALERTS_FILE) or {}).get('alerts') or []
     by_id = {a.get('id'): a for a in alerts}
+
+    # v6.4.3 PERF: same as run_deadman_check_if_due — `_LockedUpdate` writes on
+    # every clean exit, so entering it unconditionally rewrote the entire
+    # incidents store once per request on any install that has ever had an
+    # incident, almost always changing nothing. Decide first from a read-only
+    # load. (`_load_ro` is safe here: nothing below mutates what it returns —
+    # the mutation happens on the locked copy.)
+    def _resolvable(inc):
+        if not isinstance(inc, dict):
+            return False
+        if not inc.get('auto_promoted') or inc.get('status') == 'resolved':
+            return False
+        ids = inc.get('alert_ids') or []
+        return bool(ids) and all(
+            by_id.get(i) is None or by_id[i].get('resolved_at') for i in ids)
+
+    if not any(_resolvable(i) for i in
+               ((_load_ro(INCIDENTS_FILE) or {}).get('incidents') or [])):
+        return
+
     with _LockedUpdate(INCIDENTS_FILE) as store:
         for inc in (store.get('incidents') or []):
             if not inc.get('auto_promoted') or inc.get('status') == 'resolved':

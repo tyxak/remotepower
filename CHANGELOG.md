@@ -142,6 +142,17 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **Restoring a quarantined file on Windows or macOS said it was queued and
+  was not.** Integrity Guard is Linux-only — both agents list the directive
+  among the things they deliberately ignore — but the server accepted it for
+  any host, so Restore and Delete returned success and nothing ever happened.
+  Refused up front now, and a fleet-wide "accept current state" still
+  rebaselines the Linux hosts while naming the ones it skipped.
+- **Two maintenance sweeps rewrote their whole store on every single
+  request.** Both took a write lock before working out whether anything had
+  changed, and the lock helper saves unconditionally on exit — so any install
+  with a dead-man job, or one that had ever auto-promoted an incident, paid a
+  file lock and a full rewrite per request to change nothing.
 - **A typo in an alert threshold saved the shipped default and said "Settings
   saved".** The Alert parameters page carries 92 numeric fields; anything that
   did not parse as a number was silently replaced by the value RemotePower

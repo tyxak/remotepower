@@ -129,11 +129,32 @@ def handle_guard_action():
                    if isinstance(dev, dict) and A._custom_check_applies(cdef, d, dev)]
         if not targets:
             A.respond(404, {'error': 'no devices in scope for this check'})
+        # Integrity Guard is Linux-only: both the Windows and macOS agents list
+        # `guard_actions` among the keys they deliberately ignore. Queuing it
+        # for one of those hosts is the success-toast-then-silence class — 200,
+        # a green toast, and the directive sits on the device row until the
+        # heartbeat hands it to an agent that drops it on the floor. Report the
+        # skips instead. v6.4.3 gated seventeen other Linux-only flags at the
+        # command chokepoint; this one is queued directly onto the device and
+        # so needed its own gate.
+        targets, skipped = A._split_targets_by_os_support(targets)
+        if not targets:
+            A.respond(400, {
+                'error': 'Integrity Guard runs on Linux hosts only',
+                'skipped': skipped})
         for d in targets:
             _queue_guard_action(d, qid, op)
         A.audit_log(actor, 'guard_action', f'devices={len(targets)} id={qid} op={op}')
-        A.respond(200, {'ok': True, 'devices': len(targets)})
+        A.respond(200, {'ok': True, 'devices': len(targets),
+                        'skipped': skipped,
+                        'skipped_reason': 'Integrity Guard runs on Linux hosts only'
+                                          if skipped else ''})
     A._scope_block_device(did)     # 403s a device the caller can't see
+    _keep, _skipped = A._split_targets_by_os_support([did])
+    if not _keep:
+        A.respond(400, {'error': 'Integrity Guard runs on Linux hosts only — '
+                                 f'{_skipped[0] if _skipped else did} is not a '
+                                 'Linux host', 'skipped': _skipped})
     if not _queue_guard_action(did, qid, op):
         A.respond(404, {'error': 'device not found'})
     A.audit_log(actor, 'guard_action', f'device={did} id={qid} op={op}')
