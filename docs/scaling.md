@@ -404,26 +404,34 @@ returns **404**, never 403 (a 403 would confirm the id exists).
 
 Limit: **200 tenants** per instance.
 
-### ⚠ The superadmin trap — read this before you add a customer's operator
+### Which tenant a new account lands in
 
-**`POST /api/users` does not stamp a tenant.** Neither does SSO/SAML JIT
-provisioning, nor SCIM. A new account therefore has **no `tenant_id`**, which
-falls back to `default` — and an account with `role=admin` in the `default`
-tenant *is* a platform superadmin.
+**Every account-creation path now stamps a tenant** *(v6.4.3)*. `POST /api/users`
+and Settings → Users stamp the **creator's** tenant; SSO/SAML/SCIM/LDAP JIT
+provisioning stamps `sso_default_tenant` (see [sso.md](sso.md)).
 
-So adding a customer's administrator through **Settings → Users** silently
-grants them **full cross-tenant control of your entire fleet**. There is no
-warning in the UI, and nothing about the resulting account looks unusual.
+This matters because an account with no `tenant_id` falls back to `default`, and
+an account with `role=admin` in the `default` tenant *is* a platform superadmin.
+Before v6.4.3 nothing stamped one, so adding a customer's administrator through
+Settings → Users silently granted them full cross-tenant control — and a
+**tenant** admin creating an account produced one that outranked its own
+creator, which was a privilege-escalation path rather than merely a footgun.
+Both are closed: a superadmin's new accounts land in `default` as before, a
+tenant admin's land in that admin's tenant, and a tenant admin can no longer
+read, promote or delete accounts outside it.
 
-Every account creation must be followed by an explicit tenant assignment:
+You still need an explicit assignment to place an account in a tenant that is
+**not** the creator's — a superadmin onboarding a customer's operator:
 
 ```bash
-# 1. create the operator (Settings → Users, or the API)
+# 1. create the operator (Settings → Users, or the API). Created by a
+#    superadmin, this account lands in `default` — i.e. it IS a superadmin
+#    until step 2 runs.
 curl -sS -X POST https://rp.example.com/api/users \
   -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"username":"acme-admin","password":"…","role":"admin"}'
 
-# 2. IMMEDIATELY put them in their tenant — until this runs they are a superadmin
+# 2. put them in their tenant
 curl -sS -X POST https://rp.example.com/api/tenants/tn_XXXXXXXX/users \
   -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"username":"acme-admin"}'
@@ -527,7 +535,12 @@ summary is:
   a superadmin may change the group→role map. See [sso.md](sso.md).
 - **A tenant admin cannot promote itself.** `/api/tenants*` is gated on
   superadmin specifically so a tenant admin cannot
-  `POST /api/tenants/default/users {self}` its way to platform control.
+  `POST /api/tenants/default/users {self}` its way to platform control. Until
+  v6.4.3 that gate had an open side door: account creation stamped no tenant, so
+  a tenant admin could create an admin account (which landed in `default`, and
+  was therefore a superadmin), log in as it, and use *that* to move itself. The
+  account-management endpoints are tenant-scoped now — a tenant admin sees,
+  creates, promotes and deletes only within its own tenant.
 - **API keys inherit their creator's tenant** and are filtered by it, so a
   tenant admin's key cannot read across tenants.
 

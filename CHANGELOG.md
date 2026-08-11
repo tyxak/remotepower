@@ -154,6 +154,17 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **A tenant administrator could make itself a platform operator.** Creating a
+  user stamped no tenant, and an account with no tenant belongs to the built-in
+  default one — where an admin sees *every* tenant. So a tenant admin, confined
+  to its own customer, could create an admin account that outranked it, sign in
+  as that account, and move itself into the default tenant permanently. The
+  same blindness let it promote, delete and list accounts in other tenants —
+  including deleting the platform superadmin — and the roster endpoint returned
+  every tenant's accounts to *any* signed-in user, viewers included. A new
+  account now inherits its creator's tenant, and account management is scoped
+  to it. If you run a single organisation none of this applies: there is no
+  boundary to cross, and nothing changes.
 - **An SSO login could quietly become a platform operator.** On a multi-tenant
   install, a user created by OIDC, SAML, SCIM or LDAP was stamped with no
   tenant — and a user with no tenant belongs to the built-in default one, where

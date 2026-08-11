@@ -212,11 +212,17 @@ class TestEverySsoPathGoesThroughTheHelper(unittest.TestCase):
                             and tgt.value.id == 'users'):
                         offenders.append((node.name, sub.lineno))
         # handle_login holds the LDAP JIT-provision block; handle_user_create is
-        # an admin creating a local account by hand (which takes an explicit
-        # tenant). Both are reviewed, and the LDAP one is asserted DIRECTLY by
-        # the next test rather than merely exempted — an allowlist entry that
-        # checks nothing is exactly how the LDAP hole survived until this file
-        # was written.
+        # an admin creating a local account by hand. Both are reviewed, and each
+        # is asserted DIRECTLY by a test rather than merely exempted.
+        #
+        # THIS COMMENT USED TO CLAIM handle_user_create "takes an explicit
+        # tenant". IT DID NOT — it stamped nothing, so an account created by a
+        # TENANT admin landed in the default tenant and was a platform
+        # superadmin. That false parenthetical is exactly what made the
+        # exemption read as reviewed, which is the failure this allowlist exists
+        # to prevent, written into the allowlist in the same breath as the
+        # warning about it. Fixed in v6.4.3; the direct assertions now live in
+        # tests/test_v643_user_admin_tenancy.py.
         allowed = {'handle_user_create', 'handle_login', 'ensure_default_user',
                    '_provision_or_promote_user'}
         unexpected = [f'{fn} (line {ln})' for fn, ln in offenders

@@ -16605,6 +16605,22 @@ def _tenant_visible(dev):
     return gate is None or _device_tenant(dev) == gate
 
 
+def _user_tenant_visible(username):
+    """Whether the caller may SEE or MANAGE this account under tenancy.
+
+    v6.4.3 (SECURITY). The account-management handlers gated on
+    `require_admin_auth()` and considered tenancy nowhere, which a tenant
+    admin passes — so it could read every tenant's roster, promote a user in
+    another tenant, and delete the platform superadmin.
+
+    Returns True for everyone when tenancy is off or the caller is a
+    superadmin (`_tenant_gate()` is None), so single-tenant installs — nearly
+    all of them — are unaffected.
+    """
+    gate = _tenant_gate()
+    return gate is None or _user_tenant(username) == gate
+
+
 def _tenant_visible_id(tenant_id):
     """Like _tenant_visible(dev), for a store that stamps a bare tenant id
     string directly (e.g. saved query templates, smart groups) rather than
@@ -30131,7 +30147,13 @@ def handle_users_list():
                 # in a year is the one to close.
                 'last_login': int(d.get('last_login') or 0),
                 'disabled': bool(d.get('disabled')), 'source': source}
-    respond(200, [_row(u, d) for u, d in users.items() if isinstance(d, dict)])
+    # v6.4.3 (SECURITY): filter by tenant. This handler is `require_auth()`, so
+    # ANY authenticated caller — a viewer, an mcp token — received every
+    # tenant's roster: usernames, roles, MFA state and last-login, which is a
+    # ready-made target list for the accounts that matter. _user_tenant_visible
+    # is a no-op for a superadmin and when tenancy is off.
+    respond(200, [_row(u, d) for u, d in users.items()
+                  if isinstance(d, dict) and _user_tenant_visible(u)])
 
 
 # ── v3.14.0: SCIM 2.0 user provisioning (#30) ───────────────────────────────
@@ -30553,7 +30575,21 @@ def handle_user_create():
     # that sets a real credential out of band; the model defaults it ON, so an
     # existing caller that sends nothing gets the safer behaviour.
     _must_change = body.get('must_change_password')
+    # v6.4.3 (SECURITY): stamp the CREATOR's tenant. Without this the record had
+    # no `tenant_id`, `_user_tenant()` resolved it to DEFAULT_TENANT, and
+    # `role == 'admin' and tenant == DEFAULT_TENANT` IS the superadmin test — so
+    # a tenant-scoped admin (which passes require_admin_auth) could create an
+    # account that OUTRANKED it, log in as that account, and then
+    # `POST /api/tenants/default/users {itself}` to become a permanent
+    # superadmin. That is the exact attack require_superadmin_auth()'s docstring
+    # says the v5.7.0 gate exists to prevent; this was an unguarded detour to the
+    # same place. The identical hazard was fixed for API KEYS in v6.1.1 with this
+    # same one-liner — a tenant admin could not mint a cross-tenant key but could
+    # mint a cross-tenant human login, which is strictly more powerful.
+    # _caller_effective_tenant (not _user_tenant) for the same reason it is used
+    # there: an API-key caller carries its own tenant.
     users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
+                       'tenant_id': _caller_effective_tenant(_uc_actor),
                        'password_changed_at': int(time.time()), 'role': role,
                        'must_change_password': True if _must_change is None else bool(_must_change)}
     save(USERS_FILE, users)
@@ -30571,6 +30607,10 @@ def handle_user_delete(username):
     if username == requester: respond(400, {'error': 'Cannot delete yourself'})
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
+    # v6.4.3 (SECURITY): 404, not 403 — a tenant admin must not be able to probe
+    # for the existence of another tenant's accounts. Without this a tenant
+    # admin could delete the PLATFORM SUPERADMIN.
+    if not _user_tenant_visible(username): respond(404, {'error': 'User not found'})
     admins = [u for u, d in users.items() if d.get('role', 'admin') == 'admin']
     if len(admins) <= 1 and users[username].get('role', 'admin') == 'admin':
         respond(400, {'error': 'Cannot delete last admin'})
@@ -30620,6 +30660,10 @@ def handle_user_update(username):
     if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
     if not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(404, {'error': 'User not found'})
+    # v6.4.3 (SECURITY): 404 for an account outside the caller's tenant. Without
+    # it a tenant admin could PATCH any DEFAULT-tenant user to role=admin —
+    # minting a superadmin without even needing to create one.
+    if not _user_tenant_visible(username): respond(404, {'error': 'User not found'})
     body = _read_valid(request_models.UserUpdateRequest)
     new_role = (body.get('role') or '').strip().lower()
     if not _assignable_role(new_role):
