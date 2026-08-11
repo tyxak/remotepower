@@ -10687,6 +10687,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             sysinfo = {
                 'uptime':   get_uptime(),
                 'uptime_seconds': get_uptime_seconds(),   # v6.1.2: sortable uptime
+                # v6.4.3: the Windows and macOS agents have always reported the
+                # host's own hostname here; this one only ever sent it in the
+                # ENROLMENT payload, so the server's stored hostname was frozen
+                # at enrolment for the majority platform. That is what the
+                # LLDP and dependency topology match neighbours against.
+                'hostname': socket.gethostname(),
                 'platform': platform.platform(),
                 'kernel':   platform.release(),     # v3.13.0: CMDB Hardware panel
                 'cpu':      _cpu_model(),            # v3.13.0: CPU model string

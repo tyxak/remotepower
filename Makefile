@@ -185,6 +185,7 @@ test-pg:
 	 skipped=$$(grep -cE "no Postgres DSN|DSN configured but unreachable" $$LOG || true); \
 	 ran=$$(grep -cE '\.\.\. ok$$' $$LOG || true); \
 	 tail -3 $$LOG; \
+	 dead=$$(grep -cE "DSN configured but unreachable" $$LOG || true); \
 	 if [ "$$skipped" -gt 0 ]; then \
 	   echo ""; \
 	   echo "⚠  ─────────────────────────────────────────────────────────────"; \
@@ -196,9 +197,33 @@ test-pg:
 	   echo "⚠  Point RP_PG_TEST_DSN at a THROWAWAY database (the tests"; \
 	   echo "⚠  TRUNCATE tables), or accept CI as the only place it runs."; \
 	   echo "⚠  ─────────────────────────────────────────────────────────────"; \
-	   if [ -n "$(PG_STRICT)" ]; then \
-	     echo "✗ PG_STRICT=1 — a skipped Postgres suite fails this gate."; \
+	   if [ -n "$(PG_STRICT)" ] && [ "$$dead" -gt 0 ]; then \
+	     echo "✗ PG_STRICT=1 and the configured DSN is UNREACHABLE."; \
+	     echo "   This is the state that lies: it looks like coverage and is not."; \
+	     echo "   Start that database, or unset RP_PG_TEST_DSN / remove"; \
+	     echo "   ~/.rp_pg_test_dsn so the absence is at least honest."; \
 	     rm -f $$LOG; exit 1; \
+	   fi; \
+	   if [ -n "$(PG_STRICT)" ] && [ -z "$$RP_PG_CI_ONLY" ]; then \
+	     echo "✗ PG_STRICT=1 — no Postgres was available, so this gate did not"; \
+	     echo "   exercise the enterprise-DEFAULT backend."; \
+	     echo ""; \
+	     echo "   Either point RP_PG_TEST_DSN at a throwaway database, or say"; \
+	     echo "   explicitly that you are relying on CI for it:"; \
+	     echo ""; \
+	     echo "       RP_PG_CI_ONLY=1 make pre-release"; \
+	     echo ""; \
+	     echo "   CI runs this suite for real against a postgres:16 service with"; \
+	     echo "   RP_PG_REQUIRE=1 on every release push, so deferring is a"; \
+	     echo "   legitimate choice — it just has to be a CHOICE. A gate that"; \
+	     echo "   cannot pass gets bypassed with --no-verify, which skips every"; \
+	     echo "   OTHER sub-gate too; that is a worse outcome than this notice."; \
+	     rm -f $$LOG; exit 1; \
+	   fi; \
+	   if [ -n "$(PG_STRICT)" ]; then \
+	     echo "→ RP_PG_CI_ONLY=1 set: Postgres coverage DEFERRED TO CI for this"; \
+	     echo "  release. CI must be green on the release push before the tag is"; \
+	     echo "  trusted."; \
 	   fi; \
 	 else \
 	   echo "✓ test-pg: all $${tot:-?} tests ran against a real Postgres ($$ran ok)."; \

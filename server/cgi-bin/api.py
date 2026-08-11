@@ -23411,6 +23411,17 @@ def handle_uninstall_agent(dev_id):
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         dev_name = devices[dev_id].get('name', dev_id)
+        # v6.4.3: this handler appends to CMDS_FILE directly and so never
+        # reaches _command_block_reason — the per-platform verb gate does not
+        # cover it. The macOS agent has NO uninstall path, so without this the
+        # call returned 200, marked the device `agent_uninstalled`, and left
+        # the agent running: the fleet list showed a host as removed while it
+        # kept reporting. Checked before anything is marked.
+        _vu = _verb_unsupported_on(devices[dev_id], 'uninstall')
+    if _vu:
+        respond(409, {'error': f'The {_OS_LABEL.get(_vu[1], _vu[1])} agent has no '
+                               'self-uninstall path — remove it on the host and then '
+                               'delete the device here.'})
     # v3.14.0: 4-eyes — park the uninstall for a second admin when enabled.
     # (Done before marking the record so an un-approved request leaves no trace.)
     if _needs_approval('uninstall'):
@@ -23428,6 +23439,11 @@ def handle_uninstall_agent(dev_id):
         bucket = cmds.setdefault(dev_id, [])
         if 'uninstall' not in bucket:
             bucket.append('uninstall')
+    # NB (v6.4.3): this appends to CMDS_FILE DIRECTLY rather than going through
+    # _queue_command, so it does not pass _command_block_reason and the
+    # per-platform verb gate does not cover it. The macOS agent has no
+    # uninstall path at all, so the OS check is done above, before the device
+    # is marked uninstalled — see the _verb_unsupported_on call there.
     log_command(actor, dev_id, dev_name, 'uninstall')
     audit_log(actor, 'agent_uninstall_queued', f'device={dev_id} ({dev_name})')
     respond(200, {'ok': True, 'queued': 'uninstall'})
@@ -52148,6 +52164,14 @@ def _create_scheduled_scan(sc):
     if dev_id:
         dev = device_get(dev_id)
         if not isinstance(dev, dict):
+            return
+        # v6.4.3: an on-host audit runs on the device's OWN agent, and lynis is
+        # wired in the Linux agent only. handle_scans_create refuses these at
+        # the door and _claim_agent_scan refuses to hand one out — but a
+        # SCHEDULE created before those gates existed still fires through here,
+        # and would keep minting `queued` records that can now never be
+        # claimed. Drop it at the source instead of accumulating dead rows.
+        if is_host and _device_os_family(dev) != 'linux':
             return
         target, terr = _scan_target_for_device(dev)
         if terr:

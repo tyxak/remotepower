@@ -963,29 +963,39 @@ def handle_backup_job_update(job_id):
         job['spec'] = body['spec']
         job['type'] = 'file'
     os_skipped = []
+    devices = None
     if 'device_ids' in body or 'device_id' in body:
         # v6.3.0 baseline: re-target the job (tenant/scope-filtered).
         devices = A.load(A.DEVICES_FILE)
         targets = [d for d in A._resolve_targets(body) if d in devices]
         if not targets:
             A.respond(400, {'error': 'select at least one device you can manage'})
-        # v6.4.3: the SAME Linux-only gate the create path applies. Without it
-        # the create gate was trivially bypassed — save a job with a Linux
-        # target, then edit it onto a Windows host — and the cron sweep
-        # dispatches a bash rsync/tar to that host on every tick forever. The
-        # type is read AFTER the 'spec' branch above, which can itself flip the
-        # job to 'file' in this same request.
-        if job.get('type') == 'file':
-            targets, os_skipped = A._split_targets_by_os_support(
-                targets, supported=('linux',))
-            if not targets:
-                A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
-                                f'{len(os_skipped)} target(s) skipped '
-                                f'({", ".join(os_skipped[:5])}). Use a command job '
-                                'with a platform-native tool for these hosts.'})
         job['device_ids'] = targets
         job['device_id'] = targets[0]
         job['device_name'] = A._backup_targets_summary(targets, devices)
+
+    # v6.4.3: the SAME Linux-only gate the create path applies, keyed on the
+    # job's POST-EDIT type rather than on whether this request re-targeted it.
+    #
+    # Two ways in, and the first fix only closed one of them: retarget an
+    # existing file job onto a Windows host, OR send a `spec` alone — which
+    # flips an existing COMMAND job (already pointing at Windows hosts) to
+    # type 'file' while touching no device id at all. Either way the cron sweep
+    # then dispatches a bash rsync/tar to a host that cannot run it, on every
+    # tick, forever, while the job reads as healthy. Gate on the end state.
+    if job.get('type') == 'file' and job.get('device_ids'):
+        _kept, os_skipped = A._split_targets_by_os_support(
+            job['device_ids'], supported=('linux',))
+        if not _kept:
+            A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
+                            f'{len(os_skipped)} target(s) skipped '
+                            f'({", ".join(os_skipped[:5])}). Use a command job '
+                            'with a platform-native tool for these hosts.'})
+        if _kept != job['device_ids']:
+            job['device_ids'] = _kept
+            job['device_id'] = _kept[0]
+            job['device_name'] = A._backup_targets_summary(
+                _kept, devices if devices is not None else (A.load(A.DEVICES_FILE) or {}))
     if 'cron' in body:
         cron = A._sanitize_str(body['cron'], 64).strip()
         if cron and not A._valid_cron(cron):

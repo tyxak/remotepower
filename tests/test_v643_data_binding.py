@@ -133,6 +133,74 @@ class TestSafeSiKeepsWhatItNowNeeds(unittest.TestCase):
         self.assertNotIn('totally_new_field', si)
 
 
+class TestTheAgentsActuallyProduceWhatTheServerBinds(unittest.TestCase):
+    """The PRODUCER side. The consumer tests above post a synthetic heartbeat
+    carrying `sysinfo.hostname` — which proves the server stores it, and proves
+    nothing at all about whether any agent sends it.
+
+    That distinction is not academic: the first version of this fix shipped
+    with the server binding a field the LINUX agent never sent. Windows and
+    macOS both had it in their sysinfo dict; the Linux agent had it only in the
+    ENROLMENT payload, so on the majority platform the whole fix was inert and
+    the changelog entry describing it was false. A fixture encodes the
+    consumer's assumption, which is exactly what CLAUDE.md warns about, and I
+    walked into it while fixing four other instances of the same class.
+    """
+
+    AGENTS = {
+        'linux': _ROOT / 'client' / 'remotepower-agent.py',
+        'windows': _ROOT / 'client' / 'remotepower-agent-win.py',
+        'darwin': _ROOT / 'client' / 'remotepower-agent-mac.py',
+    }
+
+    def _sysinfo_literal(self, path):
+        """The `sysinfo = {` / `info = {` dict literal the agent BUILDS, not
+        the enrolment payload — which also carries a hostname and is the thing
+        that made this look wired."""
+        src = path.read_text()
+        for marker in ('sysinfo = {', 'info = {'):
+            i = src.find(marker)
+            if i == -1:
+                continue
+            depth, j = 0, src.index('{', i)
+            start = j
+            while j < len(src):
+                if src[j] == '{':
+                    depth += 1
+                elif src[j] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return src[start:j + 1]
+                j += 1
+        return ''
+
+    def test_every_agent_reports_its_hostname_in_sysinfo(self):
+        missing = []
+        for fam, path in self.AGENTS.items():
+            lit = self._sysinfo_literal(path)
+            self.assertTrue(lit, f'could not locate {fam} sysinfo literal — '
+                                 'this test has stopped checking anything')
+            if "'hostname'" not in lit:
+                missing.append(fam)
+        self.assertEqual(missing, [], '\n'.join([
+            'these agents do not send sysinfo.hostname:', *missing, '',
+            'The server refreshes dev["hostname"] from this field, and the LLDP '
+            'and dependency topology resolve neighbours BY hostname. An agent '
+            'that omits it leaves its host frozen at the name it enrolled with. '
+            'NB: all three carry a hostname in the ENROLMENT payload too — that '
+            'one is sent once and is not what this checks.']))
+
+    def test_the_detector_is_not_matching_the_enrolment_payload(self):
+        """Guard the guard. The Linux agent's enrolment payload contains
+        `'hostname': socket.gethostname()` and always did; if the extractor
+        picked that up, the test above would have passed against the bug."""
+        lit = self._sysinfo_literal(self.AGENTS['linux'])
+        self.assertNotIn('enrollment_token', lit)
+        self.assertIn("'uptime'", lit, 'the extracted block is not the sysinfo '
+                                       'dict — the detector is looking at the '
+                                       'wrong literal')
+
+
 class TestSshHardeningReadsX11Forwarding(unittest.TestCase):
     """Run the real check rather than reading its source. A source pin would
     prove the string is present; only running it proves the field is consulted

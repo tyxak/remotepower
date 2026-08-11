@@ -109,10 +109,14 @@ from one that cannot.
   unbounded read is a memory-exhaustion primitive for anything that can answer
   as the server. One pair of limits now, identical in all three.
 - **Four signals the product collected and then threw away.** The host's own
-  hostname is sent on every heartbeat by all three agents and was dropped by
-  the sanitiser, so the stored value was whatever the machine was called at
-  ENROLMENT — frozen for the life of the device, and quietly breaking the LLDP
-  and dependency matching that resolves neighbours by hostname. `psutil: false`
+  hostname was reported in the heartbeat by the Windows and macOS agents and
+  dropped by the sanitiser, while the Linux agent — the majority platform —
+  only ever sent it in the ENROLMENT payload. Either way the stored value was
+  whatever the machine was called when it enrolled, frozen for the life of the
+  device, and quietly breaking the LLDP and dependency matching that resolves
+  neighbours by hostname. The Linux agent now reports it too, and a guard
+  asserts all three do — the first version of this fix bound a field the
+  majority of the fleet never sent, and said otherwise in this changelog. `psutil: false`
   — the Windows and macOS agents' explicit "my metrics are limited" — was
   dropped too, so three empty states could only guess and told the operator to
   check a dependency the agent had already reported on. The sshd collector's

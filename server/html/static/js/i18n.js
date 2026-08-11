@@ -1812,6 +1812,10 @@
     "Color": { "fr": "Couleur", "de": "Farbe", "zh": "颜色", "hi": "रंग", "es": "Color", "ar": "اللون" },
     "Connector plugins": { "fr": "Extensions de connecteur", "de": "Connector-Plugins", "zh": "连接器插件", "hi": "कनेक्टर प्लगइन", "es": "Complementos de conector", "ar": "إضافات الموصل" },
     "Command": { "fr": "Commande", "de": "Befehl", "zh": "命令", "hi": "कमांड", "es": "Comando", "ar": "الأمر" },
+    // v6.4.3: the sudo trail's effective-user column. Its four sibling headers
+    // (When / Device / User / Command) were all already here, so without this
+    // the row rendered three translated headers and one English one.
+    "Ran as": { "fr": "Exécuté en tant que", "de": "Ausgeführt als", "zh": "运行身份", "hi": "इस रूप में चलाया", "es": "Ejecutado como", "ar": "تم التشغيل باسم" },
     "Command history (days)": { "fr": "Historique des commandes (jours)", "de": "Befehlsverlauf (Tage)", "zh": "命令历史（天）", "hi": "command इतिहास (दिन)", "es": "Historial de comandos (días)", "ar": "سجل الأوامر (أيام)" },
     "Command to run": { "fr": "Commande à exécuter", "de": "Auszuführender Befehl", "zh": "要运行的命令", "hi": "चलाने हेतु command", "es": "Comando a ejecutar", "ar": "الأمر المراد تشغيله" },
     "Comment": { "fr": "Commentaire", "de": "Kommentar", "zh": "备注", "hi": "टिप्पणी", "es": "Comentario", "ar": "تعليق" },

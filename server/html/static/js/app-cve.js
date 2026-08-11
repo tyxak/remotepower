@@ -106,7 +106,15 @@ async function loadImageCves() {
 async function scanImageCves() {
   const r = await api('POST', '/image-cves/scan', {});
   if (r && r.ok) {
-    toast(r.message || 'Image scan queued', 'success');
+    // v6.4.3: the server drops non-Linux hosts (trivy is driven by the Linux
+    // agent alone) and names them in `message`. A batch where EVERY target was
+    // dropped still returned ok:true, so a green "success" toast carried a
+    // sentence explaining that nothing had been queued — the sibling backup
+    // and host-config fixes in the same release both warn in this case.
+    const nothingQueued = !r.queued;
+    toast(r.message || 'Image scan queued',
+          nothingQueued && (r.skipped_unsupported || []).length ? 'warning'
+          : nothingQueued ? 'info' : 'success');
   } else {
     toast((r && r.error) || 'Failed to queue image scan', 'error');
   }
