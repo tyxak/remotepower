@@ -32,8 +32,6 @@ class TestVersionBumps(unittest.TestCase):
     # every version surface remains in lockstep with SERVER_VERSION.
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(

@@ -31,8 +31,6 @@ class TestVersionBumps(unittest.TestCase):
     # these now pin whole-surface consistency for the CURRENT version.
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(f"VERSION      = '{self.V}'",

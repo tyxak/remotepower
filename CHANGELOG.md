@@ -154,6 +154,15 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **Per-port switch history stopped rewriting the whole fleet on every poll.**
+  Recording one switch's interface counters re-serialised every device's
+  history — 103 ms per walk on a 400-device fleet, and because both the cost
+  and the number of walks grow with the fleet, the total grows with the square
+  of it. On the database backends that work also held a lock every other write
+  was waiting on. It now touches only the device being polled: **103 ms → 0.4
+  ms**. The store had been marked for per-row access a release ago; the code
+  doing the writing had never been changed to use it, so the marking bought
+  nothing.
 - **The restore drill now tests the off-host copy as well.** It checked the
   local archive only — so a passing drill meant the backup on the machine you
   just lost was fine, while the off-host copy, which exists for exactly that

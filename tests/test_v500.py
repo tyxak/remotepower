@@ -26,10 +26,19 @@ _spec.loader.exec_module(api)
 
 
 class TestVersionBumps(unittest.TestCase):
+    # V tracks the CURRENT version deliberately: this file's own release is long
+    # past, so pinning a literal here would fail on every bump. What the class
+    # still checks is the LOCKSTEP — that the three agent versions, the
+    # service-worker cache name, the ?v= cache-bust, the README badge and the
+    # newest CHANGELOG header all equal the server version. That is real, and it
+    # is the point of the class.
+    #
+    # v6.4.3 removed `test_server_version`, which asserted
+    # `assertEqual(api.SERVER_VERSION, self.V)`. With V bound to
+    # api.SERVER_VERSION that is `x == x` — a test that cannot fail, repeated
+    # across 19 files. It read as version coverage and was none. The methods
+    # below are the coverage.
     V = api.SERVER_VERSION
-
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(f"VERSION      = '{self.V}'",

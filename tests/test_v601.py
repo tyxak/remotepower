@@ -29,8 +29,6 @@ def _html():
 class TestVersionBumps(unittest.TestCase):
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(f"VERSION      = '{self.V}'",

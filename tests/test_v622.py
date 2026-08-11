@@ -35,8 +35,6 @@ class TestVersionBumps(unittest.TestCase):
     # plus the v6.2.2-specific history checks below.
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(

@@ -30,8 +30,6 @@ class TestVersionBumps(unittest.TestCase):
     # bump doesn't fail this file — the strict pins live in test_v570.py.
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(f"VERSION      = '{self.V}'",

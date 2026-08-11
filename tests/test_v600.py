@@ -31,8 +31,6 @@ class TestVersionBumps(unittest.TestCase):
     # the strict current-release pins now, same as test_v560/570/580 before it.
     V = api.SERVER_VERSION
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
 
     def test_agent_versions(self):
         self.assertIn(f"VERSION      = '{self.V}'",
