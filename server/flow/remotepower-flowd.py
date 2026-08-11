@@ -65,12 +65,40 @@ UNKNOWN_SEEN_MAX = 4096
 
 
 def _find_cgi_bin():
-    here = Path(__file__).resolve()
-    for base in (here.parent.parent, here.parent.parent.parent):
-        for sub in ('cgi-bin', 'server/cgi-bin'):
-            cand = base / sub
-            if (cand / 'storage.py').exists():
-                return cand
+    """Locate the server's cgi-bin dir (storage.py / storage_pg.py) across dev
+    AND installed layouts.
+
+    v6.4.3: this walked up from ``__file__`` only. In the repo the daemon sits
+    at server/flow/ so ../cgi-bin resolves — but INSTALLED to /usr/local/bin it
+    probed /usr/local/cgi-bin and /usr/cgi-bin, while the app lives at
+    /var/www/remotepower/cgi-bin. The import failed, the except swallowed it,
+    and the daemon fell back to flat-file reads. Under Postgres — the default
+    since v6.1.0 — those files do not exist, so every read returned {} and the
+    daemon silently dropped everything while reporting itself healthy.
+
+    The push daemon hit exactly this and was fixed in v6.1.1; this one and its
+    sibling were left behind, so the fix's own comment described a bug two
+    other daemons still had. Same implementation in all three now, with
+    tests/test_v643_sidecar_storage.py holding them together.
+
+    Honor RP_CGI_BIN, then probe the known install roots; return the first dir
+    that actually contains storage.py (or None → flat-file fallback)."""
+    candidates = []
+    env = os.environ.get('RP_CGI_BIN', '').strip()
+    if env:
+        candidates.append(Path(env))
+    candidates += [
+        Path(__file__).resolve().parent.parent / 'cgi-bin',   # repo: server/flow -> server/cgi-bin
+        Path('/var/www/remotepower/cgi-bin'),                 # make / AUR-server default
+        Path('/usr/share/webapps/remotepower/cgi-bin'),
+        Path('/opt/remotepower/cgi-bin'),
+    ]
+    for c in candidates:
+        try:
+            if (c / 'storage.py').is_file():
+                return c
+        except OSError:
+            continue
     return None
 
 

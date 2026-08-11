@@ -86,9 +86,23 @@ function _selfSidecarRows(s) {
   // run on another host, so "not detected locally" is never a fault here.
   const sy = sub.syslog || {};
   const syAgo = sy.last_ingest ? `last intake ${_selfFmtAgo(sy.last_ingest)}` : 'no intake recorded';
+  // v6.4.3: `unit === 'active'` only says systemd started the process. A
+  // receiver that is running with ZERO mapped sources is not healthy — and it
+  // is the exact signature of the storage-import bug fixed this release, where
+  // the daemon could not reach the app's storage layer, read an empty token map
+  // and dropped every packet while this card said Running. Report what it is
+  // DOING, not that it exists.
   const syslogRow = sy.unit === 'active'
-    ? { label: 'Syslog receiver', state: 'ok', status: 'Running',
-        detail: `${sy.sources || 0} source(s) · ${syAgo}` }
+    ? (sy.sources
+        ? { label: 'Syslog receiver', state: sy.last_ingest ? 'ok' : 'warn',
+            status: sy.last_ingest ? 'Running' : 'Running — nothing received yet',
+            detail: `${sy.sources} source(s) · ${syAgo}` }
+        : { label: 'Syslog receiver', state: 'warn',
+            status: 'Running — no sources mapped',
+            detail: 'the daemon is up but its source map is empty, so every '
+                  + 'packet is dropped. Enrol a device with a kind=syslog '
+                  + 'inbound token; if one exists, check the daemon log for a '
+                  + '"storage backend detection failed" warning.' })
     : (sy.sources
       ? { label: 'Syslog receiver', state: 'muted', status: 'Not detected locally',
           detail: `${sy.sources} source(s) enrolled · ${syAgo} — the receiver may run on another host` }
@@ -98,8 +112,16 @@ function _selfSidecarRows(s) {
   const fl = sub.flow || {};
   const flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
   const flowRow = fl.unit === 'active'
-    ? { label: 'Flow receiver', state: 'ok', status: 'Running',
-        detail: `${fl.sources || 0} exporter(s) · ${flAgo}` }
+    ? (fl.sources
+        ? { label: 'Flow receiver', state: fl.last_ingest ? 'ok' : 'warn',
+            status: fl.last_ingest ? 'Running' : 'Running — nothing received yet',
+            detail: `${fl.sources} exporter(s) · ${flAgo}` }
+        : { label: 'Flow receiver', state: 'warn',
+            status: 'Running — no exporters mapped',
+            detail: 'the daemon is up but its exporter map is empty, so every '
+                  + 'flow is dropped. Enrol the exporter with a kind=flow '
+                  + 'inbound token; if one exists, check the daemon log for a '
+                  + '"storage backend detection failed" warning.' })
     : (fl.sources
       ? { label: 'Flow receiver', state: 'muted', status: 'Not detected locally',
           detail: `${fl.sources} exporter(s) enrolled · ${flAgo} — may run on another host` }

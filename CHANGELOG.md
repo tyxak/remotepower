@@ -142,6 +142,23 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The NetFlow and syslog receivers dropped every packet on a Postgres
+  install, and the dashboard called them healthy.** Reported from production.
+  Both daemons look for the app's storage layer by walking up from their own
+  file — which works in a source checkout and finds nothing from
+  `/usr/local/bin`, where they are actually installed. The import failed, they
+  fell back to reading `.json` files that do not exist under Postgres, and so
+  every exporter was "unknown" and every packet discarded. The log then advised
+  enrolling the exporter, which would not have helped.
+  Behind that sat a second wall: both units ran as a temporary system user with
+  no access to the data directory, which is owned by the web user — so even
+  after the first fix they were refused at the very first read. They now run as
+  the web user, exactly as the push daemon has since it hit the same bug two
+  releases ago. That fix never reached its two siblings, so its own comment
+  described a bug they still had.
+  The Self page reported "Flow receiver · Healthy · Running · 0 exporters" for
+  all of it, because it only ever asked whether the process had started. A
+  receiver running with nothing mapped is now reported as what it is.
 - **The translation gate could not see the JavaScript-rendered interface.** It
   read only the static page, so every dropdown option, column header and field
   label built from a template literal — most of the newer UI — was invisible to

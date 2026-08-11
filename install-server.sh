@@ -708,6 +708,7 @@ if [[ "$WITH_SYSLOGD" == "1" ]]; then
     install -m 755 "$SCRIPT_DIR/server/syslog/remotepower-syslogd.py" /usr/local/bin/remotepower-syslogd
     install -m 644 "$SCRIPT_DIR/packaging/remotepower-syslogd.service" \
         /etc/systemd/system/remotepower-syslogd.service
+    render_unit_user /etc/systemd/system/remotepower-syslogd.service
     systemctl daemon-reload
     # `enable --now` is a no-op start on an already-active unit — it does NOT
     # restart it. Re-running the installer therefore upgraded the binary on
@@ -726,6 +727,7 @@ if [[ "$WITH_FLOWD" == "1" ]]; then
     install -m 755 "$SCRIPT_DIR/server/flow/flow_parse.py" /usr/local/bin/flow_parse.py
     install -m 644 "$SCRIPT_DIR/packaging/remotepower-flowd.service" \
         /etc/systemd/system/remotepower-flowd.service
+    render_unit_user /etc/systemd/system/remotepower-flowd.service
     systemctl daemon-reload
     # `enable --now` is a no-op start on an already-active unit — it does NOT
     # restart it. Re-running the installer therefore upgraded the binary on

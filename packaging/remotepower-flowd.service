@@ -6,14 +6,29 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# No state, no secrets of its own — reads the shared stores read-only via the
-# storage backend and forwards over loopback. DynamicUser sandboxes it fully
-# (NO install-time User= rendering — this unit is deliberately static, same as
-# remotepower-syslogd; see the deploy-server.sh "rendered unit" rule).
-DynamicUser=yes
+# v6.4.3: this ran DynamicUser=yes, which sandboxes beautifully and made the
+# daemon USELESS. It reads the shared stores through the storage backend — and
+# the installer creates /var/lib/remotepower mode 0700 owned by the web user,
+# so a transient uid gets EPERM on the very first read (the backend marker),
+# falls back to flat-file reads, and under Postgres drops every packet while
+# the unit sits there active. ReadOnlyPaths= grants a mount namespace, never a
+# DAC permission; the comment that used to be here described an intent the
+# configuration prevented.
+#
+# So it runs as the web user, exactly like remotepower-push, which is why that
+# one works. install-server.sh renders the distro's actual user in
+# (render_unit_user), so this is no longer the install-time-rendering hazard
+# the old comment was avoiding.
+User=www-data
+Group=www-data
 ReadOnlyPaths=/var/lib/remotepower
 ExecStart=/usr/local/bin/remotepower-flowd
 Environment=RP_DATA_DIR=/var/lib/remotepower
+# v6.4.3: where the app's storage layer lives. Without it the daemon probes
+# __file__-relative paths, finds nothing from /usr/local/bin, and silently
+# degrades to flat-file reads — which return {} under Postgres, so every
+# exporter is dropped while the unit still reports itself healthy.
+Environment=RP_CGI_BIN=/var/www/remotepower/cgi-bin
 # Default: udp/2055 (the de-facto NetFlow port, unprivileged).
 #Environment=RP_FLOW_BIND=0.0.0.0:2055
 Environment=RP_FLOW_SERVER_URL=http://127.0.0.1:8090

@@ -948,15 +948,41 @@ class TestSyslogWatcherAndCatalog(unittest.TestCase):
         self.assertEqual(row["target_kind"], "tag")
 
     def test_self_page_row_is_informational(self):
-        # Split-proof: the self-monitoring page moved to app-self.js at v6.4.1.
+        """A receiver that is NOT running locally is never a fault — it may
+        legitimately run on another host.
+
+        v6.4.3 sharpened this. The assertion was a fixed 900-character window
+        from `const syslogRow`, which happened to cover only the not-detected
+        branches when it was written; it later grew to span the ACTIVE branch
+        too, and then failed on a change it was never meant to forbid. The
+        guarantee is about the not-detected/not-in-use branches specifically,
+        so it is now anchored on them.
+
+        The distinction matters and is not pedantry: a daemon running LOCALLY
+        with zero mapped sources is not informational, it is broken. That state
+        shipped as a green "Healthy · Running" card while the receiver dropped
+        every packet on a production host, because it could not read its own
+        token map. Both directions are pinned below."""
         from clientjs import client_js
         app = client_js()
         self.assertIn("const syslogRow", app)
-        # the not-detected/not-in-use states must be 'muted', never warn/bad
         i = app.index("const syslogRow")
-        block = app[i:i + 900]
-        self.assertNotIn("'warn'", block)
-        self.assertNotIn("'bad'", block)
+        whole = app[i:app.index("rows.push(syslogRow)", i)]
+
+        # The not-detected / not-in-use half — everything after the active
+        # branch closes — must stay muted.
+        not_detected = whole[whole.index(": (sy.sources"):]
+        self.assertNotIn("'warn'", not_detected,
+                         "a receiver that may run on another host must not be "
+                         "reported as a fault here")
+        self.assertNotIn("'bad'", not_detected)
+
+        # ...but a LOCALLY-active receiver with no sources mapped must warn.
+        active = whole[:whole.index(": (sy.sources")]
+        self.assertIn("'warn'", active,
+                      "a locally-running receiver with an empty source map is "
+                      "dropping every packet; reporting that as healthy is the "
+                      "bug this branch exists to surface")
 
 
 class TestWave2FrontendWiring(unittest.TestCase):
