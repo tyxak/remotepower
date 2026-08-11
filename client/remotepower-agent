@@ -5852,12 +5852,27 @@ def get_smart_status():
     disks = []
     for dev in _list_block_devices()[:32]:
         try:
-            r = subprocess.run([smartctl, '-H', '-A', '-i', dev],
+            # `-n standby` — DO NOT SPIN UP A SLEEPING DISK TO ASK IF IT IS OK.
+            # Without it, this poll woke every idle spindle on the host every
+            # hardware cycle (~5 minutes), which defeats spindown completely:
+            # the drives never sleep, and the monitoring costs power and
+            # start/stop cycles on exactly the archive and backup arrays whose
+            # owners configured spindown deliberately. smartctl exits 2 and
+            # prints "Device is in STANDBY mode" without touching the drive.
+            r = subprocess.run([smartctl, '-n', 'standby', '-H', '-A', '-i', dev],
                                capture_output=True, text=True, timeout=20)
         except Exception:
             continue
         out = r.stdout
         if not out:
+            continue
+        if 'STANDBY mode' in out or 'SLEEP mode' in out:
+            # Report the disk as PRESENT but unread, rather than omitting it.
+            # Omitting makes the disk vanish from the inventory and reappear
+            # every time it sleeps — a flapping device list is worse than a
+            # missing reading, and UNKNOWN is already treated as "not a
+            # failure" by the health check and the risk score.
+            disks.append({'device': dev, 'health': 'UNKNOWN', 'standby': True})
             continue
         entry = {'device': dev, 'health': 'UNKNOWN'}
         # Overall health line varies by transport:
@@ -5927,8 +5942,16 @@ def get_smart_status():
         # ever actually run — so a disk that has not been tested in two years
         # looked identical to one tested last night. A separate cheap call;
         # -l selftest is a log read, it does not start anything.
+        #
+        # v6.4.3: `-n standby` here TOO. It is a log read, but reading the log
+        # still requires the drive to be spinning — so this second call woke
+        # every sleeping disk that the first call had just been taught not to.
+        # Only reachable when the disk was already awake (the standby branch
+        # above `continue`s), so in practice it never blocks; the flag is
+        # belt-and-braces for a disk that spins down BETWEEN the two calls,
+        # which on an aggressive spindown timer is a real window.
         try:
-            rt = subprocess.run([smartctl, '-l', 'selftest', dev],
+            rt = subprocess.run([smartctl, '-n', 'standby', '-l', 'selftest', dev],
                                 capture_output=True, text=True, timeout=20)
             tout = rt.stdout or ''
         except Exception:

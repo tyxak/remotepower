@@ -43931,6 +43931,14 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
                 'model':  _sanitize_str(str(d.get('model', '')), 64),
                 'serial': _sanitize_str(str(d.get('serial', '')), 64),
             }
+            # v6.4.3: the disk was asleep and deliberately NOT woken to read it
+            # (`smartctl -n standby`). Persisted so the UI can say "asleep"
+            # rather than showing a blank row that reads like a fault, and so a
+            # spun-down archive array is not mistaken for a disk that stopped
+            # answering. Without this whitelist entry the flag is dropped and
+            # the distinction is unavailable to every consumer.
+            if d.get('standby') is True:
+                entry['standby'] = True
             # Numeric SMART attributes — clamp to sane ints.
             for k in ('reallocated_sectors', 'pending_sectors',
                       'offline_uncorrectable', 'reported_uncorrect',

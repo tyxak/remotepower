@@ -24687,13 +24687,23 @@ function _renderHardwareSection(id, hw, fc, ch) {
         const hUp = String(d.health||'').toUpperCase();
         const healthCls = d.failed ? 'c-red'
           : (hUp === 'PASSED' || hUp === 'OK') ? 'c-green' : 'c-muted';
+        // v6.4.3: the agent no longer spins a sleeping disk up to read it, so
+        // a standby drive reports no attributes at all. Say WHY the row is
+        // empty — an all-dashes row with "UNKNOWN" health reads as a fault, and
+        // the operator who configured spindown deliberately deserves better
+        // than being told their working archive array is unreadable.
+        const healthTxt = d.standby ? 'asleep' : (d.health || '?');
+        const healthTitle = d.standby
+          ? 'Disk is spun down. RemotePower does not wake it to read SMART — '
+            + 'attributes refresh the next time the disk is in use.'
+          : '';
         const crc = d.crc_errors, unc = _uncorr(d);
         const crcBad = (crc || 0) > 0 || unc > 0;
         const crcCell = (crc == null && !unc) ? '—'
           : `${crc ?? 0}<span class="c-muted"> / </span>${unc}`;
         return `<tr><td><code>${escHtml(d.device)}</code>${d.serial ? `<div class="fs-11 c-muted">sn ${escHtml(d.serial)}</div>` : ''}</td>
           <td>${escHtml(d.model||'—')}</td>
-          <td class="${healthCls}">${escHtml(d.health||'?')}</td>
+          <td class="${healthCls}"${healthTitle ? ` title="${escAttr(healthTitle)}"` : ''}>${escHtml(healthTxt)}</td>
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center ${crcBad?'c-red':''}">${crcCell}</td>

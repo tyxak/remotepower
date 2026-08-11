@@ -142,6 +142,13 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **Monitoring your disks stopped keeping them awake.** SMART polling spun up
+  every sleeping drive on every hardware cycle — roughly every five minutes —
+  to ask whether it was healthy, which defeats spin-down completely and spends
+  power and start/stop cycles on exactly the archive and backup arrays whose
+  owners configured spin-down on purpose. The disks are left asleep now and
+  the table says "asleep" rather than showing a blank row that reads like a
+  fault.
 - **The encryption-at-rest control could never pass on a Linux fleet.** It read
   BitLocker on Windows and FileVault on macOS, and nothing at all on Linux — so
   an all-Linux fleet, which is most of them, saw "not assessed" on that SOC 2 /
