@@ -142,6 +142,35 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **The four-eyes justification could never be recorded.** A parked change
+  stores a reason and a ticket reference, `_park_for_approval` accepts them,
+  and the Confirmations table renders them — but `_approval_context`, the
+  helper that reads them off a request, had ZERO call sites, and no dialog
+  offered a field. So every human-originated parked change reached its
+  approver reading "no reason given", which was accurate and permanent, while
+  features.md sold it as the control an auditor tests for CC8.1 / A.8.32. Both
+  ends are wired now: the six approval-gated kinds thread the pair through, and
+  the reboot and shutdown dialogs offer the fields — only when four-eyes is
+  actually on, because asking why for an action you can take unilaterally is
+  noise, and noise is how a control gets ignored.
+- **The demo could not show this release.** The seeder pinned the agent
+  version at 6.4.2 in three places, so every seeded host raised a "stale agent
+  version" item the moment the server moved to 6.4.3 — thirteen fabricated
+  problems on the front page of the thing people evaluate. It now reads the
+  version from `api.py` rather than being a fourth place to remember. And no
+  seeded sensor carried its own critical threshold, so the Thermal page's
+  Threshold and Headroom columns were empty everywhere and the dead-pin
+  handling had nothing to act on; there is now a deliberate implausible sensor
+  reading past its limit, which is what the Implausible flag exists for.
+- **Documentation that described a different product.** `containers.md` said
+  there is no image scanning, which the agent has done with Trivy since v6.0.0.
+  The MCP inventory said 18 tools / 14 read / 4 write against an actual
+  21 / 16 / 5. The in-app connector list said 39 and omitted WordPress and all
+  three EDR platforms; the README counted the Custom HTTP probe twice.
+  `ai.md` listed tool calls as deferred on the same page that documents them
+  shipping. `checks.md` documented the Windows and macOS posture rows and none
+  of the three Linux ones. `security.md` called the v6.4.2 review "the current
+  pass" while already linking v6.4.3's.
 - **The app server and scheduler could not start on RHEL or Arch.** Both units
   ship `User=www-data`, and the installer was rendering the distro's actual web
   user into only one of the three units it installs — so on RHEL and Arch

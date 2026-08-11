@@ -57,7 +57,7 @@ This split is important for the security story:
 
 In the dashboard: **Settings → API keys → Generate new key**.
 Give it a name like `mcp-laptop`. Choose role `viewer` for a strictly
-read-only key, or role `mcp` if you also want the four guarded write
+read-only key, or role `mcp` if you also want the five guarded write
 tools — **the role is the switch**, and it is fixed at creation. Copy
 the resulting token value.
 It's shown once and not recoverable; if you lose it, generate a
@@ -116,9 +116,9 @@ it ) and return a list of your devices.
 
 ## Available tools
 
-**18 tools — 14 read, 4 guarded write.** Each takes a small JSON arguments
+**21 tools — 16 read, 5 guarded write.** Each takes a small JSON arguments
 object; the AI host generates these from your natural-language question. The
-read tools are always available; the four write tools work only for a key
+read tools are always available; the five write tools work only for a key
 created with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
@@ -174,7 +174,7 @@ only auto-disambiguates when there's exactly one match.
 
 ## Guarded write tools — and what's still deliberately absent
 
-The four write tools (`reboot_device`, `run_saved_script`,
+The five write tools (`reboot_device`, `run_saved_script`,
 `force_package_scan`, `force_acme_rescan`) ship with exactly the guard rails an
 LLM acting on a fleet needs:
 
@@ -198,7 +198,7 @@ LLM acting on a fleet needs:
 So the worst outcome of a confused model is bounded: it can reboot a host or run
 a vetted library script you already trust — never run an arbitrary command or
 shut a box down off-script. If you want a purely read-only assistant, create the
-key with role `viewer`; all four write tools then refuse it permanently.
+key with role `viewer`; all five write tools then refuse it permanently.
 
 ## Security model
 

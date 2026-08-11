@@ -192,7 +192,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.4.2.md](security-review-6.4.2.md).
+summarised in the latest, [security-review-6.4.3.md](security-review-6.4.3.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the

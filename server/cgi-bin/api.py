@@ -23278,7 +23278,14 @@ def handle_shutdown():
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('shutdown', ids)   # v3.4.2 RBAC: power action
-    if len(ids) == 1: _queue_command(ids[0], 'shutdown', actor)
+    # v6.4.3: thread the operator's justification onto a parked change.
+    # _approval_context has existed since v6.4.2 with ZERO call sites, so the
+    # reason and ticket reference the Confirmations table renders were always
+    # blank for a human-originated change — the approver saw the action name
+    # and nothing else, which is the rubber-stamping the control exists to stop.
+    _why, _tkt = _approval_context(body)
+    if len(ids) == 1:
+        _queue_command(ids[0], 'shutdown', actor, reason=_why, ticket_ref=_tkt)
     else:
         _blast_radius_guard(ids, body, 'shutdown')
         _res = _queue_command_batch(ids, 'shutdown', actor)
@@ -23293,7 +23300,9 @@ def handle_reboot():
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('reboot', ids)
-    if len(ids) == 1: _queue_command(ids[0], 'reboot', actor)
+    _why, _tkt = _approval_context(body)      # v6.4.3 — see handle_shutdown
+    if len(ids) == 1:
+        _queue_command(ids[0], 'reboot', actor, reason=_why, ticket_ref=_tkt)
     else:
         _blast_radius_guard(ids, body, 'reboot')
         _res = _queue_command_batch(ids, 'reboot', actor)
@@ -23376,7 +23385,9 @@ def handle_update_device():
                 respond(409, {'error': f'Incompatible update: {c["reason"]}',
                               'incompatible': True, 'device_id': dev_id,
                               'hint': 'pass {"force": true} to override'})
-    if len(ids) == 1: _queue_command(ids[0], 'update', actor)
+    _why, _tkt = _approval_context(body)      # v6.4.3 — see handle_shutdown
+    if len(ids) == 1:
+        _queue_command(ids[0], 'update', actor, reason=_why, ticket_ref=_tkt)
     else:
         _res = _queue_command_batch(ids, 'update', actor)
         respond(200, {'ok': True, 'results': _res,
@@ -23425,7 +23436,9 @@ def handle_uninstall_agent(dev_id):
     # v3.14.0: 4-eyes — park the uninstall for a second admin when enabled.
     # (Done before marking the record so an un-approved request leaves no trace.)
     if _needs_approval('uninstall'):
-        cid = _park_for_approval(dev_id, 'uninstall', actor, 'uninstall')
+        _why, _tkt = _approval_context(get_json_obj())   # v6.4.3
+        cid = _park_for_approval(dev_id, 'uninstall', actor, 'uninstall',
+                                 reason=_why, ticket_ref=_tkt)
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
     with _LockedUpdate(DEVICES_FILE) as devices:
@@ -23643,6 +23656,7 @@ def handle_upgrade_device():
 
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}; dev_updates = {}
     _gate = _needs_approval('upgrade')   # v3.14.0: 4-eyes — park upgrades for a second admin
+    _up_why, _up_tkt = _approval_context(body)   # v6.4.3 — see handle_shutdown
     for dev_id in ids:
         if not _validate_id(dev_id):
             results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
@@ -37795,7 +37809,9 @@ def handle_device_container_action(dev_id):
                 cmd_payload += f':{tail_applied}'
     # v3.14.0: 4-eyes — park container actions for a second admin when enabled.
     if _needs_approval('container'):
-        cid = _park_for_approval(dev_id, cmd_payload, actor, 'container')
+        _why, _tkt = _approval_context(body)   # v6.4.3 — see handle_shutdown
+        cid = _park_for_approval(dev_id, cmd_payload, actor, 'container',
+                                 reason=_why, ticket_ref=_tkt)
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
     # v6.4.2: run-and-wait for `logs`. The other verbs stay fire-and-forget —
@@ -49583,6 +49599,11 @@ def handle_home():
             'dashboard_hidden_activity_events':
                 cfg.get('dashboard_hidden_activity_events') or [],
             'channel_routing':       cfg.get('channel_routing') or {},
+            # v6.4.3: the confirm dialogs only offer a justification field when
+            # four-eyes is actually on — asking every operator "why?" on a
+            # reboot they can perform unilaterally is noise, and noise is what
+            # gets a compliance control ignored.
+            'change_approval_enabled': bool(cfg.get('change_approval_enabled')),
         },
     }
     # v6.2.2 (SECURITY): replace the embedded fleet-health rollup with the

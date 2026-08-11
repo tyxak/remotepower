@@ -1815,6 +1815,8 @@
     // v6.4.3: the sudo trail's effective-user column. Its four sibling headers
     // (When / Device / User / Command) were all already here, so without this
     // the row rendered three translated headers and one English one.
+    "Reason for this change": { "fr": "Motif de ce changement", "de": "Grund für diese Änderung", "zh": "本次变更的原因", "hi": "इस बदलाव का कारण", "es": "Motivo de este cambio", "ar": "سبب هذا التغيير" },
+    "Ticket / change reference (optional)": { "fr": "Référence ticket / changement (facultatif)", "de": "Ticket-/Änderungsreferenz (optional)", "zh": "工单/变更编号（可选）", "hi": "टिकट / परिवर्तन संदर्भ (वैकल्पिक)", "es": "Referencia de ticket / cambio (opcional)", "ar": "مرجع التذكرة / التغيير (اختياري)" },
     "Ran as": { "fr": "Exécuté en tant que", "de": "Ausgeführt als", "zh": "运行身份", "hi": "इस रूप में चलाया", "es": "Ejecutado como", "ar": "تم التشغيل باسم" },
     "Command history (days)": { "fr": "Historique des commandes (jours)", "de": "Befehlsverlauf (Tage)", "zh": "命令历史（天）", "hi": "command इतिहास (दिन)", "es": "Historial de comandos (días)", "ar": "سجل الأوامر (أيام)" },
     "Command to run": { "fr": "Commande à exécuter", "de": "Auszuführender Befehl", "zh": "要运行的命令", "hi": "चलाने हेतु command", "es": "Comando a ejecutar", "ar": "الأمر المراد تشغيله" },

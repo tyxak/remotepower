@@ -51,6 +51,37 @@ from pathlib import Path
 # explicitly marked as a demo dir.
 DEFAULT_DATA_DIR = Path('/var/lib/remotepower-demo')
 
+# v6.4.3: DERIVE the agent/server version from api.py instead of hardcoding it.
+# It was pinned at '6.4.2' in three places, so the moment SERVER_VERSION moved
+# to 6.4.3 every seeded host started raising a "stale agent version"
+# Needs-Attention item — thirteen fabricated problems on the demo's own front
+# page, which is the first thing anyone evaluating the product sees. Reading
+# it means the seeder tracks every future bump on its own rather than being a
+# fourth place somebody has to remember on the version-bump checklist.
+def _current_version(default='6.4.3'):
+    try:
+        import re as _re
+        src = (Path(__file__).resolve().parent.parent
+               / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = _re.search(r"^SERVER_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'", src, _re.M)
+        return m.group(1) if m else default
+    except Exception:
+        return default
+
+
+CURRENT_VERSION = _current_version()
+
+
+def _older(version, minors_back):
+    """A version `minors_back` minor releases behind, for the slice of the demo
+    fleet that is deliberately out of date (so 'upgrade available' has
+    something to point at). Clamps at .0 rather than going negative."""
+    try:
+        maj, mnr, _pat = (int(x) for x in version.split('.'))
+    except Exception:
+        return version
+    return f'{maj}.{max(0, mnr - minors_back)}.0'
+
 # The dir actually being seeded this run. main() updates this from --data-dir
 # before calling the builders, so path-bearing config (backup_path) points into
 # the demo data dir rather than at the production install.
@@ -499,8 +530,10 @@ def build_devices() -> dict:
             # Most of the fleet runs the current agent; a minority lag one/two
             # minors so the "upgrade available" affordance has something to show.
             'version':     (None if dev['agentless']
-                            else rng.choice(['6.4.2', '6.4.2', '6.4.2',
-                                             '6.4.0', '6.3.0'])),
+                            else rng.choice([CURRENT_VERSION, CURRENT_VERSION,
+                                             CURRENT_VERSION,
+                                             _older(CURRENT_VERSION, 0),
+                                             _older(CURRENT_VERSION, 1)])),
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -1550,8 +1583,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '6.4.2',
-        'agent_version':     '6.4.2',
+        'server_version':    CURRENT_VERSION,
+        'agent_version':     CURRENT_VERSION,
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -1905,12 +1938,24 @@ def build_hardware() -> dict:
     # Board/CPU/chipset temperature sensors (feeds the Thermal "hottest hosts"
     # roll-up). gt01 runs CRITICAL (≥85 °C), pmx01 runs HOT (≥75 °C) so the page
     # shows red + amber, the rest are comfortable.
+    # v6.4.3: each entry is (label, current_c, crit_c). The real agent reports
+    # the sensor's OWN critical threshold alongside the reading, and every
+    # seeded sensor omitted it — so the Thermal table's Threshold and Headroom
+    # columns rendered '—' on every demo host, and the release's dead-pin
+    # handling (which compares a reading against that threshold) had nothing to
+    # act on. `board temp3` is the deliberate dead sensor: it reads PAST its own
+    # critical limit while the host is up and heartbeating, which is exactly
+    # what the Implausible flag and the one-click ignore exist for. Note 104,
+    # not 127: an exact ADC rail is DROPPED at ingest and so could never render
+    # as Implausible — that distinction IS the feature. A demo that cannot show
+    # the headline feature is not demonstrating the release.
     temps_map = {
-        'tnas':  [('CPU', 52.0), ('Mainboard', 41.0)],
-        'pmx01': [('Package id 0', 79.0), ('Core 0', 77.5)],   # HOT
-        'nc01':  [('CPU', 49.0)],
-        'bk01':  [('CPU', 44.0)],
-        'gt01':  [('CPU', 88.5), ('Chipset', 63.0)],           # CRITICAL
+        'tnas':  [('CPU', 52.0, 95.0), ('Mainboard', 41.0, 85.0)],
+        'pmx01': [('Package id 0', 79.0, 90.0), ('Core 0', 77.5, 90.0)],   # HOT
+        'nc01':  [('CPU', 49.0, 95.0)],
+        'bk01':  [('CPU', 44.0, 95.0)],
+        'gt01':  [('CPU', 88.5, 90.0), ('Chipset', 63.0, 105.0),
+                  ('board temp3', 104.0, 100.0)],   # CRITICAL + a dead pin
     }
     # GPUs report util/memory/temp/power/fan (feeds the fleet GPU page + Thermal
     # + Power). A rich NVIDIA + AMD spread: a gaming card, a passthrough compute
@@ -1972,8 +2017,9 @@ def build_hardware() -> dict:
         if dev_id in temps_map:
             # Same shape a real agent report lands in: board/CPU sensors live
             # under `hardware`, unlike smart/gpus which sit at the top level.
-            rec['hardware'] = {'temps': [{'label': lbl, 'current_c': c}
-                                         for lbl, c in temps_map[dev_id]]}
+            rec['hardware'] = {'temps': [{'label': lbl, 'current_c': c,
+                                          'crit_c': crit}
+                                         for lbl, c, crit in temps_map[dev_id]]}
         if dev_id in gpus_map:
             rec['gpus'] = gpus_map[dev_id]
         if dev_id in ups_map:

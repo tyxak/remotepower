@@ -3222,9 +3222,41 @@ function _renderDevicesMinimal(filtered) {
 // (v6.4.0: the pre-drawer device-dropdown machinery — toggleDropdown and its
 // document-level close handler — was removed as dead; the "⋮" button opens
 // the device drawer directly since v2.9.0.)
-async function confirmShutdown() { closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget}); if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 
-async function confirmReboot() { closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget}); if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
+let _changeApprovalOn = false;
+
+// v6.4.3: the justification for a four-eyes-gated change. `_approval_context`
+// has existed server-side since v6.4.2 with zero call sites, and no dialog
+// ever offered a field — so every human-originated parked change reached the
+// approver reading "no reason given", and the CC8.1 / A.8.32 control it is
+// sold as degraded to approving on the action name alone. Shown ONLY when
+// four-eyes is actually on: asking for a reason on an action the operator can
+// take unilaterally is noise, and noise is how a control gets ignored.
+function _approvalFields(prefix) {
+  const el = document.getElementById(prefix + '-reason');
+  if (!el) return {};
+  const reason = el.value.trim();
+  const tkt = (document.getElementById(prefix + '-ticket')?.value || '').trim();
+  const out = {};
+  if (reason) out.reason = reason;
+  if (tkt) out.ticket_ref = tkt;
+  return out;
+}
+
+// Reveal the pair when the server says four-eyes is enabled, and clear them so
+// one change's justification can never ride along on the next.
+function _prepApprovalFields(prefix) {
+  const wrap = document.getElementById(prefix + '-approval-grp');
+  if (!wrap) return;
+  wrap.classList.toggle('d-none', !_changeApprovalOn);
+  const r = document.getElementById(prefix + '-reason');
+  const t = document.getElementById(prefix + '-ticket');
+  if (r) r.value = '';
+  if (t) t.value = '';
+}
+async function confirmShutdown() { const extra = _approvalFields('shutdown'); closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Shutdown queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
+
+async function confirmReboot() { const extra = _approvalFields('reboot'); closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Reboot queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
 // Legacy emoji values stored on devices still render — _renderDeviceIcon
@@ -5956,6 +5988,11 @@ function openModal(id) {
   // Remember what to restore focus to, and track open order for Escape/trap.
   _modalReturnFocus.set(el, document.activeElement);
   if (!_modalStack.includes(id)) _modalStack.push(id);
+  // v6.4.3: reveal/clear the four-eyes justification pair if this dialog has
+  // one. Done here rather than at each opener — reboot and shutdown are opened
+  // from four places between the drawer and the command palette, and a fifth
+  // would otherwise silently reuse the previous change's reason.
+  _prepApprovalFields(id.replace(/-modal$/, ''));
   el.classList.add('active');
   document.body.classList.add('modal-open');
   _raiseModalZ(el);
@@ -17616,6 +17653,10 @@ async function loadHome() {
   // a no-op instead of 40+ widget rebuilds (and, in Firefox, a repaint storm).
   // Layout edits don't go through here (applyDashboardLayout is called
   // directly by the editor), and toggling widgets changes _wq, busting this.
+  // v6.4.3: latch whether four-eyes is on, so the confirm dialogs know whether
+  // to offer a justification field. Done BEFORE the render-skip below — the
+  // flag must track the config even on a tick where the DOM needs no work.
+  _changeApprovalOn = !!(home.config || {}).change_approval_enabled;
   const _renderKey = _wq + JSON.stringify(home);
   if (window._homeLastRender === _renderKey) return;
   window._homeLastRender = _renderKey;

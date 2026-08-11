@@ -36,6 +36,14 @@ sortable, filterable table.
   - **macOS** (`mac_posture`) — FileVault disk encryption, the Application
     Firewall, Gatekeeper, System Integrity Protection (SIP), and automatic
     security updates.
+  - **Linux** — three separate rows rather than one: `linux_firewall` (is any
+    of nftables / iptables / ufw actually enforcing), `linux_ssh_hardening`
+    (root login, password authentication, empty passwords, and — since
+    v6.4.3 — X11 forwarding), and `linux_auto_update` (unattended-upgrades /
+    dnf-automatic and friends). These three are **opt-in**: they only render
+    when Security hardening is enabled under Settings → Security, because
+    password SSH and manual patching are deliberate choices on plenty of
+    fleets and an advisory nobody asked for is an advisory that gets muted.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code

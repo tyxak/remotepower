@@ -461,11 +461,11 @@ transitions stay unconditional.
 ## What's not in scope
 
 These are deliberately deferred. Each one is a real feature, none
-of them are in this release:
+of them are in this release. (Tool calls / agent mode used to be on
+this list; it shipped in v6.4.0 as the bounded investigate loop
+described above, where the model requests evidence through a fixed
+set of read-only calls rather than being handed the API.)
 
-- **Tool calls / agent mode.** Letting the model query
- `/api/devices` etc. is interesting but needs a separate
- Settings toggle and a read-only action allowlist. Queued.
 - **Streaming responses.** Visible benefit small for 1–30s
  requests; complications with app-server buffering and nginx
  buffering large. Sync request/response only.

@@ -329,9 +329,12 @@ can never run. Manage containers on a Mac from the host.
   pause / update and an on-demand log *snapshot* are supported (see
   below); an interactive shell and a `docker logs -f` style follow
   are not. Use the SSH link on the device for those.
-- **No image scanning.** RemotePower's CVE scanner runs against
-  installed packages, not container images. For container CVE
-  scanning, Trivy and Grype both work well as complements.
+- **Image scanning is separate from package CVEs.** The host CVE
+  scanner runs against installed packages; container images are
+  scanned by Trivy on the agent, on a roughly daily cadence and on
+  demand from Security → Image CVEs. Trivy has to be installed on
+  the host — without it the page stays empty. Linux only: the flag
+  that triggers a scan is read by the Linux agent alone.
 - **No restart policy or compose state.** The agent reads `docker
   ps` output, which doesn't include the compose file the container
   came from or its restart policy. Both are visible via `docker
