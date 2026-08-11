@@ -44,43 +44,112 @@ _spec.loader.exec_module(api)
 
 
 class _WriteCounter:
-    """Counts writes per storage key.
+    """Counts writes per storage key, ON WHICHEVER BACKEND IS ACTIVE.
 
-    Wraps `_save_held`, NOT `save`. A `_LockedUpdate` block does not go through
-    `save()` at all — its __exit__ calls `_save_held` directly, because the
-    lock is already held. Counting `save` alone shows ZERO for exactly the
-    writes this file exists to measure, so both positive controls failed while
-    the two "writes nothing" tests passed: a counter that cannot see the write
-    reports success no matter what the code does. Both are wrapped now.
+    Three write paths, and missing any one makes this count zero and report
+    success:
+
+      api.save        the ordinary write
+      api._save_held  what a _LockedUpdate block calls on the JSON backend,
+                      because the flock is already held
+      storage.save /  what a _LockedUpdate block calls on SQLite and Postgres:
+      storage_pg.save `_DbLockedUpdate.__exit__` delegates to the storage
+                      module's own context manager, which never touches either
+                      api-level function
+
+    THE THIRD ONE COST A FULL GATE RUN. The first version wrapped only
+    `api.save`, so both positive controls failed and I fixed it by adding
+    `_save_held` — which is correct for JSON and still blind on a DB backend.
+    `make test` went green, I shipped it, and `make test-sqlite` then failed
+    the same two positive controls: under SQLite the counter saw ZERO writes
+    for everything, so the four "writes nothing" assertions were passing
+    VACUOUSLY (0 == 0 regardless of what the code did) on the enterprise
+    default backend.
+
+    The positive controls are the only reason any of that was visible. A file
+    of purely negative assertions would have reported success on both
+    backends while measuring nothing on either — which is the exact failure
+    this release is named after, reproduced inside a test written to catch it.
     """
 
     def __init__(self):
         self.counts = {}
-        self._orig_save = api.save
-        self._orig_held = api._save_held
+        self._patched = []
+        self._depth = 0
 
     def _bump(self, path):
         self.counts[str(path)] = self.counts.get(str(path), 0) + 1
 
-    def __enter__(self):
-        def _save(path, data, *a, **k):
-            self._bump(path)
-            return self._orig_save(path, data, *a, **k)
+    def _wrap(self, obj, name):
+        orig = getattr(obj, name, None)
+        if orig is None:
+            return
 
-        def _save_held(path, data, *a, **k):
-            self._bump(path)
-            return self._orig_held(path, data, *a, **k)
-        api.save = _save
-        api._save_held = _save_held
+        def _wrapped(path, data, *a, **k):
+            # COUNT THE OUTERMOST CALL ONLY. On a DB backend `api.save`
+            # delegates to the storage module's `save`, and both are wrapped —
+            # so one logical write registered as two, and every `== 1`
+            # assertion failed with 2. The nesting is real; the second entry is
+            # not a second write.
+            outer = self._depth == 0
+            self._depth += 1
+            try:
+                if outer:
+                    self._bump(path)
+                return orig(path, data, *a, **k)
+            finally:
+                self._depth -= 1
+        setattr(obj, name, _wrapped)
+        self._patched.append((obj, name, orig))
+
+    def __enter__(self):
+        self._wrap(api, 'save')
+        self._wrap(api, '_save_held')
+        mod = api._dbmod()          # None on the JSON backend
+        if mod is not None:
+            self._wrap(mod, 'save')
         return self
 
     def __exit__(self, *exc):
-        api.save = self._orig_save
-        api._save_held = self._orig_held
+        for obj, name, orig in reversed(self._patched):
+            setattr(obj, name, orig)
+        self._patched = []
         return False
 
     def writes_to(self, path):
         return self.counts.get(str(path), 0)
+
+
+class TestTheCounterCanSeeAWrite(unittest.TestCase):
+    """Guard the guard, on whatever backend is running.
+
+    Without this, a counter blind to the active backend makes every "writes
+    nothing" test below pass by measuring nothing — which is precisely what
+    happened under SQLite before this class existed.
+    """
+
+    def test_an_ordinary_save_is_counted(self):
+        probe = api.DATA_DIR / 'write_counter_probe.json'
+        with _WriteCounter() as wc:
+            api.save(probe, {'x': 1})
+        self.assertEqual(wc.writes_to(probe), 1,
+                         'the write counter cannot see api.save on this '
+                         'backend — every assertion in this file is vacuous')
+
+    def test_a_locked_update_is_counted(self):
+        """The path that actually matters: _LockedUpdate dispatches to a
+        DIFFERENT implementation per backend, and only the JSON one goes
+        through api._save_held."""
+        probe = api.DATA_DIR / 'write_counter_probe2.json'
+        api.save(probe, {'x': 1})
+        api._invalidate_load_cache(probe)
+        with _WriteCounter() as wc:
+            with api._LockedUpdate(probe) as doc:
+                doc['x'] = 2
+        self.assertGreaterEqual(
+            wc.writes_to(probe), 1,
+            'the counter cannot see a _LockedUpdate write on this backend — '
+            'the "writes nothing" tests below would pass against any code')
 
 
 class TestDeadmanSweep(unittest.TestCase):
