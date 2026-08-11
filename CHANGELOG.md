@@ -154,6 +154,13 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **Four more history stores stopped rewriting the whole fleet.** Thermal,
+  SMART, GPU and custom-metric history each re-serialised every device's
+  records every time a single host reported — together holding a 400-device
+  install's database busy about **half the time**, which every other write was
+  queued behind. Each now writes only the device that reported: **101 → 0.3
+  ms**, **145 → 0.4**, **144 → 0.4**, and **256 → 0.6**. Existing installs
+  migrate their history automatically on first start; nothing to do.
 - **Per-port switch history stopped rewriting the whole fleet on every poll.**
   Recording one switch's interface counters re-serialised every device's
   history — 103 ms per walk on a 400-device fleet, and because both the cost

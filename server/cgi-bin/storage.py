@@ -50,7 +50,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 9  # v6.1.2: metrics_rollup.json cold-blob -> entity rows (see _COLD_TO_ENTITY_V7)
+SCHEMA_VERSION = 10  # v6.4.3: the four per-device history blobs -> entity rows (see _COLD_TO_ENTITY_V8)
 
 
 def configure(data_dir):
@@ -147,6 +147,26 @@ ENTITY_FILES = {
     # for exactly this reason. Born an ENTITY file → no _COLD_TO_ENTITY_* wave
     # (the file did not exist before this release).
     'snmp_if_hist.json',
+    # v6.4.3 (perf): the four remaining per-device HISTORY blobs. Each is a flat
+    # {device_id: …} dict rewritten IN FULL on every hardware/sysinfo ingest —
+    # one per device per cycle — so the cost is O(fleet) per sample while the
+    # arrival rate is also O(fleet), making aggregate duty O(N^2). Measured at
+    # 400 devices on SQLite: thermal 116.7 ms/sample (15.6 % duty), smart
+    # 143.6 ms (19.2 %), gpu 166.6 ms (22.2 %), custom_metrics 249.7 ms
+    # (16.6 %) — and under SQLite they share one DB-wide BEGIN IMMEDIATE, so
+    # thermal+smart alone held the whole database write-locked ~35 % of the
+    # time (an unrelated tiny write: p90 0.84 ms -> 104 ms).
+    #
+    # PROMOTION ALONE IS A NO-OP — the writers had to move to
+    # _entity_read_one/_entity_write_one in the same change, or _save_entity
+    # still serialises every key to diff it. snmp_if_hist.json sat promoted and
+    # unimproved for a whole release for exactly that reason (fixed alongside
+    # this). See _COLD_TO_ENTITY_V8: unlike snmp_if_hist these have live cold
+    # blobs on existing installs, so they need a real migration wave.
+    'thermal_history.json',
+    'smart_history.json',
+    'gpu_history.json',
+    'custom_metrics_hist.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
@@ -178,6 +198,12 @@ _COLD_TO_ENTITY_V5 = ('hardware.json', 'drift_state.json', 'drift_contents.json'
 _COLD_TO_ENTITY_V6 = ('commands.json',)
 # v6.1.2 (perf #5): metrics_rollup.json — split its kv blob once at db_ver < 9.
 _COLD_TO_ENTITY_V7 = ('metrics_rollup.json',)
+# v6.4.3 (perf): the four per-device history blobs — split their kv blobs once
+# at db_ver < 10. Unlike snmp_if_hist.json (born an ENTITY file) these exist on
+# every install that has ever collected hardware telemetry, so the data has to
+# be moved rather than just reclassified.
+_COLD_TO_ENTITY_V8 = ('thermal_history.json', 'smart_history.json',
+                      'gpu_history.json', 'custom_metrics_hist.json')
 
 # wrapped-list files: basename -> the single top-level list key.
 # v5.8.0: fleet_events.json joined this set. It was previously kept COLD because
@@ -442,6 +468,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V6)     # v6.1.1
     if db_ver is None or db_ver < 9:
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V7)     # v6.1.2
+    if db_ver is None or db_ver < 10:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V8)     # v6.4.3
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
