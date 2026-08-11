@@ -21401,6 +21401,10 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-clock-skew-ms',             'clock_skew_threshold_ms',    1000],
   ['ap-temp-c',                    'temp_alert_threshold_c',     85],
   ['ap-pmox-snap-days',            'proxmox_snapshot_warn_days', 7],
+  // v6.4.3: how long a NetFlow exporter may go quiet before it is reported
+  // stopped. Tunable because the right window is a property of the FLEET —
+  // a standby link only carries traffic during a failover.
+  ['ap-flow-silence-s',            'flow_export_silence_seconds', 10800],
   ['cfg-patch-threshold',          'patch_alert_threshold',      0],
   ['cfg-disk-watchdog-pct',        'disk_watchdog_pct',          85],
   ['cfg-ups-critical-battery-pct', 'ups_critical_battery_pct',   20],

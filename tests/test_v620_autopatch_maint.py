@@ -68,6 +68,14 @@ class _Base(unittest.TestCase):
 
 
 class TestAutopatchDeviceTarget(_Base):
+
+    @classmethod
+    def setUpClass(cls):
+        # v6.4.3: same reason as TestMaintenanceLegacyBackfill below — this
+        # seeds devices.json as a FILE, which a DB backend never reads.
+        import os as _os
+        if _os.environ.get('RP_STORAGE_BACKEND') in ('sqlite', 'postgres'):
+            raise unittest.SkipTest('seeds raw JSON files; JSON backend only')
     def test_single_device_policy_is_accepted(self):
         s, b = self._post(api.handle_autopatch_create, {
             'name': 'Win nightly', 'cron': '0 3 * * *',
@@ -93,6 +101,21 @@ class TestAutopatchDeviceTarget(_Base):
 
 
 class TestMaintenanceLegacyBackfill(_Base):
+
+    @classmethod
+    def setUpClass(cls):
+        # v6.4.3: this seeds by writing maintenance.json as a FILE, which a DB
+        # backend never reads — load() goes to the database.
+        #
+        # This ran only because test_hypothesis_props cleared
+        # RP_STORAGE_BACKEND at IMPORT time, so `make test-sqlite` silently
+        # exercised the JSON backend here and passed. Fixing that leak exposed
+        # it. Skipping is the honest state — the mechanics under test are
+        # file-backend-specific — and it is what the a11y/e2e suites already do.
+        import os as _os
+        if _os.environ.get('RP_STORAGE_BACKEND') in ('sqlite', 'postgres'):
+            raise unittest.SkipTest(
+                'seeds raw JSON files; JSON backend only')
     def test_list_backfills_missing_id_and_scope(self):
         # A legacy window as produced by the OLD _autopatch_sync (no id/scope/reason).
         (self.d / 'maintenance.json').write_text(json.dumps({'windows': [

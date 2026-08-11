@@ -85,6 +85,26 @@ def _fresh_api(backend=None):
 
 
 _API = _fresh_api()
+# v6.4.3: _fresh_api() POPS RP_STORAGE_BACKEND, and this call runs at IMPORT
+# time. `unittest discover` imports every test module BEFORE running anything,
+# so tearDownModule — which does restore correctly — fires far too late: by then
+# every other module's setUpClass has already read a cleared env.
+#
+# The visible cost was `make test-sqlite` re-running the whole a11y browser
+# walk. That suite skips itself under RP_STORAGE_BACKEND=sqlite because it
+# audits the rendered frontend and the backend cannot change it — but the guard
+# saw None, so the walk ran a second time, added ~7 minutes to every gate, and
+# produced a 90s selector timeout under the contention it created. That flake
+# got written off as environmental twice before anyone looked.
+#
+# So restore immediately. tearDownModule stays as the belt-and-braces for the
+# per-test mutations that follow.
+for _k, _v in _ORIG_ENV.items():
+    if _v is None:
+        os.environ.pop(_k, None)
+    else:
+        os.environ[_k] = _v
+del _k, _v
 
 # JSON-safe values the storage layer is expected to round-trip.
 _json_scalars = (st.none() | st.booleans() | st.integers(min_value=-10**15, max_value=10**15)

@@ -1864,6 +1864,7 @@
     "Median time to resolve": { "fr": "Délai médian de résolution", "de": "Mediane Zeit bis zur Behebung", "zh": "解决时间中位数", "hi": "समाधान का माध्य समय", "es": "Tiempo mediano de resolución", "ar": "الزمن الوسيط للحل" },
     "Update runs": { "fr": "Exécutions de mise à jour", "de": "Update-Läufe", "zh": "更新执行", "hi": "अपडेट रन", "es": "Ejecuciones de actualización", "ar": "عمليات التحديث" },
     "Affected / reporting": { "fr": "Affectés / rapportant", "de": "Betroffen / meldend", "zh": "受影响 / 已上报", "hi": "प्रभावित / रिपोर्टिंग", "es": "Afectados / informando", "ar": "المتأثرة / المُبلِّغة" },
+    "Flow export silence (seconds)": { "fr": "Silence d'export de flux (secondes)", "de": "Flow-Export-Stille (Sekunden)", "zh": "流导出静默（秒）", "hi": "फ़्लो एक्सपोर्ट मौन (सेकंड)", "es": "Silencio de exportación de flujos (segundos)", "ar": "صمت تصدير التدفق (بالثواني)" },
     "Ran as": { "fr": "Exécuté en tant que", "de": "Ausgeführt als", "zh": "运行身份", "hi": "इस रूप में चलाया", "es": "Ejecutado como", "ar": "تم التشغيل باسم" },
     "Command history (days)": { "fr": "Historique des commandes (jours)", "de": "Befehlsverlauf (Tage)", "zh": "命令历史（天）", "hi": "command इतिहास (दिन)", "es": "Historial de comandos (días)", "ar": "سجل الأوامر (أيام)" },
     "Command to run": { "fr": "Commande à exécuter", "de": "Auszuführender Befehl", "zh": "要运行的命令", "hi": "चलाने हेतु command", "es": "Comando a ejecutar", "ar": "الأمر المراد تشغيله" },

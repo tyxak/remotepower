@@ -60,9 +60,43 @@ Server-status **Distributed subsystems** card once sources are enrolled.
 
 The daemon re-aggregates to the top ~20 talkers/conversations per flush, and the
 server re-caps every size on ingest (never trusts the sender). Only the **latest
-rollup** plus a short (~4 h) history of totals is kept per device — this is a
-live traffic view, not a long-term flow archive. For long-term flow retention,
-export to a dedicated collector (nfdump/nfcapd, Elastiflow) in parallel.
+rollup** plus a short (**~4 minutes**) history of totals is kept per device —
+this is a live traffic view, not a long-term flow archive. For long-term flow
+retention, export to a dedicated collector (nfdump/nfcapd, Elastiflow) in
+parallel.
+
+Two consequences worth stating plainly, because they decide what can be built
+on this and what cannot:
+
+- **The cut is by BYTES.** The top-20 keeps the heaviest conversations, which is
+  the right choice for "what is saturating this link" and the wrong one for
+  security. A beacon, a lateral SSH hop or a port scan is low-byte by
+  construction and will not appear at all. Do not build a detection on this
+  data that depends on seeing small flows.
+- **Absence of a flow is not absence of traffic.** An exporter sees only
+  *routed* traffic, so same-VLAN host-to-host conversations are invisible to it
+  no matter how large.
+
+## When an exporter stops (the "export stopped" alert)
+
+A router whose export configuration, capability token or udp/2055 path breaks
+used to be **invisible**: the drawer simply kept showing its last window, and
+dependency verification slowly degraded into false "link broken" alerts about
+links that were fine.
+
+`flow_export_stale` now fires when an enrolled exporter goes quiet, and
+`flow_export_resumed` clears it. Two deliberate properties:
+
+- It only fires for an exporter that has sent **at least once**. A token created
+  while you are still configuring the router is a setup in progress, not an
+  outage.
+- The window defaults to **3 hours**, tunable under *Settings → Alert
+  parameters → Flow export silence*. It is deliberately not minutes: the daemon
+  skips empty windows, so a standby link that only carries traffic during a
+  failover is indistinguishable on the wire from a dead exporter.
+
+Server status counts silent exporters separately, so one healthy router no
+longer hides the rest behind a recent "last export" timestamp.
 
 ## Verifying declared dependencies (the "missing edge" alert)
 

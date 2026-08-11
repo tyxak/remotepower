@@ -142,6 +142,14 @@ from one that cannot.
   request for as long as any notification was held — an hour of writes, per
   request, that changed nothing — and did so without the lock, which loses a
   concurrent enqueue.
+- **Part of the SQLite test run was never testing SQLite.** One test module
+  cleared the storage-backend setting as it was imported, and the runner imports
+  every module before running any of them — so three modules quietly exercised
+  the file backend inside a run whose entire purpose was the other one, and two
+  browser suites re-ran a second time for no benefit. That cost about four
+  minutes on every gate and produced a timeout that looked like an unrelated
+  flake, twice. All of the exposed failures turned out to be test assumptions
+  rather than product faults; each now states which backend it applies to.
 - **A stopped NetFlow exporter is now noticed.** A router whose export config,
   token or udp/2055 path breaks was invisible: nothing said so, the top-talkers
   view simply froze on its last window, and dependency verification quietly

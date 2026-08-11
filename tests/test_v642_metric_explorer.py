@@ -471,6 +471,22 @@ class _RollupBase(unittest.TestCase):
 @unittest.skipUnless(_HAVE_V8, "py_mini_racer (V8) not installed")
 class TestSeriesFromRealRollupPoints(_RollupBase):
 
+    @classmethod
+    def setUpClass(cls):
+        # v6.4.3: this isolates by REBINDING api.*_FILE into a temp dir, which only
+        # works when a store is a file — under a DB backend save() targets a
+        # database keyed off DATA_DIR, not the rebound path.
+        #
+        # This ran only because test_hypothesis_props cleared
+        # RP_STORAGE_BACKEND at IMPORT time, so `make test-sqlite` silently
+        # exercised the JSON backend here and passed. Fixing that leak exposed
+        # it. Skipping is the honest state — the mechanics under test are
+        # file-backend-specific — and it is what the a11y/e2e suites already do.
+        import os as _os
+        if _os.environ.get('RP_STORAGE_BACKEND') in ('sqlite', 'postgres'):
+            raise unittest.SkipTest(
+                'isolates by rebinding *_FILE paths; JSON backend only')
+
     def _points(self):
         self._seed_metrics()
         self._seed_thermal()

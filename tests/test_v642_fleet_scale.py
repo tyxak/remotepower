@@ -122,6 +122,23 @@ class TestBoardKeepsTheWorstNotTheOldest(unittest.TestCase):
 
 
 class TestCommandHistoryIsTunableAndArchived(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        # v6.4.3: the gzip archive is a JSON-backend mechanism BY DESIGN — on a SQL
+        # backend list_append caps inside the database and there is nothing to
+        # archive, with the rows still reachable via the audit log (api.py says
+        # so at the branch). So the assertion is only meaningful file-backed.
+        #
+        # This ran only because test_hypothesis_props cleared
+        # RP_STORAGE_BACKEND at IMPORT time, so `make test-sqlite` silently
+        # exercised the JSON backend here and passed. Fixing that leak exposed
+        # it. Skipping is the honest state — the mechanics under test are
+        # file-backend-specific — and it is what the a11y/e2e suites already do.
+        import os as _os
+        if _os.environ.get('RP_STORAGE_BACKEND') in ('sqlite', 'postgres'):
+            raise unittest.SkipTest(
+                'the eviction archive is a JSON-backend mechanism by design')
     def setUp(self):
         self._arch = api.DATA_DIR / "command_history_archive.jsonl.gz"
         if self._arch.exists():

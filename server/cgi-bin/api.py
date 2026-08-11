@@ -26532,6 +26532,8 @@ def handle_config_get():
     safe.setdefault('server_name', '')
     safe.setdefault('default_poll_interval', DEFAULT_POLL_INTERVAL)
     safe.setdefault('dependency_link_alerts', False)   # v6.3.1: flow-verified depends_on alerting
+    safe.setdefault('flow_export_silence_seconds', _FLOW_SILENT_S)   # v6.4.3
+    safe.setdefault('flow_export_check_seconds', 900)                # v6.4.3
     safe.setdefault('dependency_silence_min', 30)
     safe.setdefault('online_ttl', DEFAULT_ONLINE_TTL)
     safe.setdefault('cve_cache_days', DEFAULT_CVE_CACHE_DAYS)
@@ -28139,6 +28141,13 @@ def handle_config_save():
         ('temp_alert_threshold_c',    0,   200,    True),
         ('clock_skew_threshold_ms',   0,   86400000, True),
         ('proxmox_snapshot_warn_days', 0,  3650,   True),
+        # v6.4.3: how long an enrolled NetFlow exporter may go silent before
+        # flow_export_stale fires, and how often the sweep looks. Tunable
+        # because the right silence window is a property of the FLEET: a
+        # standby link that only carries traffic during a failover is quiet
+        # for days and is perfectly healthy.
+        ('flow_export_silence_seconds', 300, 604800, True),
+        ('flow_export_check_seconds',   0,   86400,  True),
         # Fleet/device health-score grade cutoffs (score at/above → grade). The
         # dashboard paints green/amber/orange/red at these same boundaries.
         ('health_grade_good',         1,   100,    True),
