@@ -170,7 +170,7 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 - **CMDB + RAG search** — assets, an encrypted credentials vault, a
   Knowledge Base, and an AI assistant that cites *your* fleet's own data.
 - **Stay compliant** — OpenSCAP CIS/STIG/PCI scans, PCI/HIPAA/SOC 2 mapping.
-- **Integrate** — 43 connectors (homelab apps, hypervisors, and EDR — Wazuh,
+- **Integrate** — 44 connectors (homelab apps, hypervisors, and EDR — Wazuh,
   CrowdStrike, SentinelOne — cross-referenced to find hosts with no EDR at all)
   plus a code-free custom-HTTP-probe plugin, Prometheus/Grafana endpoints,
   webhooks, syslog, and an MCP server.
@@ -193,6 +193,13 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   action the server had refused, enrollment PINs documented as single-use that
   were not, "?" in push notifications — and an interface pass that found the
   icon-spacing rule matching none of the ~195 buttons it was written for.
+  Fixing the checks then found the bugs behind them: the **encryption-at-rest
+  compliance control could never pass on a Linux fleet** (it read BitLocker and
+  FileVault and nothing else), the **memory/swap/CPU saturation forecast raised
+  no alert at all**, **SMART polling woke every sleeping disk** every five
+  minutes, **143 confirmation dialogs had no name** a screen reader could
+  announce, and on multi-tenant installs an **SSO login could quietly become a
+  cross-tenant platform operator**.
 - **v6.4.2 "Ver1tyMatters"** — a truth-in-reporting release. **Per-container
   alert mutes** (silence one container without silencing its host) and a real
   container **log window**, then a long correctness pass: an adversarial audit
