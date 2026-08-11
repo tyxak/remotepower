@@ -55146,11 +55146,34 @@ def handle_security_posture():
         (DATA_DIR / 'export_sign.key').exists() or True,
         'evidence pack + audit archive carry an HMAC-SHA256 signature',
         'No action needed.')
+    # v6.4.3: grade the OUTCOME, not the configuration. This row graded
+    # `bool(offsite_dir)` — so it reported "ok" the moment a destination was
+    # configured, and kept reporting "ok" while every mirror since had FAILED.
+    # The actual result is recorded as `offsite_ok` in self_backup_state.json,
+    # two files away, by the run that just failed. A posture row that answers
+    # "is it configured?" while appearing to answer "is it working?" is the
+    # UI-that-lies class, in the one place an operator checks before trusting
+    # their disaster recovery.
     _offsite = ((cfg.get('backup') or {}).get('offsite_dir') or '').strip()
-    add('backup_offsite', 'Backups mirrored off-host', bool(_offsite),
-        _offsite or 'local-host only',
+    _bstate = load(DATA_DIR / 'self_backup_state.json') or {}
+    _off_ok = _bstate.get('offsite_ok')
+    if not _offsite:
+        _off_detail, _off_pass = 'local-host only', False
+    elif _off_ok is False:
+        # Configured AND the last attempt failed — the case that used to read
+        # as a clean pass.
+        _off_detail, _off_pass = (
+            f'{_offsite} — LAST MIRROR FAILED', False)
+    elif _off_ok is None:
+        _off_detail, _off_pass = (
+            f'{_offsite} — configured, no backup has run yet', False)
+    else:
+        _off_detail, _off_pass = _offsite, True
+    add('backup_offsite', 'Backups mirrored off-host', _off_pass, _off_detail,
         'Set an off-host backup destination (an NFS/SMB/sshfs mount) under '
-        'Settings → Maintenance → Backup, and test-restore it.', fix_tab='maintenance')
+        'Settings → Maintenance → Backup, and test-restore it. If it is already '
+        'set, check the last backup run — the mirror step reports its own '
+        'success separately from the archive.', fix_tab='maintenance')
     _cfg_enc_armed = bool(_config_master_key())
     add('config_secrets_encrypted', 'Config secrets encrypted at rest', _cfg_enc_armed,
         'armed (RP_CONFIG_KEY set)' if _cfg_enc_armed else 'plaintext at rest',

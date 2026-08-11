@@ -154,6 +154,14 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **"Backups mirrored off-host" said ok while the mirror was failing.** The
+  Security-posture row graded whether a destination was *configured*, not
+  whether the last mirror *worked* — so it turned green the moment you set a
+  path and stayed green through every subsequent failure. The result was
+  already being recorded; the row just wasn't reading it. It now distinguishes
+  working, failing, and configured-but-never-run, and when it fails it points
+  at the backup run rather than telling you to set a destination you already
+  set.
 - **A VPN clients dashboard widget** — how many WireGuard clients are connected,
   across how many tunnels. Connects and disconnects already reached the activity
   feed; what was missing was the standing count. It shows only numbers, and only
