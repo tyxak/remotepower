@@ -154,6 +154,17 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **A tenant administrator could read another tenant's stored passwords in
+  plaintext.** The CMDB credential endpoints — reveal, add, update, delete —
+  checked that you were an admin and nothing else, and `/api/cmdb/` is not
+  covered by the request-level device-scope gate that protects
+  `/api/devices/…`. Seven of the eleven device-taking CMDB endpoints already
+  scoped correctly; these four did not. The same hole existed for scope-based
+  credentials, which are matched by role scope — and a tenant admin has no
+  role scope, so every one matched. Both are fixed and both directions are
+  tested. The shared vault was no defence here: it is one passphrase for the
+  whole instance, so anyone entitled to unlock it for their own credentials
+  could read everyone's.
 - **Device profiles could set a threshold that never fires, and quietly undo
   your per-mount tuning.** A profile with a warning level *above* its critical
   level was accepted and stamped across the fleet — the warning could then

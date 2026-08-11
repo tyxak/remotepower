@@ -404,6 +404,15 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'device not found'})
+    # v6.4.3 (SECURITY): tenant + role scope. These four credential
+    # handlers were the only device-taking CMDB endpoints WITHOUT this,
+    # and `/api/cmdb/` is not covered by main()'s pre-dispatch
+    # _enforce_device_scope (that gate only matches `/api/devices/<id>/`).
+    # So a tenant-scoped admin could reveal the PLAINTEXT credential of
+    # any other tenant's device: reproduced, HTTP 200, password returned.
+    # The vault is instance-wide, so any admin entitled to unlock it for
+    # their OWN credentials could read everyone's.
+    A._scope_block_device(dev_id)
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'device not found'})
@@ -487,6 +496,15 @@ def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'device not found'})
+    # v6.4.3 (SECURITY): tenant + role scope. These four credential
+    # handlers were the only device-taking CMDB endpoints WITHOUT this,
+    # and `/api/cmdb/` is not covered by main()'s pre-dispatch
+    # _enforce_device_scope (that gate only matches `/api/devices/<id>/`).
+    # So a tenant-scoped admin could reveal the PLAINTEXT credential of
+    # any other tenant's device: reproduced, HTTP 200, password returned.
+    # The vault is instance-wide, so any admin entitled to unlock it for
+    # their OWN credentials could read everyone's.
+    A._scope_block_device(dev_id)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -553,6 +571,15 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'device not found'})
+    # v6.4.3 (SECURITY): tenant + role scope. These four credential
+    # handlers were the only device-taking CMDB endpoints WITHOUT this,
+    # and `/api/cmdb/` is not covered by main()'s pre-dispatch
+    # _enforce_device_scope (that gate only matches `/api/devices/<id>/`).
+    # So a tenant-scoped admin could reveal the PLAINTEXT credential of
+    # any other tenant's device: reproduced, HTTP 200, password returned.
+    # The vault is instance-wide, so any admin entitled to unlock it for
+    # their OWN credentials could read everyone's.
+    A._scope_block_device(dev_id)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -648,6 +675,15 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'device not found'})
+    # v6.4.3 (SECURITY): tenant + role scope. These four credential
+    # handlers were the only device-taking CMDB endpoints WITHOUT this,
+    # and `/api/cmdb/` is not covered by main()'s pre-dispatch
+    # _enforce_device_scope (that gate only matches `/api/devices/<id>/`).
+    # So a tenant-scoped admin could reveal the PLAINTEXT credential of
+    # any other tenant's device: reproduced, HTTP 200, password returned.
+    # The vault is instance-wide, so any admin entitled to unlock it for
+    # their OWN credentials could read everyone's.
+    A._scope_block_device(dev_id)
     if not cred_id.startswith('cred_') or not A._validate_id(cred_id[len('cred_'):]):
         A.respond(404, {'error': 'credential not found'})
 
@@ -1599,6 +1635,12 @@ def handle_scoped_credentials_add() -> None:
             'label': label, 'username': username, 'note': note,
             'nonce': blob['nonce'], 'ct': blob['ct'],
             'created_by': actor, 'created_at': int(time.time()),
+            # v6.4.3 (SECURITY): stamp the creating admin's tenant. These are
+            # gated by RBAC SCOPE (_caller_scope_covers_credential) and had no
+            # tenant dimension — and a tenant admin resolves to scope None, so
+            # that check passes for everything. A tenant admin could therefore
+            # REVEAL THE PLAINTEXT of any other tenant's scoped credential.
+            'tenant': A._caller_effective_tenant(actor),
         })
     A.audit_log(actor, 'scoped_credential_add',
               detail=f'{scope_type}={scope_value} cred={new_id} label={label[:40]}')
@@ -1615,11 +1657,22 @@ def handle_scoped_credentials_delete(cred_id: str) -> None:
     with A._LockedUpdate(A.SCOPED_VAULT_FILE) as store:
         creds = store.get('creds') if isinstance(store.get('creds'), list) else []
         before = len(creds)
-        store['creds'] = [c for c in creds if c.get('id') != cred_id]
+        # v6.4.3 (SECURITY): only delete a credential the caller may see —
+        # otherwise a tenant admin could remove another tenant's.
+        store['creds'] = [c for c in creds
+                          if c.get('id') != cred_id or not _scoped_cred_visible(c)]
         if len(store['creds']) == before:
             A.respond(404, {'error': 'credential not found'})   # SystemExit aborts save
     A.audit_log(actor, 'scoped_credential_delete', detail=f'cred={cred_id}')
     A.respond(200, {'ok': True})
+
+
+def _scoped_cred_visible(cred) -> bool:
+    """Whether the caller may see/use this scoped credential under tenancy.
+    No-op (True) for a superadmin and when tenancy is off — the same shape as
+    _profile_visible and the smart-group gate."""
+    gate = A._tenant_gate()
+    return gate is None or (cred.get('tenant') or A.DEFAULT_TENANT) == gate
 
 
 def handle_scoped_credentials_list() -> None:
@@ -1634,6 +1687,8 @@ def handle_scoped_credentials_list() -> None:
         if not isinstance(c, dict):
             continue
         if not A._caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value')):
+            continue
+        if not _scoped_cred_visible(c):
             continue
         m = A._scoped_cred_meta(c)
         m['applies_to'] = sum(1 for d in devices.values()
@@ -1663,7 +1718,9 @@ def handle_scoped_credentials_reveal(cred_id: str) -> None:
         A.respond(404, {'error': 'credential not found'})
     key, _meta = A._cmdb_require_unlocked()
     cred = next((c for c in A._scoped_creds_load()['creds'] if c.get('id') == cred_id), None)
-    if not cred:
+    if not cred or not _scoped_cred_visible(cred):
+        # 404, not 403 — a tenant admin must not be able to probe for the
+        # existence of another tenant's credential ids.
         A.respond(404, {'error': 'credential not found'})
     if not A._caller_scope_covers_credential(cred.get('scope_type'), cred.get('scope_value')):
         A.respond(403, {'error': 'this credential is outside your role scope'})

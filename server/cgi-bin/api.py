@@ -16739,8 +16739,12 @@ def handle_tenancy_readiness():
                  'when database-level isolation is on.'},
         {'key': 'tickets', 'label': 'Tickets', 'isolated': False, 'layer': 'none',
          'note': 'Single shared store — not tenant-partitioned at any layer.'},
-        {'key': 'cmdb', 'label': 'CMDB assets & credentials', 'isolated': False,
-         'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'cmdb', 'label': 'CMDB assets & credentials', 'isolated': True,
+         'layer': 'app',
+         'note': 'Records are keyed by device id, so each one inherits its '
+                 "device's tenant and every handler gates on it. The store "
+                 'itself is one document (no row-level partition), so a '
+                 'superadmin restoring a backup restores every tenant.'},
         {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': False,
          'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
         {'key': 'audit', 'label': 'Audit log', 'isolated': False, 'layer': 'none', 'deliberate': True,

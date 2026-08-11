@@ -3788,8 +3788,21 @@ class TestTenancyReadiness(_HandlerBase):
 
     def test_singleton_stores_never_isolated_regardless_of_flags(self):
         # The real remaining gap: turning tenancy on must not make these look
-        # covered — tickets/CMDB/billing/audit/roles are single shared stores
-        # at every layer, flags or no flags.
+        # covered — tickets/billing/audit/roles are single shared stores at
+        # every layer, flags or no flags.
+        #
+        # CMDB LEFT THIS LIST IN v6.4.3. It was never quite in the same
+        # category: its records are keyed by DEVICE id, so each inherits its
+        # device's tenant, and seven of the eleven device-taking handlers
+        # already gated on it. The four that did not — credential add, update,
+        # delete and REVEAL — let a tenant admin read another tenant's
+        # plaintext passwords, and are gated now. The remaining caveat is at
+        # the STORE level (one document; a restore restores every tenant), and
+        # the readiness note says exactly that rather than the flat
+        # "not tenant-partitioned at any layer" it used to.
+        #
+        # This is the stale-premise class: a test that pins a LIMITATION keeps
+        # passing after the limitation lifts, and starts reading as intent.
         api.save(api.CONFIG_FILE, {'tenancy_enforced': True, 'tenancy_rls': True})
         orig = api._tenancy_rls_active
         api._tenancy_rls_active = lambda: True
@@ -3797,10 +3810,18 @@ class TestTenancyReadiness(_HandlerBase):
             r = self._get()
         finally:
             api._tenancy_rls_active = orig
-        for key in ('tickets', 'cmdb', 'billing', 'audit', 'roles'):
+        for key in ('tickets', 'billing', 'audit', 'roles'):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertFalse(store['isolated'], key)
             self.assertEqual(store['layer'], 'none', key)
+        cmdb = next(s for s in r['stores'] if s['key'] == 'cmdb')
+        self.assertTrue(cmdb['isolated'], 'CMDB records are device-keyed and '
+                                          'every handler gates on the device')
+        self.assertEqual(cmdb['layer'], 'app')
+        self.assertIn('one document', cmdb['note'],
+                      'the store-level caveat must still be disclosed — a '
+                      'superadmin reads this to decide what tenancy covers, '
+                      'and a backup restores every tenant')
 
     def test_audit_and_roles_flagged_deliberate_not_a_gap(self):
         r = self._get()
