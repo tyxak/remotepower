@@ -2170,7 +2170,11 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
         # traceback — enrollment 400/403s are operator-actionable.
         detail = ''
         try:
-            detail = (json.loads(e.read().decode('utf-8')) or {}).get('error', '')
+            # v6.4.3: cap it. This is a NETWORK body on the enrol path — the one
+            # request made before the server is trusted — and it was the only
+            # uncapped read left in either agent. Same bound the success path
+            # already uses.
+            detail = (json.loads(e.read(MAX_JSON_RESP).decode('utf-8')) or {}).get('error', '')
         except Exception:
             pass
         raise RuntimeError(f'server returned HTTP {e.code}'
