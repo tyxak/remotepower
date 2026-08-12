@@ -343,6 +343,18 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **The device drawer offered "Copy summary" twice.** Two buttons, identical
+  labels, side by side in the same grid, calling different functions: one
+  copied seven basic lines, the other the rich summary with CPU, RAM, uptime
+  and load — the one v6.4.2 had fixed after finding it read three sysinfo keys
+  the heartbeat sanitizer never stores. Nothing on screen distinguished them.
+  The leftover is gone.
+- **28 quick actions with no way to narrow them.** The drawer's action grid
+  now has a filter, which appears only once there are enough actions to be
+  worth one — an agentless host renders far fewer, and there the box hides
+  *and clears itself*, because a hidden control that is still filtering leaves
+  you looking at three buttons with nothing explaining why. The filter survives
+  a re-render, so stepping to the next host with `[` / `]` keeps it applied.
 - **The artifact most people actually run was the unsigned one.** The release
   tarball has been GPG-signed since v4.6.0 — checksum, detached `.asc`, AUR
   packages PGP-verifying it at build time, agents able to refuse an unsigned

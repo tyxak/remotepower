@@ -22855,27 +22855,6 @@ async function snoozeDeviceAlerts(devId, name) {
   else toast(data?.error || 'Failed to snooze', 'error');
 }
 
-// D34: copy a one-paste device summary (name/IP/OS/version/group/tags) for tickets.
-function _copyDeviceSummary(d) {
-  d = d || _drawerDeviceData || {};
-  const lines = [
-    `Device: ${d.name || d.id || ''}`,
-    (d.hostname && d.hostname !== d.name) ? `Hostname: ${d.hostname}` : '',
-    d.ip ? `IP: ${d.ip}` : '',
-    d.os ? `OS: ${d.os}` : '',
-    d.version ? `Agent: ${d.version}` : '',
-    d.group ? `Group: ${d.group}` : '',
-    (d.tags && d.tags.length) ? `Tags: ${d.tags.join(', ')}` : '',
-  ].filter(Boolean);
-  const text = lines.join('\n');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(
-      () => toast('Device summary copied', 'success'),
-      () => toast('Copy failed', 'error'));
-  } else {
-    toast('Clipboard unavailable in this browser', 'error');
-  }
-}
 
 function _renderDrawerActions() {
   const id   = _drawerDeviceId;
@@ -22891,7 +22870,6 @@ function _renderDrawerActions() {
     ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
     ['power',     'Power (PDU)',     () => { closeDeviceDrawer(); openPduModal(id, name); },                                                                                      false, false],
     ['zap',       'UPS dependency',  () => { closeDeviceDrawer(); openUpsDependencyModal(id, name); },                                                                             false, false],
-    ['copy',      'Copy summary',    () => _copyDeviceSummary(d),                                                                                                                  false, false],
     ['star',      _pinnedDevices().includes(id) ? 'Unpin device' : 'Pin device', () => toggleDevicePin(id, name),                                                                  false, false],
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
@@ -22931,11 +22909,53 @@ function _renderDrawerActions() {
     .map(([iconName, label, fn, danger]) => {
       const key = `da_${Math.random().toString(36).slice(2)}`;
       _drawerActMap.set(key, fn);
-      return `<button class="drawer-action-btn${danger ? ' danger' : ''}" data-drawer-act="${key}">
+      // data-act-label carries the searchable text: the button's own text node
+      // sits inside a <span> next to an icon <span>, and matching on
+      // textContent would also match the SVG's whitespace.
+      return `<button class="drawer-action-btn${danger ? ' danger' : ''}" data-drawer-act="${key}" data-act-label="${escAttr(label.toLowerCase())}">
         <span class="drawer-action-icon">${_icon(iconName, 18)}</span>
         <span>${escHtml(label)}</span>
       </button>`;
     }).join('');
+  _drawerActionFilter();   // re-apply a filter that survived a re-render
+}
+
+// v6.4.3: 28 quick actions is more than anyone scans. The filter narrows them
+// as you type, and hides itself below a threshold where reading the grid is
+// faster than reaching for a search box.
+//
+// (The long-standing backlog item scoped this as "must force-load all tabs",
+// which was true of a drawer that had many; it has had two since, and Actions
+// is the default. The grid, not the tabs, was the thing worth filtering.)
+const _DRAWER_FILTER_MIN_ACTIONS = 12;
+
+function _drawerActionFilter() {
+  const grid = document.getElementById('drawer-actions-grid');
+  const wrap = document.getElementById('drawer-action-filter-wrap');
+  const box = document.getElementById('drawer-action-filter');
+  if (!grid || !wrap || !box) return;
+  const btns = Array.from(grid.querySelectorAll('[data-act-label]'));
+  // An agentless host renders far fewer actions, so the box hides. Clear it on
+  // the way out: a hidden control that is still filtering leaves the operator
+  // staring at three buttons with nothing on screen explaining why.
+  const tooFew = btns.length < _DRAWER_FILTER_MIN_ACTIONS;
+  if (tooFew && box.value) box.value = '';
+  wrap.classList.toggle('d-none', tooFew);
+  const q = (box.value || '').trim().toLowerCase();
+  let shown = 0;
+  btns.forEach(b => {
+    const hit = !q || (b.dataset.actLabel || '').includes(q);
+    b.classList.toggle('d-none', !hit);
+    if (hit) shown++;
+  });
+  const none = document.getElementById('drawer-action-filter-none');
+  if (none) none.classList.toggle('d-none', shown > 0 || !q);
+}
+
+function clearDrawerActionFilter() {
+  const box = document.getElementById('drawer-action-filter');
+  if (box) { box.value = ''; box.focus(); }
+  _drawerActionFilter();
 }
 
 async function _drawerAdjustPoll() {
