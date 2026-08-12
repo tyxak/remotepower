@@ -63,7 +63,6 @@ HTTP target must be a full URL (https://host/path)
 Host summary copied — paste it anywhere
 Job added — have it curl the ping URL when it finishes
 Key rotated — the old key is now inactive
-LAN discovery schedule created.
 Link copied — opens straight to this device view
 Listen port must be a whole number 1–65535
 Listing archives at the destination…
@@ -116,99 +115,56 @@ Preview the waves first
 Price per unit, excluding VAT
 Print target missing
 Probing — this can take a while for many targets
-Profile assigned
 Proposal failed — is the AI executor module enabled?
-Provide an SSH key or password
-Provisioning command queued.
 Pull this backup back and OVERWRITE the restore path. Enter the absolute directory on the host to restore into:
 Quantity (e.g. hours or units)
-Quantity and price must be numbers
-Query duplicated
-Queued
 Queued — follow it on Rollouts → Recent jobs
 Recovery bundle exported — store it off this machine
-Refreshing KEV/EPSS feeds…
 Reindex:
 Reject this MCP write action. Optional note:
-Rejected
 Remove every finished scan (done / failed / cancelled) and all of their findings? This cannot be undone.
-Remove this destination?
-Remove this email route?
-Removed from the catalog
 Removes the KMIP activity history. The clear itself is recorded
-Rename query:
 Reset all monitor alert state? This allows alerts to re-fire.
 Reset the dashboard to its default layout?
-Reset to default — Save to apply
 Restart dispatched — reconnecting…
-Restart scheduled
-Restore path must be absolute
 Restore queued — output appears in the device command history
-Restored — this line alerts again
-Resumed update alerts
 Reveal failed:
 Reveal still refused after checkout — check the audit log.
 Revoke ALL sessions? Everyone (including you) will need to log in again.
 Revoke failed:
 Revoke this session? That browser/device will be signed out.
 Rotation failed:
-Rule added (disabled) — review then enable
-Rule already exists
 Rule queued — applies on the next agent check-in
-Run a query first
 SLO object not found — refresh and retry
 Satellite name (e.g. dmz-relay):
 Saved as the default for new tunnels.
 Saving & pushing spans…
-Scan failed
-Schedule created.
 Schedule fired — scan(s) queued.
 Scope value required for
 Scope value, label and password are required.
-Script body is required
 Script flagged as dangerous — tick the box to confirm
-Script inserted — review before saving
-Script name is required
 Search and pick a device above first.
 Search and pick a device first (or use a verified target’s Schedule button).
 Search error:
 Search for and pick a device
 Select a
 Send a test email via your SMTP to confirm outbound delivery works:
-Send failed
-Sending test entry…
-Sending…
 Set a default SSH username first (Settings → Security → SSH preferences)
 Set up the CMDB vault first (Fleet → CMDB), then unlock it here.
 Sign out all other sessions? Only this browser will stay signed in.
 Signing key generated — now distribute the public key to agents
 Silence this exact (host, event) for how many hours?
-Silence window must be 1–1440 minutes
 Site id to quote for (see the Sites page).
 Skipped:
-Snapshot deletion queued.
 Snapshot deletion queued:
-Specify at least one event or severity
 Staged rollout needs at least one ring (e.g. "canary = tag:canary")
-Start time is required
 Starting DSM upgrade over SSH…
-Status token generated
-Stored in vault (encrypted)
-Subject and cron are required
-Subject required
 Swap the live configuration for this snapshot? The current state is saved as a revision first, so you can restore back.
 Tags to ADD (comma-separated, leave blank for none):
 Tags to REMOVE (comma-separated, leave blank for none):
 Target % must be between 0 and 100 (exclusive)
 Target added — publish the proof shown, then Verify.
 Target node to migrate to:
-Target not found
-Task not found
-Template not found
-Test failed (no response)
-Test webhook sent successfully!
-Testing IMAP…
-That device is not enrolled
 That module is switched off (Settings → Advanced).
 The AI module is not loaded
 The agent ran but found no DNS credentials in acme.sh on that host.
