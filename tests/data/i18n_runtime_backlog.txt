@@ -46,11 +46,7 @@ Confirmation text does not match
 Copy failed — clipboard blocked
 Copy failed — your browser may block clipboard access on http://
 Copy this dashboard layout code:
-Could not build share code
-Could not copy — select the text manually
-Could not determine the signed-in account
 Could not enable notifications:
-Could not load the article
 Cron filled — adjust if needed, then save.
 Cron needs 5 fields (min hour day month weekday)
 Current config loaded from agent
@@ -69,37 +65,13 @@ Enter a cron expression (e.g. 0 3 * * *).
 Enter a cron schedule (or disable the schedule)
 Enter a cron schedule (or untick Email on schedule)
 Enter a device, group, or tag
-Enter a domain or IP.
-Enter a group or tag name
-Enter a name for this appliance
-Enter a name to check
-Enter a name to monitor
-Enter a name to resolve
-Enter a number from the list
 Enter a process and/or proto/port
 Enter a subnet, e.g. 192.168.1.0/24.
 Enter a tag or group value
-Enter a valid domain name
-Enter a valid email address
-Enter an IPv4 or IPv6 address to ban.
-Enter at least one hostname or IP
 Enter hours between 0.25 and 8760, or leave blank for permanent
-Enter one or more package names to remove
-Enter the exact snapshot name to delete
-Enter your admin password to confirm this security downgrade.
 Enter your admin password to confirm — this signature is what every agent trusts.
-Enter your password or a 2FA code
-Enter your password to disable 2FA:
-Enter your password. This invalidates your existing codes.
 Every device carrying this tag is updated in one operation.
 Expiry must be a future date
-Failed to clear container data
-Failed to fetch JSON payload
-Failed to load SNMP config
-Failed to load inbound webhooks
-Failed to queue the update.
-Failed to save SLA targets
-Failed to save positions — they may not survive refresh
 Feedback saved — it sharpens future triage
 File exceeds the 8 MB upload limit
 File too large (max 1 MB)
