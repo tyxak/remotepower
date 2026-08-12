@@ -30,6 +30,7 @@ sFlow v5 (packet sampling) IS parsed too — flow_parse dissects the sampled
 headers (Ethernet -> IPv4/IPv6 -> TCP/UDP) and scales by the sampling rate.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -233,6 +234,16 @@ def _aggregate(records):
     }
 
 
+def _token_ref(token):
+    """A stable, non-reversible short id for an ingest token, for log lines.
+
+    Correlating a failure to an exporter needs an identifier, not the
+    credential. Six hex characters of sha256 are enough to tell two exporters
+    apart in a log and carry nothing an attacker can use.
+    """
+    return hashlib.sha256(str(token).encode('utf-8', 'replace')).hexdigest()[:6]
+
+
 def _post(token, agg):
     url = f'{SERVER_URL}/api/flow/in/{token}'
     body = json.dumps(agg).encode()
@@ -245,7 +256,14 @@ def _post(token, agg):
             r.read()
         return True
     except Exception as e:
-        log.warning('flow POST failed for token …%s: %s', str(token)[-6:], e)
+        # v6.4.3: log a DERIVED id, never a slice of the credential itself. The
+        # previous form printed the token's last six characters so an operator
+        # could tell which exporter failed — a real need, met by writing part of
+        # a live credential into a log file that is rotated, shipped and read by
+        # people who are not entitled to the token. A truncated sha256 gives the
+        # same correlation with nothing to replay. Its sibling receiver logs no
+        # token at all, so this was also the odd one out.
+        log.warning('flow POST failed for token#%s: %s', _token_ref(token), e)
         return False
 
 

@@ -9920,6 +9920,10 @@ _ALERT_IDENTITY_FIELDS = (
     # the one row and left the other resource with NO open alert (invisible).
     'dep_edge',
     'ticket_id',
+    # v6.4.3: sweep_failing fires per SWEEP LABEL, across ~33 maintenance
+    # sweeps, and carries no device_id. Without this, two failing sweeps
+    # coalesce into one row that cannot even say which sweep it is about.
+    'sweep',
     # v6.4.3: ingest_source_unmappable fires per TOKEN. Without token_id here,
     # two syslog sources wired to nothing on one server coalesce into a single
     # alert row and the per-token recovery clears the one that is still broken.
@@ -11106,6 +11110,10 @@ def _record_alert(event, payload):
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
+                    # v6.4.3: the failing maintenance sweep's label —
+                    # sweep_recovered's match key, and the only thing that says
+                    # WHICH sweep the alert is about.
+                    'sweep',
                     # v6.4.3: ingest token id — ingest_source_mapped's match key.
                     'token_id',
                     # v6.4.0: TLS target port — tls_renewed's host+port match
@@ -11404,6 +11412,20 @@ def _auto_resolve_alerts(event, payload):
         # v6.2.2: nic_errors is edge-triggered per interface, so a recovery on
         # eth0 must not clear a still-erroring eth1 on the same host. Match iface.
         sub_match['iface'] = p.get('iface')
+    elif event == 'sidecar_recovered':
+        # v6.4.3: sidecar_down is edge-triggered PER UNIT (`for unit, what in
+        # want:` — syslogd, flowd, kmipd) and carries no device_id, so a
+        # device-id-only recovery matched EVERY open sidecar alert: syslogd
+        # coming back closed the alert for a flowd that was still down, and
+        # because the sweep only fires on the transition it never re-fired.
+        # The subsystem stayed dead with nothing reporting it.
+        sub_match['unit'] = p.get('unit')
+    elif event == 'sweep_recovered':
+        # v6.4.3: same shape across ~33 maintenance sweeps. A wedged sweep
+        # silently takes its feature down — which is the entire reason
+        # sweep_failing exists — so having one recovering sweep clear the rest
+        # defeated the check it was added to provide.
+        sub_match['sweep'] = p.get('sweep')
     elif event == 'ingest_source_mapped':
         # v6.4.3: ingest_source_unmappable is edge-triggered per TOKEN, and the
         # alert carries no device_id (it is about the SERVER's ingest config, and

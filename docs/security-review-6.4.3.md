@@ -272,6 +272,26 @@ Worth stating plainly: the cron was the one a scanner singled out, and the only
 difference between it and the three daemons was that they carried a suppression
 comment and it did not. The scanner was measuring annotations, not safety.
 
+### A flow receiver wrote part of a live credential into its log
+
+The network-flow receiver logs a warning when it cannot deliver a batch to the
+application, and identified which exporter had failed by printing the last six
+characters of that exporter's ingest token. The need is real — with several
+exporters enrolled, a failure message that names none of them is not much use —
+but the answer put a fragment of a working credential into a file that is
+rotated, shipped to log collectors, and read by people who are not entitled to
+the token itself.
+
+It now logs a truncated digest of the token instead: the same ability to tell
+two exporters apart in a log, with nothing that can be replayed. Its sibling
+receiver logged no token at all, so this was also the odd one out rather than a
+house style.
+
+Severity is genuinely low — six hexadecimal characters do not meaningfully
+narrow a search for the rest, and the endpoint is rate-limited — but "low" is
+not a reason to keep credential material in a log when the alternative is a
+one-line change.
+
 ### A vendored dependency was three patch releases behind on an advisory
 
 The API-reference page bundles Swagger UI, which bundles DOMPurify. The pinned
@@ -289,6 +309,35 @@ pin in every served page is now checked against the file it pins.
 
 ## What was checked and found sound
 
+- A broader pattern-based scan was run across the server, all three agents and
+  every sidecar, in addition to the tools that gate the build. It raised 38
+  findings; one was real (the credential fragment in a log, above) and the rest
+  were reviewed individually against the code and found not to apply:
+  - **Query construction (20).** All of them are schema statements whose only
+    interpolated values come from a fixed tuple of table names written in the
+    source, plus one database setting chosen between two literals. No request
+    data reaches any of them, and a table name cannot be sent as a bound
+    parameter in any case — placeholders stand where a *value* goes, never
+    where an identifier does.
+  - **File permissions (11).** Every one sets `0700` or tighter, except two:
+    the agent's own executable, which is deliberately world-readable like any
+    other program in a system binary directory and holds no secret, and a
+    scanner working directory that is already documented and annotated, whose
+    parent is `0700` and therefore not traversable by other local users.
+  - **Log content (2).** Both are the scanner matching the *word* "token" or
+    "credentials" in a message; neither statement logs any secret. One of them
+    is the line fixed above, which now emits a digest.
+  - **Unencrypted transport (2).** The agent selects a plaintext socket only
+    when the operator has explicitly configured a plaintext server address —
+    the relay-satellite-on-a-trusted-segment case — and uses TLS in every other
+    configuration. It cannot downgrade a TLS deployment.
+  - **Cipher selection (3).** Three outbound clients accept the language
+    runtime's default cipher list rather than pinning one. The default excludes
+    everything currently considered weak and tracks upstream, which pinning
+    would stop it doing.
+  These are recorded here rather than annotated away in the source, so the next
+  run of the same scan re-raises them and they get re-read against the code as
+  it is then, instead of inheriting a judgement made today.
 - No credential, token or secret is exposed by any of the issues above, and
   none of them permitted a state change.
 - The recurring weakness classes were re-checked against current code rather

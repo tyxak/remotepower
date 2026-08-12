@@ -51,6 +51,20 @@ from one that cannot.
   Methods are taken from what each handler enforces, not guessed. The standing
   note put this gap at ~48 paths; measured, it was nine, three of which were
   the duplicate-naming artefact.
+- **Two recovery events closed alerts that were still true.** A recovery with
+  no per-resource match falls back to matching on device id — and for events
+  about the server itself there is no device id, so it matched every open alert
+  of its kind. `sidecar_down` fires per unit: with syslogd and flowd both down,
+  syslogd coming back closed flowd's alert too, and since the watch is
+  edge-triggered on a stored mark it never re-fired — the receiver stayed dead
+  with nothing reporting it. `sweep_failing` fires per sweep across ~33
+  maintenance sweeps and had the same fault, plus the sweep's name was in
+  neither the alert identity nor the stored payload, so the row could not say
+  which sweep had failed. Both now carry all three legs of the contract. Found
+  by auditing all 86 recovery events and driving the ones whose firing site
+  loops; two further candidates were rejected on inspection — KMIP certificate
+  expiry and secret exposure each fire ONE aggregate event for a whole set, so
+  a per-item match there would never fire at all.
 - **An ingest source wired to nothing now raises an alert.** Neither receiver
   is addressed by its token: `remotepower-syslogd` and `remotepower-flowd` both
   map an incoming datagram to a token by the sender's source IP, looked up
