@@ -219,23 +219,17 @@ class TestEagerJsPayload(unittest.TestCase):
         self.assertNotIn('static/js/i18n.js', srcs)
         # Sanity: the remaining eager set must still contain the app itself.
         self.assertIn('static/js/app.js', srcs)
-        # v6.4.3: 2_600_000 -> 2_610_000. This release added three features that
-        # live in eager modules (the instance-wide session view, the drawer
-        # action filter, the WireGuard inbound diagnosis) and app.js grew ~25 KB.
-        #
-        # Raising a ratchet because your own change broke it is a bad habit, so
-        # the alternative was examined first: move a large eager module to the
-        # existing lazy mechanism. app-integrations.js (57 KB) is the best
-        # candidate — no load-time code, nothing referenced from static HTML —
-        # but app.js calls three of its renderers from the DEVICE DRAWER, which
-        # is not page-scoped, so it does not fit _LAZY_PAGE_MODULES as it
-        # stands. Doing that properly is real work and rushing it to reclaim
-        # 1 KB risks a blank drawer for OPNsense/RouterOS/Synology hosts.
-        #
-        # So: raised by the smallest amount that admits the new features, and
-        # the lazy migration is recorded as open work rather than pretended
-        # away. This is still a RATCHET — it may only move for a stated reason.
-        self.assertLess(total, 2_610_000,
+        # v6.4.3: the budget came back DOWN, to 2_570_000. It had been raised
+        # to 2_610_000 earlier this release with the lazy migration recorded as
+        # open work — and then that headroom was spent to 435 bytes, which is
+        # where a soft budget always ends up. app-integrations.js (57 KB) is now
+        # lazy: its three device-drawer renderers await the module explicitly
+        # (the drawer is not page-scoped, so _LAZY_PAGE_MODULES alone could not
+        # cover them), and every other entry point reaches it through the
+        # data-action dispatcher, which already loads the remaining modules and
+        # replays the click. Verified by enumerating every direct call into the
+        # module from eager code — three, all guarded — not by assuming.
+        self.assertLess(total, 2_570_000,
                         'the eager JS payload regressed past its budget')
 
 

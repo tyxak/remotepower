@@ -51,6 +51,20 @@ from one that cannot.
   Methods are taken from what each handler enforces, not guessed. The standing
   note put this gap at ~48 paths; measured, it was nine, three of which were
   the duplicate-naming artefact.
+- **57 KB came off the eager JavaScript payload, and the budget came back
+  down.** The eager-JS ratchet was raised earlier this release to admit three
+  new features, with the alternative — moving a large module to on-demand
+  loading — recorded as open work because it looked risky. That headroom was
+  then spent down to 435 bytes, which is where a soft budget always ends up.
+  The integrations module now loads on demand: its three device-drawer
+  renderers await it explicitly, because the drawer is not page-scoped and
+  page registration alone would have left those tabs blank for exactly the
+  vendor devices they exist for; everything else reaches it through the action
+  dispatcher, which already loads remaining modules and replays the click.
+  Every direct call from eager code was enumerated rather than assumed, and the
+  result was checked in a real browser — the module must not be fetched at boot
+  and must become live when reached. The ratchet is now *lower* than before the
+  raise.
 - **Two recovery events closed alerts that were still true.** A recovery with
   no per-resource match falls back to matching on device id — and for events
   about the server itself there is no device id, so it matched every open alert

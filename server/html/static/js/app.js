@@ -2388,6 +2388,12 @@ const _LAZY_PAGE_MODULES = {
   billing: ['app-billing.js'],
   users: ['app-billing.js'],        // loadTimesheetWatchers lives there
   trends: ['app-trends.js'],        // metric explorer card
+  // v6.4.3: 57 KB moved off the eager path. Its three drawer renderers await
+  // the module explicitly (see _renderRouterosCard's call site) because the
+  // device drawer is not page-scoped; everything else reaches it through the
+  // data-action dispatcher, which already loads the remaining modules and
+  // replays the click on an unknown action.
+  integrations: ['app-integrations.js'],
 };
 const _ALL_LAZY_MODULES = [...new Set(Object.values(_LAZY_PAGE_MODULES).flat())];
 const _loadedJsModules = new Set();
@@ -24642,18 +24648,25 @@ async function _loadAuditSection(key) {
       }
 
       case 'routeros': {
+        // v6.4.3: app-integrations.js is lazy now. The drawer is NOT
+        // page-scoped, so it cannot rely on _LAZY_PAGE_MODULES — it awaits the
+        // module itself. Without this the tab renders blank for exactly the
+        // vendor devices the tab exists for.
+        await _loadJsModule('app-integrations.js');
         const data = await api('GET', `/devices/${id}/routeros`);
         _renderRouterosCard(body, badge, data || {});
         break;
       }
 
       case 'opnsense': {
+        await _loadJsModule('app-integrations.js');   // see 'routeros' above
         const data = await api('GET', `/devices/${id}/opnsense`);
         _renderOpnsenseCard(body, badge, data || {});
         break;
       }
 
       case 'synology': {
+        await _loadJsModule('app-integrations.js');   // see 'routeros' above
         await _renderSynologyCard(body, badge);
         break;
       }
