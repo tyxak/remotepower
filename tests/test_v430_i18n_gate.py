@@ -599,6 +599,19 @@ def _runtime_strings():
                 t = m.group(1).strip()
                 if '${' in t or '<' in t or len(t) < 4 or not re.match(r'^[A-Z]', t):
                     continue
+                # v6.4.3: skip CONCATENATION FRAGMENTS. A literal that is glued
+                # to the next one — `toast('Enter a ' + type)`, or a sentence
+                # split over two lines with a trailing `+` — never renders on
+                # its own, so it is not a translatable unit. DICT is keyed on
+                # the rendered text node; a translation for half a sentence
+                # matches nothing, and the operator still sees English.
+                #
+                # The tell is the trailing space the author had to write to
+                # keep the words apart. The first extraction lacked this and
+                # recorded seven fragments as debt, three of them ending
+                # mid-sentence on an em dash.
+                if m.group(1) != m.group(1).rstrip():
+                    continue
                 out.add(t)
     return out
 

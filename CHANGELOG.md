@@ -388,6 +388,21 @@ from one that cannot.
   peer once the interface comes back, so an inference reading that field would
   accuse a perfectly healthy tunnel after every reboot, and a warning that is
   wrong that often is one operators learn to ignore.
+- **Every runtime string the product shows is now translated in all six
+  languages.** The i18n gate had never opened an `app*.js` file for the strings
+  those files pass to `toast()`, `uiConfirm()` and the empty-state helpers —
+  the text an operator reads at the exact moment something succeeds, fails, or
+  asks to be confirmed. 537 of them had no translation. All 680 do now, and
+  the recorded-debt file is empty: a new untranslated toast fails the build
+  outright rather than being absorbed into a backlog.
+
+  The last seven entries turned out not to be strings at all. They were
+  concatenation fragments — `toast('Enter a ' + type)`, and sentences split
+  across two literals, three of them ending mid-clause on an em dash. A
+  fragment never renders on its own, so a translation for it would match
+  nothing and the operator would still see English. The extractor now skips
+  any literal whose trailing space shows it is glued to the next one, which is
+  a fix to the instrument rather than 61 more translations.
 - **Six UI strings this release added were English-only in the other six
   languages.** Caught by the i18n gate rather than by a reader, which is the
   point of having it.
