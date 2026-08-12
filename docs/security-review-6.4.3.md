@@ -183,6 +183,76 @@ tested. Our compliance mapping claimed test-restore verification of the
 off-host copy; that claim is now true, and the mapping records that it
 previously was not.
 
+### The control plane was the one host never graded on encryption at rest
+
+Every managed machine was scored on disk encryption. The machine doing the
+scoring was not — the one holding every device token, the credential vault, the
+API-key hashes and the disaster-recovery backups, where a disk that leaves the
+building hands over the whole fleet at once. An operator could have obtained the
+answer by enrolling the server as a managed device, but the installer does not
+do that and no document suggested it, so having the answer depended on somebody
+thinking of the question.
+
+It is now a graded item on the security-posture page, and deliberately
+three-valued. Inside a container the mount table describes the container and the
+host's disks are not visible; reporting "unencrypted" there would manufacture a
+finding out of a blind spot, so it reports that it cannot tell and says to check
+the host. The installer prints the same verdict at the point it is cheapest to
+act on, and only when the answer is a definite no.
+
+### Container images were the unsigned half of a signed release
+
+Release tarballs have been checksummed and GPG-signed since v4.6.0, with the
+packaging verifying that signature at build time. The container image — which is
+how most people actually run this — carried build provenance and no signature.
+
+Both images are now signed at publication. The signing is keyless, and that is
+the point rather than a convenience: the reason the GPG key is generated and
+used on a workstation is that continuous integration must not hold a signing
+key, so putting one there for the images would have reintroduced exactly what
+that rule exists to prevent. Signatures are made against the image digest, not a
+tag, because a tag is a mutable pointer and signing one attests to whatever it
+points at next.
+
+The published verification command carries both the identity and the issuer
+constraints. Omitting either accepts a signature from any identity, which
+demonstrates that an image was signed without establishing by whom — a check
+that reads as one while being none, and worse than publishing nothing.
+
+### A sixth copy of the outbound-request classifier
+
+Earlier in this release five hand-written copies of the "is this address one an
+attacker would aim at" check were consolidated into a single module, after one
+of the two copies that no guard covered was found to have silently lost an
+ordering decision. A sixth copy was outside that consolidation and outside the
+guard: the certificate monitor.
+
+Its *policy* is deliberately different and stays local — it allows loopback and
+private addresses, because inspecting an internal or same-host certificate is
+the feature and the probe reads certificate metadata only. What it should never
+have owned is the policy-free half: the encodings that smuggle an IPv4 address
+past an IPv6 check, and the list of cloud metadata endpoints. Those are facts
+about the internet rather than choices, they are the part an attacker probes,
+and a second copy is a second thing to update when a new encoding appears.
+
+The shared module now supplies both. Behaviour was captured across twenty-eight
+addresses before the change — loopback, private, unique-local, link-local,
+unspecified, multicast, public, all three wrapped forms of the metadata address,
+all three wrapped forms of loopback, and unparseable input — and is identical
+after. The drift guard now covers it, and the two modules that legitimately
+classify under a different policy are recorded with the reason each differs: an
+undocumented exemption is indistinguishable from an oversight, which is what
+this one had become.
+
+### Reporting an action as taken when the target cannot take it
+
+A backup job spanning a mixed fleet ran on the hosts that support it, returned a
+success count, and never mentioned the ones it had skipped. The refusal existed
+and was reported only in the case where *every* target was unsupported, so a
+partial run was indistinguishable from a complete one. This is the same class as
+the platform refusals fixed earlier in the release, one layer further out, and
+it is now reported on the success path as well.
+
 ## What was checked and found sound
 
 - No credential, token or secret is exposed by any of the issues above, and
@@ -197,7 +267,25 @@ previously was not.
   container with no credential, cannot be reached from a production install,
   and introduces nothing into a release artifact.
 - Static analysis reports no new findings across the server, all three agents
-  and the sidecar daemons.
+  and the sidecar daemons. Re-run after the third pass: the code-scanning suite
+  reports nothing in either language; the secret scanner reports nothing across
+  the full history; and the Python analyser reports nothing new against its
+  baseline, with no high-severity finding anywhere in it.
+- The nine analyser findings that appeared during the third pass were all one
+  pattern in one file, and all of it pre-existing code that had been *moved*
+  during a refactor — the baseline records line numbers, so relocating a
+  function reports it as new. Each was confirmed to be the deliberate
+  "recording an event must never fail the request" shape, with the success
+  response correctly outside the guarded block. The baseline was regenerated
+  only after that check, not before it.
+- Credential ciphertext was traced across every read path rather than assumed
+  contained. Unlocking the vault returns a key derived from the operator's
+  passphrase, and that endpoint admits any authenticated role — so the question
+  is whether a low-privilege caller can also obtain ciphertext to use it on.
+  Every list and detail path strips the encrypted fields, revealing plaintext is
+  separately role- and scope-checked and audited in both directions, and the one
+  place outside the module that reads the store takes a port number. The key
+  alone is not usable through the API.
 
 ## Verification
 
