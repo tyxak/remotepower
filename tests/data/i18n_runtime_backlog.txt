@@ -21,23 +21,15 @@ An archive is already running — cancel it first
 An unsaved draft of this article exists
 An unsaved draft of this script exists
 Apply the previewed configuration changes? This overwrites the affected config collections.
-Approve failed:
 Ask a question about your fleet
 At least one column must stay visible
 Audit log cleared (pre-wipe archive saved)
 Auto-patch will hold this package back on Linux hosts, pinning it immediately
 Billable hours need a customer (site) or a device
-Break-glass request
 Browser notifications are blocked for this site
 CIDR must look like 10.0.0.0/24 or 2001:db8::/48
-CMDB vault passphrase:
 Change submitted — awaiting approval by another admin (Confirmations page)
 Change your password first — every other action is blocked.
-Checking DNS records…
-Checking OPNsense for updates…
-Checking RouterOS for updates…
-Checking blocklists…
-Checkout failed:
 Choose a .p12 / .pfx file first
 Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.
 Clear all command history? This cannot be undone.
@@ -65,17 +57,13 @@ Current config loaded from agent
 Current config loaded — review and click Save to apply as desired
 DKIM selector to check (e.g. "google", "default"), or leave blank:
 DNS blocker refused the change
-DSM upgrade started
 Demo mode — read-only sandbox. Nothing was changed.
-Describe a schedule first
 Describe the rule in plain English:
 Describe what the script should check
 Describe what the script should do
 Describe what the script should do:
-Domain added — checking…
 Domain to monitor (e.g. example.com):
 Dry-run sent — waiting for the agent…
-Email sent to
 Enter a
 Enter a cron expression (e.g. 0 3 * * *).
 Enter a cron schedule (or disable the schedule)
@@ -113,7 +101,6 @@ Failed to queue the update.
 Failed to save SLA targets
 Failed to save positions — they may not survive refresh
 Feedback saved — it sharpens future triage
-Fetching reports from IMAP…
 File exceeds the 8 MB upload limit
 File too large (max 1 MB)
 File too large to download through the agent channel (first 256 KiB only)
@@ -129,12 +116,7 @@ HTTP target must be a full URL (https://host/path)
 Host and remote path are required
 Host summary copied — paste it anywhere
 Hours must be greater than 0
-IP added — checking…
-Import failed:
-Invalid JSON step:
-Invalid exclude regex:
 Job added — have it curl the ping URL when it finishes
-Key generation failed:
 Key rotated — the old key is now inactive
 Kill failed (no response)
 LAN discovery schedule created.
