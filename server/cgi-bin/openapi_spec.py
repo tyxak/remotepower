@@ -1159,6 +1159,100 @@ def _path_virt() -> dict[str, Any]:
     }
 
 
+def _path_ingest() -> dict[str, Any]:
+    """v6.4.3: the agent heartbeat and the four token-in-path ingest endpoints.
+
+    Every one of these was ABSENT from the published spec. `_dispatcher_routes`
+    reconstructs a path only when the branch carries an explicit `m == '<VERB>'`,
+    and these accept any method, so the stub pass skipped them silently — which
+    is the documented behaviour and also why nobody noticed.
+
+    They are the worst possible omissions to have. `/heartbeat` is the endpoint
+    every agent in the fleet calls, and the four ingest paths are precisely what
+    an operator integrates a syslog daemon, a webhook, an SNMP trap sink or an
+    ITSM tool against. A spec that documents 660 paths and not these is
+    complete everywhere except where someone would actually look.
+    """
+    _tok = {
+        "name": "token", "in": "path", "required": True,
+        "schema": {"type": "string"},
+        "description": ("Per-source ingest token minted in the UI. It is the "
+                        "ONLY credential on these endpoints — they are "
+                        "deliberately unauthenticated otherwise so an appliance "
+                        "that cannot send headers can still deliver."),
+    }
+    _ok = {"200": {"description": "Accepted."},
+           "400": {"description": "Malformed body."},
+           "403": {"description": "Unknown or revoked ingest token."}}
+    return {
+        "/heartbeat": {
+            "post": {
+                "tags": ["Agents"],
+                "summary": "Agent heartbeat (telemetry in, work out)",
+                "description": (
+                    "The endpoint every agent calls on its poll interval. The "
+                    "request carries the host's telemetry; the response carries "
+                    "the work queued for it — a pending command, one-shot force "
+                    "flags, agent-side check definitions and cadence hints.\n\n"
+                    "Authenticated with the device token issued at enrolment, "
+                    "sent as `X-Token`. Bodies are sanitised server-side before "
+                    "storage: fields the server does not model are dropped."),
+                "security": [{"DeviceToken": []}],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {
+                        "type": "object",
+                        "properties": {
+                            "device_id": {"type": "string"},
+                            "sysinfo": {"type": "object",
+                                        "description": "Host telemetry."},
+                            "delta": {"type": "boolean",
+                                      "description": "Body carries only fields "
+                                                     "changed since the last beat."},
+                        }}}},
+                },
+                "responses": {
+                    "200": {"description": "Work for this agent, if any."},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"description": "Unknown device."},
+                },
+            }
+        },
+        "/syslog/in/{token}": {
+            "post": {
+                "tags": ["Ingest"],
+                "summary": "Inbound syslog lines",
+                "description": ("Accepts `{lines: [...]}` OR a bare JSON array "
+                                "of lines — both shapes are supported on "
+                                "purpose, because forwarders differ."),
+                "parameters": [_tok], "responses": _ok,
+            }
+        },
+        "/snmp/trap/{token}": {
+            "post": {
+                "tags": ["Ingest"],
+                "summary": "Inbound SNMP traps",
+                "description": ("Accepts `{traps: [...]}` OR a bare JSON array."),
+                "parameters": [_tok], "responses": _ok,
+            }
+        },
+        "/webhook/in/{token}": {
+            "post": {
+                "tags": ["Ingest"],
+                "summary": "Inbound webhook from a third-party system",
+                "parameters": [_tok], "responses": _ok,
+            }
+        },
+        "/itsm/in/{token}": {
+            "post": {
+                "tags": ["Ingest"],
+                "summary": "Inbound ITSM ticket event",
+                "parameters": [_tok], "responses": _ok,
+            }
+        },
+    }
+
+
 def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None) -> dict[str, Any]:
     """Return the full OpenAPI 3.1 document.
 
@@ -1180,6 +1274,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_vault())
     paths.update(_path_auth_misc())
     paths.update(_path_virt())
+    paths.update(_path_ingest())
     _stub_operations(paths, routes)
 
     return {

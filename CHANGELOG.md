@@ -343,6 +343,16 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **The API spec documented 661 paths and not the one every agent calls.**
+  `/api/heartbeat` was absent from the published OpenAPI document, along with
+  the four token-in-path ingest endpoints an operator points a syslog
+  forwarder, a trap sink, a webhook or an ITSM tool at. The spec builder
+  reconstructs a path only when its dispatcher branch names an explicit HTTP
+  verb, and these accept any method, so they were skipped silently — a spec
+  complete everywhere except where somebody would actually look. All five are
+  now hand-written, with their credential, their failure modes, and (for the
+  two that accept either shape) the fact that a bare JSON array works as well
+  as an object.
 - **`check "?" recovered`** — reported from production over Pushover. The
   notification builders render the check's name from the event payload, and the
   two OPERATOR-TRIGGERED recover paths did not include it: disabling a failing
