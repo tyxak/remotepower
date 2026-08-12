@@ -3006,6 +3006,16 @@ def run_agentless_reachability_if_due():
                if d.get('agentless') and d.get('reachability', 'icmp') != 'manual'
                and (d.get('ip') or d.get('hostname') or d.get('host'))]
     if not targets:
+        # v6.4.3 (PERF): claim the slot on the NOTHING-TO-DO path too.
+        # The not-due gate above reads the marker this call sets — so on
+        # an install with no such devices (the common case) the marker was
+        # never written, the gate never fired, and this sweep deepcopied
+        # the ENTIRE fleet dict on every request, forever, to rediscover
+        # that it had nothing to do. Measured at 1,000 devices: ~48 ms per
+        # request per sweep. The cost of claiming here is that the FIRST
+        # such device added waits up to one interval before its first
+        # poll — the same wait every subsequent poll already has.
+        _claim_cadence_slot('last_agentless_ping', now)
         return
     _claim_cadence_slot('last_agentless_ping', now)
 
@@ -3078,6 +3088,16 @@ def run_routeros_update_check_if_due():
     targets = [(did, d) for did, d in devs.items()
                if (d.get('routeros') or {}).get('enabled')]
     if not targets:
+        # v6.4.3 (PERF): claim the slot on the NOTHING-TO-DO path too.
+        # The not-due gate above reads the marker this call sets — so on
+        # an install with no such devices (the common case) the marker was
+        # never written, the gate never fired, and this sweep deepcopied
+        # the ENTIRE fleet dict on every request, forever, to rediscover
+        # that it had nothing to do. Measured at 1,000 devices: ~48 ms per
+        # request per sweep. The cost of claiming here is that the FIRST
+        # such device added waits up to one interval before its first
+        # poll — the same wait every subsequent poll already has.
+        _claim_cadence_slot('last_routeros_update_check', now)
         return
     _claim_cadence_slot('last_routeros_update_check', now)
     import routeros as routeros_mod
@@ -60246,6 +60266,16 @@ def run_snmp_polls_if_due():
     targets = [(did, d) for did, d in devs.items()
                if _device_snmp_target(d) is not None]
     if not targets:
+        # v6.4.3 (PERF): claim the slot on the NOTHING-TO-DO path too.
+        # The not-due gate above reads the marker this call sets — so on
+        # an install with no such devices (the common case) the marker was
+        # never written, the gate never fired, and this sweep deepcopied
+        # the ENTIRE fleet dict on every request, forever, to rediscover
+        # that it had nothing to do. Measured at 1,000 devices: ~48 ms per
+        # request per sweep. The cost of claiming here is that the FIRST
+        # such device added waits up to one interval before its first
+        # poll — the same wait every subsequent poll already has.
+        _claim_cadence_slot('last_snmp_poll', now)
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
     _claim_cadence_slot('last_snmp_poll', now)

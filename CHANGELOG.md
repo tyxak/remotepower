@@ -343,6 +343,23 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **Three cadence sweeps re-scanned the whole fleet on every request, forever.**
+  Each reads a marker to decide whether it is due and writes that marker when it
+  finishes — but the write sat after an `if not targets: return` that fires when
+  the install has none of the relevant hardware. On the common install, which has
+  no SNMP gear, no RouterOS device and no agentless hosts, the marker was
+  therefore never written, the not-due gate could never fire, and each sweep
+  deepcopied the entire device store on every single request to rediscover that
+  it had nothing to do. Roughly 143 ms per request on a 1,000-device fleet, paid
+  by exactly the installs using none of the three features. The nothing-to-do
+  path now records that it ran; the only cost is that the first device of that
+  kind waits one interval for its first poll, the same wait every later poll
+  already has.
+
+  Worth noting how it was found, because three separate reading passes had
+  called these functions clean: the not-due gate is right there in the source
+  and looks correct. It took counting real `load()` calls across a driven
+  request to see the gate never firing.
 - **"Nobody can connect" now says why.** A WireGuard tunnel whose UDP port is
   not reaching the host looks exactly like one nobody has got round to using:
   the config is right, the server is up, the client imported cleanly, and no
