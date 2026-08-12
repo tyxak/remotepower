@@ -392,6 +392,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'integration_metric_recovered',          # ← integration_metric_alert (v6.4.2)
             'sweep_recovered',                       # ← sweep_failing (v6.4.2)
             'sidecar_recovered',                     # ← sidecar_down (v6.4.2)
+            # v6.4.3: an ingest token wired to nothing — the receiver is up and
+            # dropping every packet it was enrolled to catch.
+            'ingest_source_unmappable', 'ingest_source_mapped',
             'av_clean',                              # ← av_infected (+ av_warning)
             'av_realtime_on',                        # ← av_realtime_off (v6.2.0)
             'modules_visible_restored',              # ← modules_hidden (v6.2.2)

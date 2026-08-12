@@ -20,6 +20,17 @@ where a character should be. Every new guardrail here was demonstrated to FAIL
 before it was committed, because a gate nobody has seen fail is indistinguishable
 from one that cannot.
 
+- **An ingest source wired to nothing now raises an alert.** Neither receiver
+  is addressed by its token: `remotepower-syslogd` and `remotepower-flowd` both
+  map an incoming datagram to a token by the sender's source IP, looked up
+  against the enrolled device's `ip`. A token whose device has no IP, or whose
+  device was deleted, is dropped from that map and every packet it was enrolled
+  to catch is discarded — while the unit reports active and the sidecar watch
+  says nothing. `ingest_source_unmappable` (cleared by `ingest_source_mapped`)
+  fires per token, so two dead sources are two alerts and fixing one does not
+  close the other. A deliberately disabled token is never alerted on. The check
+  is pure config analysis and deliberately does **not** sit behind the sweep's
+  `systemctl` gate, which would have skipped it entirely on a container install.
 - **A status row that named a problem without naming the thing.** The Server
   status page reported "Running — 1 of 3 exporter(s) silent" and left the
   operator to work out which of three routers had gone quiet, because the

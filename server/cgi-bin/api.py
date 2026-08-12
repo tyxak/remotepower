@@ -2502,6 +2502,19 @@ EVENT_REGISTRY = {
     'sidecar_recovered': dict(
         label='A RemotePower sidecar service is running again', kind='health',
         resolves=('sidecar_down',), tags='white_check_mark,electric_plug'),
+    # v6.4.3: the sidecar being UP is not the same as its sources being reachable.
+    # Both receivers map a datagram to a token by the sender's source IP, looked
+    # up against the enrolled DEVICE's `ip`; a token whose device has no ip (or
+    # whose device was deleted) is dropped from that map, so every packet it was
+    # meant to catch is discarded while the unit reports active. Silent data loss
+    # deserves an event, not only a card on a page nobody has open at 3am.
+    'ingest_source_unmappable': dict(
+        label='A syslog/flow ingest token is wired to nothing', kind='health',
+        title='Ingest Source Wired To Nothing', severity='medium',
+        tags='warning,inbox_tray'),
+    'ingest_source_mapped': dict(
+        label='A syslog/flow ingest token can receive again', kind='health',
+        resolves=('ingest_source_unmappable',), tags='white_check_mark,inbox_tray'),
     'server_upgraded': dict(
         lifecycle='point',
         label='RemotePower itself was upgraded', kind='accounts',
@@ -9907,6 +9920,10 @@ _ALERT_IDENTITY_FIELDS = (
     # the one row and left the other resource with NO open alert (invisible).
     'dep_edge',
     'ticket_id',
+    # v6.4.3: ingest_source_unmappable fires per TOKEN. Without token_id here,
+    # two syslog sources wired to nothing on one server coalesce into a single
+    # alert row and the per-token recovery clears the one that is still broken.
+    'token_id',
     # v6.4.0: disk_predict_fail fires per DISK and software_policy_violation per
     # RULE — without these two, several failing disks (or violated rules) on one
     # host coalesced into ONE alert, so the per-disk / per-rule recovery
@@ -11089,6 +11106,8 @@ def _record_alert(event, payload):
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
+                    # v6.4.3: ingest token id — ingest_source_mapped's match key.
+                    'token_id',
                     # v6.4.0: TLS target port — tls_renewed's host+port match
                     # key (host alone would clear a sibling port's alert).
                     'port',
@@ -11385,6 +11404,14 @@ def _auto_resolve_alerts(event, payload):
         # v6.2.2: nic_errors is edge-triggered per interface, so a recovery on
         # eth0 must not clear a still-erroring eth1 on the same host. Match iface.
         sub_match['iface'] = p.get('iface')
+    elif event == 'ingest_source_mapped':
+        # v6.4.3: ingest_source_unmappable is edge-triggered per TOKEN, and the
+        # alert carries no device_id (it is about the SERVER's ingest config, and
+        # the token's device may not even exist). Match the token id, which is in
+        # _ALERT_IDENTITY_FIELDS so the rows stay separate and in _record_alert's
+        # whitelist so it is actually stored — all three legs, or fixing one dead
+        # source silently closes the others' alerts.
+        sub_match['token_id'] = p.get('token_id')
     elif event in ('snmp_if_up', 'snmp_if_relieved'):
         # v6.4.2: the same rule, and it was missed when per-port SNMP history
         # shipped. snmp_if_down and snmp_if_saturated are edge-triggered PER
@@ -69150,8 +69177,13 @@ def run_sidecar_watch_if_due():
     cfg = _config_ro() or {}
     if (now - int(cfg.get('last_sidecar_watch') or 0)) < _SIDECAR_WATCH_INTERVAL:
         return
-    if not shutil.which('systemctl'):
-        return
+    # v6.4.3: systemd is required to PROBE a unit, but not to notice that an
+    # ingest token is wired to nothing — that half is pure config analysis and
+    # must not inherit this gate. Returning here used to skip both, so on a
+    # container / non-systemd install the source-map check would never have run.
+    # (CLAUDE.md: a new check placed after an unrelated early return inherits
+    # the OLD feature's preconditions, not its own.)
+    _have_systemctl = bool(shutil.which('systemctl'))
     _claim_cadence_slot('last_sidecar_watch', now)
 
     # Only watch what the operator enabled — an install that never turned on
@@ -69177,7 +69209,7 @@ def run_sidecar_watch_if_due():
     state = load(SIDECAR_STATE_FILE) or {}
     marks = state.get('down') if isinstance(state.get('down'), dict) else {}
     pending = []
-    for unit, what in want:
+    for unit, what in (want if _have_systemctl else ()):
         try:
             r = subprocess.run(['systemctl', 'is-active', unit],
                                capture_output=True, text=True, timeout=3)
@@ -69204,6 +69236,56 @@ def run_sidecar_watch_if_due():
                 'name': get_server_name(), 'unit': unit,
                 'detail': f'{what} sidecar ({unit}) is running again.',
             }))
+    # v6.4.3: a running sidecar whose SOURCES are wired to nothing. Both
+    # receivers map a datagram to a token by the sender's source IP, looked up
+    # against the enrolled device's `ip`, so a token whose device has no ip (or
+    # no device at all) is dropped from the map and everything it was meant to
+    # catch is discarded — while the unit reports active and this sweep says
+    # nothing. Edge-triggered per token, same as the unit marks above.
+    #
+    # A DISABLED token is deliberately NOT reported: switching one off is an
+    # operator decision, and alerting on decisions is how an event earns a mute.
+    bad_marks = state.get('unmappable') if isinstance(state.get('unmappable'), dict) else {}
+    try:
+        _sdevs = _load_ro(DEVICES_FILE) or {}   # read-only: never mutated
+        _seen = set()
+        for _t in toks:
+            if not isinstance(_t, dict) or _t.get('kind') not in ('syslog', 'flow'):
+                continue
+            _tid = str(_t.get('id') or '')
+            if not _tid:
+                continue
+            _seen.add(_tid)
+            _defect = _inbound_map_defect(_t, _sdevs)
+            _bad = bool(_defect) and _defect != 'disabled'
+            _was = bool(bad_marks.get(_tid))
+            if _bad and not _was:
+                bad_marks[_tid] = True
+                _lbl = str(_t.get('label') or '').strip() or _tid
+                _why = ('the device it is scoped to no longer exists'
+                        if _defect == 'no_device'
+                        else 'the device it is scoped to has no IP address')
+                pending.append(('ingest_source_unmappable', {
+                    'name': get_server_name(), 'token_id': _tid, 'label': _lbl,
+                    'kind': _t.get('kind'),
+                    'detail': (f'{_t.get("kind")} source "{_lbl}" can never receive: '
+                               f'{_why}, and the receiver maps incoming packets to '
+                               'a token by the sender IP. Everything it was enrolled '
+                               'to collect is being dropped.'),
+                }))
+            elif (not _bad) and _was:
+                bad_marks[_tid] = False
+                pending.append(('ingest_source_mapped', {
+                    'name': get_server_name(), 'token_id': _tid,
+                    'label': str(_t.get('label') or '').strip() or _tid,
+                    'detail': 'the source can receive again.',
+                }))
+        # A revoked token can never recover, so its mark would leak forever.
+        for _gone in [k for k in bad_marks if k not in _seen]:
+            bad_marks.pop(_gone, None)
+    except Exception:
+        pass
+    state['unmappable'] = bad_marks
     state['down'] = marks
     try:
         save(SIDECAR_STATE_FILE, state, non_blocking=True)

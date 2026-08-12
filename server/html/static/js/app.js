@@ -19637,6 +19637,9 @@ function _renderHomeActivity(fleetEvents) {
     // v6.4.2: the control plane telling on itself — a maintenance sweep
     // failing while the scheduler lives, and a stopped sidecar.
     'sweep_failing', 'sweep_recovered', 'sidecar_down', 'sidecar_recovered',
+    // v6.4.3: a running receiver whose SOURCE is wired to nothing — the unit is
+    // active and every packet is still being dropped.
+    'ingest_source_unmappable', 'ingest_source_mapped',
     // v6.4.2: an operator fix that returned rc=0 and did not clear its alert.
     'mitigation_unverified',
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
@@ -19964,6 +19967,7 @@ function _homeActivityAttrs(event, p) {
     case 'mitigation_unverified':
     case 'sweep_failing': case 'sweep_recovered':
     case 'sidecar_down': case 'sidecar_recovered':
+    case 'ingest_source_unmappable': case 'ingest_source_mapped':
       return `${base} data-home-act="self"`;
     // v6.4.2: a control-plane privilege/security change is about RemotePower
     // itself, not a host — the audit log is where the actor and detail are.

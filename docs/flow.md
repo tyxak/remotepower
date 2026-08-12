@@ -115,6 +115,13 @@ router is configured:
 | `the device it is scoped to no longer exists` | The device was deleted and the token outlived it. Revoke the token or re-scope it. |
 | `never exported` (no reason given) | The mapping is sound, so the silence is upstream: the router isn't sending, or udp/2055 is blocked between it and the receiver. |
 
+The first three also raise **`ingest_source_unmappable`** (cleared by
+`ingest_source_mapped`), because a source dropping every packet is data loss and
+a card on a page nobody has open during an outage is not a control. It fires per
+token, so two dead sources are two alerts and fixing one does not close the
+other. A **disabled** token is deliberately never alerted on — switching one off
+is a decision, and alerting on decisions is how an event earns a mute.
+
 The first three are reported only for a token that has **never** received
 anything — a token that used to work and then stopped is a real outage, and
 labelling it a misconfiguration would point you at the wrong end of the wire.

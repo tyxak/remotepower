@@ -250,7 +250,8 @@ now names it and *why* — "1 of 2 source(s) wired to nothing · fw01 (no IP on
 the device, so the receiver cannot map its packets)" — and the receiver no
 longer reports itself healthy while one of its sources is wired to nothing. The
 fix is on the **device**: set its IP to the address the syslog packets come
-from. See the same table in [flow.md](flow.md#never-exported-is-usually-not-the-router),
+from. It also raises `ingest_source_unmappable` (cleared by
+`ingest_source_mapped`), per token. See the same table in [flow.md](flow.md#never-exported-is-usually-not-the-router),
 which shares this behaviour exactly.
 
 ## See also
