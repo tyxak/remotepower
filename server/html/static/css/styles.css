@@ -63,6 +63,9 @@
        the grey tint is 4.27:1 dark / 3.79:1 light, and --green is 3.55:1 light
        — all below the 4.5 minimum. These two clear it in both themes. */
     --green-on-tint: #5aae83;   /* >=4.5:1 on its tint over --surface AND --surface2 */
+    --red-on-tint: #ffb8b4;     /* ditto. v6.4.3: --red itself is 4.34:1 on the
+                                   red tint — below AA for the 10px badges that
+                                   use it, in EVERY theme (nord was 2.60). */
     --muted-on-tint: #8b95a1;   /* >=4.5:1 on its tint over --surface AND --surface2 */
     --well-bg: var(--bg);
   }
@@ -75,6 +78,7 @@
     --muted: #6a7787;
     --green: #2f8f5b;
     --green-on-tint: #267249;   /* >=4.5:1 on its tint over --surface AND --surface2 */
+    --red-on-tint: #96231c;     /* ditto */
     --muted-on-tint: #57626f;   /* >=4.5:1 on its tint over --surface AND --surface2 */
     --red: #d33f39;
     --amber: #c67e12;
@@ -105,6 +109,7 @@
     --bg:#2e3440; --surface:#3b4252; --surface2:#434c5e; --border:#4c566a;
     --text:#eceff4; --muted:#aab0bd; --accent:#88c0d0; --accent2:#8fbcbb;
     --green:#a3be8c; --green-dim:#4a5a3a; --red:#bf616a; --red-dim:#5a2f33;
+    --red-on-tint:#ffb8b4;
     --amber:#ebcb8b; --purple:#b48ead;
     --accent-soft:rgba(136,192,208,0.12); --accent-edge:rgba(136,192,208,0.30);
     --accent-contrast:#000;
@@ -114,6 +119,7 @@
     --bg:#282a36; --surface:#2f3240; --surface2:#383b4a; --border:#44475a;
     --text:#f8f8f2; --muted:#989dae; --accent:#bd93f9; --accent2:#ff79c6;
     --green:#50fa7b; --green-dim:#1d5a2e; --red:#ff5555; --red-dim:#6e2222;
+    --red-on-tint:#ffb8b4;
     --amber:#f1fa8c; --purple:#bd93f9;
     --accent-soft:rgba(189,147,249,0.14); --accent-edge:rgba(189,147,249,0.32);
     --accent-contrast:#000;
@@ -434,7 +440,7 @@
     display: inline-block; padding: 2px 8px; border-radius: 4px;
     font-size: 11px; font-weight: 600; font-family: var(--font-mono);
   }
-  .cmd-badge.shutdown           { background: rgba(239,68,68,0.1); color: var(--red); }
+  .cmd-badge.shutdown           { background: rgba(239,68,68,0.1); color: var(--red-on-tint); }
   .cmd-badge.reboot             { background: rgba(245,158,11,0.1); color: var(--amber); }
   .cmd-badge.update             { background: rgba(34,197,94,0.1); color: var(--green); }
   .cmd-badge.wol                { background: rgba(124,58,237,0.1); color: #a78bfa; }
@@ -1304,7 +1310,7 @@
   }
   .stat-icon.blue  { background: rgba(59,126,255,0.15); color: var(--accent-ink); }
   .stat-icon.green { background: rgba(34,197,94,0.15);  color: var(--green); }
-  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red-on-tint); }
   .stat-icon svg { width: 20px; height: 20px; }
   .stat-value { font-size: 28px; font-weight: 700; line-height: 1; }
   .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
@@ -1688,7 +1694,7 @@
     white-space: nowrap;
   }
   .status-badge.online  { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red-on-tint);   border: 1px solid rgba(239,68,68,0.2); }
   .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
   .online  .status-badge-dot { background: var(--green); }   /* v5.6.x perf: no per-device infinite pulse (see .status-dot note) */
   .offline .status-badge-dot { background: var(--red); }
@@ -2187,7 +2193,7 @@
     font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
   }
   .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red-on-tint);   border: 1px solid rgba(239,68,68,0.2); }
   .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
   .journal-wrap {
     background: #070910;
@@ -5369,7 +5375,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-344 { font-size: 12px; color: var(--muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .isl-345 { color: var(--muted); font-size: 12px; white-space: nowrap }
 .isl-346 { color: var(--red); border-color: rgba(239,68,68,0.3); font-size: 13px; padding: 4px 8px }
-.isl-347 { background: rgba(239,68,68,0.18); color: var(--red); font-size: 10px }
+.isl-347 { background: rgba(239,68,68,0.18); color: var(--red-on-tint); font-size: 10px }
 .isl-348 { font-family: var(--font-mono) }
 .isl-349 { font-family: var(--font-mono); font-size: 11px; margin-right: 10px }
 .isl-350 { color: var(--text); text-decoration: none }
@@ -6190,7 +6196,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
             font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
 .chk-pill.chk-ok       { background: rgba(34,197,94,0.15);  color: var(--green); border: 1px solid var(--green); }
 .chk-pill.chk-warning  { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid var(--amber); }
-.chk-pill.chk-critical { background: rgba(239,68,68,0.15);  color: var(--red);   border: 1px solid var(--red); }
+.chk-pill.chk-critical { background: rgba(239,68,68,0.15);  color: var(--red-on-tint);   border: 1px solid var(--red); }
 .chk-pill.chk-unknown  { background: rgba(100,116,139,0.15); color: var(--muted-on-tint); border: 1px solid var(--muted); }
 .chk-row.disabled td   { opacity: 0.5; }
 .alerts-summary-pill   { display: inline-block; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; font-size: 13px; }
@@ -6394,7 +6400,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
 .status-pill { display: inline-block; min-width: 48px; text-align: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
 .status-pill.ok { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid #22c55e; }
-.status-pill.down { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid var(--red); }
+.status-pill.down { background: rgba(239,68,68,0.15); color: var(--red-on-tint); border: 1px solid var(--red); }
 .status-err { color: var(--red); padding: 20px 0; }
 .status-foot { color: var(--muted); font-size: 12px; margin-top: 24px; text-align: center; }
 @media (max-width: 480px) { .status-cards { grid-template-columns: 1fr; } }
@@ -6491,7 +6497,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .ro-badge.rs-done    { background: rgba(34,197,94,.15);  color: var(--green-on-tint); border-color: var(--green); }
 .ro-badge.rs-paused  { background: rgba(245,158,11,.15); color: var(--amber); border-color: var(--amber); }
 .ro-badge.rs-failed,
-.ro-badge.rs-cancelled { background: rgba(239,68,68,.12); color: var(--red); border-color: var(--red); }
+.ro-badge.rs-cancelled { background: rgba(239,68,68,.12); color: var(--red-on-tint); border-color: var(--red); }
 .ro-rings { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .ro-arrow { color: var(--muted); }
 .ro-ring-pill { display: inline-flex; flex-direction: column; gap: 1px; padding: 4px 10px;
