@@ -76,6 +76,7 @@ def _host_checks(
     cpu_pct_warn=85,
     cpu_pct_crit=95,
     security_hardening=False,
+    disk_encryption=False,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -730,12 +731,23 @@ def _host_checks(
                 )
 
     # ── v6.4.3: Linux at-rest encryption (dm-crypt / LUKS) ──
-    # Parity with win_bitlocker and mac_filevault above. Rendered ONLY when the
-    # agent actually answered — it returns {} rather than encrypted:False when
-    # device-mapper is not visible, so a host that cannot see is silent rather
-    # than reported as unencrypted.
+    # OPT-IN (`disk_encryption_checks`, default off), unlike its win_bitlocker /
+    # mac_filevault siblings, and deliberately so: BitLocker and FileVault are
+    # the platform default, so their ABSENCE is a real finding, while an
+    # unencrypted root is the Linux norm — remote unlock is painful enough that
+    # most servers ship without it by choice. Warning on every Linux host by
+    # default (which is how this first shipped) flags a deliberate decision as a
+    # security problem on the whole fleet at once.
+    #
+    # It also gets its OWN key rather than riding `security_hardening`: an
+    # operator who wants SSH-hardening advice should not be forced to take
+    # fleet-wide LUKS warnings with it.
+    #
+    # Rendered ONLY when the agent actually answered — it returns {} rather than
+    # encrypted:False when device-mapper is not visible, so a host that cannot
+    # see is silent rather than reported as unencrypted.
     de = si.get("disk_encryption")
-    if isinstance(de, dict) and isinstance(de.get("encrypted"), bool):
+    if disk_encryption and isinstance(de, dict) and isinstance(de.get("encrypted"), bool):
         enc = de["encrypted"]
         mounts = de.get("encrypted_mounts") or []
         kinds = sorted(

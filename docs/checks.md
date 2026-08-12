@@ -36,14 +36,21 @@ sortable, filterable table.
   - **macOS** (`mac_posture`) — FileVault disk encryption, the Application
     Firewall, Gatekeeper, System Integrity Protection (SIP), and automatic
     security updates.
-  - **Linux** — three separate rows rather than one: `linux_firewall` (is any
-    of nftables / iptables / ufw actually enforcing), `linux_ssh_hardening`
+  - **Linux** — separate rows rather than one. `linux_firewall` (is any of
+    nftables / iptables / ufw actually enforcing) is **always on** — an
+    unprotected host is real exposure, not a preference. `linux_ssh_hardening`
     (root login, password authentication, empty passwords, and — since
-    v6.4.3 — X11 forwarding), and `linux_auto_update` (unattended-upgrades /
-    dnf-automatic and friends). These three are **opt-in**: they only render
-    when Security hardening is enabled under Settings → Security, because
-    password SSH and manual patching are deliberate choices on plenty of
-    fleets and an advisory nobody asked for is an advisory that gets muted.
+    v6.4.3 — X11 forwarding) and `linux_auto_update` (unattended-upgrades /
+    dnf-automatic and friends) are **opt-in**: they only render when *Security
+    hardening* is enabled under Settings → Security, because password SSH and
+    manual patching are deliberate choices on plenty of fleets, and an advisory
+    nobody asked for is an advisory that gets muted. `linux_disk_encryption`
+    (dm-crypt / LUKS) is opt-in too, under its own *Disk encryption checks*
+    setting — BitLocker and FileVault are the platform default, so their absence
+    is always worth reporting, whereas an unencrypted Linux root is the norm.
+    A host whose agent cannot see device-mapper reports nothing either way,
+    rather than being reported as unencrypted: being unable to look is not a
+    finding.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code

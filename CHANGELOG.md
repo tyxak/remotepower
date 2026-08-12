@@ -20,6 +20,29 @@ where a character should be. Every new guardrail here was demonstrated to FAIL
 before it was committed, because a gate nobody has seen fail is indistinguishable
 from one that cannot.
 
+- **A status row that named a problem without naming the thing.** The Server
+  status page reported "Running — 1 of 3 exporter(s) silent" and left the
+  operator to work out which of three routers had gone quiet, because the
+  payload behind it carried counts and no identities. It now names each silent
+  exporter and how long it has been silent ("edge-rtr2 (never exported)"),
+  capped with a `+N more` tail, and both receiver rows link straight to the
+  inbound tokens that feed them — the place you go next either way.
+- **Readiness rows can be muted.** A row you have already decided about — an
+  optional receiver you deliberately have not wired up — sat amber forever with
+  no way to acknowledge it, and a tally that permanently reads "1 needing a
+  look" for a reason nobody intends to act on trains operators to ignore the
+  number. Muting a row greys it, keeps what it would have said, counts it
+  separately as `N muted`, and offers Unmute on the row. Mutes are stored as row
+  keys, so a renamed subsystem un-mutes rather than silencing the wrong one.
+- **The Linux disk-encryption check is opt-in.** Shipped earlier in this release
+  as always-on, it warned "no encrypted volume found" on every Linux host in the
+  fleet at once. Unlike BitLocker and FileVault — the platform default, so their
+  absence is a real finding — an unencrypted Linux root is the norm, chosen
+  deliberately by anyone who has tried to unlock one remotely. It now has its own
+  setting (Settings → Security → Disk encryption checks), off by default and
+  separate from the Security hardening bundle so that wanting SSH advice does not
+  force fleet-wide LUKS warnings. A host whose agent cannot see device-mapper
+  still reports nothing either way.
 - **The Postgres backend is now actually tested.** Postgres has been the
   enterprise default since v6.1.0, but no gate ran a line of it: `make check`
   covers JSON and SQLite, and the Postgres target was reachable only from a

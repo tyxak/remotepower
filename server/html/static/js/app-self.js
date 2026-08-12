@@ -22,10 +22,16 @@ const _SELF_STATE_ICO = {
   bad:   '<path d="M18 6 6 18M6 6l12 12"/>',
   warn:  '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   muted: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+  // bell-off — an operator silenced this one, which is a different fact from
+  // "not in use" and must not fall through to the amber warning triangle.
+  off:   '<path d="M8.7 3A6 6 0 0 1 18 8c0 2.5.6 4.3 1.4 5.5"/><path d="M6 8a6 6 0 0 1 .3-1.9"/><path d="M6 8c0 4-2 5-2 6h13"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
 };
-const _SELF_STATE_CLS = { ok: 'c-green', bad: 'c-red', warn: 'c-amber', muted: 'c-muted' };
-const _SELF_STATE_RANK = { bad: 3, warn: 2, ok: 1, muted: 0 };
-const _SELF_STATE_LABEL = { ok: 'Healthy', warn: 'Check', bad: 'Degraded', muted: 'Not in use' };
+const _SELF_STATE_CLS = { ok: 'c-green', bad: 'c-red', warn: 'c-amber', muted: 'c-muted', off: 'c-muted' };
+const _SELF_STATE_RANK = { bad: 3, warn: 2, ok: 1, muted: 0, off: 0 };
+// 'off' is 'muted' plus an operator decision behind it — kept distinct so the
+// row can say WHY it is grey and offer the way back, and so "Not in use"
+// (nothing configured) never reads as "silenced by someone".
+const _SELF_STATE_LABEL = { ok: 'Healthy', warn: 'Check', bad: 'Degraded', muted: 'Not in use', off: 'Muted' };
 
 function _selfStateIco(state) {
   const p = _SELF_STATE_ICO[state] || _SELF_STATE_ICO.warn;
@@ -57,29 +63,51 @@ function _selfSchedulerState(rt) {
            note: 'the maintenance cadence runs inside each request' };
 }
 
+// v6.4.3 (reported from use): every receiver row now points at the inbound
+// tokens that feed it. Telling an operator an exporter is silent and leaving
+// them to find where exporters are enrolled is most of the work still undone.
+const _SELF_TOKENS_LINK = { action: 'gotoSettingsTab', arg: 'integrations',
+                            href: '#settings/integrations',
+                            label: 'Manage inbound tokens' };
+
+// "core-rtr1 (never exported), edge-fw2 (some time ago)" — names first, because
+// the name is the answer to the question the row raises. Falls back to the
+// count when the server is older than the payload field.
+function _selfNameExporters(fl) {
+  const named = Array.isArray(fl.stale) ? fl.stale : [];
+  if (!named.length) {
+    return `${fl.stale_sources} enrolled exporter(s)`
+         + `${fl.never_seen ? ` (${fl.never_seen} never seen at all)` : ''}`;
+  }
+  const parts = named.map(e => `${e.label || 'unnamed exporter'} `
+    + `(${e.last_seen ? _selfFmtAgo(e.last_seen) : 'never exported'})`);
+  const rest = (fl.stale_sources || named.length) - named.length;
+  return parts.join(', ') + (rest > 0 ? `, +${rest} more` : '');
+}
+
 // The co-located sidecars, as row descriptors. Rendered BOTH as the
 // "Distributed subsystems" table and as rows of the readiness table.
 function _selfSidecarRows(s) {
   const sub = s.subsystems || {};
   const rows = [];
-  const fleet = (label, b, offlineNote) => {
-    if (!b || !b.total) { rows.push({ label, state: 'muted', status: 'None configured', detail: '' }); return; }
-    rows.push({ label,
+  const fleet = (key, label, b, offlineNote) => {
+    if (!b || !b.total) { rows.push({ key, label, state: 'muted', status: 'None configured', detail: '' }); return; }
+    rows.push({ key, label,
                 state: b.online >= b.total ? 'ok' : (b.online > 0 ? 'warn' : 'bad'),
                 status: `${b.online} online / ${b.total} total`,
                 detail: b.online < b.total ? offlineNote : '' });
   };
-  fleet('Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago');
-  fleet('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago');
+  fleet('satellites-relays', 'Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago');
+  fleet('satellites-scanners', 'Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago');
   const push = sub.push || {};
   if (!push.enabled) {
-    rows.push({ label: 'Agent push daemon', state: 'muted', status: 'Off',
+    rows.push({ key: 'push-daemon', label: 'Agent push daemon', state: 'muted', status: 'Off',
                 detail: 'the opt-in wake-nudge channel is disabled' });
   } else if (push.reachable) {
-    rows.push({ label: 'Agent push daemon', state: 'ok', status: 'Running',
+    rows.push({ key: 'push-daemon', label: 'Agent push daemon', state: 'ok', status: 'Running',
                 detail: `accepting connections on port ${push.port}` });
   } else {
-    rows.push({ label: 'Agent push daemon', state: 'bad', status: 'Enabled — unreachable',
+    rows.push({ key: 'push-daemon', label: 'Agent push daemon', state: 'bad', status: 'Enabled — unreachable',
                 detail: `nothing listening on port ${push.port} — check systemctl status remotepower-push` });
   }
   // Syslog / flow receivers are INFORMATIONAL: optional, and they may legitimately
@@ -96,18 +124,21 @@ function _selfSidecarRows(s) {
     ? (sy.sources
         ? { label: 'Syslog receiver', state: sy.last_ingest ? 'ok' : 'warn',
             status: sy.last_ingest ? 'Running' : 'Running — nothing received yet',
-            detail: `${sy.sources} source(s) · ${syAgo}` }
+            detail: `${sy.sources} source(s) · ${syAgo}`, link: _SELF_TOKENS_LINK }
         : { label: 'Syslog receiver', state: 'warn',
             status: 'Running — no sources mapped',
             detail: 'the daemon is up but its source map is empty, so every '
                   + 'packet is dropped. Enrol a device with a kind=syslog '
                   + 'inbound token; if one exists, check the daemon log for a '
-                  + '"storage backend detection failed" warning.' })
+                  + '"storage backend detection failed" warning.',
+            link: _SELF_TOKENS_LINK })
     : (sy.sources
       ? { label: 'Syslog receiver', state: 'muted', status: 'Not detected locally',
-          detail: `${sy.sources} source(s) enrolled · ${syAgo} — the receiver may run on another host` }
+          detail: `${sy.sources} source(s) enrolled · ${syAgo} — the receiver may run on another host`,
+          link: _SELF_TOKENS_LINK }
       : { label: 'Syslog receiver', state: 'muted', status: 'Not in use',
           detail: 'optional agentless intake — see syslog.md' });
+  syslogRow.key = 'syslog-receiver';
   rows.push(syslogRow);
   const fl = sub.flow || {};
   const flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
@@ -115,26 +146,30 @@ function _selfSidecarRows(s) {
     ? (fl.sources
         ? (fl.stale_sources
             // v6.4.3: `last export` is the NEWEST across all exporters, so four
-            // of five going silent still reads as recent. Say how many stopped.
+            // of five going silent still reads as recent. Say how many stopped
+            // — and, since v6.4.3-2, WHICH, because a count alone left the
+            // operator to work out which of three routers had gone quiet.
             ? { label: 'Flow receiver', state: 'warn',
                 status: `Running — ${fl.stale_sources} of ${fl.sources} exporter(s) silent`,
-                detail: `no export from ${fl.stale_sources} enrolled exporter(s) for over 3h`
-                      + `${fl.never_seen ? ` (${fl.never_seen} never seen at all)` : ''}`
-                      + ` · newest ${flAgo}` }
+                detail: `silent for over 3h: ${_selfNameExporters(fl)} · newest ${flAgo}`,
+                link: _SELF_TOKENS_LINK }
             : { label: 'Flow receiver', state: fl.last_ingest ? 'ok' : 'warn',
                 status: fl.last_ingest ? 'Running' : 'Running — nothing received yet',
-                detail: `${fl.sources} exporter(s) · ${flAgo}` })
+                detail: `${fl.sources} exporter(s) · ${flAgo}`, link: _SELF_TOKENS_LINK })
         : { label: 'Flow receiver', state: 'warn',
             status: 'Running — no exporters mapped',
             detail: 'the daemon is up but its exporter map is empty, so every '
                   + 'flow is dropped. Enrol the exporter with a kind=flow '
                   + 'inbound token; if one exists, check the daemon log for a '
-                  + '"storage backend detection failed" warning.' })
+                  + '"storage backend detection failed" warning.',
+            link: _SELF_TOKENS_LINK })
     : (fl.sources
       ? { label: 'Flow receiver', state: 'muted', status: 'Not detected locally',
-          detail: `${fl.sources} exporter(s) enrolled · ${flAgo} — may run on another host` }
+          detail: `${fl.sources} exporter(s) enrolled · ${flAgo} — may run on another host`,
+          link: _SELF_TOKENS_LINK }
       : { label: 'Flow receiver', state: 'muted', status: 'Not in use',
           detail: 'optional agentless NetFlow/IPFIX — see flow.md' });
+  flowRow.key = 'flow-receiver';
   rows.push(flowRow);
   // KMIP is reported only when enabled — and unlike syslog/flow its outage stops
   // encrypted volumes mounting, so "enabled but not running" IS a fault.
@@ -144,14 +179,28 @@ function _selfSidecarRows(s) {
       ? '' : ` · certificate expires in ${km.pki_expires_days} day${km.pki_expires_days === 1 ? '' : 's'}`;
     const det = `${km.clients || 0} client(s) · ${km.keys || 0} key(s)${pki}`;
     if (km.unit === 'active') {
-      rows.push({ label: 'KMIP key server', state: pki ? 'warn' : 'ok',
+      rows.push({ key: 'kmip', label: 'KMIP key server', state: pki ? 'warn' : 'ok',
                   status: 'Running', detail: det });
     } else {
-      rows.push({ label: 'KMIP key server', state: 'bad', status: 'Enabled — not detected locally',
+      rows.push({ key: 'kmip', label: 'KMIP key server', state: 'bad', status: 'Enabled — not detected locally',
                   detail: `${det} — appliances cannot fetch keys while it is down` });
     }
   }
-  return rows;
+  return _selfApplyMutes(s, rows);
+}
+
+// v6.4.3 (reported from use): an operator-muted row goes grey and stops
+// counting toward "N needing a look". Applied here rather than at render time
+// so the "Distributed subsystems" card and the readiness table can never
+// disagree about whether a subsystem was silenced. A mute for an unknown key is
+// inert, so renaming a row un-mutes it rather than silencing the wrong one.
+function _selfApplyMutes(s, rows) {
+  const mutes = new Set((s && s.readiness_mutes) || []);
+  if (!mutes.size) return rows;
+  return rows.map(r => (mutes.has(r.key) && (r.state === 'warn' || r.state === 'bad')
+    ? Object.assign({}, r, { state: 'off', muted: true,
+                             detail: r.detail ? `muted — ${r.detail}` : 'muted' })
+    : r));
 }
 
 // The control plane itself: storage, request tier, scheduler, the maintenance
@@ -166,52 +215,52 @@ function _selfControlPlaneRows(s) {
   const beName = ({ postgres: 'PostgreSQL', sqlite: 'SQLite', json: 'JSON files' })[rt.storage_backend]
                  || (rt.storage_backend || 'unknown');
   if (dd.error) {
-    rows.push({ label: 'Storage', state: 'bad', status: 'Unreadable',
+    rows.push({ key: 'storage', label: 'Storage', state: 'bad', status: 'Unreadable',
                 detail: `${beName} — ${dd.error}` });
   } else if (sb.last_integrity && sb.last_integrity !== 'ok') {
-    rows.push({ label: 'Storage', state: 'bad', status: 'Integrity check failed',
+    rows.push({ key: 'storage', label: 'Storage', state: 'bad', status: 'Integrity check failed',
                 detail: `${beName} — last check reported "${sb.last_integrity}"` });
   } else if (rt.storage_backend === 'postgres' || rt.storage_backend === 'sqlite') {
-    rows.push({ label: 'Storage', state: 'ok', status: beName, detail: 'readable' });
+    rows.push({ key: 'storage', label: 'Storage', state: 'ok', status: beName, detail: 'readable' });
   } else {
-    rows.push({ label: 'Storage', state: 'warn', status: beName,
+    rows.push({ key: 'storage', label: 'Storage', state: 'warn', status: beName,
                 detail: rt.storage_backend === 'json'
                   ? 'dev / very small fleets only'
                   : 'the backend did not report itself' });
   }
   rows.push(rt.server_tier === 'wsgi'
-    ? { label: 'Request tier', state: 'ok', status: 'WSGI · gunicorn + Flask', detail: 'persistent worker pool' }
-    : { label: 'Request tier', state: 'warn', status: rt.server_tier || 'unknown',
+    ? { key: 'request-tier', label: 'Request tier', state: 'ok', status: 'WSGI · gunicorn + Flask', detail: 'persistent worker pool' }
+    : { key: 'request-tier', label: 'Request tier', state: 'warn', status: rt.server_tier || 'unknown',
         detail: 'not being served through wsgi.py' });
   const sch = _selfSchedulerState(rt);
-  rows.push({ label: 'Maintenance scheduler', state: sch.state, status: sch.value, detail: sch.note });
+  rows.push({ key: 'maintenance-scheduler', label: 'Maintenance scheduler', state: sch.state, status: sch.value, detail: sch.note });
   const obs = _selfObsLast;
   if (!obs) {
-    rows.push({ label: 'Maintenance sweeps', state: 'muted', status: 'Not available',
+    rows.push({ key: 'maintenance-sweeps', label: 'Maintenance sweeps', state: 'muted', status: 'Not available',
                 detail: 'sweep health is admin-only' });
   } else if (obs.failing) {
-    rows.push({ label: 'Maintenance sweeps', state: 'bad',
+    rows.push({ key: 'maintenance-sweeps', label: 'Maintenance sweeps', state: 'bad',
                 status: `${obs.failing} of ${obs.tracked} failing`,
                 detail: 'a failing sweep silently takes its feature down — no alert event fires for it' });
   } else {
-    rows.push({ label: 'Maintenance sweeps', state: 'ok',
+    rows.push({ key: 'maintenance-sweeps', label: 'Maintenance sweeps', state: 'ok',
                 status: `${obs.tracked} tracked, none failing`, detail: '' });
   }
   const jobs = s.cadence_jobs || {};
   const jobKeys = Object.keys(jobs).filter(k => k !== 'error' && jobs[k] && typeof jobs[k] === 'object');
   const stale = jobKeys.filter(k => jobs[k].stale);
   if (jobs.error || !jobKeys.length) {
-    rows.push({ label: 'Recurring jobs', state: 'muted', status: 'Not reported',
+    rows.push({ key: 'recurring-jobs', label: 'Recurring jobs', state: 'muted', status: 'Not reported',
                 detail: jobs.error ? String(jobs.error) : '' });
   } else if (stale.length) {
-    rows.push({ label: 'Recurring jobs', state: 'bad', status: `${stale.length} wedged`,
+    rows.push({ key: 'recurring-jobs', label: 'Recurring jobs', state: 'bad', status: `${stale.length} wedged`,
                 detail: `${stale.join(', ')} — last run older than 3× the interval` });
   } else {
-    rows.push({ label: 'Recurring jobs', state: 'ok', status: 'On cadence',
+    rows.push({ key: 'recurring-jobs', label: 'Recurring jobs', state: 'ok', status: 'On cadence',
                 detail: `${jobKeys.length} tracked` });
   }
   rows.push(_selfBackupReadinessRow(s));
-  return rows;
+  return _selfApplyMutes(s, rows);
 }
 
 // v6.4.2: the DR archive as a readiness row. The case that matters is a
@@ -220,27 +269,28 @@ function _selfControlPlaneRows(s) {
 function _selfBackupReadinessRow(s) {
   const bk = s.backup || {};
   const label = 'Backup & DR';
+  const key = 'backup-dr';
   if (!bk.last_run) {
-    return { label, state: 'warn', status: 'Never run',
+    return { key, label, state: 'warn', status: 'Never run',
              detail: 'no DR archive has been written yet' };
   }
   if (bk.stores === 0 && _selfDbBackend(s) === 'postgres') {
-    return { label, state: 'bad', status: 'Last archive is hollow',
+    return { key, label, state: 'bad', status: 'Last archive is hollow',
              detail: 'it carries no logical stores, and on PostgreSQL those ARE the state — a restore would produce an empty install' };
   }
   if (bk.rpo_breached) {
-    return { label, state: 'bad', status: 'RPO breached',
+    return { key, label, state: 'bad', status: 'RPO breached',
              detail: `last archive ${bk.hours_since_last_backup != null ? bk.hours_since_last_backup + 'h' : 'unknown'} ago, target ${bk.rpo_hours}h` };
   }
   if (bk.last_drill_ok === false) {
-    return { label, state: 'bad', status: 'Last restore drill failed',
+    return { key, label, state: 'bad', status: 'Last restore drill failed',
              detail: `${_selfFmtAgo(bk.last_drill_at)}${bk.last_drill_file ? ' · ' + bk.last_drill_file : ''} — run "Verify restorability now" for the reason` };
   }
   if (bk.stores === 0 && _selfDbBackend(s) === 'sqlite') {
-    return { label, state: 'warn', status: 'Database image only',
+    return { key, label, state: 'warn', status: 'Database image only',
              detail: 'the archive carries no logical stores — it can only be restored onto SQLite' };
   }
-  return { label, state: 'ok', status: `Last run ${_selfFmtAgo(bk.last_run)}`,
+  return { key, label, state: 'ok', status: `Last run ${_selfFmtAgo(bk.last_run)}`,
            detail: `${bk.stores != null ? bk.stores + ' store(s) · ' : ''}${bk.encrypted ? 'encrypted' : 'plaintext'}` };
 }
 
@@ -272,14 +322,64 @@ function _renderSelfReadiness() {
     `<tr><td>${escHtml(r.label)}</td>`
     + `<td>${_selfStateIco(r.state)} <span class="${_SELF_STATE_CLS[r.state] || ''}">${escHtml(_SELF_STATE_LABEL[r.state] || r.state)}</span></td>`
     + `<td><strong>${escHtml(r.status)}</strong></td>`
-    + `<td class="hint">${escHtml(r.detail || '')}</td></tr>`).join('');
+    + `<td class="hint">${escHtml(r.detail || '')}${_selfRowActions(r)}</td></tr>`).join('');
   const sum = document.getElementById('self-readiness-summary');
   if (!sum) return;
   const bad = rows.filter(r => r.state === 'bad').length;
   const warn = rows.filter(r => r.state === 'warn').length;
+  const off = rows.filter(r => r.state === 'off').length;
   sum.innerHTML = `${rows.length} subsystem${rows.length === 1 ? '' : 's'} · `
     + `<span class="${bad ? 'c-red' : 'c-green'}">${bad} degraded</span> · `
-    + `<span class="${warn ? 'c-amber' : 'c-muted'}">${warn} needing a look</span>`;
+    + `<span class="${warn ? 'c-amber' : 'c-muted'}">${warn} needing a look</span>`
+    + (off ? ` · <span class="c-muted">${off} muted</span>` : '');
+}
+
+// The per-row trailing controls: a deep link to whatever configures the row,
+// and the mute toggle. Both are anchors wired through the data-action
+// dispatcher — an inline on* handler would die silently under the CSP.
+function _selfRowActions(r) {
+  const bits = [];
+  if (r.link && r.link.action) {
+    bits.push(`<a href="${escAttr(r.link.href || '#')}" class="c-accent" data-action="${escAttr(r.link.action)}"`
+      + `${r.link.arg ? ` data-arg="${escAttr(r.link.arg)}"` : ''}>${escHtml(r.link.label)}</a>`);
+  }
+  // Only offer a mute where there is something to mute. An ok/not-in-use row
+  // with a Mute link invites the operator to pre-silence a healthy subsystem.
+  if (r.key && r.state === 'off') {
+    bits.push(`<a href="#" data-prevent-default class="c-accent" data-action="selfReadinessUnmute" data-arg="${escAttr(r.key)}">Unmute</a>`);
+  } else if (r.key && (r.state === 'warn' || r.state === 'bad')) {
+    bits.push(`<a href="#" data-prevent-default class="c-accent" data-action="selfReadinessMute" data-arg="${escAttr(r.key)}">Mute</a>`);
+  }
+  return bits.length ? ` <span class="self-row-acts">${bits.join('')}</span>` : '';
+}
+
+// v6.4.3 (reported from use): muting a row is a config write, so it needs admin
+// rights — the anchors only render for a caller who could already save config.
+// POST /api/config only touches keys present in the body, so sending the one
+// key is safe and cannot clobber the rest of the settings.
+async function _selfSetReadinessMutes(next) {
+  const r = await api('POST', '/config', { self_readiness_mutes: next });
+  // api() RESOLVES on 400/403 — a refusal arrives as a body, never as a throw.
+  if (r && r.error) { toast(r.error, 'error'); return false; }
+  if (_selfStatusLast) _selfStatusLast.readiness_mutes = next;
+  _renderSelfReadiness();
+  return true;
+}
+
+async function selfReadinessMute(key) {
+  const cur = ((_selfStatusLast || {}).readiness_mutes) || [];
+  if (cur.includes(key)) return;
+  const row = _selfReadinessRows().find(r => r.key === key);
+  if (await _selfSetReadinessMutes(cur.concat([key]))) {
+    toast(`${(row && row.label) || key} muted — it no longer counts as needing a look.`, 'success');
+  }
+}
+
+async function selfReadinessUnmute(key) {
+  const cur = ((_selfStatusLast || {}).readiness_mutes) || [];
+  if (await _selfSetReadinessMutes(cur.filter(k => k !== key))) {
+    toast('Unmuted — it counts toward the readiness tally again.', 'success');
+  }
 }
 
 async function _loadSelfObs() {

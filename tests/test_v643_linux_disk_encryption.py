@@ -208,9 +208,12 @@ class TestSafeSiPersistsIt(unittest.TestCase):
 
 class TestTheChecksEngineRendersARow(unittest.TestCase):
     def _rows(self, si):
+        # v6.4.3 (reported from use): the check became OPT-IN after an operator
+        # pointed out that an unencrypted Linux root is the norm, not a finding.
+        # These cases describe what the check REPORTS once enabled; the
+        # off-by-default contract lives in test_v643_ux_reported.py.
         dev = {'name': 'web01', 'os': 'Debian GNU/Linux 12', 'sysinfo': si}
-        rows = checks_mod.host_checks('d1', dev, {}) if hasattr(
-            checks_mod, 'host_checks') else api._host_checks('d1', dev)
+        rows = api._host_checks('d1', dev, disk_encryption=True)
         return {r.get('key'): r for r in rows if isinstance(r, dict)}
 
     def test_an_encrypted_host_shows_ok(self):

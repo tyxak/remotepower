@@ -26969,6 +26969,8 @@ def handle_config_get():
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
     safe.setdefault('host_checks_disabled', {})  # v4.1.0: per-host disabled checks
     safe.setdefault('security_hardening_checks', False)  # v6.4.2: opt-in hardening advisories
+    safe.setdefault('disk_encryption_checks', False)  # v6.4.3: opt-in Linux LUKS check
+    safe.setdefault('self_readiness_mutes', [])  # v6.4.3: silenced Self-page readiness rows
     # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
     safe.setdefault('webpush_enabled', False)
     safe.setdefault('webpush_subject', '')
@@ -29442,6 +29444,21 @@ def handle_config_save():
         cfg['security_hardening_checks'] = bool(body['security_hardening_checks'])
         if _hard_was and not cfg['security_hardening_checks']:
             _resolve_alerts_for_events(_HARDENING_ALERT_EVENTS, by='hardening-disabled')
+    # v6.4.3: opt-in Linux at-rest-encryption (LUKS) check. Off by default —
+    # see the reasoning at the check itself in checks.py.
+    if 'disk_encryption_checks' in body:
+        cfg['disk_encryption_checks'] = bool(body['disk_encryption_checks'])
+    # v6.4.3 (reported from use): rows on the Self page's readiness table the
+    # operator has acknowledged and does not want counted as "needing a look"
+    # — an optional receiver that is deliberately not wired up, say. Stored as
+    # row keys; an unknown key is inert, so a renamed row simply un-mutes
+    # rather than silencing the wrong subsystem.
+    if 'self_readiness_mutes' in body:
+        _rm = body.get('self_readiness_mutes')
+        cfg['self_readiness_mutes'] = sorted({
+            str(x)[:64] for x in (_rm if isinstance(_rm, list) else [])
+            if isinstance(x, str) and re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', x)
+        })[:64]
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
@@ -32499,10 +32516,25 @@ def _subsystems_status(now):
         # reads "5 exporter(s) · last export 8s ago". One healthy exporter
         # masks the rest — the same shape as a receiver that reports Running
         # while dropping everything. Count the silent ones separately.
+        #
+        # v6.4.3 (reported from use): counting them was still only half an
+        # answer — "1 of 3 exporter(s) silent" told the operator a problem
+        # exists and then made them work out WHICH of three routers it was by
+        # hand. Name them. Bounded, because a fleet can enrol hundreds and this
+        # is a status card, not a report.
         _fnow = int(time.time())
-        _fstale = sum(1 for t in ftoks
-                      if _fnow - int(t.get('last_seen') or 0) > _FLOW_SILENT_S)
-        _fnever = sum(1 for t in ftoks if not t.get('last_seen'))
+        _fstale_named = []
+        for _t in ftoks:
+            _ls = int(_t.get('last_seen') or 0)
+            if _fnow - _ls > _FLOW_SILENT_S:
+                _fstale_named.append({
+                    'id': str(_t.get('id') or ''),
+                    'label': str(_t.get('label') or '').strip() or 'unnamed exporter',
+                    'last_seen': _ls or None,
+                })
+        _fstale_named.sort(key=lambda d: (d['last_seen'] or 0, d['label']))
+        _fstale = len(_fstale_named)
+        _fnever = sum(1 for _d in _fstale_named if not _d['last_seen'])
         funit = 'unavailable'
         if shutil.which('systemctl'):
             try:
@@ -32513,7 +32545,7 @@ def _subsystems_status(now):
                 funit = 'unavailable'
         out['flow'] = {'sources': len(ftoks), 'last_ingest': flast or None,
                        'stale_sources': _fstale, 'never_seen': _fnever,
-                       'unit': funit}
+                       'stale': _fstale_named[:6], 'unit': funit}
     except Exception:
         pass
     # v6.4.1: the KMIP key server got a catalog check row (rp_kmipd_running)
@@ -32631,6 +32663,11 @@ def handle_self_status():
         out['subsystems'] = _subsystems_status(now)
     except Exception as e:
         out['subsystems'] = {'error': str(e)[:200]}
+    # v6.4.3 (reported from use): readiness rows the operator has muted. The
+    # page derives its "N needing a look" tally from these rows, so without a
+    # mute an optional receiver that is deliberately not wired up sits amber
+    # forever and trains the operator to ignore the tally.
+    out['readiness_mutes'] = list(_config_ro().get('self_readiness_mutes') or [])
     # DATA_DIR disk usage
     try:
         total_bytes = 0
@@ -46217,6 +46254,11 @@ def _checks_threshold_kwargs(cfg):
         # choices. Blank passwords and an inactive host firewall are real
         # exposure and stay always-on regardless of this flag.
         'security_hardening':        bool(cfg.get('security_hardening_checks', False)),
+        # v6.4.3 (reported from use): the Linux LUKS row, opt-in for the reason
+        # documented at its call site in checks.py — unencrypted root is the
+        # Linux norm, so warning by default flags a deliberate choice on every
+        # host at once. Separate from security_hardening on purpose.
+        'disk_encryption':           bool(cfg.get('disk_encryption_checks', False)),
     }
 
 

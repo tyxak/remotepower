@@ -184,3 +184,34 @@ feature. Now a red **FAILING** row (its last outcome was an error) or a sweep
 that hasn't run OK in a long time is visible immediately, with a rolling list of
 recent internal errors underneath. Served by `GET /api/self/observability`
 (admin).
+
+## Subsystem readiness — and muting a row (v6.4.3)
+
+The **readiness** table on the same page is one row per subsystem — storage,
+request tier, scheduler, sweeps, recurring jobs, backup/DR, and each optional
+sidecar (relay satellites, scan workers, push daemon, syslog and flow receivers,
+KMIP). It summarises as *"N subsystems · N degraded · N needing a look"*.
+
+Two things make that tally trustworthy rather than decorative:
+
+- **A row names what it is talking about.** A flow receiver with three enrolled
+  exporters where one has gone quiet reports the exporter *by label* and how
+  long it has been silent — "silent for over 3h: edge-rtr2 (never exported)" —
+  rather than a bare count that leaves you to work out which of three routers
+  it meant. The name list is capped, with a `+N more` tail on a large fleet.
+- **Rows that raise a question link to the answer.** Both receiver rows link
+  straight to **Settings → Integrations → Inbound tokens**, where the exporters
+  and syslog sources that feed them are enrolled, renamed and revoked.
+
+**Muting a row.** An amber row you have already decided about — an optional
+receiver you deliberately have not wired up, say — can be muted from the row
+itself. A muted row turns grey, keeps showing what it would have said, and stops
+counting toward *needing a look*; the summary reports it separately as
+`N muted`. **Unmute** on the row puts it back. Mutes are an admin setting
+(stored as row keys in the server config, so they persist and are the same for
+every operator), and a mute for a row that no longer exists is inert — renaming
+a subsystem un-mutes it rather than silencing the wrong one.
+
+This exists because the alternative is worse: a tally that permanently reads
+"1 needing a look" for a reason nobody intends to act on trains operators to
+ignore the number, which is exactly when the row that *does* matter goes unread.

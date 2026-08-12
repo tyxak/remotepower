@@ -4824,6 +4824,9 @@ async function loadSettings() {
   if (_pae) _pae.checked = !!data.port_audit_enabled;
   const _sh = document.getElementById('cfg-security-hardening');
   if (_sh) _sh.checked = !!data.security_hardening_checks;
+  // v6.4.3: opt-in Linux LUKS check, separate key from the hardening bundle.
+  const _dec = document.getElementById('cfg-disk-encryption-checks');
+  if (_dec) _dec.checked = !!data.disk_encryption_checks;
   // W6-41: GeoIP settings
   const _gdb = document.getElementById('cfg-geoip-db-path');
   if (_gdb) _gdb.value = data.geoip_db_path || '';
@@ -5421,6 +5424,8 @@ async function saveSettings(btn) {
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
   const _shEn = document.getElementById('cfg-security-hardening');
   if (_shEn) payload.security_hardening_checks = _shEn.checked;
+  const _decEn = document.getElementById('cfg-disk-encryption-checks');
+  if (_decEn) payload.disk_encryption_checks = _decEn.checked;
   // W6-41: GeoIP settings
   const _gdbEl = document.getElementById('cfg-geoip-db-path');
   if (_gdbEl) payload.geoip_db_path = _gdbEl.value.trim();
