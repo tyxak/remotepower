@@ -145,18 +145,6 @@ No tags in use. Tag a device from its drawer, or in bulk from the Devices page.
 No ticket loaded
 No tunnels yet. Create one to issue road-warrior clients.
 No verdict/device to propose from
-Nothing could be restored
-Nothing needs attention right now.
-Nothing to acknowledge on this host
-Nothing to audit — paste a script first
-Nothing to change
-Nothing to copy — render first
-Nothing to download yet
-Nothing to download — render first
-Nothing to explain
-Nothing to explain — paste a script first
-Nothing to export
-Nothing to inspect yet
 Notification permission denied
 Opened the posture report in a new tab
 Opened the printable report in a new tab
@@ -178,23 +166,6 @@ Paste a dashboard layout code to apply:
 Paste an SSH public key
 Path must be absolute (start with /)
 Perf HUD
-Pick a date and time
-Pick a device for this policy
-Pick a group from the dropdown first
-Pick a project first
-Pick a provider and zone first
-Pick a saved query first
-Pick a script first
-Pick a site
-Pick a target host first
-Pick an alert type and an article
-Pick at least one action (script, notify, ticket, tag or mute)
-Pick at least one day
-Pick at least one device
-Pick at least one host before saving
-Pick at least one thing to prune
-Pick both endpoints
-Pick two different snapshots
 Poll failed — see error below
 Poll interval must be 30–3600 seconds
 Polled OK — see Latest poll below
@@ -266,14 +237,6 @@ Search and pick a device first (or use a verified target’s Schedule button).
 Search error:
 Search for and pick a device
 Select a
-Select at least one asset
-Select at least one business day
-Select at least one category
-Select at least one check
-Select at least one device
-Select at least one script
-Select devices first
-Select the text and copy manually
 Send a test email via your SMTP to confirm outbound delivery works:
 Send failed
 Sending test entry…
