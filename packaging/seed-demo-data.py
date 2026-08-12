@@ -341,6 +341,59 @@ def _demo_enrich_sysinfo(dev, rng, si):
     actually shows them: access watch (recent logins), systemd timers, listening
     ports with world/lan/local scope, per-host storage/RAID health, and the
     firewall posture + drift fingerprint."""
+
+    # ── v6.4.3: the signals this release shipped. Without them the demo shows
+    # the FEATURES (a Checks row, a compliance control, a RAG answer) with no
+    # data behind them, which is the worst of both — the page renders, the
+    # empty state does not explain why, and a reviewer concludes the feature is
+    # broken rather than unseeded.
+    # Exclude the non-Linux platforms rather than enumerate the Linux ones:
+    # the seeded fleet runs "Raspberry Pi OS" and "Alpine 3.20", neither of
+    # which starts with a distro name an allowlist would think to include. A
+    # first version allowlisted debian/ubuntu/... and silently skipped the Pi
+    # and both Alpine boxes — the exact hosts these signals are interesting on.
+    _osl = (dev.get('os') or '').lower()
+    _linux = not any(x in _osl for x in ('windows', 'macos', 'junos', 'unifi'))
+    if _linux and not dev.get('agentless'):
+        # Disk encryption at rest. One host deliberately UNENCRYPTED so the
+        # compliance control has a real finding and the Advisory has something
+        # to rank — an all-green demo teaches nothing.
+        _enc = dev['id'] != 'bk01'
+        si['disk_encryption'] = {
+            'encrypted': _enc,
+            'crypt_devices': (['dm-0'] if _enc else []),
+            'encrypted_mounts': (['/', '/var'] if _enc else []),
+        }
+        # Platform health. The Pi gets a real under-voltage condition; the
+        # rack hosts report fans; the laptop reports wifi.
+        _ph = {}
+        if dev.get('id') == 'pi1':
+            _ph['throttle'] = {'status': 'under-voltage detected',
+                               'raw': '0x50005'}
+        elif dev.get('id') in ('ha01', 'vw01'):   # the two Alpine boxes are wifi-attached in this demo
+            _ph['wifi'] = {'ssid': 'lab-wifi',
+                           'signal_dbm': -rng.randint(45, 78),
+                           'link_quality': rng.randint(48, 92)}
+        else:
+            _ph['fans'] = [{'name': n, 'rpm': rng.randint(1800, 4200)}
+                           for n in ('cpu', 'chassis')[:rng.randint(1, 2)]]
+            _ph['governor'] = rng.choice(['performance', 'powersave', 'schedutil'])
+        if _ph:
+            si['platform_health'] = _ph
+        # Integrity Guard + canary. One host has a tripped canary so the
+        # security surfaces are not uniformly clean.
+        if dev.get('id') == 'ng01':
+            si['canary_status'] = {'tripped': True,
+                                   'path': '/srv/.backup-key.pem',
+                                   'at': now() - 5400}
+            si['guard_quarantine'] = [
+                {'path': '/usr/local/bin/.hidden-miner', 'at': now() - 5600},
+            ]
+        else:
+            si['canary_status'] = {'tripped': False}
+        si['logged_in'] = rng.sample(['alice', 'bob', 'deploy', 'root'],
+                                     rng.randint(1, 2))
+        si['zram'] = dev.get('id') in ('pi1', 'ha01')
     tags = dev.get('tags') or []
     # ── v6.4.1: platform-specific posture + laptop signals ──
     # The demo had no Windows or macOS host at all, so win_posture,
