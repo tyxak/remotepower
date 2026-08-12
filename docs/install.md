@@ -130,7 +130,10 @@ server-only change. Full guide and decision tree:
 [`docs/tls-selfsigned.md`](tls-selfsigned.md).
 
 For a hardened production nginx config (TLS 1.2+, OCSP, rate-limiting,
-IP allowlist), see [`deploy/nginx/remotepower.conf`](../deploy/nginx/remotepower.conf).
+IP allowlist), see [`deploy/nginx/remotepower.conf`](https://github.com/tyxak/remotepower/blob/main/deploy/nginx/remotepower.conf)
+in the repository. (`deploy/` is deliberately not part of the release
+tarball, so a relative link here would resolve for someone reading the
+source and dangle for everyone reading the shipped docs or the wiki.)
 
 ### Client (on the host you want to manage)
 
