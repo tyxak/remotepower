@@ -343,6 +343,19 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **Swagger UI 5.32.6 → 5.32.13**, closing the DOMPurify advisories
+  (CVE-2026-41238/41239/41240) — the bundled DOMPurify moves 3.4.0 → 3.4.13.
+  Exposure here was always low (the API Reference renders RemotePower's own
+  server-generated spec, is admin-authed, and runs under a CSP with no
+  `unsafe-inline`), but the advisory is real and the fix is free. Verified in a
+  browser rather than by diff: signed in, 873 operations across 13 tag groups
+  render and an operation expands, with no console errors.
+
+  The first attempt at that swap shipped a completely blank API Reference page.
+  `swagger.html` pins Subresource Integrity for both files, so replacing them
+  without recomputing the hashes made the browser refuse each one outright —
+  and a file-level diff looked perfect. Every SRI pin in every served page is
+  now checked against the file it pins.
 - **The API spec documented 661 paths and not the one every agent calls.**
   `/api/heartbeat` was absent from the published OpenAPI document, along with
   the four token-in-path ingest endpoints an operator points a syslog

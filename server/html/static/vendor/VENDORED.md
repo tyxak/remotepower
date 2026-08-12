@@ -6,26 +6,35 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
-## Version check — 2026-08-06
+## Version check — 2026-08-12
 
-Upstream latest vs. what is pinned below, with the practical exposure noted so a
-maintainer with a browser to test in can decide:
+- **swagger-ui 5.32.6 → 5.32.13 — DONE.** Closes the DOMPurify advisories
+  (CVE-2026-41238/41239/41240): the bundled DOMPurify moves 3.4.0 → 3.4.13.
+  Practical exposure here was always low — the API Reference renders
+  RemotePower's OWN server-generated spec, is admin-authed, and runs under
+  `script-src 'self'` with no `unsafe-inline` — but the fix is free and the
+  advisory is real.
 
-- **swagger-ui 5.32.6 → 5.32.8 available.** 5.32.8 carries DOMPurify fixes
-  (CVE-2026-41238/41239/41240). Practical exposure here is low: the API Reference
-  page renders RemotePower's OWN server-generated OpenAPI spec, is admin-authed,
-  and runs under `script-src 'self'` with no `unsafe-inline`, so the DOM-XSS
-  class is strongly mitigated regardless. Recommended on the next cut (fetch the
-  bundle from the tagged release and smoke-test the page in a browser — do not
-  swap a minified bundle unverified).
-- **xterm.js 5.5.0 → 6.0.0** and **xterm-addon-fit** are a MAJOR bump; defer
-  until the web terminal can be exercised in a browser (breaking-change risk).
+  Fetched from the `v5.32.13` tag, **SRI hashes recomputed** (`swagger.html`
+  pins sha384 for both files), and smoke-tested in a real browser signed in:
+  873 operations across 13 tag groups render, an operation expands, zero
+  console errors, zero failed requests.
+
+  This is exactly why the warning below says never to swap a minified bundle
+  unverified. The first attempt replaced the files and nothing else — the stale
+  SRI hashes made the browser refuse BOTH resources and the page rendered
+  completely blank, with the failure visible only in the console. A file-level
+  diff would have looked perfect.
+
+- **xterm.js 5.5.0 → 6.0.0** and **xterm-addon-fit** remain a MAJOR bump;
+  deferred until the web terminal can be exercised interactively in a browser
+  (breaking-change risk, and an automated smoke test cannot type into a shell).
 - noVNC 1.5.0, qrcode-generator, fonts: current / no security-relevant update.
 
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
-| `swagger-ui/` | Swagger UI | 5.32.6 (`VERSION` string in `swagger-ui-bundle.min.js`) | https://github.com/swagger-api/swagger-ui | API Reference page |
+| `swagger-ui/` | Swagger UI | 5.32.13 (bundles DOMPurify 3.4.13; SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
 | `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 5.5.0 (`@xterm/xterm@5.5.0`) | https://github.com/xtermjs/xterm.js | Web terminal |
 | `xterm-addon-fit/` | xterm fit addon | 0.10.0 (`@0.10.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |
