@@ -1,7 +1,7 @@
 # Security review — v6.4.3 "Gu4rdMatters"
 
 Every release gets a review before it ships. This one ran in two passes and
-found **eight** issues worth reporting, all of them **caught before release**
+found **fifteen** issues worth reporting, all of them **caught before release**
 and all fixed in the release they are described in.
 
 Most were long-standing rather than new, which is the more useful thing to say
@@ -271,6 +271,33 @@ would satisfy the first check and break every deployment.
 Worth stating plainly: the cron was the one a scanner singled out, and the only
 difference between it and the three daemons was that they carried a suppression
 comment and it did not. The scanner was measuring annotations, not safety.
+
+### Four responses were served with no security headers at all
+
+nginx does not merge `add_header`: a location that sets any header of its own
+discards every header inherited from the enclosing server block. The shipped
+configuration knows this — it says so in a comment above the root location, and
+the static-asset location re-emits the entire security set for exactly that
+reason. Four other locations set a caching or content-type header and never
+re-emitted it, so they were served with no content-security policy, no
+`nosniff`, no frame protection and no referrer policy.
+
+The one that matters is the **service worker**. A service worker takes its
+execution policy from the headers on its own script response, so serving it
+without a policy runs a persistent, origin-scoped, network-intercepting context
+under no policy at all — of everything this server returns, the worst response
+to send unrestricted. The others were the web app manifest and, in the container
+configuration, the agent-installer path.
+
+None of this is exploitable on its own; the document policy still governs the
+page that registers the worker, and the manifest carries an explicit content
+type. It is defence-in-depth that was believed to be in place and was not.
+
+What made it worth a gate rather than a patch is that the mistake is invisible
+in review: each location reads as correct on its own, and the headers are lost
+in nginx's merge rules rather than in anything written in the file. The check is
+therefore structural — any location that emits a header must emit the full set —
+and it found four, where reading the file by eye had found two.
 
 ### A flow receiver wrote part of a live credential into its log
 

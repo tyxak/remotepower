@@ -51,6 +51,18 @@ from one that cannot.
   Methods are taken from what each handler enforces, not guessed. The standing
   note put this gap at ~48 paths; measured, it was nine, three of which were
   the duplicate-naming artefact.
+- **Four responses were served with no security headers at all.** nginx does not
+  merge `add_header` — a location that sets one of its own discards every header
+  inherited from the server block. The shipped config knows this and says so in
+  two comments, and the static-asset location re-emits the whole set for exactly
+  that reason; four other locations set a caching or content-type header and
+  never did. The one that matters is the **service worker**, which takes its
+  execution policy from the headers on its own script response, so it was
+  running as a persistent, origin-scoped, network-intercepting context under no
+  policy at all. Not exploitable on its own — the document policy still governs
+  the page that registers it — but defence-in-depth that was believed to be in
+  place and was not. The new check is structural rather than a list of known
+  locations, and it found four where reading the file by eye had found two.
 - **57 KB came off the eager JavaScript payload, and the budget came back
   down.** The eager-JS ratchet was raised earlier this release to admit three
   new features, with the alternative — moving a large module to on-demand
