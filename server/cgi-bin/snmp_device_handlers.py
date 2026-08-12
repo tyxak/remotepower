@@ -763,6 +763,17 @@ def run_snmp_if_history_if_due():
                if isinstance(dev, dict) and not dev.get('quarantined')
                and A._if_hist_enabled(dev) and A._device_snmp_target(dev)]
     if not targets:
+        # v6.4.3 (PERF): record the run even with nothing to walk. The gate
+        # above reads `last_run`, which was only written further down — so on
+        # any install without an if_history switch (opt-in, so most of them)
+        # the marker never appeared, the gate never fired, and this deepcopied
+        # the whole device store on EVERY request to rediscover there was
+        # nothing to walk. Same defect as the three cadence sweeps in api.py.
+        try:
+            with A._LockedUpdate(A.SNMP_IF_STATE_FILE) as st:
+                st['last_run'] = now
+        except Exception:
+            pass          # a contended marker write must never fail the request
         return
     with A._LockedUpdate(A.SNMP_IF_STATE_FILE) as st:
         # Re-check inside the lock: two workers passing the gate together would

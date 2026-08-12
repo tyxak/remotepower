@@ -343,7 +343,7 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
-- **Three cadence sweeps re-scanned the whole fleet on every request, forever.**
+- **Four cadence sweeps re-scanned the whole fleet on every request, forever.**
   Each reads a marker to decide whether it is due and writes that marker when it
   finishes — but the write sat after an `if not targets: return` that fires when
   the install has none of the relevant hardware. On the common install, which has
@@ -359,7 +359,10 @@ from one that cannot.
   Worth noting how it was found, because three separate reading passes had
   called these functions clean: the not-due gate is right there in the source
   and looks correct. It took counting real `load()` calls across a driven
-  request to see the gate never firing.
+  request to see the gate never firing. A fourth instance turned up in the SNMP
+  interface-history sweep once the measurement was pointed at every sweep rather
+  than the three already suspected — interface history is opt-in per device, so
+  almost every install took the empty path on every request.
 - **"Nobody can connect" now says why.** A WireGuard tunnel whose UDP port is
   not reaching the host looks exactly like one nobody has got round to using:
   the config is right, the server is up, the client imported cleanly, and no

@@ -111,5 +111,42 @@ class TestTheNothingToDoPathRecordsThatItRan(unittest.TestCase):
                 self.assertNotIn('load(CONFIG_FILE)', head)
 
 
+class TestTheSameDefectInTheSnmpModule(unittest.TestCase):
+    """The fourth instance, in snmp_device_handlers rather than api.py — found
+    by the same measurement, not by reading. if_history is opt-in per device,
+    so MOST installs have no target and took the empty path every time."""
+
+    SRC = (_ROOT / 'server' / 'cgi-bin' / 'snmp_device_handlers.py')
+
+    def setUp(self):
+        if not self.SRC.exists():
+            self.skipTest('module not in this tree')
+        self.src = self.SRC.read_text()
+
+    def test_the_sweep_exists(self):
+        self.assertIn('def run_snmp_if_history_if_due(', self.src)
+
+    def test_the_empty_path_records_the_run(self):
+        m = re.search(r'def run_snmp_if_history_if_due\(.*?\n(?=def |\Z)',
+                      self.src, re.S)
+        body = m.group(0)
+        empty = re.search(r'if not targets:(.*?)\n        return\n', body, re.S)
+        self.assertIsNotNone(empty, 'the empty-target return has changed shape')
+        self.assertIn("st['last_run'] = now", empty.group(1),
+                      'the nothing-to-walk path does not record that it ran, so '
+                      'the gate above can never fire on an install without an '
+                      'if_history switch')
+
+    def test_the_marker_write_cannot_fail_the_request(self):
+        """A contended write on a marker is not worth a 500 on a heartbeat."""
+        m = re.search(r'if not targets:(.*?)\n        return\n', self.src, re.S)
+        self.assertIn('except Exception', m.group(1))
+
+    def test_the_working_path_still_records_it(self):
+        m = re.search(r'def run_snmp_if_history_if_due\(.*?\n(?=def |\Z)',
+                      self.src, re.S)
+        self.assertGreaterEqual(m.group(0).count("st['last_run'] = now"), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
