@@ -1,24 +1,9 @@
-A group needs at least one letter, digit, _, - or /
 A label for this IP (e.g. "mx1"), or leave blank:
-A reason is required to start a litigation hold
-A tag needs at least one letter, digit, _, - or /
-AI did not return a clean rule — see the response
-AI provider not configured. Configure in Settings → AI.
 Active scans send attack traffic — tick the authorization box first.
-Add at least one escalation tier (minutes)
-Alert not found — it may have been purged
 Allow pop-ups for this site to open the printable report
 Allow pop-ups to open the printable report
-An archive is already running — cancel it first
 Apply the previewed configuration changes? This overwrites the affected config collections.
-Ask a question about your fleet
-Audit log cleared (pre-wipe archive saved)
 Auto-patch will hold this package back on Linux hosts, pinning it immediately
-Billable hours need a customer (site) or a device
-Browser notifications are blocked for this site
-CIDR must look like 10.0.0.0/24 or 2001:db8::/48
-Change submitted — awaiting approval by another admin (Confirmations page)
-Change your password first — every other action is blocked.
 Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.
 Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.
 Clear the dispatched-command log? This clears the command history shown here and on the Command History page.
@@ -26,56 +11,24 @@ Clear the recent jobs list? This only clears the tracker — anything already qu
 Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.
 Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:
 Command queued — agent will collect and send config in ~60s
-Compose YAML must contain a "services:" block
 Copy failed — your browser may block clipboard access on http://
-Copy this dashboard layout code:
-Could not enable notifications:
-Cron filled — adjust if needed, then save.
-Cron needs 5 fields (min hour day month weekday)
 Current config loaded — review and click Save to apply as desired
 DKIM selector to check (e.g. "google", "default"), or leave blank:
-Demo mode — read-only sandbox. Nothing was changed.
-Describe the rule in plain English:
-Describe what the script should check
-Describe what the script should do
-Describe what the script should do:
-Domain to monitor (e.g. example.com):
-Dry-run sent — waiting for the agent…
 Enter a
-Enter a cron expression (e.g. 0 3 * * *).
-Enter a cron schedule (or disable the schedule)
 Enter a cron schedule (or untick Email on schedule)
-Enter a device, group, or tag
-Enter a process and/or proto/port
-Enter a subnet, e.g. 192.168.1.0/24.
-Enter a tag or group value
 Enter hours between 0.25 and 8760, or leave blank for permanent
 Enter your admin password to confirm — this signature is what every agent trusts.
 Every device carrying this tag is updated in one operation.
-Feedback saved — it sharpens future triage
 File too large to download through the agent channel (first 256 KiB only)
 File was truncated on read — refusing to overwrite
 Filter rule added (disabled) — review then enable
 Fix parked — a second admin must approve it
 Form filled from AI draft — review, then Add (it stays disabled)
 Generate a status token? Any previous token stops working.
-HTTP target must be a full URL (https://host/path)
-Host summary copied — paste it anywhere
 Job added — have it curl the ping URL when it finishes
-Key rotated — the old key is now inactive
-Link copied — opens straight to this device view
-Listing archives at the destination…
-Live view armed — samples appear on the next heartbeat
-Load the patch report first (click Refresh)
-Log sweep queued — collecting on the next heartbeat
-Monitor not found in the saved config — refresh and retry
-Monitoring — checking…
 NAT rule added (disabled) — review then enable
 Name this passkey (e.g. "YubiKey", "Phone"):
-Name, device, and compose file are all required
 New VMID for the clone (must be unused):
-New certificate issued — download the files now
-New name for this client.
 No archived audit entries yet — the live log is still within its retention window.
 No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.
 No compose-managed host found for this image — update it manually (compose pull && up -d).

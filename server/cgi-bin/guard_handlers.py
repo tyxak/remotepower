@@ -219,7 +219,8 @@ def _queue_guard_action(did, qid, op):
         if _resolve_recover:
             try:
                 A.fire_webhook('custom_check_recovered', {
-                    'device_id': did, 'name': _dev_name, 'check_id': qid})
+                    'device_id': did, 'name': _dev_name, 'check_id': qid,
+                    'check_name': A._custom_check_name(qid)})
             except Exception:
                 pass
         # Bust the fleet-checks cache so the Checks page reflects the acceptance

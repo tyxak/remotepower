@@ -343,6 +343,16 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **`check "?" recovered`** — reported from production over Pushover. The
+  notification builders render the check's name from the event payload, and the
+  two OPERATOR-TRIGGERED recover paths did not include it: disabling a failing
+  check, and accepting a baseline change. Both resolve the open alert correctly;
+  both then announced the recovery without saying *what* had recovered, which
+  makes the notification unactionable. The heartbeat ingest path — the one a
+  test drives — always sent it, which is why this only ever appeared seconds
+  after a human had done something. All three paths now resolve the name from
+  the check definition, and an unknown id falls back to the id rather than to a
+  question mark: an id identifies something.
 - **Four cadence sweeps re-scanned the whole fleet on every request, forever.**
   Each reads a marker to decide whether it is due and writes that marker when it
   finishes — but the write sat after an `if not targets: return` that fires when

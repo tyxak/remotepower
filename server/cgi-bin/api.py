@@ -45616,6 +45616,27 @@ def _ingest_custom_check_results(dev_id, dev_name):
         fire_webhook(event, payload)
 
 
+def _custom_check_name(check_id):
+    """The operator-facing NAME of a custom check, from its definition.
+
+    v6.4.3 (BUG): the notification builders render
+    `payload.get("check_name", "?")`, so a recover payload without that key
+    reaches the operator as: check "?" recovered. The heartbeat ingest path
+    sent it; the two OPERATOR-TRIGGERED recover paths — disabling a failing
+    check, and accepting a baseline change — did not, which is why the "?"
+    only ever appeared after someone had just acted, and never in the routine
+    recover that the tests exercise.
+
+    Falls back to the id, which is at least identifying, rather than to "?",
+    which is not.
+    """
+    cid = str(check_id or '')
+    for cdef in (_config_ro().get('custom_checks') or []):
+        if isinstance(cdef, dict) and str(cdef.get('id', '')) == cid:
+            return cdef.get('name') or cid
+    return cid
+
+
 def _open_custom_check_alert_keys():
     """{(device_id, check_id)} for every OPEN custom_check_failed alert.
 
@@ -46354,7 +46375,8 @@ def handle_checks_toggle():
         _dname = (device_get(did) or {}).get('name', did)
         try:
             fire_webhook('custom_check_recovered',
-                         {'device_id': did, 'name': _dname, 'check_id': _cid})
+                         {'device_id': did, 'name': _dname, 'check_id': _cid,
+                          'check_name': _custom_check_name(_cid)})
         except Exception:
             pass
     respond(200, {'ok': True, 'device_id': did, 'check': chk, 'enabled': enabled})
