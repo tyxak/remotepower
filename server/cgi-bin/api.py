@@ -31017,6 +31017,15 @@ def _sanitise_ui_prefs(raw):
     if temp_unit in ('c', 'f'):
         out['temp_unit'] = temp_unit
 
+    # v6.4.3: relative ("3d ago") vs absolute timestamps. Render-time only, like
+    # temp_unit above — it changes no stored value and no threshold. Per-user
+    # because the two readings serve different jobs: relative is better for
+    # scanning a list, absolute is the only one you can correlate with an
+    # external log or a change window.
+    time_display = raw.get('time_display')
+    if time_display in ('relative', 'absolute'):
+        out['time_display'] = time_display
+
     # v6.1.2 (#39): announce a NEW alert while the dashboard sits in a background
     # tab. Both default OFF and are per-user, because a sound is the single most
     # intrusive thing a web app can do and one operator's "finally, I'll hear it"

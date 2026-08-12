@@ -6451,8 +6451,26 @@ function _absTs(ts) { return ts ? _fmtAbsTs(parseInt(ts)) : ''; }
 // fixed elsewhere this release, across 48 call sites. A bare 0 (an unset epoch
 // field, which several stores use for "never") rendered "20676d ago", which is
 // worse than useless because it looks like a real measurement.
+// v6.4.3: `ui_prefs.time_display` — 'relative' (default) or 'absolute'.
+//
+// 67 sites render a relative time and only 4 carry a hover-absolute tooltip, so
+// "3d ago" is usually all there is. That is fine for scanning and wrong for
+// anything you have to correlate with an external log, a change window or a
+// colleague's screenshot.
+//
+// The pref lives HERE rather than at 67 call sites because 59 of them render
+// through this one function (43 direct, 16 via two delegating wrappers). It
+// returns a plain STRING deliberately — callers put the result in both
+// textContent and innerHTML, so wrapping it in a <span title=…> would render as
+// literal markup in about half of them. Eight sites reimplement this privately
+// and are unaffected; they are listed in the test.
+function _timeDisplayAbsolute() {
+  return (typeof _uiPrefs !== 'undefined' && _uiPrefs
+          && _uiPrefs.time_display === 'absolute');
+}
 function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty;
   const _n = parseInt(ts); if (!Number.isFinite(_n) || _n <= 0) return (opts && opts.empty !== undefined) ? opts.empty : 'never';
+  if (_timeDisplayAbsolute()) return _fmtAbsTs(_n);
   let diff = Math.floor(Date.now() / 1000 - _n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
@@ -8409,6 +8427,17 @@ async function loadAccount() {
   // v6.1.2: °C/°F display unit. An addEventListener/onchange assignment from JS
   // is CSP-safe (script-src 'self' blocks inline on*= ATTRIBUTES, not handler
   // properties set in code).
+  { const td = document.getElementById('cfg-time-display');
+    if (td) {
+      td.value = _timeDisplayAbsolute() ? 'absolute' : 'relative';
+      td.onchange = async () => {
+        _uiPrefs.time_display = td.value === 'absolute' ? 'absolute' : 'relative';
+        await flushUiPrefs();
+        toast(td.value === 'absolute'
+                ? 'Times now shown as absolute timestamps'
+                : 'Times now shown as "how long ago"', 'success');
+      };
+    } }
   { const tu = document.getElementById('cfg-temp-unit');
     if (tu) {
       tu.value = _tempUnit();

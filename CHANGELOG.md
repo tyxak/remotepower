@@ -154,6 +154,18 @@ from one that cannot.
   all. Modals are where the forms are, so that was the surface where it
   mattered most. The nameless-dialog bug above was the first thing the new
   walk found.
+- **A backup job could keep firing at a host that ignores it.** Structured
+  file-backup jobs are Linux-only, and creating or editing one has refused
+  non-Linux targets since earlier in this release — but the two paths that
+  actually *run* jobs had no such check. A job created before that gate, or
+  whose host changed platform, went on queueing a Linux backup command at it
+  every schedule tick, silently, forever. Both paths check now, and the
+  scheduled one records why it skipped rather than saying nothing.
+- **Times can be shown as absolute timestamps.** Settings → Appearance → Time
+  display switches "3d ago" to a real timestamp everywhere the shared formatter
+  is used — which is most places. Relative reads better when scanning a list;
+  absolute is the one you can line up against an external log or a change
+  window.
 - **The accessibility statement was wrong about our own accessibility.** It
   said error-marking appeared "zero times" in the interface; four forms have it
   and one of those was added in this release. The check meant to keep that

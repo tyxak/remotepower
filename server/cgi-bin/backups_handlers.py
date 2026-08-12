@@ -809,6 +809,18 @@ def handle_backup_job_run(job_id):
     targets = [d for d in A._resolve_targets({'device_ids': _backup_job_targets(job)})]
     if not targets:
         A.respond(400, {'error': 'no devices you can manage are targeted by this job'})
+    # v6.4.3: filter at DISPATCH, not only at create/update. The OS gate added
+    # earlier in this release sits on the two WRITE paths — so a job that
+    # ALREADY held a Windows or macOS target (created before the gate, or whose
+    # device changed platform) kept firing a bash rsync at it on every run,
+    # forever, with nothing reporting the mismatch. Gating the write path and
+    # not the dispatch path is a gate that only stops NEW instances of a bug it
+    # leaves running.
+    targets, _os_skipped = A._split_targets_by_os_support(targets)
+    if not targets:
+        A.respond(400, {
+            'error': 'structured file-backup jobs run on Linux hosts only',
+            'skipped': _os_skipped})
     actor = A.require_perm('command', targets)
     try:
         cmd = _backup_job_command(job)
@@ -1605,6 +1617,18 @@ def process_backup_jobs():
         if _bc:
             for dev_id in _backup_job_targets(job):
                 if dev_id not in devices or A._device_quarantined(devices[dev_id]):
+                    continue
+                # v6.4.3: the SCHEDULED path needs the same OS gate as create,
+                # update and run. Without it a pre-existing job kept queueing a
+                # bash rsync at a Windows or macOS host on every cron tick,
+                # silently, forever — the agent drops the command and nothing
+                # reports it. Logged rather than skipped in silence, so the
+                # operator sees WHY that host never backs up.
+                if A._device_os_family(devices[dev_id]) != 'linux':
+                    A.log_command(f'backup({job["created_by"]})', dev_id,
+                                  devices[dev_id].get('name', dev_id),
+                                  f'backup:{job["name"]} SKIPPED '
+                                  '(structured file backup is Linux-only)')
                     continue
                 if cmds is None:
                     cmds = A.load(A.CMDS_FILE)
