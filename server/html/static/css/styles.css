@@ -1407,7 +1407,7 @@
     transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     font-family: var(--font);
   }
   .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
@@ -4900,6 +4900,14 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .input-search { padding: 8px 12px 8px 34px; font-size: 13px; }
 .select-sm { padding: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 160px; }
 .icon-btn { width: 14px; height: 14px; margin-right: 4px; display: inline-block; vertical-align: -2px; }
+/* v6.4.3 (SPACING): `.icon-btn` is set on the <svg> itself and predates flex
+   `gap`. Inside a button that now provides its own gap the margin STACKS on
+   top of it — measured 9px where every other button in the product renders
+   5px, because .btn-icon's svg carries no such class. A sibling cleanup had
+   already removed `.btn-primary svg { margin-right: 5px }` for exactly this
+   reason and missed this one. Nulled only inside the flex buttons, so the
+   inline uses that still rely on the margin are untouched. */
+:is(.btn-primary, .btn-secondary, .btn-icon, .enroll-btn, .btn) > .icon-btn { margin-right: 0; }
 .icon-noshrink { width: 13px; height: 13px; flex-shrink: 0; }
 .icon-search-abs { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; }
 .icon-search-abs-sm { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; pointer-events: none; }
@@ -4911,7 +4919,9 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-4 { display:none; background:linear-gradient(90deg,#1e3a8a,#7c3aed); color:white; padding:8px 18px; font-size:13px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.1) }
 .isl-5 { color:#bfdbfe; margin-left:8px }
 .isl-6 { display:none; padding:4px 10px; font-size:12px; gap:5px }
-.isl-7 { display:flex; align-items:center; gap:6px; padding:8px 14px }
+.isl-7 { display:flex; align-items:center; gap:5px; padding:8px 14px }   /* v6.4.3 (SPACING): was 6px; the product's icon-to-label gap is 5px on
+      308 buttons. One button a pixel off is the kind of thing you cannot
+      name but can see when it sits beside its neighbours. */
 .isl-8 { font-size:13px; color:var(--accent-ink); font-weight:600 }
 .isl-9 { padding:7px 14px }
 .isl-10 { margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap }
@@ -6102,7 +6112,13 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .alerts-group-row { background: var(--panel-2, rgba(127,127,127,0.06)); }
 .alerts-group-row td { border-top: 2px solid var(--border); }
 .alerts-group-toggle { background: none; border: none; color: var(--text); cursor: pointer;
-                       font-size: 13px; padding: 2px 4px; }
+                       font-size: 13px; padding: 2px 4px;
+                       /* v6.4.3 (SPACING): was neither flex nor gapped, so the
+                          chevron sat 3.6px from the hostname — whatever the
+                          markup whitespace happened to collapse to — while every
+                          other icon+label control in the product is a flex row
+                          at 5px. */
+                       display: inline-flex; align-items: center; gap: 5px; }
 .alerts-group-toggle:hover { color: var(--accent, #4a9eff); }
 .alert-rc-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
                   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }

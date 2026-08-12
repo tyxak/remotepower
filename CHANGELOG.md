@@ -343,6 +343,18 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **Twenty-four buttons disagreed with the other 289 about one pixel.** The
+  product's icon-to-label gap is 5px. Measured in a browser across every page,
+  24 controls rendered something else — and no amount of reading the stylesheet
+  finds them, because every rule involved is correct on its own. `.icon-btn`, a
+  class set on the `<svg>` itself, still carried a `margin-right` from before
+  flex `gap` existed, so inside a button that now supplies its own gap the two
+  STACKED to 9px; two classes declared 6px; the alert group toggle was never a
+  flex row at all, so its chevron sat at whatever the markup whitespace
+  collapsed to; and two buttons put their label on its own source line, which
+  rendered the indentation on top of the gap. Now 315 of 317 at exactly 5px —
+  the two remaining are inline count badges with no label to space from. The
+  gap is measured on every page in CI rather than asserted in CSS.
 - **Swagger UI 5.32.6 → 5.32.13**, closing the DOMPurify advisories
   (CVE-2026-41238/41239/41240) — the bundled DOMPurify moves 3.4.0 → 3.4.13.
   Exposure here was always low (the API Reference renders RemotePower's own
