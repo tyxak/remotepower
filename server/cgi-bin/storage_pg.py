@@ -1459,35 +1459,5 @@ def import_from_json(data_dir, log=lambda m: None):
     return names
 
 
-def export_to_json(data_dir, log=lambda m: None):
-    """Write every Postgres-stored document back out as a *.json file."""
-    from pathlib import Path
-    data_dir = Path(data_dir)
-    names = iter_files(data_dir)
-    for name in names:
-        _write_json_atomic(data_dir / name, load(data_dir / name))
-        log(f"  postgres -> json  {name}")
-    return names
 
 
-def verify_against_json(data_dir, log=lambda m: None):
-    """Compare the JSON-on-disk view with the Postgres reconstruction."""
-    from pathlib import Path
-    data_dir = Path(data_dir)
-    names = set(json_inventory(data_dir)) | set(iter_files(data_dir))
-    problems = []
-    for name in sorted(names):
-        jp = data_dir / name
-        j = _read_json(jp) if jp.exists() else None
-        s = load(jp) if exists(jp) else None
-        if j is None and s is None:
-            continue
-        if j is None or s is None:
-            problems.append(f"{name}: present in only one backend")
-            continue
-        if _norm(j) != _norm(s):
-            problems.append(f"{name}: content differs")
-    ok = not problems
-    log(f"verify: OK ({len(names)} files match)" if ok
-        else f"verify: {len(problems)} mismatch(es)")
-    return ok, problems
