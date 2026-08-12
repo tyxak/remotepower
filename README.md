@@ -161,8 +161,11 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   browser SSH terminal and VNC riding your existing SSH, and
   Proxmox/VMware/OpenShift guest lifecycle via the hypervisor's own API.
 - **Lock it down** — passkeys/WebAuthn, SAML/OIDC/LDAP, TOTP, per-role MFA,
-  a tamper-evident audit log, strict CSP — and a built-in KMIP key server so
-  NAS/hypervisor encryption keys live off the appliance they unlock.
+  a tamper-evident audit log, strict CSP, an instance-wide view of who is
+  signed in right now — and a built-in KMIP key server so NAS/hypervisor
+  encryption keys live off the appliance they unlock. It grades its own host's
+  disk encryption too, since that is where every device token and the
+  credential vault live.
 - **Scan for CVEs** — OSV.dev-backed, CISA KEV + EPSS prioritized, SBOM
   export (CycloneDX/SPDX).
 - **Pentest what you own** — authorized nuclei/nikto/nmap/ZAP/wapiti/lynis
@@ -242,9 +245,12 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 Security-reviewed every release and pentested as hard as we can — the bar is
 **nothing Critical, High or Medium ships, and nothing exploitable**. Every
-release runs SAST (Bandit, gitleaks, and CodeQL — the same advanced-setup scan
-GitHub runs, reporting clean), adversarial code review, DAST (OWASP ZAP, Nikto,
-Nuclei, Wapiti, WhatWeb), and live probing of our own instance. bcrypt-hashed
+release runs SAST (Bandit, gitleaks, Semgrep, and CodeQL — the same
+advanced-setup scan GitHub runs, all reporting clean), adversarial code review,
+DAST (OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb), and live probing of our own
+instance. Release tarballs are GPG-signed and the container images are
+cosign-signed (keyless, verifiable against the release workflow's identity).
+bcrypt-hashed
 passwords behind rate-limited login, TOTP/passkeys/SAML/OIDC/LDAP, a strict CSP
 with no `unsafe-inline` (plus HSTS preload, frame-ancestors `none`, and a locked
 permissions-policy), an AES-GCM CMDB vault, a tamper-evident audit log, signed

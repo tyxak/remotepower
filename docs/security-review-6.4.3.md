@@ -253,6 +253,40 @@ partial run was indistinguishable from a complete one. This is the same class as
 the platform refusals fixed earlier in the release, one layer further out, and
 it is now reported on the success path as well.
 
+### The sidecars asserted a safety property nothing enforced
+
+Three sidecar daemons and the certificate-expiry cron each post to a base URL
+taken from a service-unit environment value, and every call site carried a note
+saying the base is a fixed loopback address and that no unusual URL scheme could
+reach it. That was true by convention and by nothing else: the HTTP library
+honours `file://`, so a base set to one would turn an internal POST into a local
+file read while the comment sat above it saying that could not happen.
+
+All four now refuse a non-HTTP base — the daemons exit at startup naming the
+variable, the cron skips delivery. Verified by running each with a `file://`
+base and requiring refusal, and again with ordinary `http://` and `https://`
+bases and with no variable set at all, because a guard that refuses everything
+would satisfy the first check and break every deployment.
+
+Worth stating plainly: the cron was the one a scanner singled out, and the only
+difference between it and the three daemons was that they carried a suppression
+comment and it did not. The scanner was measuring annotations, not safety.
+
+### A vendored dependency was three patch releases behind on an advisory
+
+The API-reference page bundles Swagger UI, which bundles DOMPurify. The pinned
+build carried a version affected by three published advisories. Exposure was
+low — the page renders this product's own generated specification, requires an
+administrator session, and runs under a content-security policy with no inline
+script, so the class those advisories describe was already strongly mitigated —
+but the fix costs nothing and the advisory is real.
+
+Updated and verified in a browser rather than by file comparison. That mattered:
+the page pins integrity hashes for the bundle, so replacing the file without
+recomputing them made the browser refuse the resource outright and the page
+rendered blank — a failure a file-level diff shows as perfect. Every integrity
+pin in every served page is now checked against the file it pins.
+
 ## What was checked and found sound
 
 - No credential, token or secret is exposed by any of the issues above, and

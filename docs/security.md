@@ -194,8 +194,14 @@ backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
 summarised in the latest, [security-review-6.4.3.md](security-review-6.4.3.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
-gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
-**no exploitable findings** (see *Security testing* below). Summary of the
+gitleaks, Semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most
+recent full run reported **no exploitable findings** (see *Security testing*
+below). At v6.4.3 all four static scanners report **zero**: Semgrep 0 across the
+security-audit and secrets rulesets, Bandit 0 new against its baseline with no
+high-severity finding in it, gitleaks clean over the full history, and CodeQL 0
+in both languages under the same configuration production runs. Where a finding
+is by design it carries an inline suppression **with its reason** next to the
+code, rather than being filtered out of sight. Summary of the
 defences in place (kept current):
 
 ### Authentication
