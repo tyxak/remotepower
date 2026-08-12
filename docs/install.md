@@ -208,6 +208,19 @@ docker run -d --name remotepower -p 443:8443 -p 80:8080 \
   ghcr.io/tyxak/remotepower:latest
 ```
 
+**Verify it before you run it** *(v6.4.3)* — the images are cosign-signed
+(keyless, bound to the release workflow's identity):
+
+```bash
+cosign verify ghcr.io/tyxak/remotepower:latest \
+  --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Both flags are required to make it a check: a bare `cosign verify` accepts a
+signature from any identity. See [security.md](security.md#threat-model) for why
+the signing is keyless.
+
 The container serves **self-signed HTTPS on 8443** and plain HTTP on 8080
 (health, `/ca.crt`, and a redirect to HTTPS). Set `RP_TLS_HOST` to the address
 agents and browsers actually use, or the certificate won't match.

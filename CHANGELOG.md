@@ -343,6 +343,22 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **The artifact most people actually run was the unsigned one.** The release
+  tarball has been GPG-signed since v4.6.0 — checksum, detached `.asc`, AUR
+  packages PGP-verifying it at build time, agents able to refuse an unsigned
+  binary. The container image, which is how anyone using Docker actually gets
+  RemotePower, carried SLSA build provenance and no signature at all. Both
+  images (server and agent) are now signed with **cosign, keyless**, at release.
+  Keyless is the point rather than a convenience: the reason the GPG key is
+  generated and used locally is that CI must not hold a signing key, so putting
+  a cosign key in CI would reintroduce exactly what that rule exists to avoid.
+  Signed **by digest**, so `latest` and `X.Y` are covered by the same signature
+  rather than each attesting to a mutable pointer. Verification is documented
+  next to the `docker pull` line it applies to, and always with both
+  `--certificate-identity-regexp` and `--certificate-oidc-issuer` — a bare
+  `cosign verify` accepts a signature from any Sigstore identity, so it proves
+  the image was signed but not by whom, which reads like a check while being
+  none.
 - **The product knew who was logged in and never showed anyone.**
   `GET /api/sessions` shipped in v6.4.2 described in its own docstring as "the
   access-review companion", noting that "who is logged in right now, from where,

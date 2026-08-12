@@ -7,6 +7,16 @@
 #     The GPG signing key never touches CI.
 #   - This workflow only builds + pushes the Docker image, authenticating with
 #     the auto-provisioned GITHUB_TOKEN (no secrets to manage).
+#   - The images are then signed with cosign KEYLESS (Sigstore): the signature
+#     is bound to this workflow's OIDC identity, not to a key anyone holds, so
+#     there is still no signing secret in CI and nothing to rotate or leak.
+#     That is the whole reason it is keyless — the tarball's GPG key stays
+#     local precisely because CI must not hold a key, and a cosign key in CI
+#     would reintroduce exactly that. Verify with the identity + issuer, never
+#     with `--insecure-ignore-tlog` or a bare `cosign verify`:
+#       cosign verify ghcr.io/tyxak/remotepower:<ver> \
+#         --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
+#         --certificate-oidc-issuer https://token.actions.githubusercontent.com
 #
 # Trigger: a published GitHub Release (the `gh release create` step of the
 # production promotion). `workflow_dispatch` lets you re-run for a given tag.
@@ -70,6 +80,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -83,6 +94,21 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true   # v5.4.1 (C7): attach SLSA build provenance to the image
+
+      # v6.4.3: sign the image, keyless. The release tarball has been GPG-signed
+      # since v4.6.0 and the image never was — so the artifact most people
+      # actually run was the unsigned one. Signed by DIGEST, not by tag: a tag
+      # is a mutable pointer, and signing it would attest to whatever it points
+      # at next. `latest` and X.Y resolve to this same digest, so one signature
+      # covers every tag pushed above.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign the image (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "ghcr.io/${{ github.repository }}@${DIGEST}"
 
   # The containerized AGENT image (a separate package: ghcr.io/tyxak/remotepower-agent).
   # Same trigger/guard/multi-arch as the server image, built from Dockerfile.agent.
@@ -123,6 +149,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -134,3 +161,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true   # v5.4.1 (C7): attach SLSA build provenance to the image
+
+      # v6.4.3: sign the image, keyless. The release tarball has been GPG-signed
+      # since v4.6.0 and the image never was — so the artifact most people
+      # actually run was the unsigned one. Signed by DIGEST, not by tag: a tag
+      # is a mutable pointer, and signing it would attest to whatever it points
+      # at next. `latest` and X.Y resolve to this same digest, so one signature
+      # covers every tag pushed above.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign the image (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "ghcr.io/${{ github.repository }}-agent@${DIGEST}"

@@ -398,6 +398,26 @@ detached **GPG signature** (`.tar.gz.asc`); the signing key fingerprint is
 signature at build time, and the agent self-update can be pinned to require a
 signed binary (fail-closed).
 
+The **container images** are signed too, since v6.4.3 — they were the gap, and
+for most people the image is what actually runs. They use **cosign keyless
+signing** (Sigstore) rather than a key, because the reason the GPG key is kept
+local is that CI must not hold a signing key, and putting a cosign key in CI
+would reintroduce exactly that. The signature is bound to the release workflow's
+OIDC identity, so verification asserts *which workflow in which repository*
+built the image:
+
+```bash
+cosign verify ghcr.io/tyxak/remotepower:6.4.3 \
+  --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Both flags matter. A bare `cosign verify` accepts a signature from *any*
+identity, which for a keyless signature means anyone with a GitHub account —
+it proves the image was signed, not by whom, which is not a check. Images are
+signed **by digest**, so the `latest` and `X.Y` tags resolve to the same signed
+digest as the exact version; the images also carry SLSA build provenance.
+
 ## Threat model
 
 **In scope:**
