@@ -32,13 +32,10 @@ Change submitted — awaiting approval by another admin (Confirmations page)
 Change your password first — every other action is blocked.
 Choose a .p12 / .pfx file first
 Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.
-Clear all command history? This cannot be undone.
 Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.
-Clear the dead-letter queue? Failed deliveries will be discarded.
 Clear the dispatched-command log? This clears the command history shown here and on the Command History page.
 Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.
 Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.
-Clear the webhook delivery log?
 Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:
 Command queued — agent will collect and send config in ~60s
 Compose YAML must contain a "services:" block
@@ -111,40 +108,18 @@ Monitoring — checking…
 Must be ≥ 30 seconds
 Mute lifted
 NAT rule added (disabled) — review then enable
-Name and reply text are required
-Name and template content are required
-Name did not match — revert cancelled
-Name the report
-Name the snapshot first
-Name the template first
 Name this passkey (e.g. "YubiKey", "Phone"):
-Name this query:
 Name, device, and compose file are all required
 New VMID for the clone (must be unused):
 New certificate issued — download the files now
 New folder name:
 New name for this client.
 New passphrases do not match.
-No TLS targets yet. Click "+ Add target" to start.
 No archived audit entries yet — the live log is still within its retention window.
-No changes
-No clients on this tunnel yet. Create one to get a config + QR.
 No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.
 No compose-managed host found for this image — update it manually (compose pull && up -d).
-No credential fields for this provider
-No destroyed keys to clear
-No devices carry that tag any more
-No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.
 No groups in use. Set a device’s group from its drawer.
-No maintenance actions for this pool
-No remediation playbook for this alert
-No report available
-No scans yet. Pick an enrolled device and queue one.
-No stored triage for this alert
 No tags in use. Tag a device from its drawer, or in bulk from the Devices page.
-No ticket loaded
-No tunnels yet. Create one to issue road-warrior clients.
-No verdict/device to propose from
 Notification permission denied
 Opened the posture report in a new tab
 Opened the printable report in a new tab
@@ -241,12 +216,7 @@ Send a test email via your SMTP to confirm outbound delivery works:
 Send failed
 Sending test entry…
 Sending…
-Set a URL first
 Set a default SSH username first (Settings → Security → SSH preferences)
-Set a security or all-updates day limit
-Set both a start and end time
-Set business start and end times
-Set how often the job runs
 Set up the CMDB vault first (Fleet → CMDB), then unlock it here.
 Sign out all other sessions? Only this browser will stay signed in.
 Signing key generated — now distribute the public key to agents
