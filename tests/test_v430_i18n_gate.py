@@ -564,6 +564,111 @@ def _attr_backlog():
             _ATTR_BACKLOG_FILE.read_text(encoding='utf-8').splitlines() if ln}
 
 
+# ── v6.4.3: runtime strings (toasts, empty states, confirm messages) ─────────
+# The fourth extraction. The three above cover static markup and the
+# option/th/label categories inside app*.js; the STRINGS those files pass to
+# toast() / uiConfirm({message}) / tableCtl emptyMsg were scanned by nothing,
+# and they are the text an operator reads at the moment something succeeds,
+# fails, or asks to be confirmed.
+#
+# 548 were already untranslated when this landed. That is recorded debt in
+# tests/data/i18n_runtime_backlog.txt, shrink-only, exactly like the attribute
+# baseline: a large backlog frozen so it cannot GROW is worth far more than a
+# gate deferred until someone finds time to translate 548 strings, because the
+# decay stops today either way.
+_RUNTIME_BACKLOG_FILE = _ROOT / 'tests' / 'data' / 'i18n_runtime_backlog.txt'
+_RUNTIME_PATTERNS = (
+    r"toast\(\s*'([^'\\]{4,90})'",          # every success/error/info toast
+    r"emptyMsg:\s*'([^'\\]{4,120})'",       # tableCtl empty states
+    r"message:\s*'([^'\\]{4,140})'",        # uiConfirm / uiPrompt bodies
+)
+
+
+def _runtime_strings():
+    """User-visible prose passed to the toast/confirm/empty-state helpers.
+
+    Skips anything with `${` (interpolated — the literal is not the sentence),
+    anything containing `<` (markup, handled by the markup extractions), and
+    anything not starting with a capital, which filters ids, keys and CSS
+    fragments that share these call shapes.
+    """
+    out = set()
+    for _where, src in _SCAN_SOURCES:
+        for pat in _RUNTIME_PATTERNS:
+            for m in re.finditer(pat, src):
+                t = m.group(1).strip()
+                if '${' in t or '<' in t or len(t) < 4 or not re.match(r'^[A-Z]', t):
+                    continue
+                out.add(t)
+    return out
+
+
+def _runtime_backlog():
+    if not _RUNTIME_BACKLOG_FILE.exists():
+        return None
+    return {ln.rstrip('\n') for ln in
+            _RUNTIME_BACKLOG_FILE.read_text(encoding='utf-8').splitlines()
+            if ln.strip()}
+
+
+class TestRuntimeStringRatchet(unittest.TestCase):
+    """toast / confirm / empty-state prose — shrink-only, same contract as the
+    attribute ratchet."""
+
+    def setUp(self):
+        self.backlog = _runtime_backlog()
+        if self.backlog is None:
+            self.skipTest('tests/data excluded from this tree')
+
+    def test_the_extraction_finds_the_strings(self):
+        """Positive control. These patterns match call shapes, so a rename of
+        toast() or a switch to double quotes would silently return nothing and
+        every assertion below would pass over an empty set."""
+        found = _runtime_strings()
+        self.assertGreater(len(found), 400,
+                           'runtime-string extraction found almost nothing — '
+                           'has toast()/uiConfirm been renamed or requoted?')
+
+    def test_no_new_untranslated_runtime_string(self):
+        entries = _dict_entries()
+        new = sorted(t for t in _runtime_strings()
+                     if t not in entries
+                     and t not in _DELIBERATE_ENGLISH
+                     and t not in self.backlog)
+        self.assertEqual(new, [], '\n'.join([
+            'these toast / confirm / empty-state strings are new and have no '
+            'translation:', *('  ' + t for t in new),
+            '',
+            'This is the text an operator reads when something succeeds, fails '
+            'or asks to be confirmed — in the six non-English languages it is '
+            'shown in English. Add a DICT entry in i18n.js with all six.',
+            '',
+            'Never invent a translation you are unsure of: the English fallback '
+            'is graceful, a wrong one is not. If the string is example DATA an '
+            'operator copies, record it in '
+            f'{_RUNTIME_BACKLOG_FILE.name}, which may shrink and never grow.']))
+
+    def test_the_backlog_only_shrinks(self):
+        """A string that has since been translated, or deleted from the source,
+        must leave the file — or the baseline rots into a list nobody can act
+        on and a real gap hides among them."""
+        entries = _dict_entries()
+        present = _runtime_strings()
+        stale = sorted(t for t in self.backlog
+                       if t in entries or t not in present)
+        self.assertEqual(stale, [], '\n'.join([
+            'these entries in the runtime backlog are stale — they are either '
+            'translated now or no longer in any app*.js:',
+            *('  ' + t for t in stale),
+            '', 'Delete them. The file records debt that still exists.']))
+
+    def test_the_debt_is_real_not_invented(self):
+        """Every backlog line must be a string that genuinely appears in the
+        source, so the file cannot be padded to make the gate pass."""
+        present = _runtime_strings()
+        self.assertTrue(self.backlog <= present)
+
+
 class TestAttributeTranslationRatchet(unittest.TestCase):
     """`placeholder` / `title` / `aria-label` — shrink-only."""
 

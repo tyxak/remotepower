@@ -1,0 +1,487 @@
+A group needs at least one letter, digit, _, - or /
+A label for this IP (e.g. "mx1"), or leave blank:
+A reason is required to start a litigation hold
+A restore drill needs a sample path
+A rollout can have at most 10 rings
+A tag needs at least one letter, digit, _, - or /
+AI did not return a clean rule — see the response
+AI provider not configured. Configure in Settings → AI.
+Active scans send attack traffic — tick the authorization box first.
+Add at least one escalation tier (minutes)
+Add at least one flow step
+Add at least one on-call contact
+Add at least one ring with a target
+Add at least one source path
+Alert is no longer in this view
+Alert not found — it may have been purged
+Allow pop-ups for this site to open the printable report
+Allow pop-ups to open the printable report
+Allow pop-ups to open the report
+An archive is already running — cancel it first
+An unsaved draft of this article exists
+An unsaved draft of this script exists
+Apply the previewed configuration changes? This overwrites the affected config collections.
+Approve failed:
+Ask a question about your fleet
+At least one column must stay visible
+Audit log cleared (pre-wipe archive saved)
+Auto-patch will hold this package back on Linux hosts, pinning it immediately
+Billable hours need a customer (site) or a device
+Break-glass request
+Break-glass request approved
+Browser notifications are blocked for this site
+CIDR must look like 10.0.0.0/24 or 2001:db8::/48
+CMDB vault passphrase:
+Change submitted — awaiting approval by another admin (Confirmations page)
+Change your password first — every other action is blocked.
+Checking DNS records…
+Checking OPNsense for updates…
+Checking RouterOS for updates…
+Checking blocklists…
+Checkout failed:
+Choose a .p12 / .pfx file first
+Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.
+Clear all command history? This cannot be undone.
+Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.
+Clear the dead-letter queue? Failed deliveries will be discarded.
+Clear the dispatched-command log? This clears the command history shown here and on the Command History page.
+Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.
+Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.
+Clear the webhook delivery log?
+Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:
+Command queued — agent will collect and send config in ~60s
+Compose YAML must contain a "services:" block
+Configuration restored
+Confirmation text does not match
+Contact not found
+Copied Markdown to clipboard
+Copy failed — clipboard blocked
+Copy failed — your browser may block clipboard access on http://
+Copy failed.
+Copy this dashboard layout code:
+Could not build share code
+Could not copy — select the text manually
+Could not determine the signed-in account
+Could not enable notifications:
+Could not load the article
+Could not open attachment
+Cron filled — adjust if needed, then save.
+Cron needs 5 fields (min hour day month weekday)
+Current config loaded from agent
+Current config loaded — review and click Save to apply as desired
+Customer config saved
+DKIM selector to check (e.g. "google", "default"), or leave blank:
+DNS blocker refused the change
+DSM upgrade started
+Dashboard layout applied
+Dead-letter queue cleared
+Delete failed.
+Delete queued
+Demo mode — read-only sandbox. Nothing was changed.
+Demoted
+Describe a schedule first
+Describe the rule in plain English:
+Describe what the script should check
+Describe what the script should do
+Describe what the script should do:
+Domain added — checking…
+Domain looks invalid
+Domain to monitor (e.g. example.com):
+Download failed
+Dry run complete
+Dry-run sent — waiting for the agent…
+Email sent to
+Endpoints must differ
+Enter 1–365 days
+Enter a
+Enter a URL first
+Enter a code
+Enter a command
+Enter a command first
+Enter a cron expression (e.g. 0 3 * * *).
+Enter a cron schedule (or disable the schedule)
+Enter a cron schedule (or untick Email on schedule)
+Enter a device, group, or tag
+Enter a domain or IP.
+Enter a group or tag name
+Enter a name for this appliance
+Enter a name to check
+Enter a name to monitor
+Enter a name to resolve
+Enter a number from the list
+Enter a process and/or proto/port
+Enter a subnet, e.g. 192.168.1.0/24.
+Enter a tag or group value
+Enter a valid domain name
+Enter a valid email address
+Enter a valid port
+Enter an IPv4 or IPv6 address to ban.
+Enter at least one hostname or IP
+Enter hours between 0.25 and 8760, or leave blank for permanent
+Enter one or more package names to remove
+Enter the bundle passphrase
+Enter the exact snapshot name to delete
+Enter your admin password to confirm this security downgrade.
+Enter your admin password to confirm — this signature is what every agent trusts.
+Enter your password or a 2FA code
+Enter your password to disable 2FA:
+Enter your password. This invalidates your existing codes.
+Enter your username first.
+Event not found
+Every device carrying this tag is updated in one operation.
+Evidence pack downloaded
+Expiry must be a future date
+Export-signing key rotated
+Failed (no response)
+Failed to clear container data
+Failed to fetch JSON payload
+Failed to load SNMP config
+Failed to load asset.
+Failed to load confirmations
+Failed to load diff
+Failed to load inbound webhooks
+Failed to load invoice
+Failed to load members
+Failed to load ticket
+Failed to queue the update.
+Failed to reset
+Failed to save SLA targets
+Failed to save positions — they may not survive refresh
+Feedback saved — it sharpens future triage
+Fetching reports from IMAP…
+File exceeds the 8 MB upload limit
+File too large (max 1 MB)
+File too large to download through the agent channel (first 256 KiB only)
+File was truncated on read — refusing to overwrite
+Filter rule added (disabled) — review then enable
+Finding unmuted
+Fix parked — a second admin must approve it
+Fix queued
+Fix the syntax error first
+Form filled from AI draft — review, then Add (it stays disabled)
+Generate a status token? Any previous token stops working.
+Give the job a name
+Give the query a name first
+HTTP target must be a full URL (https://host/path)
+Host and remote path are required
+Host muted
+Host required
+Host summary copied — paste it anywhere
+Host unmuted
+Hours must be greater than 0
+IMAP OK
+IMAP settings saved
+IMAP test failed
+IP added — checking…
+Import failed:
+Incident posted
+Incident updated
+Integrations saved
+Invalid JSON step:
+Invalid exclude regex:
+Invalid layout code
+Invoice emailed
+Job added — have it curl the ping URL when it finishes
+KMIP client connected
+Key generation failed:
+Key not found
+Key rotated — the old key is now inactive
+Key updated
+Kill failed (no response)
+LAN discovery schedule created.
+Layout code copied to clipboard
+Layout code had no known widgets
+Link copied — opens straight to this device view
+Link not found
+List at least one event to watch
+Listen port must be a whole number 1–65535
+Listing archives at the destination…
+Live view armed — samples appear on the next heartbeat
+Load the patch report first (click Refresh)
+Load the rules first
+Log sweep queued — collecting on the next heartbeat
+Mail round-trip settings saved
+Maintenance complete
+Max 10 files per reply
+Metrics pushed to the OTLP collector
+Monitor deleted
+Monitor not found in the saved config — refresh and retry
+Monitoring — checking…
+Must be ≥ 30 seconds
+Mute lifted
+NAT rule added (disabled) — review then enable
+Name and reply text are required
+Name and template content are required
+Name did not match — revert cancelled
+Name the report
+Name the snapshot first
+Name the template first
+Name this passkey (e.g. "YubiKey", "Phone"):
+Name this query:
+Name, device, and compose file are all required
+New VMID for the clone (must be unused):
+New certificate issued — download the files now
+New folder name:
+New name for this client.
+New passphrases do not match.
+No TLS targets yet. Click "+ Add target" to start.
+No archived audit entries yet — the live log is still within its retention window.
+No changes
+No clients on this tunnel yet. Create one to get a config + QR.
+No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.
+No compose-managed host found for this image — update it manually (compose pull && up -d).
+No credential fields for this provider
+No destroyed keys to clear
+No devices carry that tag any more
+No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.
+No groups in use. Set a device’s group from its drawer.
+No maintenance actions for this pool
+No remediation playbook for this alert
+No report available
+No scans yet. Pick an enrolled device and queue one.
+No stored triage for this alert
+No tags in use. Tag a device from its drawer, or in bulk from the Devices page.
+No ticket loaded
+No tunnels yet. Create one to issue road-warrior clients.
+No verdict/device to propose from
+Nothing could be restored
+Nothing needs attention right now.
+Nothing to acknowledge on this host
+Nothing to audit — paste a script first
+Nothing to change
+Nothing to copy — render first
+Nothing to download yet
+Nothing to download — render first
+Nothing to explain
+Nothing to explain — paste a script first
+Nothing to export
+Nothing to inspect yet
+Notification permission denied
+OPNsense config saved
+Opened the posture report in a new tab
+Opened the printable report in a new tab
+Opening the print dialog — choose "Save as PDF"
+Parked for a second admin to approve (change-approval is on).
+Parked — a second admin must approve it
+Passkey registered.
+Passkey registration cancelled.
+Passkey removed.
+Passkey sign-in cancelled.
+Passphrase must be at least 12 characters
+Passphrase must be at least 8 characters
+Passphrase rotated.
+Passphrases do not match
+Passphrases do not match.
+Password required.
+Paste a config to import
+Paste a dashboard layout code to apply:
+Paste an SSH public key
+Path must be absolute (start with /)
+Perf HUD
+Pick a date and time
+Pick a device for this policy
+Pick a group from the dropdown first
+Pick a project first
+Pick a provider and zone first
+Pick a saved query first
+Pick a script first
+Pick a site
+Pick a target host first
+Pick an alert type and an article
+Pick at least one action (script, notify, ticket, tag or mute)
+Pick at least one day
+Pick at least one device
+Pick at least one host before saving
+Pick at least one thing to prune
+Pick both endpoints
+Pick two different snapshots
+Poll failed — see error below
+Poll interval must be 30–3600 seconds
+Polled OK — see Latest poll below
+Polling over SSH…
+Popup blocked — allow popups to view the thread
+Port must be between 1 and 65535
+Positions cleared
+Prefilled — saving adds a new check
+Preview first
+Preview the command first
+Preview the waves first
+Price per unit, excluding VAT
+Print target missing
+Probing — this can take a while for many targets
+Profile assigned
+Profile saved
+Proposal failed — is the AI executor module enabled?
+Provide an SSH key or password
+Provisioning command queued.
+Pull this backup back and OVERWRITE the restore path. Enter the absolute directory on the host to restore into:
+Quantity (e.g. hours or units)
+Quantity and price must be numbers
+Query duplicated
+Queued
+Queued — follow it on Rollouts → Recent jobs
+Rack saved
+Recovery bundle exported — store it off this machine
+Refreshing KEV/EPSS feeds…
+Reindex:
+Reject this MCP write action. Optional note:
+Rejected
+Removal queued
+Remove every finished scan (done / failed / cancelled) and all of their findings? This cannot be undone.
+Remove this destination?
+Remove this email route?
+Removed from the catalog
+Removes the KMIP activity history. The clear itself is recorded
+Rename query:
+Reports cleared
+Reset all monitor alert state? This allows alerts to re-fire.
+Reset the dashboard to its default layout?
+Reset to default — Save to apply
+Restart dispatched — reconnecting…
+Restart scheduled
+Restore path must be absolute
+Restore queued — output appears in the device command history
+Restored — this line alerts again
+Resumed update alerts
+Reveal failed:
+Reveal still refused after checkout — check the audit log.
+Revert started
+Revoke ALL sessions? Everyone (including you) will need to log in again.
+Revoke failed:
+Revoke this session? That browser/device will be signed out.
+Rolling-reboot rollout created
+Rotation failed:
+RouterOS config saved
+Rule added (disabled) — review then enable
+Rule already exists
+Rule queued — applies on the next agent check-in
+Run a query first
+SAML config saved
+SLO object not found — refresh and retry
+SSH credentials saved
+Satellite name (e.g. dmz-relay):
+Saved as the default for new tunnels.
+Saving & pushing spans…
+Scan failed
+Schedule created.
+Schedule fired — scan(s) queued.
+Scope value required for
+Scope value, label and password are required.
+Scoped credential added
+Script body is required
+Script flagged as dangerous — tick the box to confirm
+Script inserted — review before saving
+Script name is required
+Search and pick a device above first.
+Search and pick a device first (or use a verified target’s Schedule button).
+Search error:
+Search for and pick a device
+Select a
+Select at least one asset
+Select at least one business day
+Select at least one category
+Select at least one check
+Select at least one device
+Select at least one script
+Select devices first
+Select the text and copy manually
+Send a test email via your SMTP to confirm outbound delivery works:
+Send failed
+Sending test entry…
+Sending…
+Set a URL first
+Set a default SSH username first (Settings → Security → SSH preferences)
+Set a security or all-updates day limit
+Set both a start and end time
+Set business start and end times
+Set how often the job runs
+Set up the CMDB vault first (Fleet → CMDB), then unlock it here.
+Sign out all other sessions? Only this browser will stay signed in.
+Signature saved
+Signing key generated — now distribute the public key to agents
+Silence this exact (host, event) for how many hours?
+Silence window must be 1–1440 minutes
+Site id to quote for (see the Sites page).
+Skipped:
+Smart group saved
+Snapshot deletion queued.
+Snapshot deletion queued:
+Specify at least one event or severity
+Stack created
+Stack deleted
+Staged rollout needs at least one ring (e.g. "canary = tag:canary")
+Start time is required
+Starting DSM upgrade over SSH…
+Status page saved
+Status token generated
+Stored in vault (encrypted)
+Subject and cron are required
+Subject required
+Subnet created
+Subscribers saved
+Suppression rule added
+Swap the live configuration for this snapshot? The current state is saved as a revision first, so you can restore back.
+Tags to ADD (comma-separated, leave blank for none):
+Tags to REMOVE (comma-separated, leave blank for none):
+Target % must be between 0 and 100 (exclusive)
+Target added — publish the proof shown, then Verify.
+Target node to migrate to:
+Target not found
+Task deleted
+Task not found
+Team saved
+Template not found
+Template saved
+Test failed (no response)
+Test webhook sent successfully!
+Testing IMAP…
+That device is not enrolled
+That module is switched off (Settings → Advanced).
+The AI module is not loaded
+The agent ran but found no DNS credentials in acme.sh on that host.
+The web terminal opens an SSH session, which needs OpenSSH
+There is no other group to merge into
+There is no other tag to merge into
+This alert carries neither a matched line nor its rule pattern —
+This credential must be checked out before it can be revealed.
+This is the only copy — a past-dated posture report cannot be
+This mute has already lapsed — reload the list
+This overwrites files under the restore path. Type RESTORE to proceed.
+This server already holds KMIP keys. Restoring replaces all of them, and any key not in the bundle is lost. Continue?
+Threshold must be a positive whole number
+Ticket assigned to group
+Ticket assigned to you
+Ticket deleted
+Ticket mailbox saved
+Time saved
+Timed out waiting for the agent — is it online and on the latest build?
+Title is required.
+Tour complete — explore away!
+Trap rule saved
+Tunnel deleted
+URL required
+Un-cleared — this line alerts again
+Unban queued
+Unfilled placeholders left as-is:
+Unlock failed:
+Unlock the vault first (top of this page).
+Update script completed
+Update script saved
+Upgrade started — router is rebooting
+Username may use letters, digits, dot, dash, underscore (max 32)
+VMID must be a number
+VNC server password:
+Vault is locked — please unlock and retry.
+Vault locked
+Vault setup failed:
+Vault unlocked
+Watch grant added
+Watcher and target are required
+Webhook URL cleared — click Save to apply
+What are you quoting for? (e.g. "Firewall replacement — labour")
+What fixed it? (optional — it is kept on the alert and shows in
+Widgets aligned
+WireGuard helper script not loaded
+Write something first
+Write the email body first
+You have unsaved Settings changes. Leave without saving?
