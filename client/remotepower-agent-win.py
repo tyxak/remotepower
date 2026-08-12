@@ -22,8 +22,9 @@ posture set for the Checks catalog (BitLocker / firewall / Defender / WU service
 and evaluates agent-side custom checks incl. a `windows_service` type.
 
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
-this agent deliberately does NOT read): OpenSCAP (`oscap` is a Linux tool with
-Linux SCAP content — the server-side CIS baseline is the cross-platform path);
+this agent deliberately does NOT read): OpenSCAP (`force_scap_scan` /
+`scap_profile` — `oscap` is a Linux tool with Linux SCAP content, and the
+server-side CIS baseline is the cross-platform path);
 `host_scan` (lynis); `image_scan_*` (trivy container-image CVEs); `du_scan_*`
 (no `du` on Windows; macOS has it since v6.4.1); `mailbox_paths` (Unix mail
 spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
@@ -59,6 +60,28 @@ import urllib.request
 import urllib.error
 
 VERSION = '6.4.3'
+
+# v6.4.3: the docstring's "deliberately does NOT read" list, machine-readable.
+# tests/test_heartbeat_key_parity.py enforces BOTH directions against it: a
+# server key this agent neither reads nor declares fails the build (the
+# "success toast, silent no-op" class), and a declared key that IS read, or
+# that the server no longer sends, fails as a STALE declaration. Keeping the
+# list next to the prose is deliberate — a table living only in the test is a
+# second registry, and this project's recurring bug is two registries drifting.
+# Closing one of these means deleting its entry here AND in the macOS agent.
+HEARTBEAT_KEYS_NOT_HONOURED = (
+    'force_scap_scan', 'scap_profile',   # oscap: Linux tool, Linux SCAP content
+    'host_scan',                          # lynis
+    'image_scan_enabled', 'force_image_scan',   # trivy container-image CVEs
+    'du_scan_enabled', 'du_scan_paths', 'force_du_scan',   # no `du` on Windows
+    'mailbox_paths',                      # Unix mail spools
+    'host_config_desired',                # users/sudoers/motd apply
+    'push_enabled',                       # the push relay channel
+    'mdns_enabled',
+    'force_iac_collect',
+    'guard_actions',                      # Integrity Guard types are Linux-only
+    'harvest_dns_creds', 'force_acme_rescan',   # acme.sh
+)
 DEFAULT_POLL = 60
 
 

@@ -9,7 +9,8 @@ server-side code path. Stdlib only; `psutil` is used when present for richer
 metrics and gracefully skipped otherwise.
 
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
-this agent deliberately does NOT read): OpenSCAP (`force_scap_scan`);
+this agent deliberately does NOT read): OpenSCAP (`force_scap_scan` /
+`scap_profile`);
 `host_scan` (lynis); `image_scan_*` (trivy); `mailbox_paths` (mail spools);
 `host_config_desired` (users/sudoers/motd apply); `push_enabled` (push relay);
 `mdns_enabled`; `force_iac_collect`; `guard_actions` (Integrity Guard check
@@ -40,6 +41,23 @@ import urllib.request
 import urllib.error
 
 VERSION = '6.4.3'
+
+# v6.4.3: the docstring's "deliberately does NOT read" list, machine-readable.
+# See the Windows agent's copy for why it lives here rather than in the test.
+# macOS DOES honour du_scan (since v6.4.1), which is exactly the kind of
+# divergence this list has to record rather than leave to prose.
+HEARTBEAT_KEYS_NOT_HONOURED = (
+    'force_scap_scan', 'scap_profile',   # oscap
+    'host_scan',                          # lynis
+    'image_scan_enabled', 'force_image_scan',   # trivy
+    'mailbox_paths',                      # Unix mail spools, not macOS layout
+    'host_config_desired',                # users/sudoers/motd apply
+    'push_enabled',
+    'mdns_enabled',
+    'force_iac_collect',
+    'guard_actions',                      # Integrity Guard types are Linux-only
+    'harvest_dns_creds', 'force_acme_rescan',   # acme.sh
+)
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
