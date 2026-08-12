@@ -235,10 +235,17 @@ class TestNonBlockingLockParityAcrossBackends(unittest.TestCase):
         )
 
     def test_cve_scan_handler_handles_lock_contention_itself(self):
-        src = (_CGI / "api.py").read_text()
-        scan = src[src.index("def handle_cve_scan("):]
-        scan = scan[: scan.index("\ndef ")]
-        self.assertIn("except LockBusy", scan)
+        # v6.4.3: read the COMBINED source. handle_cve_scan moved to
+        # cve_handlers.py in the ratchet carve, and this test grepped raw
+        # api.py — the documented breakage class for every extraction, which
+        # surfaces only in a full run. Inside a bound module api services carry
+        # the ``A.`` prefix, so pin on substrings that survive it.
+        import apisrc
+        import srcpin
+        scan = srcpin.py_function(apisrc.api_source(), "handle_cve_scan")
+        # `(?:A\.)?` because inside a bound module every api service carries the
+        # A. prefix — the exact tolerance apisrc's own docstring warns about.
+        self.assertRegex(scan, r"except (?:A\.)?LockBusy")
         self.assertIn("409", scan)
 
 

@@ -97,7 +97,7 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # require_admin_auth / audit_log / _read_valid — and none of the notify/event
 # core the ratchet exists to protect. The pure protocol layer already lived in
 # proxmox_client.py, so only the request-coupled half moved.
-INLINE_HANDLER_CEILING = 605
+INLINE_HANDLER_CEILING = 593
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
