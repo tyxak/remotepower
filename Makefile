@@ -525,7 +525,7 @@ dist: clean
 	@# dir means a new exclude AND a new alternation in the grep below.
 	@echo "==> Leak-checking the tarball file list"
 	@! tar -tzf $(DIST_DIR)/$(DIST_NAME).tar.gz | grep -E \
-	  '(^|/)(\.claude/|\.cursor/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|USER\.md|TOOLS\.md|SOUL\.md|IDENTITY\.md|HEARTBEAT\.md|BOOTSTRAP\.md|MEMORY\.md|DREAMS\.md|memory/|openclaw-workspace-state\.json|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/|\.hypothesis/|C:)|-internal\.md$$|\.enc$$|\.coverage$$' \
+	  '(^|/)(\.claude/|\.cursor/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|USER\.md|TOOLS\.md|SOUL\.md|IDENTITY\.md|HEARTBEAT\.md|BOOTSTRAP\.md|MEMORY\.md|DREAMS\.md|memory/|openclaw-workspace-state\.json|site/|deploy/|design/|api\.env|\.ssh/|\.codeql-cache/|\.hypothesis/|C:)|-internal\.md$$|\.enc$$|\.key$$|\.pem$$|\.coverage$$' \
 	  || { echo "==> LEAK: forbidden files in the tarball (listed above) — add an exclude"; exit 1; }
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind

@@ -144,7 +144,7 @@ s_release_artifacts() {  # manual — gpg pinentry gotcha: sign the BUILT tarbal
   # one of each in a scratch archive and fails if this pattern misses it.
   local leaks
   leaks="$(tar -tzf "dist/remotepower-${NVER}.tar.gz" | grep -E \
-    '(^|/)(CLAUDE|opencode|AGENTS|MEMORY|SOUL|IDENTITY|USER|DREAMS|HEARTBEAT|TOOLS|BOOTSTRAP)\.md$|-internal\.md$|(^|/)\.(claude|cursor|git|ssh)/|(^|/)(site|deploy|design|memory)/|(^|/)api\.env$|\.(enc|key|pem|env)$' \
+    '(^|/)(CLAUDE|opencode|AGENTS|MEMORY|SOUL|IDENTITY|USER|DREAMS|HEARTBEAT|TOOLS|BOOTSTRAP)\.md$|-internal\.md$|(^|/)\.(claude|cursor|git|ssh|codeql-cache|hypothesis)/|(^|/)(site|deploy|design|memory)/|(^|/)(api\.env|openclaw-workspace-state\.json|\.coverage)$|\.(enc|key|pem|env)$' \
     || true)"
   [[ -z "$leaks" ]] || die "TARBALL LEAK: $leaks"
   info "tarball leak-check clean"

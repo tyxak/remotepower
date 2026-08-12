@@ -52,6 +52,14 @@ MUST_BE_CAUGHT = (
     'server.key',
     'server.pem',
     '.ssh/id_ed25519',
+    # v6.4.3: local-tooling artifacts. The two patterns had DRIFTED — these
+    # four were guarded by the Makefile and not by promote.sh, while design/,
+    # .key and .pem were guarded by promote.sh and not by the Makefile. Seven
+    # gaps in total, in both directions, because each was maintained alone.
+    'openclaw-workspace-state.json',
+    '.codeql-cache/db/x',
+    '.hypothesis/examples/x',
+    '.coverage',
 )
 
 # Real files that MUST ship. A leak-check that also fires on these is worse
@@ -77,6 +85,24 @@ def _leak_pattern():
     src = _PROMOTE.read_text(encoding='utf-8')
     m = re.search(r"leaks=\"\$\(tar -tzf [^|]+\| grep -E \\\n\s*'([^']+)'", src)
     return m.group(1) if m else None
+
+
+def _makefile_leak_pattern():
+    """The Makefile's own leak grep — the FIRST net, run by `make dist`.
+
+    There are two nets and they were maintained independently, which is how
+    they drifted apart in both directions. Lifting both means the same planted
+    files are run through both patterns, so a category guarded by one and not
+    the other fails here rather than in a published tarball.
+    """
+    mk = _ROOT / 'Makefile'
+    if not mk.exists():
+        return None
+    m = re.search(
+        r"tar -tzf \$\(DIST_DIR\)/\$\(DIST_NAME\)\.tar\.gz \| grep -E \\\n\s*'([^']+)'",
+        mk.read_text(encoding='utf-8'))
+    # `$$` is make-escaping for a literal `$` in the shell regex.
+    return m.group(1).replace('$$', '$') if m else None
 
 
 class TestPromoteTarballLeakCheck(unittest.TestCase):
@@ -167,6 +193,67 @@ class TestPromoteTarballLeakCheck(unittest.TestCase):
             self.assertIn(path, excluded,
                           f'{path} is no longer excluded from the tarball — '
                           'the leak-check is a net, not the primary defence')
+
+
+class TestTheTwoNetsAgree(unittest.TestCase):
+    """`make dist` greps the tarball, then `tools/promote.sh` greps it again.
+    Two nets is good; two nets maintained separately is how both develop holes.
+
+    They HAD drifted, in both directions and silently: design/, .key and .pem
+    were caught only by promote.sh, while openclaw-workspace-state.json,
+    .codeql-cache/, .hypothesis/ and .coverage were caught only by the
+    Makefile. Seven categories, each guarded by exactly one of the two nets
+    that exist precisely so neither has to be perfect.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.promote = _leak_pattern()
+        cls.makefile = _makefile_leak_pattern()
+
+    def setUp(self):
+        if not self.promote or not self.makefile:
+            self.skipTest('one of the two leak patterns is not in this tree')
+
+    def _names(self, relpaths):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix='rp-twonets-'))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        src = tmp / 'tree'
+        for rel in relpaths:
+            f = src / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text('x')
+        tb = tmp / 'o.tar.gz'
+        subprocess.run(['tar', '-czf', str(tb),
+                        '--transform', f's,^\\.,{_DIST_NAME},', '.'],
+                       cwd=src, check=True, capture_output=True)
+        with tarfile.open(tb) as tf:
+            return [m.name + ('/' if m.isdir() else '') for m in tf.getmembers()]
+
+    def test_both_nets_catch_every_forbidden_class(self):
+        names = self._names(MUST_BE_CAUGHT)
+        pr, mk = re.compile(self.promote), re.compile(self.makefile)
+        missed = []
+        for rel in MUST_BE_CAUGHT:
+            hits = [n for n in names if n.endswith(rel)]
+            self.assertTrue(hits, f'{rel} not in the fixture archive')
+            if not any(pr.search(n) for n in hits):
+                missed.append(f'promote.sh misses {rel}')
+            if not any(mk.search(n) for n in hits):
+                missed.append(f'Makefile misses {rel}')
+        self.assertEqual(missed, [],
+                         'the two leak nets have drifted apart:\n  '
+                         + '\n  '.join(missed))
+
+    def test_neither_net_fires_on_a_file_that_must_ship(self):
+        """A check that cannot be satisfied gets bypassed."""
+        names = self._names(MUST_NOT_BE_CAUGHT)
+        pr, mk = re.compile(self.promote), re.compile(self.makefile)
+        for rel in MUST_NOT_BE_CAUGHT:
+            for n in [x for x in names if x.endswith(rel)]:
+                with self.subTest(path=rel):
+                    self.assertIsNone(pr.search(n), f'promote.sh false-positives on {rel}')
+                    self.assertIsNone(mk.search(n), f'Makefile false-positives on {rel}')
 
 
 if __name__ == '__main__':
