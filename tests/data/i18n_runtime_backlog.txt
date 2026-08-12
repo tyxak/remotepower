@@ -131,11 +131,9 @@ Live view armed — samples appear on the next heartbeat
 Load the patch report first (click Refresh)
 Load the rules first
 Log sweep queued — collecting on the next heartbeat
-Mail round-trip settings saved
 Maintenance complete
 Max 10 files per reply
 Metrics pushed to the OTLP collector
-Monitor deleted
 Monitor not found in the saved config — refresh and retry
 Monitoring — checking…
 Must be ≥ 30 seconds
@@ -188,7 +186,6 @@ Nothing to explain — paste a script first
 Nothing to export
 Nothing to inspect yet
 Notification permission denied
-OPNsense config saved
 Opened the posture report in a new tab
 Opened the printable report in a new tab
 Opening the print dialog — choose "Save as PDF"
@@ -232,7 +229,6 @@ Polled OK — see Latest poll below
 Polling over SSH…
 Popup blocked — allow popups to view the thread
 Port must be between 1 and 65535
-Positions cleared
 Prefilled — saving adds a new check
 Preview first
 Preview the command first
@@ -241,7 +237,6 @@ Price per unit, excluding VAT
 Print target missing
 Probing — this can take a while for many targets
 Profile assigned
-Profile saved
 Proposal failed — is the AI executor module enabled?
 Provide an SSH key or password
 Provisioning command queued.
@@ -251,20 +246,17 @@ Quantity and price must be numbers
 Query duplicated
 Queued
 Queued — follow it on Rollouts → Recent jobs
-Rack saved
 Recovery bundle exported — store it off this machine
 Refreshing KEV/EPSS feeds…
 Reindex:
 Reject this MCP write action. Optional note:
 Rejected
-Removal queued
 Remove every finished scan (done / failed / cancelled) and all of their findings? This cannot be undone.
 Remove this destination?
 Remove this email route?
 Removed from the catalog
 Removes the KMIP activity history. The clear itself is recorded
 Rename query:
-Reports cleared
 Reset all monitor alert state? This allows alerts to re-fire.
 Reset the dashboard to its default layout?
 Reset to default — Save to apply
@@ -276,20 +268,15 @@ Restored — this line alerts again
 Resumed update alerts
 Reveal failed:
 Reveal still refused after checkout — check the audit log.
-Revert started
 Revoke ALL sessions? Everyone (including you) will need to log in again.
 Revoke failed:
 Revoke this session? That browser/device will be signed out.
-Rolling-reboot rollout created
 Rotation failed:
-RouterOS config saved
 Rule added (disabled) — review then enable
 Rule already exists
 Rule queued — applies on the next agent check-in
 Run a query first
-SAML config saved
 SLO object not found — refresh and retry
-SSH credentials saved
 Satellite name (e.g. dmz-relay):
 Saved as the default for new tunnels.
 Saving & pushing spans…
@@ -298,7 +285,6 @@ Schedule created.
 Schedule fired — scan(s) queued.
 Scope value required for
 Scope value, label and password are required.
-Scoped credential added
 Script body is required
 Script flagged as dangerous — tick the box to confirm
 Script inserted — review before saving
@@ -328,29 +314,21 @@ Set business start and end times
 Set how often the job runs
 Set up the CMDB vault first (Fleet → CMDB), then unlock it here.
 Sign out all other sessions? Only this browser will stay signed in.
-Signature saved
 Signing key generated — now distribute the public key to agents
 Silence this exact (host, event) for how many hours?
 Silence window must be 1–1440 minutes
 Site id to quote for (see the Sites page).
 Skipped:
-Smart group saved
 Snapshot deletion queued.
 Snapshot deletion queued:
 Specify at least one event or severity
-Stack created
-Stack deleted
 Staged rollout needs at least one ring (e.g. "canary = tag:canary")
 Start time is required
 Starting DSM upgrade over SSH…
-Status page saved
 Status token generated
 Stored in vault (encrypted)
 Subject and cron are required
 Subject required
-Subnet created
-Subscribers saved
-Suppression rule added
 Swap the live configuration for this snapshot? The current state is saved as a revision first, so you can restore back.
 Tags to ADD (comma-separated, leave blank for none):
 Tags to REMOVE (comma-separated, leave blank for none):
@@ -358,11 +336,8 @@ Target % must be between 0 and 100 (exclusive)
 Target added — publish the proof shown, then Verify.
 Target node to migrate to:
 Target not found
-Task deleted
 Task not found
-Team saved
 Template not found
-Template saved
 Test failed (no response)
 Test webhook sent successfully!
 Testing IMAP…
@@ -382,22 +357,15 @@ This server already holds KMIP keys. Restoring replaces all of them, and any key
 Threshold must be a positive whole number
 Ticket assigned to group
 Ticket assigned to you
-Ticket deleted
-Ticket mailbox saved
-Time saved
 Timed out waiting for the agent — is it online and on the latest build?
 Title is required.
 Tour complete — explore away!
-Trap rule saved
-Tunnel deleted
 URL required
 Un-cleared — this line alerts again
-Unban queued
 Unfilled placeholders left as-is:
 Unlock failed:
 Unlock the vault first (top of this page).
 Update script completed
-Update script saved
 Upgrade started — router is rebooting
 Username may use letters, digits, dot, dash, underscore (max 32)
 VMID must be a number
@@ -406,7 +374,6 @@ Vault is locked — please unlock and retry.
 Vault locked
 Vault setup failed:
 Vault unlocked
-Watch grant added
 Watcher and target are required
 Webhook URL cleared — click Save to apply
 What are you quoting for? (e.g. "Firewall replacement — labour")
