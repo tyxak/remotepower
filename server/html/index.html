@@ -2752,6 +2752,22 @@
             <div class="hint" id="cfg-csp-stats">CSP reports in the last 24 h: <span id="cfg-csp-stat-24h">—</span></div>
           </div>
 
+          <!-- v6.4.3: GET /api/sessions shipped in v6.4.2 as "the access-review
+               companion" and nothing ever called it — an endpoint built for a
+               purpose with no surface. This is that surface. -->
+          <div class="settings-section">
+            <div class="section-title">Active sessions</div>
+            <p class="hint">Every login session on this instance right now — who, from where, and since when. Session tokens only; API keys are a separate credential with their own list. Use it when offboarding someone or checking an incident against live access. <a href="docs/access-review.md" class="c-accent">Access review</a></p>
+            <div class="sb-controls mt-8">
+              <button class="btn-secondary" data-action="loadActiveSessions">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg>
+                Load sessions
+              </button>
+              <span class="hint" id="sessions-count"></span>
+            </div>
+            <div id="sessions-result" class="mt-8"></div>
+          </div>
+
           <div class="settings-section">
             <div class="section-title">Audit log</div>
             <p class="hint">Records every login, command, settings change, and CSP report. Live entries persist in <code>audit_log.json</code>; entries older than the retention window roll into the gzipped archive next to it. Retention is set in <strong>Settings → Advanced</strong>.</p>

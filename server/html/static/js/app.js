@@ -12656,6 +12656,66 @@ async function clearAuditLog() {
 // v4.6.0: generate a self-signed CA + server cert from Settings → Security.
 // Calls the admin-only /api/tls/gen-self-signed endpoint (Python cryptography),
 // then shows the CA fingerprint + paths + next steps. CSP-safe (classes only).
+// v6.4.3: Settings → Security → Active sessions. GET /api/sessions shipped in
+// v6.4.2 described as "the access-review companion to GET /api/me/sessions" and
+// no client ever called it — the answer to "who is logged in right now" existed
+// and was unreachable. Revoke is per-USER (the server's revoke endpoint takes a
+// username, not a session id), so the button says so rather than implying it
+// drops the one row you clicked.
+async function loadActiveSessions() {
+  const box = document.getElementById('sessions-result');
+  const cnt = document.getElementById('sessions-count');
+  if (box) box.innerHTML = '<div class="c-muted">Loading…</div>';
+  const r = await api('GET', '/sessions').catch(() => null);
+  if (!r || !Array.isArray(r.sessions)) {
+    if (box) box.innerHTML = '';
+    if (cnt) cnt.textContent = '';
+    toast(r?.error || 'Could not load sessions', 'error');
+    return;
+  }
+  if (cnt) cnt.textContent = r.sessions.length === 1 ? '1 active session' : `${r.sessions.length} active sessions`;
+  if (!r.sessions.length) {
+    if (box) box.innerHTML = '<div class="hint">No active sessions.</div>';
+    return;
+  }
+  const _ago = (ts) => ts ? _fmtAbsTs(ts) : '—';
+  const rows = r.sessions.map(s => {
+    const here = s.current ? ' <span class="pill" data-color="var(--green)">this session</span>' : '';
+    // Revoke granularity is per-USER, because that is what the server offers
+    // (POST /api/sessions/revoke takes a username; the per-session DELETE is
+    // scoped to the caller's own sessions). Saying so on the button beats a
+    // control that looks per-row and silently signs out three browsers.
+    const revoke = s.current
+      ? '<span class="hint">—</span>'
+      : `<button class="btn-icon c-danger-outline" title="Revoke every session for this user" data-action="revokeUserSessions" data-arg="${escAttr(s.user || '')}">Revoke user</button>`;
+    return `<tr>
+      <td>${escHtml(s.user || '')}${here}</td>
+      <td class="hint">${escHtml(s.role || '')}</td>
+      <td class="hint">${escHtml(s.source || '')}</td>
+      <td class="hint mono-12">${escHtml(s.ip || '—')}</td>
+      <td class="hint">${escHtml(_ago(s.last_seen))}</td>
+      <td class="hint">${escHtml(_ago(s.expires_at))}</td>
+      <td>${revoke}</td>
+    </tr>`;
+  }).join('');
+  if (box) box.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
+    <thead><tr class="c-muted"><th>User</th><th>Role</th><th>Source</th><th>IP</th><th>Last active</th><th>Expires</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+async function revokeUserSessions(username) {
+  // The data-action dispatcher coerces a numeric-looking data-arg to Number, so
+  // an all-digit username ("1042", an employee id) arrives as an integer.
+  username = (username === undefined || username === null) ? '' : String(username);
+  if (!username) return;
+  if (!await uiConfirm({ message: `Revoke every active session for ${username}? They will be signed out immediately and will need to log in again.`,
+                         confirmText: 'Revoke', danger: true })) return;
+  const r = await api('POST', '/sessions/revoke', { username });
+  if (!r || r.error) { toast(r?.error || 'Failed to revoke sessions', 'error'); return; }
+  toast(`Revoked ${r.revoked} session${r.revoked === 1 ? '' : 's'} for ${username}`, 'success');
+  loadActiveSessions();
+}
+
 async function genSelfSignedCert() {
   const inp = document.getElementById('tls-gen-hosts');
   const box = document.getElementById('tls-gen-result');

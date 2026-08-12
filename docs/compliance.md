@@ -112,6 +112,20 @@ whatever volume you gave it. **Settings → Security posture** grades that volum
 (v6.4.3) so the gap is visible rather than assumed; inside a container it reports
 "cannot be determined", which is an instruction to check the host, not a pass.
 
+Three of those responsibilities are procedures rather than settings, and each now
+has a page saying exactly which RemotePower surface answers which part of it —
+because "the operator owns this" is not useful guidance on its own:
+
+- **[access-review.md](access-review.md)** — the quarterly recertification
+  (CC6.2/CC6.3, A.5.18): which field answers which question, and what the product
+  deliberately will not decide for you.
+- **[incident-response.md](incident-response.md)** — the RemotePower half of an IR
+  plan (CC7.3/CC7.4, A.5.24–A.5.26), including the case where the control plane
+  itself is the suspect.
+- **[data-retention.md](data-retention.md)** — what each store keeps and for how
+  long (A.5.33, A.8.10). Worth reading before you publish a retention period:
+  most stores default to keeping everything forever.
+
 > Framework control IDs are indicative and current as of the 2022 ISO revision +
 > the SOC 2 2017 TSC; map to your auditor's current criteria.
 
