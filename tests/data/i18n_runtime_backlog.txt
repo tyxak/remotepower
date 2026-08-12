@@ -28,7 +28,6 @@ Audit log cleared (pre-wipe archive saved)
 Auto-patch will hold this package back on Linux hosts, pinning it immediately
 Billable hours need a customer (site) or a device
 Break-glass request
-Break-glass request approved
 Browser notifications are blocked for this site
 CIDR must look like 10.0.0.0/24 or 2001:db8::/48
 CMDB vault passphrase:
@@ -51,53 +50,33 @@ Clear the webhook delivery log?
 Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:
 Command queued — agent will collect and send config in ~60s
 Compose YAML must contain a "services:" block
-Configuration restored
 Confirmation text does not match
-Contact not found
-Copied Markdown to clipboard
 Copy failed — clipboard blocked
 Copy failed — your browser may block clipboard access on http://
-Copy failed.
 Copy this dashboard layout code:
 Could not build share code
 Could not copy — select the text manually
 Could not determine the signed-in account
 Could not enable notifications:
 Could not load the article
-Could not open attachment
 Cron filled — adjust if needed, then save.
 Cron needs 5 fields (min hour day month weekday)
 Current config loaded from agent
 Current config loaded — review and click Save to apply as desired
-Customer config saved
 DKIM selector to check (e.g. "google", "default"), or leave blank:
 DNS blocker refused the change
 DSM upgrade started
-Dashboard layout applied
-Dead-letter queue cleared
-Delete failed.
-Delete queued
 Demo mode — read-only sandbox. Nothing was changed.
-Demoted
 Describe a schedule first
 Describe the rule in plain English:
 Describe what the script should check
 Describe what the script should do
 Describe what the script should do:
 Domain added — checking…
-Domain looks invalid
 Domain to monitor (e.g. example.com):
-Download failed
-Dry run complete
 Dry-run sent — waiting for the agent…
 Email sent to
-Endpoints must differ
-Enter 1–365 days
 Enter a
-Enter a URL first
-Enter a code
-Enter a command
-Enter a command first
 Enter a cron expression (e.g. 0 3 * * *).
 Enter a cron schedule (or disable the schedule)
 Enter a cron schedule (or untick Email on schedule)
@@ -114,37 +93,23 @@ Enter a subnet, e.g. 192.168.1.0/24.
 Enter a tag or group value
 Enter a valid domain name
 Enter a valid email address
-Enter a valid port
 Enter an IPv4 or IPv6 address to ban.
 Enter at least one hostname or IP
 Enter hours between 0.25 and 8760, or leave blank for permanent
 Enter one or more package names to remove
-Enter the bundle passphrase
 Enter the exact snapshot name to delete
 Enter your admin password to confirm this security downgrade.
 Enter your admin password to confirm — this signature is what every agent trusts.
 Enter your password or a 2FA code
 Enter your password to disable 2FA:
 Enter your password. This invalidates your existing codes.
-Enter your username first.
-Event not found
 Every device carrying this tag is updated in one operation.
-Evidence pack downloaded
 Expiry must be a future date
-Export-signing key rotated
-Failed (no response)
 Failed to clear container data
 Failed to fetch JSON payload
 Failed to load SNMP config
-Failed to load asset.
-Failed to load confirmations
-Failed to load diff
 Failed to load inbound webhooks
-Failed to load invoice
-Failed to load members
-Failed to load ticket
 Failed to queue the update.
-Failed to reset
 Failed to save SLA targets
 Failed to save positions — they may not survive refresh
 Feedback saved — it sharpens future triage
@@ -154,9 +119,7 @@ File too large (max 1 MB)
 File too large to download through the agent channel (first 256 KiB only)
 File was truncated on read — refusing to overwrite
 Filter rule added (disabled) — review then enable
-Finding unmuted
 Fix parked — a second admin must approve it
-Fix queued
 Fix the syntax error first
 Form filled from AI draft — review, then Add (it stays disabled)
 Generate a status token? Any previous token stops working.
@@ -164,29 +127,15 @@ Give the job a name
 Give the query a name first
 HTTP target must be a full URL (https://host/path)
 Host and remote path are required
-Host muted
-Host required
 Host summary copied — paste it anywhere
-Host unmuted
 Hours must be greater than 0
-IMAP OK
-IMAP settings saved
-IMAP test failed
 IP added — checking…
 Import failed:
-Incident posted
-Incident updated
-Integrations saved
 Invalid JSON step:
 Invalid exclude regex:
-Invalid layout code
-Invoice emailed
 Job added — have it curl the ping URL when it finishes
-KMIP client connected
 Key generation failed:
-Key not found
 Key rotated — the old key is now inactive
-Key updated
 Kill failed (no response)
 LAN discovery schedule created.
 Layout code copied to clipboard
