@@ -97,10 +97,17 @@ class TestScrollWrap(_AssetTests):
         scroll_block = self.js[self.js.find('function _applyScrollWrap'):]
         scroll_block = scroll_block[:scroll_block.find('}', scroll_block.find('}') + 1)]
         self.assertIn('SCROLL_THRESHOLD', scroll_block)
-        # Defined as 20
-        const_idx = self.js.find('const SCROLL_THRESHOLD = 20')
-        self.assertGreater(const_idx, 0,
-                           "SCROLL_THRESHOLD should be 20 in v2.2.5")
+        # v6.4.3: was pinned to the literal 20. There were THREE copies of
+        # that number (tableCtl, the device grid, the minimal device table)
+        # and they disagreed with the project's documented ~15-line cap, so a
+        # 16-to-20-row table rendered with no wrap at all. They now share one
+        # ROW_SCROLL_THRESHOLD. Pin the SHARED constant, not the literal —
+        # pinning the number is what let the policy and the docs drift apart.
+        self.assertIn('const ROW_SCROLL_THRESHOLD = 15', self.js)
+        self.assertNotIn('const SCROLL_THRESHOLD = 20', self.js,
+                         'a local copy of the threshold has come back')
+        self.assertEqual(self.js.count('const SCROLL_THRESHOLD = ROW_SCROLL_THRESHOLD'), 3,
+                         'all three call sites must read the shared constant')
 
     def test_devices_minimal_table_scroll_wrap(self):
         # The minimal devices table render adds the wrap class

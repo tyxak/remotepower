@@ -3,6 +3,16 @@
 // are visible to operators (Server Status) instead of dying in a browser console.
 // Throttled + capped + best-effort; CSP-safe (addEventListener, not inline on*).
 // ══════════════════════════════════════════════════════════════════════════════
+// v6.4.3: ONE row threshold for "this box is long enough to need a scroll
+// cap". It was three separate local declarations of the same number (20) —
+// tableCtl's registered tables, the device card grid, and the minimal device
+// table — which is the same two-registry drift this project keeps finding, in
+// miniature. They also disagreed with the documented rule: the project caps a
+// variable-row box at ~15 lines, and 20 let a 16-to-20-row table render with
+// no wrap at all. Found by MEASURING rendered box heights on a seeded
+// instance; the markup reads as correct at any threshold.
+const ROW_SCROLL_THRESHOLD = 15;
+
 (function () {
   let _errSent = 0, _errLast = 0;
   function _reportClientError(message, source, line, col, stack) {
@@ -692,9 +702,9 @@ const tableCtl = (() => {
   // v2.2.5: when a rendered table has more than 20 rows, wrap its
   // nearest `.table-card` ancestor in a fixed-height scroll container.
   // Sticky thead keeps the column headers pinned. The class is toggled
-  // every render so filtering down to <=20 rows removes the wrap, and
+  // every render so filtering down below the threshold removes the wrap, and
   // expanding back up restores it.
-  const SCROLL_THRESHOLD = 20;
+  const SCROLL_THRESHOLD = ROW_SCROLL_THRESHOLD;
   function _applyScrollWrap(tbody, count) {
     // The wrap lives on the .table-card around the <table>.
     const card = tbody.closest('.table-card');
@@ -2888,11 +2898,11 @@ function renderDevices() {
     _renderDevicesMinimal(filtered);
     return;
   }
-  // v2.2.5: scroll wrap when the device grid has >20 cards. Without
-  // this, dense fleets push the page to several thousand pixels and
-  // the Home tile row gets lost off-screen. The class adds max-height
-  // + overflow-y to the existing grid.
-  const SCROLL_THRESHOLD = 20;
+  // v2.2.5: scroll wrap once the device grid is long. Without this, dense
+  // fleets push the page to several thousand pixels and the Home tile row
+  // gets lost off-screen. The class adds max-height + overflow-y to the
+  // existing grid.
+  const SCROLL_THRESHOLD = ROW_SCROLL_THRESHOLD;
   if (filtered.length > SCROLL_THRESHOLD) {
     container.classList.add('scrollable-grid-wrap');
   } else {
@@ -3176,12 +3186,17 @@ function _renderDevicesMinimal(filtered) {
   // for OS, which is enough for OS short names plus an ellipsis on the
   // longer ones. Narrower viewports drop columns via the @media rules
   // before things get cramped.
-  // v2.2.5: when the filtered device list has more than 20 rows, wrap
-  // the table in a fixed-height scroll container with a sticky thead.
-  // Keeps the page short and the column headers visible. Below the
-  // threshold the table renders full-height as before — small fleets
-  // don't get an unnecessary scrollbar.
-  const SCROLL_THRESHOLD = 20;
+  // v2.2.5: when the filtered device list is long, wrap the table in a
+  // fixed-height scroll container with a sticky thead. Keeps the page short
+  // and the column headers visible. Below the threshold the table renders
+  // full-height — small fleets don't get an unnecessary scrollbar.
+  //
+  // v6.4.3: was 20, and the project's own rule is ~15 lines. A fleet of 16-20
+  // devices therefore rendered an uncapped table taller than the rule allows,
+  // and nothing caught it because the table IS wrapped — just not at the right
+  // size. Found by measuring rendered box heights on a seeded instance rather
+  // than by reading the markup, which looks correct at any threshold.
+  const SCROLL_THRESHOLD = ROW_SCROLL_THRESHOLD;
   const wrapClasses = filtered.length > SCROLL_THRESHOLD
     ? 'devices-minimal-wrap scrollable-table-wrap'
     : 'devices-minimal-wrap';
