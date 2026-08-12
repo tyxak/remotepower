@@ -64,7 +64,6 @@ Host summary copied — paste it anywhere
 Job added — have it curl the ping URL when it finishes
 Key rotated — the old key is now inactive
 Link copied — opens straight to this device view
-Listen port must be a whole number 1–65535
 Listing archives at the destination…
 Live view armed — samples appear on the next heartbeat
 Load the patch report first (click Refresh)
@@ -87,31 +86,13 @@ Opened the printable report in a new tab
 Opening the print dialog — choose "Save as PDF"
 Parked for a second admin to approve (change-approval is on).
 Parked — a second admin must approve it
-Passkey registered.
-Passkey registration cancelled.
-Passkey removed.
-Passkey sign-in cancelled.
-Passphrase must be at least 12 characters
-Passphrase must be at least 8 characters
-Passphrase rotated.
-Passphrases do not match
-Passphrases do not match.
-Password required.
-Paste a config to import
 Paste a dashboard layout code to apply:
-Paste an SSH public key
-Path must be absolute (start with /)
 Perf HUD
 Poll failed — see error below
-Poll interval must be 30–3600 seconds
 Polled OK — see Latest poll below
 Polling over SSH…
 Popup blocked — allow popups to view the thread
-Port must be between 1 and 65535
 Prefilled — saving adds a new check
-Preview first
-Preview the command first
-Preview the waves first
 Price per unit, excluding VAT
 Print target missing
 Probing — this can take a while for many targets
@@ -128,12 +109,9 @@ Reset all monitor alert state? This allows alerts to re-fire.
 Reset the dashboard to its default layout?
 Restart dispatched — reconnecting…
 Restore queued — output appears in the device command history
-Reveal failed:
 Reveal still refused after checkout — check the audit log.
 Revoke ALL sessions? Everyone (including you) will need to log in again.
-Revoke failed:
 Revoke this session? That browser/device will be signed out.
-Rotation failed:
 Rule queued — applies on the next agent check-in
 SLO object not found — refresh and retry
 Satellite name (e.g. dmz-relay):
@@ -145,7 +123,6 @@ Scope value, label and password are required.
 Script flagged as dangerous — tick the box to confirm
 Search and pick a device above first.
 Search and pick a device first (or use a verified target’s Schedule button).
-Search error:
 Search for and pick a device
 Select a
 Send a test email via your SMTP to confirm outbound delivery works:
@@ -166,43 +143,21 @@ Target % must be between 0 and 100 (exclusive)
 Target added — publish the proof shown, then Verify.
 Target node to migrate to:
 That module is switched off (Settings → Advanced).
-The AI module is not loaded
 The agent ran but found no DNS credentials in acme.sh on that host.
 The web terminal opens an SSH session, which needs OpenSSH
-There is no other group to merge into
-There is no other tag to merge into
 This alert carries neither a matched line nor its rule pattern —
 This credential must be checked out before it can be revealed.
 This is the only copy — a past-dated posture report cannot be
 This mute has already lapsed — reload the list
 This overwrites files under the restore path. Type RESTORE to proceed.
 This server already holds KMIP keys. Restoring replaces all of them, and any key not in the bundle is lost. Continue?
-Threshold must be a positive whole number
-Ticket assigned to group
-Ticket assigned to you
 Timed out waiting for the agent — is it online and on the latest build?
-Title is required.
 Tour complete — explore away!
-URL required
 Un-cleared — this line alerts again
 Unfilled placeholders left as-is:
-Unlock failed:
-Unlock the vault first (top of this page).
-Update script completed
-Upgrade started — router is rebooting
 Username may use letters, digits, dot, dash, underscore (max 32)
-VMID must be a number
 VNC server password:
-Vault is locked — please unlock and retry.
-Vault locked
-Vault setup failed:
-Vault unlocked
-Watcher and target are required
 Webhook URL cleared — click Save to apply
 What are you quoting for? (e.g. "Firewall replacement — labour")
 What fixed it? (optional — it is kept on the alert and shows in
-Widgets aligned
-WireGuard helper script not loaded
-Write something first
-Write the email body first
 You have unsaved Settings changes. Leave without saving?
