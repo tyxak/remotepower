@@ -1,61 +1,13 @@
 A label for this IP (e.g. "mx1"), or leave blank:
-Active scans send attack traffic — tick the authorization box first.
-Allow pop-ups for this site to open the printable report
-Allow pop-ups to open the printable report
-Apply the previewed configuration changes? This overwrites the affected config collections.
-Auto-patch will hold this package back on Linux hosts, pinning it immediately
 Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.
-Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.
-Clear the dispatched-command log? This clears the command history shown here and on the Command History page.
-Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.
 Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.
-Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:
-Command queued — agent will collect and send config in ~60s
-Copy failed — your browser may block clipboard access on http://
-Current config loaded — review and click Save to apply as desired
 DKIM selector to check (e.g. "google", "default"), or leave blank:
 Enter a
 Enter a cron schedule (or untick Email on schedule)
 Enter hours between 0.25 and 8760, or leave blank for permanent
-Enter your admin password to confirm — this signature is what every agent trusts.
-Every device carrying this tag is updated in one operation.
-File too large to download through the agent channel (first 256 KiB only)
-File was truncated on read — refusing to overwrite
-Filter rule added (disabled) — review then enable
-Fix parked — a second admin must approve it
-Form filled from AI draft — review, then Add (it stays disabled)
-Generate a status token? Any previous token stops working.
 Job added — have it curl the ping URL when it finishes
-NAT rule added (disabled) — review then enable
-Name this passkey (e.g. "YubiKey", "Phone"):
-New VMID for the clone (must be unused):
-No archived audit entries yet — the live log is still within its retention window.
 No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.
-No compose-managed host found for this image — update it manually (compose pull && up -d).
-No groups in use. Set a device’s group from its drawer.
-No tags in use. Tag a device from its drawer, or in bulk from the Devices page.
-Opened the posture report in a new tab
-Opened the printable report in a new tab
-Opening the print dialog — choose "Save as PDF"
-Parked for a second admin to approve (change-approval is on).
-Parked — a second admin must approve it
-Paste a dashboard layout code to apply:
-Perf HUD
-Poll failed — see error below
-Polled OK — see Latest poll below
-Polling over SSH…
-Popup blocked — allow popups to view the thread
-Prefilled — saving adds a new check
-Price per unit, excluding VAT
-Print target missing
-Probing — this can take a while for many targets
-Proposal failed — is the AI executor module enabled?
 Pull this backup back and OVERWRITE the restore path. Enter the absolute directory on the host to restore into:
-Quantity (e.g. hours or units)
-Queued — follow it on Rollouts → Recent jobs
-Recovery bundle exported — store it off this machine
-Reindex:
-Reject this MCP write action. Optional note:
 Remove every finished scan (done / failed / cancelled) and all of their findings? This cannot be undone.
 Removes the KMIP activity history. The clear itself is recorded
 Reset all monitor alert state? This allows alerts to re-fire.
