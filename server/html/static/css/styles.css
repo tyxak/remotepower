@@ -5749,7 +5749,7 @@ html { scrollbar-gutter: stable; }
 /* v6.4.3: the readiness table's per-row trailing actions ("Manage inbound
    tokens", "Mute"). Sits inside the .hint detail cell, so it needs its own
    gap rather than inheriting the sentence's word spacing. */
-.self-row-acts { display: inline-flex; gap: 10px; margin-left: 8px; white-space: nowrap }
+.self-row-acts { display: inline-flex; gap: 6px; margin-left: 8px; white-space: nowrap }
 /* v3.13.0: shared content cap — any non-table list/box that renders a
  * variable number of rows caps at ~15 lines and scrolls internally
  * instead of growing unbounded. `-sm` for chip rows / short lists. */
