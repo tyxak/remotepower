@@ -58,13 +58,31 @@ except Exception:
     print("PARSE-ERROR")
 ')"
 
+  # The v5 RPC is CACHED and lags a push by minutes — immediately after a
+  # successful push it still reports the previous version. Taking that at face
+  # value turns a completed release step into a false alarm, which is the same
+  # kind of wrong answer this tool exists to prevent. If the RPC says we are
+  # behind, confirm against the rendered package page (updated by the git hook)
+  # before saying so.
+  if [[ "$live_ver" != "$want" ]]; then
+    page_ver="$(curl -fsS --max-time 20 "https://aur.archlinux.org/packages/${pkg}" 2>/dev/null \
+                | grep -oE "Package Details: ${pkg} [0-9]+\.[0-9]+\.[0-9]+" \
+                | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    if [[ -n "$page_ver" ]]; then
+      [[ "$page_ver" != "$live_ver" ]] && live_ver="${page_ver} (rpc cache stale)"
+      live_ver_cmp="$page_ver"
+    fi
+  fi
+  live_ver_cmp="${live_ver_cmp:-$live_ver}"
+
   status="ok"
   [[ "$local_ver" != "$want" ]] && status="repo PKGBUILD not bumped"
-  [[ "$live_ver"  != "$want" ]] && status="AUR NOT PUSHED"
+  [[ "$live_ver_cmp" != "$want" ]] && status="AUR NOT PUSHED"
   [[ "$status" != "ok" ]] && rc=1
 
-  printf '  %-20s repo=%-8s AUR=%-8s %s\n' "$pkg" "${local_ver:-?}" "$live_ver" \
+  printf '  %-20s repo=%-8s AUR=%-22s %s\n' "$pkg" "${local_ver:-?}" "$live_ver" \
     "$([[ $status == ok ]] && echo '' || echo "<-- ${status}")"
+  unset live_ver_cmp
 done
 
 echo
