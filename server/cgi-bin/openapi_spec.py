@@ -1174,16 +1174,22 @@ def _path_ingest() -> dict[str, Any]:
     complete everywhere except where someone would actually look.
     """
     _tok = {
-        "name": "token", "in": "path", "required": True,
+        "name": "token",
+        "in": "path",
+        "required": True,
         "schema": {"type": "string"},
-        "description": ("Per-source ingest token minted in the UI. It is the "
-                        "ONLY credential on these endpoints — they are "
-                        "deliberately unauthenticated otherwise so an appliance "
-                        "that cannot send headers can still deliver."),
+        "description": (
+            "Per-source ingest token minted in the UI. It is the "
+            "ONLY credential on these endpoints — they are "
+            "deliberately unauthenticated otherwise so an appliance "
+            "that cannot send headers can still deliver."
+        ),
     }
-    _ok = {"200": {"description": "Accepted."},
-           "400": {"description": "Malformed body."},
-           "403": {"description": "Unknown or revoked ingest token."}}
+    _ok = {
+        "200": {"description": "Accepted."},
+        "400": {"description": "Malformed body."},
+        "403": {"description": "Unknown or revoked ingest token."},
+    }
     return {
         "/heartbeat": {
             "post": {
@@ -1196,20 +1202,27 @@ def _path_ingest() -> dict[str, Any]:
                     "flags, agent-side check definitions and cadence hints.\n\n"
                     "Authenticated with the device token issued at enrolment, "
                     "sent as `X-Token`. Bodies are sanitised server-side before "
-                    "storage: fields the server does not model are dropped."),
+                    "storage: fields the server does not model are dropped."
+                ),
                 "security": [{"DeviceToken": []}],
                 "requestBody": {
                     "required": True,
-                    "content": {"application/json": {"schema": {
-                        "type": "object",
-                        "properties": {
-                            "device_id": {"type": "string"},
-                            "sysinfo": {"type": "object",
-                                        "description": "Host telemetry."},
-                            "delta": {"type": "boolean",
-                                      "description": "Body carries only fields "
-                                                     "changed since the last beat."},
-                        }}}},
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "device_id": {"type": "string"},
+                                    "sysinfo": {"type": "object", "description": "Host telemetry."},
+                                    "delta": {
+                                        "type": "boolean",
+                                        "description": "Body carries only fields "
+                                        "changed since the last beat.",
+                                    },
+                                },
+                            }
+                        }
+                    },
                 },
                 "responses": {
                     "200": {"description": "Work for this agent, if any."},
@@ -1222,10 +1235,13 @@ def _path_ingest() -> dict[str, Any]:
             "post": {
                 "tags": ["Ingest"],
                 "summary": "Inbound syslog lines",
-                "description": ("Accepts `{lines: [...]}` OR a bare JSON array "
-                                "of lines — both shapes are supported on "
-                                "purpose, because forwarders differ."),
-                "parameters": [_tok], "responses": _ok,
+                "description": (
+                    "Accepts `{lines: [...]}` OR a bare JSON array "
+                    "of lines — both shapes are supported on "
+                    "purpose, because forwarders differ."
+                ),
+                "parameters": [_tok],
+                "responses": _ok,
             }
         },
         "/snmp/trap/{token}": {
@@ -1233,21 +1249,24 @@ def _path_ingest() -> dict[str, Any]:
                 "tags": ["Ingest"],
                 "summary": "Inbound SNMP traps",
                 "description": ("Accepts `{traps: [...]}` OR a bare JSON array."),
-                "parameters": [_tok], "responses": _ok,
+                "parameters": [_tok],
+                "responses": _ok,
             }
         },
         "/webhook/in/{token}": {
             "post": {
                 "tags": ["Ingest"],
                 "summary": "Inbound webhook from a third-party system",
-                "parameters": [_tok], "responses": _ok,
+                "parameters": [_tok],
+                "responses": _ok,
             }
         },
         "/itsm/in/{token}": {
             "post": {
                 "tags": ["Ingest"],
                 "summary": "Inbound ITSM ticket event",
-                "parameters": [_tok], "responses": _ok,
+                "parameters": [_tok],
+                "responses": _ok,
             }
         },
     }
