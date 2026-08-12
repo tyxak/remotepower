@@ -57,8 +57,16 @@ METADATA_IPS = frozenset({
 _NAT64_PREFIX = 0x0064ff9b << 64
 
 
-def _unwrap(ip):
-    """Re-classify the inner IPv4 of a v6 address that embeds one."""
+def unwrap(ip):
+    """Re-classify the inner IPv4 of a v6 address that embeds one.
+
+    PUBLIC because it is policy-free: which classes you then block is a
+    per-feature decision, but "what address is this really" is not. tls_monitor
+    deliberately allows loopback and RFC1918 (probing an internal host's cert is
+    the feature) and so cannot use blocked() — but it had hand-rolled this
+    unwrapping and the METADATA_IPS set alongside it, which is the half most
+    likely to drift, and the half an attacker probes.
+    """
     if not isinstance(ip, ipaddress.IPv6Address):
         return ip
     inner = ip.ipv4_mapped or ip.sixtofour
@@ -76,7 +84,7 @@ def block_reason(ip_str, allow_loopback=False):
     "keep the two in step" — an instruction to a human is not a mechanism, and
     the identical arrangement between api and ai_provider is what drifted.
     """
-    ip = _unwrap(ipaddress.ip_address(ip_str))
+    ip = unwrap(ipaddress.ip_address(ip_str))
     if str(ip) in METADATA_IPS:
         return 'a cloud instance-metadata address'
     if ip.is_loopback:

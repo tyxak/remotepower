@@ -246,7 +246,24 @@ class TestOneClassifierOnly(unittest.TestCase):
     drift it thought to test for.
     """
 
-    FORKED = ('api', 'ai_provider', 'opnsense', 'routeros', 'proxmox_client')
+    FORKED = ('api', 'ai_provider', 'opnsense', 'routeros', 'proxmox_client',
+              # v6.4.3: tls_monitor was outside this list and still carried its
+              # own copy of the IPv6 unwrapping AND its own literal metadata-IP
+              # set. Being outside the list is what let the previous two copies
+              # drift; leaving a sixth outside it for the same reason would
+              # repeat the mistake exactly.
+              'tls_monitor')
+
+    # Modules that classify IPs under a DELIBERATELY different policy and so
+    # cannot call blocked(). They must still delegate the policy-free half —
+    # the unwrapping and the metadata set — which is what FORKED enforces.
+    # Listed here so the difference is a declaration rather than an omission.
+    SEPARATE_POLICY = {
+        'tls_monitor': 'allows loopback and RFC1918: probing an internal or '
+                       'same-host cert is the feature, and the probe reads '
+                       'cert metadata only',
+        'dns_resolve': 'stricter — also blocks private ranges',
+    }
 
     def _src(self, name):
         return (CGI / f'{name}.py').read_text()
@@ -281,6 +298,33 @@ class TestOneClassifierOnly(unittest.TestCase):
             with self.subTest(ip=ip):
                 self.assertTrue(ssrf_ip.blocked(ip, allow_loopback=False))
                 self.assertFalse(ssrf_ip.blocked(ip, allow_loopback=True))
+
+    def test_a_separate_policy_module_still_delegates_the_primitives(self):
+        """A different POLICY is legitimate; a different unwrap is not. The
+        encodings that smuggle an IPv4 past a v6 check, and the list of cloud
+        metadata endpoints, are facts about the internet rather than choices —
+        a second copy of either is a second thing to update when a new
+        encoding or a new cloud appears, and nothing would compare them."""
+        for name in self.SEPARATE_POLICY:
+            src = self._src(name)
+            if 'ipaddress' not in src:
+                continue
+            with self.subTest(module=name):
+                for tell in ('0x0064ff9b', "'100.100.100.200'",
+                             "'192.0.0.192'", "'fd00:ec2::254'"):
+                    self.assertNotIn(
+                        tell, src,
+                        f'{name} keeps its own copy of {tell} — its policy may '
+                        'differ, but the unwrapping and the metadata set must '
+                        'come from ssrf_ip')
+
+    def test_every_separate_policy_module_documents_why(self):
+        """An undocumented exemption is indistinguishable from an oversight —
+        which is precisely what tls_monitor was until this release."""
+        for name, reason in self.SEPARATE_POLICY.items():
+            with self.subTest(module=name):
+                self.assertTrue(reason.strip(), f'{name} has no stated reason')
+                self.assertTrue((CGI / f'{name}.py').exists())
 
     def test_the_shared_module_is_a_leaf(self):
         """The objection in the old ai_provider comment — "can't import api

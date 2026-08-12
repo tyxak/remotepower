@@ -37,6 +37,8 @@ the rest of the project's storage.
 from __future__ import annotations
 
 import ipaddress
+
+import ssrf_ip
 import socket
 import ssl
 import time
@@ -46,36 +48,34 @@ from typing import Any
 def _addr_blocked(ip: str) -> bool:
     """v4.8.0 SSRF guard: is this resolved IP one we must never connect to?
 
-    Blocks link-local (169.254/16 — which INCLUDES the cloud metadata endpoint
-    169.254.169.254 — and fe80::/10) and the unspecified address. PRIVATE
-    RFC1918 / unique-local addresses are deliberately ALLOWED (probing an
-    internal host's cert is a first-class feature; a blanket private block would
-    break it), and so is LOOPBACK: monitoring a cert on the same host RemotePower
-    runs on is a legitimate, tested use, and this probe only reads cert metadata
-    (no credentials, no response bodies), so the loopback SSRF value is minimal.
-    The high-value target — the cloud metadata service — is link-local and stays
-    blocked. Returns False for anything that isn't a parseable IP literal
-    (callers only pass already-resolved addresses)."""
+    A DELIBERATELY LOOSER policy than ssrf_ip.blocked(), which is why this is
+    not a call to it. Blocks link-local (169.254/16 — which INCLUDES the cloud
+    metadata endpoint 169.254.169.254 — and fe80::/10), the unspecified address
+    and multicast. PRIVATE RFC1918 / unique-local addresses are deliberately
+    ALLOWED (probing an internal host's cert is a first-class feature; a blanket
+    private block would break it), and so is LOOPBACK: monitoring a cert on the
+    host RemotePower itself runs on is a legitimate, tested use, and this probe
+    reads cert metadata only — no credentials, no response bodies — so the
+    loopback SSRF value is minimal. The high-value target, the cloud metadata
+    service, is link-local and stays blocked.
+
+    v6.4.3: the POLICY above stays local; the two policy-free pieces no longer
+    do. This had its own copy of the IPv6 unwrapping and its own literal copy of
+    the metadata-IP set — the subtlest part of the whole classifier and the part
+    an attacker actually probes, duplicated where nothing compared it. Both now
+    come from ssrf_ip, so a new smuggling encoding or a new cloud metadata
+    endpoint is added once. Returns False for anything that is not a parseable
+    IP literal (callers only pass already-resolved addresses).
+    """
     try:
         a = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    # Unwrap IPv6 encodings that can smuggle the blocked metadata IPv4
-    # (169.254.169.254): IPv4-mapped (::ffff:a.b.c.d), 6to4 (2002::/16) and
-    # NAT64 (64:ff9b::/96) — then classify on the embedded v4.
-    if a.version == 6:
-        mapped = getattr(a, 'ipv4_mapped', None)
-        if mapped is None and a in ipaddress.ip_network('2002::/16'):
-            mapped = ipaddress.IPv4Address(a.packed[2:6])
-        if mapped is None and a in ipaddress.ip_network('64:ff9b::/96'):
-            mapped = ipaddress.IPv4Address(a.packed[12:16])
-        if mapped is not None:
-            a = mapped
-    # Cloud instance-metadata endpoints not caught by is_link_local (AWS IMDSv6
-    # ULA, Alibaba, Oracle-legacy) — 169.254.169.254 is already link-local.
-    if str(a) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
+    a = ssrf_ip.unwrap(a)
+    if str(a) in ssrf_ip.METADATA_IPS:
         return True
     return a.is_link_local or a.is_unspecified or a.is_multicast
+
 
 # Probe knobs. 5+5s is generous — Cloudflare-fronted hosts respond in
 # well under a second; the timeout exists for the unreachable case.
