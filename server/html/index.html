@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-114">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-115">
 
 </head>
 <body>
@@ -232,25 +232,21 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
           <span>CMDB</span>
         </button>
-        <button class="nav-btn" data-page="sites" title="Group the fleet by location, team or customer — one level above device groups">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/></svg>
-          <span>Sites</span>
-        </button>
-        <button class="nav-btn" data-page="taxonomy" title="Every tag and group in use, with device counts — rename, merge or delete a tag across the whole fleet">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-          <span>Tags &amp; groups</span>
-        </button>
         <button class="nav-btn" id="nav-contacts" data-page="contacts" title="Internal contact directory (team phonebook)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Contacts</span>
         </button>
-        <button class="nav-btn" data-page="cmdlib" title="Saved shell command snippets — pick from the exec modal">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-4c6702d5"/></svg>
-          <span>Library</span>
+        <button class="nav-btn" data-page="containers" title="Docker / Podman / Kubernetes containers from agents, plus Proxmox LXC">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
+          <span>Containers</span>
         </button>
         <button class="nav-btn" data-page="history" title="Log of every command sent to devices">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ce8e1447"/></svg>
           <span>History</span>
+        </button>
+        <button class="nav-btn" data-page="cmdlib" title="Saved shell command snippets — pick from the exec modal">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-4c6702d5"/></svg>
+          <span>Library</span>
         </button>
         <button class="nav-btn" data-page="links" title="Shared bookmark dashboard — link cards grouped by category">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -264,13 +260,17 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
           <span>Query</span>
         </button>
+        <button class="nav-btn" data-page="sites" title="Group the fleet by location, team or customer — one level above device groups">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/></svg>
+          <span>Sites</span>
+        </button>
+        <button class="nav-btn" data-page="taxonomy" title="Every tag and group in use, with device counts — rename, merge or delete a tag across the whole fleet">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          <span>Tags &amp; groups</span>
+        </button>
         <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           <span>Virtualization</span>
-        </button>
-        <button class="nav-btn" data-page="containers" title="Docker / Podman / Kubernetes containers from agents, plus Proxmox LXC">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
-          <span>Containers</span>
         </button>
       </div>
     </div>
@@ -286,33 +286,33 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
           <span>Needs Attention</span>
         </button>
-        <button class="nav-btn" data-page="monitor" title="Live monitor — remote checks, device metrics, listening ports, custom scripts and processes in one place">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-          <span>Live Monitor</span>
-        </button>
         <button class="nav-btn" data-page="checks" title="Per-host service checks (CheckMK-style)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-896fd277"/></svg>
           <span>Checks</span>
-        </button>
-        <button class="nav-btn" data-page="logs" title="Rolling log buffer — search, tail live and manage alert rules">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
-          <span>Logs</span>
-        </button>
-        <button class="nav-btn" data-page="services" title="systemd units watched per device — history, logs and configuration">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Services</span>
-        </button>
-        <button class="nav-btn" data-page="netmetrics" title="Network throughput (RX/TX) per device, rolled up fleet-wide or by group / tag / site">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-6ccc3e4e"/></svg>
-          <span>Network metrics</span>
         </button>
         <button class="nav-btn" data-page="forecast" title="Per-mount disk-fill projection from each host's daily usage trend">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><polyline points="19 7 13 13 9 9 4 14"/></svg>
           <span>Forecast</span>
         </button>
-        <button class="nav-btn" data-page="trends" title="Time-series charts: health, compliance, resources">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
-          <span>Trends</span>
+        <button class="nav-btn" data-page="integrations" title="Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8cda0690"/></svg>
+          <span>Integrations</span>
+        </button>
+        <button class="nav-btn" data-page="monitor" title="Live monitor — remote checks, device metrics, listening ports, custom scripts and processes in one place">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span>Live Monitor</span>
+        </button>
+        <button class="nav-btn" data-page="logs" title="Rolling log buffer — search, tail live and manage alert rules">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
+          <span>Logs</span>
+        </button>
+        <button class="nav-btn" data-page="netmetrics" title="Network throughput (RX/TX) per device, rolled up fleet-wide or by group / tag / site">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-6ccc3e4e"/></svg>
+          <span>Network metrics</span>
+        </button>
+        <button class="nav-btn" data-page="services" title="systemd units watched per device — history, logs and configuration">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Services</span>
         </button>
         <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -323,13 +323,13 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
           <span>Timeline</span>
         </button>
+        <button class="nav-btn" data-page="trends" title="Time-series charts: health, compliance, resources">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
+          <span>Trends</span>
+        </button>
         <button class="nav-btn" data-page="tuning" title="Alert tuning — find the noisiest alerts and silence them per host + alert type">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
           <span>Tuning</span>
-        </button>
-        <button class="nav-btn" data-page="integrations" title="Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8cda0690"/></svg>
-          <span>Integrations</span>
         </button>
       </div>
     </div>
@@ -349,17 +349,17 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span>Power</span>
         </button>
-        <button class="nav-btn" data-page="thermal" title="Hottest hosts — CPU / chipset / disk temperatures, fleet-wide">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
-          <span>Thermal</span>
+        <button class="nav-btn" data-page="disk-health" title="Predictive health — disks at risk (SMART trend) + frequently-restarting hosts">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
+          <span>Predictive health</span>
         </button>
         <button class="nav-btn" data-page="storage" title="ZFS / mdadm / btrfs pool health">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
           <span>Storage</span>
         </button>
-        <button class="nav-btn" data-page="disk-health" title="Predictive health — disks at risk (SMART trend) + frequently-restarting hosts">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
-          <span>Predictive health</span>
+        <button class="nav-btn" data-page="thermal" title="Hottest hosts — CPU / chipset / disk temperatures, fleet-wide">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+          <span>Thermal</span>
         </button>
       </div>
     </div>
@@ -429,13 +429,13 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items" id="sbg-compliance">
-        <button class="nav-btn" data-page="compliance" title="PCI DSS / HIPAA / SOC 2 checklist scored from collected data — audit-prep aid">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-51ff642e"/></svg>
-          <span>Compliance</span>
-        </button>
         <button class="nav-btn" data-page="audit" title="Security audit trail — logins, commands and session revocations">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
+        </button>
+        <button class="nav-btn" data-page="compliance" title="PCI DSS / HIPAA / SOC 2 checklist scored from collected data — audit-prep aid">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-51ff642e"/></svg>
+          <span>Compliance</span>
         </button>
         <button class="nav-btn" data-page="dmarc" title="IP reputation (DNSBL/blocklist) monitor + DMARC / SPF / DKIM email-auth posture and aggregate (RUA) reports">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
@@ -477,39 +477,39 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           <span>App catalog</span>
         </button>
-        <button class="nav-btn" data-page="scripts" title="Multi-line bash scripts — lint then run on one device or a batch">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-e311da69"/></svg>
-          <span>Scripts</span>
-        </button>
         <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span>Automation</span>
-        </button>
-        <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
-          <span>IaC Generator</span>
-        </button>
-        <button class="nav-btn" id="nav-provisioning" data-page="provisioning" title="Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-          <span>Provisioning</span>
         </button>
         <button class="nav-btn" data-page="cmdqueue" title="Commands waiting for each agent's next heartbeat — view or cancel pending work">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
           <span>Command Queue</span>
           <span class="nav-badge d-none" id="cmdqueue-badge"></span>
         </button>
+        <button class="nav-btn" data-page="confirmations" title="Pending actions awaiting a second admin's approval (MCP writes + change-approval)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>Confirmations</span>
+          <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
+        </button>
         <button class="nav-btn" data-page="dataexplorer" title="Advanced predicate query across devices, CVEs and drift — nested AND/OR conditions, build, run, save as a template. Separate from the simpler device-only Fleet Query page.">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Data Explorer</span>
+        </button>
+        <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+          <span>IaC Generator</span>
         </button>
         <button class="nav-btn" data-page="patchsnapshots" title="Freeze the fleet's current package versions into a named snapshot, diff two snapshots, promote one as a tag's reference state, and see which devices have drifted from it">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 12h6"/></svg>
           <span>Package Snapshots</span>
         </button>
-        <button class="nav-btn" data-page="confirmations" title="Pending actions awaiting a second admin's approval (MCP writes + change-approval)">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          <span>Confirmations</span>
-          <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
+        <button class="nav-btn" id="nav-provisioning" data-page="provisioning" title="Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          <span>Provisioning</span>
+        </button>
+        <button class="nav-btn" data-page="scripts" title="Multi-line bash scripts — lint then run on one device or a batch">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-e311da69"/></svg>
+          <span>Scripts</span>
         </button>
       </div>
     </div>
@@ -521,9 +521,17 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items" id="sbg-scheduling">
+        <button class="nav-btn" data-page="calendar" title="Shared events across all users — backups, deploys, renewals and more">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>Calendar</span>
+        </button>
         <button class="nav-btn" data-page="cron" title="Cron jobs and systemd timers on a host — view and edit">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
           <span>Cron</span>
+        </button>
+        <button class="nav-btn" data-page="maintenance" title="Maintenance windows that suppress alerts for devices, groups or the whole fleet">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6470e8b8"/></svg>
+          <span>Maintenance</span>
         </button>
         <button class="nav-btn" data-page="schedule" title="Queue a shutdown or reboot at a specific time">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
@@ -532,14 +540,6 @@
         <button class="nav-btn" data-page="tasks" title="Shared kanban board — drag cards between columns, optionally linked to a device">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-896fd277"/></svg>
           <span>Tasks</span>
-        </button>
-        <button class="nav-btn" data-page="calendar" title="Shared events across all users — backups, deploys, renewals and more">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          <span>Calendar</span>
-        </button>
-        <button class="nav-btn" data-page="maintenance" title="Maintenance windows that suppress alerts for devices, groups or the whole fleet">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6470e8b8"/></svg>
-          <span>Maintenance</span>
         </button>
       </div>
     </div>
@@ -551,10 +551,6 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items" id="sbg-access">
-        <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
-          <span>WG Access</span>
-        </button>
         <button class="nav-btn" data-page="dns" title="Manage DNS zones and records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-9e897a47"/></svg>
           <span>DNS</span>
@@ -562,6 +558,10 @@
         <button class="nav-btn" data-page="files" title="Browse, view and edit files on a host (allowlisted paths, audited) — no SSH needed">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
           <span>Files</span>
+        </button>
+        <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
+          <span>WG Access</span>
         </button>
       </div>
     </div>
@@ -591,17 +591,17 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2V2l-3 2-3-2-3 2-3-2-3 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="14" y2="13"/></svg>
           <span>Billing</span>
         </button>
-        <button class="nav-btn" data-page="timesheet" title="Your weekly timesheet — log billable and internal hours by day">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          <span>Timesheet</span>
+        <button class="nav-btn" id="nav-kb" data-page="kb" title="Knowledge base — operator-authored IT documentation (SOPs, how-tos, runbooks)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Knowledge base</span>
         </button>
         <button class="nav-btn" data-page="reports" title="Fleet posture report — health, patches, CVEs and compliance, exportable or emailed">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
           <span>Reports</span>
         </button>
-        <button class="nav-btn" id="nav-kb" data-page="kb" title="Knowledge base — operator-authored IT documentation (SOPs, how-tos, runbooks)">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          <span>Knowledge base</span>
+        <button class="nav-btn" data-page="timesheet" title="Your weekly timesheet — log billable and internal hours by day">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Timesheet</span>
         </button>
       </div>
     </div>
@@ -613,13 +613,17 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items" id="sbg-admin">
-        <button class="nav-btn" data-page="users" title="Manage who can access the dashboard and what they can do — roles and permissions">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Users</span>
+        <button class="nav-btn" data-page="ai" title="Free-form chat against the configured AI provider, with local-model stats">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
+          <span>AI Assistant</span>
         </button>
         <button class="nav-btn" data-page="apikeys" title="Named non-expiring API keys for scripts and CI pipelines">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
+        </button>
+        <button class="nav-btn" data-open-href="/swagger.html" title="Open the OpenAPI / Swagger UI documentation in a new tab">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
+          <span>API Reference</span>
         </button>
         <button class="nav-btn" data-page="signing" title="Sign agent releases so agents reject tampered binaries">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg>
@@ -633,13 +637,9 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-71bf7050"/></svg>
           <span>Settings</span>
         </button>
-        <button class="nav-btn" data-page="ai" title="Free-form chat against the configured AI provider, with local-model stats">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
-          <span>AI Assistant</span>
-        </button>
-        <button class="nav-btn" data-open-href="/swagger.html" title="Open the OpenAPI / Swagger UI documentation in a new tab">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
-          <span>API Reference</span>
+        <button class="nav-btn" data-page="users" title="Manage who can access the dashboard and what they can do — roles and permissions">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Users</span>
         </button>
         <button class="nav-btn" data-page="docs" title="How to use RemotePower — quick reference for common tasks">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
@@ -1516,12 +1516,12 @@
         <div class="settings-tabs" role="tablist" aria-label="Settings sections">
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Setup</span>
-            <button class="settings-tab"        id="settings-tab-btn-install" role="tab" aria-selected="false" aria-controls="settings-pane-install" data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup"  tabindex="-1">Install</button>
             <button class="settings-tab active" id="settings-tab-btn-general" role="tab" aria-selected="true" aria-controls="settings-pane-general" data-tab="general"  data-action="switchSettingsTab" data-arg="general"  tabindex="0">General</button>
+            <button class="settings-tab"        id="settings-tab-btn-install" role="tab" aria-selected="false" aria-controls="settings-pane-install" data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup"  tabindex="-1">Install</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Monitoring</span>
-            <button class="settings-tab"        id="settings-tab-btn-notifs" role="tab" aria-selected="false" aria-controls="settings-pane-notifs" data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs"  tabindex="-1">Notifications</button>
+            <button class="settings-tab"        id="settings-tab-btn-alertparams" role="tab" aria-selected="false" aria-controls="settings-pane-alertparams" data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams"  tabindex="-1">Alert parameters</button>
             <!-- v6.1.1: was labeled "Dashboard" (data-tab="dashboard" kept
                  unchanged for #settings/dashboard bookmark compat) -- its
                  contents are brute-force/health-score/quiet-hours/on-call/
@@ -1529,28 +1529,28 @@
                  actual dashboard-widget settings. Relabeled + moved next to
                  Notifications, where the content actually belongs. -->
             <button class="settings-tab"        id="settings-tab-btn-dashboard" role="tab" aria-selected="false" aria-controls="settings-pane-dashboard" data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings"  tabindex="-1">Alerting</button>
-            <button class="settings-tab"        id="settings-tab-btn-alertparams" role="tab" aria-selected="false" aria-controls="settings-pane-alertparams" data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams"  tabindex="-1">Alert parameters</button>
-            <button class="settings-tab"        id="settings-tab-btn-mailbox" role="tab" aria-selected="false" aria-controls="settings-pane-mailbox" data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox"  tabindex="-1">Mailbox monitor</button>
             <button class="settings-tab"        id="settings-tab-btn-ignored" role="tab" aria-selected="false" aria-controls="settings-pane-ignored" data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems"  tabindex="-1">Ignored items</button>
+            <button class="settings-tab"        id="settings-tab-btn-mailbox" role="tab" aria-selected="false" aria-controls="settings-pane-mailbox" data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox"  tabindex="-1">Mailbox monitor</button>
+            <button class="settings-tab"        id="settings-tab-btn-notifs" role="tab" aria-selected="false" aria-controls="settings-pane-notifs" data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs"  tabindex="-1">Notifications</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">Connections</span>
+            <button class="settings-tab"        id="settings-tab-btn-ai" role="tab" aria-selected="false" aria-controls="settings-pane-ai" data-tab="ai"       data-action="switchSettingsTab" data-arg="ai"  tabindex="-1">AI assistant</button>
             <button class="settings-tab"        id="settings-tab-btn-integrations" role="tab" aria-selected="false" aria-controls="settings-pane-integrations" data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab"  tabindex="-1">Integrations</button>
             <button class="settings-tab"        id="settings-tab-btn-proxmox" role="tab" aria-selected="false" aria-controls="settings-pane-proxmox" data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox"  tabindex="-1">Virtualization</button>
-            <button class="settings-tab"        id="settings-tab-btn-ai" role="tab" aria-selected="false" aria-controls="settings-pane-ai" data-tab="ai"       data-action="switchSettingsTab" data-arg="ai"  tabindex="-1">AI assistant</button>
           </div>
           <div class="settings-tab-group" role="presentation">
             <span class="settings-tab-group-label" aria-hidden="true">System</span>
+            <button class="settings-tab"        id="settings-tab-btn-advanced" role="tab" aria-selected="false" aria-controls="settings-pane-advanced" data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced"  tabindex="-1">Advanced</button>
+            <!-- v6.1.1: split out of Advanced -- scheduled backup + backup/
+                 restore, same reasoning as Tickets above. -->
+            <button class="settings-tab"        id="settings-tab-btn-backups" role="tab" aria-selected="false" aria-controls="settings-pane-backups" data-tab="backups"  data-action="switchSettingsTab" data-arg="backups"  tabindex="-1">Backups</button>
             <button class="settings-tab"        id="settings-tab-btn-security" role="tab" aria-selected="false" aria-controls="settings-pane-security" data-tab="security" data-action="switchSettingsTab" data-arg="security"  tabindex="-1">Security</button>
             <!-- v6.1.1: split out of Advanced -- the ticket-system config
                  (mailbox, auto-reply, CSAT, business hours, SLA, canned
                  replies, recurring tickets, customer portal) had grown to
                  8 sections buried in a catch-all tab. -->
             <button class="settings-tab"        id="settings-tab-btn-tickets" role="tab" aria-selected="false" aria-controls="settings-pane-tickets" data-tab="tickets"  data-action="switchSettingsTab" data-arg="tickets"  tabindex="-1">Tickets</button>
-            <!-- v6.1.1: split out of Advanced -- scheduled backup + backup/
-                 restore, same reasoning as Tickets above. -->
-            <button class="settings-tab"        id="settings-tab-btn-backups" role="tab" aria-selected="false" aria-controls="settings-pane-backups" data-tab="backups"  data-action="switchSettingsTab" data-arg="backups"  tabindex="-1">Backups</button>
-            <button class="settings-tab"        id="settings-tab-btn-advanced" role="tab" aria-selected="false" aria-controls="settings-pane-advanced" data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced"  tabindex="-1">Advanced</button>
           </div>
         </div>
 
@@ -11564,38 +11564,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.3-114"></script>
+<script defer src="static/js/app.js?v=6.4.3-115"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-containers.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-network.js?v=6.4.3-114"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-containers.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-network.js?v=6.4.3-115"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.3-114"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.3-115"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-dns.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-drift.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-cve.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-backups.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-iac.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-virt.js?v=6.4.3-114"></script>
+<script defer src="static/js/app-ai.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-dns.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-drift.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-cve.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-backups.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-iac.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-virt.js?v=6.4.3-115"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-logs.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-remote.js?v=6.4.3-114"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.3-114"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-logs.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-remote.js?v=6.4.3-115"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.3-115"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.3-114"></script>
+<script defer src="static/js/app-self.js?v=6.4.3-115"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11605,6 +11605,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.3-114"></script>
+<script defer src="static/js/sw-register.js?v=6.4.3-115"></script>
 </body>
 </html>
