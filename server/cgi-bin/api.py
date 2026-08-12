@@ -55112,6 +55112,75 @@ def handle_audit_log_archive():
     return
 
 
+def _host_disk_encrypted(sysfs_root='/sys/block', mounts_path='/proc/self/mounts',
+                         data_dir=None):
+    """Is the volume holding DATA_DIR on a dm-crypt / LUKS mapping?
+
+    v6.4.3. The product grades encryption-at-rest on every managed host, and
+    never asked the one box that holds the device tokens, the CMDB vault, the
+    API-key hashes and the backups. An operator CAN get this today by enrolling
+    the server host as a device — the check catalog even presupposes it — but
+    install-server.sh never does that and no doc suggests it, so in practice
+    the answer depended on someone having thought of it.
+
+    Returns one of:
+        True   — DATA_DIR resolves to a device-mapper crypt target
+        False  — it resolves to a plain block device
+        None   — CANNOT TELL, which is a third state and not a warning. In a
+                 container /proc/self/mounts describes the container, and the
+                 host's sysfs is not visible; reporting "unencrypted" there
+                 would turn "we cannot see" into a finding, which is the exact
+                 anti-pattern the agent's own collector and compliance.py's
+                 NOT_ASSESSED verdict exist to avoid.
+
+    Parameterised on its roots so the test can drive both answers. Without
+    that it asserts against whatever disk the test runner happens to have and
+    silently passes on an unencrypted CI box — a guardrail that measures the
+    machine instead of the code.
+    """
+    data_dir = str(data_dir or DATA_DIR)
+    try:
+        real = os.path.realpath(data_dir)
+    except OSError:
+        return None
+    # Longest-prefix mount match — the same walk storage._is_network_fs does,
+    # including the octal-escaped-space handling.
+    src, best_len = '', -1
+    try:
+        with open(mounts_path) as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mnt = parts[1].replace('\\040', ' ')
+                if ((real == mnt or real.startswith(mnt.rstrip('/') + '/'))
+                        and len(mnt) > best_len):
+                    src, best_len = parts[0], len(mnt)
+    except OSError:
+        return None
+    if not src:
+        return None
+    if not src.startswith('/dev/mapper/'):
+        # A plain device, or something we do not model (tmpfs, overlay, NFS).
+        # Only a real block device is a confident "no".
+        return False if src.startswith('/dev/') else None
+    name = src.rsplit('/', 1)[-1]
+    try:
+        entries = sorted(os.listdir(sysfs_root))
+    except OSError:
+        return None
+    for dm in (e for e in entries if e.startswith('dm-')):
+        try:
+            with open(os.path.join(sysfs_root, dm, 'dm', 'name')) as fh:
+                if fh.read().strip() != name:
+                    continue
+            with open(os.path.join(sysfs_root, dm, 'dm', 'uuid')) as fh:
+                return fh.read().strip().startswith('CRYPT-')
+        except OSError:
+            continue
+    return None
+
+
 def handle_security_posture():
     """GET /api/security-posture — v4.2.0 (A6): grade the live config against a
     secure-defaults checklist so operators can see (and fix) what's not hardened."""
@@ -55246,6 +55315,31 @@ def handle_security_posture():
         'Settings → Maintenance → Backup, and test-restore it. If it is already '
         'set, check the last backup run — the mirror step reports its own '
         'success separately from the archive.', fix_tab='maintenance')
+    # v6.4.3: the control plane's OWN disk. Every managed host is graded on
+    # encryption-at-rest; this box holds the device tokens, the CMDB vault, the
+    # API-key hashes and the backups, and was never asked.
+    _hde = _host_disk_encrypted()
+    if _hde is None:
+        # Not a warning. In a container /proc/self/mounts describes the
+        # container and the host's sysfs is not visible, so "unencrypted" would
+        # be a fabricated finding. Passes with an honest detail instead — the
+        # same reasoning as compliance.py's NOT_ASSESSED.
+        add('host_disk_encrypted', "This server's disk is encrypted", True,
+            'cannot be determined from inside this environment (containerised, '
+            'or a filesystem type we do not model) — check the host directly',
+            'If this server runs in a container, verify full-disk encryption on '
+            'the Docker host; the check cannot see through the container '
+            'boundary.')
+    else:
+        add('host_disk_encrypted', "This server's disk is encrypted", _hde,
+            ('the volume holding ' + str(DATA_DIR) + ' is on a dm-crypt/LUKS mapping')
+            if _hde else
+            ('the volume holding ' + str(DATA_DIR) + ' is NOT encrypted — device '
+             'tokens, the credential vault and backups sit on it in the clear if '
+             'the disk is removed'),
+            'Encrypt the volume holding the data directory (LUKS). This cannot '
+            'be done from the application — it is a host build decision, so it '
+            'has no Settings link.')
     _cfg_enc_armed = bool(_config_master_key())
     add('config_secrets_encrypted', 'Config secrets encrypted at rest', _cfg_enc_armed,
         'armed (RP_CONFIG_KEY set)' if _cfg_enc_armed else 'plaintext at rest',

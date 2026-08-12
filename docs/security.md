@@ -447,6 +447,14 @@ Recommended for production deployments beyond the secure defaults:
 - [ ] If using the CMDB vault, set a passphrase that meets the complexity
       gate (≥ 12 characters, 2 of 4 character classes) and **store it
       separately** — RemotePower cannot recover it.
+- [ ] **Encrypt the control-plane host's own disk.** The data directory holds
+      every device token, the CMDB credential vault, API-key hashes and the
+      backups — a stolen or decommissioned disk hands over the fleet, and no
+      application-level control can undo that. **Settings → Security posture**
+      reports the state of the volume `RP_DATA_DIR` sits on (v6.4.3); a host
+      that cannot see device-mapper — a container, typically — reports
+      "cannot be determined" rather than a finding, so check the underlying
+      host yourself in that case.
 
 ---
 

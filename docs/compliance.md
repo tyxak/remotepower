@@ -105,6 +105,13 @@ alerts, running restore drills, rotating keys). Enable the opt-in controls above
 forward the audit log + alerts to your SIEM, and retain the signed evidence exports
 as your audit artifacts.
 
+**Encryption at rest of the control-plane host itself** (A.8.24 / CC6.7) is yours
+too: RemotePower encrypts the CMDB vault and — with `RP_CONFIG_KEY` — config
+secrets, but device tokens, API-key hashes and DR backups live in `RP_DATA_DIR` on
+whatever volume you gave it. **Settings → Security posture** grades that volume
+(v6.4.3) so the gap is visible rather than assumed; inside a container it reports
+"cannot be determined", which is an instruction to check the host, not a pass.
+
 > Framework control IDs are indicative and current as of the 2022 ISO revision +
 > the SOC 2 2017 TSC; map to your auditor's current criteria.
 

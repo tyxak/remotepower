@@ -842,3 +842,35 @@ echo -e "${RED}║                                                              
 echo -e "${RED}║  Full guide: docs/tls-selfsigned.md  /  docs/install.md       ║${NC}"
 echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+# Disk encryption of THIS host. /var/lib/remotepower will hold every device
+# token, the CMDB credential vault, the API-key hashes and the DR backups, so a
+# stolen disk hands over the fleet. Only speak up on a DEFINITE negative — if
+# findmnt is absent, or the volume is something we do not model, say nothing
+# rather than manufacture a finding. Settings → Security posture is the
+# authority; this is the reminder at the moment it is cheapest to act on.
+if command -v findmnt >/dev/null 2>&1; then
+    # findmnt appends the btrfs subvolume as "[/@]" — strip it, or every btrfs
+    # host silently falls through as "cannot tell".
+    _rp_src="$(findmnt -no SOURCE --target /var/lib/remotepower 2>/dev/null || true)"
+    _rp_src="${_rp_src%%[*}"
+    if [ -n "$_rp_src" ] && [ -b "$_rp_src" ]; then
+        _rp_enc=no
+        for _rp_dm in /sys/block/dm-*/dm; do
+            [ -r "$_rp_dm/name" ] || continue
+            if [ "/dev/mapper/$(cat "$_rp_dm/name")" = "$_rp_src" ] \
+               || [ "/dev/$(basename "$(dirname "$_rp_dm")")" = "$_rp_src" ]; then
+                case "$(cat "$_rp_dm/uuid" 2>/dev/null)" in CRYPT-*) _rp_enc=yes ;; esac
+                break
+            fi
+        done
+        if [ "$_rp_enc" = no ]; then
+            warn "The volume holding /var/lib/remotepower is not encrypted."
+            echo "       It will store device tokens, the CMDB credential vault and DR"
+            echo "       backups. Encrypting this host's disk is the only control that"
+            echo "       protects them if the disk leaves the building — see the operator"
+            echo "       hardening checklist in docs/security.md."
+            echo ""
+        fi
+    fi
+fi

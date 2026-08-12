@@ -343,6 +343,22 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **The one box the encryption grade never covered was the one running it.**
+  RemotePower scored every managed host on encryption at rest and never asked
+  about its own — the machine holding every device token, the CMDB credential
+  vault, the API-key hashes and the DR backups, where a stolen or
+  decommissioned disk hands over the whole fleet at once. Getting an answer
+  depended on an operator thinking to enroll the server as a managed device,
+  which the installer does not do and no document suggests. **Settings →
+  Security posture** now carries a `host_disk_encrypted` row that resolves the
+  volume `RP_DATA_DIR` actually sits on — longest-prefix through
+  `/proc/self/mounts`, then the device-mapper `CRYPT-` UUID — and it is
+  deliberately three-valued: inside a container, where the mount table
+  describes the container and the host's sysfs is not visible, it reports
+  "cannot be determined" rather than manufacturing a finding out of a blind
+  spot. Added to the operator hardening checklist in `docs/security.md` and to
+  the operator-responsibilities section of `docs/compliance.md`, since no
+  application-level control can substitute for it.
 - **Restoring a quarantined file on Windows or macOS said it was queued and
   was not.** Integrity Guard is Linux-only — both agents list the directive
   among the things they deliberately ignore — but the server accepted it for
