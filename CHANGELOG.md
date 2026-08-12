@@ -343,6 +343,28 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **The product knew who was logged in and never showed anyone.**
+  `GET /api/sessions` shipped in v6.4.2 described in its own docstring as "the
+  access-review companion", noting that "who is logged in right now, from where,
+  and since when" had no answer anywhere in the product. It was admin-gated,
+  tenant-scoped and audited — and no client ever called it. The answer existed
+  and was unreachable, which is the same as not having it except that anyone
+  reading the source would conclude the gap was closed. **Settings → Security →
+  Active sessions** is that surface: user, role, IdP source, IP, last-active and
+  expiry, for every login on the instance. Revocation is per **user** and the
+  button says so, because per-user is all the server offers — a row-level button
+  labelled "Revoke" would read as "this session" and sign out three browsers.
+- **"The operator owns this" is true and useless on its own.** The compliance
+  mapping named three responsibilities as yours — access recertification,
+  incident response and data retention — and left it there. Each now has a page
+  saying which surface answers which part of it: `docs/access-review.md`,
+  `docs/incident-response.md`, `docs/data-retention.md`, all linked from the
+  mapping. They are honest about limits rather than reassuring: API keys carry
+  no last-used timestamp, so an idle key is indistinguishable from a busy one
+  and expiry is what closes that gap; the signed evidence pack does **not**
+  contain the user roster; five of the seven retention knobs default to keeping
+  everything forever; quarantine stops RemotePower acting on a host and does
+  nothing to that host's own network.
 - **The one box the encryption grade never covered was the one running it.**
   RemotePower scored every managed host on encryption at rest and never asked
   about its own — the machine holding every device token, the CMDB credential
