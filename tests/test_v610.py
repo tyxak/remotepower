@@ -585,8 +585,12 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         self.assertNotIn("update", stub_case)
 
     def test_detects_docker_and_refuses(self):
-        i = self.SRC.index("cmd_update()")
-        body = self.SRC[i : i + 1500]
+        # v6.4.3: was a 1500-char window off `cmd_update()`. cmd_update is 1784
+        # chars, so this one happened to stay inside — but it is the same class
+        # as the 2000/2500 windows in this class that did NOT, and "happens to
+        # fit today" is not a property worth relying on when the extractor is
+        # right there.
+        body = self._fn('cmd_update')
         self.assertIn("/.dockerenv", body)
         self.assertIn("docker compose", body)
 

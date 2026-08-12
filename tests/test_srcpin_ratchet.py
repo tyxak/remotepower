@@ -77,7 +77,7 @@ MIN_WIDTH = 1000
 
 # Current count. LOWER THIS as windows are converted; never raise it. Adding a
 # new fixed window is not a "bump the number" situation — use srcpin instead.
-WINDOW_CEILING = 16
+WINDOW_CEILING = 15
 
 
 def _code_only(path):
