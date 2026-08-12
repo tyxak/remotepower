@@ -778,6 +778,55 @@ def build_live_state_corpus(devices, facets=None, now=0):
                           + ("on" if mp['auto_security_update'] else "off"))
             if ml:
                 posture.append("macOS security posture:\n  " + '\n  '.join(ml))
+        # v6.4.3: signals the agents collect and safe_si persists, that the
+        # corpus never mentioned — so "which hosts are unencrypted?" or "is
+        # anything thermally throttled?" could not be answered from fleet
+        # knowledge even though the product had the answer on the Checks page.
+        # CLAUDE.md: a signal collected but shown nowhere is the prize.
+        de = si.get('disk_encryption')
+        if isinstance(de, dict) and isinstance(de.get('encrypted'), bool):
+            _dl = ["disk encryption at rest: "
+                   + ("on (dm-crypt/LUKS)" if de['encrypted'] else "OFF")]
+            for _m in (de.get('encrypted_mounts') or [])[:8]:
+                _dl.append(f"encrypted mount: {_m}")
+            posture.append("Linux disk encryption:\n  " + '\n  '.join(_dl))
+        ph = si.get('platform_health')
+        if isinstance(ph, dict):
+            _pl = []
+            _thr = ph.get('throttle')
+            if isinstance(_thr, dict) and _thr.get('status'):
+                _pl.append(f"platform throttling: {_thr['status']}")
+            for _f in (ph.get('fans') or [])[:6]:
+                if isinstance(_f, dict) and _f.get('name'):
+                    _pl.append(f"fan {_f['name']}: {_f.get('rpm', '?')} rpm")
+            _wifi = ph.get('wifi')
+            if isinstance(_wifi, dict) and _wifi.get('signal_dbm') is not None:
+                _pl.append(f"wifi signal: {_wifi['signal_dbm']} dBm"
+                           + (f" on {_wifi['ssid']}" if _wifi.get('ssid') else ""))
+            if _pl:
+                posture.append("platform health:\n  " + '\n  '.join(_pl))
+        _cs = si.get('canary_status')
+        if isinstance(_cs, dict) and _cs.get('tripped'):
+            posture.append("canary/honeytoken file TRIPPED — a decoy file was "
+                           "read or modified")
+        _gq = si.get('guard_quarantine')
+        if isinstance(_gq, list) and _gq:
+            posture.append(f"Integrity Guard has quarantined {len(_gq)} file(s)")
+        _sc = si.get('ssh_config')
+        if isinstance(_sc, dict):
+            _sl = [f"sshd {_k}: {_v}" for _k, _v in sorted(_sc.items())
+                   if isinstance(_v, (str, int, bool)) and not _is_secret_key(_k)][:12]
+            if _sl:
+                posture.append("sshd configuration:\n  " + '\n  '.join(_sl))
+        _li = si.get('logged_in')
+        if isinstance(_li, list) and _li:
+            posture.append("logged-in users: "
+                           + ", ".join(str(u) for u in _li[:10]))
+        _ch = si.get('chassis')
+        if isinstance(_ch, str) and _ch:
+            posture.append(f"chassis type: {_ch}")
+        if si.get('zram'):
+            posture.append("zram compressed swap is in use")
         if posture:
             docs.append(make_doc(
                 f"live/{dev_id}#posture", 'live_state', 'device_posture',
