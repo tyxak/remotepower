@@ -94,6 +94,14 @@ def _fire_tls_webhook(target: dict, days_left: int, severity: str) -> None:
         # Preferred: loopback HTTP so the CGI handles all the delivery logic.
         import urllib.request, urllib.error
         server_url = os.environ.get('RP_SERVER_URL', 'http://127.0.0.1')
+        # v6.4.3: the three sidecar daemons all annotate this call as "fixed
+        # loopback base from the unit"; this one did not, and none of the four
+        # ENFORCED it. urllib honours file://, so a base set to one turns an
+        # internal POST into a local file read.
+        if not server_url.startswith(('http://', 'https://')):
+            print('[tls-check] RP_SERVER_URL must be an http(s) URL — '
+                  'skipping webhook delivery', file=sys.stderr)
+            return
         payload = json.dumps({
             'host':      target.get('host', ''),
             'port':      target.get('port', 443),
@@ -107,7 +115,9 @@ def _fire_tls_webhook(target: dict, days_left: int, severity: str) -> None:
                      'X-Remotepower-Internal': '1'},
             method='POST',
         )
-        urllib.request.urlopen(req, timeout=10)
+        # nosec B310 / nosemgrep: dynamic-urllib-use-detected --
+        # scheme is enforced above; the base is deploy config, not input.
+        urllib.request.urlopen(req, timeout=10)  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced above; base is deploy config, not request input
     except Exception as exc:
         print(f"[tls-check] webhook delivery failed: {exc}", file=sys.stderr)
 

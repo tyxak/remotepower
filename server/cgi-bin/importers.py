@@ -17,7 +17,7 @@ reason, never silently dropped.
 """
 import json
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- parses via safe_xml.fromstring (whole-buffer DTD/entity refusal)
 import safe_xml
 from typing import Any, Dict, List, Optional, Tuple
 

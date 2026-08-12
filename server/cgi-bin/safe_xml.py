@@ -17,7 +17,7 @@ import re
 # declaration (the billion-laughs vector) before parsing, and stdlib ET does not
 # resolve external entities (no XXE). Routing untrusted call sites through here is
 # the mitigation, not a vulnerability.
-import xml.etree.ElementTree as _ET  # nosec B405
+import xml.etree.ElementTree as _ET  # nosec B405  # nosemgrep: use-defused-xml -- this module IS the mitigation; it refuses any DTD/entity before handing the buffer to the parser
 
 # Re-export so callers catch `safe_xml.ParseError` without importing ElementTree.
 ParseError = _ET.ParseError

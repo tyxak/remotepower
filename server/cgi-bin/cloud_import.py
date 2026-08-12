@@ -18,7 +18,7 @@ import hmac
 import re
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- every parse routes through safe_xml.fromstring, which refuses DTD/entity over the whole buffer
 import safe_xml
 
 

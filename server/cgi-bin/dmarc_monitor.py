@@ -197,7 +197,7 @@ def parse_aggregate_report(xml_bytes):
     since the bytes came from an email attachment."""
     if not xml_bytes:
         return None
-    import xml.etree.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- parses via safe_xml.fromstring (whole-buffer DTD/entity refusal)
     import safe_xml
     # v5.5.0 (M1): DMARC reports are deliverable by any unauthenticated sender
     # (RUA addresses are public), so a billion-laughs (internal entity expansion)

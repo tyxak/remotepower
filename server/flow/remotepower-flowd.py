@@ -47,6 +47,18 @@ logging.basicConfig(level=logging.INFO,
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 SERVER_URL = (os.environ.get('RP_FLOW_SERVER_URL')
               or 'http://127.0.0.1:8090').rstrip('/')
+_ENVVAR = 'RP_FLOW_SERVER_URL'
+
+# v6.4.3: ENFORCE what the nosec notes below only assert. Each of these
+# daemons posts to a base URL taken from a systemd Environment= value and
+# every urlopen() call site carries a comment saying "fixed loopback base,
+# no file:/ or custom scheme can reach here". That was true by convention and
+# by nothing else — urllib honours file://, and a base set to one would turn
+# an internal POST into a local file read. A comment is not a control.
+if not SERVER_URL.startswith(('http://', 'https://')):
+    raise SystemExit(
+        f'{_ENVVAR} must be an http(s) URL, got {SERVER_URL!r} — refusing to '
+        'start rather than hand a non-HTTP scheme to urlopen()')
 BIND = os.environ.get('RP_FLOW_BIND', '0.0.0.0:2055')
 
 MAP_TTL_S = 30
@@ -229,7 +241,7 @@ def _post(token, agg):
                                  method='POST')
     try:
         # nosec B310 — fixed loopback base from the unit; literal path.
-        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
+        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at import; fixed loopback base from the unit
             r.read()
         return True
     except Exception as e:

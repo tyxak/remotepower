@@ -311,7 +311,7 @@ def _parse_wpscan(text):
 def _parse_nmap_xml(text):
     """nmap -oX -> findings. Open services as info; NSE vuln-script hits medium."""
     import re as _re
-    import xml.etree.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- DTD/entity declarations are refused over the whole string just below
     # v6.4.0 (SEC): refuse any DTD/entity declaration before parsing, matching
     # the agent's XCCDF guard. nmap never emits these, but this keeps every
     # untrusted-XML parse in the project on one rule (no billion-laughs, no drift).

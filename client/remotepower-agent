@@ -631,7 +631,7 @@ def _ka_request(url, body, headers, timeout):
         reused = conn is not None and getattr(_KA_LOCAL, 'host', None) == host
         if not reused:
             _ka_drop()
-            conn = _http_client.HTTPSConnection(host, timeout=timeout,
+            conn = _http_client.HTTPSConnection(host, timeout=timeout,  # nosemgrep: httpsconnection-detected -- TLS context is built and verified below (CERT_REQUIRED + hostname check); this IS the verified path
                                                 context=_SSL_CTX)
             _KA_LOCAL.conn = conn
             _KA_LOCAL.host = host
@@ -2720,7 +2720,7 @@ _XML_DTD_RE = re.compile(rb'<!\s*(?:doctype|entity)', re.IGNORECASE)
 def _parse_oscap_results(path):
     """Parse an XCCDF results XML: overall score + rule-result tallies + up to
     200 failed rule ids/severities. Namespace-agnostic (matches on local tag)."""
-    import xml.etree.ElementTree as ET  # nosec B405 - guarded below, no XXE in stdlib
+    import xml.etree.ElementTree as ET  # nosec B405  # nosemgrep: use-defused-xml -- the whole buffer is refused if it declares a DTD/entity (see _XML_DTD_RE below); stdlib resolves no external entities
     counts = {'pass': 0, 'fail': 0, 'error': 0, 'notapplicable': 0,
               'notchecked': 0, 'notselected': 0, 'unknown': 0, 'informational': 0}
     failed = []
@@ -9243,7 +9243,7 @@ def execute_command(cmd):
             # nosemgrep: subprocess-shell-true -- see the B602 note above: this
             # is the agent's authenticated, audited, allowlist/4-eyes-gated root
             # command channel; shell semantics are the feature, not a mistake.
-            result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)  # nosec B602
+            result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)  # nosec B602  # nosemgrep: subprocess-shell-true -- the authenticated, audited, allowlist/4-eyes-gated root command channel; shell semantics are the feature
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")
             # v1.10.0: bump output cap to 256 KB for package-upgrade runs.
