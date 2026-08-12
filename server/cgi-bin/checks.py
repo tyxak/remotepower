@@ -635,33 +635,45 @@ def _host_checks(
             # bad PSU or a long cable. NOW and SINCE-BOOT are different facts —
             # an intermittent 3am brownout explains yesterday's corruption and
             # needs saying even though nothing is wrong this second.
-            now_bad = [k for k in ("undervolt_now", "throttled_now",
-                                   "freq_capped_now", "soft_temp_now")
-                       if th.get(k)]
-            ever_bad = [k for k in ("undervolt_since_boot", "throttled_since_boot",
-                                    "freq_capped_since_boot", "soft_temp_since_boot")
-                        if th.get(k)]
+            now_bad = [
+                k
+                for k in ("undervolt_now", "throttled_now", "freq_capped_now", "soft_temp_now")
+                if th.get(k)
+            ]
+            ever_bad = [
+                k
+                for k in (
+                    "undervolt_since_boot",
+                    "throttled_since_boot",
+                    "freq_capped_since_boot",
+                    "soft_temp_since_boot",
+                )
+                if th.get(k)
+            ]
             if now_bad:
-                detail = "now: " + ", ".join(k.replace("_now", "").replace("_", " ")
-                                             for k in now_bad)
+                detail = "now: " + ", ".join(
+                    k.replace("_now", "").replace("_", " ") for k in now_bad
+                )
             elif ever_bad:
-                detail = ("since boot: "
-                          + ", ".join(k.replace("_since_boot", "").replace("_", " ")
-                                      for k in ever_bad))
+                detail = "since boot: " + ", ".join(
+                    k.replace("_since_boot", "").replace("_", " ") for k in ever_bad
+                )
             else:
                 detail = "no under-voltage or throttling"
             add(
                 "pi_throttle",
                 "Power / thermal throttling",
                 "hardware",
-                "critical" if th.get("undervolt_now")
-                else "warning" if (now_bad or ever_bad) else "ok",
+                (
+                    "critical"
+                    if th.get("undervolt_now")
+                    else "warning" if (now_bad or ever_bad) else "ok"
+                ),
                 detail,
             )
         fans = ph.get("fans")
         if isinstance(fans, list) and fans:
-            spinning = [f for f in fans
-                        if isinstance(f, dict) and (f.get("rpm") or 0) > 0]
+            spinning = [f for f in fans if isinstance(f, dict) and (f.get("rpm") or 0) > 0]
             # INFORMATIONAL ONLY, and deliberately so. A fan reading 0 is
             # usually an EMPTY HEADER, not a failed fan — the machine this was
             # written on reports six fan inputs of which three are unconnected
@@ -676,8 +688,9 @@ def _host_checks(
                 "hardware",
                 "ok",
                 f"{len(spinning)}/{len(fans)} reporting RPM — "
-                + ", ".join(f"{f.get('name')} {f.get('rpm')}"
-                            for f in fans[:4] if isinstance(f, dict)),
+                + ", ".join(
+                    f"{f.get('name')} {f.get('rpm')}" for f in fans[:4] if isinstance(f, dict)
+                ),
             )
         gov = ph.get("governor")
         if isinstance(gov, str) and gov:
@@ -706,8 +719,7 @@ def _host_checks(
                 # blamed on the application.
                 status = "ok"
                 if isinstance(lvl, (int, float)):
-                    status = ("warning" if lvl <= -75
-                              else "ok")
+                    status = "warning" if lvl <= -75 else "ok"
                 add(
                     f"wifi_link_{w.get('iface')}",
                     f"Wireless link ({w.get('iface')})",
@@ -726,11 +738,15 @@ def _host_checks(
     if isinstance(de, dict) and isinstance(de.get("encrypted"), bool):
         enc = de["encrypted"]
         mounts = de.get("encrypted_mounts") or []
-        kinds = sorted({str(d.get("type") or "").upper()
-                        for d in (de.get("crypt_devices") or [])
-                        if isinstance(d, dict) and d.get("type")})
+        kinds = sorted(
+            {
+                str(d.get("type") or "").upper()
+                for d in (de.get("crypt_devices") or [])
+                if isinstance(d, dict) and d.get("type")
+            }
+        )
         if enc:
-            detail = (", ".join(kinds) or "dm-crypt")
+            detail = ", ".join(kinds) or "dm-crypt"
             if mounts:
                 detail += f" — {len(mounts)} mount(s): " + ", ".join(mounts[:4])
                 if len(mounts) > 4:
