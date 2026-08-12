@@ -129,7 +129,20 @@ class TestConsolidationSweep(unittest.TestCase):
     def test_read_valid_helper_exists_and_is_used(self):
         self.assertIn("def _read_valid(model):", self.api_src)
         # The sweep wired the helper into the bulk of body-reading handlers.
-        self.assertGreater(self.api_src.count("_read_valid(request_models."), 200)
+        #
+        # v6.4.3: counted RAW api.py against a literal, and broke on the CVE
+        # carve — both halves of the documented extraction gotcha at once. The
+        # 12 handlers moved to cve_handlers.py, so raw api.py lost their calls
+        # (198 < 200); and inside a bound module every api service carries the
+        # `A.` prefix, so `_read_valid(request_models.` does not match
+        # `_read_valid(A.request_models.` even in the COMBINED source. Read the
+        # combined source AND tolerate the prefix.
+        import re
+
+        import apisrc
+        combined = apisrc.api_source()
+        n = len(re.findall(r"_read_valid\((?:A\.)?request_models\.", combined))
+        self.assertGreater(n, 200, f"only {n} handlers use the helper")
 
     def test_dampening_not_duplicated_in_general_pane(self):
         # The General-pane duplicates were removed; Alert parameters is the home.

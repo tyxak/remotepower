@@ -631,7 +631,16 @@ def _ka_request(url, body, headers, timeout):
         reused = conn is not None and getattr(_KA_LOCAL, 'host', None) == host
         if not reused:
             _ka_drop()
-            conn = _http_client.HTTPSConnection(host, timeout=timeout,  # nosemgrep: httpsconnection-detected -- TLS context is built and verified below (CERT_REQUIRED + hostname check); this IS the verified path
+            # The context= below is the shared, verified _SSL_CTX
+            # (CERT_REQUIRED + hostname check) — this IS the verified path.
+            # The suppression is kept OFF the call line: an inline comment there
+            # pushed `context=_SSL_CTX` outside the window test_v622_keepalive
+            # reads, and that test exists to prove the keep-alive transport
+            # carries the same context as the non-pooled one. It must also be
+            # the line IMMEDIATELY before the call — semgrep honours it there
+            # and nowhere else.
+            # nosemgrep: httpsconnection-detected
+            conn = _http_client.HTTPSConnection(host, timeout=timeout,
                                                 context=_SSL_CTX)
             _KA_LOCAL.conn = conn
             _KA_LOCAL.host = host
