@@ -267,6 +267,16 @@ async function saveBackupJob() {
   else toast(d?.error || 'Failed', 'error');
 }
 
+// Structured file-backup jobs are a bash/rsync command — Linux only. The server
+// filters the target list at dispatch and names what it dropped; without this
+// the operator gets "queued on 3 devices" for a run that touched two, which is
+// the failure the OS gate was added to prevent, one layer further out.
+function _backupSkipNote(d) {
+  const n = (d && d.skipped_unsupported) || [];
+  if (!n.length) return '';
+  return ` — ${n.length} non-Linux ${n.length === 1 ? 'host' : 'hosts'} skipped (${n.join(', ')})`;
+}
+
 // v6.3.0: on-demand run. For a single-device job, run-and-wait with a live
 // progress modal (the server blocks for the agent's output, incl. rsync
 // progress). For a multi-device baseline, queue on all and toast (a synchronous
@@ -277,8 +287,8 @@ async function _backupRunBtn(btn) {
   const id = btn.dataset.id;
   if (targets.length > 1) {
     const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/run', {});
-    if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} devices — output appears in each device's command history`, 'success');
-    else toast(d?.error || 'Failed', 'error');
+    if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} devices — output appears in each device's command history${_backupSkipNote(d)}`, 'success');
+    else toast((d?.error || 'Failed') + _backupSkipNote(d), 'error');
     return;
   }
   // single device → run-and-wait with progress feedback

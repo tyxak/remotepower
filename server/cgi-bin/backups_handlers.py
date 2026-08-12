@@ -844,12 +844,16 @@ def handle_backup_job_run(job_id):
         # land in the command history (avoids a dead 120s wait that always times out).
         A._queue_command_batch(targets, f'exec:{cmd}', actor)
         A.respond(200, {'ok': True, 'queued': 1, 'running': True,
+                        'skipped_unsupported': _os_skipped,
                         'message': 'Backup queued — this host polls slowly, so its output will appear in the command history.'})
         return
     res = A._queue_command_batch(targets, f'exec:{cmd}', actor)
     # Count only devices actually queued (batch skips quarantined / audit-mode / unknown).
     n = sum(1 for r in res.values() if isinstance(r, dict) and r.get('ok')) if isinstance(res, dict) else len(targets)
-    A.respond(200, {'ok': True, 'queued': n})
+    # Carry the OS refusal into the SUCCESS body too. Reporting it only on the
+    # all-skipped 400 means a mixed-OS job runs on its Linux hosts, answers
+    # {ok, queued: n}, and a partial run reads as a complete one.
+    A.respond(200, {'ok': True, 'queued': n, 'skipped_unsupported': _os_skipped})
 
 
 def handle_backup_job_archives(job_id):

@@ -46,6 +46,14 @@ REFUSAL_SURFACES = {
     # noticed a handler splitting targets by OS with no registered reader,
     # which is exactly what it exists for.
     'handle_guard_action': ('app-checks.js', ('skipped', 'skipped_reason')),
+    # v6.4.3: structured file-backup jobs are bash/rsync — Linux only. The gate
+    # was on the two WRITE paths but not on dispatch, so a job created before it
+    # (or whose device changed platform) kept firing at a Windows host forever.
+    # Gating dispatch surfaced the second half of the same bug: the refusal was
+    # reported only when EVERY target was unsupported, so a mixed-OS job ran on
+    # its Linux hosts and answered {ok, queued: n} — a partial run reading as a
+    # complete one. This test found it, in the run that added the dispatch gate.
+    'handle_backup_job_run': ('app-backups.js', ('skipped_unsupported',)),
 }
 
 
