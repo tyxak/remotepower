@@ -343,6 +343,24 @@ from one that cannot.
   see device-mapper still reports nothing rather than "unencrypted" — being
   unable to look is not the same as looking and finding nothing, and treating
   it as a finding would fail hosts that are in fact encrypted.
+- **"Nobody can connect" now says why.** A WireGuard tunnel whose UDP port is
+  not reaching the host looks exactly like one nobody has got round to using:
+  the config is right, the server is up, the client imported cleanly, and no
+  handshake ever happens. It is the most common WG-Access support question and
+  the page said only "0 connected now". When every client on an enabled tunnel
+  has existed past a 30-minute grace and not one has **ever** handshaked, the
+  panel says so, names the UDP port, and points at the port forward.
+  Deliberately an inference rather than a probe: WireGuard never replies to
+  unauthenticated packets — that silence is a design property — so an open,
+  working port and a firewalled one are indistinguishable to a scanner, and a
+  check built on probing would report the same thing in both cases. It also
+  survives a restart: `wg show dump` reports a last-handshake of 0 for every
+  peer once the interface comes back, so an inference reading that field would
+  accuse a perfectly healthy tunnel after every reboot, and a warning that is
+  wrong that often is one operators learn to ignore.
+- **Six UI strings this release added were English-only in the other six
+  languages.** Caught by the i18n gate rather than by a reader, which is the
+  point of having it.
 - **The device drawer offered "Copy summary" twice.** Two buttons, identical
   labels, side by side in the same grid, calling different functions: one
   copied seven basic lines, the other the rich summary with CPU, RAM, uptime

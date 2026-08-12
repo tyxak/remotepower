@@ -327,6 +327,40 @@ async function reloadVpnClients() {
 // Show what the selected tunnel's clients can actually reach right now — resolved
 // live on the server from the current fleet (so it reflects scope changes since
 // the last sync). Built with textContent/DOM, no innerHTML (CSP-safe).
+// v6.4.3: a tunnel whose UDP port is not forwarded looks EXACTLY like one
+// nobody has got round to connecting to — right config, server up, client
+// correct, no handshake ever. It is the classic WG-Access support question and
+// the page said only "0 connected now".
+//
+// The server decides (see _vpn_inbound_verdict); this only paints the one
+// verdict worth interrupting for. Nothing is drawn for `proven` or `unknown` —
+// a permanently-visible "we cannot tell" box is noise that teaches operators to
+// ignore the panel, which is how a real warning gets missed later.
+function _vpnPaintInbound(st) {
+  const el = document.getElementById('vpn-sel-inbound');
+  if (!el) return;
+  const inb = (st && st.inbound) || {};
+  if (inb.state !== 'never') { el.hidden = true; el.textContent = ''; return; }
+  const port = inb.port || 0;
+  const n = inb.client_count || 0;
+  el.hidden = false;
+  el.textContent = '';
+  const msg = document.createElement('span');
+  msg.textContent =
+    `${n} client${n === 1 ? ' has' : 's have'} been configured on this tunnel and `
+    + `not one has ever completed a handshake. The usual cause is inbound `
+    + `UDP ${port || '(no port set)'} not reaching this host — check the port `
+    + `forward on your router and any firewall in front of it. WireGuard never `
+    + `replies to unauthenticated packets, so a port scan cannot confirm this `
+    + `either way; a single successful handshake will.`;
+  el.appendChild(msg);
+  const doc = document.createElement('a');
+  doc.href = 'docs/wg-access.md';
+  doc.className = 'c-accent ml-8';
+  doc.textContent = 'Documentation';
+  el.appendChild(doc);
+}
+
 async function _vpnRenderReach() {
   const el = document.getElementById('vpn-sel-reach');
   const stEl = document.getElementById('vpn-sel-stats');
@@ -347,6 +381,7 @@ async function _vpnRenderReach() {
     bits.push((st.connected_count || 0) + ' connected now');
     stEl.textContent = bits.join('  ·  ');
   }
+  _vpnPaintInbound(st);
   if (st.allow_internet) {
     el.textContent = 'Reaches: the dashboard + the internet (full tunnel).';
     return;

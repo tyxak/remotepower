@@ -555,6 +555,51 @@ def handle_vpn_tunnel_delete(tid) -> None:
     A.respond(200, {'ok': True})
 
 
+# v6.4.3: how long a client may sit un-handshaked before it counts as evidence.
+# Long enough that "I just made the config and haven't imported it yet" — the
+# overwhelmingly common case in the first minutes — is not diagnosed as a
+# firewall problem.
+_VPN_INBOUND_GRACE_S = 30 * 60
+
+
+def _vpn_inbound_verdict(tunnel, clients, now):
+    """Has inbound UDP to this tunnel's listen port ever worked? Three-valued.
+
+    A WireGuard tunnel whose UDP port is not forwarded looks EXACTLY like one
+    nobody has connected to yet: the config is right, the server is up, the
+    client is correct, and no handshake ever happens. It is the single most
+    common WG-Access support question and the product said only "0 connected".
+
+    Why this is an INFERENCE and not a probe: WireGuard does not reply to
+    unauthenticated packets — that silence is a deliberate design property. So
+    an external UDP probe gets no answer whether the port is open and working
+    or dropped by a firewall, and a check built on it would report the same
+    thing in both cases. The evidence that actually distinguishes them is a
+    handshake having happened at all, which we already have.
+
+    - 'proven'  — a client has handshaked at some point, so inbound UDP reached
+                  this host. Nothing to warn about; a current outage is
+                  something else.
+    - 'never'   — clients have existed past the grace window and not one has
+                  ever handshaked. That is the shape of a blocked port.
+    - 'unknown' — disabled tunnel, no clients, or all clients still inside the
+                  grace window. Says nothing, deliberately.
+    """
+    if not tunnel.get('enabled', True) or not clients:
+        return {'state': 'unknown'}
+    if any(c.get('ever_handshaked') or int(c.get('last_handshake', 0) or 0)
+           for c in clients):
+        return {'state': 'proven'}
+    # Oldest client decides: one freshly-added peer must not reset a tunnel
+    # that has been silently broken for a week.
+    ages = [now - int(c.get('created_at', 0) or now) for c in clients]
+    oldest = max(ages) if ages else 0
+    if oldest < _VPN_INBOUND_GRACE_S:
+        return {'state': 'unknown'}
+    return {'state': 'never', 'port': int(tunnel.get('listen_port', 0) or 0),
+            'client_count': len(clients), 'oldest_client_age_s': oldest}
+
+
 def handle_vpn_tunnel_stats(tid) -> None:
     """GET /api/vpn-tunnels/{id}/stats — RP-host rollup for one tunnel."""
     A.require_admin_or_auditor_auth()
@@ -575,6 +620,7 @@ def handle_vpn_tunnel_stats(tid) -> None:
     # What this tunnel's clients can actually reach right now (resolved live from
     # the current fleet, so it reflects devices added/changed since last sync).
     reach_devices = A._vpn_reach_devices(t)
+    inbound = _vpn_inbound_verdict(t, clients, now)
     A.respond(200, {'ok': True, 'available': A._wg_helper_available(),
                     'stats': {
                         'iface': t.get('iface'), 'listen_port': t.get('listen_port'),
@@ -590,6 +636,7 @@ def handle_vpn_tunnel_stats(tid) -> None:
                         'rx_bytes': rx, 'tx_bytes': tx,
                         'newest_handshake': max(hs) if hs else 0,
                         'oldest_handshake': min(hs) if hs else 0,
+                        'inbound': inbound,
                     }})
 
 
@@ -837,6 +884,15 @@ def run_vpn_stats_if_due():
                 d = dump.get(c.get('pubkey'))
                 if d:
                     c['last_handshake'] = d['last_handshake']
+                    # v6.4.3: last_handshake is OVERWRITTEN from the live wg dump
+                    # every poll, so it returns to 0 whenever the interface is
+                    # restarted. That makes "0" mean both "never connected" and
+                    # "restarted since", which is useless for telling an operator
+                    # whether inbound UDP has ever worked. This flag only ever
+                    # goes 0 -> 1, so it survives a restart and answers the
+                    # question the other field cannot.
+                    if d['last_handshake']:
+                        c['ever_handshaked'] = 1
                     c['rx_bytes'] = d['rx_bytes']
                     c['tx_bytes'] = d['tx_bytes']
                     c['endpoint'] = d['endpoint']

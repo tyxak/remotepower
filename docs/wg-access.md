@@ -110,6 +110,38 @@ You also need the hub's **UDP port(s)** reachable from where your clients connec
 (forward the tunnel's UDP port to the server), and a public **endpoint** hostname
 or IP for the client configs.
 
+## Nobody can connect
+
+A tunnel whose UDP port is not reaching the host looks **exactly** like one
+nobody has got round to connecting to: the config is right, the server is up,
+the client imported cleanly, and no handshake ever happens. It is the most
+common WG-Access support question, and for a long time the page said only
+"0 connected now".
+
+When every client on an enabled tunnel has existed for more than 30 minutes and
+not one has **ever** completed a handshake, the tunnel panel now says so, names
+the UDP port, and points at the port forward. Check, in order:
+
+1. The router forwards **UDP** on that port to this host — TCP is not enough and
+   is the usual mistake.
+2. No firewall between the client and the host drops it (a cloud security group,
+   a CGNAT, an ISP-supplied router in bridge-refusing mode).
+3. The client config's `Endpoint` is the address reachable from *outside*, not
+   the host's LAN IP.
+
+**A port scan cannot answer this**, which is why the product infers instead of
+probing. WireGuard never replies to unauthenticated packets — that silence is
+deliberate — so an open, working port and a firewalled one look identical to a
+scanner. One successful handshake settles it, and once any client has handshaked
+the notice does not return: the message is about whether inbound UDP has *ever*
+worked, not whether someone is connected right now.
+
+The evidence survives a restart. `wg show dump` reports a last-handshake time of
+0 for every peer after the interface comes back, so a check reading that field
+would accuse a perfectly healthy tunnel every time the host reboots — a warning
+wrong that often is one you learn to ignore. The flag behind this notice only
+ever goes from "never" to "has".
+
 ## Permissions & safety
 
 - **Viewing** WG Access needs admin (or auditor) authentication; **all** changes —
