@@ -73,15 +73,38 @@ const _SELF_TOKENS_LINK = { action: 'gotoSettingsTab', arg: 'integrations',
 // "core-rtr1 (never exported), edge-fw2 (some time ago)" — names first, because
 // the name is the answer to the question the row raises. Falls back to the
 // count when the server is older than the payload field.
+//
+// The sidecar, not the router, is what POSTs — it maps datagrams to devices by
+// the DEVICE's ip. So where the server can see that a token could never have
+// received anything (no ip on the device, token disabled, device gone), say
+// that instead of "never exported", which blames the working end.
 function _selfNameExporters(fl) {
   const named = Array.isArray(fl.stale) ? fl.stale : [];
   if (!named.length) {
     return `${fl.stale_sources} enrolled exporter(s)`
          + `${fl.never_seen ? ` (${fl.never_seen} never seen at all)` : ''}`;
   }
-  const parts = named.map(e => `${e.label || 'unnamed exporter'} `
-    + `(${e.last_seen ? _selfFmtAgo(e.last_seen) : 'never exported'})`);
+  const parts = named.map(e => `${e.label || 'unnamed exporter'} (${_selfWhySilent(e, 'never exported')})`);
   const rest = (fl.stale_sources || named.length) - named.length;
+  return parts.join(', ') + (rest > 0 ? `, +${rest} more` : '');
+}
+
+// Shared by both receivers, because they share the source-map defect exactly:
+// the sidecar keys on the DEVICE's ip, so no ip / no device / disabled token
+// all mean "nothing can ever arrive here", whatever the sender does.
+function _selfWhySilent(e, neverLabel) {
+  return e.disabled ? 'token disabled'
+    : e.no_device ? 'the device it is scoped to no longer exists'
+    : e.no_ip ? 'no IP on the device, so the receiver cannot map its packets'
+    : e.last_seen ? _selfFmtAgo(e.last_seen) : neverLabel;
+}
+
+// The syslog counterpart of _selfNameExporters — sources that can never
+// receive, named with the reason the server could actually determine.
+function _selfNameSources(sy) {
+  const bad = Array.isArray(sy.unmappable) ? sy.unmappable : [];
+  const parts = bad.map(e => `${e.label || 'unnamed source'} (${_selfWhySilent(e, 'never received')})`);
+  const rest = (sy.unmappable_count || bad.length) - bad.length;
   return parts.join(', ') + (rest > 0 ? `, +${rest} more` : '');
 }
 
@@ -120,11 +143,21 @@ function _selfSidecarRows(s) {
   // the daemon could not reach the app's storage layer, read an empty token map
   // and dropped every packet while this card said Running. Report what it is
   // DOING, not that it exists.
+  // v6.4.3: a source whose device has no IP is dropped by the receiver's
+  // source map and can never deliver a line — so "3 source(s)" was counting a
+  // broken enrolment as a working one. Name them; the receiver is not healthy
+  // while one of its sources is wired to nothing.
+  const syBad = Array.isArray(sy.unmappable) ? sy.unmappable : [];
+  const syBadNote = syBad.length
+    ? ` · ${sy.unmappable_count || syBad.length} cannot receive: ${_selfNameSources(sy)}`
+    : '';
   const syslogRow = sy.unit === 'active'
     ? (sy.sources
-        ? { label: 'Syslog receiver', state: sy.last_ingest ? 'ok' : 'warn',
-            status: sy.last_ingest ? 'Running' : 'Running — nothing received yet',
-            detail: `${sy.sources} source(s) · ${syAgo}`, link: _SELF_TOKENS_LINK }
+        ? { label: 'Syslog receiver', state: (sy.last_ingest && !syBad.length) ? 'ok' : 'warn',
+            status: syBad.length
+              ? `Running — ${sy.unmappable_count || syBad.length} of ${sy.sources} source(s) wired to nothing`
+              : (sy.last_ingest ? 'Running' : 'Running — nothing received yet'),
+            detail: `${sy.sources} source(s) · ${syAgo}${syBadNote}`, link: _SELF_TOKENS_LINK }
         : { label: 'Syslog receiver', state: 'warn',
             status: 'Running — no sources mapped',
             detail: 'the daemon is up but its source map is empty, so every '

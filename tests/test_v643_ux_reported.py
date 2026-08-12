@@ -295,6 +295,187 @@ class TestLuksCheckIsOptIn(unittest.TestCase):
         self.assertIn("disk_encryption_checks", js)
 
 
+class TestAFlowTokenThatCanNeverReceive(unittest.TestCase):
+    """The sidecar — not the router — is what POSTs. `remotepower-flowd` builds
+    its map as `if ip and tok: m[str(ip)] = tok`, so a flow token whose device
+    carries no `ip`, or that is disabled, is dropped from the map and can never
+    receive a datagram no matter what the router does. That is a broken
+    configuration, not a quiet exporter, and saying "never exported" blames the
+    wrong end of the wire.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        import sys
+        import tempfile as _tf
+
+        os.environ["RP_DATA_DIR"] = _tf.mkdtemp()
+        spec = importlib.util.spec_from_file_location(
+            "api_flowdiag", str(_ROOT / "server" / "cgi-bin" / "api.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["api_flowdiag"] = mod
+        spec.loader.exec_module(mod)
+        cls.api = mod
+
+    def _flow(self, tokens, devices):
+        api = self.api
+        api.save(api.INBOUND_WEBHOOKS_FILE, {"tokens": tokens})
+        api.save(api.DEVICES_FILE, devices)
+        api._invalidate_load_cache(api.INBOUND_WEBHOOKS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        import time as _t
+
+        return api._subsystems_status(int(_t.time())).get("flow") or {}
+
+    def _entry(self, tokens, devices, label):
+        for e in self._flow(tokens, devices).get("stale") or []:
+            if e.get("label") == label:
+                return e
+        raise AssertionError(f"{label!r} not reported stale")
+
+    def test_a_device_with_no_ip_is_reported_as_unmappable(self):
+        e = self._entry(
+            [{"id": "t1", "kind": "flow", "label": "core-rtr1", "scope_device_id": "d1"}],
+            {"d1": {"name": "core-rtr1"}},
+            "core-rtr1",
+        )
+        self.assertTrue(
+            e.get("no_ip"),
+            "the sidecar maps datagrams by device IP, so a device with none can "
+            "never receive flow — the row must say so instead of implying the "
+            "router went quiet",
+        )
+
+    def test_a_device_with_an_ip_is_not_flagged(self):
+        """Positive control: the flag must distinguish, not fire on everything."""
+        e = self._entry(
+            [{"id": "t1", "kind": "flow", "label": "core-rtr1", "scope_device_id": "d1"}],
+            {"d1": {"name": "core-rtr1", "ip": "10.0.0.1"}},
+            "core-rtr1",
+        )
+        self.assertFalse(e.get("no_ip"))
+        self.assertFalse(e.get("disabled"))
+
+    def test_a_disabled_token_is_reported_as_disabled(self):
+        e = self._entry(
+            [
+                {
+                    "id": "t1",
+                    "kind": "flow",
+                    "label": "core-rtr1",
+                    "scope_device_id": "d1",
+                    "enabled": False,
+                }
+            ],
+            {"d1": {"name": "core-rtr1", "ip": "10.0.0.1"}},
+            "core-rtr1",
+        )
+        self.assertTrue(e.get("disabled"))
+
+    def test_a_token_scoped_to_a_missing_device_is_flagged(self):
+        e = self._entry(
+            [{"id": "t1", "kind": "flow", "label": "ghost", "scope_device_id": "gone"}],
+            {"d1": {"name": "core-rtr1", "ip": "10.0.0.1"}},
+            "ghost",
+        )
+        self.assertTrue(e.get("no_ip") or e.get("no_device"))
+
+    def test_syslog_reports_the_same_defect(self):
+        """remotepower-syslogd maps by device ip with the identical
+        `if not ip: continue`, so a syslog source is dead in exactly the same
+        way — and until now the card said "N source(s)" and nothing else."""
+        api = self.api
+        api.save(
+            api.INBOUND_WEBHOOKS_FILE,
+            {
+                "tokens": [
+                    {"id": "s1", "kind": "syslog", "label": "fw01", "scope_device_id": "d1"},
+                    {"id": "s2", "kind": "syslog", "label": "sw02", "scope_device_id": "d2"},
+                ]
+            },
+        )
+        api.save(
+            api.DEVICES_FILE,
+            {"d1": {"name": "fw01"}, "d2": {"name": "sw02", "ip": "10.0.0.2"}},
+        )
+        api._invalidate_load_cache(api.INBOUND_WEBHOOKS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        import time as _t
+
+        sy = api._subsystems_status(int(_t.time())).get("syslog") or {}
+        bad = sy.get("unmappable") or []
+        self.assertEqual(
+            ["fw01"],
+            [e.get("label") for e in bad],
+            "the source with no device IP can never receive a line, and the "
+            "one with an IP must not be flagged alongside it",
+        )
+
+
+@unittest.skipUnless(_have_node(), "node unavailable")
+class TestTheRowExplainsTheUnmappableCase(unittest.TestCase):
+    def _detail(self, entry):
+        return _row(
+            _sidecar_rows(
+                {
+                    "flow": {
+                        "unit": "active",
+                        "sources": 2,
+                        "last_ingest": 1_700_000_000,
+                        "stale_sources": 1,
+                        "never_seen": 1,
+                        "stale": [entry],
+                    }
+                }
+            ),
+            "Flow receiver",
+        )["detail"]
+
+    def test_it_names_the_cause_it_can_actually_see(self):
+        d = self._detail({"label": "core-rtr1", "last_seen": None, "no_ip": True})
+        self.assertIn("core-rtr1", d)
+        self.assertIn("no IP", d)
+
+    def test_a_disabled_token_says_disabled(self):
+        d = self._detail({"label": "core-rtr1", "last_seen": None, "disabled": True})
+        self.assertIn("disabled", d.lower())
+
+    def test_an_ordinary_silent_exporter_is_unchanged(self):
+        """Positive control on the negative direction — the new wording must
+        not leak onto a plain quiet exporter."""
+        d = self._detail({"label": "core-rtr1", "last_seen": None})
+        self.assertIn("core-rtr1", d)
+        self.assertNotIn("no IP", d)
+        self.assertNotIn("disabled", d.lower())
+
+    def _syslog(self, sy):
+        return _row(_sidecar_rows({"syslog": sy}), "Syslog receiver")
+
+    def test_a_dead_syslog_source_is_named_on_the_row(self):
+        r = self._syslog(
+            {
+                "unit": "active",
+                "sources": 2,
+                "last_ingest": 1_700_000_000,
+                "unmappable": [{"label": "fw01", "no_ip": True}],
+            }
+        )
+        self.assertIn("fw01", r["detail"])
+        self.assertEqual(
+            "warn",
+            r["state"],
+            "a source that can never receive a line is not a healthy receiver",
+        )
+
+    def test_a_healthy_syslog_receiver_is_untouched(self):
+        """Positive control: the branch must still reach 'ok'."""
+        r = self._syslog({"unit": "active", "sources": 2, "last_ingest": 1_700_000_000})
+        self.assertEqual("ok", r["state"])
+        self.assertNotIn("cannot receive", r["detail"])
+
+
 class TestFlowPayloadNamesTheStaleExporters(unittest.TestCase):
     """Server side of item 1: `_subsystems_status` has to put the names in the
     payload at all. Until it does, no UI can render them."""

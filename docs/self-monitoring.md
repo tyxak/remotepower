@@ -199,6 +199,13 @@ Two things make that tally trustworthy rather than decorative:
   long it has been silent — "silent for over 3h: edge-rtr2 (never exported)" —
   rather than a bare count that leaves you to work out which of three routers
   it meant. The name list is capped, with a `+N more` tail on a large fleet.
+  Where the server can tell *why* from here it says so rather than guessing:
+  neither receiver is addressed by its token — both sidecars map a datagram to a
+  token by the sender's **source IP**, matched against the enrolled device's
+  `ip` — so a token whose device has no IP, whose device is gone, or that is
+  disabled can never receive anything, and is reported as wired to nothing
+  rather than as a quiet exporter. See [flow.md](flow.md) and
+  [syslog.md](syslog.md).
 - **Rows that raise a question link to the answer.** Both receiver rows link
   straight to **Settings → Integrations → Inbound tokens**, where the exporters
   and syslog sources that feed them are enrolled, renamed and revoked.

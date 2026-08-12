@@ -96,7 +96,28 @@ links that were fine.
   failover is indistinguishable on the wire from a dead exporter.
 
 Server status counts silent exporters separately, so one healthy router no
-longer hides the rest behind a recent "last export" timestamp.
+longer hides the rest behind a recent "last export" timestamp — and **names
+them** (v6.4.3), because "1 of 3 exporter(s) silent" leaves you to work out
+which of three routers it meant.
+
+### "Never exported" is usually not the router
+
+The exporter does not hold the token — **the sidecar does**. `remotepower-flowd`
+maps an incoming datagram to a token by its **source IP**, matched against the
+enrolled device's `ip` field. Anything that breaks that lookup drops the token
+from the map, and then nothing can ever arrive no matter how correctly the
+router is configured:
+
+| What Server status says | What it means |
+| --- | --- |
+| `no IP on the device, so the receiver cannot map its packets` | The device this token is scoped to has an empty `ip`. The receiver has nothing to match the datagram's source address against. Set the device's IP to the address the flow packets come *from*. |
+| `token disabled` | The token exists but is switched off under Settings → Integrations → Inbound webhooks. |
+| `the device it is scoped to no longer exists` | The device was deleted and the token outlived it. Revoke the token or re-scope it. |
+| `never exported` (no reason given) | The mapping is sound, so the silence is upstream: the router isn't sending, or udp/2055 is blocked between it and the receiver. |
+
+The first three are reported only for a token that has **never** received
+anything — a token that used to work and then stopped is a real outage, and
+labelling it a misconfiguration would point you at the wrong end of the wire.
 
 ## Verifying declared dependencies (the "missing edge" alert)
 

@@ -236,6 +236,23 @@ archive. For long-term retention, keep shipping to a real log store alongside
 RemotePower (the two aren't mutually exclusive — an appliance can fan out to
 both).
 
+## A source that can never receive (v6.4.3)
+
+The receiver maps an incoming line to a token by the datagram's **source IP**,
+matched against the enrolled device's `ip` field — the sender is never
+addressed by the token itself. So a token whose device has an empty `ip`, whose
+device has been deleted, or that is simply disabled, is dropped from the source
+map: nothing it is pointed at can ever arrive, however correctly the appliance
+is configured.
+
+Server status used to count such a token as one of N working "source(s)". It
+now names it and *why* — "1 of 2 source(s) wired to nothing · fw01 (no IP on
+the device, so the receiver cannot map its packets)" — and the receiver no
+longer reports itself healthy while one of its sources is wired to nothing. The
+fix is on the **device**: set its IP to the address the syslog packets come
+from. See the same table in [flow.md](flow.md#never-exported-is-usually-not-the-router),
+which shares this behaviour exactly.
+
 ## See also
 
 - [log-watch.md](log-watch.md) — the buffer, live tail, and alert rules.

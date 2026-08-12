@@ -32442,6 +32442,36 @@ def _backup_rpo_status(bcfg, backup_state, now):
     return out
 
 
+def _inbound_map_defect(tok, devices):
+    """Why this syslog/flow token can never receive anything — or None.
+
+    v6.4.3. Neither sidecar is addressed by the token: `remotepower-syslogd` and
+    `remotepower-flowd` both map an incoming datagram to a token by the SOURCE
+    IP, looking it up against the enrolled DEVICE's `ip`:
+
+        for dev_id, dev in devices.items():
+            ip = (dev or {}).get('ip')
+            if ip and tok: m[str(ip)] = tok        # flowd
+            if not ip: continue                    # syslogd
+
+    So a token whose device carries no `ip`, whose device is gone, or that is
+    disabled, is dropped from that map — nothing it is pointed at can ever
+    arrive, however healthy the exporter is. Both cards used to count such a
+    token as one of N working sources, which is the receiver telling the
+    operator it is fine while dropping everything: the same shape as the
+    empty-source-map bug this release already fixed, one level in.
+    """
+    if not tok.get('enabled', True):
+        return 'disabled'
+    dev_id = tok.get('scope_device_id')
+    dev = devices.get(dev_id) if dev_id else None
+    if not dev_id or not isinstance(dev, dict):
+        return 'no_device'
+    if not str(dev.get('ip') or '').strip():
+        return 'no_ip'
+    return None
+
+
 def _subsystems_status(now):
     """Read-only health of the co-located distributed subsystems for the
     Server-status page: relay & scanner satellites, and the agent-push
@@ -32492,6 +32522,18 @@ def _subsystems_status(now):
         toks = [t for t in ((load(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
                 if isinstance(t, dict) and t.get('kind') == 'syslog']
         last_seen = max((int(t.get('last_seen') or 0) for t in toks), default=0)
+        # v6.4.3: sources that can NEVER receive a line — see
+        # _inbound_map_defect. Independent of staleness: this is a broken
+        # enrolment, not a quiet device, and the card used to report it as one
+        # of N healthy "source(s)".
+        _sdevs = _load_ro(DEVICES_FILE) or {}   # read-only: never mutated
+        _sbad = []
+        for _t in toks:
+            _d = _inbound_map_defect(_t, _sdevs)
+            if _d:
+                _sbad.append({'id': str(_t.get('id') or ''),
+                              'label': str(_t.get('label') or '').strip() or 'unnamed source',
+                              _d: True})
         unit = 'unavailable'
         if shutil.which('systemctl'):
             try:
@@ -32502,6 +32544,8 @@ def _subsystems_status(now):
                 unit = 'unavailable'
         out['syslog'] = {'sources': len(toks),
                          'last_ingest': last_seen or None,
+                         'unmappable': _sbad[:6],
+                         'unmappable_count': len(_sbad),
                          'unit': unit}
     except Exception:
         pass
@@ -32522,16 +32566,33 @@ def _subsystems_status(now):
         # exists and then made them work out WHICH of three routers it was by
         # hand. Name them. Bounded, because a fleet can enrol hundreds and this
         # is a status card, not a report.
+        #
+        # …and say WHY where the answer is knowable from here. The router is not
+        # what POSTs: remotepower-flowd receives the datagrams and builds its
+        # map as `if ip and tok: m[str(ip)] = tok`, keyed on the DEVICE's ip. So
+        # a flow token whose device has no `ip`, or that is disabled, is dropped
+        # from that map and can never receive anything however healthy the
+        # exporter is. Reporting that as "never exported" points the operator at
+        # the one end of the wire that is working.
         _fnow = int(time.time())
+        _fdevs = _load_ro(DEVICES_FILE) or {}   # read-only: never mutated below
         _fstale_named = []
         for _t in ftoks:
             _ls = int(_t.get('last_seen') or 0)
             if _fnow - _ls > _FLOW_SILENT_S:
-                _fstale_named.append({
+                _ent = {
                     'id': str(_t.get('id') or ''),
                     'label': str(_t.get('label') or '').strip() or 'unnamed exporter',
                     'last_seen': _ls or None,
-                })
+                }
+                # Only meaningful for a token that has NEVER been seen — one
+                # that used to work and stopped is a real outage, and shouting
+                # "misconfigured" at it would be the same wrong-end mistake.
+                if not _ls:
+                    _defect = _inbound_map_defect(_t, _fdevs)
+                    if _defect:
+                        _ent[_defect] = True
+                _fstale_named.append(_ent)
         _fstale_named.sort(key=lambda d: (d['last_seen'] or 0, d['label']))
         _fstale = len(_fstale_named)
         _fnever = sum(1 for _d in _fstale_named if not _d['last_seen'])
