@@ -20,6 +20,21 @@ where a character should be. Every new guardrail here was demonstrated to FAIL
 before it was committed, because a gate nobody has seen fail is indistinguishable
 from one that cannot.
 
+- **The API reference documented one endpoint twice, and six not at all.** The
+  spec is assembled from hand-written paths plus a reconstruction of the
+  dispatcher table, and the two disagreed: the hand-written `/itsm/in/{token}`
+  and the reconstructed `/itsm/in/{id}` are the same endpoint, rendered as two
+  in Swagger with no way to tell which parameter name is real. A path's shape —
+  its literal segments, parameter names erased — is now its identity, and the
+  hand-written entry wins. Separately, the reconstruction only recognises a
+  branch that names its verb explicitly, so six any-method routes were live and
+  undocumented: agent self-registration and the entire SCIM 2.0 surface. SCIM
+  was the one that mattered — RFC 7644 says where the endpoints are, but only
+  the server can say which it implements, and this one is deliberately partial
+  (groups are read-only; roles are defined in RemotePower, not by the IdP).
+  Methods are taken from what each handler enforces, not guessed. The standing
+  note put this gap at ~48 paths; measured, it was nine, three of which were
+  the duplicate-naming artefact.
 - **An ingest source wired to nothing now raises an alert.** Neither receiver
   is addressed by its token: `remotepower-syslogd` and `remotepower-flowd` both
   map an incoming datagram to a token by the sender's source IP, looked up

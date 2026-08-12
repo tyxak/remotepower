@@ -20,6 +20,7 @@ and exposing them just adds noise.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -997,6 +998,10 @@ def _path_auth_misc() -> dict[str, Any]:
     }
 
 
+# v6.4.3: one endpoint, one entry — see _stub_operations. Compiled once.
+_TEMPLATE_SEG = re.compile(r"\{[^}]+\}")
+
+
 def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None) -> None:
     """v5.4.1 (E1): fill a minimal valid operation for every registered route the
     hand-written specs above don't already cover, so the document describes 100%
@@ -1007,6 +1012,15 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
     parameters), so only literal paths are stubbed."""
     if not routes:
         return
+    # v6.4.3: a hand-written spec and the dispatcher reconstruction can name the
+    # SAME endpoint with different parameter names — `_path_ingest` documents
+    # `/itsm/in/{token}` while the reconstruction derives `/itsm/in/{id}` from
+    # the same branch. Stubbing the second one renders one endpoint twice in
+    # Swagger with no way to tell which name is real. Identity is the path
+    # SHAPE (literal segments, parameter names erased); the hand-written entry
+    # always wins, since it is the one that documents the parameter.
+    _shape = lambda p: _TEMPLATE_SEG.sub("{}", p)  # noqa: E731
+    documented_shapes = {_shape(p): p for p in paths}
     for method, full in routes:
         m = str(method).lower()
         if m not in ("get", "post", "put", "patch", "delete"):
@@ -1014,7 +1028,11 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
         rel = full[4:] if full.startswith("/api") else full
         if not rel:
             continue
+        canonical = documented_shapes.get(_shape(rel))
+        if canonical and canonical != rel:
+            rel = canonical
         op = paths.setdefault(rel, {})
+        documented_shapes.setdefault(_shape(rel), rel)
         if m in op:
             continue  # already richly documented — never overwrite
         # v5.6.0: templated paths (`/x/{id}`) used to be skipped, leaving the
@@ -1159,6 +1177,82 @@ def _path_virt() -> dict[str, Any]:
     }
 
 
+def _path_identity() -> dict[str, Any]:
+    """v6.4.3: SCIM 2.0 and agent self-registration — the other any-method
+    branches the reconstruction skips.
+
+    Same root cause as `_path_ingest` below: `_dispatcher_routes` reconstructs a
+    path only from an explicit `m == '<VERB>'` in the branch condition, and
+    these enforce the method inside the handler instead. SCIM is the worst of
+    the remainder to leave out, because it is a *standards-defined* surface that
+    an administrator points an identity provider at — RFC 7644 says where the
+    endpoints live, but not which of them this server actually implements, and
+    the answer here is deliberately partial (groups are read-only; roles are
+    defined in RemotePower, not created by the IdP).
+
+    Methods are taken from what each handler ENFORCES, not guessed.
+    """
+    _scim_err = {
+        "401": {"description": "Missing or invalid SCIM bearer token."},
+        "403": {"description": "SCIM provisioning is not enabled."},
+    }
+
+    def _scim(summary: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        op: dict[str, Any] = {
+            "tags": ["SCIM"],
+            "summary": summary,
+            "responses": {"200": {"description": "SCIM resource."}, **_scim_err},
+        }
+        if extra:
+            op.update(extra)
+        return op
+
+    _filter = [
+        {
+            "name": "filter",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string"},
+            "description": 'SCIM filter. Only `attr eq "value"` is supported.',
+        }
+    ]
+    return {
+        "/enroll/register": {
+            "post": {
+                "tags": ["Agents"],
+                "summary": "Agent self-registration against an enrollment token",
+                "description": (
+                    "Exchanges a one-time enrollment token for a per-device "
+                    "agent token. Called by the installer, not by operators."
+                ),
+                "responses": {
+                    "200": {"description": "Registered; returns the device token."},
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "403": {"description": "Unknown, expired or already-used token."},
+                },
+            }
+        },
+        "/scim/v2/Users": {
+            "get": _scim("List provisioned users", {"parameters": _filter}),
+            "post": _scim(
+                "Provision a user",
+                {"responses": {"201": {"description": "Created."}, **_scim_err}},
+            ),
+        },
+        "/scim/v2/Groups": {
+            "get": _scim(
+                "List role-groups (RemotePower roles, mapped as SCIM groups)",
+                {"parameters": _filter},
+            ),
+        },
+        "/scim/v2/ServiceProviderConfig": {
+            "get": _scim("Advertise which SCIM features this server supports")
+        },
+        "/scim/v2/ResourceTypes": {"get": _scim("List supported SCIM resource types")},
+        "/scim/v2/Schemas": {"get": _scim("SCIM User and Group schemas as implemented")},
+    }
+
+
 def _path_ingest() -> dict[str, Any]:
     """v6.4.3: the agent heartbeat and the four token-in-path ingest endpoints.
 
@@ -1294,6 +1388,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_auth_misc())
     paths.update(_path_virt())
     paths.update(_path_ingest())
+    paths.update(_path_identity())
     _stub_operations(paths, routes)
 
     return {
