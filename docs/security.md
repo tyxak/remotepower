@@ -170,7 +170,7 @@ keys are database rows rather than files. The most security-relevant of them:
 **Backup:**
 ```bash
 sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
-# Or via dashboard: Settings → Export backup
+# Or via dashboard: Settings → Backups → Export backup
 ```
 
 ---
@@ -467,7 +467,7 @@ Recommended for production deployments beyond the secure defaults:
 - [ ] Configure a daily backup destination (built-in scheduled backup,
       **Settings → Backups**) and verify the redacted export can be restored.
 - [ ] Review the audit log on a schedule — `/api/audit-log` or
-      **Settings → Audit Log**.
+      **Settings → Security → Audit log**.
 - [ ] If using LDAP/AD, set `ldap_tls_verify: true` and provide a trusted CA;
       only set to `false` for known-self-signed internal directories.
 - [ ] If using the CMDB vault, set a passphrase that meets the complexity

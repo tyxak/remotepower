@@ -24,7 +24,7 @@ priority, proxied}`), so the UI is identical whichever you use.
 ### Credentials
 
 The DNS dashboard reuses the **same scoped API tokens as ACME DNS-01**
-(`acme_dns_credentials`): set a provider token once under Settings → ACME and both
+(`acme_dns_credentials`): set a provider token once under Settings → Integrations → ACME and both
 subsystems use it. For stronger at-rest handling you can:
 
 - **Import to the encrypted vault** — move a plaintext token into the CMDB vault

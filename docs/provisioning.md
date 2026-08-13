@@ -35,7 +35,7 @@ blueprints are returned **verbatim** on Render, because Terraform owns the
 ## Run Terraform (plan / apply / destroy)
 
 Terraform blueprints can be executed **server-side** when you also enable
-**Settings → Optional features → "Allow server-side execution"**
+**Settings → Advanced → Optional modules → "Allow server-side execution"**
 (`iac_execute_enabled`, default off) and `terraform` is installed on the server.
 
 - Each blueprint runs in its own persistent workdir under the data directory

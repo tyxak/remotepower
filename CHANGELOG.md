@@ -28,11 +28,21 @@ from one that cannot.
   identical ones, since the whole pane is one topic. Coverage is now a ratchet
   and every in-app doc link is checked to resolve: a link to a page that does
   not exist is worse than no link, because it looks like help and 404s.
-  Separately, 25 documented navigation paths named Settings tabs that do not
-  exist — "Settings → Backup", "Settings → Proxmox" (renamed two releases ago),
-  "Settings → API keys" (not a Settings tab at all) — and the unambiguous ones
-  are corrected with the remainder frozen. That is the documentation half of the
-  wayfinding check v6.4.2 added for hints and toasts inside the app.
+  Separately, **62 documented navigation paths named a Settings tab that does
+  not exist** — "Settings → Backup" (it is Backups), "Settings → Proxmox"
+  (renamed two releases ago), "Settings → API keys" (an Admin page, not a
+  Settings tab), "Settings → Data retention" and "Settings → Audit log" (both
+  real sections, but named without the tab they live under). Every one is now
+  corrected, and the check that finds them sits at **zero** rather than at a
+  frozen count: instead of tolerating a remainder, it excludes the four things
+  that are not our navigation in the first place — a device's own settings tab
+  in the drawer, paths quoted in backticks as examples of what was once broken,
+  another product's settings screen reached from a setup guide (UniFi, Synology
+  DSM, a switch's remote-logging page), and historical release records. Each
+  exclusion is named, because a numeric ceiling hides whatever drifts in behind
+  it while an exclusion that stops applying makes its own noise. This is the
+  documentation half of the wayfinding check v6.4.2 added for hints and toasts
+  inside the app.
 - **The sidebar and Settings have a declared order, and a new page can no longer
   land at random.** Reported from use: things get put in randomly as features are
   added. Measured, that was exactly right — of twelve sidebar groups, ONE was in

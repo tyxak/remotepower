@@ -275,7 +275,7 @@ is all that's needed.
 | **"scan target not found or not ownership-verified"** | You tried to scan a domain before clicking **Verify** (Part 3, step 4). |
 | Verify keeps failing | The DNS TXT record hasn't propagated yet (wait a few minutes), or the `/.well-known` file isn't reachable over HTTP/HTTPS. Double-check the exact value matches. |
 | Findings show `failed` with a timeout | The scan exceeded its time budget. Raise it: `RP_SCAN_TIMEOUT=1800` (seconds) on the scanner. |
-| You don't see the **Pentest** page | Your role lacks the **scan** permission. Ask an admin (Settings → Roles). |
+| You don't see the **Pentest** page | Your role lacks the **scan** permission. Ask an admin (Admin → Users → Roles). |
 
 ---
 

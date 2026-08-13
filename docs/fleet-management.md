@@ -82,7 +82,7 @@ device's recorded MAC.
 
 ## Enrolment auto-placement rules
 
-New agents don't have to land ungrouped. Under **Settings → Sites & teams →
+New agents don't have to land ungrouped. Under **Fleet → Sites →
 Auto-placement rules**, define rules that stamp a device's **group**, **site**
 and **tags** the moment it enrols, matched by either:
 

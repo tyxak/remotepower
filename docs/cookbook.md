@@ -29,7 +29,7 @@ Each recipe is self-contained and links to the reference guide for the detail.
    memory, disk, kernel, top processes. If it's a container host, the
    **Containers** section lists them.
 3. **Set thresholds (optional).** Device drawer → **Settings** → metric warn/crit
-   percentages. Fleet-wide defaults live in **Settings → Monitoring**.
+   percentages. Fleet-wide defaults live in **Settings → Alert parameters**.
 4. **Add it to a group/site.** Device drawer → tags/group/site — this is what
    scopes reports, SLAs and maintenance windows later.
 

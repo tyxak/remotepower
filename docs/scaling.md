@@ -304,7 +304,7 @@ credentials) is shown on *Settings → Advanced → Storage backend* and in
 ## Step 5 — Relay satellites (segmented / remote networks)
 
 If agents live in networks that can't all reach the central server directly,
-**relay satellites** (Settings → satellites) let agents report to a nearby
+**relay satellites** (Settings → Integrations → satellites) let agents report to a nearby
 satellite that forwards (authenticated) to the server. This fans-in
 connections and avoids opening the central server to every segment. Useful
 for multi-site fleets regardless of raw scale.
@@ -362,8 +362,7 @@ data do traverse the app→DB hop, so encrypt it off-LAN.
 
 At 1000+ agents the time-series and logs are what grow. Keep them bounded:
 
-- **Metric retention** — `metric_samples_retention_days` (Settings → Data
-  retention) controls how far back trend history is kept; the pruner trims
+- **Metric retention** — `metric_samples_retention_days` (Settings → Advanced → Data retention) controls how far back trend history is kept; the pruner trims
   older samples. 30–90 days is typical.
 - **Other retention** — fleet events, alerts, audit log, webhook log all have
   retention/caps in the same framework.
@@ -408,13 +407,13 @@ Limit: **200 tenants** per instance.
 ### Which tenant a new account lands in
 
 **Every account-creation path now stamps a tenant** *(v6.4.3)*. `POST /api/users`
-and Settings → Users stamp the **creator's** tenant; SSO/SAML/SCIM/LDAP JIT
+and Admin → Users stamp the **creator's** tenant; SSO/SAML/SCIM/LDAP JIT
 provisioning stamps `sso_default_tenant` (see [sso.md](sso.md)).
 
 This matters because an account with no `tenant_id` falls back to `default`, and
 an account with `role=admin` in the `default` tenant *is* a platform superadmin.
 Before v6.4.3 nothing stamped one, so adding a customer's administrator through
-Settings → Users silently granted them full cross-tenant control — and a
+Admin → Users silently granted them full cross-tenant control — and a
 **tenant** admin creating an account produced one that outranked its own
 creator, which was a privilege-escalation path rather than merely a footgun.
 Both are closed: a superadmin's new accounts land in `default` as before, a
@@ -425,7 +424,7 @@ You still need an explicit assignment to place an account in a tenant that is
 **not** the creator's — a superadmin onboarding a customer's operator:
 
 ```bash
-# 1. create the operator (Settings → Users, or the API). Created by a
+# 1. create the operator (Admin → Users, or the API). Created by a
 #    superadmin, this account lands in `default` — i.e. it IS a superadmin
 #    until step 2 runs.
 curl -sS -X POST https://rp.example.com/api/users \

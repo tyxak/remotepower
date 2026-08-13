@@ -22,7 +22,7 @@ looking.
 ## Working the inbox
 
 - **Acknowledge** — takes ownership; optionally prompts for a comment
-  (Settings → Alerts inbox) that is stored on the alert and included in the
+  (Settings → Notifications → Alerts inbox) that is stored on the alert and included in the
   acknowledgement webhook.
 - **Resolve / Clear resolved / Clear all** — housekeeping; history is kept.
 - **Resolve with a note** *(v6.4.2)* — the pencil button next to Resolve asks

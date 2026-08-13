@@ -142,7 +142,7 @@ the server after a loss:
   failure never fails the backup itself, and the result is graded on the
   Security posture page.
 - Optional **RPO/RTO targets** (`backup.rpo_hours`, `backup.rto_hours`,
-  Settings → Maintenance): RPO is graded automatically on
+  Settings → Backups): RPO is graded automatically on
   `GET /api/self/status` against hours-since-last-successful-run (a target
   with no successful run to compare against reads as breached, not silently
   "fine"). RTO is a declared target only — `POST /api/backup/test-restore`

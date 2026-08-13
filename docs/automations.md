@@ -2,7 +2,7 @@
 
 *(engine v3.4.2; actions extended in v5.6.0 "HeapMatters")*
 
-The **Automation** page (Settings → Automation) runs **event-driven rules**:
+The **Automation** page (Automation → Automation) runs **event-driven rules**:
 *when an event fires on a matching device, run one or more actions.* Rules are
 evaluated as part of the event-firing path, so they react as soon as an event
 happens — with a per-rule **cooldown** to dampen flapping. Rules are admin-only

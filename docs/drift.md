@@ -207,5 +207,5 @@ Drift page until the agent is upgraded.
 
 To check your agent versions: Devices page, the OS column shows
 "agent vX.Y.Z" for each agent-managed device. The standard agent
-update flow (Settings → Agent updates → Push update) works for the
+update flow (Devices page → Force-upgrade agent) works for the
 drift upgrade just like any other agent release.

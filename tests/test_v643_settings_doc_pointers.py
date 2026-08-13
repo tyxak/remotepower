@@ -136,7 +136,7 @@ class TestCoverageOnlyImproves(unittest.TestCase):
 
 # Shrink-only. The docs' own wayfinding paths, the counterpart of the v6.4.2
 # check that does this for hints/toasts inside the app.
-_UNRESOLVABLE_DOC_PATHS_CEILING = 37
+_UNRESOLVABLE_DOC_PATHS_CEILING = 0
 
 
 def _settings_tabs():
@@ -171,19 +171,44 @@ class TestDocsPointAtRealSettingsTabs(unittest.TestCase):
         self.tabs = _settings_tabs()
 
     def _unresolvable(self):
+        """Paths that are meant to be OUR Settings navigation and are not.
+
+        Four classes are excluded, each because the text is not a pointer into
+        this product's Settings page at all. They are named rather than
+        absorbed into a numeric ceiling: a ceiling hides whatever drifts in
+        behind it, while an exclusion that stops applying makes its own noise.
+        """
         out = []
         files = sorted(_DOCS.glob("*.md"))
         readme = _ROOT / "README.md"
         if readme.exists():
             files.append(readme)
         for p in files:
-            if p.name.startswith("security-review-"):
-                continue  # historical records; not navigation
+            # Historical records, not live navigation: a review or a version
+            # doc describes the product as it was at that release.
+            if p.name.startswith("security-review-") or re.fullmatch(r"v\d+\.\d+\.\d+\.md", p.name):
+                continue
             t = p.read_text(encoding="utf-8")
             for m in re.finditer(r"Settings\s*\u2192\s*", t):
-                tail = t[m.end() : m.end() + 40]
-                if not any(tail.startswith(x) for x in self.tabs):
-                    out.append(f"{p.name}: Settings -> {tail[:34].strip()}")
+                tail = re.sub(r"\s+", " ", t[m.end() : m.end() + 70]).lstrip("*_`")
+                if any(tail.startswith(x) for x in self.tabs):
+                    continue
+                before = t[max(0, m.start() - 60) : m.start()]
+                # A device's OWN settings tab in the drawer, not the app's
+                # Settings page.
+                if "drawer" in before.lower():
+                    continue
+                # A path QUOTED as an example — features.md lists the broken
+                # pointers v6.4.2 fixed, in backticks. Rewriting those would
+                # destroy the record of what was wrong.
+                if before.rstrip().endswith("`"):
+                    continue
+                # Another product's settings, reached from our setup guide:
+                # the UniFi controller, Synology DSM, and a switch/firewall's
+                # remote-logging screen.
+                if p.name in ("integrations.md", "kmip.md", "syslog.md"):
+                    continue
+                out.append(f"{p.name}: Settings -> {tail[:34].strip()}")
         return out
 
     def test_the_tab_list_was_parsed(self):

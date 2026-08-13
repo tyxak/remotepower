@@ -117,7 +117,7 @@ add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; prelo
 Then reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
 
 **Using acme.sh / DNS-01 instead?** RemotePower has built-in ACME support
-(Settings → ACME / Let's Encrypt) that can issue and renew certificates
+(Settings → Integrations → ACME / Let's Encrypt) that can issue and renew certificates
 for your devices using Cloudflare, Hetzner, Route 53, and others — no
 certbot needed once the server itself has a cert.
 

@@ -54,7 +54,7 @@ tuning-step mapping once you're past a few hundred devices.
   on an aggressive schedule; a homelab-sized scan window is brief.
 - **Disk growth** is retention-driven, not fleet-size-driven per se —
   `metric_samples_retention_days` and the other retention caps (Settings →
-  Data retention) bound it directly. 30–90 days of metric history is
+  Advanced → Data retention) bound it directly. 30–90 days of metric history is
   typical; shrink the window on tight disk.
 
 The optional sidecars — the webterm daemon, the syslog receiver

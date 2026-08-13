@@ -237,7 +237,7 @@ you want, or to a tenant id for an admin scoped to it) and the mapped role
 applies. With multi-tenancy off it changes nothing: everyone already resolves
 to the default tenant.
 
-**`POST /api/users` and Settings → Users still do not stamp a tenant** — an
+**`POST /api/users` and Admin → Users still do not stamp a tenant** — an
 admin creating an account by hand is a deliberate act, not a federated one, and
 the account resolves to `default` unless assigned. Assign it explicitly:
 

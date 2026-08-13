@@ -40,7 +40,7 @@ identically by the Linux, Windows and macOS agents.
 
 The same trust model as signed self-update, applied to **every dispatched
 command**. The server detach-signs each command with the release signing key
-(Settings → Agent signing — one key to pin), binding the command text to the
+(Admin → Release Signing — one key to pin), binding the command text to the
 **target device id** and an **issue timestamp**. To enforce on a host:
 
 ```bash

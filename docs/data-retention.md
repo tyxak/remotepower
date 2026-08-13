@@ -51,7 +51,7 @@ retention does not delete — entries older than `audit_log_retention_days` are
 **appended to `audit_log_archive.jsonl.gz`** in the data directory and removed
 from the live store. The archive is gzipped JSONL, still in chain order, and is
 what you hand an auditor for a period outside the live window — **Settings →
-Audit log** downloads it as a signed export.
+Security → Audit log** downloads it as a signed export.
 
 Consequences for your policy:
 
