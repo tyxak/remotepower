@@ -2541,6 +2541,22 @@ EVENT_REGISTRY = {
     'secret_exposed': dict(
         label='A secret was found exposed on a host filesystem', kind='secrets',
         title='Exposed Secret Found', severity='high'),
+    # v6.4.3: Integrity Guard quarantined a file. The signal was collected,
+    # sanitised into safe_si, served at /api/guard/quarantine, rated CRITICAL by
+    # the advisory and embedded in the RAG corpus — and raised no alert, so a
+    # suspected web shell landing on a host notified nobody unless someone
+    # happened to open that page. Severity matches the advisory's own rating.
+    'guard_quarantined': dict(
+        label='Integrity Guard quarantined a file on a host', kind='guard',
+        title='File Quarantined', severity='critical', tags='rotating_light,lock',
+        # A quarantine is something that HAPPENED at a moment, not a condition
+        # that later stops being true: the file is already moved to the vault,
+        # and an operator resolves it by restoring or deleting it there. There
+        # is nothing for the agent to report as "no longer quarantined", so no
+        # recover event would ever fire and the alert would sit open forever.
+        # Contrast secret_exposed, which IS a persistent condition and gets
+        # secret_cleared when a rescan finds the secret gone.
+        lifecycle='point'),
     'secret_cleared': dict(
         label='Exposed secrets no longer found on the host (recovered)',
         kind='secrets', title='Exposed Secrets Cleared', resolves=('secret_exposed',),
@@ -9306,6 +9322,10 @@ CHANNEL_KIND_DEFS = (
     ('hardening', 'Security hardening advisories', 'security'),  # v6.4.2 (opt-in)
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
+    # v6.4.3: Integrity Guard auto-quarantines a file it judges hostile. The
+    # advisory has rated that CRITICAL since it shipped ("the signature of a
+    # web shell or a dropped payload") and it reached no alert channel at all.
+    ('guard', 'Integrity Guard quarantine', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
     # v4.7.0: homelab software integration health
     ('integration', 'Integration health', 'operational'),
@@ -20432,6 +20452,37 @@ def handle_heartbeat():
                      'check': _sanitize_str(str(e.get('check', '')), 64),
                      'ts': int(e.get('ts', 0) or 0)}
                     for e in _gq[:50] if isinstance(e, dict)]
+                # v6.4.3: and TELL somebody. Edge-triggered on the quarantine
+                # ledger's ids: anything present now that was not present on the
+                # previous heartbeat is newly quarantined. The ledger is
+                # cumulative, so comparing lengths would miss a restore followed
+                # by a fresh quarantine, and re-firing on the whole list every
+                # beat would page the operator forever.
+                #
+                # Fires ONE summary event per beat carrying the first path and a
+                # count, the same shape secret_exposed uses, so enabling Guard on
+                # a host with a backlog cannot produce a webhook storm.
+                try:
+                    _gq_prev_si = (dev or {}).get('sysinfo') or {}
+                    _gq_seen = {e.get('id') for e in
+                                (_gq_prev_si.get('guard_quarantine') or [])
+                                if isinstance(e, dict)}
+                    _gq_new = [e for e in safe_si['guard_quarantine']
+                               if e.get('id') and e['id'] not in _gq_seen]
+                    # Only for a host we have seen before. On the FIRST
+                    # heartbeat every entry is "new", and announcing a host's
+                    # whole existing ledger the moment it enrols is noise, not
+                    # news — the same reason secret_exposed summarises.
+                    if _gq_new and _gq_prev_si:
+                        fire_webhook('guard_quarantined', {
+                            'device_id': dev_id,
+                            'device_name': (dev or {}).get('name') or dev_id,
+                            'path':  _gq_new[0].get('orig', ''),
+                            'check': _gq_new[0].get('check', ''),
+                            'count': len(_gq_new),
+                        })
+                except Exception:
+                    pass
             # v6.4.2: canary ARM status. Only trip reports (`canary_events`) ever
             # rode the heartbeat, so an operator who armed /root/.aws/credentials
             # fleet-wide got a save-time toast saying "3 canary file(s) armed"

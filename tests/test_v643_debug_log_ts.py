@@ -30,6 +30,8 @@ os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-dbgts-'))
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / 'server' / 'cgi-bin'))
 
+sys.path.insert(0, str(_ROOT / 'tests'))
+from srcpin import py_function  # noqa: E402
 import api  # noqa: E402
 
 
@@ -78,8 +80,7 @@ class TestTheWriterUsesIt(unittest.TestCase):
 
     def test_the_log_line_formats_the_cleaned_value(self):
         src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        i = src.index('def handle_debug_log_post')
-        body = src[i:i + 3000]
+        body = py_function(src, 'handle_debug_log_post')
         self.assertIn('_clean_client_ts(entry.get(', body)
         self.assertNotIn("ts  = entry.get('ts')", body,
                          'the raw client timestamp is being used again')

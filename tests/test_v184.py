@@ -341,6 +341,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'usb_device_added',                      # v6.2.0 USB physical-access tripwire
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed', 'canary_accessed',    # v3.14.0 #35 / W3-38
+            'guard_quarantined',                    # v6.4.3 Integrity Guard
             'scan_finding',                          # v4.2.0 (B5)
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
             'github_new_issue',                      # v5.8.0 GitHub issue monitor

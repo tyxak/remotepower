@@ -19584,6 +19584,9 @@ function _renderHomeActivity(fleetEvents) {
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
     // v6.4.0: the last five auto-heal recover events
     'patch_ok', 'cve_cleared', 'tls_renewed', 'ecc_stable', 'secret_cleared',
+    // v6.4.3: Integrity Guard quarantined a file. Without this entry the event
+    // fires, lands in the inbox, and is silently absent from the activity feed.
+    'guard_quarantined',
     'service_down', 'service_up', 'unit_flapping', 'unit_flapping_cleared',   // v6.1.2
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
@@ -19990,6 +19993,7 @@ function _homeActivityAttrs(event, p) {
     case 'secret_exposed':
     case 'secret_cleared':   // v6.4.0 recover
     case 'canary_accessed':
+    case 'guard_quarantined':   // v6.4.3 — click through to the host
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v4.2.0 (B5): scan findings route to the Security Scans page
     case 'scan_finding':
