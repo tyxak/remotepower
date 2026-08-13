@@ -145,7 +145,7 @@ dependency link). Once an edge is declared, this feature watches it:
   edge that went silent because an endpoint is **offline** reads **Silent** (it's
   collateral of the offline alert, not a separate break).
 
-Alerting is **off by default** — enable it under **Settings → Alerts →
+Alerting is **off by default** — enable it under **Settings → Alerting →
 Service-dependency link alerts**, where you also set the silence window (default
 30 minutes). The read-only status view is always available:
 `GET /api/dependency-health` and the **Dependency link health** card on the

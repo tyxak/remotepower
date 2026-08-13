@@ -95,7 +95,7 @@ server is unreachable (v6.2.x), and follow the same URL.
 ## Backups are not HA (do both)
 
 Replication replicates mistakes and ransomware faithfully. Keep the built-in
-encrypted backups (Settings → Backup) + **weekly restore drills** (v6.3.0)
+encrypted backups (Settings → Backups) + **weekly restore drills** (v6.3.0)
 pointed at storage that lives on neither node. HA answers "a node died";
 backups answer "the data is wrong".
 

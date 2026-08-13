@@ -233,7 +233,7 @@ A few controls worth knowing about:
 
 - **Login banner** (Settings → Advanced → General) — an optional notice shown
   above the sign-in form, e.g. "Authorized use only."
-- **Per-API-key rate limits** (Settings → API keys) — give a key its own
+- **Per-API-key rate limits** (Admin → API Keys) — give a key its own
   requests-per-minute budget; 0 means unlimited.
 - **Two-person break-glass** for the most sensitive vault credentials: one admin
   requests a reveal, a second approves, the whole exchange is audit-logged and
@@ -261,7 +261,7 @@ backing RemotePower up is backing up that directory.
 
 ### 6.1 Built-in export
 
-Settings → Backup &amp; export produces a single archive of the state
+Settings → Backups &amp; export produces a single archive of the state
 files with secret fields redacted. Schedule it, or pull it before an
 upgrade.
 

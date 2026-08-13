@@ -166,7 +166,7 @@ failing run):
  "script_id": "cs_a1b2c3d4", "script_name": "Check nginx" }
 ```
 
-Configure delivery under **Settings → Webhooks**. Both events are
+Configure delivery under **Settings → Notifications**. Both events are
 enabled by default. Supported destinations: Discord, ntfy, Slack,
 Gotify, generic JSON POST.
 

@@ -20,6 +20,19 @@ where a character should be. Every new guardrail here was demonstrated to FAIL
 before it was committed, because a gate nobody has seen fail is indistinguishable
 from one that cannot.
 
+- **Settings now points at its own documentation.** The project has asked for a
+  doc pointer near every non-obvious Settings section for several releases;
+  measured, 82 of 129 sections had none — the rule existed and nothing checked
+  it, so coverage tracked whoever last remembered. 55 sections gained one, and
+  the Alert parameters pane got a single pane-level link rather than 24
+  identical ones, since the whole pane is one topic. Coverage is now a ratchet
+  and every in-app doc link is checked to resolve: a link to a page that does
+  not exist is worse than no link, because it looks like help and 404s.
+  Separately, 25 documented navigation paths named Settings tabs that do not
+  exist — "Settings → Backup", "Settings → Proxmox" (renamed two releases ago),
+  "Settings → API keys" (not a Settings tab at all) — and the unambiguous ones
+  are corrected with the remainder frozen. That is the documentation half of the
+  wayfinding check v6.4.2 added for hints and toasts inside the app.
 - **The sidebar and Settings have a declared order, and a new page can no longer
   land at random.** Reported from use: things get put in randomly as features are
   added. Measured, that was exactly right — of twelve sidebar groups, ONE was in

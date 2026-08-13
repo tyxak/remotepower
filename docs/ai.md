@@ -183,7 +183,7 @@ fleet context attached automatically. They fall into five groups:
 
 Cards marked with an input prompt you for a target (a host, zone, CVE, or a
 command to review) first. Every Insight is a tunable prompt
-(Settings → AI → Prompts), rate-limited and redaction-aware like the inline
+(Settings → AI assistant → Prompts), rate-limited and redaction-aware like the inline
 Explain/Investigate buttons below. The firewall auditor is also reachable as an
 **AI audit** button on each host in the Firewall page.
 
@@ -234,7 +234,7 @@ certainty) and the tool trail are stored on the alert and reopen from the
 stays on the existing approval-gated paths (mitigate playbooks, the governed
 AI executor). Cross-tenant or out-of-scope alert ids 404.
 
-**Automatic triage (opt-in, off by default).** Settings → AI Assistant →
+**Automatic triage (opt-in, off by default).** Settings → AI assistant Assistant →
 *Automatic alert triage* runs the same loop on new open alerts from the
 maintenance cadence: one alert per tick, a severity floor (default High and
 up), and a daily run cap (default 20). Verdicts store as `by: auto`. With
@@ -256,7 +256,7 @@ The `log_sweep` evidence tool is self-provisioning: a missing or stale
 run has fresh evidence.
 
 Both prompt keys (`log_sweep_rca`, `alert_triage`) are tunable under
-Settings → AI → Prompts.
+Settings → AI assistant → Prompts.
 
 ## button inventory
 
@@ -391,7 +391,7 @@ dozens of advisor cards across the proactive, incident, planning,
 natural-language-config and advisors categories (see the **AI Insights
 hub** section above, and `features.md` for the full, current set). Each
 card in the AI Insights grid maps to one `SYSTEM_PROMPTS` key, and every
-key is editable under **Settings → AI → Prompts**.
+key is editable under **Settings → AI assistant → Prompts**.
 
 ## Storage
 
@@ -408,7 +408,7 @@ key is editable under **Settings → AI → Prompts**.
 
 ## Troubleshooting
 
-### "AI is disabled. Configure in Settings → AI."
+### "AI is disabled. Configure in Settings → AI assistant."
 
 The Enabled toggle in Settings → AI assistant is off. Turn it on,
 configure a provider, save.

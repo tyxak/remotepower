@@ -11,7 +11,7 @@ Off by default. It is an optional module (`ai_exec`) — when disabled, the whol
 ## Turn it on
 
 Settings → Advanced → enable **AI executor**. It needs an AI provider configured
-(Settings → AI) and at least one saved script or a registered playbook fix, since
+(Settings → AI assistant) and at least one saved script or a registered playbook fix, since
 that is the only thing it may act on.
 
 ## The three constraints

@@ -193,7 +193,7 @@ to match reality).
 }
 ```
 
-Configure delivery under **Settings → Webhooks**. Supported destinations:
+Configure delivery under **Settings → Notifications**. Supported destinations:
 Discord, ntfy, Slack, Gotify, generic JSON POST.
 
 ---

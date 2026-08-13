@@ -50,7 +50,7 @@ would reach for lives on the box in question.
 - Turn on **litigation hold** (Settings → Advanced → Maintenance) — one switch, stops every
   age-based purge across the audit log and all seven retention windows so that a
   scheduled sweep does not delete the window you care about while you work.
-- Take a **full DR backup** (Settings → Backup) *before* remediating, and store
+- Take a **full DR backup** (Settings → Backups) *before* remediating, and store
   it off the host. It contains the vault and integration secrets — treat it as
   the sensitive artifact it is.
 - If audit **forwarding** to a SIEM is configured, the copy already off the box is

@@ -125,7 +125,7 @@ alert open forever.
 - **RemotePower (peer instance)** turns another, off-site RemotePower into a tile
   beside your homelab integrations ("federation-lite"). Point URL at the peer's
   base (`https://peer.example.com`) and paste a **viewer-role API key** generated
-  on that instance (Settings → API keys) as the secret. It reads only the peer's
+  on that instance (Admin → API Keys) as the secret. It reads only the peer's
   **public health** — `GET /api/nav-counts` (device count, offline hosts, open
   alerts, control-plane health) plus the no-auth `/api/public-info` for the
   version — and shows the tile OK when the peer is reachable and healthy,

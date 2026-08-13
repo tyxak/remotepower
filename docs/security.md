@@ -465,7 +465,7 @@ Recommended for production deployments beyond the secure defaults:
 - [ ] If your deployment must never POST webhooks to internal IPs, enable
       `webhook_block_local` in the config.
 - [ ] Configure a daily backup destination (built-in scheduled backup,
-      **Settings → Backup**) and verify the redacted export can be restored.
+      **Settings → Backups**) and verify the redacted export can be restored.
 - [ ] Review the audit log on a schedule — `/api/audit-log` or
       **Settings → Audit Log**.
 - [ ] If using LDAP/AD, set `ldap_tls_verify: true` and provide a trusted CA;

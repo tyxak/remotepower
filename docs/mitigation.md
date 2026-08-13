@@ -61,7 +61,7 @@ The client mirrors the server's classifier as a UI preview, but the **server is 
 
 ## AI customisation
 
-Per-category prompt keys in **Settings → AI Assistant** — one per playbook
+Per-category prompt keys in **Settings → AI assistant Assistant** — one per playbook
 category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
 `mitigate_service`, `mitigate_patches`, `mitigate_failed_units`,
 `mitigate_cve`, `mitigate_container`, `mitigate_av`, `mitigate_agent_version`,

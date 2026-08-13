@@ -26,7 +26,7 @@ embeddings. v3.4.0 ships both 2 and 3.
 
 ## What gets indexed
 
-**34 sources**, each an individual checkbox under Settings → AI → Knowledge
+**34 sources**, each an individual checkbox under Settings → AI assistant → Knowledge
 index. All are on by default except **Metrics**. The credentials vault is
 never indexed by any of them.
 
@@ -67,7 +67,7 @@ never indexed by any of them.
 Each chunk carries a stable id (e.g. `live/web01#cves`) that doubles as its
 citation key, plus a freshness timestamp.
 
-## Configuration (Settings → AI → Knowledge index)
+## Configuration (Settings → AI assistant → Knowledge index)
 
 | Setting | Default | Meaning |
 |---|---|---|

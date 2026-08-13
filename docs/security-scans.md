@@ -27,7 +27,7 @@ There are two one-time things to set up, then scanning is **3 clicks**.
 
 ### Step 1. Create a scanner token
 
-1. In RemotePower, go to **Settings → API Keys** and create a key (role:
+1. In RemotePower, go to **Admin → API Keys** and create a key (role:
    **admin**). Copy it.
 2. On any machine with `curl`, run this — replace `YOUR-SERVER` and `YOUR-API-KEY`:
 

@@ -55,7 +55,7 @@ This split is important for the security story:
 
 ### 1. Generate an API token
 
-In the dashboard: **Settings → API keys → Generate new key**.
+In the dashboard: **Admin → API Keys → Generate new key**.
 Give it a name like `mcp-laptop`. Choose role `viewer` for a strictly
 read-only key, or role `mcp` if you also want the five guarded write
 tools — **the role is the switch**, and it is fixed at creation. Copy
@@ -143,7 +143,7 @@ created with role `mcp` (see *Guarded write tools* below).
 > `search_fleet` answers a natural-language question in one shot and lets the
 > fleet rollups (worst CVEs, pending reboots, drift, cert expiry) do the
 > aggregation the model would otherwise have to do by hand. Requires the RAG
-> index to be enabled (Settings → AI → Knowledge index).
+> index to be enabled (Settings → AI assistant → Knowledge index).
 
 The four **write tools** are reachable only by a key whose role is `mcp`:
 

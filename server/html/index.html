@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-117">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-118">
 
 </head>
 <body>
@@ -1558,7 +1558,7 @@
         <div class="settings-pane" id="settings-pane-install" role="tabpanel" aria-labelledby="settings-tab-btn-install">
           <div class="settings-section">
             <div class="section-title">Getting started</div>
-            <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
+            <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it. <a href="docs/install.md" class="c-accent">Documentation</a></p>
             <div id="setup-progress" class="mb-12"></div>
             <div id="setup-steps" class="scroll-cap"><div class="c-muted">Loading…</div></div>
           </div>
@@ -1623,7 +1623,7 @@
 
           <div class="settings-section">
             <div class="section-title">Default poll interval</div>
-            <p class="hint">How often newly-enrolled agents heartbeat back to the server. Existing devices are not affected — change theirs from the device detail page.</p>
+            <p class="hint">How often newly-enrolled agents heartbeat back to the server. Existing devices are not affected — change theirs from the device detail page. <a href="docs/agent-commands.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group mw-160">
                 <label for="cfg-default-poll" class="form-label">Seconds</label>
@@ -1647,7 +1647,7 @@
 
           <div class="settings-section">
             <div class="section-title">Monitor check interval</div>
-            <p class="hint">How often monitors auto-check when the Monitor page is open. Also controls server-side offline/patch check frequency.</p>
+            <p class="hint">How often monitors auto-check when the Monitor page is open. Also controls server-side offline/patch check frequency. <a href="docs/monitors.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group isl-23">
                 <label for="cfg-monitor-interval" class="form-label">Seconds</label>
@@ -1667,7 +1667,7 @@
 
           <div class="settings-section">
             <div class="section-title">Wake-on-LAN</div>
-            <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
+            <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address. <a href="docs/remote-access.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group">
                 <label for="cfg-wol-bcast" class="form-label">Broadcast address</label>
@@ -1692,7 +1692,7 @@
         <div class="settings-pane" id="settings-pane-notifs" role="tabpanel" aria-labelledby="settings-tab-btn-notifs">
           <div class="settings-section">
             <div class="section-title">Healthchecks.io watchdog</div>
-            <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s.</p>
+            <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s. <a href="docs/monitors.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="cfg-healthchecks-url" class="form-label">Ping URL</label>
@@ -1709,7 +1709,7 @@
 
           <div class="settings-section">
             <div class="section-title">Reboot / shutdown blast-radius guardrail</div>
-            <p class="hint">Refuse a batch reboot or shutdown that would hit too many hosts at once unless it's explicitly confirmed. Either cap can be set independently; 0 disables it. Single-device actions are never affected.</p>
+            <p class="hint">Refuse a batch reboot or shutdown that would hit too many hosts at once unless it's explicitly confirmed. Either cap can be set independently; 0 disables it. Single-device actions are never affected. <a href="docs/agent-commands.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label for="cfg-batch-max-devices" class="form-label">Max devices per batch (0 = no limit)</label>
               <input type="number" id="cfg-batch-max-devices" class="form-input" min="0" max="100000" value="0">
@@ -1749,7 +1749,7 @@
 
           <div class="settings-section">
             <div class="section-title">Legacy webhook URL</div>
-            <p class="hint">The original single-URL field, still honoured for backward compatibility. New setups should use "Webhook destinations" above — it supports the same formats plus Pushover, Teams, per-event filtering, and labeling.</p>
+            <p class="hint">The original single-URL field, still honoured for backward compatibility. New setups should use "Webhook destinations" above — it supports the same formats plus Pushover, Teams, per-event filtering, and labeling. <a href="docs/webhooks.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="cfg-webhook" class="form-label">URL</label>
@@ -1767,7 +1767,7 @@
 
           <div class="settings-section">
             <div class="section-title">Per-event toggles</div>
-            <p class="hint">Enable or disable each event type. Disabled events are recorded as "disabled" in the webhook log so you can see what was suppressed.</p>
+            <p class="hint">Enable or disable each event type. Disabled events are recorded as "disabled" in the webhook log so you can see what was suppressed. <a href="docs/webhooks.md" class="c-accent">Documentation</a></p>
             <input type="text" class="form-input page-filter mb-8" placeholder="Filter events…" data-input="filterRows" data-input-el="1" data-filter-target="#event-toggle-table tbody tr" aria-label="Filter events">
             <div class="sticky-head-scroll">
               <table class="event-toggle-table" id="event-toggle-table">
@@ -1881,13 +1881,14 @@
           <!-- v6.4.2: additional per-scope email routes -->
           <div class="settings-section">
             <div class="section-title">Additional email routes</div>
-            <p class="hint">Beyond the single Recipients list above, add any number of extra lists — each with its own delivery scope — so one site's alerts reach that site's team without every operator receiving the whole fleet. The Recipients list keeps working exactly as before; these are additive.</p>
+            <p class="hint">Beyond the single Recipients list above, add any number of extra lists — each with its own delivery scope — so one site's alerts reach that site's team without every operator receiving the whole fleet. The Recipients list keeps working exactly as before; these are additive. <a href="docs/webhooks.md" class="c-accent">Documentation</a></p>
             <div id="email-routes" class="scroll-cap"></div>
             <button class="btn-secondary mt-8" data-action="addEmailRoute">+ Add email route</button>
           </div>
 
           <div class="settings-section">
             <div class="section-title">Webhook log</div>
+            <p class="hint">Every webhook delivery attempt, with its response code and body, plus the dead-letter queue for permanently-failed deliveries. <a href="docs/webhooks.md" class="c-accent">Documentation</a></p>
             <div class="section-header mb-12">
               <div class="section-title isl-42">Recent deliveries</div>
               <div class="isl-43">
@@ -1949,7 +1950,7 @@
           <!-- v6.1.1: connector plugin discoverability + reload -->
           <div class="settings-section">
             <div class="section-title">Connector plugins</div>
-            <p class="hint">Every connector type above, built-in or third-party. A third-party connector is a <code>*.py</code> file dropped into <code>connectors.d/</code> on the server (root-owned, filesystem-only — there's deliberately no upload-from-browser path). After adding or updating a file there, reload to pick it up without restarting the service.</p>
+            <p class="hint">Every connector type above, built-in or third-party. A third-party connector is a <code>*.py</code> file dropped into <code>connectors.d/</code> on the server (root-owned, filesystem-only — there's deliberately no upload-from-browser path). After adding or updating a file there, reload to pick it up without restarting the service. <a href="docs/writing-a-connector.md" class="c-accent">Documentation</a></p>
             <div id="connector-plugins-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row">
               <button class="btn-secondary" data-action="reloadConnectors">Reload connectors</button>
@@ -1980,7 +1981,7 @@
           <!-- v3.14.0: push fleet metrics to a Prometheus Pushgateway / remote target. -->
           <div class="settings-section">
             <div class="section-title">Metrics push (Prometheus)</div>
-            <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher. A ready-made Grafana dashboard for this exposition ships in <a href="https://github.com/tyxak/remotepower/blob/main/contrib/grafana/remotepower-fleet.json" target="_blank" rel="noopener">contrib/grafana</a>.</p>
+            <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher. A ready-made Grafana dashboard for this exposition ships in <a href="https://github.com/tyxak/remotepower/blob/main/contrib/grafana/remotepower-fleet.json" target="_blank" rel="noopener">contrib/grafana</a>. <a href="docs/integrations.md" class="c-accent">Documentation</a></p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span>Enable metrics push</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
@@ -2002,7 +2003,7 @@
           <!-- v3.14.0 (#27): GitOps — desired-state drift config from a Git repo. -->
           <div class="settings-section">
             <div class="section-title">GitOps (config from Git)</div>
-            <p class="hint">Keep your <strong>drift profiles</strong> (watched-config-file sets) and their tag/group assignments in version control. RemotePower periodically fetches a JSON manifest from a raw Git URL and reconciles the profiles it owns to match it. It only manages watched-file lists and assignments — never command execution or file-content pushes — and host enforcement still follows each device's existing apply/enforce opt-in. Off by default; fetched through the SSRF-safe fetcher; profiles you create by hand are never touched. <a href="#" data-action-btn="_showPageBtn" data-page="drift" data-prevent-default class="c-accent">View drift profiles →</a></p>
+            <p class="hint">Keep your <strong>drift profiles</strong> (watched-config-file sets) and their tag/group assignments in version control. RemotePower periodically fetches a JSON manifest from a raw Git URL and reconciles the profiles it owns to match it. It only manages watched-file lists and assignments — never command execution or file-content pushes — and host enforcement still follows each device's existing apply/enforce opt-in. Off by default; fetched through the SSRF-safe fetcher; profiles you create by hand are never touched. <a href="#" data-action-btn="_showPageBtn" data-page="drift" data-prevent-default class="c-accent">View drift profiles →</a> <a href="docs/config-history.md" class="c-accent">Documentation</a></p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span>Enable GitOps sync</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
@@ -2074,7 +2075,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Inbound webhooks &amp; syslog</div>
-            <p class="hint">Two token types share this table:</p>
+            <p class="hint">Two token types share this table: <a href="docs/syslog.md" class="c-accent">Documentation</a></p>
             <ul class="hint">
               <li><strong>Alert webhook</strong> — POST JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code>. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
               <li><strong>Syslog ingestion</strong> — POST RFC 3164/5424 lines (JSON <code>{lines:[…]}</code> or plain text) to <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to the device's log_watch under unit <code>syslog</code>; existing log_alert rules fire as normal. For rsyslog (<code>omhttp</code>), fluent-bit (HTTP output), or any tool that can POST. Must be pinned to a device.</li>
@@ -2348,7 +2349,7 @@
                Security (v6.1.1), same reasoning as SIEM above. -->
           <div class="settings-section">
             <div class="section-title">Browser push notifications</div>
-            <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service.</p>
+            <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service. <a href="docs/push.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webpush-enabled"> Enable browser push for high/critical alerts</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-webpush-subject">Contact URI (VAPID subject)</label>
               <input type="text" id="cfg-webpush-subject" class="form-input" placeholder="mailto:ops@example.com"></div>
@@ -2367,7 +2368,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">CVE details cache</div>
-            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
+            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group mw-160">
                 <label for="cfg-cve-cache-days" class="form-label">Days</label>
@@ -2378,7 +2379,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">IP allowlist</div>
-            <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default.</p>
+            <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ipal-enabled" class="isl-34">
               <span>Enforce IP allowlist</span>
@@ -2396,7 +2397,7 @@
           <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
           <div class="settings-section">
             <div class="section-title">Change approval (maker-checker)</div>
-            <p class="hint">When enabled, the selected command kinds are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
+            <p class="hint">When enabled, the selected command kinds are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for risky actions</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
             <!-- v5.8.0 (B3.4): which command kinds require a second approver -->
@@ -2436,7 +2437,7 @@
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
           <div class="settings-section">
             <div class="section-title">Listening-port &amp; firewall audit</div>
-            <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
+            <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise. <a href="docs/exposure.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
             <p class="hint">Muted services — silence new-port / world-exposed alerts for a specific process and/or proto/port (e.g. <code>docker-proxy</code>) without turning the whole audit off. You can also mute straight from the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> table.</p>
             <div class="mb-8">
@@ -2522,7 +2523,7 @@
           <!-- W6-34: container image CVE scanning (trivy) — its own concern, not disk-secret scanning -->
           <div class="settings-section">
             <div class="section-title">Container image scanning</div>
-            <p class="hint">Scan the images of running containers for known vulnerabilities with <code>trivy</code>. Findings feed the CVE views alongside package CVEs. Off by default; the feature is invisible on hosts without <code>trivy</code> installed.</p>
+            <p class="hint">Scan the images of running containers for known vulnerabilities with <code>trivy</code>. Findings feed the CVE views alongside package CVEs. Off by default; the feature is invisible on hosts without <code>trivy</code> installed. <a href="docs/containers.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (running-container images only)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-image-scan-hours">Image CVE scan cadence (hours)</label><input type="number" id="cfg-image-scan-hours" class="form-input input-auto" min="1" max="168" placeholder="12" aria-label="Image CVE scan cadence in hours"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-updates-enabled"> Check registries for newer image digests (update-available badges; untick to keep the server fully offline from registries)</label></div>
@@ -2576,7 +2577,7 @@
                concern, NOT an account guardrail (was nested under that card). -->
           <div class="settings-section">
             <div class="section-title">Config as code</div>
-            <p class="hint">Download your operator-authored configuration — monitors, checks, alert/automation rules, integrations, webhook destinations, maintenance windows, backup monitors, TLS/DMARC/resolver targets and more — as one versioned JSON document. Secrets are shown as <code>(redacted)</code> and webhook URLs are collapsed to host-only, so the file is safe to commit to git for review, diffing and off-box backup.</p>
+            <p class="hint">Download your operator-authored configuration — monitors, checks, alert/automation rules, integrations, webhook destinations, maintenance windows, backup monitors, TLS/DMARC/resolver targets and more — as one versioned JSON document. Secrets are shown as <code>(redacted)</code> and webhook URLs are collapsed to host-only, so the file is safe to commit to git for review, diffing and off-box backup. <a href="docs/config-history.md" class="c-accent">Documentation</a></p>
             <div class="row-6"><button class="btn-secondary" data-action="exportDeclarativeConfig">Download config-as-code (JSON)</button></div>
             <div class="settings-row mt-8">
               <label for="declarative-import-file" class="form-label">Import config-as-code</label>
@@ -2630,7 +2631,7 @@
           <!-- v3.14.0 #48: agentless SSH -->
           <div class="settings-section">
             <div class="section-title">Agentless SSH</div>
-            <p class="hint">Run commands and collect basic metrics on hosts with <strong>no agent</strong>, over SSH. <strong>Off by default.</strong> Set an agentless device's <em>reachability</em> to SSH and its SSH user (device drawer), then use Poll/Run there. Connections are non-interactive (<code>BatchMode</code>, key-only, trust-on-first-use); each command is admin-only, allowlist-checked, and audited. The private key is write-only — never returned by the API.</p>
+            <p class="hint">Run commands and collect basic metrics on hosts with <strong>no agent</strong>, over SSH. <strong>Off by default.</strong> Set an agentless device's <em>reachability</em> to SSH and its SSH user (device drawer), then use Poll/Run there. Connections are non-interactive (<code>BatchMode</code>, key-only, trust-on-first-use); each command is admin-only, allowlist-checked, and audited. The private key is write-only — never returned by the API. <a href="docs/agentless-devices.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-agentless-ssh-enabled"> Enable agentless SSH</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-agentless-ssh-key">SSH private key (PEM)</label>
               <textarea id="cfg-agentless-ssh-key" class="form-input ff-mono" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div>
@@ -2639,7 +2640,7 @@
 
           <div class="settings-section">
             <div class="section-title">Session length</div>
-            <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
+            <p class="hint">How long a session lasts. Short by default; "remember me" extends to long. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group mw-200">
                 <label for="cfg-session-short" class="form-label">Short session (hours)</label>
@@ -2680,7 +2681,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Service flap detection</div>
-            <p class="hint">A unit crash-looping under <code>Restart=always</code> is <em>active</em> every time we sample it — it comes back before the next heartbeat — so <code>service_down</code> never fires and the host looks perfectly healthy while a service restarts all day. systemd's restart counter is the only thing that reveals it. Set how many restarts <strong>between two heartbeats</strong> count as flapping (<code>unit_flapping</code>). 0 = off; a unit that legitimately bounces now and then shouldn't page anyone.</p>
+            <p class="hint">A unit crash-looping under <code>Restart=always</code> is <em>active</em> every time we sample it — it comes back before the next heartbeat — so <code>service_down</code> never fires and the host looks perfectly healthy while a service restarts all day. systemd's restart counter is the only thing that reveals it. Set how many restarts <strong>between two heartbeats</strong> count as flapping (<code>unit_flapping</code>). 0 = off; a unit that legitimately bounces now and then shouldn't page anyone. <a href="docs/services.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group mw-200">
                 <label for="cfg-unit-flap-restarts" class="form-label">Restarts per check (0 = off)</label>
@@ -2690,7 +2691,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Internet (WAN) watch</div>
-            <p class="hint">Polls a public IP-echo service on the monitor cadence. It gives you three things a residential/self-hosted setup can't otherwise see: <strong>your public IP changed</strong> (a dynamic-IP lease renewal silently breaks every port-forward, VPN endpoint and DNS record pointing home), <strong>the internet is down</strong> as distinct from a host being down, and an <strong>outage log</strong> with 30-day uptime — the evidence you need when you call the ISP. Off by default; it makes an outbound request.</p>
+            <p class="hint">Polls a public IP-echo service on the monitor cadence. It gives you three things a residential/self-hosted setup can't otherwise see: <strong>your public IP changed</strong> (a dynamic-IP lease renewal silently breaks every port-forward, VPN endpoint and DNS record pointing home), <strong>the internet is down</strong> as distinct from a host being down, and an <strong>outage log</strong> with 30-day uptime — the evidence you need when you call the ISP. Off by default; it makes an outbound request. <a href="docs/network-metrics.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="form-label"><input type="checkbox" id="cfg-wan-watch"> Watch the public IP + internet reachability</label>
             </div>
@@ -2715,7 +2716,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">LAN service discovery (mDNS)</div>
-            <p class="hint">Asks agents to run <code>avahi-browse</code> and report what's advertising itself on their segment — printers, Chromecasts, AirPlay, HomeKit bridges, NAS boxes. These are the devices you'll never install an agent on, so without this they're just unlabelled IPs on the network map. Results appear under <strong>Network map → LAN services</strong>. Off by default: it's a broadcast query, and it names things on your LAN.</p>
+            <p class="hint">Asks agents to run <code>avahi-browse</code> and report what's advertising itself on their segment — printers, Chromecasts, AirPlay, HomeKit bridges, NAS boxes. These are the devices you'll never install an agent on, so without this they're just unlabelled IPs on the network map. Results appear under <strong>Network map → LAN services</strong>. Off by default: it's a broadcast query, and it names things on your LAN. <a href="docs/network-map.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="form-label"><input type="checkbox" id="cfg-mdns-enabled"> Collect advertised LAN services from agents</label>
             </div>
@@ -2724,7 +2725,7 @@
           <!-- ── v5.0.0 (#R3): maintenance mode ──────────────────────────────── -->
           <div class="settings-section">
             <div class="section-title">Maintenance mode</div>
-            <p class="hint">Pause new agent command dispatch during a controller upgrade — heartbeats and read-only browsing keep working, so devices don't flip offline. In-flight commands drain normally; new exec/reboot/install attempts are refused with a clear message and a banner is shown to everyone.</p>
+            <p class="hint">Pause new agent command dispatch during a controller upgrade — heartbeats and read-only browsing keep working, so devices don't flip offline. In-flight commands drain normally; new exec/reboot/install attempts are refused with a clear message and a banner is shown to everyone. <a href="docs/maintenance.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-maintenance-mode" class="isl-34" data-action="toggleMaintenanceMode">
               <span>Enable maintenance mode (pause command dispatch)</span>
@@ -2743,7 +2744,7 @@
           <!-- ── v3.0.6: Transport & CSP diagnostics ─────────────────────── -->
           <div class="settings-section">
             <div class="section-title">Content-Security-Policy reporting</div>
-            <p class="hint">When the browser blocks something the CSP forbids (an injected inline script, a stylesheet from a disallowed origin, …) it POSTs a report to <code>/api/csp-report</code>. Each report becomes one audit-log line tagged <code>csp:…</code>. Disable here if reports get noisy; raise the per-IP throttle if you're investigating an active issue.</p>
+            <p class="hint">When the browser blocks something the CSP forbids (an injected inline script, a stylesheet from a disallowed origin, …) it POSTs a report to <code>/api/csp-report</code>. Each report becomes one audit-log line tagged <code>csp:…</code>. Disable here if reports get noisy; raise the per-IP throttle if you're investigating an active issue. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <label class="isl-2">
               <input type="checkbox" id="cfg-csp-report-logging">
               <div>
@@ -2777,7 +2778,7 @@
 
           <div class="settings-section">
             <div class="section-title">Audit log</div>
-            <p class="hint">Records every login, command, settings change, and CSP report. Live entries persist in <code>audit_log.json</code>; entries older than the retention window roll into the gzipped archive next to it. Retention is set in <strong>Settings → Advanced</strong>.</p>
+            <p class="hint">Records every login, command, settings change, and CSP report. Live entries persist in <code>audit_log.json</code>; entries older than the retention window roll into the gzipped archive next to it. Retention is set in <strong>Settings → Advanced</strong>. <a href="docs/data-retention.md" class="c-accent">Documentation</a></p>
             <div class="hint">Live entries: <span id="cfg-audit-entries">—</span></div>
             <div class="hint">Archive on disk: <span id="cfg-audit-archive">—</span></div>
             <div class="hint">Retention window: <span id="cfg-audit-retention">—</span> days</div>
@@ -2785,7 +2786,7 @@
 
           <div class="settings-section">
             <div class="section-title">Self-signed certificate</div>
-            <p class="hint">Generate a self-signed <strong>CA</strong> + server certificate for an internal / airgapped instance that can't use a real (Let's Encrypt) cert. The files are written under the data directory's <code>tls/</code> folder; point nginx at <code>server.crt</code> / <code>server.key</code> and enrol agents with the printed fingerprint. Re-generating reuses the CA, so the server cert renews without re-trusting agents. <strong>Prefer a real cert</strong> when you have a public hostname — full guide in <code>docs/tls-selfsigned.md</code>.</p>
+            <p class="hint">Generate a self-signed <strong>CA</strong> + server certificate for an internal / airgapped instance that can't use a real (Let's Encrypt) cert. The files are written under the data directory's <code>tls/</code> folder; point nginx at <code>server.crt</code> / <code>server.key</code> and enrol agents with the printed fingerprint. Re-generating reuses the CA, so the server cert renews without re-trusting agents. <strong>Prefer a real cert</strong> when you have a public hostname — full guide in <code>docs/tls-selfsigned.md</code>. <a href="docs/tls-selfsigned.md" class="c-accent">Documentation</a></p>
             <div class="sb-controls mt-8">
               <input type="text" id="tls-gen-hosts" class="form-input" placeholder="rp.internal, 10.0.0.5  (hostnames / IPs, comma-separated)" autocomplete="off" aria-label="rp.internal, 10.0.0.5 (hostnames / IPs, comma-separated)">
               <button class="btn-secondary" data-action="genSelfSignedCert">Generate certificate</button>
@@ -2795,7 +2796,7 @@
 
           <div class="settings-section">
             <div class="section-title">Import a certificate (.p12 / .pfx)</div>
-            <p class="hint">Already have a certificate? Upload a <strong>PKCS#12</strong> bundle (<code>.p12</code> / <code>.pfx</code>) containing the certificate and its private key. The cert (plus any chain) and key are written to the data directory's <code>tls/</code> folder as <code>server.crt</code> / <code>server.key</code> — point nginx at them and reload. The bundle password is optional and never stored.</p>
+            <p class="hint">Already have a certificate? Upload a <strong>PKCS#12</strong> bundle (<code>.p12</code> / <code>.pfx</code>) containing the certificate and its private key. The cert (plus any chain) and key are written to the data directory's <code>tls/</code> folder as <code>server.crt</code> / <code>server.key</code> — point nginx at them and reload. The bundle password is optional and never stored. <a href="docs/https.md" class="c-accent">Documentation</a></p>
             <div class="sb-controls mt-8">
               <input type="file" id="p12-file" class="form-input" accept=".p12,.pfx,application/x-pkcs12" aria-label="P12 file">
               <form autocomplete="off" data-csp-pw-form><input type="password" id="p12-pass" class="form-input input-auto" autocomplete="new-password" placeholder="password (optional)" aria-label="password (optional)"></form>
@@ -2806,7 +2807,7 @@
 
           <div class="settings-section">
             <div class="section-title">Transport security (HSTS)</div>
-            <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header.</p>
+            <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header. <a href="docs/https.md" class="c-accent">Documentation</a></p>
             <div id="cfg-hsts-status" class="hint">Checking…</div>
             <div class="hint fs-12">To enable: uncomment the <code>add_header Strict-Transport-Security</code> line in <code>server/conf/remotepower.conf</code> (or your in-place nginx config), then <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>. Only do this once you're certain the site is HTTPS-only — HSTS is sticky in the browser for the configured <code>max-age</code>.</div>
           </div>
@@ -2830,7 +2831,7 @@
                a hidden nav) — see api._MODULES. -->
           <div class="settings-section">
             <div class="section-title">Optional modules</div>
-            <p class="hint">Turn off what you don't use. A disabled module disappears from the sidebar <strong>and</strong> its API stops responding — it isn't merely hidden. Nothing is deleted: switch it back on and your data is exactly where you left it.</p>
+            <p class="hint">Turn off what you don't use. A disabled module disappears from the sidebar <strong>and</strong> its API stops responding — it isn't merely hidden. Nothing is deleted: switch it back on and your data is exactly where you left it. <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-alerts" checked> <strong>Alerts</strong> — the alert inbox (acknowledge / resolve / mute). Off means no inbox rows are recorded; <em>webhook and email notifications still fire</em>, and the event history is untouched. Good if you page yourself through ntfy/Discord and don't want a queue to curate.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-tickets" checked> <strong>Tickets</strong> — the built-in helpdesk (incidents, requests, changes, SLAs, email ingestion).</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-billing"> <strong>Billing</strong> — worksheet, invoices, rates &amp; fees. (Logging hours and the Timesheet stay available regardless.)</label></div>
@@ -2841,7 +2842,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
-            <p class="hint">Provisioning itself (render-only blueprints) is always available. This switch additionally lets admins run Terraform on the server with your cloud credentials.</p>
+            <p class="hint">Provisioning itself (render-only blueprints) is always available. This switch additionally lets admins run Terraform on the server with your cloud credentials. <a href="docs/provisioning.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-iac-execute"> Allow server-side execution — run Terraform <strong>plan / apply / destroy</strong> on the server. Requires <code>terraform</code> installed. Admin-only and audited. Leave off to keep Provisioning render-only.</label></div>
           </div>
 
@@ -2862,7 +2863,7 @@
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
             <div class="section-title">Branding (white-label)</div>
-            <p class="hint">Set the in-app product name and default accent colour shown to everyone — for MSPs reselling RemotePower. Users can still pick their own accent in <em>My Account → Appearance</em>; this is the org default. (The login-page logo image is unchanged.)</p>
+            <p class="hint">Set the in-app product name and default accent colour shown to everyone — for MSPs reselling RemotePower. Users can still pick their own accent in <em>My Account → Appearance</em>; this is the org default. (The login-page logo image is unchanged.) <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="cfg-brand-name" class="form-label">Product name <span class="c-muted fs-12">(blank = "RemotePower")</span></label>
@@ -2994,7 +2995,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Ticket auto-reply</div>
-            <div class="meta-sm-nm mt-4">Send a one-time acknowledgement ("Thank you for contacting support…") when a NEW ticket is auto-created from an inbound email. Loop-safe: stamped <code>Auto-Submitted</code>, sent once per ticket, and never to no-reply / mailer-daemon / bounce senders. Requires SMTP (Notifications).</div>
+            <div class="meta-sm-nm mt-4">Send a one-time acknowledgement ("Thank you for contacting support…") when a NEW ticket is auto-created from an inbound email. Loop-safe: stamped <code>Auto-Submitted</code>, sent once per ticket, and never to no-reply / mailer-daemon / bounce senders. Requires SMTP (Notifications). <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkar-enabled"> Auto-reply to new email tickets</label></div>
             <div class="settings-row"><label class="form-label" for="tkar-subject">Subject (the <code>#RP&lt;number&gt;</code> is prefixed automatically)</label><input type="text" id="tkar-subject" class="form-input" placeholder="Re: your support request" maxlength="200"></div>
             <div class="settings-row"><label class="form-label" for="tkar-body">Message</label><textarea id="tkar-body" class="form-input" rows="4" maxlength="4000" placeholder="Thank you for contacting support…"></textarea></div>
@@ -3004,13 +3005,13 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Satisfaction survey (CSAT)</div>
-            <div class="meta-sm-nm mt-4">When a ticket is resolved, email the contact a one-click <strong>Good / Okay / Bad</strong> rating link (no login — the link is signed and single-use). Ratings show on the ticket and as a rolling average. Requires SMTP + a contact email on the ticket.</div>
+            <div class="meta-sm-nm mt-4">When a ticket is resolved, email the contact a one-click <strong>Good / Okay / Bad</strong> rating link (no login — the link is signed and single-use). Ratings show on the ticket and as a rolling average. Requires SMTP + a contact email on the ticket. <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ticket-csat" data-change="saveTicketCsat"> Send a satisfaction survey on resolve</label></div>
 
           </div>
           <div class="settings-section">
             <div class="section-title">Business hours (SLA calendar)</div>
-            <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed.</div>
+            <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed. <a href="docs/sla.md" class="c-accent">Documentation</a></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="bh-enabled"> Enable business-hours SLA</label></div>
             <div class="settings-row"><label class="form-label" for="bh-tz">UTC offset (minutes, e.g. 60 = UTC+1, -300 = UTC-5)</label><input type="number" id="bh-tz" class="form-input" min="-720" max="840" value="0"></div>
             <div id="bh-days" class="mt-8"></div>
@@ -3021,7 +3022,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Ticket SLA targets</div>
-            <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
+            <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached". <a href="docs/sla.md" class="c-accent">Documentation</a></div>
             <div class="form-row mt-8">
               <div class="form-group"><label class="form-label" for="tksla-1">P1 Major (hours)</label><input type="number" id="tksla-1" class="form-input" min="0.1" step="0.5" value="1"></div>
               <div class="form-group"><label class="form-label" for="tksla-2">P2 Critical (hours)</label><input type="number" id="tksla-2" class="form-input" min="0.1" step="0.5" value="4"></div>
@@ -3033,7 +3034,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Canned replies</div>
-            <div class="meta-sm-nm mt-4">Reusable reply snippets for the ticket composer. Placeholders fill in when inserted: <code>{ticket_id}</code> (the #RP number), <code>{customer}</code> (the contact address), <code>{assignee}</code>.</div>
+            <div class="meta-sm-nm mt-4">Reusable reply snippets for the ticket composer. Placeholders fill in when inserted: <code>{ticket_id}</code> (the #RP number), <code>{customer}</code> (the contact address), <code>{assignee}</code>. <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
             <div id="tk-tpl-list" class="scroll-cap-sm mt-8"></div>
             <div class="settings-row"><label class="form-label" for="tk-tpl-name">Name</label><input type="text" id="tk-tpl-name" class="form-input" maxlength="80" placeholder="Resolved — please confirm"></div>
             <div class="settings-row"><label class="form-label" for="tk-tpl-body">Reply text</label><textarea id="tk-tpl-body" class="form-input" rows="4" maxlength="4000" placeholder="Hi, we believe {ticket_id} is resolved…"></textarea></div>
@@ -3043,7 +3044,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Recurring tickets</div>
-            <div class="meta-sm-nm mt-4">Open a ticket automatically on a schedule — for recurring chores (quarterly restore drill, monthly cert review). Uses a 5-field cron (<code>min hour day month weekday</code>, server-local time).</div>
+            <div class="meta-sm-nm mt-4">Open a ticket automatically on a schedule — for recurring chores (quarterly restore drill, monthly cert review). Uses a 5-field cron (<code>min hour day month weekday</code>, server-local time). <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
             <div id="tk-sched-list" class="scroll-cap mt-8"></div>
             <div class="settings-row"><label class="form-label" for="tk-sched-subject">Subject</label><input type="text" id="tk-sched-subject" class="form-input" maxlength="200" placeholder="Quarterly restore drill"></div>
             <div class="settings-row"><label class="form-label" for="tk-sched-body">Body (optional)</label><textarea id="tk-sched-body" class="form-input" rows="2" maxlength="8000" placeholder="Checklist / instructions…"></textarea></div>
@@ -3103,7 +3104,7 @@
 
           <div class="settings-section">
             <div class="section-title">Debug logging</div>
-            <p class="hint">When enabled, verbose logs are written to the browser console (F12 → Console) and to <code>/var/lib/remotepower/debug.log</code> on the server. Disable in production — the log file grows unbounded.</p>
+            <p class="hint">When enabled, verbose logs are written to the browser console (F12 → Console) and to <code>/var/lib/remotepower/debug.log</code> on the server. Disable in production — the log file grows unbounded. <a href="docs/troubleshooting.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="click-row"><input type="checkbox" id="debug-logging-toggle" data-change="saveDebugLogging" data-change-checked="1"> <span class="form-label">Enable debug logging</span></label>
             </div>
@@ -3128,7 +3129,7 @@
         <div class="settings-pane" id="settings-pane-proxmox" role="tabpanel" aria-labelledby="settings-tab-btn-proxmox">
           <div class="settings-section">
             <div class="section-title">VMware / OpenShift / Cloud Director</div>
-            <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test.</p>
+            <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test. <a href="docs/virtualization.md" class="c-accent">Documentation</a></p>
             <div id="virt-platforms-list" class="mb-12 scroll-cap"></div>
             <div class="settings-row">
               <div class="form-group">
@@ -3190,7 +3191,7 @@
         <div class="settings-pane" id="settings-pane-mailbox" role="tabpanel" aria-labelledby="settings-tab-btn-mailbox">
           <div class="settings-section">
             <div class="section-title">Mailbox monitor</div>
-            <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard.</p>
+            <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard. <a href="docs/monitors.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group isl-65">
                 <label for="mailwatch-device" class="form-label">Device</label>
@@ -3226,7 +3227,7 @@
         <div class="settings-pane" id="settings-pane-ai" role="tabpanel" aria-labelledby="settings-tab-btn-ai">
           <div class="settings-section">
             <div class="section-title">AI provider</div>
-            <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
+            <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <div class="settings-row isl-57">
               <div class="form-group isl-60">
                 <label for="ai-enabled" class="form-label">Enabled</label>
@@ -3267,7 +3268,7 @@
 
           <div class="settings-section">
             <div class="section-title">Privacy — what gets sent to the provider</div>
-            <p class="hint">By default, hostnames and IP addresses are stripped from every request before it leaves the building. Long hex strings, bearer tokens, and AWS access keys are <i>always</i> redacted regardless of these toggles. Cleartext journal content and command output are sent only when you explicitly opt in.</p>
+            <p class="hint">By default, hostnames and IP addresses are stripped from every request before it leaves the building. Long hex strings, bearer tokens, and AWS access keys are <i>always</i> redacted regardless of these toggles. Cleartext journal content and command output are sent only when you explicitly opt in. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-priv-hostnames"> Send hostnames (FQDNs)</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-priv-ips"> Send IP addresses</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-priv-journal"> Send journal / log content</label>
@@ -3407,7 +3408,7 @@
 
           <div class="settings-section">
             <div class="section-title">Limits</div>
-            <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable.</p>
+            <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <div class="settings-row isl-72">
               <div class="form-group mw-200">
                 <label for="ai-max-tokens" class="form-label">Max tokens per response</label>
@@ -3454,7 +3455,7 @@
           <!-- v3.0.1: Per-feature system prompt customization -->
           <div class="settings-section">
             <div class="section-title">Prompt customization</div>
-            <p class="hint">Each AI feature uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models. Edit if your model needs different wording (e.g. DeepSeek reasoning models, smaller local models, format-specific quirks). Clearing a field reverts to the default for that feature.</p>
+            <p class="hint">Each AI feature uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models. Edit if your model needs different wording (e.g. DeepSeek reasoning models, smaller local models, format-specific quirks). Clearing a field reverts to the default for that feature. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <div id="ai-prompts-list" class="isl-77 scroll-cap">
               <div class="isl-78">Loading prompts…</div>
             </div>
@@ -3466,7 +3467,7 @@
 
         <div class="settings-section">
           <div class="section-title">Brute-force detection</div>
-          <p class="hint">Counts failed login attempts per source IP in a rolling window. Fires a webhook and shows in Needs Attention when the threshold is exceeded.</p>
+          <p class="hint">Counts failed login attempts per source IP in a rolling window. Fires a webhook and shows in Needs Attention when the threshold is exceeded. <a href="docs/security.md" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="dash-bf-enabled" class="form-label">Enabled</label>
@@ -3491,7 +3492,7 @@
 
         <div class="settings-section">
           <div class="section-title">Quiet hours</div>
-          <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00).</p>
+          <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00). <a href="docs/oncall.md" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="qh-enabled" class="form-label">Enabled</label>
@@ -3519,7 +3520,7 @@
 
         <div class="settings-section">
           <div class="section-title">After-hours activity detection</div>
-          <p class="hint">Flag selected events that fire <strong>outside</strong> business hours (a login, a new port, a command at 3am is more suspicious). Surfaces as a Needs Attention item. Applies on the business days + within the window below; anything outside counts as after-hours.</p>
+          <p class="hint">Flag selected events that fire <strong>outside</strong> business hours (a login, a new port, a command at 3am is more suspicious). Surfaces as a Needs Attention item. Applies on the business days + within the window below; anything outside counts as after-hours. <a href="docs/security.md" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ah-enabled" class="form-label">Enabled</label>
@@ -3546,7 +3547,7 @@
 
         <div class="settings-section">
           <div class="section-title">Service-dependency link alerts</div>
-          <p class="hint">Watch every declared <code>depends_on</code> edge for a <strong>silent break</strong>: a link that was carrying observed traffic (agent peer-connections or the NetFlow/IPFIX receiver) and then went quiet while both hosts stayed online — a firewall, route or service failure that the device-offline alert never catches. Off by default; only edges that were seen live can ever fire, so nothing false-alarms on a fleet with no flow visibility. Review link status under <strong>Network → Dependency link health</strong>.</p>
+          <p class="hint">Watch every declared <code>depends_on</code> edge for a <strong>silent break</strong>: a link that was carrying observed traffic (agent peer-connections or the NetFlow/IPFIX receiver) and then went quiet while both hosts stayed online — a firewall, route or service failure that the device-offline alert never catches. Off by default; only edges that were seen live can ever fire, so nothing false-alarms on a fleet with no flow visibility. Review link status under <strong>Network → Dependency link health</strong>. <a href="docs/services.md" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="dep-link-alerts" class="form-label">Enabled</label>
@@ -3624,7 +3625,7 @@
 
         <div class="settings-section">
           <div class="section-title">Process thresholds</div>
-          <p class="hint">Fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when a process whose name matches crosses a CPU or memory threshold. Matched against the agent's top processes each heartbeat.</p>
+          <p class="hint">Fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when a process whose name matches crosses a CPU or memory threshold. Matched against the agent's top processes each heartbeat. <a href="docs/monitors.md" class="c-accent">Documentation</a></p>
           <div id="process-watches-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">
@@ -3648,7 +3649,7 @@
 
         <div class="settings-section">
           <div class="section-title">Log ignore patterns</div>
-          <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
+          <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc. <a href="docs/log-watch.md" class="c-accent">Documentation</a></p>
           <div class="mb-8">
             <input type="text" id="log-ignore-filter" class="form-input input-wide"
                    placeholder="Filter patterns…"
@@ -11564,37 +11565,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.3-117"></script>
+<script defer src="static/js/app.js?v=6.4.3-118"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-containers.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-network.js?v=6.4.3-117"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-containers.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-network.js?v=6.4.3-118"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.3-117"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.3-118"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-dns.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-drift.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-cve.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-backups.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-iac.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-virt.js?v=6.4.3-117"></script>
+<script defer src="static/js/app-ai.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-dns.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-drift.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-cve.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-backups.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-iac.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-virt.js?v=6.4.3-118"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-logs.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-remote.js?v=6.4.3-117"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.3-117"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-logs.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-remote.js?v=6.4.3-118"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.3-118"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.3-117"></script>
+<script defer src="static/js/app-self.js?v=6.4.3-118"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11604,6 +11605,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.3-117"></script>
+<script defer src="static/js/sw-register.js?v=6.4.3-118"></script>
 </body>
 </html>

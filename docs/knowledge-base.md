@@ -26,7 +26,7 @@ The knowledge base is wired in as a **RAG source** (on by default once the KB is
 enabled). Each article becomes a retrievable document, so the AI assistant can
 ground its answers in *your own* documentation — ask "how do we rotate the VPN
 keys?" and it can answer from the runbook you wrote, with a citation. Toggle the
-source under **Settings → AI → Knowledge sources**.
+source under **Settings → AI assistant → Knowledge sources**.
 
 ## Runbook links on alerts
 
