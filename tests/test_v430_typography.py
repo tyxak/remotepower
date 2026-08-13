@@ -21,8 +21,19 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-CSS = (Path(__file__).parent.parent / "server" / "html" / "static" / "css"
-       / "styles.css").read_text()
+_CSS_DIR = Path(__file__).parent.parent / "server" / "html" / "static" / "css"
+
+# v6.4.3: this read styles.css and nothing else, while five stylesheets ship and
+# four of them are linked by live pages (report, fleet-query, status, portal,
+# swagger). Two real off-scale sizes were sitting in the unread ones — a 15px
+# heading on the public status page, and a 14px body size in the report, 14
+# being a stop this scale deliberately RETIRED so it could not creep back. The
+# gate could not see either.
+#
+# swagger.css is vendored, so it is excluded rather than reformatted.
+_VENDORED = {"swagger.css"}
+_CSS_FILES = sorted(f for f in _CSS_DIR.glob("*.css") if f.name not in _VENDORED)
+CSS = "\n".join(f.read_text() for f in _CSS_FILES)
 
 # ints = the original scale; halves = v6 Clarity stops adopted so far
 # (sidebar: 12.5 nav rows, 9.5 eyebrows/count pills; topbar: 11.5 health;
@@ -37,7 +48,14 @@ CANONICAL = {28, 19, 16, 13.5, 13, 12.5, 12, 11.5, 11, 10, 9.5}
 # .status-num 64 / .hh-num 48 (big stat digits), .pin-code 36 (enrollment PIN),
 # .isl-286/.isl-326 24 (emoji-glyph pickers), .isl-313 22 (device icon glyph),
 # .isl-1 20 (TOTP input).
-EXCEPTIONS = {64: 1, 48: 1, 36: 1, 24: 2, 22: 1, 20: 1}
+# v6.4.3, when this gate started reading the other stylesheets: 22 goes 1 -> 2
+# for `.status-card-v` (status.css), a big stat digit on the public status page —
+# the same role as .status-num, which is already excepted. report.css's
+# `.card .v` (24px) is the same kind of numeral and fits inside the existing
+# budget of 2. Both are display digits, not body copy: they are excepted rather
+# than folded onto the scale because shrinking them to 13.5px would make the
+# headline figure smaller than the label under it.
+EXCEPTIONS = {64: 1, 48: 1, 36: 1, 24: 2, 22: 2, 20: 1}
 
 
 class TestTypographyScale(unittest.TestCase):

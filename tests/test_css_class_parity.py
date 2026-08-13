@@ -37,6 +37,18 @@ LEGACY_UNSTYLED = {
     "prompt-topp", "recovery-code", "row-16-wrap", "row-flex", "rp-tag",
     "settings-filter-row", "th-actions", "theme-card-name",
     "tk-th-cb",
+    # v6.4.3: surfaced when this gate stopped counting classes named in
+    # COMMENTS as defined. All nine were already reviewed decisions whose only
+    # trace in the stylesheet is the comment recording them — which is exactly
+    # why the old raw-text read resolved them and why they look new here.
+    #   .isl-3xx/4xx/5xx/6xx — "dynamic colour, applied via data-color
+    #     attribute": deliberately carry no static rule, the colour arrives from
+    #     the attribute at render time.
+    #   .nav-alert / .nav-warn — the v6 flat design dropped the icon tints and
+    #     colours the count text instead. styles.css says so verbatim: "JS still
+    #     sets the classes; they're just unstyled now."
+    "isl-376", "isl-377", "isl-401", "isl-457", "isl-536", "isl-543", "isl-648",
+    "nav-alert", "nav-warn",
 }
 
 
@@ -45,9 +57,25 @@ def _class_token(t):
     return bool(re.fullmatch(r"[A-Za-z][\w-]*[\w]", t))
 
 
+def _css_without_comments():
+    """CSS with /* … */ stripped.
+
+    v6.4.3: both checks below read the RAW file, so a class named in a comment
+    counted as DEFINED — and the comments in styles.css are largely RETIREMENT
+    notes explaining why a class was removed, which is precisely the class most
+    likely to still be referenced somewhere.
+
+    Proven on `.section-label`: retired at v6.4.1 with a comment naming it, no
+    rule left, still used by one card in index.html — and this gate resolved it
+    as defined, so the card silently rendered as 13.5px body text where a
+    13px/620 header belonged. Stripping comments turns that into a failure.
+    """
+    return re.sub(r"/\*.*?\*/", "", _CSS.read_text(), flags=re.S)
+
+
 class TestClassParity(unittest.TestCase):
     def test_every_referenced_class_resolves(self):
-        defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _CSS.read_text()))
+        defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _css_without_comments()))
         all_js = {p.name: re.sub(r"^\s*//.*$", "", p.read_text(), flags=re.M)
                   for p in _JS.glob("*.js")}
         hooks = set()
@@ -91,7 +119,7 @@ class TestClassParity(unittest.TestCase):
 
     def test_legacy_set_stays_pruned(self):
         """An entry that gained styles/hooks (or vanished) must leave the set."""
-        defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _CSS.read_text()))
+        defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _css_without_comments()))
         stale = sorted(c for c in LEGACY_UNSTYLED if c in defined)
         self.assertEqual(stale, [],
                          "LEGACY_UNSTYLED entries now defined in CSS — remove "

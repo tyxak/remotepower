@@ -1137,6 +1137,7 @@
     'Prune':       { fr: 'Nettoyer', de: 'Bereinigen', zh: '清理', hi: 'साफ़ करें', es: 'Purgar', ar: 'تنظيف' },
     'Close':       { fr: 'Fermer', de: 'Schließen', zh: '关闭', hi: 'बंद करें', es: 'Cerrar', ar: 'إغلاق' },
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──
+    'Cron builder':                { fr: 'Générateur cron', de: 'Cron-Generator', zh: 'Cron 生成器', hi: 'Cron बिल्डर', es: 'Generador de cron', ar: 'منشئ Cron' },
     'Security posture':            { fr: 'Posture de sécurité', de: 'Sicherheitsstatus', zh: '安全态势', hi: 'सुरक्षा स्थिति', es: 'Estado de seguridad', ar: 'وضع الأمان' },
     'Verified web targets':        { fr: 'Cibles web vérifiées', de: 'Verifizierte Web-Ziele', zh: '已验证的 Web 目标', hi: 'सत्यापित वेब लक्ष्य', es: 'Objetivos web verificados', ar: 'أهداف الويب المُتحقَّق منها' },
     'Alert inbox':                 { fr: 'Boîte de réception des alertes', de: 'Warnungs-Posteingang', zh: '告警收件箱', hi: 'अलर्ट इनबॉक्स', es: 'Bandeja de alertas', ar: 'صندوق التنبيهات' },

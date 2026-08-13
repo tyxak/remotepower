@@ -38,7 +38,7 @@ td.bad { color: #b00020; font-weight: 600; }
 /* v6.4.2: the AI covering paragraph. Wider leading and a slightly larger size
    than the tables — it is prose, meant to be read straight through by someone
    who will not read the figures below it. */
-.pr-summary { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 62em; }
+.pr-summary { font-size: 13.5px; line-height: 1.6; margin: 0 0 10px; max-width: 62em; }
 .foot { margin-top: 28px; color: #777; font-size: 11px; border-top: 1px solid #ddd; padding-top: 8px; }
 @media print {
   body { margin: 0; }
