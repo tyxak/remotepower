@@ -4677,7 +4677,7 @@ async function deleteTenant(id) {
 async function assignUserTenant() {
   const u = document.getElementById('tenant-assign-user');
   const t = document.getElementById('tenant-assign-tenant');
-  if (!u || !t || !u.value || !t.value) { toast('Pick a user and a tenant', 'error'); return; }
+  if (!u || !t || !u.value || !t.value) { toast('Pick a user and a tenant', 'error', {transient: true}); return; }
   const r = await api('POST', '/tenants/' + encodeURIComponent(t.value) + '/users',
                       {username: u.value});
   if (r && r.ok) { toast('User assigned', 'success'); _loadTenants(); }

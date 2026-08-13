@@ -3486,6 +3486,7 @@
     'Degraded pool/array (each)': { fr: 'Pool/grappe dégradé (chacun)', de: 'Degradierter Pool/Verbund (je)', zh: '降级存储池/阵列（每项）', hi: 'डिग्रेडेड पूल/ऐरे (प्रत्येक)', es: 'Pool/array degradado (cada uno)', ar: 'مجمّع/مصفوفة متدهورة (لكل واحدة)' },
     'World-exposed service (each)': { fr: 'Service exposé au monde (chacun)', de: 'Weltweit exponierter Dienst (je)', zh: '对外暴露服务（每项）', hi: 'विश्व-उजागर सेवा (प्रत्येक)', es: 'Servicio expuesto a Internet (cada uno)', ar: 'خدمة مكشوفة للإنترنت (لكل واحدة)' },
     'No host firewall': { fr: 'Pas de pare-feu hôte', de: 'Keine Host-Firewall', zh: '无主机防火墙', hi: 'कोई होस्ट फ़ायरवॉल नहीं', es: 'Sin cortafuegos de host', ar: 'لا جدار حماية للمضيف' },
+    'Tenant': { fr: 'Locataire', de: 'Mandant', zh: '租户', hi: 'टेनेंट', es: 'Inquilino', ar: 'المستأجر' },
     'Tenants': { fr: 'Locataires', de: 'Mandanten', zh: '租户', hi: 'टेनेंट', es: 'Inquilinos', ar: 'المستأجرون' },
     'New tenant': { fr: 'Nouveau locataire', de: 'Neuer Mandant', zh: '新建租户', hi: 'नया टेनेंट', es: 'Nuevo inquilino', ar: 'مستأجر جديد' },
     'Assign a user to a tenant': { fr: 'Affecter un utilisateur à un locataire', de: 'Benutzer einem Mandanten zuweisen', zh: '将用户分配到租户', hi: 'उपयोगकर्ता को टेनेंट सौंपें', es: 'Asignar un usuario a un inquilino', ar: 'تعيين مستخدم إلى مستأجر' },

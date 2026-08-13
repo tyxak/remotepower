@@ -438,6 +438,12 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
                                  if (el) el.classList.remove('active'); }""", target)
         page.evaluate("() => { window.__rpOpened = []; }")
 
+    @classmethod
+    def _denied(cls):
+        """Derived openers the DENY list suppresses — they are never clicked, so
+        the early exit must not wait for them."""
+        return {a for a in _DIALOG_ACTIONS if cls.DENY.search(a)}
+
     def test_dialogs_opened_by_clicking_are_capped(self):
         pages = _nav_pages()
         self.assertGreater(len(pages), 50, 'page enumeration found almost nothing')
@@ -463,6 +469,10 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
             self._login(page)
             self._assert_instrument_works(page, self)
             for pg_name in pages:
+                # Every opener already clicked — the rest of the walk can only
+                # repeat itself, and each page still costs a settle.
+                if done_actions >= _DIALOG_ACTIONS - self._denied():
+                    break
                 page.evaluate("n => { try { showPage(n) } catch (e) {} }", pg_name)
                 # Wait for the page's OWN data to arrive before enumerating.
                 # A flat 500ms enumerated static chrome only: the row-level
