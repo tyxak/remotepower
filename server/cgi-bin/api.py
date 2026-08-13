@@ -5818,29 +5818,36 @@ def _check_login_ratelimit(username: str) -> bool:
 _LOCKOUT_LADDER_S = [10, 60, 300, 1800, 7200]   # 10s, 1m, 5m, 30m, 2h
 
 def _record_login_failure(username: str):
-    rl = load(RATELIMIT_FILE)
-    now = int(time.time())
-    key = f'login:{username}'
-    entry = rl.get(key, {'failures': [], 'locked_until': 0})
-    entry['failures'] = [t for t in entry['failures'] if now - t < LOGIN_FAIL_WINDOW]
-    entry['failures'].append(now)
-    if len(entry['failures']) >= LOGIN_FAIL_MAX:
-        # v3.0.2: escalate per consecutive lockout episode
-        lockout_count = int(entry.get('lockout_count', 0))
-        wait = _LOCKOUT_LADDER_S[min(lockout_count, len(_LOCKOUT_LADDER_S) - 1)]
-        entry['locked_until']   = now + wait
-        entry['lockout_count']  = lockout_count + 1
-        entry['last_wait_s']    = wait
-        entry['failures'] = []  # reset counter after lockout
-    rl[key] = entry
-    save(RATELIMIT_FILE, rl)
+    # v6.4.3 (SECURITY): counting failures is a read-modify-write and has to be
+    # atomic, or the lockout it feeds does not count. Unlocked, N simultaneous
+    # attempts all read the same snapshot, each appended one failure to it, and
+    # the last writer won — so a burst of attempts registered as roughly ONE,
+    # and LOGIN_FAIL_MAX was reached at a rate the attacker chose rather than
+    # the one configured. The per-IP limiter (_ip_ratelimit, 20/min) bounds a
+    # single source, but the per-USERNAME ladder is what is supposed to hold
+    # when the same account is attacked from many of them. Its two sibling
+    # limiters in this file already took the lock.
+    with _LockedUpdate(RATELIMIT_FILE) as rl:
+        now = int(time.time())
+        key = f'login:{username}'
+        entry = rl.get(key, {'failures': [], 'locked_until': 0})
+        entry['failures'] = [t for t in entry['failures'] if now - t < LOGIN_FAIL_WINDOW]
+        entry['failures'].append(now)
+        if len(entry['failures']) >= LOGIN_FAIL_MAX:
+            # v3.0.2: escalate per consecutive lockout episode
+            lockout_count = int(entry.get('lockout_count', 0))
+            wait = _LOCKOUT_LADDER_S[min(lockout_count, len(_LOCKOUT_LADDER_S) - 1)]
+            entry['locked_until']   = now + wait
+            entry['lockout_count']  = lockout_count + 1
+            entry['last_wait_s']    = wait
+            entry['failures'] = []  # reset counter after lockout
+        rl[key] = entry
 
 def _clear_login_failures(username: str):
-    rl = load(RATELIMIT_FILE)
-    key = f'login:{username}'
-    if key in rl:
-        del rl[key]
-        save(RATELIMIT_FILE, rl)
+    # Same lock as the recorder: clearing on success must not race a failure
+    # being recorded, or a lockout earned mid-flight is dropped.
+    with _LockedUpdate(RATELIMIT_FILE) as rl:
+        rl.pop(f'login:{username}', None)
 
 
 def _ip_in_allowlist(ip: str, entries) -> bool:
