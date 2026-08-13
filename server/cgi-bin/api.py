@@ -66741,8 +66741,24 @@ def _sanitize_task(body, require_all=True):
     return out, None
 
 
+def _task_tenant_visible(task):
+    """v6.4.3 (SECURITY): whether the CALLER's tenant may see/act on this task.
+
+    A task carries a device_id, not a tenant, so visibility is resolved through
+    the device — the same shape as every other device-keyed store here. A task
+    with NO device is fleet-level and stays visible, matching the documented
+    convention for these stores; there is nothing tenant-specific in it to leak.
+    No-op when tenancy is off or the caller is a platform operator.
+    """
+    dev_id = (task or {}).get('device_id')
+    if not dev_id:
+        return True
+    return _tenant_visible(device_get(dev_id) or {})
+
+
 def handle_tasks_list():
-    """GET /api/tasks — all tasks with optional state / device filter."""
+    """GET /api/tasks — all tasks with optional state / device filter, confined
+    to the caller's tenant."""
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     state_filter  = (qs.get('state',  [''])[0])[:16]
@@ -66751,6 +66767,8 @@ def handle_tasks_list():
     store = load(TASKS_FILE)
     tasks = store.get('tasks') or []
 
+    if _tenant_gate() is not None:
+        tasks = [t for t in tasks if _task_tenant_visible(t)]
     if state_filter and state_filter in TASK_STATES:
         tasks = [t for t in tasks if t.get('state') == state_filter]
     if device_filter:
@@ -66820,11 +66838,21 @@ def handle_tasks_update(task_id):
     idx = next((i for i, t in enumerate(tasks) if t.get('id') == task_id), -1)
     if idx < 0:
         respond(404, {'error': 'task not found'})
+    # v6.4.3 (SECURITY): tenancy, on BOTH sides of the edit.
+    if not _task_tenant_visible(tasks[idx]):
+        respond(404, {'error': 'task not found'})
 
     body = get_json_body()
     clean, err = _sanitize_task(body, require_all=False)
     if err:
         respond(400, {'error': err})
+    # Retargeting is the half a visibility check alone would miss: without this
+    # a task could be moved ONTO another tenant's device, which both plants a
+    # row on their board and hands the mover a device id they cannot otherwise
+    # see.
+    if clean.get('device_id') and not _tenant_visible(
+            device_get(clean['device_id']) or {}):
+        respond(404, {'error': 'device not found'})
 
     for k in ('title', 'description', 'state', 'device_id'):
         if k in clean:
@@ -66847,6 +66875,11 @@ def handle_tasks_delete(task_id):
 
     store = load(TASKS_FILE)
     tasks = store.get('tasks') or []
+    victim = next((t for t in tasks if t.get('id') == task_id), None)
+    # v6.4.3 (SECURITY): tenancy — deleting another tenant's task is the most
+    # destructive of the three and was the least guarded.
+    if victim is None or not _task_tenant_visible(victim):
+        respond(404, {'error': 'task not found'})
     remaining = [t for t in tasks if t.get('id') != task_id]
     if len(remaining) == len(tasks):
         respond(404, {'error': 'task not found'})
@@ -67201,15 +67234,25 @@ def _breakglass_consume(req_id: str) -> None:
 
 def handle_breakglass_list() -> None:
     """``GET /api/cmdb/break-glass`` — open (pending/approved) break-glass requests
-    for the approval card. Admin only. Never returns secrets."""
+    for the approval card. Admin only, and only for THIS tenant's devices. Never
+    returns secrets."""
     require_admin_auth()
     now = int(time.time())
+    # v6.4.3 (SECURITY): tenant isolation. This returned every tenant's open
+    # requests to any admin. It never carried a secret, but `reason` and `label`
+    # are free text written at the moment of an incident — "label" names the
+    # credential ("prod-db root password") and "reason" describes why someone
+    # needs it right now. Resolved once per request rather than per row.
+    gate = _tenant_gate()
     out = []
     for r in _breakglass_load().values():
         if r.get('status') == 'consumed':
             continue
         if now - int(r.get('created', 0)) > _BREAKGLASS_TTL * 8:
             continue
+        if gate is not None:
+            if _device_tenant(device_get(r.get('device_id') or '') or {}) != gate:
+                continue
         out.append({k: r.get(k) for k in (
             'id', 'device_id', 'cred_id', 'label', 'reason', 'requester',
             'created', 'status', 'approved_by', 'approved_at')})
@@ -67227,6 +67270,15 @@ def handle_breakglass_approve(req_id: str) -> None:
         respond(404, {'error': 'break-glass request not found'})
     r = _breakglass_load().get(req_id)
     if not r:
+        respond(404, {'error': 'break-glass request not found or expired'})
+    # v6.4.3 (SECURITY): tenant isolation. Break-glass is a TWO-PERSON rule —
+    # the whole control is that a second, authorised admin signs off. Without
+    # this an admin from an unrelated tenant, who cannot see the device and
+    # cannot reveal the credential, could still supply that second signature,
+    # so a tenant could have its own control satisfied from outside itself.
+    # 404 rather than 403: the request id is unguessable, and answering
+    # "wrong tenant" would confirm that a given id exists.
+    if not _tenant_visible(device_get(r.get('device_id') or '') or {}):
         respond(404, {'error': 'break-glass request not found or expired'})
     if r.get('status') == 'consumed':
         respond(400, {'error': 'this break-glass request was already used'})
