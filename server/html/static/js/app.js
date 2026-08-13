@@ -23758,6 +23758,57 @@ async function _loadAuditSection(key) {
                                    ? ` · ${si.disk_encryption.crypt_devices.length} volume(s)` : '')
                                : 'OFF')
                           : null],
+          // v6.4.3: platform health. All four were collected by the agent,
+          // whitelisted by the sanitiser and evaluated by the Checks engine —
+          // and rendered NOWHERE. The drawer already showed this host's
+          // temperatures and never the fan spinning next to the sensor.
+          //
+          // NOW and SINCE BOOT stay separate: a Pi that browned out once at 3am
+          // and recovered is a different problem from one throttling right now,
+          // and collapsing them loses the distinction that makes it actionable.
+          ['Platform throttling', (() => {
+            const t = (si.platform_health || {}).throttle || {};
+            const now  = ['undervolt_now','throttled_now','freq_capped_now','soft_temp_now']
+              .filter(k => t[k]).map(k => k.replace(/_now$/,'').replace(/_/g,' '));
+            const ever = ['undervolt_since_boot','throttled_since_boot',
+                          'freq_capped_since_boot','soft_temp_since_boot']
+              .filter(k => t[k]).map(k => k.replace(/_since_boot$/,'').replace(/_/g,' '));
+            if (now.length)  return `NOW: ${now.join(', ')}`;
+            if (ever.length) return `since boot: ${ever.join(', ')}`;
+            return null;
+          })()],
+          ['Fans', (() => {
+            const f = (si.platform_health || {}).fans || [];
+            if (!f.length) return null;
+            const stopped = f.filter(x => x.rpm === 0).length;
+            const rpms = f.map(x => x.rpm).filter(n => n > 0);
+            const range = rpms.length
+              ? (Math.min(...rpms) === Math.max(...rpms)
+                  ? `${rpms[0]} rpm` : `${Math.min(...rpms)}–${Math.max(...rpms)} rpm`)
+              : '';
+            // A stopped fan is the whole reason to show this at all.
+            return `${f.length} fan(s)${range ? ' · ' + range : ''}`
+                   + (stopped ? ` · ${stopped} STOPPED` : '');
+          })()],
+          ['CPU governor', (() => {
+            const ph = si.platform_health || {};
+            if (!ph.governor) return null;
+            return ph.governor + (ph.governor_driver ? ` (${ph.governor_driver})` : '');
+          })()],
+          ['Wireless', (() => {
+            const w = ((si.platform_health || {}).wifi || [])[0];
+            if (!w) return null;
+            // SNR, not raw signal: level alone says little, and level MINUS
+            // noise is what predicts retransmits. noise_dbm was collected and
+            // had no reader anywhere before this.
+            const bits = [];
+            if (typeof w.level_dbm === 'number') bits.push(`${w.level_dbm} dBm`);
+            if (typeof w.level_dbm === 'number' && typeof w.noise_dbm === 'number') {
+              bits.push(`SNR ${(w.level_dbm - w.noise_dbm).toFixed(0)} dB`);
+            }
+            if (typeof w.link === 'number') bits.push(`link ${w.link}`);
+            return bits.length ? `${w.iface || 'wlan'} · ${bits.join(' · ')}` : null;
+          })()],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>

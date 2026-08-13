@@ -1894,14 +1894,22 @@ def build_rollouts_corpus(store, now=0):
     return docs
 
 
-def build_network_map_corpus(devices, discovery, now=0):
+def build_network_map_corpus(devices, discovery, now=0, lldp=None, peers=None):
     """v5.6.0: network topology + unmanaged-host discovery for the RAG. `devices`
     is the DEVICES_FILE store — the topology lives on the device record itself
     (`connected_to`, the physical uplink, and `depends_on`, the declared logical
     upstreams); there is no separate topology file. `discovery` is the
     DISCOVERY_FILE (hosts agents saw on the LAN that aren't enrolled). Feeds the
     unmonitored-visibility principle — the AI can answer "what depends on host X?"
-    and "what's on our network we aren't monitoring?"."""
+    and "what's on our network we aren't monitoring?".
+
+    v6.4.3: `lldp` (LLDP_NEIGHBORS_FILE) and `peers` (PEER_CONNS_FILE) add the
+    OBSERVED topology alongside the declared one. Both stores existed and fed a
+    single consumer each — a suggestion an operator may never accept — so until
+    an edge was manually confirmed, the AI could only ever answer from the
+    hand-declared graph. It now sees what the network actually looks like,
+    including switches and APs that are not enrolled devices and therefore
+    appear nowhere else."""
     docs = []
     deps = []
     # Store shape: the id is the mapping KEY (a persisted device record carries
@@ -1951,6 +1959,64 @@ def build_network_map_corpus(devices, discovery, now=0):
             f"Unmanaged hosts seen on the LAN ({len(seen)}) — not enrolled in "
             f"RemotePower:\n" + '\n'.join(seen[:300]),
             title='Unmanaged LAN hosts', ts=now))
+
+    # v6.4.3: the OBSERVED topology, alongside the declared one above.
+    #
+    # A device name is resolved where we have one, and the raw peer identity is
+    # kept where we do not — an LLDP neighbour is very often a switch or AP that
+    # is NOT an enrolled device, which is exactly the host an operator cannot
+    # ask about anywhere else. Dropping unresolved peers here would repeat the
+    # bug the suggestion path already has, where an unenrolled neighbour is
+    # counted and never shown.
+    _name_of = {}
+    for _did, _rec in (devices.items() if isinstance(devices, dict) else []):
+        if isinstance(_rec, dict):
+            _name_of[_did] = _rec.get('name') or _did
+
+    lldp_lines = []
+    for did, rec in (lldp or {}).items():
+        if not isinstance(rec, dict):
+            continue
+        for n in (rec.get('neighbors') or [])[:64]:
+            if not isinstance(n, dict):
+                continue
+            peer = n.get('peer_name') or n.get('mgmt_ip') or ''
+            if not peer:
+                continue
+            lldp_lines.append(
+                f"- {_name_of.get(did, did)}"
+                + (f" ({n['local_if']})" if n.get('local_if') else '')
+                + f" is physically connected to {peer}"
+                + (f" port {n['peer_port']}" if n.get('peer_port') else '')
+                + (f" [{n['mgmt_ip']}]" if n.get('mgmt_ip') and n.get('peer_name') else ''))
+    if lldp_lines:
+        docs.append(make_doc(
+            'netmap/lldp', 'network_map', 'lldp_neighbors',
+            f"Observed physical topology from LLDP ({len(lldp_lines)} links). "
+            f"These are links the switches themselves report, independent of any "
+            f"operator-declared uplink:\n" + '\n'.join(lldp_lines[:300]),
+            title='Observed physical topology (LLDP)', ts=now))
+
+    peer_lines = []
+    for did, rec in (peers or {}).items():
+        if not isinstance(rec, dict):
+            continue
+        top = sorted((rec.get('peers') or []),
+                     key=lambda x: -(x.get('count') or 0))[:12]
+        for pr in top:
+            if not isinstance(pr, dict) or not pr.get('ip'):
+                continue
+            peer_lines.append(
+                f"- {_name_of.get(did, did)} connects out to {pr['ip']}"
+                + (f":{pr['port']}" if pr.get('port') else '')
+                + (f" ({pr['count']} times)" if pr.get('count') else ''))
+    if peer_lines:
+        docs.append(make_doc(
+            'netmap/peers', 'network_map', 'observed_dependencies',
+            f"Observed outbound dependencies ({len(peer_lines)}). What each host "
+            f"actually talks to, as distinct from what an operator declared it "
+            f"depends on:\n" + '\n'.join(peer_lines[:300]),
+            title='Observed outbound dependencies', ts=now))
     return docs
 
 

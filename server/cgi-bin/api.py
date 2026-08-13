@@ -41568,6 +41568,11 @@ def _rag_source_files(sources):
         # index. DEVICES_FILE is already watched by drift/compliance/firewall.
         files.append(DEVICES_FILE)
         files.append(DISCOVERY_FILE)
+        # v6.4.3: the observed topology now feeds this source too, so a new
+        # LLDP neighbour or outbound peer must invalidate the index — otherwise
+        # the corpus is built once and never notices the network changed.
+        files.append(LLDP_NEIGHBORS_FILE)
+        files.append(PEER_CONNS_FILE)
     return files
 
 
@@ -41931,7 +41936,12 @@ def _rag_build_corpus(cfg):
     if sources.get('network_map'):
         try:
             docs += rag_index.build_network_map_corpus(
-                _load_ro(DEVICES_FILE) or {}, load(DISCOVERY_FILE) or {}, now=now)
+                _load_ro(DEVICES_FILE) or {}, load(DISCOVERY_FILE) or {}, now=now,
+                # v6.4.3: the OBSERVED topology. Both stores fed exactly one
+                # consumer each — a suggestion the operator may never accept —
+                # so the AI could only answer from the declared graph.
+                lldp=(load(LLDP_NEIGHBORS_FILE) if backend_exists(LLDP_NEIGHBORS_FILE) else {}) or {},
+                peers=(load(PEER_CONNS_FILE) if backend_exists(PEER_CONNS_FILE) else {}) or {})
         except Exception as e:
             sys.stderr.write(f'rag: network_map source failed: {e}\n')
 
@@ -48404,7 +48414,15 @@ _RISK_WEIGHTS = {
     # only the Linux firewall. Windows Defender is already covered by av_bad
     # (posture_signals.av_verdict includes 'defender'); firewall reuses
     # firewall_off; encryption-at-rest was a gap for EVERY OS and gets its own.
-    'encryption_off': 12,    # BitLocker / FileVault off — disk not encrypted
+    'encryption_off': 12,    # BitLocker / FileVault / LUKS off — disk not encrypted
+    # v6.4.3: sshd hardening and automatic security updates. Both signals were
+    # collected, whitelisted, evaluated by the Checks engine and read by the
+    # advisory, reports, fleet-query and RAG — and contributed NOTHING to a
+    # host's risk score, while a comment in this file claimed they "already
+    # drove the risk score". Weighted below firewall_off: a permissive sshd is
+    # a real exposure but a narrower one than no firewall at all.
+    'ssh_weak': 10,          # root/password/empty-password/X11 SSH permitted
+    'autoupdate_off': 6,     # no automatic security updates
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -48594,6 +48612,37 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 and not _de['encrypted']:
             _add('encryption_off', w['encryption_off'],
                  'disk not encrypted (no LUKS/dm-crypt volume)')
+    # v6.4.3: sshd hardening + automatic security updates.
+    #
+    # Gated on the SAME opt-in as their Checks rows (`security_hardening_checks`,
+    # default off). Root-login or password SSH is frequently a deliberate choice
+    # on a homelab, which is exactly why those advisories are opt-in — scoring
+    # them unconditionally would move every host's risk number on a policy the
+    # operator never switched on.
+    #
+    # Verdicts mirror checks.py exactly rather than being re-invented, so the
+    # Checks page and the risk score cannot disagree about the same host.
+    if _config_ro().get('security_hardening_checks'):
+        _sc = si.get('ssh_config')
+        if isinstance(_sc, dict) and _sc:
+            _ssh_issues = []
+            if str(_sc.get('permit_empty_passwords', '')).lower() == 'yes':
+                _ssh_issues.append('empty passwords permitted')
+            if str(_sc.get('permit_root_login', '')).lower() == 'yes':
+                _ssh_issues.append('root login with a password permitted')
+            if str(_sc.get('password_authentication', '')).lower() == 'yes':
+                _ssh_issues.append('password authentication enabled')
+            if str(_sc.get('x11_forwarding', '')).lower() == 'yes':
+                _ssh_issues.append('X11 forwarding enabled')
+            if _ssh_issues:
+                _add('ssh_weak', w['ssh_weak'],
+                     'sshd: ' + '; '.join(_ssh_issues))
+        _au = si.get('autoupdate')
+        # 'enabled' present-and-False only: a host whose agent cannot determine
+        # the mechanism reports no key, and absence is not a finding.
+        if isinstance(_au, dict) and 'enabled' in _au and not _au.get('enabled'):
+            _add('autoupdate_off', w['autoupdate_off'],
+                 'automatic security updates are off')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)
