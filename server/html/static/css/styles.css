@@ -2595,8 +2595,15 @@
   .chip-sm { font-size: 11px; padding: 1px 10px; }
   /* v5.8.0 (B2.2): wrapping row for the 3-2-1 backup-rule leg pills. */
   .flex-wrap-6 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .kb-cat-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-    color: var(--muted); margin: 12px 0 4px; font-weight: 600; }
+  /* v6.4.3: folded onto the page header rule. This was an 11px uppercase
+     eyebrow — the idiom styles.css already says, at the .drawer-section-title
+     retirement note, not to reintroduce: "Do not reintroduce uppercase eyebrow
+     headers." It survived because that note removed one rule rather than the
+     class of rule, and nothing forbids the shape. 13px/620, no tracking, no
+     transform — the .section-title values. The margin is kept: it is list
+     spacing, not skin. */
+  .kb-cat-head { font-size: 13px; font-weight: 620;
+    color: var(--muted); margin: 12px 0 4px; }
   .kb-cat-head:first-child { margin-top: 0; }
   .kb-item { display: flex; flex-direction: column; gap: 2px; width: 100%;
     text-align: left; background: transparent; border: none; border-radius: 6px;
@@ -6422,7 +6429,6 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .status-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
 .status-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .status-v { font-size: 28px; font-weight: 700; margin-top: 4px; }
-.status-h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
 .status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
 .status-pill { display: inline-block; min-width: 48px; text-align: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
 .status-pill.ok { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid #22c55e; }
@@ -6822,7 +6828,8 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 }
 .iface-star.on { color: #f5b301; }   /* gold = primary */
 .cmdb-iface-tree { max-height: 360px; overflow-y: auto; }
-.cmdb-iface-tree-title { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+/* v6.4.3: same uppercase eyebrow, same fold onto .section-title's values. */
+.cmdb-iface-tree-title { font-size: 13px; font-weight: 620; color: var(--muted); margin-bottom: 4px; }
 .iface-node { padding: 3px 0; font-size: 13px; }
 .iface-node.primary { font-weight: 600; }
 .iface-node .iface-nat { padding-left: 18px; color: var(--muted); font-size: 12px; }

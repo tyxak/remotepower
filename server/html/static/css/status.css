@@ -71,11 +71,14 @@ body.status-page {
 
 /* Component groups + rows -------------------------------------------------- */
 .status-group { margin-bottom: 20px; }
+/* v6.4.3: folded onto the page header rule — this was an uppercase eyebrow, the
+   retired industrial idiom styles.css says not to reintroduce. It is on the
+   PUBLIC status page, which is the surface most likely to be seen by someone
+   who never logs in, so it drifting from the app's header style is the most
+   visible version of the drift. */
 .status-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  font-size: 13px;
+  font-weight: 620;
   color: var(--muted);
   margin: 0 0 8px;
 }
