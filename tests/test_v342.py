@@ -117,26 +117,26 @@ class TestV342Automation(unittest.TestCase):
             setattr(api, attr, _P(d) / fn)
         api.audit_log = lambda *a, **k: None
         api.log_command = lambda *a, **k: None
-        (_P(d) / 'devices.json').write_text(json.dumps({'d1': {'name': 'web', 'group': 'prod', 'monitored': True}}))
-        (_P(d) / 'scripts.json').write_text(json.dumps({'scripts': [{'id': 's1', 'name': 'x', 'body': 'echo hi'}]}))
-        (_P(d) / 'automation_rules.json').write_text(json.dumps({'rules': [{
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'group': 'prod', 'monitored': True}})
+        api.save(api.SCRIPTS_FILE, {'scripts': [{'id': 's1', 'name': 'x', 'body': 'echo hi'}]})
+        api.save(api.RULES_FILE, {'rules': [{
             'id': 'r-1', 'name': 'a', 'enabled': True, 'cooldown_seconds': 0,
             'match': {'events': ['service_down'], 'severities': [], 'device_match': {'group': 'prod'}},
             'actions': [{'type': 'run_script', 'script_id': 's1'}],
-            'last_fired': 0, 'fire_count': 0}]}))
+            'last_fired': 0, 'fire_count': 0}]})
         # load() memoises per-request and is invalidated by save(); since this
         # test writes files directly, clear the cache to mimic a fresh request.
         api._LOAD_CACHE.clear()
         # matching event queues the script
         api._run_automation_rules('service_down', {'device_id': 'd1'}, {})
-        cmds = json.loads((_P(d) / 'commands.json').read_text())
+        cmds = (api.load(api.CMDS_FILE) or {})
         self.assertEqual(cmds.get('d1'), ['exec:echo hi'])
         # group mismatch → nothing
-        (_P(d) / 'commands.json').write_text('{}')
-        (_P(d) / 'devices.json').write_text(json.dumps({'d1': {'name': 'web', 'group': 'dev', 'monitored': True}}))
+        api.save(api.CMDS_FILE, {})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'group': 'dev', 'monitored': True}})
         api._LOAD_CACHE.clear()
         api._run_automation_rules('service_down', {'device_id': 'd1'}, {})
-        self.assertEqual(json.loads((_P(d) / 'commands.json').read_text()), {})
+        self.assertEqual((api.load(api.CMDS_FILE) or {}), {})
 
     def test_frontend_present(self):
         self.assertIn('data-page="automation"', self.HTML)
@@ -247,7 +247,7 @@ class TestV342Deployment(unittest.TestCase):
         api, d = self._fresh_api()
         devs = {'d1': {'name': 'web1', 'group': 'prod', 'monitored': True,
                        'sysinfo': {'packages': {'upgradable': 5}}}}
-        (d / 'devices.json').write_text(json.dumps(devs))
+        api.save(api.DEVICES_FILE, devs)
         api._LOAD_CACHE.clear()
         now = int(time.time())
         roll = {'id': 'r1', 'name': 'p', 'action': 'upgrade', 'script_id': '', 'current_ring': 0,
@@ -256,7 +256,7 @@ class TestV342Deployment(unittest.TestCase):
                 'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0, 'ok_count': 0, 'failed_count': 0},
                                 {'state': 'pending', 'dispatched_ids': [], 'total': 0, 'ok_count': 0, 'failed_count': 0}],
                 'auto_promote': False, 'verify_minutes': 30, 'state': 'running', 'history': [], 'created_by': 't'}
-        devices = json.loads((d / 'devices.json').read_text())
+        devices = (api.load(api.DEVICES_FILE) or {})
         cmds = {}
         api._rollout_advance(roll, devices, cmds)
         # ring 0 dispatched the upgrade to d1 and is now verifying
@@ -276,8 +276,8 @@ class TestV342Deployment(unittest.TestCase):
     def test_rollout_ring_failure_halts(self):
         import json, time
         api, d = self._fresh_api()
-        (d / 'devices.json').write_text(json.dumps(
-            {'d1': {'name': 'x', 'group': 'prod', 'monitored': True, 'sysinfo': {'packages': {'upgradable': 3}}}}))
+        api.save(api.DEVICES_FILE, 
+            {'d1': {'name': 'x', 'group': 'prod', 'monitored': True, 'sysinfo': {'packages': {'upgradable': 3}}}})
         api._LOAD_CACHE.clear()
         now = int(time.time())
         roll = {'id': 'r2', 'name': 'p', 'action': 'upgrade', 'current_ring': 0,
@@ -285,7 +285,7 @@ class TestV342Deployment(unittest.TestCase):
                 'rings_state': [{'state': 'verifying', 'dispatched_ids': ['d1'], 'total': 1,
                                  'ok_count': 0, 'failed_count': 0, 'dispatched_at': now - 7200}],
                 'auto_promote': True, 'verify_minutes': 30, 'state': 'running', 'history': [], 'created_by': 't'}
-        devices = json.loads((d / 'devices.json').read_text())
+        devices = (api.load(api.DEVICES_FILE) or {})
         # never verified, window elapsed → ring failed, rollout halted
         api._rollout_advance(roll, devices, {})
         self.assertEqual(roll['state'], 'failed')
@@ -299,9 +299,9 @@ class TestV342Deployment(unittest.TestCase):
         # reliably inactive right now regardless of wall-clock time (the old
         # hard-coded '0 2 * * *' flaked when the suite ran 02:00–03:00).
         off_hour = (time.localtime(now).tm_hour + 12) % 24
-        (d / 'maintenance.json').write_text(json.dumps({'windows': [
+        api.save(api.MAINT_FILE, {'windows': [
             {'id': 'w1', 'scope': 'group', 'target': 'prod', 'gate_exec': True,
-             'cron': f'0 {off_hour} * * *', 'duration': 3600}]}))
+             'cron': f'0 {off_hour} * * *', 'duration': 3600}]})
         api._LOAD_CACHE.clear()
         # covered by a gate_exec window that is not active right now → hold
         self.assertTrue(api._exec_gated('d1', {'group': 'prod'}, now))
@@ -445,9 +445,9 @@ class TestV342RBAC(unittest.TestCase):
     def test_resolve_role(self):
         import json
         api, d = self._fresh_api()
-        (d / 'roles.json').write_text(json.dumps({'roles': [
+        api.save(api.ROLES_FILE, {'roles': [
             {'name': 'ops', 'permissions': ['exec', 'reboot', 'bogus'],
-             'scope': {'type': 'groups', 'values': ['staging']}}]}))
+             'scope': {'type': 'groups', 'values': ['staging']}}]})
         api._LOAD_CACHE.clear()
         self.assertTrue(api._resolve_role('admin')['admin'])
         self.assertEqual(api._resolve_role('viewer')['permissions'], set())
@@ -485,9 +485,9 @@ class TestV342RBAC(unittest.TestCase):
     def test_require_perm_scope(self):
         import json
         api, d = self._fresh_api()
-        (d / 'roles.json').write_text(json.dumps({'roles': [
-            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]}))
-        (d / 'devices.json').write_text(json.dumps({'d1': {'group': 'staging'}, 'd2': {'group': 'prod'}}))
+        api.save(api.ROLES_FILE, {'roles': [
+            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]})
+        api.save(api.DEVICES_FILE, {'d1': {'group': 'staging'}, 'd2': {'group': 'prod'}})
         api._LOAD_CACHE.clear()
         api.get_token_from_request = lambda: 'tok'
         api.verify_token = lambda t: ('bob', 'ops')
@@ -509,7 +509,7 @@ class TestV342RBAC(unittest.TestCase):
     def test_assignable_role(self):
         import json
         api, d = self._fresh_api()
-        (d / 'roles.json').write_text(json.dumps({'roles': [{'name': 'ops', 'permissions': [], 'scope': {'type': 'all'}}]}))
+        api.save(api.ROLES_FILE, {'roles': [{'name': 'ops', 'permissions': [], 'scope': {'type': 'all'}}]})
         api._LOAD_CACHE.clear()
         self.assertTrue(api._assignable_role('admin'))
         self.assertTrue(api._assignable_role('viewer'))
@@ -542,10 +542,10 @@ class TestV342RBACv2(unittest.TestCase):
         api.DATA_DIR = _P(d)
         for attr, fn in (('ROLES_FILE', 'roles.json'), ('DEVICES_FILE', 'devices.json')):
             setattr(api, attr, _P(d) / fn)
-        (_P(d) / 'roles.json').write_text(json.dumps({'roles': [
-            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]}))
-        (_P(d) / 'devices.json').write_text(json.dumps({
-            'd1': {'name': 's', 'group': 'staging'}, 'd2': {'name': 'p', 'group': 'prod'}}))
+        api.save(api.ROLES_FILE, {'roles': [
+            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]})
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 's', 'group': 'staging'}, 'd2': {'name': 'p', 'group': 'prod'}})
         api._LOAD_CACHE.clear()
         api.get_token_from_request = lambda: 't'
         return api, _P(d)
@@ -560,11 +560,11 @@ class TestV342RBACv2(unittest.TestCase):
         import json
         api, d = self._api()
         api.verify_token = lambda t: ('bob', 'ops')
-        filt = api._scope_filter_devices(json.loads((d / 'devices.json').read_text()))
+        filt = api._scope_filter_devices((api.load(api.DEVICES_FILE) or {}))
         self.assertEqual(sorted(filt), ['d1'])
         # admin sees everything (None scope → unchanged)
         api.verify_token = lambda t: ('root', 'admin')
-        self.assertEqual(sorted(api._scope_filter_devices(json.loads((d / 'devices.json').read_text()))), ['d1', 'd2'])
+        self.assertEqual(sorted(api._scope_filter_devices((api.load(api.DEVICES_FILE) or {}))), ['d1', 'd2'])
 
     def test_enforce_device_scope(self):
         import os
@@ -670,9 +670,9 @@ class TestV342SettingsActions(unittest.TestCase):
         captured = {}
         _orig_respond = api.respond
         api.respond = lambda code, body=None: (_ for _ in ()).throw(_StopResp(code, body))
-        (_P(d) / 'users.json').write_text(json.dumps({'admin': {'must_change_password': True}}))
-        (_P(d) / 'config.json').write_text('{}')
-        (_P(d) / 'devices.json').write_text('{}')
+        api.save(api.USERS_FILE, {'admin': {'must_change_password': True}})
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {})
         api._LOAD_CACHE.clear()
         try:
             api.handle_setup_status()
@@ -1002,13 +1002,13 @@ class TestV342NinjaParity(unittest.TestCase):
         sent = []
         api._send_webhook_to_url = lambda ev, pl, msg, cfg, only_dest_ids=None: sent.append((ev, msg))
         now = int(time.time())
-        (d / 'config.json').write_text(json.dumps({'escalation': {
-            'enabled': True, 'severities': ['critical'], 'tiers': [{'after_minutes': 10}]}}))
-        (d / 'alerts.json').write_text(json.dumps({'alerts': [
+        api.save(api.CONFIG_FILE, {'escalation': {
+            'enabled': True, 'severities': ['critical'], 'tiers': [{'after_minutes': 10}]}})
+        api.save(api.ALERTS_FILE, {'alerts': [
             {'id': 'a1', 'ts': now - 3600, 'event': 'device_offline', 'severity': 'critical',
              'title': 'x down', 'acknowledged_at': None, 'resolved_at': None, 'payload': {}},
             {'id': 'a2', 'ts': now - 3600, 'event': 'device_offline', 'severity': 'critical',
-             'title': 'acked', 'acknowledged_at': now, 'resolved_at': None, 'payload': {}}]}))
+             'title': 'acked', 'acknowledged_at': now, 'resolved_at': None, 'payload': {}}]})
         api._LOAD_CACHE.clear()
         api._escalation_tick(now=now)
         self.assertEqual(len(sent), 1)          # only the unacked one
@@ -1016,7 +1016,7 @@ class TestV342NinjaParity(unittest.TestCase):
         api._LOAD_CACHE.clear()
         api._escalation_tick(now=now)
         self.assertEqual(len(sent), 1)
-        store = json.loads((d / 'alerts.json').read_text())
+        store = (api.load(api.ALERTS_FILE) or {})
         a1 = [a for a in store['alerts'] if a['id'] == 'a1'][0]
         self.assertEqual(a1['escalated_tiers'], [0])
 
@@ -1075,8 +1075,8 @@ class TestV342ReviewFixes(unittest.TestCase):
         api._fire_metric_webhook = lambda ev, did, dev, k, t, v, thr, extra=None: fired.append(ev)
         # LIVE threshold is high (95) → 80% must NOT alert even though the passed
         # (stale) snapshot has a low threshold.
-        api.DEVICES_FILE.write_text(json.dumps({'d1': {'name': 'sw', 'monitored': True,
-            'metric_thresholds': {'disk_warn_percent': 95, 'disk_crit_percent': 99}}}))
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'sw', 'monitored': True,
+            'metric_thresholds': {'disk_warn_percent': 95, 'disk_crit_percent': 99}}})
         stale = {'name': 'sw', 'monitored': True,
                  'metric_thresholds': {'disk_warn_percent': 70, 'disk_crit_percent': 90}}
         api._LOAD_CACHE.clear()
@@ -1177,7 +1177,7 @@ class TestV342BakeSign(unittest.TestCase):
         binp = ad / 'remotepower-agent'; binp.write_bytes(b'VERSION="3.4.2"\n')
         api._AGENT_BINARY_PATH = binp
         api._AGENT_SIG_PATH = ad / 'remotepower-agent.asc'
-        api.CONFIG_FILE = _P(d) / 'config.json'; api.CONFIG_FILE.write_text('{}')
+        api.CONFIG_FILE = _P(d) / 'config.json'; api.save(api.CONFIG_FILE, {})
 
         def run(fn, method='GET', body=None):
             _os.environ['REQUEST_METHOD'] = method
@@ -1200,10 +1200,10 @@ class TestV342BakeSign(unittest.TestCase):
         # config.release_pubkey has drifted to a wrong/foreign key, re-signing
         # re-syncs it to the actual signing key so the self-check converges to
         # 'valid' (the "re-sign does nothing, stays INVALID" bug).
-        cfg = json.loads(api.CONFIG_FILE.read_text())
+        cfg = api.load(api.CONFIG_FILE) or {}
         cfg['release_pubkey'] = '-----BEGIN PGP PUBLIC KEY BLOCK-----\nbogus\n-----END PGP PUBLIC KEY BLOCK-----'
         cfg['release_key_fingerprint'] = '0' * 40
-        api.CONFIG_FILE.write_text(json.dumps(cfg))
+        api.save(api.CONFIG_FILE, cfg)
         s, dd = run(api.handle_signing_status, 'GET')
         self.assertEqual(dd['signature_status'], 'invalid')   # drifted pin
         s, dd = run(api.handle_signing_sign, 'POST', {})
