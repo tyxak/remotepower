@@ -108,6 +108,39 @@ _MEASURE_MODAL = """(mid) => {
 }""" % (_TALL_PX, _MANY_CHILDREN)
 
 
+def _dialog_actions():
+    """`data-action` names whose handler calls `openModal()`.
+
+    DERIVED from the sources rather than hand-listed, so it cannot go stale the
+    way a maintained list would — a new dialog opener is picked up the moment it
+    exists, and one that is deleted stops being clicked.
+
+    This is what makes the class affordable. Clicking every data-action reaches
+    the same dialogs and takes over eleven minutes, in a file that runs in the
+    serial gate; clicking only the openers is ~70 targets. Clicking the ELEMENT
+    rather than calling the function matters too — the element carries the
+    `data-arg` the handler needs, so the dialog opens against a real record
+    instead of an empty one.
+    """
+    html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+    js_dir = _ROOT / 'server' / 'html' / 'static' / 'js'
+    js = ''.join(p.read_text() for p in sorted(js_dir.glob('app*.js')))
+    out = set()
+    for name in set(re.findall(r'data-action="([A-Za-z_][\w]*)"', html)):
+        m = re.search(rf'(?:async\s+)?function {re.escape(name)}\s*\(', js)
+        if not m:
+            continue
+        body = js[m.start():]
+        nxt = re.search(r'\n(?:async )?function ', body[10:])
+        body = body[:nxt.start() + 10] if nxt else body[:4000]
+        if 'openModal(' in body:
+            out.add(name)
+    return out
+
+
+_DIALOG_ACTIONS = _dialog_actions()
+
+
 def _nav_pages():
     """Sidebar pages, using the same tolerant regex the other gates now use —
     the strict form matched 74 of 81 because six buttons carry an id between
@@ -302,51 +335,196 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
         r"shutdownServer|factoryReset|serverSelfUpdate|openSwagger|openApiDocs",
         re.I)
 
+    # Two instruments, both injected before any page script runs (Playwright
+    # adds them through the debugger, so `script-src 'self'` is untouched).
+    #
+    # __rpInflight counts outstanding fetches, so the wait can tell "nothing is
+    # coming" from "the handler is still working" instead of sleeping a fixed
+    # interval and hoping.
+    #
+    # __rpOpened is the one that matters. Polling asks "is a dialog open at the
+    # moment I look", which misses any dialog that opens and closes between two
+    # looks — and a fixed sleep and a poll loop BOTH returned the same 2 dialogs
+    # from ~1000 clicks under load, which is what finally ruled timing out as
+    # the cause. A MutationObserver records every overlay that became active at
+    # any instant, so detection stops depending on when the measurement runs.
+    _INSTRUMENT = """
+      window.__rpInflight = 0;
+      const _f = window.fetch;
+      window.fetch = function (...a) {
+        window.__rpInflight++;
+        return _f.apply(this, a).finally(() => { window.__rpInflight--; });
+      };
+      window.__rpOpened = [];
+      // An init script runs at document-start, where documentElement is not
+      // reliably there yet — observe() then throws, the REST OF THIS SCRIPT
+      // never runs, and __rpOpened stays undefined. That reads downstream as
+      // "no dialog ever opened", which is how this instrument reported 0
+      // dialogs from 1012 clicks and looked like an application bug.
+      // _assert_instrument_works() below is the guard against believing it.
+      const _install = () => {
+        new MutationObserver(ms => {
+          for (const m of ms) {
+            const el = m.target;
+            if (el.classList && el.classList.contains('modal-overlay')
+                && el.classList.contains('active') && el.id
+                && !window.__rpOpened.includes(el.id)) {
+              window.__rpOpened.push(el.id);
+            }
+          }
+        }).observe(document.body || document.documentElement,
+                   {subtree: true, attributes: true, attributeFilter: ['class']});
+        window.__rpObserving = true;
+      };
+      if (document.body) { _install(); }
+      else { document.addEventListener('DOMContentLoaded', _install); }
+    """
+
+    @staticmethod
+    def _dialogs_after_click(page, budget_ms=2400, step_ms=60):
+        """Every dialog the click opened, whether or not it is still open.
+
+        Waits only while the page is still working: no dialog recorded and no
+        request in flight means nothing is coming, and the loop stops after two
+        quiet samples (~120ms) rather than burning the whole budget on the ~9
+        in 10 clicks that open nothing. A click whose handler is mid-request
+        keeps the full budget however loaded the machine is.
+        """
+        waited, quiet = 0, 0
+        while waited < budget_ms:
+            seen = page.evaluate("() => window.__rpOpened || []")
+            inflight = page.evaluate("() => window.__rpInflight || 0")
+            if seen and not inflight:
+                page.wait_for_timeout(120)      # a frame for the last render
+                return page.evaluate("() => window.__rpOpened || []")
+            if not seen and not inflight:
+                quiet += 1
+                if quiet >= 2:
+                    return []
+            else:
+                quiet = 0
+            page.wait_for_timeout(step_ms)
+            waited += step_ms
+        return page.evaluate("() => window.__rpOpened || []")
+
+    @staticmethod
+    def _assert_instrument_works(page, case):
+        """Prove the observer records a dialog we KNOW opened.
+
+        Every measurement in this class is of the form "these are the dialogs
+        that opened", and the failure mode of a broken instrument is an empty
+        list — indistinguishable from a page where nothing opened, and it reads
+        as an application bug rather than a test bug. So open one deliberately
+        and require it to be recorded. If this fails, nothing below means
+        anything.
+        """
+        page.evaluate("() => { window.__rpOpened = []; }")
+        ok = page.evaluate("() => !!window.__rpObserving")
+        case.assertTrue(ok, 'the MutationObserver never installed — every '
+                            '"no dialogs opened" result below would be a lie')
+        target = page.evaluate("""() => {
+          const el = document.querySelector('.modal-overlay[id]');
+          if (!el) return null;
+          el.classList.add('active');
+          return el.id;
+        }""")
+        case.assertIsNotNone(target, 'no .modal-overlay[id] in the DOM at all')
+        page.wait_for_timeout(120)
+        seen = page.evaluate("() => window.__rpOpened || []")
+        case.assertIn(target, seen,
+                      f'the observer did not record {target} becoming active, '
+                      'so it cannot record any other dialog either')
+        page.evaluate("""id => { const el = document.getElementById(id);
+                                 if (el) el.classList.remove('active'); }""", target)
+        page.evaluate("() => { window.__rpOpened = []; }")
+
     def test_dialogs_opened_by_clicking_are_capped(self):
         pages = _nav_pages()
         self.assertGreater(len(pages), 50, 'page enumeration found almost nothing')
+        # If the derivation breaks, the sweep clicks nothing and reports a
+        # clean result — the exact shape this release exists to close.
+        self.assertGreater(
+            len(_DIALOG_ACTIONS), 40,
+            f'only {len(_DIALOG_ACTIONS)} dialog-opening actions derived from '
+            'the sources — the derivation is broken, so this sweep would click '
+            'almost nothing and pass while measuring almost nothing')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
+        page.add_init_script(self._INSTRUMENT)
         findings, opened, clicked = {}, 0, 0
+        # Clicked ONCE each, globally. These are static index.html controls, so
+        # they sit in the shared DOM on every page — filtering per page by
+        # presence would click all ~70 on all ~80 pages, which is worse than the
+        # unfiltered sweep it replaced. The page walk still earns its keep: it
+        # loads each page's data, so a dialog opened later renders against a
+        # populated store rather than an empty one.
+        done_actions = set()
         try:
             self._login(page)
+            self._assert_instrument_works(page, self)
             for pg_name in pages:
                 page.evaluate("n => { try { showPage(n) } catch (e) {} }", pg_name)
-                page.wait_for_timeout(500)
-                names = page.evaluate("""() => {
-                  const out = new Set();
-                  for (const el of document.querySelectorAll(
-                           '[data-action],[data-action-btn]')) {
-                    const r = el.getBoundingClientRect();
-                    if (r.width > 0 && r.height > 0) {
-                      out.add(el.dataset.action || el.dataset.actionBtn);
-                    }
-                  }
-                  return [...out];
-                }""")
+                # Wait for the page's OWN data to arrive before enumerating.
+                # A flat 500ms enumerated static chrome only: the row-level
+                # buttons — the edit/inspect/assign controls that open the
+                # dialogs this class exists to measure — do not exist until the
+                # fetch lands. With the sleep, 1014 clicks opened ONE dialog,
+                # which reads as "the app barely uses dialogs" and is really
+                # "the buttons were not there yet".
+                for _ in range(40):                     # up to ~4s
+                    if not page.evaluate("() => window.__rpInflight || 0"):
+                        break
+                    page.wait_for_timeout(100)
+                page.wait_for_timeout(400)
+                # Only the controls that can actually open a dialog, and only
+                # those PRESENT on this page. Two earlier shapes were both
+                # wrong, in opposite directions:
+                #
+                #   * filtered on a non-zero bounding box — the dialog-opening
+                #     controls are overwhelmingly in Settings panes that are
+                #     not the active one, so they have zero size until an
+                #     operator switches to them. Measured directly: of five
+                #     actions known to call openModal(), all five had a zero
+                #     box and three opened their dialog the moment they were
+                #     clicked. The filter removed the entire population.
+                #   * no filter at all — ~2000 clicks, each with a wait budget,
+                #     and this file runs in the SERIAL GATE (it is not matched
+                #     by the `tests/*e2e*.py` exclusion). Killed at 11 minutes
+                #     with no end in sight. Correct answer, unusable cost.
+                #
+                # `_DIALOG_ACTIONS` is derived from the sources, so it cannot
+                # drift the way a hand-kept list would.
+                names = page.evaluate("""(want) => want.filter(n =>
+                  document.querySelector(
+                    `[data-action='${n}'],[data-action-btn='${n}']`))""",
+                  sorted(_DIALOG_ACTIONS))
                 for name in names:
                     if not name or self.DENY.search(name):
                         continue
+                    if name in done_actions:
+                        continue
+                    done_actions.add(name)
+                    # Reset the observer BEFORE the click, not after. The
+                    # earlier order wiped any dialog the click opened
+                    # synchronously — which is most of them — and left the
+                    # sweep reporting zero while the instrument was working
+                    # perfectly. A self-check proves the observer records; it
+                    # cannot prove the caller reads it at the right moment.
+                    page.evaluate("() => { window.__rpOpened = []; }")
                     page.evaluate("""(name) => {
-                      const els = document.querySelectorAll(
+                      const el = document.querySelector(
                         `[data-action='${name}'],[data-action-btn='${name}']`);
-                      for (const el of els) {
-                        const r = el.getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0) { el.click(); return; }
-                      }
+                      if (el) el.click();
                     }""", name)
                     clicked += 1
-                    # Let the handler fetch and render. This is the point of the
-                    # class, so it gets real time rather than the 60ms the click
-                    # sweep uses (it only needs the error, not the content).
-                    page.wait_for_timeout(450)
-                    live = page.evaluate(
-                        "() => [...document.querySelectorAll('.modal-overlay.active')]"
-                        ".map(m => m.id).filter(Boolean)")
+                    live = self._dialogs_after_click(page)
                     for mid in live:
                         if mid in EXEMPT_MODALS:
                             continue
                         opened += 1
+                        page.evaluate(
+                            "id => { const el = document.getElementById(id);"
+                            "        if (el) el.classList.add('active'); }", mid)
                         bad = page.evaluate(_MEASURE_MODAL, mid)
                         if bad:
                             findings.setdefault(mid, []).extend(bad)
@@ -361,9 +539,15 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
         # Instrument controls. A sweep that clicked nothing, or opened nothing,
         # reports a clean result while proving nothing — the exact failure this
         # release exists to close.
-        self.assertGreater(clicked, 100,
-                           f'only {clicked} controls clicked — the crawl is not '
-                           'reaching the pages')
+        # `clicked` is now bounded by the DERIVED set, not by how many controls
+        # happen to be on screen, so the old `> 100` was a leftover from the
+        # click-everything design and failed at 71 — a correct sweep tripping a
+        # stale guard. What matters is that the sweep reached MOST of the set:
+        # a crawl that never left the first page would click far fewer.
+        self.assertGreaterEqual(
+            clicked, int(len(_DIALOG_ACTIONS) * 0.8),
+            f'only {clicked} of {len(_DIALOG_ACTIONS)} dialog-opening controls '
+            'were reached — the crawl is not getting to the pages that hold them')
         self.assertGreater(opened, 5,
                            f'only {opened} dialogs opened from {clicked} clicks — '
                            'no dialog was measured with real data in it, so this '
