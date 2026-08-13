@@ -10469,6 +10469,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     pending_force_upgrade = False
     # v2.5.0: custom monitoring scripts pushed by the server. Empty list
     # until the first heartbeat response arrives carrying assignments.
+    # v6.4.3: one-shot latches so a refusal under require-signed-commands is
+    # logged once, not on every poll — a per-heartbeat error line would bury the
+    # journal and train the operator to ignore it.
+    _warned_unsigned_scripts = False
+    _warned_unsigned_hostcfg = False
     custom_scripts = []
     # v2.6.0: desired host config pushed by server; current state collected locally
     host_config_desired = None
@@ -11457,6 +11462,37 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # and script body changes take effect at the next run window.
             if 'custom_scripts' in resp:
                 new_cs = resp.get('custom_scripts') or []
+                # v6.4.3 (SECURITY): require-signed-commands is fail-closed and
+                # exists for one threat — a server or database an attacker now
+                # controls. It gated the `command` channel and nothing else,
+                # while custom_scripts runs server-supplied bash AS ROOT. An
+                # attacker who could not push a command could push a script
+                # instead, so the control had a hole the width of the thing it
+                # was protecting.
+                #
+                # The signature format binds ONE command string
+                # ('rp-cmd\\nv1\\n{dev_id}\\n{ts}\\n{cmd}') and the server signs
+                # by shelling out to gpg, which is affordable for a dispatched
+                # command and is NOT affordable per heartbeat — these payloads
+                # ride every poll. Extending signing to them needs sign-on-change
+                # with a cached signature, which is a protocol change and is
+                # recorded as follow-up work rather than half-built here.
+                #
+                # Until then this refuses rather than pretends: an operator who
+                # sets this flag has said they do not trust the server, and
+                # honouring unsigned arbitrary root bash from that same server
+                # is incoherent. Loud, not silent — the whole point of the
+                # v6.3.1 gate was that a refusal is reported.
+                if new_cs and _require_signed_commands():
+                    if not _warned_unsigned_scripts:
+                        log.error(
+                            'REFUSED %d custom script(s): require-signed-commands '
+                            'is set and script payloads are not signed. They run '
+                            'as root, so they are refused with the command '
+                            'channel rather than trusted alongside it.',
+                            len(new_cs))
+                        _warned_unsigned_scripts = True
+                    new_cs = []
                 if isinstance(new_cs, list):
                     if len(new_cs) != len(custom_scripts) or \
                        [s['id'] for s in new_cs] != [s['id'] for s in custom_scripts]:
@@ -11475,6 +11511,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
             if 'host_config_desired' in resp:
                 new_hcd = resp.get('host_config_desired')
+                # v6.4.3 (SECURITY): same hole as custom_scripts above.
+                # apply_host_config writes system files and calls systemctl as
+                # root; its own docstring says it shares "the same trust
+                # boundary as the existing exec: command channel" — which was
+                # true when written and stopped being true in v6.3.1, when that
+                # channel gained a signature gate this one never got.
+                if new_hcd and _require_signed_commands():
+                    if not _warned_unsigned_hostcfg:
+                        log.error(
+                            'REFUSED host-config apply: require-signed-commands '
+                            'is set and host_config_desired is not signed. It '
+                            'writes system files and calls systemctl as root.')
+                        _warned_unsigned_hostcfg = True
+                    new_hcd = None
                 if isinstance(new_hcd, dict):
                     if new_hcd != host_config_desired:
                         log.info('Host config desired updated from server — will apply')

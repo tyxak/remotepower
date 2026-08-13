@@ -82,6 +82,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'guard_actions',                      # Integrity Guard types are Linux-only
     'harvest_dns_creds', 'force_acme_rescan',   # acme.sh
 )
+_warned_unsigned_scripts = False   # v6.4.3: log the refusal once, not per poll
 DEFAULT_POLL = 60
 
 
@@ -3561,6 +3562,21 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         # v6.4.1: custom monitoring scripts assigned to this device.
         global _custom_scripts
         _cs = resp.get('custom_scripts')
+        # v6.4.3 (SECURITY): parity with the Linux agent. require-signed-commands
+        # is fail-closed and gated only the `command` channel, while custom
+        # scripts execute server-supplied code with the agent's privileges. An
+        # attacker who could not push a command could push a script. Signing
+        # these payloads needs sign-on-change caching (they ride every
+        # heartbeat, and the server signs by shelling out to gpg), so until that
+        # exists they are refused rather than trusted — an operator who sets
+        # this flag has said they do not trust the server.
+        if _cs and _require_signed_commands_win():
+            global _warned_unsigned_scripts
+            if not _warned_unsigned_scripts:
+                log.error('REFUSED %d custom script(s): require-signed-commands '
+                          'is set and script payloads are not signed.', len(_cs))
+                _warned_unsigned_scripts = True
+            _cs = []
         if isinstance(_cs, list):
             # 20 is a runaway backstop, NOT a policy limit — the server already
             # caps at MAX_CUSTOM_SCRIPTS_PER_DEVICE (10), so this only bites if
