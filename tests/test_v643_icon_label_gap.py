@@ -159,6 +159,57 @@ class TestTheMarginIsNotReintroduced(unittest.TestCase):
             css, r':is\([^)]*\.btn-primary[^)]*\)\s*>\s*\.icon-btn\s*\{[^}]*margin-right:\s*0',
             'the .icon-btn margin reset is gone — it stacks on the flex gap')
 
+class TestNoMarginStacksOnAFlexGap(unittest.TestCase):
+    """A margin and a flex `gap` ADD — they do not override.
+
+    v6.4.3: measured in a real browser, 199 rendered items were carrying both.
+    Every rule involved was individually correct, which is why this needs a
+    mechanical check rather than review: `td > .btn-icon + .btn-icon` was added
+    for BARE icon buttons in a cell and is right for those, but
+    `td.exposure-actions` and `td.row-6` are themselves gapped flex rows, so it
+    double-spaced 160 buttons to 12px against the 6px they declare.
+
+    The fix is always a SCOPED null, never deleting the margin: each of these is
+    the only spacing its element has in its non-flex uses. `.distro-icon`'s 6px
+    separates it from the device name in the Devices table, which is not a flex
+    row — removing the declaration would fix the Home card and break the table.
+
+    This is source-level and says so: it pins that each known pairing still has
+    its neutralising rule. The rendered measurement above is what FINDS new
+    ones; this is what stops the fixed ones coming back.
+    """
+
+    NEUTRALISED = (
+        ('td.exposure-actions > .btn-icon + .btn-icon', 'margin-left: 0'),
+        ('td.row-6 > .btn-icon + .btn-icon', 'margin-left: 0'),
+        ('.isl-558 > .distro-icon', 'margin-right: 0'),
+        ('.board-prob-chip > .sem', 'margin-right: 0'),
+        ('.gpu-trend-row > .sparkline', 'margin-left: 0'),
+        ('.isl-156 > .isl-158', 'margin-left: 0'),
+    )
+
+    def setUp(self):
+        self.css = (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+
+    def test_the_stylesheet_is_readable(self):
+        """Positive control — every assertion below is a substring search."""
+        self.assertIn('.btn-icon', self.css)
+        self.assertGreater(len(self.css), 100000)
+
+    def test_each_known_pairing_is_still_neutralised(self):
+        missing = [sel for sel, _ in self.NEUTRALISED if sel not in self.css]
+        self.assertEqual(missing, [],
+                         'these selectors stack a margin on a flex gap and no '
+                         'longer carry their neutralising rule, so they render '
+                         'at double the declared spacing:\n'
+                         + '\n'.join('  ' + m for m in missing))
+
+    def test_the_icon_btn_precedent_is_still_there(self):
+        """The v6.4.1 fix this one copies. If it is ever removed, ~195 buttons
+        regress and these newer rules would look like the odd ones out."""
+        self.assertIn('> .icon-btn { margin-right: 0; }', self.css)
+
+
 
 if __name__ == '__main__':
     unittest.main()

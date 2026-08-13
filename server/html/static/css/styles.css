@@ -4914,6 +4914,28 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
    reason and missed this one. Nulled only inside the flex buttons, so the
    inline uses that still rely on the margin are untouched. */
 :is(.btn-primary, .btn-secondary, .btn-icon, .enroll-btn, .btn) > .icon-btn { margin-right: 0; }
+
+/* v6.4.3: the same mechanism, found by measuring 422 icon-to-label pairs in a
+   real browser rather than by reading. A margin and a flex `gap` do not
+   override each other — they ADD — so every rule below rendered at twice its
+   intended spacing, and every rule involved is individually correct.
+
+   Scoped nulls, never blanket removals: each of these margins is the ONLY
+   spacing its element has in its non-flex uses. `.distro-icon`'s 6px is what
+   separates it from the device name in the Devices table (`a.isl-319`, not a
+   flex row); deleting the declaration would fix the Home card and break the
+   table.
+
+   td > .btn-icon + .btn-icon (styles.css:1396) was added at v6.4.1 for BARE
+   icon buttons in a cell, which is right — but `td.exposure-actions` and
+   `td.row-6` are themselves gapped flex rows, so it double-spaced 160 rendered
+   buttons to 12px against the 6px both of them declare. */
+td.exposure-actions > .btn-icon + .btn-icon,
+td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
+.isl-558 > .distro-icon { margin-right: 0; }
+.board-prob-chip > .sem { margin-right: 0; }
+.gpu-trend-row > .sparkline { margin-left: 0; }
+.isl-156 > .isl-158 { margin-left: 0; }
 .icon-noshrink { width: 13px; height: 13px; flex-shrink: 0; }
 .icon-search-abs { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; }
 .icon-search-abs-sm { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; pointer-events: none; }
