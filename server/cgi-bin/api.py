@@ -68002,6 +68002,72 @@ _EXACT_ROUTES = None
 _DISPATCHER_ROUTES_CACHE = None
 
 
+# Dispatcher rows whose CONDITION carries no method, because the handler
+# branches on ``method()`` internally. The source parse below cannot infer
+# verbs for these, so it used to skip them — silently, which is why the entire
+# SCIM surface, the login endpoint and the three inbound ingest paths were
+# absent from a spec that reports 860 routes and therefore reads as complete.
+#
+# Declared rather than guessed, and keyed on the condition text so a row that
+# is edited stops matching and gets caught instead of quietly reverting to
+# undocumented. `tests/test_v643_openapi_any_method.py` holds the undeclared
+# count at ZERO, so a new any-method row fails the build rather than shrinking
+# the published API by one.
+_ANY_METHOD_ROUTES = {
+    "pi == '/api/login'": (
+        ('POST', '/api/login'),),
+    "pi == '/api/enroll/register'": (
+        ('POST', '/api/enroll/register'),),
+    "pi.startswith('/api/webhook/in/')": (
+        ('POST', '/api/webhook/in/{token}'),),
+    "pi.startswith('/api/syslog/in/')": (
+        ('POST', '/api/syslog/in/{token}'),),
+    "pi.startswith('/api/snmp/trap/')": (
+        ('POST', '/api/snmp/trap/{token}'),),
+    "pi.startswith('/api/devices/') and pi.endswith('/allowlist')": (
+        ('GET', '/api/devices/{device_id}/allowlist'),
+        ('POST', '/api/devices/{device_id}/allowlist')),
+    "pi.startswith('/api/devices/') and pi.endswith('/services/config')": (
+        ('GET', '/api/devices/{device_id}/services/config'),
+        ('POST', '/api/devices/{device_id}/services/config')),
+    # SCIM 2.0. POST /Groups answers 501 and DELETE on a group 405 by design —
+    # roles are defined in RemotePower, not created by the IdP — so those verbs
+    # are deliberately absent here rather than missing.
+    "pi == '/api/scim/v2/Users'": (
+        ('GET', '/api/scim/v2/Users'),
+        ('POST', '/api/scim/v2/Users')),
+    "pi.startswith('/api/scim/v2/Users/')": (
+        ('GET', '/api/scim/v2/Users/{id}'),
+        ('PUT', '/api/scim/v2/Users/{id}'),
+        ('PATCH', '/api/scim/v2/Users/{id}'),
+        ('DELETE', '/api/scim/v2/Users/{id}')),
+    "pi == '/api/scim/v2/Groups'": (
+        ('GET', '/api/scim/v2/Groups'),),
+    "pi.startswith('/api/scim/v2/Groups/')": (
+        ('GET', '/api/scim/v2/Groups/{id}'),
+        ('PUT', '/api/scim/v2/Groups/{id}'),
+        ('PATCH', '/api/scim/v2/Groups/{id}')),
+    "pi == '/api/scim/v2/ServiceProviderConfig'": (
+        ('GET', '/api/scim/v2/ServiceProviderConfig'),),
+    "pi == '/api/scim/v2/ResourceTypes'": (
+        ('GET', '/api/scim/v2/ResourceTypes'),),
+    "pi == '/api/scim/v2/Schemas'": (
+        ('GET', '/api/scim/v2/Schemas'),),
+    # One row, nine routes: the body re-splits the path and branches on both
+    # segment count and method, so nothing about it is inferable from outside.
+    "pi.startswith('/api/vpn-tunnels/')": (
+        ('PATCH', '/api/vpn-tunnels/{id}'),
+        ('DELETE', '/api/vpn-tunnels/{id}'),
+        ('GET', '/api/vpn-tunnels/{id}/stats'),
+        ('GET', '/api/vpn-tunnels/{id}/clients'),
+        ('POST', '/api/vpn-tunnels/{id}/clients'),
+        ('PATCH', '/api/vpn-tunnels/{id}/clients/{client_id}'),
+        ('DELETE', '/api/vpn-tunnels/{id}/clients/{client_id}'),
+        ('GET', '/api/vpn-tunnels/{id}/clients/{client_id}/stats'),
+        ('GET', '/api/vpn-tunnels/{id}/clients/{client_id}/history')),
+}
+
+
 def _dispatcher_routes():
     """Best-effort ``(METHOD, /api/path)`` tuples parsed from the request
     dispatcher chain, so the OpenAPI spec (v5.6.0) covers the ENTIRE surface —
@@ -68020,7 +68086,12 @@ def _dispatcher_routes():
         # unchanged — it just reads the rows instead of this file's source.
         _cond_lines = []
         for _row in _PATTERN_ROUTE_DEFS:
-            _cond_lines.extend(str(_row[5]).splitlines())
+            _cond = str(_row[5])
+            _declared = _ANY_METHOD_ROUTES.get(' '.join(_cond.split()))
+            if _declared is not None:
+                out.extend(_declared)
+                continue
+            _cond_lines.extend(_cond.splitlines())
         for l in _cond_lines:
             if 'pi ' not in l and 'pi.' not in l:
                 continue
