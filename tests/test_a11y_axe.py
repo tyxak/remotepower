@@ -390,9 +390,19 @@ if __name__ == '__main__':
 #     The lesson: measure which nodes fail before theorising about why.
 #
 # Cost: one extra stack plus the demo seeder, on a focused set of data-heavy
-# pages rather than all 74 — the empty-install sweep above already covers
+# pages rather than all 80 — the empty-install sweep above already covers
 # breadth; this covers depth.
-_SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb')
+#
+# v6.4.3: widened from five. The split above says "breadth above, depth here",
+# but the breadth sweep is the EMPTY-install one, so any violation that only
+# exists once rows render was unreachable on 76 of 81 pages — which is exactly
+# the class that produced the 60 CRITICAL label violations recorded above. The
+# additions are the row-heavy pages the walk already knows render tables, plus
+# `tickets`, which the enumeration regex had been excluding entirely until this
+# release and which renders four of them.
+_SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb',
+                 'tickets', 'services', 'reports', 'self', 'scans',
+                 'users', 'logs')
 
 # ZERO, not a baseline. Every violation was a stray opacity declaration and
 # they are all gone, so there is nothing to grandfather.

@@ -3298,17 +3298,37 @@ input.form-input[type="text"][data-token],
    Scoped to the first-child header so sub-section titles / nested-wrapper titles
    stay plain. Negative margins match each container's padding; inner radius is the
    card radius minus the 1px border (10px). */
+/* v6.4.3: three more wrappers get the band. 15 cards put their title inside a
+   .row-8-center / .ai-tool-head / .drift-prof-head row instead of a
+   .section-header, so they rendered the 13px/620 title with NO --surface2 strip
+   and no bottom hairline — a visually different card type sitting among 335
+   identical neighbours.
+
+   The band is ADDED to those wrappers rather than renaming them to
+   .section-header, which was the obvious fix and is wrong: .section-header is
+   `justify-content: space-between` while .row-8-center is `gap: 8px;
+   flex-wrap: wrap`. Renaming would have quietly re-aligned every one of those
+   cards as a side effect of a cosmetic fix. The missing band is the defect; the
+   alignment is deliberate. */
 .dash-card > .section-title:first-child,
 .dash-card > .section-header:first-child,
+.dash-card > .row-8-center:first-child,
+.dash-card > .ai-tool-head:first-child,
+.dash-card > .drift-prof-head:first-child,
 .settings-section > .section-title:first-child,
-.settings-section > .section-header:first-child {
+.settings-section > .section-header:first-child,
+.settings-section > .row-8-center:first-child,
+.settings-section > .ai-tool-head:first-child {
   background: var(--surface2);
   border-bottom: 1px solid var(--hair);
   border-radius: 10px 10px 0 0;
   align-items: center;   /* keeps the title+action row centred inside the band */
 }
 .dash-card > .section-title:first-child,
-.dash-card > .section-header:first-child {
+.dash-card > .section-header:first-child,
+.dash-card > .row-8-center:first-child,
+.dash-card > .ai-tool-head:first-child,
+.dash-card > .drift-prof-head:first-child {
   margin: -16px -18px 14px;
   padding: 11px 18px;
 }
