@@ -26988,6 +26988,19 @@ def handle_config_get():
     # marked it admin and leaked raw webhook secret URLs (Slack/Discord/Teams
     # paths) via /api/config. Mirror the require_auth() admin gate.
     _cfg_is_admin = bool(_resolve_role(_cfg_role).get('admin'))
+    # v6.4.3 (SECURITY): under tenancy, "admin" is not enough. The secret-bearing
+    # keys withheld below — healthchecks_url, siem_url, audit_forward_url,
+    # otlp_endpoint, metrics_push.url, webhook_urls[].url — are INSTANCE-wide
+    # integrations belonging to the platform operator, not to any one tenant.
+    # A tenant admin has role == 'admin', so it passed this check and received
+    # every one of them with their basic-auth credentials intact: an operator of
+    # the smallest tenant could read the host's SIEM and audit-forward
+    # endpoints. Confine the raw values to a platform operator.
+    #
+    # No-op on the common single-tenant install: with tenancy off this branch is
+    # never taken, and every admin keeps exactly the access it has today.
+    if _cfg_is_admin and _tenancy_enforced() and not _caller_is_superadmin():
+        _cfg_is_admin = False
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
             if k not in ('offline_notified', 'offline_pending', 'patch_alerted',
