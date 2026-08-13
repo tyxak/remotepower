@@ -876,6 +876,63 @@ from one that cannot.
   written.
 
 
+### The gates that were not watching, and what they found once they were
+
+A second sweep in the same release, aimed at the measuring apparatus rather than
+the code. Six gates turned out to be looking at less than they appeared to.
+
+- **Three rendered gates measured 74 of 81 pages.** Box overflow, icon spacing
+  and accessibility all enumerate pages with the same regex, which required
+  `data-page` to sit immediately after `class="nav-btn"` — and six sidebar
+  buttons carry an `id` between the two. Tickets, contacts, virtualization,
+  provisioning, billing and kb had therefore never been measured at all, and
+  tickets alone renders four tables. The floors were "more than 50", which 74
+  passes, so losing a tenth of the product was invisible. All three now
+  enumerate 80 and pin the count.
+- **The typography gate read one stylesheet of five.** In the four it never
+  opened: a 15px heading on the public status page, and a 14px body size in the
+  report — 14 being the stop this scale deliberately retired so it "can't creep
+  back". It crept back where the gate could not look.
+- **The class-parity gate counted classes named in COMMENTS as defined**, and
+  the comments in question are mostly retirement notes. So a class could be
+  deleted, its removal documented, and the gate would keep resolving it by
+  reading the documentation of its own removal. That hid `.section-label`, still
+  used by one card, which was rendering a header as body text.
+- **Four uppercase eyebrow headers** survived the note that retired the idiom —
+  including one on the public status page and one dead rule with no users. The
+  note removed a rule; nothing stopped the shape. Now a ratchet at zero.
+- **The Settings doc-pointer gate treated the rest of the document as Settings**
+  (one section had a 565,735-character body carrying 58 doc references), which
+  hid two sections that genuinely had no pointer.
+- **Four browser gates have never run in the release pipeline** — CI installs no
+  playwright, so they skip there every time. `make pre-release` now sets
+  `RP_BROWSER_REQUIRE=1`, turning that skip into a failure.
+
+Found once those were watching, plus from a fresh performance and seeder pass:
+
+- **Reading one device copied the entire fleet.** `device_get` promises a
+  single-row read and deep-copied the whole store on both backends — 38.3 ms
+  against 0.074 ms after the fix, across 42 call sites, several in loops.
+  `fire_webhook` did the same on every event, worst during an incident storm.
+- **A quarantined file told nobody.** Integrity Guard auto-quarantines a
+  suspected web shell, the advisory rates it critical, and it had no alert
+  event: no webhook, no inbox, no feed.
+- **Muting four alerts never lifted the health score** — `cve`, `reboot`,
+  `snapshot` and `service_down` had no mute route, so the penalty stayed
+  forever.
+- **A client-supplied timestamp could forge debug-log entries**, written raw
+  between two sanitised fields.
+- **199 items rendered at double spacing** — a margin and a flex gap add, and
+  160 table buttons showed 12px against the 6px they declare.
+- **The Links page has been empty on every demo instance ever built**: the
+  seeder returned a list where the server requires a dict. Three more stores
+  (custom roles, saved queries, global log rules) backed visible empty pages.
+
+Every scanner is clean at the close: CodeQL 0 results on the config-honoring
+pass that predicts production, semgrep 0 over 100 files, bandit 0 new and 0
+high, gitleaks clean, ruff F821 clean on both passes, and the Hypothesis
+property suites green.
+
 ### A third security pass, over the product rather than the diff
 
 Seven issues, all caught before release. They share a shape worth naming: each
