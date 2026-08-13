@@ -48088,6 +48088,20 @@ _NA_MUTE_EVENTS = {
                                          'ecc_errors'),
     ('reliability',        'warning'):  ('smart_failure', 'disk_predict_fail',
                                          'ecc_errors'),
+    # v6.4.3: four kinds that were emitted per-host, decorated with a device_id
+    # like every other per-host item, and had a per-device alertable event —
+    # and still had no row here, which by this map's own rule made them
+    # permanently unmuteable. Muting the alert stopped the notification and left
+    # the Needs-Attention item standing, so the host's health score (and the
+    # fleet's, which is derived purely from NA items) never recovered. An
+    # operator who muted a known-and-accepted CVE backlog, or a host that is
+    # deliberately pending a reboot, had no way to stop it depressing the score.
+    ('cve',                'critical'): ('cve_found',),
+    ('cve',                'warning'):  ('cve_found',),
+    ('reboot',             'warning'):  ('reboot_required',),
+    ('snapshot',           'warning'):  ('snapshot_old', 'snapshot_stale'),
+    ('service_down',       'critical'): ('service_down',),
+    ('service_down',       'warning'):  ('service_down',),
 }
 
 
