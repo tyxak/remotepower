@@ -5419,6 +5419,36 @@ def build_roles() -> dict:
     ]}
 
 
+def build_tenants() -> dict:
+    """The tenant registry.
+
+    v6.4.3: unseeded, because until this release tenants could only be created
+    over the API and the demo had no reason to hold any. Settings → Security →
+    Tenants now renders them, so an unseeded store means the new panel shows one
+    built-in row on every demo instance — and the rendered gates, which measure
+    the SEEDED instance, would be looking at a list that never grows.
+
+    Isolation stays OFF (`tenancy_enforced` is not set here). These are records
+    an operator can see and manage; nothing is partitioned by them unless the
+    switch above the panel is turned on deliberately.
+
+    Field shape from `handle_tenants_list` / `handle_tenant_create`: the
+    built-in default plus generated `tn_` ids, one suspended so the status pill
+    and the Activate action both have something to show.
+    """
+    t0 = now()
+    return {
+        'default': {'name': 'Default', 'status': 'active', 'created': 0,
+                    'builtin': True},
+        'tn_northwind01': {'name': 'Northwind Trading', 'status': 'active',
+                           'created': t0 - 86400 * 210, 'created_by': 'alice'},
+        'tn_umbrella002': {'name': 'Umbrella Logistics', 'status': 'active',
+                           'created': t0 - 86400 * 95, 'created_by': 'alice'},
+        'tn_hartwell003': {'name': 'Hartwell Clinic', 'status': 'suspended',
+                           'created': t0 - 86400 * 40, 'created_by': 'bob'},
+    }
+
+
 def build_query_templates() -> dict:
     """Saved fleet-query templates — the Data Explorer's "No saved queries yet"."""
     now = int(time.time())
@@ -5519,6 +5549,7 @@ BUILDERS = {
     'users.json':            build_users,
     # v6.4.3: three stores that backed visible, empty pages.
     'roles.json':            build_roles,
+    'tenants.json':          build_tenants,
     'query_templates.json':  build_query_templates,
     'log_rules_global.json': build_log_rules_global,
     'netscan_schedules.json': build_netscan_schedules,
