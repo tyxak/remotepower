@@ -28,11 +28,14 @@ does not call them. So what is measured is every dialog AS OPENED: its markup,
 its static content, and any box that is already tall without data. A picker that
 grows only once the fleet is fetched into it is NOT covered.
 
-That is a real limitation, not a solved problem, and it is worth being blunt:
 `opened` is not `populated`, and the `opened > half` guard below only proves the
-former. Driving 138 individual openers — each with different arguments and
-preconditions — is the follow-up; until then this catches the markup-level half
-of the class, which is the half that shipped uncapped before.
+former — so a second class in this file closes that gap rather than leaving it
+as a caveat. `TestDialogsOpenedByRealClicksAreCapped` does what an operator
+does: it CLICKS each visible control on a seeded instance and measures whatever
+dialog the click opened, so the handler behind the button has real rows to
+render. That measures fewer dialogs (only those a visible control opens) and
+measures them properly; this walk has the breadth, that one has the data, and
+both are needed.
 
 The seeder still runs because the login this walk needs (`alice/demo`) is an
 account the seeder creates; there is no `admin` on a seeded instance.
@@ -105,6 +108,18 @@ _MEASURE_MODAL = """(mid) => {
 }""" % (_TALL_PX, _MANY_CHILDREN)
 
 
+def _nav_pages():
+    """Sidebar pages, using the same tolerant regex the other gates now use —
+    the strict form matched 74 of 81 because six buttons carry an id between
+    the class and data-page."""
+    html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+    seen, out = set(), []
+    for m in re.finditer(r'class="nav-btn[^"]*"[^>]*\sdata-page="([a-z-]+)"', html):
+        if m.group(1) not in seen:
+            seen.add(m.group(1)); out.append(m.group(1))
+    return out
+
+
 def _modal_ids():
     """Every `.modal-overlay` that has an id — the id is what openModal() takes.
 
@@ -121,7 +136,12 @@ def _modal_ids():
     return ids
 
 
-class TestNoDialogBoxGrowsUnbounded(unittest.TestCase):
+class _ModalBase(unittest.TestCase):
+    """Shared stack: seeded data dir, real gunicorn, one browser.
+
+    Both measurement classes need the same expensive setup — a seeded instance
+    and a logged-in browser — so it lives here rather than being paid twice.
+    """
     @classmethod
     def setUpClass(cls):
         if sync_playwright is None:
@@ -166,6 +186,9 @@ class TestNoDialogBoxGrowsUnbounded(unittest.TestCase):
         page.click('#login-form button[type="submit"]')
         page.wait_for_selector('#app', state='visible', timeout=90000)
         page.wait_for_timeout(6000)
+
+
+class TestNoDialogBoxGrowsUnbounded(_ModalBase):
 
     def test_every_dialog_caps_its_variable_row_boxes(self):
         ids = _modal_ids()
@@ -248,6 +271,107 @@ class TestNoDialogBoxGrowsUnbounded(unittest.TestCase):
                           'sweep no matter what shipped')
         finally:
             page.close(); ctx.close()
+
+
+class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
+    """The populated half — dialogs measured as an OPERATOR gets them.
+
+    The walk above calls openModal() directly, which adds `.active` and moves
+    focus and does NOT run the loader that fills the dialog with rows. So it
+    measures markup, and a picker that only grows once the fleet is fetched into
+    it is invisible to it. That limitation is stated at the top of this file;
+    this class is what closes it.
+
+    Instead of mapping 138 dialogs to 138 opener functions, it does what an
+    operator does: crawls the pages and CLICKS each visible `data-action`
+    control, then measures whatever dialog that click opened. The stack is
+    seeded, so the handler behind the button has real rows to render — which is
+    the whole difference. The technique is lifted from
+    test_v640_e2e_click_sweep.py, including its denylist of session-ending and
+    navigate-away actions.
+
+    It measures fewer dialogs than the walk above (only those a visible control
+    opens) and measures them PROPERLY. The two are complements, not rivals, and
+    both are needed: one has breadth, the other has data.
+    """
+
+    # Session-ending / stack-ending / navigate-away actions, same set the click
+    # sweep denies — clicking these ends the run rather than opening a dialog.
+    DENY = re.compile(
+        r"logout|doLogout|downloadDiagnostics|exportEverything|restartServer|"
+        r"shutdownServer|factoryReset|serverSelfUpdate|openSwagger|openApiDocs",
+        re.I)
+
+    def test_dialogs_opened_by_clicking_are_capped(self):
+        pages = _nav_pages()
+        self.assertGreater(len(pages), 50, 'page enumeration found almost nothing')
+        ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        page = ctx.new_page()
+        findings, opened, clicked = {}, 0, 0
+        try:
+            self._login(page)
+            for pg_name in pages:
+                page.evaluate("n => { try { showPage(n) } catch (e) {} }", pg_name)
+                page.wait_for_timeout(500)
+                names = page.evaluate("""() => {
+                  const out = new Set();
+                  for (const el of document.querySelectorAll(
+                           '[data-action],[data-action-btn]')) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) {
+                      out.add(el.dataset.action || el.dataset.actionBtn);
+                    }
+                  }
+                  return [...out];
+                }""")
+                for name in names:
+                    if not name or self.DENY.search(name):
+                        continue
+                    page.evaluate("""(name) => {
+                      const els = document.querySelectorAll(
+                        `[data-action='${name}'],[data-action-btn='${name}']`);
+                      for (const el of els) {
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) { el.click(); return; }
+                      }
+                    }""", name)
+                    clicked += 1
+                    # Let the handler fetch and render. This is the point of the
+                    # class, so it gets real time rather than the 60ms the click
+                    # sweep uses (it only needs the error, not the content).
+                    page.wait_for_timeout(450)
+                    live = page.evaluate(
+                        "() => [...document.querySelectorAll('.modal-overlay.active')]"
+                        ".map(m => m.id).filter(Boolean)")
+                    for mid in live:
+                        if mid in EXEMPT_MODALS:
+                            continue
+                        opened += 1
+                        bad = page.evaluate(_MEASURE_MODAL, mid)
+                        if bad:
+                            findings.setdefault(mid, []).extend(bad)
+                    page.evaluate(
+                        "document.querySelectorAll('.modal-overlay.active')"
+                        ".forEach(m => m.classList.remove('active'));"
+                        "document.querySelectorAll('.drawer.open')"
+                        ".forEach(d => d.classList.remove('open'));")
+        finally:
+            page.close(); ctx.close()
+
+        # Instrument controls. A sweep that clicked nothing, or opened nothing,
+        # reports a clean result while proving nothing — the exact failure this
+        # release exists to close.
+        self.assertGreater(clicked, 100,
+                           f'only {clicked} controls clicked — the crawl is not '
+                           'reaching the pages')
+        self.assertGreater(opened, 5,
+                           f'only {opened} dialogs opened from {clicked} clicks — '
+                           'no dialog was measured with real data in it, so this '
+                           'proved nothing')
+        self.assertEqual(findings, {},
+                         'These boxes inside dialogs render past the ~15-line cap '
+                         'once REAL data is loaded into them:\n'
+                         + json.dumps(findings, indent=2))
 
 
 class TestTheExemptionsAreHonest(unittest.TestCase):

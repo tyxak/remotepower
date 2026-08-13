@@ -43,7 +43,7 @@ never indexed by any of them.
 | **Email & DNS** | DMARC/SPF/DKIM posture per domain, DNSBL/IP-reputation status, and DNS-resolver health — grounds the *email-deliverability* and *DNS-hygiene* AI advisors | admin-configured posture, no PII |
 | **Security posture** | Fleet security-control posture: mutual-TLS coverage (which hosts pin a client certificate), at-rest backup-encryption status, agents in read-only audit mode, and break-glass / maintenance-mode state — lets the AI answer "is backup encryption on?" or "what's our mTLS coverage?" | control-plane summary, no secrets (passphrases/keys are never touched) |
 | **Compliance** | Per-framework control pass/fail (CIS, PCI, HIPAA, SOC 2) and the hosts driving each failure | scores + control ids |
-| **Network map** | Discovered host-to-host dependencies and the site/subnet topology | grounds "what talks to X?" |
+| **Network map** | The declared topology (uplinks and dependencies), the site/subnet layout, unmanaged hosts seen on the LAN, and the **observed** topology — LLDP neighbours as the switches themselves report them, plus each host's actual outbound peers. Unenrolled neighbours (switches, APs) are included, since they appear nowhere else | grounds "what talks to X?" and "what is X physically plugged into?" |
 | **Tickets & KB** | Built-in helpdesk tickets (subject, status, priority) and knowledge-base articles | ticket bodies + KB prose |
 | **Scripts & runbooks** | Saved custom scripts and remediation runbooks (secret-scrubbed before indexing) | `KEY=secret`/token values redacted |
 | **Provisioning & rollouts** | Infrastructure blueprints and staged-rollout state (rings, health gates) | operator-authored |

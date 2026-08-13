@@ -153,6 +153,7 @@ leaving it live.
 - **Only NEW files are ever moved.** Changed or removed files are reported and
   never touched — Guard will not delete or overwrite something you edited.
 - Bounded to 50 files per evaluation.
+- **A quarantine raises an alert** (`guard_quarantined`, critical) the first time a file appears in the vault, carrying the path and a count. It routes like any other event — webhook, email, the alerts inbox and the activity feed — so a file being quarantined reaches you without anyone opening this page. Only NEW entries fire: the vault is cumulative, so an unchanged ledger stays quiet, and a host's existing vault is not announced when it first enrols.
 
 Because the file is gone from its original location, the check returns to **OK**
 on the next run. That's intentional: the alert reads *"detected and

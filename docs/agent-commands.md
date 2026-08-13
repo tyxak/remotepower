@@ -57,6 +57,18 @@ verification, targets a different device, or carries a timestamp outside a
 15-minute freshness window — and reports the refusal as the command's output
 (rc 126), so a blocked command is visible in the UI, never a silent drop.
 
+**Scripts and host config are refused too.** The flag exists for one
+situation — the server or its database is no longer trusted — and two other
+things arriving in the same heartbeat also run code with the agent's
+privileges: assigned **custom scripts** (server-supplied shell, as root) and
+pushed **host configuration** (system file writes and `systemctl`). While the
+flag is set the agent declines both, and says so in its log rather than
+dropping them silently. Signatures do not yet cover those payloads — they ride
+every heartbeat, and signing shells out to gpg — so until that lands the honest
+behaviour for a setting that says *do not trust the server* is to decline the
+untrusted instruction. Turning the flag on therefore narrows what works:
+scripts and host-config push stop applying to that host.
+
 **What this buys / what it doesn't.** Tampering with the server's command
 queue at rest (database compromise, storage tampering, a leaked DB
 credential), MITM past TLS, and replaying a captured command to another host
