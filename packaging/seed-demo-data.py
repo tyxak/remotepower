@@ -5453,6 +5453,67 @@ def build_log_rules_global() -> dict:
     ]}
 
 
+def build_netscan_schedules() -> dict:
+    """Scheduled LAN discovery — the Scans page's "No scheduled LAN discovery".
+
+    Fields taken from `handle_netscan_schedules`, which reads name, subnet,
+    device_id, interval_minutes, enabled, last_run and created_by.
+    """
+    now = int(time.time())
+    rows = [
+        ('ns1', 'Office LAN nightly', '10.0.0.0/24', 'pi1', 1440, True),
+        ('ns2', 'Lab VLAN hourly',    '10.0.9.0/24', 'pi1', 60,   True),
+        ('ns3', 'DMZ weekly',         '192.168.7.0/24', 'fw01', 10080, False),
+    ]
+    return {sid: {'id': sid, 'name': name, 'subnet': subnet,
+                  'device_id': dev, 'interval_minutes': mins,
+                  'enabled': on, 'created_by': 'alice',
+                  'last_run': now - 3600 * (i + 2)}
+            for i, (sid, name, subnet, dev, mins, on) in enumerate(rows)}
+
+
+def build_patch_snapshots() -> dict:
+    """Patch-set snapshots — the Patch snapshots page rendered two empty states.
+
+    Fields from `handle_patch_snapshots`: name, created, created_by,
+    entry_count, promoted_tag.
+    """
+    now = int(time.time())
+    rows = [
+        ('ps1', '2026-08 baseline',        412, 'stable'),
+        ('ps2', '2026-07 baseline',        398, 'stable'),
+        ('ps3', 'pre-kernel-6.11 rollback', 401, ''),
+    ]
+    return {sid: {'id': sid, 'name': name, 'created': now - 86400 * (i * 21 + 5),
+                  'created_by': 'alice', 'entry_count': n, 'promoted_tag': tag}
+            for i, (sid, name, n, tag) in enumerate(rows)}
+
+
+def build_remediations() -> dict:
+    """Auto-remediation attempt ledger — the Automations page said "No
+    auto-remediation attempts yet".
+
+    Deliberately mixed: a success, a failure and a still-verifying attempt. A
+    ledger showing only successes teaches an operator nothing about what the
+    page is for.
+    """
+    now = int(time.time())
+    rows = [
+        ('rm1', 'ng01', 'nginx.lab',    'service_down', 'restart nginx.service',
+         'ok',        'verified', 4200),
+        ('rm2', 'jf01', 'jellyfin.lab', 'container_stopped',
+         'docker compose up -d', 'ok', 'verified', 26000),
+        ('rm3', 'pmx01', 'proxmox.lab', 'disk_predict_fail',
+         'zpool clear tank', 'failed', 'failed', 91000),
+        ('rm4', 'pi1',  'pihole.lab',   'service_down', 'restart pihole-FTL',
+         'ok', 'verifying', 600),
+    ]
+    return {rid: {'id': rid, 'device_id': dev, 'device_name': name,
+                  'trigger_event': ev, 'action': action, 'result': result,
+                  'verify_state': verify, 'ts': now - ago, 'actor': 'auto'}
+            for rid, dev, name, ev, action, result, verify, ago in rows}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -5460,6 +5521,9 @@ BUILDERS = {
     'roles.json':            build_roles,
     'query_templates.json':  build_query_templates,
     'log_rules_global.json': build_log_rules_global,
+    'netscan_schedules.json': build_netscan_schedules,
+    'patch_snapshots.json':  build_patch_snapshots,
+    'remediations.json':     build_remediations,
     'devices.json':          build_devices,
     'hardware.json':         build_hardware,
     'metrics_history.json':  build_metrics_history,
