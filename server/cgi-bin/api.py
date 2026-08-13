@@ -12500,11 +12500,35 @@ def _deliver_user_notifications(event, payload, message, cfg):
         evs = p.get('events')
         if isinstance(evs, list) and evs and event not in evs:
             continue
-        # device-scoped events: respect RBAC visibility + the user's own filter
+        # device-scoped events: respect tenancy, RBAC visibility, and the
+        # user's own filter
         if dev_id:
             if devices is None:
                 devices = load(DEVICES_FILE) or {}
             dev = devices.get(dev_id) or {}
+            # v6.4.3 (SECURITY): tenancy was not checked here at all, and the
+            # RBAC check below cannot stand in for it: _user_notify_scope
+            # returns None for every FULL-FLEET role — a tenant admin, but also
+            # a plain viewer, auditor, mcp or finance user, whose scope type is
+            # 'all' — so `rscope is not None` skipped the only filter there was.
+            # Any account could therefore point a personal webhook at itself and
+            # receive every tenant's device events, indefinitely and invisibly.
+            #
+            # This runs on the FIRING path — usually the scheduler, sometimes an
+            # agent heartbeat — with no operator request in flight, so
+            # _tenant_visible()/_tenant_gate() must NOT be used: they resolve
+            # the REQUEST caller and would gate on the wrong principal (or on
+            # nobody). The subscriber is the principal here, so resolve their
+            # tenant from their stored record, the same way the other
+            # scheduler-context paths do.
+            if _tenancy_enforced():
+                sub_role = (users.get(username) or {}).get('role') or 'viewer'
+                sub_tenant = _user_tenant(username)
+                # A platform operator — admin in the built-in default tenant —
+                # still sees the whole estate, matching _caller_is_superadmin.
+                if not (sub_role == 'admin' and sub_tenant == DEFAULT_TENANT):
+                    if _device_tenant(dev) != sub_tenant:
+                        continue
             rscope = _user_notify_scope(username, users)
             if rscope is not None and not _device_in_scope(rscope, dev):
                 continue
@@ -62974,7 +62998,13 @@ def handle_my_notify_prefs():
     """GET/POST /api/my/notify-prefs — the CURRENT user's personal notification
     subscription (any authenticated user). Additive to the global channels; the
     webhook URL is write-only (returned as a boolean). Delivery respects the
-    user's RBAC device visibility regardless of the scope filter set here."""
+    user's tenant AND their RBAC device visibility, regardless of the scope
+    filter set here — see _deliver_user_notifications, where both are applied.
+
+    The tenant half was missing until v6.4.3 while this sentence claimed the
+    guarantee, which is the more dangerous half of the bug: the subscription is
+    open to any authenticated account and its webhook URL is masked on read, so
+    nothing on the surface contradicted the promise."""
     user = require_auth()
     prefs_all = load(USER_NOTIFY_FILE) or {}
     if method() == 'GET':

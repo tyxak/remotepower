@@ -86,8 +86,21 @@ def start_stack(data_dir=None):
     data_dir = data_dir or tempfile.mkdtemp(prefix='rp-e2e-data-')
     gunicorn_port = _free_port()
 
+    # `--timeout 120` matches what ships (remotepower-wsgi.service and
+    # docker/entrypoint.sh both set it). Without it gunicorn uses its DEFAULT of
+    # 30s, so this harness was killing workers on requests production would have
+    # served — and a killed worker mid-request surfaces as a page that never
+    # renders, i.e. the `wait_for_selector` timeout long recorded as "e2e flake
+    # under load".
+    #
+    # It is easy to hit: on a freshly seeded store every cadence sweep is due at
+    # once, so the first request runs them ON the request path (the out-of-band
+    # scheduler that normally owns them is not running here). Measured on this
+    # box: 60s for the first request, which the 30s default turned into a killed
+    # worker and a connection-refused cascade rather than a slow success.
     worker = subprocess.Popen(
         [sys.executable, '-m', 'gunicorn', '--workers', '2', '--threads', '8',
+         '--timeout', '120',
          '--bind', f'127.0.0.1:{gunicorn_port}', 'wsgi:application'],
         cwd=str(_CGI),
         env=dict(os.environ, RP_DATA_DIR=data_dir),
