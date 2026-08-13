@@ -12345,7 +12345,7 @@ def fire_webhook(event, payload):
             and not event.endswith(('_up', '_online', '_recover', '_recovered'))):
         try:
             _upstream_collateral = _upstream_down(
-                _coll_dev, load(DEVICES_FILE) or {}, int(time.time()),
+                _coll_dev, _load_ro(DEVICES_FILE) or {}, int(time.time()),
                 get_online_ttl())
         except Exception:
             _upstream_collateral = None
@@ -12364,7 +12364,19 @@ def fire_webhook(event, payload):
     except Exception as e:
         sys.stderr.write(f'[remotepower] alert auto-resolve failed {event}: {e}\n')
 
-    cfg = load(CONFIG_FILE)
+    # v6.4.3 (PERF): _config_ro() hands back the SHARED cached config instead of
+    # deep-copying the whole thing. fire_webhook runs on every alert and event,
+    # so this was a full config copy per event — worst precisely during an
+    # incident storm, when events arrive fastest.
+    #
+    # The contract is load-bearing, not advisory: nothing may mutate this. Checked
+    # before converting — fire_webhook itself never writes to `cfg`, and all EIGHT
+    # functions it hands `cfg` to (_deliver_user_notifications, _forward_siem,
+    # _quiet_hours_active, _record_after_hours, _run_automation_rules,
+    # _send_event_email, _send_webhook_to_url, is_email_event_enabled) were each
+    # checked for assignment, setdefault, pop, update and save() on that
+    # parameter. None mutate.
+    cfg = _config_ro()
 
     # v5.6.0: is this exact (host, event) operator-muted? Computed ONCE here and
     # reused for every delivery channel below (memoized set, so this is cheap).
