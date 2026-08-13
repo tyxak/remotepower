@@ -5394,9 +5394,72 @@ def build_incident_memory() -> dict:
             'last_run': t - 3600}
 
 
+def build_roles() -> dict:
+    """Custom RBAC roles.
+
+    v6.4.3: unseeded, so the Users page said "No custom roles" on every demo —
+    for a headline capability of the product. Field shape taken from
+    `_clean_role_body`: a lowercase-slug name, permissions drawn from
+    `_VALID_ROLE_PERMS`, and a scope whose type is one of `_RBAC_SCOPE_TYPES`.
+    """
+    return {'roles': [
+        {'name': 'ops-oncall',
+         'permissions': ['command', 'exec', 'reboot', 'services', 'containers'],
+         'scope': {'type': 'all'},
+         'description': 'Runs remediation on any host during a shift'},
+        {'name': 'patcher',
+         'permissions': ['patch', 'packages', 'scan'],
+         'scope': {'type': 'groups', 'values': ['prod']},
+         'description': 'Applies updates to production only'},
+        {'name': 'lab-admin',
+         'permissions': ['command', 'exec', 'script', 'reboot', 'shutdown',
+                         'containers', 'services'],
+         'scope': {'type': 'tags', 'values': ['lab']},
+         'description': 'Full control of lab-tagged hosts, nothing else'},
+    ]}
+
+
+def build_query_templates() -> dict:
+    """Saved fleet-query templates — the Data Explorer's "No saved queries yet"."""
+    now = int(time.time())
+    rows = [
+        ('qt1', 'Unencrypted disks',
+         'Hosts whose root volume reports no LUKS/BitLocker/FileVault'),
+        ('qt2', 'Reboot pending over 7 days',
+         'Hosts that have wanted a reboot for more than a week'),
+        ('qt3', 'Critical CVEs with a fix available',
+         'Where patching would actually help right now'),
+        ('qt4', 'Agents older than the server',
+         'Version drift across the fleet'),
+    ]
+    return {qid: {'id': qid, 'name': name, 'description': desc,
+                  'created_by': 'alice', 'created_at': now - 86400 * (i + 2)}
+            for i, (qid, name, desc) in enumerate(rows)}
+
+
+def build_log_rules_global() -> dict:
+    """Fleet-wide log alert rules — the Logs page's "No per-device rules"."""
+    now = int(time.time())
+    return {'rules': [
+        {'id': 'lr-oom', 'name': 'Kernel OOM killer',
+         'pattern': 'Out of memory: Killed process', 'severity': 'critical',
+         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 30},
+        {'id': 'lr-sshd', 'name': 'SSH root login attempt',
+         'pattern': 'Failed password for root', 'severity': 'warning',
+         'unit': 'sshd', 'enabled': True, 'created': now - 86400 * 21},
+        {'id': 'lr-disk', 'name': 'Filesystem remounted read-only',
+         'pattern': 'Remounting filesystem read-only', 'severity': 'critical',
+         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 14},
+    ]}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
+    # v6.4.3: three stores that backed visible, empty pages.
+    'roles.json':            build_roles,
+    'query_templates.json':  build_query_templates,
+    'log_rules_global.json': build_log_rules_global,
     'devices.json':          build_devices,
     'hardware.json':         build_hardware,
     'metrics_history.json':  build_metrics_history,
