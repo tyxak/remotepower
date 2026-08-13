@@ -35,14 +35,40 @@ _WITHOUT_POINTER_CEILING = 27
 
 
 def _settings_html():
+    """The Settings page only.
+
+    v6.4.3: this sliced to END OF FILE, so everything after Settings — every
+    other page in the document — counted as part of it. Measured consequences,
+    both real: the last section ("Distribute the public key to agents", which is
+    on page-signing, not Settings) had a 565,735-character body carrying 58 doc
+    references, and "Ignored items" absorbed the whole Documentation page and
+    inherited its 11. Sections that HAVE no pointer therefore appeared to have
+    one, and the ceiling below was tuned against those inflated numbers.
+    """
     h = _HTML.read_text(encoding="utf-8")
-    return h[h.index('id="page-settings"') :]
+    start = h.index('id="page-settings"')
+    nxt = h.find('id="page-', start + 10)
+    return h[start:nxt] if nxt != -1 else h[start:]
 
 
 def _sections():
-    """[(title, section_html)] for every Settings section."""
+    """[(title, section_html)] for every Settings section.
+
+    Each body is bounded by whichever comes FIRST: the next section, the next
+    page, or the next settings pane. Splitting on `settings-section` alone let a
+    body run past all three.
+    """
     out = []
-    for part in re.split(r'(?=<div class="settings-section")', _settings_html())[1:]:
+    html = _settings_html()
+    starts = [m.start() for m in re.finditer(r'<div class="settings-section', html)]
+    bounds = sorted(set(
+        starts
+        + [m.start() for m in re.finditer(r'id="page-', html)]
+        + [m.start() for m in re.finditer(r'id="settings-pane-', html)]
+        + [len(html)]))
+    for st in starts:
+        end = next((b for b in bounds if b > st), len(html))
+        part = html[st:end]
         t = re.search(r'<div class="section-title">([^<]+)</div>', part)
         if t:
             out.append((t.group(1).strip(), part))
