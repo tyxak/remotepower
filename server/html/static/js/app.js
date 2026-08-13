@@ -23738,6 +23738,22 @@ async function _loadAuditSection(key) {
                           ? (si.mac_posture.sip ? 'on' : 'OFF') : null],
           ['macOS Firewall', (si.mac_posture && typeof si.mac_posture.firewall === 'boolean')
                           ? (si.mac_posture.firewall ? 'on' : 'OFF') : null],
+          // v6.4.3: the Linux third of the same question. BitLocker and
+          // FileVault have had a pill here since their posture landed, while
+          // dm-crypt/LUKS — collected, sanitised, scored by compliance and the
+          // risk factor, and read by RAG and reports — rendered nowhere at all.
+          // On a mostly-Linux fleet "is this disk encrypted?" had no answer in
+          // the one place an operator looks at a single host.
+          // Null unless the agent actually answered: it sends {} rather than
+          // encrypted:false when it cannot see device-mapper, so absence stays
+          // absence instead of being drawn as "OFF".
+          ['Disk encryption', (si.disk_encryption
+                               && typeof si.disk_encryption.encrypted === 'boolean')
+                          ? (si.disk_encryption.encrypted
+                               ? 'on' + ((si.disk_encryption.crypt_devices || []).length
+                                   ? ` · ${si.disk_encryption.crypt_devices.length} volume(s)` : '')
+                               : 'OFF')
+                          : null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
