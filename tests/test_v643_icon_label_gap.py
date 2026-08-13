@@ -111,7 +111,7 @@ class TestOneIconLabelGap(unittest.TestCase):
     def test_every_icon_button_uses_the_standard_gap(self):
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         pages, seen = [], set()
-        for m in re.finditer(r'class="nav-btn[^"]*" data-page="([a-z-]+)"', html):
+        for m in re.finditer(r'class="nav-btn[^"]*"[^>]*\sdata-page="([a-z-]+)"', html):
             if m.group(1) not in seen:
                 seen.add(m.group(1)); pages.append(m.group(1))
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})

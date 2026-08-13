@@ -287,11 +287,18 @@ class TestAccessibilityAxe(unittest.TestCase):
         from pathlib import Path as _P
         html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
         pages, seen = [], set()
-        for m in _re.finditer(r'class="nav-btn[^"]*" data-page="([a-z-]+)"', html):
+        for m in _re.finditer(r'class="nav-btn[^"]*"[^>]*\sdata-page="([a-z-]+)"', html):
             if m.group(1) not in seen:
                 seen.add(m.group(1))
                 pages.append(m.group(1))
-        self.assertGreater(len(pages), 50)
+        # v6.4.3: was `> 50`, which passed at 74 while SIX real pages were
+        # being silently excluded by the enumeration regex (tickets,
+        # contacts, virtualization, provisioning, billing, kb — all of them
+        # row-heavy, and none ever measured). A floor that low cannot tell
+        # 'the walk works' from 'the walk lost a tenth of the product', so
+        # it pins the real number: raise it deliberately when a page is
+        # added, and a silent drop fails here.
+        self.assertGreaterEqual(len(pages), 80)
 
         async def _audit(page, p):
             await page.evaluate(

@@ -125,14 +125,21 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
     def _pages(self):
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         seen, out = set(), []
-        for m in re.finditer(r'class="nav-btn[^"]*" data-page="([a-z-]+)"', html):
+        for m in re.finditer(r'class="nav-btn[^"]*"[^>]*\sdata-page="([a-z-]+)"', html):
             if m.group(1) not in seen:
                 seen.add(m.group(1)); out.append(m.group(1))
         return out
 
     def test_every_page_caps_its_variable_row_boxes(self):
         pages = self._pages()
-        self.assertGreater(len(pages), 50, 'page enumeration found almost nothing')
+        # v6.4.3: was `> 50`, which passed at 74 while SIX real pages were
+        # being silently excluded by the enumeration regex (tickets,
+        # contacts, virtualization, provisioning, billing, kb — all of them
+        # row-heavy, and none ever measured). A floor that low cannot tell
+        # 'the walk works' from 'the walk lost a tenth of the product', so
+        # it pins the real number: raise it deliberately when a page is
+        # added, and a silent drop fails here.
+        self.assertGreaterEqual(len(pages), 80, 'page enumeration lost pages')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
         findings, measured = {}, 0
@@ -154,7 +161,7 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         finally:
             page.close(); ctx.close()
 
-        self.assertGreater(measured, 50, 'the walk visited almost no pages')
+        self.assertGreaterEqual(measured, 80, 'the walk visited fewer pages than exist')
         self.assertEqual(findings, {}, 'These boxes render past the ~15-line cap '
                          'and neither they nor any ancestor scroll:\n' +
                          json.dumps(findings, indent=2))

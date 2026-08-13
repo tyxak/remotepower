@@ -18,6 +18,24 @@ is where the discovery-and-open technique here comes from — including its most
 important property: if the dialogs do not actually open, that is a FAILURE, not
 a quiet pass. A walk that opens nothing measures nothing while reporting a clean
 sweep, and this whole release exists because of gates that did that.
+
+WHAT THIS MEASURES, AND WHAT IT DOES NOT — stated because the distinction is
+easy to miss and the file would otherwise read as stronger than it is.
+
+`openModal(id)` adds `.active` and moves focus. It does NOT call the loader that
+fills a dialog with rows; each dialog's opener function does that, and this walk
+does not call them. So what is measured is every dialog AS OPENED: its markup,
+its static content, and any box that is already tall without data. A picker that
+grows only once the fleet is fetched into it is NOT covered.
+
+That is a real limitation, not a solved problem, and it is worth being blunt:
+`opened` is not `populated`, and the `opened > half` guard below only proves the
+former. Driving 138 individual openers — each with different arguments and
+preconditions — is the follow-up; until then this catches the markup-level half
+of the class, which is the half that shipped uncapped before.
+
+The seeder still runs because the login this walk needs (`alice/demo`) is an
+account the seeder creates; there is no `admin` on a seeded instance.
 """
 import json
 import os
