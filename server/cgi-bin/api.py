@@ -3422,10 +3422,9 @@ def maybe_rehash(username, plain, stored):
     (Legacy pre-2.3.2 unsalted-SHA-256 hashes are no longer accepted by
     verify_password, so they never reach here — they're reset out-of-band.)"""
     if _BCRYPT and not stored.startswith('$2'):
-        users = load(USERS_FILE)
-        if username in users:
-            users[username]['password_hash'] = hash_password(plain)
-            save(USERS_FILE, users)
+        with _LockedUpdate(USERS_FILE) as users:
+            if username in users:
+                users[username]['password_hash'] = hash_password(plain)
 
 # ── TOTP (2FA) ─────────────────────────────────────────────────────────────────
 import hmac as _hmac_mod
@@ -5262,19 +5261,24 @@ def _save_held(path, data):
 
 
 def ensure_default_user():
-    users = load(USERS_FILE)
-    if not users:
-        # v2.3.2: seed via hash_password() (bcrypt or salted PBKDF2)
-        # instead of a bare unsalted sha256. The password is still the
-        # documented default 'remotepower' — the operator MUST change
-        # it on first login; `must_change_password` drives a warning
-        # banner in the UI until they do.
-        save(USERS_FILE, {'admin': {
-            'password_hash': hash_password('remotepower'),
-            'created': int(time.time()),
-            'role': 'admin',
-            'must_change_password': True,
-        }})
+    # v6.4.3: check-then-seed under the lock. Every gunicorn worker imports this
+    # module and calls this at import time, so two workers could both observe an
+    # empty store and both seed. That is the race the e2e harness documents from
+    # the other side: a straggler worker re-seeding `must_change_password: True`
+    # immediately after another process had cleared it.
+    with _LockedUpdate(USERS_FILE) as users:
+        if not users:
+            # v2.3.2: seed via hash_password() (bcrypt or salted PBKDF2)
+            # instead of a bare unsalted sha256. The password is still the
+            # documented default 'remotepower' — the operator MUST change
+            # it on first login; `must_change_password` drives a warning
+            # banner in the UI until they do.
+            users['admin'] = {
+                'password_hash': hash_password('remotepower'),
+                'created': int(time.time()),
+                'role': 'admin',
+                'must_change_password': True,
+            }
 
 ensure_default_user()
 
@@ -13825,7 +13829,7 @@ def handle_login():
                             and bool(_ldap_cfg.get('tenancy_enforced'))
                             and not str(_ldap_cfg.get('sso_default_tenant') or '').strip()):
                         new_role = 'viewer'
-                    users[username] = {
+                    _ldap_rec = {
                         'role':            new_role,
                         # Store a placeholder hash that nothing matches —
                         # subsequent local-auth attempts will fail and fall
@@ -13837,8 +13841,17 @@ def handle_login():
                         'ldap_full_name':  ldap_user_info.full_name,
                         'ldap_email':      ldap_user_info.email,
                     }
-                    save(USERS_FILE, users)
-                    user = users[username]
+                    # v6.4.3: commit the single new record under the lock rather
+                    # than writing back the whole `users` snapshot read before
+                    # the LDAP round-trip — that snapshot is now old enough to
+                    # resurrect an account deleted while this login was in
+                    # flight. The lock is taken HERE and not around the login as
+                    # a whole on purpose: doing that would serialise every login
+                    # and hold the lock across bcrypt and network I/O.
+                    with _LockedUpdate(USERS_FILE) as _u:
+                        _u[username] = _ldap_rec
+                    users[username] = _ldap_rec
+                    user = _ldap_rec
                     audit_log(username, 'ldap_auto_provision',
                               f'created from LDAP, role={new_role}, dn={ldap_user_info.dn}')
                 else:
@@ -13852,14 +13865,18 @@ def handle_login():
                         # semantics as _provision_or_promote_user for SAML/OIDC).
                         if _ldap_eff_role == 'admin' and user.get('role') != 'admin':
                             user['role'] = 'admin'
+                            with _LockedUpdate(USERS_FILE) as _u:
+                                if username in _u:
+                                    _u[username]['role'] = 'admin'
                             users[username] = user
-                            save(USERS_FILE, users)
                             audit_log(username, 'ldap_role_promoted', 'matched admin group')
                         elif (_ldap_eff_role not in ('viewer', '') and
                               user.get('role') in (None, '', 'viewer')):
                             user['role'] = _ldap_eff_role
+                            with _LockedUpdate(USERS_FILE) as _u:
+                                if username in _u:
+                                    _u[username]['role'] = _ldap_eff_role
                             users[username] = user
-                            save(USERS_FILE, users)
                             audit_log(username, 'ldap_role_promoted',
                                       f'group-mapped to {_ldap_eff_role}')
                 audit_log(username, 'login_ldap', f'authenticated via LDAP (dn={ldap_user_info.dn})')
@@ -30808,34 +30825,33 @@ def handle_user_create():
     _pp_ok, _pp_msg = _validate_password_policy(password, username)   # v5.4.1 (D1)
     if not _pp_ok:
         respond(400, {'error': _pp_msg})
-    users = load(USERS_FILE)
-    if username in users: respond(400, {'error': 'User already exists'})
-    # v6.4.2: a created account starts with a password its ADMIN chose, which
-    # they then have to convey somehow. Flag it so the first login goes through
-    # the change-password gate that already exists (_enforce_password_change,
-    # pre-dispatch) — the same treatment the seeded default admin has always
-    # had. Opt-out via must_change_password:false for an automated provisioner
-    # that sets a real credential out of band; the model defaults it ON, so an
-    # existing caller that sends nothing gets the safer behaviour.
-    _must_change = body.get('must_change_password')
-    # v6.4.3 (SECURITY): stamp the CREATOR's tenant. Without this the record had
-    # no `tenant_id`, `_user_tenant()` resolved it to DEFAULT_TENANT, and
-    # `role == 'admin' and tenant == DEFAULT_TENANT` IS the superadmin test — so
-    # a tenant-scoped admin (which passes require_admin_auth) could create an
-    # account that OUTRANKED it, log in as that account, and then
-    # `POST /api/tenants/default/users {itself}` to become a permanent
-    # superadmin. That is the exact attack require_superadmin_auth()'s docstring
-    # says the v5.7.0 gate exists to prevent; this was an unguarded detour to the
-    # same place. The identical hazard was fixed for API KEYS in v6.1.1 with this
-    # same one-liner — a tenant admin could not mint a cross-tenant key but could
-    # mint a cross-tenant human login, which is strictly more powerful.
-    # _caller_effective_tenant (not _user_tenant) for the same reason it is used
-    # there: an API-key caller carries its own tenant.
-    users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
-                       'tenant_id': _caller_effective_tenant(_uc_actor),
-                       'password_changed_at': int(time.time()), 'role': role,
-                       'must_change_password': True if _must_change is None else bool(_must_change)}
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username in users: respond(400, {'error': 'User already exists'})
+        # v6.4.2: a created account starts with a password its ADMIN chose, which
+        # they then have to convey somehow. Flag it so the first login goes through
+        # the change-password gate that already exists (_enforce_password_change,
+        # pre-dispatch) — the same treatment the seeded default admin has always
+        # had. Opt-out via must_change_password:false for an automated provisioner
+        # that sets a real credential out of band; the model defaults it ON, so an
+        # existing caller that sends nothing gets the safer behaviour.
+        _must_change = body.get('must_change_password')
+        # v6.4.3 (SECURITY): stamp the CREATOR's tenant. Without this the record had
+        # no `tenant_id`, `_user_tenant()` resolved it to DEFAULT_TENANT, and
+        # `role == 'admin' and tenant == DEFAULT_TENANT` IS the superadmin test — so
+        # a tenant-scoped admin (which passes require_admin_auth) could create an
+        # account that OUTRANKED it, log in as that account, and then
+        # `POST /api/tenants/default/users {itself}` to become a permanent
+        # superadmin. That is the exact attack require_superadmin_auth()'s docstring
+        # says the v5.7.0 gate exists to prevent; this was an unguarded detour to the
+        # same place. The identical hazard was fixed for API KEYS in v6.1.1 with this
+        # same one-liner — a tenant admin could not mint a cross-tenant key but could
+        # mint a cross-tenant human login, which is strictly more powerful.
+        # _caller_effective_tenant (not _user_tenant) for the same reason it is used
+        # there: an API-key caller carries its own tenant.
+        users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
+                           'tenant_id': _caller_effective_tenant(_uc_actor),
+                           'password_changed_at': int(time.time()), 'role': role,
+                           'must_change_password': True if _must_change is None else bool(_must_change)}
     audit_log(_uc_actor, 'user_create', detail=f'username={username} role={role}')
     if role == 'admin':
         _fire_control_plane_change('admin_user_created', _uc_actor, username)
@@ -30848,16 +30864,19 @@ def handle_user_delete(username):
     if not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(404, {'error': 'User not found'})
     if username == requester: respond(400, {'error': 'Cannot delete yourself'})
-    users = load(USERS_FILE)
-    if username not in users: respond(404, {'error': 'User not found'})
-    # v6.4.3 (SECURITY): 404, not 403 — a tenant admin must not be able to probe
-    # for the existence of another tenant's accounts. Without this a tenant
-    # admin could delete the PLATFORM SUPERADMIN.
-    if not _user_tenant_visible(username): respond(404, {'error': 'User not found'})
-    admins = [u for u, d in users.items() if d.get('role', 'admin') == 'admin']
-    if len(admins) <= 1 and users[username].get('role', 'admin') == 'admin':
-        respond(400, {'error': 'Cannot delete last admin'})
-    del users[username]; save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users: respond(404, {'error': 'User not found'})
+        # v6.4.3 (SECURITY): 404, not 403 — a tenant admin must not be able to
+        # probe for the existence of another tenant's accounts. Without this a
+        # tenant admin could delete the PLATFORM SUPERADMIN.
+        if not _user_tenant_visible(username): respond(404, {'error': 'User not found'})
+        # v6.4.3: the last-admin check and the delete must be ATOMIC. Read
+        # unlocked, two concurrent deletes each saw two admins, each decided it
+        # was not removing the last one, and the install was left with none.
+        admins = [u for u, d in users.items() if d.get('role', 'admin') == 'admin']
+        if len(admins) <= 1 and users[username].get('role', 'admin') == 'admin':
+            respond(400, {'error': 'Cannot delete last admin'})
+        del users[username]
     # v6.4.2: deleting the account used to leave the avatar JPEG on disk and
     # the session rows in tokens.json. The tokens were inert (verify_token
     # returns None once the user record is gone) but both are still storage
@@ -31042,42 +31061,45 @@ def handle_user_passwd():
     if not _pp_ok:
         respond(400, {'error': _pp_msg})
 
-    users = load(USERS_FILE)
-    _, requester_role = verify_token(get_token_from_request())
+    # v6.4.3 (SECURITY): the read and the write must be ATOMIC. Unlocked,
+    # a password rotation could be silently reverted by any concurrent
+    # writer holding an older snapshot of the whole users dict — including
+    # a UI-prefs save, which every logged-in operator triggers constantly.
+    with _LockedUpdate(USERS_FILE) as users:
+        _, requester_role = verify_token(get_token_from_request())
 
-    # Non-admins can only change their own password. Gate on the resolved
-    # role's admin flag (not a literal 'admin' string) so a custom admin-
-    # equivalent role can't be misread as non-admin — and the denylist shape
-    # can't drift into a bypass.
-    if username != requester and not _resolve_role(requester_role).get('admin'):
-        respond(403, {'error': 'Cannot change another user\'s password'})
+        # Non-admins can only change their own password. Gate on the resolved
+        # role's admin flag (not a literal 'admin' string) so a custom admin-
+        # equivalent role can't be misread as non-admin — and the denylist shape
+        # can't drift into a bypass.
+        if username != requester and not _resolve_role(requester_role).get('admin'):
+            respond(403, {'error': 'Cannot change another user\'s password'})
 
-    user = users.get(username)
-    if not user: respond(404, {'error': 'User not found'})
+        user = users.get(username)
+        if not user: respond(404, {'error': 'User not found'})
 
-    # Changing own password always requires old password
-    if username == requester:
-        if not verify_password(old_pw, user['password_hash']):
-            respond(401, {'error': 'Old password incorrect'})
+        # Changing own password always requires old password
+        if username == requester:
+            if not verify_password(old_pw, user['password_hash']):
+                respond(401, {'error': 'Old password incorrect'})
 
-    users[username]['password_hash'] = hash_password(new_pw)
-    users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
-    # v2.3.2: once the password is changed, clear the default-password
-    # warning flag so the UI banner stops showing.
-    #
-    # v6.4.2: but only for a SELF-change. An admin resetting someone else's
-    # password has just invented one and is about to send it over Slack or
-    # read it down the phone — the very case the flag exists for. Clearing it
-    # there meant the forgotten-password path ended with a shared secret the
-    # product never asked anyone to replace. Setting it makes the next login
-    # go through the existing change-password gate, which is already built:
-    # _enforce_password_change() runs pre-dispatch and the client already shows
-    # the banner. So this is one line, not a feature.
-    if username == requester:
-        users[username].pop('must_change_password', None)
-    else:
-        users[username]['must_change_password'] = True
-    save(USERS_FILE, users)
+        users[username]['password_hash'] = hash_password(new_pw)
+        users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
+        # v2.3.2: once the password is changed, clear the default-password
+        # warning flag so the UI banner stops showing.
+        #
+        # v6.4.2: but only for a SELF-change. An admin resetting someone else's
+        # password has just invented one and is about to send it over Slack or
+        # read it down the phone — the very case the flag exists for. Clearing it
+        # there meant the forgotten-password path ended with a shared secret the
+        # product never asked anyone to replace. Setting it makes the next login
+        # go through the existing change-password gate, which is already built:
+        # _enforce_password_change() runs pre-dispatch and the client already shows
+        # the banner. So this is one line, not a feature.
+        if username == requester:
+            users[username].pop('must_change_password', None)
+        else:
+            users[username]['must_change_password'] = True
 
     # Invalidate all existing sessions for this user on password change
     tokens = load(TOKENS_FILE)
@@ -31332,12 +31354,11 @@ def handle_ui_prefs_set():
         respond(400, {'error': 'body must be a JSON object'})
 
     clean = _sanitise_ui_prefs(body)
-    users = load(USERS_FILE)
-    if username not in users:
-        # Should be impossible — auth just succeeded — but defend anyway.
-        respond(404, {'error': 'User not found'})
-    users[username]['ui_prefs'] = clean
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            # Should be impossible — auth just succeeded — but defend anyway.
+            respond(404, {'error': 'User not found'})
+        users[username]['ui_prefs'] = clean
     respond(200, {'ok': True, 'prefs': clean})
 
 
@@ -31445,10 +31466,9 @@ def handle_ui_prefs_clear():
     username = require_auth()
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
-    users = load(USERS_FILE)
-    if username in users and 'ui_prefs' in users[username]:
-        users[username].pop('ui_prefs', None)
-        save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username in users:
+            users[username].pop('ui_prefs', None)
     respond(200, {'ok': True})
 
 
@@ -31491,10 +31511,9 @@ def handle_totp_setup():
     secret = _generate_totp_secret()
     uri = _totp_provisioning_uri(secret, username)
     # Store pending secret — not active until confirmed
-    users = load(USERS_FILE)
-    if username not in users: respond(404, {'error': 'User not found'})
-    users[username]['totp_pending'] = secret
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users: respond(404, {'error': 'User not found'})
+        users[username]['totp_pending'] = secret
     audit_log(username, 'totp_setup', 'generated new TOTP secret')
     respond(200, {'ok': True, 'secret': secret, 'uri': uri,
                   'note': 'Scan the QR code or enter the secret in your authenticator app, then confirm with /api/totp/confirm'})
@@ -31506,20 +31525,19 @@ def handle_totp_confirm():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.TotpConfirmRequest)
     code = str(body.get('code', '')).strip()
-    users = load(USERS_FILE)
-    if username not in users: respond(404, {'error': 'User not found'})
-    pending = users[username].get('totp_pending')
-    if not pending: respond(400, {'error': 'No pending TOTP setup — call /api/totp/setup first'})
-    valid_codes = _totp(pending)
-    if code not in valid_codes:
-        respond(400, {'error': 'Invalid code — check your authenticator app and try again'})
-    # Activate TOTP
-    users[username]['totp_secret'] = pending
-    del users[username]['totp_pending']
-    # v3.7.0: mint recovery codes at activation; return plaintext once.
-    plain, hashed = _generate_recovery_codes()
-    users[username]['recovery_codes'] = hashed
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users: respond(404, {'error': 'User not found'})
+        pending = users[username].get('totp_pending')
+        if not pending: respond(400, {'error': 'No pending TOTP setup — call /api/totp/setup first'})
+        valid_codes = _totp(pending)
+        if code not in valid_codes:
+            respond(400, {'error': 'Invalid code — check your authenticator app and try again'})
+        # Activate TOTP
+        users[username]['totp_secret'] = pending
+        del users[username]['totp_pending']
+        # v3.7.0: mint recovery codes at activation; return plaintext once.
+        plain, hashed = _generate_recovery_codes()
+        users[username]['recovery_codes'] = hashed
     audit_log(username, 'totp_enabled', '2FA activated; recovery codes generated')
     respond(200, {'ok': True, 'recovery_codes': plain,
                   'message': '2FA is now enabled. Save these recovery codes somewhere safe — '
@@ -31532,15 +31550,14 @@ def handle_totp_regenerate_codes():
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.TotpRegenerateCodesRequest)
-    users = load(USERS_FILE)
-    if username not in users: respond(404, {'error': 'User not found'})
-    if not users[username].get('totp_secret'):
-        respond(400, {'error': '2FA is not enabled'})
-    if not verify_password(body.get('password', ''), users[username].get('password_hash', '')):
-        respond(401, {'error': 'Password incorrect'})
-    plain, hashed = _generate_recovery_codes()
-    users[username]['recovery_codes'] = hashed
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users: respond(404, {'error': 'User not found'})
+        if not users[username].get('totp_secret'):
+            respond(400, {'error': '2FA is not enabled'})
+        if not verify_password(body.get('password', ''), users[username].get('password_hash', '')):
+            respond(401, {'error': 'Password incorrect'})
+        plain, hashed = _generate_recovery_codes()
+        users[username]['recovery_codes'] = hashed
     audit_log(username, 'totp_recovery_regenerated', 'recovery codes regenerated')
     respond(200, {'ok': True, 'recovery_codes': plain})
 
@@ -31551,14 +31568,13 @@ def handle_totp_disable():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.TotpDisableRequest)
     password = body.get('password', '')
-    users = load(USERS_FILE)
-    if username not in users: respond(404, {'error': 'User not found'})
-    if not verify_password(password, users[username].get('password_hash', '')):
-        respond(401, {'error': 'Password incorrect'})
-    users[username].pop('totp_secret', None)
-    users[username].pop('totp_pending', None)
-    users[username].pop('recovery_codes', None)   # v3.7.0
-    save(USERS_FILE, users)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users: respond(404, {'error': 'User not found'})
+        if not verify_password(password, users[username].get('password_hash', '')):
+            respond(401, {'error': 'Password incorrect'})
+        users[username].pop('totp_secret', None)
+        users[username].pop('totp_pending', None)
+        users[username].pop('recovery_codes', None)   # v3.7.0
     audit_log(username, 'totp_disabled', '2FA deactivated')
     respond(200, {'ok': True, 'message': '2FA has been disabled.'})
 
