@@ -84,6 +84,19 @@ class TestTheSectionIsPresentAndGated(unittest.TestCase):
         self.assertRegex(fn, r'if \(!r \|\| !r\.ok',
                          'refusal must be detected on the resolved body')
 
+    def test_the_settings_filter_cannot_reveal_it(self):
+        """The section is a `.settings-section` in the Security pane, so the
+        pane's filter box iterates over it. If that filter set an inline
+        `display`, the inline style would beat the `hidden` class and show the
+        panel to someone the server refuses. It toggles a CLASS instead, and
+        this pins that — a future switch to inline styles would turn a
+        cosmetic change into a visibility bug."""
+        fn = js_function(_APP, 'filterRows')
+        self.assertIn("classList.toggle('row-hidden'", fn)
+        self.assertNotIn('style.display', fn,
+                         'filterRows sets an inline display — that overrides '
+                         'the hidden class and reveals superadmin-only panels')
+
     def test_it_carries_a_doc_pointer(self):
         self.assertIn('docs/scaling.md', _SEC)
 
