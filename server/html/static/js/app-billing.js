@@ -133,10 +133,10 @@ function _teShow(e) {
         <input type="text" id="te-dev-search" class="form-input" placeholder="Search a device…" autocomplete="off">
         <div id="te-dev-results" class="scroll-cap-sm"></div>
       </div>
-      ${showRate ? `<div class="form-group"><label class="form-label">Rate</label><select id="te-rate" class="form-input">${rateOpts}</select></div>` : ''}
+      ${showRate ? `<div class="form-group"><label class="form-label" for="te-rate">Rate</label><select id="te-rate" class="form-input">${rateOpts}</select></div>` : ''}
     </div>
     <div id="te-internal-box" class="form-group ${billable ? 'hidden' : ''}">
-      <label class="form-label">Category</label>
+      <label class="form-label" for="te-category">Category</label>
       <select id="te-category" class="form-input">${catOpts}</select>
     </div>
     <div class="form-group">
@@ -653,8 +653,8 @@ async function _billingWorksheet() {
   host.innerHTML = `
     <div class="dash-card">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Customer (site)</label><select id="ws-site" class="form-input">${opts}</select></div>
-        <div class="form-group"><label class="form-label">Month</label><input type="month" id="ws-month" class="form-input" value="${escAttr(month)}"></div>
+        <div class="form-group"><label class="form-label" for="ws-site">Customer (site)</label><select id="ws-site" class="form-input">${opts}</select></div>
+        <div class="form-group"><label class="form-label" for="ws-month">Month</label><input type="month" id="ws-month" class="form-input" value="${escAttr(month)}"></div>
         <div class="form-group form-group-btn"><button class="btn-primary" data-action="wsCompute">Compute</button></div>
       </div>
       <div id="ws-result"></div>
@@ -827,14 +827,14 @@ async function _billingRates() {
     <div class="dash-card">
       <div class="section-title">Global</div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Currency</label><input id="bc-currency" class="form-input" value="${escAttr(r.currency || 'USD')}" ${readonly ? 'disabled' : ''}></div>
-        <div class="form-group"><label class="form-label">Default rate / h</label><input id="bc-rate" type="number" step="0.01" class="form-input" value="${escAttr(String(r.default_rate || 0))}" ${readonly ? 'disabled' : ''}></div>
-        <div class="form-group"><label class="form-label">Default VAT %</label><input id="bc-vat" type="number" step="0.1" class="form-input" value="${escAttr(String(r.default_vat || 0))}" ${readonly ? 'disabled' : ''}></div>
-        <div class="form-group"><label class="form-label">Invoice prefix</label><input id="bc-prefix" class="form-input" value="${escAttr(r.invoice_prefix || '')}" placeholder="e.g. 2026-" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label" for="bc-currency">Currency</label><input id="bc-currency" class="form-input" value="${escAttr(r.currency || 'USD')}" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label" for="bc-rate">Default rate / h</label><input id="bc-rate" type="number" step="0.01" class="form-input" value="${escAttr(String(r.default_rate || 0))}" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label" for="bc-vat">Default VAT %</label><input id="bc-vat" type="number" step="0.1" class="form-input" value="${escAttr(String(r.default_vat || 0))}" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label" for="bc-prefix">Invoice prefix</label><input id="bc-prefix" class="form-input" value="${escAttr(r.invoice_prefix || '')}" placeholder="e.g. 2026-" ${readonly ? 'disabled' : ''}></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Issuer name (invoice PDF header)</label><input id="bc-issuer-name" class="form-input" value="${escAttr(r.issuer_name || '')}" placeholder="Your business name" ${readonly ? 'disabled' : ''}></div>
-        <div class="form-group"><label class="form-label">Issuer address</label><textarea id="bc-issuer-address" class="form-input" rows="2" placeholder="Street, city, tax ID…" ${readonly ? 'disabled' : ''}>${escHtml(r.issuer_address || '')}</textarea></div>
+        <div class="form-group"><label class="form-label" for="bc-issuer-name">Issuer name (invoice PDF header)</label><input id="bc-issuer-name" class="form-input" value="${escAttr(r.issuer_name || '')}" placeholder="Your business name" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label" for="bc-issuer-address">Issuer address</label><textarea id="bc-issuer-address" class="form-input" rows="2" placeholder="Street, city, tax ID…" ${readonly ? 'disabled' : ''}>${escHtml(r.issuer_address || '')}</textarea></div>
       </div>
       <div class="settings-row mt-8"><label class="form-label"><input type="checkbox" id="bc-reminders" ${r.reminders_enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}> Email overdue-invoice reminders</label></div>
       <div class="form-group"><label class="form-label" for="bc-reminder-days">Remind after N days unpaid</label><input id="bc-reminder-days" type="number" min="1" max="365" class="form-input" value="${escAttr(String(r.reminder_days || 14))}" ${readonly ? 'disabled' : ''}><span class="hint">One reminder per invoice that stays in <em>sent</em> status this many days after it was last emailed. Uses the same SMTP as notifications.</span></div>
@@ -844,13 +844,13 @@ async function _billingRates() {
     </div>
     <div class="dash-card mt-16">
       <div class="section-title">Per-customer rates &amp; recurring fees</div>
-      <div class="form-group"><label class="form-label">Customer (site)</label><select id="bc-site" class="form-input">${siteOpts}</select></div>
+      <div class="form-group"><label class="form-label" for="bc-site">Customer (site)</label><select id="bc-site" class="form-input">${siteOpts}</select></div>
       <div id="bc-site-cfg"></div>
     </div>
     <div class="dash-card mt-16">
       <div class="section-title">Payment webhook</div>
       <p class="hint">A generic, provider-agnostic sink for payment reconciliation — NOT a Stripe/PayPal integration. Point your payment processor's own webhook (or a thin relay script) at the URL below with header <code>X-RP-Billing-Secret: &lt;secret&gt;</code> and a JSON body <code>{invoice_id, amount, kind: "payment"|"refund", external_ref?, provider?}</code>. Marks the invoice <code>partially_paid</code>/<code>paid</code> as payments accumulate; idempotent on <code>external_ref</code> (safe against processor webhook retries).</p>
-      <div class="form-group"><label class="form-label">Webhook URL</label><input id="bc-webhook-url" class="form-input ff-mono" readonly value="${escAttr(location.origin + '/api/billing/payment-webhook')}"></div>
+      <div class="form-group"><label class="form-label" for="bc-webhook-url">Webhook URL</label><input id="bc-webhook-url" class="form-input ff-mono" readonly value="${escAttr(location.origin + '/api/billing/payment-webhook')}"></div>
       <div class="form-group"><label class="form-label" for="bc-webhook-secret">Shared secret</label>
         <form autocomplete="off" data-csp-pw-form><input type="password" id="bc-webhook-secret" class="form-input" placeholder="${r.billing_webhook_secret_set ? '•••••• (set — leave blank to keep)' : 'set a shared secret to enable the webhook'}" autocomplete="off" ${readonly ? 'disabled' : ''}></form>
         <span class="hint">Saved by the "Save global + rate card" button above.</span></div>
@@ -931,8 +931,8 @@ function _renderSiteCfg(sid) {
       <div class="form-group"><label class="form-label">Rate / h <span class="meta-sm-nm">(blank = global)</span></label><input id="sc-rate" type="number" step="0.01" class="form-input" value="${escAttr(s.default_rate == null ? '' : String(s.default_rate))}" ${readonly ? 'disabled' : ''}></div>
       <div class="form-group"><label class="form-label">VAT % <span class="meta-sm-nm">(blank = global)</span></label><input id="sc-vat" type="number" step="0.1" class="form-input" value="${escAttr(s.vat == null ? '' : String(s.vat))}" ${readonly ? 'disabled' : ''}></div>
     </div>
-    <div class="form-group"><label class="form-label">Billing contact</label><input id="sc-contact" class="form-input" value="${escAttr(s.billing_contact || '')}" ${readonly ? 'disabled' : ''}></div>
-    <div class="form-group"><label class="form-label">Billing address</label><textarea id="sc-address" class="form-input" rows="2" ${readonly ? 'disabled' : ''}>${escHtml(s.billing_address || '')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="sc-contact">Billing contact</label><input id="sc-contact" class="form-input" value="${escAttr(s.billing_contact || '')}" ${readonly ? 'disabled' : ''}></div>
+    <div class="form-group"><label class="form-label" for="sc-address">Billing address</label><textarea id="sc-address" class="form-input" rows="2" ${readonly ? 'disabled' : ''}>${escHtml(s.billing_address || '')}</textarea></div>
     <div class="section-title mt-8">Recurring fees (monthly)</div>
     <div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Label</th><th>Kind</th><th>Amount</th><th>Qty</th><th>Active</th><th></th></tr></thead><tbody id="fee-body">${feeRows}</tbody></table></div>
     ${readonly ? '' : `<div class="row-6 mt-6"><button class="btn-secondary" data-action="feeAdd">+ Fee</button><button class="btn-primary" data-action="saveSiteCfg" data-arg="${escAttr(sid)}">Save customer config</button></div>`}`;

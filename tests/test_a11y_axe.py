@@ -271,8 +271,23 @@ class TestAccessibilityAxe(unittest.TestCase):
             raise box['error']
         return box['result']
 
+    # v6.4.3: pages the product deliberately refuses to route to when their
+    # module is off. This breadth sweep runs against an EMPTY install where both
+    # default to off, so they are unreachable here BY DESIGN — and audited for
+    # real by the seeded sweep, whose demo config switches them on. Named, not
+    # silent: the assertion below fails if anything ELSE becomes unreachable.
+    MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb'}
+
     def _check_walk_result(self, target, results, label):
         with self.subTest(target=target):
+            if isinstance(results, dict) and results.get('_module_off'):
+                self.assertIn(
+                    results['_module_off'],
+                    self.MODULE_GATED_OFF_ON_EMPTY_INSTALL,
+                    f'{label}: unreachable on an empty install and NOT a known '
+                    'module-gated page — either a module default changed or a '
+                    'page stopped routing')
+                return
             if isinstance(results, dict) and results.get('_error'):
                 self.fail(f'{label}: axe walk failed to reach the page: '
                           f'{results["_error"]}')
@@ -307,7 +322,42 @@ class TestAccessibilityAxe(unittest.TestCase):
                 "document.body.classList.remove('autohide-sidebar', 'sidebar-collapsed');"
                 "document.querySelectorAll('.sidebar-group.collapsed')"
                 ".forEach(g => g.classList.remove('collapsed'))")
-            await page.click(f'.nav-btn[data-page="{p}"]', timeout=5000)
+            # v6.4.3: click the nav button when it is visible, else navigate
+            # directly. Some pages are MODULE- or ROLE-gated and ship their nav
+            # button as `.nav-btn.d-none` — billing (admin/finance only) and kb
+            # (a switchable module) are both real pages with real content that
+            # this sweep should audit, and a hidden button is not a reason to
+            # leave them unaudited. Until the enumeration was widened they were
+            # never reached at all, so this never came up.
+            #
+            # showPage() is the same route the box-overflow walk uses, which is
+            # why that gate did not hit this.
+            _clickable = await page.evaluate(
+                "n => { const b = document.querySelector("
+                "`.nav-btn[data-page=\"${n}\"]`);"
+                " return !!b && !b.classList.contains('d-none'); }", p)
+            if _clickable:
+                await page.click(f'.nav-btn[data-page="{p}"]', timeout=5000)
+            else:
+                # v6.4.3: MODULE-GATED. billing and kb default OFF, and this
+                # breadth sweep runs against an EMPTY install, so the nav button
+                # is `d-none` AND showPage() refuses the route — both on
+                # purpose. The page is not unaudited, it is unreachable in this
+                # configuration, and failing here would be the gate reporting a
+                # product defect that is actually correct behaviour.
+                #
+                # It is returned as a NAMED skip rather than passing quietly:
+                # the caller asserts the skip set equals the known module-gated
+                # pages, so a page that becomes unreachable for any OTHER reason
+                # still fails. Both are audited for real by the SEEDED sweep,
+                # where the demo config switches their modules on.
+                await page.evaluate(
+                    "n => { try { showPage(n) } catch (e) {} }", p)
+                _reached = await page.evaluate(
+                    "n => { const el = document.getElementById('page-' + n);"
+                    " return !!el && el.classList.contains('active'); }", p)
+                if not _reached:
+                    return {'_module_off': p}
             await page.wait_for_selector(f'#page-{p}.active', timeout=10000)
             # Under concurrent lanes the page's data-fetch + paint lags behind the
             # 'active' class; auditing a half-rendered page yields false
@@ -402,7 +452,11 @@ if __name__ == '__main__':
 # release and which renders four of them.
 _SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb',
                  'tickets', 'services', 'reports', 'self', 'scans',
-                 'users', 'logs')
+                 'users', 'logs',
+                 # Module-gated OFF by default, so the empty-install breadth
+                 # sweep cannot reach them at all — the demo config switches
+                 # both on, which makes this the only place they get audited.
+                 'billing', 'kb')
 
 # ZERO, not a baseline. Every violation was a stray opacity declaration and
 # they are all gone, so there is nothing to grandfather.

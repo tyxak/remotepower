@@ -342,16 +342,16 @@ async function openTicket(tid) {
   })();
   document.getElementById('tk-detail-body').innerHTML = `
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Status</label><select id="tk-d-status" class="form-input">${statusOpts}</select></div>
-      <div class="form-group"><label class="form-label">Type</label><select id="tk-d-type" class="form-input">${typeOpts}</select></div>
-      <div class="form-group"><label class="form-label">Priority</label><select id="tk-d-priority" class="form-input">${prioOpts}</select></div>
+      <div class="form-group"><label class="form-label" for="tk-d-status">Status</label><select id="tk-d-status" class="form-input">${statusOpts}</select></div>
+      <div class="form-group"><label class="form-label" for="tk-d-type">Type</label><select id="tk-d-type" class="form-input">${typeOpts}</select></div>
+      <div class="form-group"><label class="form-label" for="tk-d-priority">Priority</label><select id="tk-d-priority" class="form-input">${prioOpts}</select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Assignee</label>
         <input type="text" id="tk-d-assignee" class="form-input" value="${escAttr(curAsg)}" placeholder="Search a user… (blank = unassigned)" autocomplete="off" aria-label="Search a user to assign">
         <div id="tk-d-assignee-results" class="scroll-cap-sm"></div>
       </div>
-      <div class="form-group"><label class="form-label">Group / team</label><select id="tk-d-group" class="form-input">${groupOpts}</select></div>
+      <div class="form-group"><label class="form-label" for="tk-d-group">Group / team</label><select id="tk-d-group" class="form-input">${groupOpts}</select></div>
       <div class="form-group"><label class="form-label">SLA</label><div class="mt-6">${slaStr}</div></div>
     </div>
     <div class="form-row">

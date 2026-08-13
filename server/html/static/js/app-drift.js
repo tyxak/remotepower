@@ -94,9 +94,9 @@ function _ensureDriftProfileModal() {
   m.innerHTML = `<div class="modal">
     <div class="modal-title" id="drift-profile-title">New drift profile</div>
     <input type="hidden" id="drift-profile-id">
-    <div class="form-group"><label class="form-label">Name</label>
+    <div class="form-group"><label class="form-label" for="drift-profile-name">Name</label>
       <input id="drift-profile-name" class="form-input" placeholder="e.g. web-server set" maxlength="80"></div>
-    <div class="form-group"><label class="form-label">Watched files — one absolute path per line</label>
+    <div class="form-group"><label class="form-label" for="drift-profile-files">Watched files — one absolute path per line</label>
       <textarea id="drift-profile-files" class="form-textarea" rows="10" placeholder="/etc/nginx/nginx.conf&#10;/etc/ssh/sshd_config"></textarea></div>
     <div class="modal-actions">
       <button class="btn-secondary" data-action="closeModal" data-arg="drift-profile-modal">Cancel</button>
@@ -151,13 +151,13 @@ function _ensureDriftAssignModal() {
   m.innerHTML = `<div class="modal">
     <div class="modal-title" id="drift-assign-title">Assign profile</div>
     <input type="hidden" id="drift-assign-pid">
-    <div class="form-group"><label class="form-label">Apply to</label>
+    <div class="form-group"><label class="form-label" for="drift-assign-type">Apply to</label>
       <select id="drift-assign-type" class="form-input">
         <option value="device">Device</option>
         <option value="group">Group</option>
         <option value="tag">Tag</option>
       </select></div>
-    <div class="form-group"><label class="form-label">Name / value</label>
+    <div class="form-group"><label class="form-label" for="drift-assign-value">Name / value</label>
       <input id="drift-assign-value" class="form-input" list="drift-assign-options" placeholder="group / tag name, or device id">
       <datalist id="drift-assign-options"></datalist></div>
     <p class="hint">An explicit per-device file list (set in the device drawer) always overrides a profile.</p>

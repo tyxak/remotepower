@@ -236,19 +236,19 @@ let _spDryRunResult = null;   // {command, confirm_target} from the last preview
 function _spFieldsHtml(recipe) {
   if (recipe === 'mdadm_create') {
     return `<div class="form-group"><label class="form-label">RAID device</label><input type="text" id="sp-p-device" class="form-input ff-mono" placeholder="/dev/md0"></div>
-      <div class="form-group"><label class="form-label">RAID level</label><select id="sp-p-level" class="form-input">
+      <div class="form-group"><label class="form-label" for="sp-p-level">RAID level</label><select id="sp-p-level" class="form-input">
         <option value="0">0 (striping, no redundancy)</option><option value="1" selected>1 (mirror)</option>
         <option value="5">5</option><option value="6">6</option><option value="10">10</option></select></div>
-      <div class="form-group"><label class="form-label">Member devices (one per line, whole-disk only)</label>
+      <div class="form-group"><label class="form-label" for="sp-p-members">Member devices (one per line, whole-disk only)</label>
         <textarea id="sp-p-members" class="form-input ff-mono" rows="3" placeholder="/dev/sdb&#10;/dev/sdc"></textarea></div>`;
   }
   if (recipe === 'lvm_pvcreate') {
-    return `<div class="form-group"><label class="form-label">Devices (one per line, whole-disk only)</label>
+    return `<div class="form-group"><label class="form-label" for="sp-p-members">Devices (one per line, whole-disk only)</label>
       <textarea id="sp-p-members" class="form-input ff-mono" rows="3" placeholder="/dev/sdb"></textarea></div>`;
   }
   if (recipe === 'lvm_vgcreate') {
     return `<div class="form-group"><label class="form-label">Volume group name</label><input type="text" id="sp-p-vgname" class="form-input ff-mono" placeholder="data"></div>
-      <div class="form-group"><label class="form-label">Devices (one per line, whole-disk only)</label>
+      <div class="form-group"><label class="form-label" for="sp-p-members">Devices (one per line, whole-disk only)</label>
         <textarea id="sp-p-members" class="form-input ff-mono" rows="3" placeholder="/dev/sdb"></textarea></div>`;
   }
   if (recipe === 'lvm_lvcreate') {
@@ -258,7 +258,7 @@ function _spFieldsHtml(recipe) {
   }
   if (recipe === 'mkfs') {
     return `<div class="form-group"><label class="form-label">Device (whole-disk)</label><input type="text" id="sp-p-device" class="form-input ff-mono" placeholder="/dev/sdb"></div>
-      <div class="form-group"><label class="form-label">Filesystem</label><select id="sp-p-fstype" class="form-input">
+      <div class="form-group"><label class="form-label" for="sp-p-fstype">Filesystem</label><select id="sp-p-fstype" class="form-input">
         <option value="ext4">ext4</option><option value="xfs">xfs</option><option value="btrfs">btrfs</option></select></div>`;
   }
   return '';
