@@ -382,6 +382,12 @@ check: test-both lint
 # NOTHING, so it rotted to red unnoticed — a gate nobody runs is not a gate,
 # and a permanently-red one trains you to ignore it.
 pre-release: PG_STRICT = 1
+# v6.4.3: the four rendered gates (box overflow, dialogs, icon-to-label gap,
+# accessibility) self-skip without Chromium, and the prod CI dep list installs
+# no playwright — so they had never run in the release pipeline. Same shape as
+# the Postgres gate before RP_PG_REQUIRE, and the same remedy: here a missing
+# browser is a FAILURE, not a skip. This target runs on a box that has one.
+pre-release: export RP_BROWSER_REQUIRE = 1
 pre-release: check test-pg dist ci-parity bandit
 	@echo ""
 	@echo "==> CodeQL GATE: config-honoring scan (== prod's ADVANCED codeql.yml setup)"

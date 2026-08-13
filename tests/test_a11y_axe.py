@@ -43,6 +43,8 @@ Run directly via `make e2e` (bundled with the rest of the browser suite) or
 import json
 import unittest
 
+import browser_required
+
 try:
     from playwright.sync_api import sync_playwright
     _HAVE_PLAYWRIGHT = True
@@ -103,7 +105,7 @@ class TestAccessibilityAxe(unittest.TestCase):
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:
             cls._pw.stop()
-            raise unittest.SkipTest(f'chromium not available: {exc}')
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
         try:
             cls.base, cls._shutdown = start_stack()
         except Exception as exc:
@@ -459,7 +461,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:
             cls._pw.stop()
-            raise unittest.SkipTest(f'chromium not available: {exc}')
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
         try:
             cls.base, cls._shutdown = start_stack(data_dir=data_dir)
         except Exception as exc:

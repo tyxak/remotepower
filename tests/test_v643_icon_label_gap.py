@@ -34,6 +34,7 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+import browser_required
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:                                     # pragma: no cover
@@ -77,7 +78,7 @@ class TestOneIconLabelGap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if sync_playwright is None:
-            raise unittest.SkipTest('playwright not installed')
+            browser_required.skip_or_fail('playwright not installed')
         if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('layout is backend-agnostic — measured once')
         seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
@@ -94,7 +95,7 @@ class TestOneIconLabelGap(unittest.TestCase):
         try:
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:
-            cls._pw.stop(); raise unittest.SkipTest(f'chromium: {exc}')
+            cls._pw.stop(); browser_required.skip_or_fail(f'chromium: {exc}')
         try:
             cls.base, cls._shutdown = start_stack(data_dir=cls.dir)
         except Exception as exc:

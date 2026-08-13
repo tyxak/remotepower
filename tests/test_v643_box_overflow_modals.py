@@ -51,6 +51,8 @@ _ROOT = _HERE.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+import browser_required
+
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:                                     # pragma: no cover
@@ -123,7 +125,7 @@ class TestNoDialogBoxGrowsUnbounded(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if sync_playwright is None:
-            raise unittest.SkipTest('playwright not installed')
+            browser_required.skip_or_fail('playwright not installed')
         if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('layout is backend-agnostic — measured once')
         seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
@@ -142,7 +144,7 @@ class TestNoDialogBoxGrowsUnbounded(unittest.TestCase):
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:
             cls._pw.stop()
-            raise unittest.SkipTest(f'chromium not available: {exc}')
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
         try:
             cls.base, cls._shutdown = start_stack(data_dir=cls.data_dir)
         except Exception as exc:
