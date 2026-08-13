@@ -32,6 +32,8 @@ import os
 import ssl
 import time
 import urllib.request
+
+import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
 
@@ -115,7 +117,7 @@ def _ssrf_opener(ctx):
     class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
         def https_open(self, req):
             return self.do_open(_SSRFGuardHTTPSConnection, req, context=ctx)
-    return urllib.request.build_opener(_NoRedirect, _GuardHTTPSHandler())
+    return safe_opener.strip_local_schemes(urllib.request.build_opener(_NoRedirect, _GuardHTTPSHandler()))
 
 
 class ProxmoxError(Exception):

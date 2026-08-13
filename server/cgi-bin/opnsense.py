@@ -39,6 +39,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
+
 DEFAULT_TIMEOUT = 6.0
 # A quick TCP reachability check runs before the real (TLS) requests so an
 # unreachable GUI fails in a few seconds with a clear message instead of
@@ -132,7 +134,7 @@ def _ssrf_opener(ctx):
     class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
         def https_open(self, req):
             return self.do_open(_SSRFGuardHTTPSConnection, req, context=ctx)
-    return urllib.request.build_opener(_NoRedirectHandler, _GuardHTTPSHandler())
+    return safe_opener.strip_local_schemes(urllib.request.build_opener(_NoRedirectHandler, _GuardHTTPSHandler()))
 
 def _request(host, key, secret, method, path, body=None,
              verify=False, timeout=DEFAULT_TIMEOUT):

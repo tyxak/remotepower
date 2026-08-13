@@ -56,6 +56,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
+
 # stdlib-only leaf module (no api globals). _fold_ipv6 lives there so this
 # redactor and logsig.normalize() share ONE IPv6 matcher instead of two copies
 # of the same broken regex — which is exactly how this bug came to exist twice.
@@ -190,7 +192,7 @@ def _ssrf_opener(ctx, allow_loopback=False):
         def http_open(self, req):
             return self.do_open(_GuardHTTPConn, req)
 
-    return urllib.request.build_opener(_NoRedirect, _GuardHTTPHandler(), _GuardHTTPSHandler())
+    return safe_opener.strip_local_schemes(urllib.request.build_opener(_NoRedirect, _GuardHTTPHandler(), _GuardHTTPSHandler()))
 
 
 # ── Redaction ──────────────────────────────────────────────────────────────

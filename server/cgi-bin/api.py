@@ -12807,7 +12807,29 @@ def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
         handlers.append(_NoRedirect())
     if cookiejar is not None:   # W4-13: multi-step flows share a cookie jar
         handlers.append(urllib.request.HTTPCookieProcessor(cookiejar))
-    return urllib.request.build_opener(*handlers)
+    op = urllib.request.build_opener(*handlers)
+    # v6.4.3 (SECURITY, defence in depth): build_opener() ALWAYS installs
+    # urllib's defaults, and passing custom HTTP/HTTPS handlers replaces only
+    # those two. FileHandler, FTPHandler and DataHandler survived, so an opener
+    # whose entire purpose is to constrain where a request may go would happily
+    # open `file:///etc/shadow` — verified by driving it, not by reading it.
+    #
+    # Callers do run a pre-flight that rejects such URLs, so this is not known
+    # to be reachable today. It is removed anyway because the guarantee belongs
+    # HERE: this object is handed to connectors, monitors and integrations that
+    # each decide what to fetch, and defence that depends on every caller
+    # remembering a check is defence that eventually fails. Stripping the
+    # dispatch entry makes the scheme unopenable regardless of the caller.
+    for _bad in (urllib.request.FileHandler, urllib.request.FTPHandler,
+                 getattr(urllib.request, 'DataHandler', ()),
+                 getattr(urllib.request, 'CacheFTPHandler', ())):
+        if not _bad:
+            continue
+        for _h in [h for h in op.handlers if isinstance(h, _bad)]:
+            op.handlers.remove(_h)
+    for _scheme in ('file', 'ftp', 'data'):
+        op.handle_open.pop(_scheme, None)
+    return op
 
 
 # v6.4.2: custom-header validation for a generic webhook destination.

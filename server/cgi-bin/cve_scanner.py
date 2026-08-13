@@ -9,6 +9,8 @@ import hashlib
 import re
 import shutil
 import urllib.request
+
+import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -25,7 +27,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 # No-redirect opener for every outbound vuln-DB fetch. Defense in depth: the
 # hosts are hardcoded, no credential is sent and the response is never
 # reflected, but a poisoned DNS answer / 302 must not be followed regardless.
-_OPENER = urllib.request.build_opener(_NoRedirect)
+_OPENER = safe_opener.strip_local_schemes(urllib.request.build_opener(_NoRedirect))
 
 OSV_QUERYBATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL       = "https://api.osv.dev/v1/vulns/"

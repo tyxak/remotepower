@@ -14,7 +14,8 @@ PIP     ?= pip3
 # v4.3.0: every NEW module gets added here at creation. The legacy monolith
 # files (api.py, app.js-era tests) stay out — reformatting them is an
 # unreviewable diff for zero behavior change.
-LINT_SRC := server/cgi-bin/cmdb_vault.py \
+LINT_SRC := server/cgi-bin/safe_opener.py \
+	server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/openapi_spec.py \
             server/cgi-bin/integrations.py \
             server/cgi-bin/hypervisor.py \
@@ -32,7 +33,8 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
             tests/test_enterprise_defaults.py
-TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
+TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
+	server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/openapi_spec.py \
                  server/cgi-bin/integrations.py \
                  server/cgi-bin/hypervisor.py \
