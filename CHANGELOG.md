@@ -876,6 +876,72 @@ from one that cannot.
   written.
 
 
+### A third security pass, over the product rather than the diff
+
+Seven issues, all caught before release. They share a shape worth naming: each
+was a rule this codebase had already written down and applied in most places,
+and missed in one or two. A half-applied rule is harder to see than a missing
+one, because every correct site makes the file read as though the rule is
+enforced.
+
+- **A personal notification subscription could receive another tenant's device
+  events.** Delivery was filtered by the subscriber's device permissions, and
+  that filter is skipped for any full-fleet role — which includes the read-only
+  ones — so on a tenanted install nothing scoped it at all. Persistent and
+  quiet: the destination is write-only by design, so an administrator reviewing
+  subscriptions could see one existed and not where it pointed. Now confined to
+  the subscriber's own tenant, resolved from their stored account because this
+  runs on the notification path with no signed-in user attached.
+- **Two-person approval for revealing a stored credential could be satisfied
+  from outside the tenant.** The credential was never exposed — that path was
+  guarded — but the approval was not, so an administrator with no relationship
+  to the device could supply the second signature the control exists to
+  require. The pending-request list leaked the same way; both are now scoped.
+  The shared task board had the same gap in four directions: list, edit, delete
+  and re-pointing a task onto another tenant's device.
+- **A deleted account could come back.** Every write to the user store rewrote
+  the whole store from a copy read moments earlier, and fourteen paths did that
+  without holding a lock. The result is not a lost field but a restored one: a
+  deleted account returned with its old password and role, and a rotated
+  password or disabled second factor could be reverted the same way. The
+  likeliest trigger was the most ordinary action in the product — saving a
+  interface preference rewrites the entire user store. "Cannot delete the last
+  administrator" was not atomic with the delete either.
+- **The account lockout counted a burst of failed sign-ins as one.** The
+  counter was incremented without a lock, so simultaneous attempts each wrote
+  back the same increment and the threshold arrived at a rate the attacker
+  chose. The per-address limit was already correct; the per-account ladder,
+  which is what holds when one account is attacked from many addresses, was
+  not.
+- **The GitOps repository URL was readable by every role.** The integration
+  masks its token and returned the URL itself, and a Git URL commonly carries
+  the credential inside it. Five sibling settings in the same file are already
+  withheld for exactly this reason. Now administrator-only, with an indicator
+  so everyone else still sees that it is configured; the audit log records the
+  URL without the credential.
+- **An administrator of one tenant could read the installation's own
+  integrations** — where audit records are forwarded, which monitoring system
+  receives metrics — several of which carry sign-in details in their URLs. The
+  check asked whether the caller was an administrator, which under multiple
+  tenants is the wrong question. Unchanged on single-tenant installs, and the
+  suite asserts that rather than assuming it.
+- **`require-signed-commands` covered one channel while two others ran code.**
+  The setting exists for the case where the server itself is no longer trusted.
+  It checked dispatched commands, and not assigned monitoring scripts or pushed
+  host configuration, both of which execute with the agent's privileges. Both
+  are now refused while the setting is on, and the refusal is reported rather
+  than silent. **Follow-up:** extending signatures to cover them needs
+  sign-on-change caching — those payloads ride every heartbeat, and signing
+  shells out to gpg — so until that lands the setting narrows what works, which
+  is the correct direction for a fail-closed control.
+
+Also from this pass: the end-to-end test harness started its application server
+without the timeout that ships in the real service files, so it was killing
+workers on requests production would have served — the long-standing "flake
+under load" was partly the harness. And the rendered box-overflow walk measured
+pages only, leaving all 138 dialogs — where the forms are — unmeasured; they
+now have their own gate.
+
 ## v6.4.2 — "Ver1tyMatters" — 2026-08-06
 
 Two things about containers that were quietly unfinished: you could not silence

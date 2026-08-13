@@ -1,15 +1,25 @@
 # Security review — v6.4.3 "Gu4rdMatters"
 
-Every release gets a review before it ships. This one ran in two passes and
-found **fifteen** issues worth reporting, all of them **caught before release**
-and all fixed in the release they are described in.
+Every release gets a review before it ships. This one ran in three passes and
+found **twenty-two** issues worth reporting, all of them **caught before
+release** and all fixed in the release they are described in.
 
 Most were long-standing rather than new, which is the more useful thing to say
 about them: they had been present through several prior versions and no scan,
 test or review had surfaced them. The first pass went looking specifically at
 fleet-wide read endpoints. The second went looking at the **write** side —
 which account-creation and credential paths check tenancy, and which do not —
-and found more, including the most serious issue in the release.
+and found more, including the most serious issue in the release. The third pass
+went wider still, over the whole product rather than the release diff, and is
+described at the end.
+
+A pattern worth naming, because all seven third-pass findings share it:
+each was a rule the codebase had already written down and applied in most
+places, and missed in one or two. Sixteen call sites took a lock and fourteen
+did not. Five credential-bearing settings were withheld from the wrong roles and
+a sixth was not. One command channel was signature-checked and two others that
+run code were not. A half-applied rule is harder to see than a missing one,
+because every correct site makes the file read as though the rule is enforced.
 
 The bar this project holds itself to is that nothing Critical, High or Medium
 ships. That bar is met.
@@ -333,6 +343,121 @@ the page pins integrity hashes for the bundle, so replacing the file without
 recomputing them made the browser refuse the resource outright and the page
 rendered blank — a failure a file-level diff shows as perfect. Every integrity
 pin in every served page is now checked against the file it pins.
+
+### A personal notification could be pointed at another tenant's fleet
+
+Any signed-in user can subscribe their own account to notifications and have
+them delivered to a webhook or an email address they choose. That is the
+feature, and it is deliberately open to everyone.
+
+Delivery was filtered by the subscriber's device permissions — but that filter
+is skipped for any role that is allowed to see the whole fleet, which on a
+single-tenant install is most of them, including the read-only ones. Nothing
+then asked which **tenant** the subscriber belonged to. On an installation
+running more than one tenant, a subscription could therefore receive device
+events belonging to tenants the subscriber has no relationship with.
+
+Two things made it worth the highest severity in this pass. It is persistent —
+set once, it keeps delivering — and it is hard to notice, because the
+destination is write-only by design: an administrator reviewing subscriptions
+can see that one exists and cannot see where it points.
+
+Delivery is now confined to the subscriber's own tenant, resolved from their
+account rather than from the request, because notifications are sent by a
+background process with no signed-in user attached. A platform operator still
+receives everything, as before.
+
+### Two-person approval could be satisfied from outside the tenant
+
+Revealing a stored credential can be made to require a second administrator's
+approval. The credential itself was never exposed across tenants — that path
+was correctly guarded — but the **approval** was not. An administrator of an
+unrelated tenant, who could not see the device and could not read the
+credential, could still supply the second signature.
+
+The control exists so that two people who are accountable for a system both
+agree before a secret is read. An approver from outside the tenant is not that.
+Approval and the pending-request list are now confined to the tenant that owns
+the device.
+
+The same review found the shared task board returning every tenant's tasks, and
+allowing a task to be edited, deleted, or re-pointed at another tenant's
+device. All four paths are now scoped.
+
+### Deleting an account could be undone by an unrelated request
+
+Every write to the user store rewrote the entire store from whatever the
+request had read a moment earlier. Most paths took a lock across that
+read-and-write; fourteen did not.
+
+The consequence is not a lost field but a restored one. An account an
+administrator had just deleted could be brought back — with its old password
+and role intact — by any concurrent write that happened to be holding an older
+copy. A rotated password or a newly disabled second factor could be reverted
+the same way. The most likely trigger is the most ordinary action in the
+product: saving a user-interface preference rewrites the whole user store, and
+that happens whenever anyone changes a filter or a sort order.
+
+All writes now hold the lock, and a check keeps new ones from drifting back.
+Separately, the "cannot delete the last administrator" check was not atomic
+with the deletion, so two simultaneous deletions could each conclude they were
+not removing the last one.
+
+### The account lockout counted a burst of attempts as one
+
+Repeated failed sign-ins lock an account for an escalating period. The counter
+behind it was incremented without a lock, so simultaneous attempts all read the
+same value and each wrote back the same increment. A burst therefore registered
+as roughly a single failure, and the threshold was reached at a rate the
+attacker chose rather than the configured one.
+
+A per-address limit bounds any single source and was already correct; the
+per-account ladder is what is meant to hold when one account is attacked from
+many addresses, and it was the one that did not count. It is now atomic.
+
+### A repository URL is a credential, and every role could read it
+
+The GitOps integration masks its authentication token. It returned the
+repository URL itself to any signed-in user — and a Git URL commonly carries
+the credential inside it, in the form `https://user:token@host/org/repo`.
+
+This product already withholds several such URLs from non-administrators, each
+with a note recording why: a URL containing sign-in details is reusable as a
+credential. The GitOps setting was simply never given the same treatment. It is
+now administrator-only, with an indicator so everyone else can still see that
+it is configured. The same URL was being written to the audit log in full; it
+is now recorded without the credential, still naming the repository.
+
+### An administrator of one tenant could read the host's own integrations
+
+Settings include instance-wide integrations that belong to the operator of the
+installation — where audit records are forwarded, which monitoring system
+receives metrics — and several carry sign-in details in their URLs. These were
+correctly withheld from read-only roles, using a check for administrator rights.
+
+Under multiple tenants that is the wrong question, because an administrator of
+a single tenant is still an administrator. Those settings are now visible only
+to an operator of the installation itself. Nothing changes on the ordinary
+single-tenant install, and the review asserts that rather than assuming it.
+
+### A setting that distrusts the server still trusted two of its channels
+
+An agent can be configured to run only commands carrying a valid signature.
+It is deliberately strict, and it exists for one situation: the management
+server, or its database, is no longer trusted.
+
+The check covered the command channel. Two other things arriving in the same
+response also run code with the agent's privileges — assigned monitoring
+scripts, and pushed host configuration — and neither was checked. An attacker
+in the position the setting is meant to defend against could therefore use one
+of those instead.
+
+Both are now refused while the setting is on, and the refusal is reported
+rather than silent. Extending signatures to cover them properly is a protocol
+change, described in the release notes as follow-up work; until it lands, the
+honest behaviour for a setting that says "do not trust the server" is to
+decline the untrusted instruction rather than carry it out.
+
 
 ## What was checked and found sound
 
