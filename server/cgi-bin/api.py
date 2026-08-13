@@ -24144,13 +24144,39 @@ _UPGRADE_CMD = (
     # host drops to the initramfs shell on its next reboot, unbootable. Gated
     # on update-initramfs existing so hosts with no initramfs concern (e.g.
     # WSL) are not blocked.
+    # v6.4.3: that check refused on a state which is not the incident it was
+    # written for. On Arch-family hosts (CachyOS, Manjaro, …) a kernel upgrade
+    # REMOVES the previous kernel's module tree, so between the upgrade and the
+    # next reboot `/usr/lib/modules/$(uname -r)` legitimately does not exist —
+    # and CachyOS ships /usr/bin/update-initramfs, so both conditions were true
+    # and every package upgrade was refused until someone rebooted. Reported
+    # from a live host running 7.1.6 with 7.1.8 installed.
+    #
+    # The two states look identical at the running kernel's path and are not:
+    #   * SANDBOXED — ProtectKernelModules hides the tree, so NOTHING is visible
+    #     and an initramfs rebuild would produce a module-less initrd. Refuse.
+    #   * STALE RUNNING KERNEL — the tree is visible and holds other versions;
+    #     the rebuild targets an INSTALLED kernel whose modules are present, so
+    #     it is safe, and refusing here just blocks patching.
+    # Whether the tree has ANY entries separates them.
     'KV=$(uname -r); '
     'if command -v update-initramfs >/dev/null 2>&1 '
     '&& [ ! -d "/lib/modules/$KV" ] && [ ! -d "/usr/lib/modules/$KV" ]; then '
-    '  echo "ERROR: /lib/modules/$KV is not accessible from this context — refusing to upgrade." >&2; '
-    '  echo "An upgrade here could rebuild the initramfs WITHOUT kernel modules and leave the host unbootable." >&2; '
-    '  echo "Check the agent service sandboxing (ProtectKernelModules must be off), then retry." >&2; '
-    '  exit 3; '
+    '  if [ -n "$(ls -A /usr/lib/modules 2>/dev/null)" ] '
+    '     || [ -n "$(ls -A /lib/modules 2>/dev/null)" ]; then '
+    '    echo "NOTE: the running kernel ($KV) has no module tree, but other kernels do — "\
+'
+    '         "this host was upgraded and not yet rebooted. The initramfs is built for the "\
+'
+    '         "INSTALLED kernel, whose modules are present, so the upgrade proceeds. "\
+'
+    '         "Reboot to finish moving onto the new kernel." >&2; '
+    '  else '
+    '    echo "ERROR: no kernel module tree is visible from this context — refusing to upgrade." >&2; '
+    '    echo "An upgrade here could rebuild the initramfs WITHOUT kernel modules and leave the host unbootable." >&2; '
+    '    echo "Check the agent service sandboxing (ProtectKernelModules must be off), then retry." >&2; '
+    '    exit 3; '
+    '  fi; '
     'fi; '
     'if command -v apt-get >/dev/null 2>&1; then '
     '  APT_CONFIG=$(mktemp); '

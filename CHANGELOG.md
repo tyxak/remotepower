@@ -951,6 +951,41 @@ pass that predicts production, semgrep 0 over 100 files, bandit 0 new and 0
 high, gitleaks clean, ruff F821 clean on both passes, and the Hypothesis
 property suites green.
 
+### A safety guard that refused every upgrade on Arch-family hosts
+
+Reported from a live CachyOS machine: the agent answered every package upgrade
+with `refusing to upgrade` and rc=3, naming a kernel module directory it could
+not find and advising the operator to check the agent service's sandboxing —
+which was not involved.
+
+The guard dates from v6.2.1, where systemd's `ProtectKernelModules` really did
+hide `/usr/lib/modules` from the agent, and an upgrade that rebuilt the
+initramfs produced images with no kernel modules at all; the affected hosts ran
+normally until their next reboot and then could not find their own root
+filesystem. Refusing to upgrade in that state is correct and stays.
+
+What the guard actually tested was whether the *running* kernel's module
+directory exists. On Arch, CachyOS and Manjaro a kernel upgrade deletes the
+previous kernel's modules, so from the upgrade until the next reboot that
+directory is legitimately gone — and CachyOS ships an `update-initramfs`, which
+was the other half of the condition. Both were true on a perfectly healthy host,
+so patching stopped fleet-wide on those distributions and the explanation
+pointed somewhere unrelated.
+
+The two states are distinguishable, just not at the path the guard was looking
+at. When the tree is hidden, nothing is visible. When the running kernel has
+merely been superseded, its siblings are sitting right beside it, and any
+initramfs rebuild targets an installed kernel whose modules are present. The
+guard now separates them: it refuses when no module tree is visible at all, and
+otherwise proceeds with a note explaining that the host is upgraded and awaiting
+a reboot. Automatic patching is covered too, since the scheduled commands are
+built from the same string.
+
+The tests for this run the real shell rather than reading the source, and they
+now redirect both module roots into a sandbox — previously they read the host's
+own `/usr/lib/modules`, so on this very bug the suite's verdict depended on
+whether the machine running it happened to have rebooted lately.
+
 ### A third security pass, over the product rather than the diff
 
 Seven issues, all caught before release. They share a shape worth naming: each

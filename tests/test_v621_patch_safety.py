@@ -98,23 +98,99 @@ class _ShellHarness(unittest.TestCase):
 
 
 class TestUpgradeGuardRefusesWithoutModules(_ShellHarness):
+    """The guard distinguishes two states that look identical at the running
+    kernel's own path, so every case here redirects BOTH module roots into the
+    sandbox — otherwise the host's real /usr/lib/modules decides the verdict and
+    the result depends on whether the machine running the tests happens to have
+    rebooted since its last kernel update.
 
-    def test_refuses_when_modules_hidden_and_initramfs_tools_present(self):
-        # update-initramfs exists, /lib/modules/0.0.0-rpfake does not →
-        # the exact sandboxed-agent situation. apt must never be reached.
+    Substitution order matters: '/usr/lib/modules' contains '/lib/modules', so
+    replacing the short one first mangles the long one into '/usr<tmp>'. The
+    longer path goes first. (_SchedHarness below still has them the other way
+    round; there it is inert because that command only reads the short path.)
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.libmod = self.dir / 'lib-modules'
+        self.usrmod = self.dir / 'usr-lib-modules'
+
+    def guard_cmd(self):
+        cmd = api._UPGRADE_CMD
+        cmd = cmd.replace('/usr/lib/modules', str(self.usrmod))
+        cmd = cmd.replace('/lib/modules', str(self.libmod))
+        return cmd
+
+    def test_refuses_when_the_whole_tree_is_hidden(self):
+        # update-initramfs exists and NO module tree is visible at all → the
+        # v6.2.1 sandboxed-agent situation. apt must never be reached.
         self.stub('update-initramfs', 'echo "UI $*" >> "$CALLS"')
         self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
-        r = self.run_sh(api._UPGRADE_CMD)
+        r = self.run_sh(self.guard_cmd())
         self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        self.assertIn('not accessible', r.stderr)
+        self.assertIn('no kernel module tree is visible', r.stderr)
         self.assertIn('unbootable', r.stderr)
         self.assertNotIn('APT', self.called())
 
+    def test_refuses_when_the_tree_exists_but_is_empty(self):
+        """ProtectKernelModules mounts an empty tmpfs rather than removing the
+        directory, so 'the path exists' is not evidence the modules are there."""
+        self.usrmod.mkdir()
+        self.stub('update-initramfs', 'echo "UI $*" >> "$CALLS"')
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        r = self.run_sh(self.guard_cmd())
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertNotIn('APT', self.called())
+
+    def test_proceeds_when_the_running_kernel_was_replaced_by_an_upgrade(self):
+        """THE FIELD-REPORTED BUG (CachyOS, 2026-08-13). Arch-family package
+        managers delete the previous kernel's module tree on upgrade, so between
+        the upgrade and the next reboot /usr/lib/modules/$(uname -r) is genuinely
+        absent — while other kernels sit right beside it. CachyOS also ships
+        /usr/bin/update-initramfs, so both of the old guard's conditions were
+        true and EVERY package upgrade was refused until somebody rebooted, with
+        a message blaming service sandboxing that was not involved.
+
+        An initramfs rebuild here targets an INSTALLED kernel whose modules are
+        present, so there is nothing to protect against. Proceed.
+        """
+        (self.usrmod / '7.1.8-1-cachyos').mkdir(parents=True)
+        (self.usrmod / '6.18.42-1-cachyos-lts').mkdir()
+        self.stub('update-initramfs', 'echo "UI $*" >> "$CALLS"')
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        r = self.run_sh(self.guard_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('not yet rebooted', r.stderr,
+                      'proceeding silently hides why the running kernel differs')
+        self.assertNotIn('refusing', r.stderr)
+        self.assertIn('APT', self.called(), 'the upgrade must actually run')
+
+    def test_the_short_path_alone_is_enough_to_proceed(self):
+        """Distros where /lib is not a symlink to /usr/lib."""
+        (self.libmod / '9.9.9-other').mkdir(parents=True)
+        self.stub('update-initramfs', 'echo "UI $*" >> "$CALLS"')
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        r = self.run_sh(self.guard_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('APT', self.called())
+
+    def test_the_normal_case_is_silent(self):
+        """Running kernel's modules present: no note, no refusal, no noise in
+        every patch report on every healthy host."""
+        (self.usrmod / '0.0.0-rpfake').mkdir(parents=True)
+        self.stub('update-initramfs', 'echo "UI $*" >> "$CALLS"')
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        r = self.run_sh(self.guard_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn('not yet rebooted', r.stderr)
+        self.assertNotIn('refusing', r.stderr)
+
     def test_proceeds_when_no_initramfs_toolchain(self):
         # No update-initramfs in PATH (WSL / containers / non-initramfs
-        # distros): the guard must not block, and the apt chain runs fully.
+        # distros): the guard must not block even with nothing visible, and the
+        # apt chain runs fully.
         self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
-        r = self.run_sh(api._UPGRADE_CMD)
+        r = self.run_sh(self.guard_cmd())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         calls = self.called()
         for verb in ('update', '-y upgrade', '-y autoremove', 'clean'):
