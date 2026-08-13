@@ -250,9 +250,14 @@ class TestSubresourceIntegrity(unittest.TestCase):
             # AND match the on-disk content. We don't pin which line
             # it's on — just that *some* `integrity="sha384-…"` near
             # the vendor path references the same digest.
-            self.assertIn(expected, source,
-                f'{source_key}: integrity for {vendor_path} missing or '
-                f'wrong. Expected {expected!r}')
+            # assertIn appends the CONTAINER to the message, and the
+            # container here is the whole concatenated client bundle — a
+            # failure printed 4.7MB of JavaScript. assertTrue keeps it to the
+            # line that matters.
+            self.assertTrue(
+                expected in source,
+                f'{source_key}: integrity for {vendor_path} is missing or '
+                f'stale. Recompute it — expected {expected}')
 
 
 # ── GitHub Actions CI workflow ──────────────────────────────────────────────

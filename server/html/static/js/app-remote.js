@@ -19,7 +19,7 @@ let _webtermActiveSession = null;   // {ws, term, fitAddon}
 
 function _loadXtermOnce() {
   if (_webtermXtermLoaded) return Promise.resolve();
-  // xterm.js@5.5.0 + addon-fit@0.10.0, self-hosted under /static/vendor/
+  // xterm.js@6.0.0 + addon-fit@0.11.0, self-hosted under /static/vendor/
   // so the strict CSP (`script-src 'self'; style-src 'self'`) doesn't
   // block them. SRI hashes (v3.0.6): the browser refuses to execute /
   // apply the file if its SHA-384 differs from the pinned value.
@@ -32,7 +32,7 @@ function _loadXtermOnce() {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = '/static/vendor/xterm/xterm.min.css';
-      link.integrity = 'sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co';
+      link.integrity = 'sha384-eDYu/eBZQNhtqTaA7Wl3XighXKxm/9VYF+Chh3hQS+UUlKQIJ14hK2imKu4n99aR';
       link.onload = resolve;
       link.onerror = reject;
       document.head.appendChild(link);
@@ -40,7 +40,7 @@ function _loadXtermOnce() {
     new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = '/static/vendor/xterm/xterm.min.js';
-      s.integrity = 'sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9';
+      s.integrity = 'sha384-pELe6ZHtFxFcuYBq3gMkqvmnNIqUWnAYjBG5gThqQQCjWp8PJ/65MLK4lMIfEK1e';
       s.onload = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
@@ -48,7 +48,7 @@ function _loadXtermOnce() {
   ]).then(() => new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = '/static/vendor/xterm-addon-fit/addon-fit.min.js';
-    s.integrity = 'sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk';
+    s.integrity = 'sha384-UwMkGaBqfOcrTjPjXdAPWrGQkhpxTJ21vKtTwLb6wBpBM8HQXKAiUuwVJfgY0Yw6';
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
