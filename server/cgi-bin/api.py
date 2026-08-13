@@ -48422,6 +48422,27 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
             _add('firewall_off', w['firewall_off'], 'macOS application firewall off')
         if 'filevault' in mp and not mp.get('filevault'):
             _add('encryption_off', w['encryption_off'], 'FileVault off (disk not encrypted)')
+    # v6.4.3: Linux dm-crypt/LUKS, the third of the three and the one that was
+    # missing. Compliance started scoring it earlier in this release; the risk
+    # score did not, so an unencrypted Linux root contributed ZERO to a host's
+    # risk while an unencrypted Windows volume contributed the full weight — on
+    # a product whose fleets are mostly Linux. The signal was already collected,
+    # sanitised and stored; only this consumer never read it.
+    #
+    # Precedence matches the compliance fact so one host cannot be scored twice
+    # for the same question: FileVault and BitLocker answer it where they exist,
+    # and this answers it where they do not. Present-and-off only — the agent
+    # returns {} rather than encrypted:False when it cannot see device-mapper,
+    # so a host reaching this branch really did answer.
+    _enc_answered = (isinstance(mp, dict) and 'filevault' in mp) or (
+        isinstance(wp, dict) and isinstance(wp.get('bitlocker'), list)
+        and bool(wp.get('bitlocker')))
+    if not _enc_answered:
+        _de = si.get('disk_encryption')
+        if isinstance(_de, dict) and isinstance(_de.get('encrypted'), bool) \
+                and not _de['encrypted']:
+            _add('encryption_off', w['encryption_off'],
+                 'disk not encrypted (no LUKS/dm-crypt volume)')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)
