@@ -48,6 +48,7 @@ way it was missed on these two for an entire release.
 """
 import ast
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -57,12 +58,16 @@ _AGENTS = {
     'win': _ROOT / 'client' / 'remotepower-agent-win.py',
     'mac': _ROOT / 'client' / 'remotepower-agent-mac.py',
 }
-# Each agent names its own gate.
+# Each agent names its own gate, and its own heartbeat function.
 _GATE = {
     'linux': '_require_signed_commands',
     'win': '_require_signed_commands_win',
     'mac': '_require_signed_commands_mac',
 }
+_HEARTBEAT = {'linux': 'heartbeat', 'win': 'heartbeat_once', 'mac': 'heartbeat_once'}
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_function  # noqa: E402
 
 
 def _src(which):
@@ -100,9 +105,13 @@ class TestEveryCodeChannelIsGated(unittest.TestCase):
             src = _src(which)
             self.assertIn('custom_scripts', src, which)
             gate = _GATE[which]
-            # The gate call must appear within the region that ingests scripts.
-            idx = src.index("resp.get('custom_scripts')")
-            window = src[idx:idx + 2000]
+            # The heartbeat function itself, bounded by indentation rather than
+            # a guessed character count. A fixed [i:i+N] window is a guess about
+            # how long the surrounding code is and silently stops covering its
+            # target when that code grows — which is why this repo's ratchet
+            # forbids them, and it caught this file doing exactly that.
+            window = py_function(src, _HEARTBEAT[which])
+            self.assertIn("resp.get('custom_scripts')", window, which)
             self.assertIn(f'{gate}()', window,
                           f'{which}: custom_scripts is accepted without '
                           f'consulting {gate}() — server-supplied code runs '
@@ -113,8 +122,8 @@ class TestEveryCodeChannelIsGated(unittest.TestCase):
             if 'host_config_desired' in _not_honoured(which):
                 continue        # deliberately unimplemented on this platform
             src = _src(which)
-            idx = src.index("resp.get('host_config_desired')")
-            window = src[idx:idx + 2000]
+            window = py_function(src, _HEARTBEAT[which])
+            self.assertIn("resp.get('host_config_desired')", window, which)
             self.assertIn(f'{_GATE[which]}()', window,
                           f'{which}: host_config_desired is applied without '
                           f'consulting {_GATE[which]}() — it writes system '
