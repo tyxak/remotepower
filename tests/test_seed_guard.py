@@ -8,9 +8,12 @@ guard directly.
 """
 import importlib.util
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
 
 _SCRIPT = Path(__file__).parent.parent / "packaging" / "seed-demo-data.py"
 
@@ -184,6 +187,51 @@ class TestV610CoverageFill(unittest.TestCase):
             data = builder()
             json.dumps(data)  # must not raise (no sets/non-serializable values)
             self.assertIsInstance(data, (dict, list), name)
+
+    def test_a_dict_guarded_store_is_seeded_as_a_dict(self):
+        """A builder whose store the server loads behind `isinstance(s, dict)`
+        must return a DICT, or everything it produces is silently discarded.
+
+        v6.4.3. `build_links` returned a LIST keyed id/label while
+        `_links_load()` is `return s if isinstance(s, dict) else {}` — so the
+        Links page rendered empty on every demo instance ever built, and the
+        check above permitted it explicitly by accepting dict OR list.
+
+        This DERIVES the requirement instead of pinning links: it reads which
+        stores api.py dict-guards, maps them back to their builder by filename,
+        and requires those builders to return dicts. A new store gets the rule
+        for free, which matters because the seeder is a second registry and two
+        registries drifting is this codebase's most repeated bug.
+        """
+        api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        # FILE constant -> filename, e.g. LINKS_FILE = DATA_DIR / 'links.json'
+        const_to_file = dict(re.findall(
+            r"^(\w+_FILE)\s*=\s*DATA_DIR\s*/\s*['\"]([^'\"]+)['\"]",
+            api_src, re.M))
+        guarded = set(re.findall(
+            r"load\((\w+_FILE)\)[^\n]*\n?[^\n]*isinstance\([^,]+,\s*dict\)",
+            api_src))
+        # POSITIVE CONTROL: both extractions must actually find things, or every
+        # assertion below is vacuously true.
+        self.assertGreater(len(const_to_file), 50,
+                           'FILE-constant extraction found almost nothing')
+        self.assertGreater(len(guarded), 20,
+                           'dict-guard extraction found almost nothing')
+        self.assertIn('LINKS_FILE', guarded,
+                      'the known-guarded store is missing — scan is unreliable')
+
+        wrong = []
+        for const in sorted(guarded):
+            fname = const_to_file.get(const)
+            builder = self.m.BUILDERS.get(fname) if fname else None
+            if builder is None:
+                continue          # not seeded, nothing to check
+            if not isinstance(builder(), dict):
+                wrong.append(f'{fname} (builder for {const})')
+        self.assertEqual(wrong, [],
+                         'These stores are loaded behind isinstance(s, dict) but '
+                         'seeded as a list, so the server discards every row:\n'
+                         + '\n'.join('  ' + w for w in wrong))
 
     def test_finance_account_does_not_block_reseed(self):
         # Regression: _DEMO_ACCOUNTS was missing 'finance' (added later for

@@ -1951,20 +1951,46 @@ def build_config() -> dict:
     }
 
 
-def build_links() -> list:
-    """External-links page samples."""
-    # No emoji icons — CLAUDE.md forbids emoji in the UI. The icon field is
-    # left blank (the links renderer shows title + hostname; an empty icon is
-    # the supported "no icon" value).
-    return [
-        {'id': 'l1', 'category': 'Monitoring', 'label': 'Grafana',         'url': 'https://prometheus.lab/grafana',  'icon': ''},
-        {'id': 'l2', 'category': 'Monitoring', 'label': 'Prometheus',      'url': 'https://prometheus.lab',          'icon': ''},
-        {'id': 'l3', 'category': 'Storage',    'label': 'TrueNAS',         'url': 'https://truenas.lab',             'icon': ''},
-        {'id': 'l4', 'category': 'Network',    'label': 'OPNsense',        'url': 'https://opnsense.lab',            'icon': ''},
-        {'id': 'l5', 'category': 'Network',    'label': 'UniFi controller','url': 'https://10.0.0.50',               'icon': ''},
-        {'id': 'l6', 'category': 'Services',   'label': 'Pi-hole admin',   'url': 'https://pihole.lab/admin',        'icon': ''},
-        {'id': 'l7', 'category': 'Services',   'label': 'Vaultwarden',     'url': 'https://vaultwarden.lab',         'icon': ''},
+def build_links() -> dict:
+    """External-links page samples.
+
+    v6.4.3: this returned a LIST keyed `id`/`label` and the server reads a DICT
+    keyed by link id, projecting `title` — so `_links_load()` discarded the whole
+    thing (`return s if isinstance(s, dict) else {}`) and the Links page rendered
+    empty on every demo instance ever built. The seeder's own docstring warns
+    about exactly this class; it had it too.
+
+    Nothing caught it because `test_seed_guard.py` accepts dict OR list, so a
+    container-type flip was explicitly permitted. The field names below are the
+    ones `handle_links_list` actually projects, not the ones that looked right.
+
+    No emoji icons — CLAUDE.md forbids emoji in the UI.
+    """
+    now = int(time.time())
+    rows = [
+        ('l1', 'Monitoring', 'Grafana',           'https://prometheus.lab/grafana',
+         'Fleet dashboards and long-term metrics', 'internal'),
+        ('l2', 'Monitoring', 'Prometheus',        'https://prometheus.lab',
+         'Scrape targets and alert rules', 'internal'),
+        ('l3', 'Storage',    'TrueNAS',           'https://truenas.lab',
+         'Pool health, snapshots and replication', 'internal'),
+        ('l4', 'Network',    'OPNsense',          'https://opnsense.lab',
+         'Firewall rules, VPN and DHCP leases', 'internal'),
+        ('l5', 'Network',    'UniFi controller',  'https://10.0.0.50',
+         'Switches, APs and client sessions', 'internal'),
+        ('l6', 'Services',   'Pi-hole admin',     'https://pihole.lab/admin',
+         'DNS sinkhole stats and blocklists', 'internal'),
+        ('l7', 'Services',   'Vaultwarden',       'https://vaultwarden.lab',
+         'Team password vault', 'internal'),
     ]
+    return {
+        lid: {
+            'id': lid, 'title': title, 'url': url, 'description': desc,
+            'category': cat, 'scope': scope,
+            'created_by': 'alice', 'created_at': now - 86400 * (i + 3),
+        }
+        for i, (lid, cat, title, url, desc, scope) in enumerate(rows)
+    }
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
