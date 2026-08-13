@@ -70200,6 +70200,26 @@ def handle_debug_log_download():
 
 
 
+_CLIENT_TS_RE = re.compile(
+    r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?$')
+
+
+def _clean_client_ts(raw):
+    """A client-supplied timestamp, or server time if it is not one.
+
+    Browsers send their own clock so the UI and server timelines can be read
+    together, which means this value is attacker-controlled on any install where
+    debug logging is on. Validating the SHAPE rather than escaping the string is
+    deliberate: it bounds the length, removes every newline by construction, and
+    keeps the file parseable — an escaped-but-arbitrary timestamp would still
+    make the log unreadable to anything that splits on the leading bracket.
+    """
+    import datetime as _dt
+    if isinstance(raw, str) and len(raw) <= 40 and _CLIENT_TS_RE.match(raw):
+        return raw
+    return _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+
 def handle_debug_log_post():
     """POST /api/debug-log — accept a batch of client-side log entries
     and append them to the server debug.log so we have a single timeline
@@ -70225,11 +70245,21 @@ def handle_debug_log_post():
         import datetime as _dt
         with open(DEBUG_LOG_FILE, 'a') as f:
             for entry in entries[:200]:
-                ts  = entry.get('ts')
                 tag = _sanitize_str(str(entry.get('tag', 'ui'))[:32], 32)
                 msg = _sanitize_str(str(entry.get('msg', ''))[:1024], 1024)
-                if not ts:
-                    ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+                # v6.4.3 (SECURITY): `ts` was written RAW and UNBOUNDED while
+                # its two neighbours on the same line were both sanitised and
+                # capped. The line format is "[ts] tag msg", so a newline inside
+                # ts forges whole entries in a file read to reconstruct what
+                # happened during an incident — the one file whose value is that
+                # you can trust its sequence.
+                #
+                # It is a TIMESTAMP, so it is validated as one rather than
+                # merely escaped: anything that is not a plausible ISO-8601
+                # instant is replaced with server time. That also removes the
+                # unbounded-length half, and keeps the log parseable, which
+                # sanitising alone would not.
+                ts = _clean_client_ts(entry.get('ts'))
                 f.write(f"[{ts}] {tag} {msg}\n")
                 logged += 1
     except Exception as e:
