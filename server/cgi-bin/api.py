@@ -24164,11 +24164,13 @@ _UPGRADE_CMD = (
     '&& [ ! -d "/lib/modules/$KV" ] && [ ! -d "/usr/lib/modules/$KV" ]; then '
     '  if [ -n "$(ls -A /usr/lib/modules 2>/dev/null)" ] '
     '     || [ -n "$(ls -A /lib/modules 2>/dev/null)" ]; then '
-    '    echo "NOTE: the running kernel ($KV) has no module tree, but other kernels do — "\
+    # One argument per line and `echo` joins them with a single space, so no
+    # string here may END in one or the operator reads a double space.
+    '    echo "NOTE: the running kernel ($KV) has no module tree, but other kernels do —"\
 '
-    '         "this host was upgraded and not yet rebooted. The initramfs is built for the "\
+    '         "this host was upgraded and not yet rebooted. The initramfs is built for the"\
 '
-    '         "INSTALLED kernel, whose modules are present, so the upgrade proceeds. "\
+    '         "INSTALLED kernel, whose modules are present, so the upgrade proceeds."\
 '
     '         "Reboot to finish moving onto the new kernel." >&2; '
     '  else '
