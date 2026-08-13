@@ -876,6 +876,24 @@ from one that cannot.
   written.
 
 
+### What the widened gates found within a day
+
+Un-blinding the page enumeration paid for itself immediately. The first
+accessibility audit those six pages had ever received found **25 form controls
+whose visible label named nothing**: a `<label class="form-label">` sitting next
+to its input with no `for` attribute, across billing, drift, storage and
+tickets. A sighted operator sees a labelled form; a screen reader announces
+anonymous controls. Fixed by associating the labels — the visible text was
+already there and already translated, so `for=` is both the correct fix and the
+one that adds no untranslated attribute.
+
+Reaching those pages needed a fix of its own: the accessibility walk navigates
+by clicking the sidebar button, and billing and kb are module-gated — their
+buttons ship hidden and the router refuses them when the module is off. They are
+now a named skip on the empty-install sweep, asserted against the known
+module-gated set so anything else becoming unreachable still fails, and audited
+for real in the seeded sweep where the demo config switches both modules on.
+
 ### The gates that were not watching, and what they found once they were
 
 A second sweep in the same release, aimed at the measuring apparatus rather than
