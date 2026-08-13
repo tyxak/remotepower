@@ -8640,6 +8640,32 @@ def _redact_url_to_host(url):
     return ''
 
 
+def _url_without_userinfo(url):
+    """Strip `user:pass@` from a URL, keeping scheme, host, path and query.
+
+    The sibling above reduces a URL to its host because for a Slack/Discord
+    webhook the PATH is the secret. Here the opposite is true: for a Git
+    manifest or any basic-auth endpoint the credential is in the USERINFO and
+    the path is the useful, non-secret part — it names the repository. Dropping
+    the path would make an audit entry unable to answer which repo was
+    configured, which is the question it exists to answer.
+
+    Returns the input unchanged if it does not parse as a URL, so a malformed
+    value is never silently replaced by something that looks clean.
+    """
+    try:
+        p = urllib.parse.urlsplit(str(url))
+        if not p.scheme or not p.hostname:
+            return str(url)
+        if '@' not in p.netloc:
+            return str(url)
+        host = p.hostname + (f':{p.port}' if p.port else '')
+        return urllib.parse.urlunsplit(
+            (p.scheme, f'***@{host}', p.path, p.query, p.fragment))
+    except Exception:
+        return ''
+
+
 def _dlq_record(event, dest, safe_payload, message, title, priority, error):
     """v5.0.0 (#R2): persist a permanently-failed webhook delivery to the
     dead-letter queue so an operator can SEE it and retry from the UI — unlike
@@ -64052,13 +64078,25 @@ def _maybe_gitops_sync():
 
 
 def handle_gitops_get():
-    """GET /api/gitops — config (auth token masked) + last-sync status."""
+    """GET /api/gitops — config (auth token masked) + last-sync status.
+
+    The manifest URL is admin-only. It masked `auth_header` and returned `url`
+    raw to every authenticated role, but a Git URL routinely carries the
+    credential in its userinfo (https://user:ghp_xxx@host/org/repo), which makes
+    the URL itself a reusable secret. Admins still see it because the editor
+    round-trips it on save — the same reasoning as webhook_urls[].url; everyone
+    else gets the indicator, matching siem_url / otlp_endpoint / metrics_push.
+    """
     require_auth()
+    _, _g_role = verify_token(get_token_from_request())
+    _g_is_admin = bool(_resolve_role(_g_role).get('admin'))
     gc = dict((load(CONFIG_FILE) or {}).get('gitops') or {})
     st = load(GITOPS_STATE_FILE) if backend_exists(GITOPS_STATE_FILE) else {}
+    _g_url = gc.get('url', '')
     respond(200, {
         'enabled':       bool(gc.get('enabled')),
-        'url':           gc.get('url', ''),
+        'url':           _g_url if _g_is_admin else '',
+        'url_set':       bool((_g_url or '').strip()),
         'interval':      int(gc.get('interval') or 900),
         'auth_header_set': bool((gc.get('auth_header') or '').strip()),
         'last_sync':     st.get('last_sync', 0),
@@ -64095,7 +64133,14 @@ def handle_gitops_set():
             elif v.strip():
                 gc['auth_header'] = _sanitize_str(v.strip(), 512)
         cfg['gitops'] = gc
-    audit_log(actor, 'gitops_set', f'enabled={enabled} url={url} interval={interval}')
+    # v6.4.3 (SECURITY): log the URL WITHOUT its userinfo. A Git manifest URL
+    # commonly carries the credential inline (https://user:ghp_xxx@host/org/repo),
+    # and the audit log is rotated, shipped off-box and read by people who are
+    # not entitled to that token. The host and path are what an audit actually
+    # needs — they still identify which repository was pointed at.
+    audit_log(actor, 'gitops_set',
+              f'enabled={enabled} url={_url_without_userinfo(url)} '
+              f'interval={interval}')
     respond(200, {'ok': True, 'enabled': enabled, 'url': url, 'interval': interval})
 
 
