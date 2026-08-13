@@ -443,9 +443,12 @@ them are unintentional superadmins.
 
 ### Onboarding a tenant, end to end
 
-Six of the seven tenancy endpoints have **no user interface** — this is an
-API-driven workflow. All of them require a platform superadmin except tenant
-branding (see below).
+Tenant creation, renaming, suspension, deletion and user assignment are in
+**Settings → Security → Tenants** (visible to platform superadmins only). The
+same operations are available over the API, shown below, which is what you want
+for scripted onboarding. All of them require a platform superadmin except tenant
+branding (see below); assigning a **device** to a tenant is done on the device
+itself.
 
 **1. Create the tenant.**
 

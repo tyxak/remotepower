@@ -4577,12 +4577,121 @@ async function _loadTenancyReadiness() {
 }
 
 
+// ─── Tenant management (v6.4.3) ────────────────────────────────────────────
+// Superadmin-only, exactly like the isolation-coverage panel above: a
+// non-superadmin's request is refused and the section simply stays hidden
+// rather than showing an error for something they cannot act on.
+//
+// The endpoints have existed since v3.14.0; only the UI was missing, so the
+// Multi-tenancy hint told operators to use the API. Nothing here is new server
+// surface — it is the same list/create/update/delete/assign calls a script
+// would make.
+async function _loadTenants() {
+  const sec = document.getElementById('tenants-section');
+  const list = document.getElementById('tenants-list');
+  if (!sec || !list) return;
+  const r = await api('GET', '/tenants').catch(() => null);
+  // api() RESOLVES on 403 rather than throwing, so the refusal has to be
+  // detected on the body — a .catch here would never run.
+  if (!r || !r.ok || !Array.isArray(r.tenants)) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  list.innerHTML = r.tenants.map(t => {
+    const suspended = t.status === 'suspended';
+    const pill = suspended
+      ? '<span class="chk-pill chk-warning">suspended</span>'
+      : '<span class="chk-pill chk-ok">active</span>';
+    const users = t.user_count === 1 ? '1 user' : `${t.user_count} users`;
+    // The built-in default tenant is the superadmin tenant; the server refuses
+    // to rename, suspend or delete it, so the buttons are not offered either.
+    const acts = t.builtin ? '<span class="hint">built-in</span>' : `
+      <button class="btn-icon cell-sm" data-action="renameTenant" data-arg="${escAttr(t.id)}">Rename</button>
+      <button class="btn-icon cell-sm" data-action="toggleTenantStatus" data-arg="${escAttr(t.id)}">${suspended ? 'Activate' : 'Suspend'}</button>
+      <button class="btn-icon c-danger-outline cell-sm" data-action="deleteTenant" data-arg="${escAttr(t.id)}">Delete</button>`;
+    return `<div class="sb-controls"><span>${pill} <strong>${escHtml(t.name)}</strong> ` +
+           `<span class="hint">· <code>${escHtml(t.id)}</code> · ${escHtml(users)}</span></span>` +
+           `<span>${acts}</span></div>`;
+  }).join('');
+  _fillTenantAssignPickers(r.tenants);
+}
+
+async function _fillTenantAssignPickers(tenants) {
+  const uSel = document.getElementById('tenant-assign-user');
+  const tSel = document.getElementById('tenant-assign-tenant');
+  if (!uSel || !tSel) return;
+  tSel.replaceChildren();
+  for (const t of tenants) {
+    tSel.appendChild(new Option(`${t.name}${t.builtin ? ' (built-in)' : ''}`, t.id));
+  }
+  const users = await api('GET', '/users').catch(() => null);
+  const rows = Array.isArray(users) ? users
+             : (users && Array.isArray(users.users) ? users.users : []);
+  uSel.replaceChildren();
+  for (const u of rows) {
+    const name = typeof u === 'string' ? u : (u.username || u.name || '');
+    if (name) uSel.appendChild(new Option(name, name));
+  }
+}
+
+async function createTenant() {
+  const name = await uiPrompt({message: 'Tenant name:'});
+  if (!name || !name.trim()) return;
+  const r = await api('POST', '/tenants', {name: name.trim()});
+  if (r && r.ok) { toast('Tenant created', 'success'); _loadTenants(); }
+  else { toast('Create failed: ' + ((r && r.error) || ''), 'error'); }
+}
+
+async function renameTenant(id) {
+  const name = await uiPrompt({message: 'New name for this tenant:'});
+  if (!name || !name.trim()) return;
+  const r = await api('PUT', '/tenants/' + encodeURIComponent(id), {name: name.trim()});
+  if (r && r.ok) { toast('Tenant renamed', 'success'); _loadTenants(); }
+  else { toast('Rename failed: ' + ((r && r.error) || ''), 'error'); }
+}
+
+async function toggleTenantStatus(id) {
+  // Read the current state from the server rather than the rendered row, so a
+  // stale page cannot flip a tenant the wrong way.
+  const cur = await api('GET', '/tenants').catch(() => null);
+  const row = cur && Array.isArray(cur.tenants)
+            ? cur.tenants.find(t => t.id === id) : null;
+  if (!row) { toast('Tenant not found', 'error'); _loadTenants(); return; }
+  const next = row.status === 'suspended' ? 'active' : 'suspended';
+  if (next === 'suspended' && !await uiConfirm(
+        {message: `Suspend "${row.name}"? Its users will not be able to sign in.`})) return;
+  const r = await api('PUT', '/tenants/' + encodeURIComponent(id), {status: next});
+  if (r && r.ok) { toast(next === 'suspended' ? 'Tenant suspended' : 'Tenant activated', 'success'); _loadTenants(); }
+  else { toast('Update failed: ' + ((r && r.error) || ''), 'error'); }
+}
+
+async function deleteTenant(id) {
+  // No undoableDelete here: the server refuses while users are still assigned,
+  // and an optimistic hide would show the row vanishing on a request that is
+  // about to 409.
+  if (!await uiConfirm({message: 'Delete this tenant? Its users must already be reassigned.'})) return;
+  const r = await api('DELETE', '/tenants/' + encodeURIComponent(id));
+  if (r && r.ok) { toast('Tenant deleted', 'success'); }
+  else { toast('Delete failed: ' + ((r && r.error) || ''), 'error'); }
+  _loadTenants();
+}
+
+async function assignUserTenant() {
+  const u = document.getElementById('tenant-assign-user');
+  const t = document.getElementById('tenant-assign-tenant');
+  if (!u || !t || !u.value || !t.value) { toast('Pick a user and a tenant', 'error'); return; }
+  const r = await api('POST', '/tenants/' + encodeURIComponent(t.value) + '/users',
+                      {username: u.value});
+  if (r && r.ok) { toast('User assigned', 'success'); _loadTenants(); }
+  else { toast('Assign failed: ' + ((r && r.error) || ''), 'error'); }
+}
+
+
 async function loadSettings() {
   const data = await api('GET', '/config');
   if (!data) return;
   // v3.12.0: refresh the Advanced → Storage backend card (best-effort).
   try { loadStorageBackendStatus(); } catch (e) {}
   try { loadSatellites(); } catch (e) {}
+  try { _loadTenants(); } catch (e) {}
   try { loadConfigRevisions(); } catch (e) {}   // v6.3.0: Advanced → Configuration history
   try { _loadStatusPageInto(data); } catch (e) {}
   // General

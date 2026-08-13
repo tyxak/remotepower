@@ -951,6 +951,32 @@ pass that predicts production, semgrep 0 over 100 files, bandit 0 new and 0
 high, gitleaks clean, ruff F821 clean on both passes, and the Hypothesis
 property suites green.
 
+### Tenants can be administered from the interface, not only the API
+
+Multi-tenancy has had switches in Settings since v3.14.0. Creating a tenant,
+renaming one, suspending one, deleting one and assigning users to it did not —
+those were endpoints only, and the hint beside the switches said so plainly:
+managed via the API. The documentation agreed, opening its onboarding walkthrough
+by noting that six of the seven tenancy endpoints had no user interface.
+
+That is a different failure from most of what this release fixed. Nothing was
+broken and nothing was silently dropped; the feature simply stopped one layer
+short, and because the gap was written down rather than closed, it read as a
+decision and survived several releases. An operator can switch tenancy on from
+the interface but cannot administer it there, and the part that is missing is
+the part they need the day they onboard a second customer.
+
+**Settings → Security → Tenants** now lists every tenant with its status, id and
+user count, and offers create, rename, suspend/activate, delete, and assigning a
+user to a tenant. The built-in default tenant shows no destructive controls,
+because the server refuses to rename, suspend or delete it — a button whose only
+possible outcome is an error message is its own small lie.
+
+No new server surface: these are the same endpoints, with the same platform
+superadmin requirement. The panel stays hidden for anyone the server would
+refuse, and the test drives the real gate to confirm the two agree — hiding a
+control is never enforcement.
+
 ### The web terminal is on xterm.js 6, and now has a test that boots it
 
 The terminal library had been held at 5.5.0 across two releases for an honest
