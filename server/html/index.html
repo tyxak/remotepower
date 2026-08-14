@@ -2511,6 +2511,7 @@
             <div class="section-title mt-16">Disk-usage explorer</div>
             <p class="hint">Disk-fill forecasting tells you <em>when</em> a mount runs out; this tells you <em>what to delete</em>. When enabled, agents run a bounded <code>du</code> over the paths below (~12h cadence, never crossing a filesystem boundary) and report the biggest space consumers. The results appear in each host's <strong>System Info</strong> drawer panel, under the mounts table, with a <em>Scan disk usage</em> button for an on-demand run. <strong>Off by default</strong> — it walks the filesystem.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-du-scan-enabled"> Enable disk-usage scanning (~12h cadence)</label></div>
+            <div class="hint">Linux and macOS agents — Windows agents ignore this.</div>
             <div class="settings-row"><label class="form-label" for="cfg-du-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-du-scan-paths" class="form-input" rows="3" placeholder="/var&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
@@ -2536,6 +2537,7 @@
             <div class="section-title">Container image scanning</div>
             <p class="hint">Scan the images of running containers for known vulnerabilities with <code>trivy</code>. Findings feed the CVE views alongside package CVEs. Off by default; the feature is invisible on hosts without <code>trivy</code> installed. <a href="docs/containers.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (running-container images only)</label></div>
+            <div class="hint">Linux agents only — Windows and macOS agents ignore this, whether or not <code>trivy</code> is installed there.</div>
             <div class="settings-row"><label class="form-label" for="cfg-image-scan-hours">Image CVE scan cadence (hours)</label><input type="number" id="cfg-image-scan-hours" class="form-input input-auto" min="1" max="168" placeholder="12" aria-label="Image CVE scan cadence in hours"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-updates-enabled"> Check registries for newer image digests (update-available badges; untick to keep the server fully offline from registries)</label></div>
           </div>
@@ -2751,6 +2753,7 @@
             <p class="hint">Asks agents to run <code>avahi-browse</code> and report what's advertising itself on their segment — printers, Chromecasts, AirPlay, HomeKit bridges, NAS boxes. These are the devices you'll never install an agent on, so without this they're just unlabelled IPs on the network map. Results appear under <strong>Network map → LAN services</strong>. Off by default: it's a broadcast query, and it names things on your LAN. <a href="docs/network-map.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="form-label"><input type="checkbox" id="cfg-mdns-enabled"> Collect advertised LAN services from agents</label>
+              <div class="hint">Linux agents only — Windows and macOS agents ignore this.</div>
             </div>
           </div>
 
@@ -2884,6 +2887,7 @@
             <div class="section-title">Agent push channel</div>
             <p class="hint">Send connected agents a "poll now" nudge over a companion WebSocket daemon instead of always waiting for the next scheduled poll — cuts worst-case command-dispatch latency, but never carries commands itself; the agent's normal poll cycle stays authoritative. Requires <code>server/push/remotepower-push.py</code> installed + running separately. Off by default — the feature is invisible unless both this is on and the daemon is actually reachable. <a href="docs/push.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-push-enabled"> Enable the agent push channel</label></div>
+            <div class="hint">Linux agents only — Windows and macOS agents ignore this. The test button below checks the daemon, not whether your agents use it.</div>
             <div class="row-6"><button class="btn-secondary" data-action="testPushChannel" type="button">Test daemon connection</button></div>
             <div id="push-channel-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>

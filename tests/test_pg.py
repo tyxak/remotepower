@@ -140,7 +140,14 @@ class TestStoragePgBackend(unittest.TestCase):
     def test_cap_eviction_parses_via_the_coalesce_path_too(self):
         """The same ORDER BY lives in list_coalesce_or_append; exercise it so a
         missing cast there cannot hide behind the append path's coverage."""
-        a = self._p('alerts2.json')
+        # MUST be a filename in WRAPPED_LIST_FILES. It was `alerts2.json`,
+        # which is not one, so load() returned the plain kv doc and never saw
+        # the list rows at all: `kept` was [] and the assertion below failed
+        # for a fixture reason that looks exactly like an evicted open alert.
+        # Driven directly against a real server, the product does the right
+        # thing here -- resolved rows evict first and the open row survives.
+        # Nobody noticed because this file skips without a live DSN.
+        a = self._p('alerts.json')
         self.S.save(a, {'alerts': []})
         for i in range(4):
             self.S.list_coalesce_or_append(

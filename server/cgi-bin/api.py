@@ -29957,6 +29957,46 @@ def handle_config_save():
                 respond(400, {'error': 'backup.rto_hours must be an integer'})
         cfg['backup'] = clean_bk
 
+    # v7.0.0: three keys the DOCS describe as settable config keys that no
+    # save path ever wrote. On the enterprise default the config store is a DB
+    # row, not a file, so "set the config key" was not merely undocumented —
+    # there was no supported way to do it at all. Making the documented
+    # promise true is the honest fix; trimming the docs would have removed a
+    # capability operators were told they had.
+    #
+    #   container_alert_excludes  fleet-wide container-alert suppression
+    #                             (docs/containers.md) — list of substrings
+    #   webterm_daemon_url        web-terminal sidecar (docs/remote-access.md);
+    #                             its sibling *_secret is already withheld on
+    #                             read by _scrub_config_secrets, which matches
+    #                             on the NAME
+    #   slow_handler_ms           slow-handler ring threshold (CHANGELOG)
+    if 'container_alert_excludes' in body:
+        _cae = body['container_alert_excludes']
+        if not isinstance(_cae, list):
+            respond(400, {'error': 'container_alert_excludes must be a list'})
+        cfg['container_alert_excludes'] = [
+            _sanitize_str(str(x), 128) for x in _cae[:200] if str(x).strip()]
+    for _wk in ('webterm_daemon_url', 'webterm_daemon_secret'):
+        if _wk in body:
+            _wv = _sanitize_str(str(body[_wk] or ''), 512)
+            # Empty means "keep current" for the secret, matching the OIDC
+            # idiom below; an explicit clear is done by removing the key.
+            if _wk.endswith('_secret') and not _wv:
+                pass
+            else:
+                cfg[_wk] = _wv
+    if cfg.get('webterm_daemon_url'):
+        _wp = urllib.parse.urlparse(cfg['webterm_daemon_url'])
+        if _wp.scheme not in ('http', 'https') or not _wp.netloc:
+            respond(400, {'error': 'webterm_daemon_url must be http:// or https:// '
+                                   'with a hostname'})
+    if 'slow_handler_ms' in body:
+        try:
+            cfg['slow_handler_ms'] = max(1, min(600000, int(body['slow_handler_ms'])))
+        except (TypeError, ValueError):
+            respond(400, {'error': 'slow_handler_ms must be an integer'})
+
     # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
     # update only — empty string means "keep current".
     oidc_keys_touched = False
@@ -34149,6 +34189,16 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
                 break
             t0 = time.time()
             for name in changed:
+                # BUST THE MEMOISED READ FIRST. load() caches per request in
+                # _LOAD_CACHE, and the main pass above has already read every
+                # one of these files — so without this the catch-up re-copies
+                # its OWN first snapshot and the concurrent write it exists to
+                # capture is silently lost. The mtime check correctly said the
+                # file changed; the re-read then returned the stale value.
+                # Same class as the File Manager / run-and-wait long-poll bug:
+                # a loop re-reading a key another process updates must
+                # invalidate, or it never sees past its first read.
+                _invalidate_load_cache(DATA_DIR / name)
                 _write(name, load(DATA_DIR / name))
                 log(f"  catch-up: {src} -> {target}  {name}")
             log(f"catch-up: re-migrated {len(changed)} file(s) written during migration")
