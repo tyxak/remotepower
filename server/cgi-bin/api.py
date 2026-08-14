@@ -71111,7 +71111,12 @@ def handle_iac_generate():
         respond(400, {'error': f'collection error: {coll["error"]}'}); return
 
     dev_id = coll.get('device_id', '')
-    devs = load(DEVICES_FILE) or {}
+    # Scope-filtered. The request_id is 96 unguessable bits and the CREATE
+    # path gates the device with _scope_block_device, so this is defence in
+    # depth rather than a live hole -- but the device_id here comes from a
+    # STORED record, not from this request, and that `# SEC:` comment on the
+    # create path is exactly what makes the pair read as already enforced.
+    devs = _scope_filter_devices(load(DEVICES_FILE) or {})
     dev = devs.get(dev_id, {})
     if not dev:
         respond(404, {'error': 'device no longer exists'}); return
@@ -71247,7 +71252,12 @@ def handle_iac_payload(request_id):
         respond(400, {'error': f'collection error: {coll["error"]}'}); return
 
     dev_id = coll.get('device_id', '')
-    devs   = load(DEVICES_FILE) or {}
+    # Scope-filtered. The request_id is 96 unguessable bits and the CREATE
+    # path gates the device with _scope_block_device, so this is defence in
+    # depth rather than a live hole -- but the device_id here comes from a
+    # STORED record, not from this request, and that `# SEC:` comment on the
+    # create path is exactly what makes the pair read as already enforced.
+    devs   = _scope_filter_devices(load(DEVICES_FILE) or {})
     dev    = devs.get(dev_id, {})
     requested = coll.get('categories', []) or list((coll.get('data') or {}).keys())
 
@@ -71277,6 +71287,7 @@ def handle_iac_payload(request_id):
 
 # Human-readable labels for each prompt key (shown in Settings UI).
 _AI_PROMPT_LABELS = {
+    'report_summary':      'Fleet posture report summary',
     'security_advisory': 'Security advisory',
     'free_form':              'Free-form chat',
     'explain_output':         'Explain command output',

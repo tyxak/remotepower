@@ -159,5 +159,31 @@ class TestEveryMuteableNaKindCanActuallyBeMuted(unittest.TestCase):
                                   + ', '.join(bad))
 
 
+class TestEveryPromptIsTunable(unittest.TestCase):
+    """SYSTEM_PROMPTS and _AI_PROMPT_LABELS are a two-registry contract with no
+    gate. handle_ai_params_get iterates the LABELS, so a prompt with no label
+    never appears on the AI-parameters page and cannot be tuned — which is how
+    report_summary ended up untunable twice over: no label, and a call site
+    that never consulted _resolve_ai_params even if there had been one.
+    """
+
+    def test_the_registries_are_not_empty(self):
+        self.assertGreater(len(api.ai_provider.SYSTEM_PROMPTS), 50)
+        self.assertGreater(len(api._AI_PROMPT_LABELS), 50)
+
+    def test_every_prompt_has_a_label(self):
+        missing = sorted(set(api.ai_provider.SYSTEM_PROMPTS)
+                         - set(api._AI_PROMPT_LABELS))
+        self.assertEqual(missing, [],
+                         'these prompts never appear on the AI-parameters '
+                         f'page, so their overrides cannot be set: {missing}')
+
+    def test_every_label_has_a_prompt(self):
+        extra = sorted(set(api._AI_PROMPT_LABELS)
+                       - set(api.ai_provider.SYSTEM_PROMPTS))
+        self.assertEqual(extra, [],
+                         f'labels for prompts that do not exist: {extra}')
+
+
 if __name__ == '__main__':
     unittest.main()

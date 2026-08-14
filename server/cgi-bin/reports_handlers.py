@@ -376,13 +376,23 @@ def _build_report_summary(report):
         ctx = _report_summary_context(report)
         if not ctx:
             return {'error': 'report has no figures to summarise'}
+        # Honour the operator's per-prompt overrides, like every other
+        # advisor call. Without this the AI-parameters page could not affect
+        # this summary even once it was listed there.
+        _rs_params = A._resolve_ai_params('report_summary')
+        _rs_kwargs = {
+            'system':     A.ai_provider.SYSTEM_PROMPTS['report_summary'],
+            'max_tokens': (_rs_params.get('max_tokens') or 600),
+        }
+        for _p in ('temperature', 'top_p', 'num_ctx'):
+            if _rs_params.get(_p) is not None:
+                _rs_kwargs[_p] = _rs_params[_p]
         res = A.ai_provider.chat(
             cfg,
             [{'role': 'user',
               'content': 'Fleet posture report figures:\n'
                          + A.json.dumps(ctx, indent=2, default=str)}],
-            system=A.ai_provider.SYSTEM_PROMPTS['report_summary'],
-            max_tokens=600)
+            **_rs_kwargs)
         if not res.get('ok'):
             return {'error': str(res.get('error') or 'AI request failed')[:200]}
         text = (res.get('text') or '').strip()
