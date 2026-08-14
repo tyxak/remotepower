@@ -2402,6 +2402,14 @@ document.addEventListener('keydown', e => {
 // because a direct render-time call into an unloaded module dies silently at
 // runtime (the classic JS failure mode this repo documents).
 const _LAZY_PAGE_MODULES = {
+  // v7.0.0: app-alerts.js (75 KB) is the largest page-scoped module and was
+  // boot-loaded. Every one of its eight data-action buttons lives inside
+  // #page-alerts, its only cross-module caller (app-logs.js) is guarded by both
+  // `typeof` and an is-the-alerts-page-active check, and app.js's single call
+  // is the showPage dispatch this map exists to serve. Enumerated rather than
+  // assumed — 63 functions, two names appearing in app.js, one of them only in
+  // a comment.
+  alerts: ['app-alerts.js'],
   checks: ['app-checks.js'],
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
