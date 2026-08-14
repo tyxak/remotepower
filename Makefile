@@ -174,11 +174,21 @@ importlib.import_module("{}")' 2>&1 | grep -v '^$$' || true
 	@# method — the module loads fine and the method fails when it runs. Four
 	@# modules were in that state. Only running them finds it, which is why this
 	@# is a target and not a gate.
+	@# v7.0.0: writes failures to a marker file and FAILS the target if any
+	@# appeared. It used to print "OK — every module also RUNS alone" straight
+	@# after listing 27 broken modules, which is the report-success-while-
+	@# measuring-nothing shape this repo keeps finding, in the tool built to
+	@# find it.
+	@rm -f /tmp/rp-iso-fails
 	@ls tests/test_*.py | sed 's|tests/|tests.|; s|\.py$$||' \
 	  | xargs -P 8 -I{} sh -c '$(PY) -m unittest {} >/tmp/rp-iso-$$$$.log 2>&1 || \
-	    { echo "=== {}"; grep -E "^(FAIL|ERROR):" /tmp/rp-iso-$$$$.log | head -3; }; \
+	    { echo "=== {}" | tee -a /tmp/rp-iso-fails; \
+	      grep -E "^(FAIL|ERROR):" /tmp/rp-iso-$$$$.log | head -3; }; \
 	    rm -f /tmp/rp-iso-$$$$.log'
-	@echo "OK — every module also RUNS alone (no output above means clean)."
+	@if [ -s /tmp/rp-iso-fails ]; then \
+	  echo; echo "FAILED — $$(grep -c '^===' /tmp/rp-iso-fails) module(s) do not run alone."; \
+	  rm -f /tmp/rp-iso-fails; exit 1; \
+	else echo "OK — every module also RUNS alone."; fi
 
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)

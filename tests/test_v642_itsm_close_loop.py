@@ -21,6 +21,12 @@ And ack is re-runnable (un-ack then ack, or an escalation re-acking), so each
 pass opened a fresh issue with the same summary.
 """
 
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts this directory on sys.path for free;
+# `python3 -m unittest tests.<this>` does not, and the method then fails
+# with ModuleNotFoundError. See tests/test_modules_import_alone.py.
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import importlib.util
 import os
 import sys

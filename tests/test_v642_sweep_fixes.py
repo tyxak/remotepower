@@ -18,6 +18,11 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
+# A sibling from tests/ is imported inside a test method below, and the
+# insert on the next line points at server/cgi-bin, not here. `unittest
+# discover -s tests` puts this directory on the path for free; a targeted
+# run does not, and the method then fails with ModuleNotFoundError.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v642-sweep-"))
 

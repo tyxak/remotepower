@@ -6,6 +6,12 @@ deviated from the suggested approach for good reasons, so the tests pin the
 PROPERTY that matters rather than the shape of the code.
 """
 
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts this directory on sys.path for free;
+# `python3 -m unittest tests.<this>` does not, and the method then fails
+# with ModuleNotFoundError. See tests/test_modules_import_alone.py.
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import ast
 import importlib.util
 import json

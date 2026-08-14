@@ -10,6 +10,12 @@ device, encrypted with the same CMDB vault. Admin-only; reveal is audit-logged.
 # writable, would overwrite a live install's admin user. These files only
 # passed because `unittest discover` happened to import a guarded module
 # first; run on their own they raised PermissionError (or worse, succeeded).
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts this directory on sys.path for free;
+# `python3 -m unittest tests.<this>` does not, and the method then fails
+# with ModuleNotFoundError. See tests/test_modules_import_alone.py.
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import os as _rp_os, tempfile as _rp_tempfile
 _rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import importlib.util
