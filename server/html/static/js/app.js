@@ -2365,8 +2365,7 @@ document.addEventListener('keydown', e => {
 const _LAZY_PAGE_MODULES = {
   checks: ['app-checks.js'],
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
-  advisory: ['app-checks.js'],
-  autonomy: ['app-self.js'],    // v7.0.0 autonomy receipts + envelope  // Security Advisory renderer + host-list filter
+  advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   dmarc: ['app-dmarc.js'],
   gpus: ['app-gpu.js'],
   kb: ['app-kb.js'],
