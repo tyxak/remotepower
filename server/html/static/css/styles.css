@@ -1385,7 +1385,17 @@
     font-family: var(--font);
   }
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
-  .btn-icon svg { width: 14px; height: 14px; }
+  /* v7.0.0: `flex: 0 0 auto` — an icon must never be squeezed.
+     `.btn-icon` is a flex row, so its <svg> is a flex ITEM and inherits the
+     default `flex-shrink: 1`. On a crowded toolbar that overflows, the icon
+     is the thing that gives: measured on the Network map page, this exact
+     button rendered its icon at 12.3px against 14px for the byte-identical
+     button on Virtualization, which also pushed the icon-to-label gap to
+     9.6px against the 5px standard. Width alone is not a floor for a flex
+     item — it is a basis the algorithm may shrink below.
+     Found only after fixing the 500 that made this page unreachable: the
+     rendered gates had never been able to measure it. */
+  .btn-icon svg { width: 14px; height: 14px; flex: 0 0 auto; }
   /* v7.0.0: pin the CONTENT height to the icon's 14px, so a button whose label
      has no icon is exactly as tall as its neighbours that do.
      Measured before this: in one Alerts action row, the seven buttons with an
@@ -5190,7 +5200,17 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-170 { flex:1; min-width:240px; max-width:380px }
 .isl-171 { display:none; margin-top:24px }
 .isl-172 { font-size: 16px }
-.isl-173 { display:flex; gap:10px; margin-bottom:16px; align-items:center }
+/* v7.0.0: `flex-wrap: wrap`. Without it these toolbar rows SHRINK their
+   controls to fit, and a flex item shrunk below its content width squashes
+   the label inside it. Measured on the Network map page, whose toolbar is
+   the busiest of the three: its `AI review` button rendered 90.1px against
+   98.5px for the byte-identical button on Virtualization -- every computed
+   style on the two was identical except width -- and the squeeze pushed the
+   icon-to-label gap to 8.8px against the 5px standard.
+   Wrapping to a second line is the tidy answer and the one the rest of this
+   stylesheet already uses; squashing a control is not. */
+.isl-173 { display:flex; gap:10px; margin-bottom:16px; align-items:center;
+           flex-wrap: wrap }
 .isl-174 { color:var(--muted); font-size:13px; margin-left:auto }
 .isl-175 { padding:16px }
 .isl-176 { background:var(--surface); border-radius:6px }
