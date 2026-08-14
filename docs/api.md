@@ -1,11 +1,11 @@
 # API reference
 
 > **This page is a curated tour of the most-used endpoints, not the full surface.**
-> RemotePower exposes **637 paths**. The complete, always-current reference is
+> RemotePower exposes **683 paths**. The complete, always-current reference is
 > generated from the live route table — browse it interactively at
 > **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
 > **`/api/openapi.json`**. Anything shipped is in there; this page is hand-written
-> and covers roughly the first ninety you're likely to reach for.
+> and covers the ~108 you're likely to reach for.
 
 All authenticated endpoints require: `X-Token: <session_token_or_api_key>`.
 Every route is also reachable under the permanent `/api/v1/...` alias.
@@ -16,7 +16,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   offending field, before the handler runs.
 - **A disabled module 404s its whole API prefix.** Switching a module off under
   Settings → Advanced → Optional modules (Alerts, Tickets, Billing, Knowledge base,
-  Compliance, Pentest, AI executor) makes every route under its prefix return **404** at the
+  Compliance, Pentest, AI executor, Autonomy) makes every route under its prefix return **404** at the
   dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
   genuinely off, not merely hidden from the sidebar.
 - **Tenant isolation.** Where tenancy is enforced, a device id belonging to another
@@ -121,7 +121,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `GET` | `/api/patch-report/xml` | | Patch report as XML (`?group=X&device_id=Y`) |
 | `GET` | `/api/patch-report/device/:id` | | Per-device patch detail |
 | `DELETE` | `/api/history` | admin | Clear command history |
-| `GET` | `/api/audit-log` | admin | Security audit log |
+| `GET` | `/api/audit-log` | admin/auditor | Security audit log |
 | `DELETE` | `/api/audit-log` | admin | Clear audit log |
 | `POST` | `/api/sessions/revoke` | admin | Revoke user sessions |
 | `POST` | `/api/totp/setup` | | Generate TOTP secret for 2FA |
@@ -139,25 +139,25 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `DELETE` | `/api/webauthn/credentials/:id` | | Remove one of your passkeys |
 | `POST` | `/api/webauthn/login/begin` | - | Start a passkey sign-in (rate-limited) |
 | `POST` | `/api/webauthn/login/complete` | - | Finish a passkey sign-in → session token |
-| `GET` | `/api/saml/available` | - | Is SAML SSO configured (boolean only) |
+| `GET` | `/api/saml/available` | any | Is SAML SSO configured (boolean only) |
 | `GET` | `/api/saml/metadata` | - | SP metadata XML for your IdP |
-| `GET` | `/api/audit-log/verify` | admin | Walk the audit hash-chain; report tampering |
-| `GET` | `/api/audit-log/archive` | admin | Download the gzipped archive of evicted audit entries |
+| `GET` | `/api/audit-log/verify` | admin/auditor | Walk the audit hash-chain; report tampering |
+| `GET` | `/api/audit-log/archive` | admin/auditor | Download the gzipped archive of evicted audit entries |
 | `GET` | `/api/diagnostics` | admin | Download a JSON support bundle (versions, backend, fleet, cadence-job staleness, audit/chain status, optional-dep presence; secrets scrubbed) |
-| `GET` | `/api/security-posture` | admin | Graded secure-defaults self-check (each warn names its fix tab) |
+| `GET` | `/api/security-posture` | admin/auditor | Graded secure-defaults self-check (each warn names its fix tab) |
 | `GET` | `/api/scans` | scan | List security scans |
-| `POST` | `/api/scans` | admin | Queue a scan (tool, profile, intensity, target) |
+| `POST` | `/api/scans` | scan | Queue a scan (tool, profile, intensity, target) |
 | `GET` | `/api/scans/:id` | scan | Scan detail + findings |
-| `DELETE` | `/api/scans/:id` | admin | Delete a scan record |
-| `POST` | `/api/scans/clear` | admin | Clear finished scans |
+| `DELETE` | `/api/scans/:id` | scan | Delete a scan record |
+| `POST` | `/api/scans/clear` | scan | Clear finished scans |
 | `GET` | `/api/scan-targets` | scan | Registered non-enrolled scan targets |
 | `POST` | `/api/scan-targets` | admin | Register a target (returns ownership proof) |
 | `POST` | `/api/scan-targets/:id/verify` | admin | Verify ownership (DNS TXT or /.well-known) |
 | `DELETE` | `/api/scan-targets/:id` | admin | Remove a scan target |
 | `GET` | `/api/scan-schedules` | scan | List scheduled scans |
-| `POST` | `/api/scan-schedules` | admin | Create a recurring (cron) scan |
-| `POST` | `/api/scan-schedules/:id/run` | admin | Run a scheduled scan now |
-| `DELETE` | `/api/scan-schedules/:id` | admin | Delete a schedule |
+| `POST` | `/api/scan-schedules` | scan | Create a recurring (cron) scan |
+| `POST` | `/api/scan-schedules/:id/run` | scan | Run a scheduled scan now |
+| `DELETE` | `/api/scan-schedules/:id` | scan | Delete a schedule |
 
 ### Fleet & server control (v5.0.0)
 | Method | Endpoint | Auth | Description |

@@ -145,10 +145,11 @@ created with role `mcp` (see *Guarded write tools* below).
 > aggregation the model would otherwise have to do by hand. Requires the RAG
 > index to be enabled (Settings → AI assistant → Knowledge index).
 
-The four **write tools** are reachable only by a key whose role is `mcp`:
+The five **write tools** are reachable only by a key whose role is `mcp`:
 
 | Write tool | What it does |
 |---|---|
+| `acknowledge_alert` | Acknowledge one open alert, with an optional note |
 | `reboot_device` | Queue a reboot for one device |
 | `run_saved_script` | Run a script **from the saved library** (by id) — never an arbitrary command |
 | `force_package_scan` | Ask an agent to push its installed-package list now |

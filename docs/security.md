@@ -60,9 +60,11 @@ trade-offs in the open — opt-in legacy ciphers for appliances that offer nothi
 else, and the availability coupling that makes it a mistake to unlock a
 machine's storage against a KMIP server that machine hosts.
 
-The current pass is [security-review-6.4.2.md](security-review-6.4.2.md) for
-**v6.4.2**. It found real defects, and every one of them is fixed before the
-release goes out.
+The current pass is [security-review-7.0.0.md](security-review-7.0.0.md) for
+**v7.0.0**; [security-review-6.4.2.md](security-review-6.4.2.md) and
+[security-review-6.4.1.md](security-review-6.4.1.md) are the two kept before it.
+Each found real defects, and every one of them is fixed before the release goes
+out.
 Configuration secrets stopped being encrypted at rest on one write path; the AI
 privacy toggle did not redact compressed IPv6 addresses; three
 places applied an access-control gate to one endpoint and not to its sibling

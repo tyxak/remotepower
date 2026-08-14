@@ -15,7 +15,7 @@ default; nginx's shipped `remotepower-locations.conf` already `proxy_pass`es
 `wsgi:application` target, error handling, and Flask's own test client all
 work). Business logic is unchanged: every request still runs the exact same
 `api.main()` request path (dispatch table, auth, CSRF/read-only/IP-allowlist
-enforcement, the ~64 maintenance sweeps) that has always served RemotePower —
+enforcement, the ~73 maintenance sweeps) that has always served RemotePower —
 only the transport shell (CGI vs a persistent Flask/gunicorn process) changed.
 
 ## Concurrency: threads and/or processes
@@ -63,7 +63,7 @@ systemctl daemon-reload && systemctl restart remotepower-wsgi
 
 ## Out-of-band maintenance scheduler (default on)
 
-RemotePower runs ~64 background maintenance sweeps (monitors, IMAP ingest,
+RemotePower runs ~73 background maintenance sweeps (monitors, IMAP ingest,
 KEV/EPSS refresh, scheduled reports, backups, escalation, …). Left
 in-process they'd **piggy-back on request traffic** — when a request arrives,
 `main()` runs whatever is due. Two limits at scale: with **no traffic
@@ -91,7 +91,7 @@ systemctl restart remotepower-wsgi
   each `_if_due`-gated, so the interval just controls how often "what's due"
   is checked.
 - **Why it matters:** on a networked Postgres backend the per-request cadence
-  costs one "is it due?" DB round-trip per sweep, and there are ~33 sweeps. A
+  costs one "is it due?" DB round-trip per sweep, and there are ~73 sweeps. A
   one-off staging observation put that at roughly **0.7 s/request on the
   request path versus ~0.03 s with the scheduler off-path**. Treat those as an
   order-of-magnitude illustration, not a benchmark: it was a single environment

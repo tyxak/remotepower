@@ -54,11 +54,20 @@ response is a pending confirmation id. Nothing has run.
 
 ## What it is not
 
-Not autonomy, and nothing here becomes autonomous by configuration. Selective
-autonomy for low-risk actions (Phase 1) and closed-loop outcome reporting
-(Phase 2) are **not built**. Phase 0 is the whole shippable increment — and it is
-strictly safer than the older mitigate flow, which executes on a typed `RUN` with
-no second pair of eyes.
+Not autonomy, and nothing here becomes autonomous by configuration. This flow
+always stops at a pending confirmation; a person approves or it does not happen.
+
+Selective autonomy and closed-loop outcome reporting DO exist, as a separate,
+separately-gated feature — see [autonomy.md](autonomy.md). That loop acts only
+on precedent from resolved incidents, only on action classes you have
+explicitly allow-listed, and starts every tenant at `off`. It is deliberately
+not reachable from here: proposing one action for a person to approve and
+running a class of actions unattended are different powers, and conflating
+their switches is how one becomes the other by accident.
+
+Phase 0 is the whole shippable increment of *this* flow — and it is strictly
+safer than the older mitigate flow, which executed on a typed `RUN` with no
+second pair of eyes.
 
 ---
 
