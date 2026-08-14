@@ -53,6 +53,15 @@ properly on the next update.
   nothing.
 - noVNC 1.5.0, qrcode-generator, fonts: current / no security-relevant update.
 
+## Re-verified for v7.0.0 — 2026-08-14
+
+No changes needed. Every pinned version in the table below still matches the
+bytes on disk: the two SRI hashes in `swagger.html` were recomputed from the
+files and are identical to the pins, which `tests/test_v643_sri_pins_match.py`
+also holds continuously. The check is recorded rather than left implicit because
+a deferred verification with nothing asserting it becomes the permanent state —
+the same reason the AUR publication now has `tools/aur-status.sh`.
+
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |

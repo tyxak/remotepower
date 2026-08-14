@@ -8273,11 +8273,24 @@ def _maybe_export_otlp():
     except (TypeError, ValueError):
         interval = 60
     now = int(time.time())
+    # v7.0.0 (PERF): read the slot READ-ONLY first. With OTLP enabled this ran
+    # on every heartbeat and took a WRITE LOCK — flock, read, unlock — purely to
+    # discover it was not due yet, so a 100-device fleet on a 60s poll paid ~100
+    # lock acquisitions a minute to do nothing. Same double-check shape
+    # refresh_kev_epss_if_due uses: the cheap read decides whether to bother,
+    # and the re-check INSIDE the lock is what actually keeps the claim atomic,
+    # so two concurrent heartbeats still cannot both push.
+    try:
+        _last = int((_load_ro(OTLP_STATE_FILE) or {}).get('last_push', 0) or 0)
+    except Exception:
+        _last = 0
+    if now - _last < interval:
+        return
     try:
         with _locked_update(OTLP_STATE_FILE) as st:
             last = st.get('last_push', 0)
             if now - last < interval:
-                return
+                return        # another heartbeat claimed the slot while we waited
             st['last_push'] = now
     except Exception:
         return
@@ -64214,6 +64227,16 @@ def _maybe_push_metrics():
         return
     interval = max(15, int(mp.get('interval') or 60))
     now = int(time.time())
+    # v7.0.0 (PERF): cheap read-only gate before the lock, for the same reason
+    # as _maybe_export_otlp above — with push enabled this took a write lock on
+    # every heartbeat to compare one integer. The claim stays atomic because the
+    # comparison is repeated inside the lock.
+    try:
+        _last = int((_load_ro(METRICS_PUSH_STATE_FILE) or {}).get('last_push', 0) or 0)
+    except Exception:
+        _last = 0
+    if now - _last < interval:
+        return
     due = False
     with _LockedUpdate(METRICS_PUSH_STATE_FILE) as st:
         if now - int(st.get('last_push', 0)) >= interval:
