@@ -3337,8 +3337,18 @@ input.form-input[type="text"][data-token],
   margin: -24px -24px 18px;
   padding: 12px 24px;
 }
+/* v7.0.0: the compact override listed TWO of the five wrappers above, so
+   .row-8-center / .ai-tool-head / .drift-prof-head kept the -16px/-18px bleed
+   while the card around them shrank to 11px/13px — the band overhung its own
+   card by 5px on each side and 5px at the top. Reported from the Drift
+   profiles page, which uses .drift-prof-head. The base rule and this one must
+   name the SAME five wrappers; tests/test_v700_card_band_parity.py fails when
+   they diverge, because that divergence is invisible at the default density. */
 body.density-compact .dash-card > .section-title:first-child,
-body.density-compact .dash-card > .section-header:first-child {
+body.density-compact .dash-card > .section-header:first-child,
+body.density-compact .dash-card > .row-8-center:first-child,
+body.density-compact .dash-card > .ai-tool-head:first-child,
+body.density-compact .dash-card > .drift-prof-head:first-child {
   margin: -11px -13px 12px;
   padding: 9px 13px;
 }
