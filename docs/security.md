@@ -33,13 +33,19 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. **v7.0.0** (see [security-review-7.0.0.md](security-review-7.0.0.md)) went
-looking specifically at fleet-wide READ endpoints and found three that
+High, or Medium finding ships**. **v7.0.0** (see [security-review-7.0.0.md](security-review-7.0.0.md)) ran in
+four passes. The last one reviewed the release's own new subsystem —
+**autonomous remediation**, the first code in the product that can decide on its
+own to run a command on a host — and found three issues in it, none ever
+reachable because this build plans actions without dispatching them: a command
+assembled from alert text, a parameter that could have re-aimed the action, and
+a safety validation the interpreter would remove in optimised mode. Each was one
+wiring commit from mattering, which is the argument for closing them now. The
+earlier passes went looking at fleet-wide READ endpoints and found three that
 authenticated the caller and then answered as though every caller were an
-unrestricted administrator — metrics, the calendar feed and rack elevation.
-All three were long-standing rather than new, all are read paths exposing no
-credential or command channel, and all are fixed in the release that describes
-them. That pass built on
+unrestricted administrator — metrics, the calendar feed and rack elevation — and
+then at the write side. All long-standing rather than new, all fixed in the
+release that describes them. That pass built on
 [security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
 toward the **KMIP key server** — the highest-consequence surface that release
 added, since it holds encryption keys for other people's storage. Every trust

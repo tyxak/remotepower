@@ -364,6 +364,91 @@ class TestParameterResolution(unittest.TestCase):
         self.assertEqual(cmd, 'exec:fstrim -av')
 
 
+class TestAParameterCannotBecomeAShellCommand(unittest.TestCase):
+    """The one place remote data reaches a command line.
+
+    Several templates are `exec:` verbs, which the agent runs through a SHELL.
+    The parameter is filled from the ALERT PAYLOAD, which is agent-reported
+    data. `_sanitize_str` — the helper the first version relied on — only trims
+    and truncates; it removes no shell metacharacter, so `process` = `x; id`
+    would have produced `exec:pkill -TERM -x -- x; id`.
+
+    Nothing was exploitable, because this build never dispatches the command it
+    plans. It was one wiring commit away from being an injection path from
+    agent-reported data into a root shell, which is exactly the kind of thing
+    that should be closed while it is still theoretical.
+
+    The guard is an ALLOWLIST. A denylist of shell characters is a list somebody
+    has to keep complete, and the set of legitimate values here is small and
+    known: unit names, container names, process names, mount paths, pool names.
+    """
+
+    HOSTILE = [
+        'x; id', 'x && id', 'x | id', 'x`id`', 'x$(id)', 'x\nid', 'x id',
+        "x'y", 'x"y', 'x>out', 'x<in', 'x*', 'x?', 'x!', 'x\\y', 'x&', 'x;',
+        '../../etc/passwd\x00', 'a:stop:sshd', '-rf', '--force',
+    ]
+
+    def test_every_hostile_value_is_refused(self):
+        for bad in self.HOSTILE:
+            cmd, prob = ops._resolve_params(
+                'exec:pkill -TERM -x -- {process}', {'process': bad}, 'd1')
+            self.assertEqual(prob, 'missing_parameter', f'{bad!r} was accepted')
+            self.assertEqual(cmd, '', f'{bad!r} produced {cmd!r}')
+
+    def test_the_typed_verbs_refuse_them_too(self):
+        for bad in self.HOSTILE:
+            cmd, prob = ops._resolve_params('svc:restart:{unit}',
+                                            {'unit': bad}, 'd1')
+            self.assertEqual(prob, 'missing_parameter', f'{bad!r} was accepted')
+
+    def test_legitimate_values_still_pass(self):
+        """Positive control. A guard that refuses everything would satisfy the
+        assertions above and break every action."""
+        cases = [
+            ('svc:restart:{unit}', 'unit', 'nginx.service'),
+            ('svc:restart:{unit}', 'unit', 'wg-quick@wg0.service'),
+            ('svc:restart:{unit}', 'unit', 'systemd-resolved'),
+            ('exec:pkill -TERM -x -- {process}', 'process', 'php-fpm8.3'),
+            ('exec:mount -o remount,rw -- {mount}', 'path', '/srv/data'),
+            ('exec:zpool scrub -- {pool}', 'disk', 'tank/backups'),
+            ('exec:zpool scrub -- {pool}', 'disk', 'rpool'),
+        ]
+        for tmpl, key, val in cases:
+            cmd, prob = ops._resolve_params(tmpl, {key: val}, 'd1')
+            self.assertIsNone(prob, f'{val!r} was refused')
+            self.assertIn(val, cmd)
+
+    def test_every_parameterised_template_separates_options_from_operands(self):
+        """`--` before the parameter, so a value can never be read as an option.
+
+        The allowlist already refuses a leading hyphen, so this is the second
+        half of the same guard rather than the only one — but a template without
+        the separator would make the whole protection depend on that one regex,
+        and this is the cheaper thing to keep true.
+        """
+        missing = []
+        for action in autonomy.ACTION_CLASSES:
+            for fam, tmpl in _templates_for(action):
+                if '{' not in tmpl or not tmpl.startswith('exec:'):
+                    continue
+                head = tmpl[:tmpl.index('{')]
+                if ' -- ' not in head:
+                    missing.append(f'{action} ({fam}): {tmpl[:60]}')
+        self.assertEqual(
+            sorted(missing), [],
+            'these shell templates interpolate a parameter with no `--` before '
+            'it, so a value could be parsed as an option:\n'
+            + '\n'.join('  ' + m for m in sorted(missing)))
+
+    def test_the_allowlist_excludes_every_shell_metacharacter(self):
+        """Direct check on the pattern, so the intent survives someone widening
+        it for a name that failed in the field."""
+        for ch in ';|&$`()<>*?!\\"\' \t\n\r:':
+            self.assertIsNone(ops._SAFE_PARAM.fullmatch('a' + ch + 'b'),
+                              f'{ch!r} is accepted by the parameter allowlist')
+
+
 class TestTheLadderRespectsTheAllowList(unittest.TestCase):
 
     def test_it_takes_the_first_permitted_rung(self):

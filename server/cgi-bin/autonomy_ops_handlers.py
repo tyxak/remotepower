@@ -370,6 +370,20 @@ _ACTION_PARAMS = {
 }
 
 
+# Every character a legitimate unit / container / process / mount / pool name
+# can contain, and nothing that means anything to a shell or to the
+# colon-delimited command wire format.
+#
+# The first character may not be `-`. Every template already writes `--` before
+# its parameter, so `-rf` would be treated as an operand rather than an option —
+# but that makes safety depend on each template remembering the separator, and a
+# name beginning with a hyphen is not a real unit, container, process, mount or
+# pool anyway. Refusing it here means a template that forgets `--` is still not
+# an option-injection path. (test_v700_action_catalog also asserts the separator
+# is present in every parameterised template, so both halves are held.)
+_SAFE_PARAM = re.compile(r'[A-Za-z0-9._@/+][A-Za-z0-9._@/+-]{0,63}')
+
+
 def _actions_this_hour(tenant):
     now = int(time.time())
     rows = (A._load_ro(A.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
@@ -472,9 +486,20 @@ def _resolve_params(tmpl, payload, dev_id):
                 raw = str(v)
                 break
         clean = A._sanitize_str(raw, 64).strip()
-        if not clean or ':' in clean:
-            # No name, or one that would corrupt the wire format. Either way
-            # there is no honest command to build.
+        # STRICT ALLOWLIST, not a denylist, and not `_sanitize_str` alone —
+        # that helper only trims and truncates, it removes no shell
+        # metacharacter. Several templates are `exec:` verbs, which the agent
+        # runs through a SHELL, so a parameter is the one place remote data
+        # reaches a command line. A `;` in an alert's process name would be a
+        # second command. `:` is excluded separately because the typed verbs
+        # (`svc:`, `container:`) are colon-delimited and the agent re-splits
+        # them, so a name containing one arrives as a DIFFERENT action.
+        #
+        # The set is what real values need and nothing more: unit names
+        # (`wg-quick@wg0.service`), container names, process names, mount paths
+        # and pool names. Anything else refuses rather than being cleaned up —
+        # a silently rewritten target is worse than no action.
+        if not clean or not _SAFE_PARAM.fullmatch(clean):
             return '', 'missing_parameter'
         vals[f] = clean
     if 'runtime' in fields:

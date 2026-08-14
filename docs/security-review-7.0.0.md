@@ -1,8 +1,13 @@
 # Security review — v7.0.0 "Aut0nomyMatters"
 
-Every release gets a review before it ships. This one ran in three passes and
-found **twenty-two** issues worth reporting, all of them **caught before
+Every release gets a review before it ships. This one ran in four passes and
+found **twenty-five** issues worth reporting, all of them **caught before
 release** and all fixed in the release they are described in.
+
+The fourth pass reviewed the release's own new subsystem — autonomous
+remediation — because it is the first code in the product that can decide, on
+its own, to run a command on one of your hosts. It is described first, since a
+reader deciding whether to enable it deserves that before the rest.
 
 Most were long-standing rather than new, which is the more useful thing to say
 about them: they had been present through several prior versions and no scan,
@@ -41,6 +46,110 @@ ships. That bar is met.
   fix that breaks the product is not a fix.
 
 ## What was found and fixed
+
+### The new autonomy subsystem, reviewed as the attack surface it is
+
+Autonomous remediation is the first thing in RemotePower that can choose to run
+a command on a host without a person asking. It was reviewed on that basis
+rather than as a feature, and three findings came out of its own code — all in
+this release, none ever reachable, because this build **plans** actions and does
+not dispatch them. Reporting them anyway is the point: each was one wiring
+commit from mattering, and the time to close that kind of thing is while it is
+still theoretical.
+
+**A command was assembled from alert text.** The first draft built its command as
+a shell string with the failing unit's name interpolated into it, taking that
+name from the alert payload — which is data an agent reported. The only
+processing applied was the general-purpose string helper, which trims whitespace
+and truncates to a length; it removes no shell metacharacter, because that is
+not what it is for. A unit or process name carrying a semicolon would have
+become a second command.
+
+The fix is not a longer list of forbidden characters. Commands now go out in the
+server's own typed command grammar, which the agent executes as fixed arguments
+rather than through a shell, and a parameter must match a **strict allowlist** of
+the characters real unit, container, process, mount and pool names contain. A
+value that does not match is refused, not cleaned up — a silently rewritten
+target is worse than no action. Two further guards sit alongside it: a leading
+hyphen is refused, so a value cannot be read as a command-line option, and every
+shell template that still takes a parameter must place the `--` separator before
+it. Either guard alone would do; both are cheap.
+
+**A parameter could have re-aimed the action.** The command grammar is
+colon-delimited and the agent re-splits it, so a name containing a colon would
+arrive describing a *different* action than the one the receipt recorded. Also
+closed by the allowlist, and pinned separately because it is a different
+mechanism from the shell case and would survive a fix aimed only at shells.
+
+**The safety validation could be removed by a command-line flag.** The one
+chokepoint that refuses an unrecognised decision or an undeclared refusal reason
+was written with `assert` statements, and the Python interpreter removes those
+when run in optimised mode. Nothing runs the server that way today, which is
+exactly why it was worth fixing: the failure would have arrived as a deployment
+change nobody connected to this subsystem, and it would have arrived silently.
+It now raises a real error, and a test runs a genuinely optimised child
+interpreter to confirm it.
+
+What was checked and found sound in the same pass, since a review that only
+lists faults tells you nothing about the shape of the thing:
+
+- **Shadow mode cannot act.** Not a flag that happens to be false — an early
+  return keyed on the mode itself, with no path from it to an action. Checked
+  exhaustively over every combination of the inputs that influence a decision.
+- **No command exists outside the source.** The catalogue of actions and their
+  commands is written in the product; an alert can supply a parameter and
+  nothing else. It cannot introduce an action.
+- **Every gate the operator's own commands pass, these pass.** Because they use
+  the same command channel, they inherit maintenance mode, quarantine, audit
+  mode and the approval queue rather than carrying private copies that could
+  drift.
+- **A host's own agent decides what it can do.** An action whose command a given
+  platform does not implement is refused with that reason rather than sent and
+  silently dropped, which would have produced a receipt claiming an action that
+  never happened.
+- **Tenancy holds.** A device outside the acting tenant is refused, and the
+  module can be switched off entirely, which answers the whole API surface with
+  a not-found rather than merely hiding a menu.
+- **Destructive actions require a backup proven recoverable** — a restore drill
+  that actually restored and verified within the last 30 days, not a backup job
+  that ran.
+
+### A compliance report could pass with root logins enabled over SSH
+
+Not a vulnerability; an assurance gap, and worth the same honesty. The product
+has collected each host's resolved SSH daemon configuration — whether root may
+log in, whether passwords are accepted, whether empty passwords are permitted —
+since v6.4.1, and the Security Advisory has read it since. No compliance control
+did. PCI DSS, SOC 2 and the Essential Eight each have a control about hardened
+administrative access, and each was being evidenced by something else, so an
+estate could satisfy every framework in the report while accepting root logins
+on a password.
+
+There is now a control that reads that posture, mapped into all three
+frameworks. A host that does not report SSH configuration is marked **not
+assessed** rather than passing: a fleet with no Linux hosts has demonstrated
+nothing here, and a green control would be an assurance an auditor relies on.
+
+### A test could have overwritten a live installation's administrator
+
+Found while bumping the version, in the test suite rather than the product, and
+included because the consequence is data loss on a real machine. Importing the
+server module creates a default administrator account if none exists, and six
+test modules did that without first pointing the data directory at a temporary
+one — so they targeted the real one. On a development machine that is a
+permission error. On a machine with an installation present it is a successful
+write over the existing administrator.
+
+The suite had been green throughout, for a reason worth naming: the whole test
+suite runs in one process, so whichever module set that directory first set it
+for all of them, and the order that produced happened to be a safe one. Running
+any of the six on its own reaches for the real directory.
+
+Both halves are now enforced mechanically — that such a module sets the
+directory, and that it sets it *before* loading the server. Nothing in a
+released artifact was affected; the risk was to anyone running the test suite on
+a machine that also runs the product.
+
 
 ### Fleet-wide read endpoints ignored who was asking
 
@@ -501,6 +610,16 @@ decline the untrusted instruction rather than carry it out.
 - The continuous-integration database added this release uses a throwaway
   container with no credential, cannot be reached from a production install,
   and introduces nothing into a release artifact.
+- **Re-run at the end of the fourth pass, all four tools report clean:** the
+  code-scanning suite finds nothing in either language under the same
+  configuration the published scan uses; the secret scanner finds nothing across
+  the full commit history or the working tree; the Python analyser reports
+  nothing new against its baseline and no high-severity finding anywhere; and the
+  undefined-name check is clean across the server, all three agents, the sidecars
+  and the test suite. The one new analyser finding in the whole tree was the
+  `assert`-based validation described above — in code added earlier in this same
+  release, which is the argument for running the tools again after the work
+  rather than before it.
 - Static analysis reports no new findings across the server, all three agents
   and the sidecar daemons. Re-run after the third pass: the code-scanning suite
   reports nothing in either language; the secret scanner reports nothing across
@@ -569,6 +688,13 @@ does not constitute a penetration test of any particular deployment: network
 exposure, TLS termination, reverse-proxy configuration and operating-system
 hardening remain the operator's responsibility, and the hardening guide covers
 them.
+
+**What the fourth pass did and did not do.** It was a code and design review of
+the new subsystem plus a static-analysis sweep of the whole tree, run against a
+locally booted instance. It did **not** include live probing of a
+network-reachable deployment — that is done against the maintainer's own
+instance with a one-time credential, and no such run formed part of this pass.
+Saying so is more useful than leaving the reader to assume either way.
 
 **Who the tenancy findings affect.** Four of the eight require multi-tenancy to
 be turned on, which is opt-in and off by default. On a single-organisation
