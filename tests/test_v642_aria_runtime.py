@@ -81,26 +81,54 @@ class TestSidebarAccordionAnnouncesItsState(_Base):
             return out;
         }""")
 
-    def test_opening_a_group_sets_exactly_one_expanded(self):
+    def _closeAll(self):
+        self.page.evaluate("_saveSidebarGroups(new Set())")
+
+    def test_opening_a_group_marks_it_expanded(self):
+        self._closeAll()
         groups = list(self._expanded())
-        self.assertGreaterEqual(len(groups), 2, 'need >=2 groups to test the accordion')
+        self.assertGreaterEqual(len(groups), 2, 'need >=2 groups to test this')
         target = groups[0]
         self.page.evaluate(f"_openSidebarGroup({target!r})")
         state = self._expanded()
         self.assertEqual(state[target], 'true',
                          'the opened group still reports aria-expanded=false')
         others = [g for g, v in state.items() if g != target and v != 'false']
-        self.assertEqual(others, [], f'these stayed expanded: {others}')
+        self.assertEqual(others, [], f'these opened on their own: {others}')
 
-    def test_opening_a_second_group_closes_the_first(self):
-        """The accordion's one-open-at-a-time contract, in ARIA not just CSS."""
+    def test_opening_a_second_group_leaves_the_first_open(self):
+        """v7.0.0: the sidebar is no longer an accordion.
+
+        It allowed exactly one group open, and with 89 pages across 12 domains
+        that meant about ten were visible at a time — reported as being unable
+        to get an overview. This test previously pinned the one-open contract,
+        which makes it a STALE-PREMISE test: it would keep passing against the
+        old behaviour and read as intent rather than as a limitation nobody had
+        revisited. Rewritten rather than deleted, because the ARIA half of it
+        still matters and is what the rest of this file is about.
+        """
+        self._closeAll()
         groups = list(self._expanded())
         a, b = groups[0], groups[1]
         self.page.evaluate(f"_openSidebarGroup({a!r})")
         self.page.evaluate(f"_openSidebarGroup({b!r})")
         state = self._expanded()
         self.assertEqual(state[b], 'true')
-        self.assertEqual(state[a], 'false', 'the previous group stayed expanded')
+        self.assertEqual(state[a], 'true',
+                         'navigation closed a group the operator opened — '
+                         '_openSidebarGroup must ADD, not replace')
+
+    def test_toggling_a_group_closes_only_that_one(self):
+        """The other half: toggle is still a toggle."""
+        self._closeAll()
+        groups = list(self._expanded())
+        a, b = groups[0], groups[1]
+        self.page.evaluate(f"toggleSidebarGroup({a!r})")
+        self.page.evaluate(f"toggleSidebarGroup({b!r})")
+        self.page.evaluate(f"toggleSidebarGroup({a!r})")
+        state = self._expanded()
+        self.assertEqual(state[a], 'false', 'toggling twice left it open')
+        self.assertEqual(state[b], 'true', 'closing one closed its neighbour')
 
     def test_the_attribute_tracks_the_class_it_ships_beside(self):
         """The drift this whole fix exists to make impossible."""

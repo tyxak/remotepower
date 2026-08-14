@@ -1721,13 +1721,9 @@ async function api(method, path, body, extra) {
 // toggles and nothing ever updated it, so every group announced itself as
 // collapsed permanently — including the open one. A frozen state attribute is
 // worse than none, because it actively lies to a screen reader (SC 4.1.2).
-// v7.0.0: MORE THAN ONE group may be open. The accordion allowed exactly one,
-// so with 89 pages across 12 domains an operator could see about ten of them at
-// a time and had no way to hold two related domains open at once — reported as
-// "hard to get an overview of all the pages mashed together".
-//
-// The stored state is a SET now. The old key held a single name; it is read once
-// and migrated rather than discarded, so nobody's open group is lost on upgrade.
+// v7.0.0: MORE THAN ONE group may be open. The accordion allowed one, so with
+// 89 pages across 12 domains about ten were visible at a time. The stored state
+// is a SET; the old single-name key is migrated, not discarded.
 const _SIDEBAR_OPEN_KEY = 'sidebar.open_groups';
 function _openGroupSet() {
   try {
@@ -1752,8 +1748,8 @@ function _saveSidebarGroups(openSet) {
   } catch (_) {}
 }
 function _openSidebarGroup(name) {
-  // Used by navigation to reveal the active page's domain. ADDITIVE — opening
-  // a page must not close the group the operator deliberately left open.
+  // Navigation reveals the active page's domain. ADDITIVE — it must not close
+  // a group the operator deliberately left open.
   const set = _openGroupSet();
   if (name) set.add(name);
   _saveSidebarGroups(set);
@@ -1768,8 +1764,7 @@ function toggleSidebarGroup(name) {
 function expandAllSidebarGroups() {
   const all = [...document.querySelectorAll('.sidebar-group')].map(g => g.dataset.group);
   const set = _openGroupSet();
-  // A single control that both expands and collapses: if everything is already
-  // open the operator wants the tidy rail back.
+  // Expands AND collapses: all open means the operator wants the rail back.
   _saveSidebarGroups(set.size >= all.length ? new Set() : new Set(all));
 }
 
@@ -1823,100 +1818,16 @@ if (document.readyState === 'loading') {
 // delegated intercept, so every existing link is covered without touching 126
 // anchors — and anything it cannot fetch falls through to the normal navigation
 // rather than trapping the operator in a broken modal.
-// v7.0.0: the product map.
-//
-// 89 pages across 12 domains, with the sidebar showing one domain at a time,
-// left no surface answering "what is in this product and where". The command
-// palette and the sidebar search both require already knowing what to type.
-//
-// DERIVED FROM THE SIDEBAR, not from a list. Every nav button already carries a
-// one-line `title`, so a hand-kept copy would be a second registry — and every
-// recurring bug in this project's notes is two registries drifting apart. It
-// also means a page hidden by a module gate is absent here for free, because it
-// is hidden there, and a page added tomorrow appears with no edit to this code.
-function _sitemapGroups() {
-  return [...document.querySelectorAll('.sidebar-group')].map(g => {
-    const head = g.querySelector('.sidebar-group-toggle span:not(.nav-group-badge)');
-    const pages = [...g.querySelectorAll('.nav-btn[data-page]')]
-      .filter(b => !b.classList.contains('hidden')
-                   && getComputedStyle(b).display !== 'none')
-      .map(b => {
-        const lbl = [...b.querySelectorAll('span')].find(
-          x => !x.classList.contains('nav-badge')
-               && !x.classList.contains('nav-group-badge'));
-        return {
-          page: b.dataset.page,
-          label: (lbl ? lbl.textContent : b.textContent).trim(),
-          desc: (b.getAttribute('title') || '').trim(),
-        };
-      });
-    return { group: g.dataset.group,
-             title: (head ? head.textContent : g.dataset.group).trim(),
-             pages };
-  }).filter(x => x.pages.length);
-}
-
-function renderSitemap(filter) {
-  const body = document.getElementById('sitemap-body');
-  if (!body) return;
-  const q = (filter || '').trim().toLowerCase();
-  const groups = _sitemapGroups();
-  let shown = 0;
-  const html = groups.map(g => {
-    const hits = g.pages.filter(p => !q
-      || p.label.toLowerCase().includes(q)
-      || p.desc.toLowerCase().includes(q)
-      || g.title.toLowerCase().includes(q));
-    if (!hits.length) return '';
-    shown += hits.length;
-    return `<div class="sitemap-group">`
-      + `<div class="section-title">${escHtml(g.title)}`
-      + ` <span class="chk-pill chk-unknown">${hits.length}</span></div>`
-      + `<div class="sitemap-cards">` + hits.map(p =>
-          `<button class="sitemap-card" data-action="sitemapGo" `
-          + `data-arg="${escAttr(p.page)}">`
-          + `<span class="sitemap-card-name">${escHtml(p.label)}</span>`
-          + `<span class="sitemap-card-desc">${escHtml(p.desc)}</span></button>`
-        ).join('') + `</div></div>`;
-  }).join('');
-  body.innerHTML = html || `<div class="empty-state">${
-    escHtml('No page matches that.')}</div>`;
-  const t = document.getElementById('sitemap-title');
-  if (t) {
-    const total = groups.reduce((n, g) => n + g.pages.length, 0);
-    t.textContent = q ? `All pages — ${shown} of ${total}` : `All pages — ${total}`;
-  }
-}
-
-function openSitemap() {
-  renderSitemap('');
+// v7.0.0: the map renderer is in app-sitemap.js — lazy, because it runs only
+// when the dialog opens. Not page-scoped (the button is in the sidebar), so it
+// awaits the module itself rather than riding _LAZY_PAGE_MODULES.
+async function openSitemap() {
+  await _loadJsModule('app-sitemap.js');
+  if (typeof renderSitemap === 'function') renderSitemap('');
   openModal('sitemap-modal');
   const f = document.getElementById('sitemap-filter');
   if (f) { f.value = ''; setTimeout(() => f.focus(), 40); }
 }
-
-function sitemapGo(page) {
-  closeModal('sitemap-modal');
-  try { showPage(page); } catch (_) {}
-}
-
-document.addEventListener('input', (e) => {
-  if (e.target && e.target.id === 'sitemap-filter') renderSitemap(e.target.value);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || !e.target || e.target.id !== 'sitemap-filter') return;
-  const first = document.querySelector('#sitemap-body .sitemap-card');
-  if (!first) return;
-  // Call the action directly and stop the event, rather than synthesising a
-  // click. Measured: the click DID navigate but left the dialog open, because
-  // the keydown carried on to another handler after closeModal had run. A
-  // mouse click on the same card closed it correctly, which is what made the
-  // difference visible — worth keeping in mind when a keyboard path behaves
-  // differently from the pointer path that shares its handler.
-  e.preventDefault();
-  e.stopPropagation();
-  sitemapGo(first.getAttribute('data-arg'));
-});
 
 
 async function openDocViewer(path, title) {
@@ -2526,7 +2437,12 @@ const _LAZY_PAGE_MODULES = {
   // replays the click on an unknown action.
   integrations: ['app-integrations.js'],
 };
-const _ALL_LAZY_MODULES = [...new Set(Object.values(_LAZY_PAGE_MODULES).flat())];
+// v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
+// is the set the dispatcher loads before replaying an unknown data-action, and
+// a module missing from it has buttons that do nothing on the first click.
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js'];
+const _ALL_LAZY_MODULES = [...new Set(
+  Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
 const _jsModulePromises = new Map();
 
@@ -15835,15 +15751,10 @@ function renderMarkdown(text) {
   html = html.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
 
-  // Tables (GFM pipe syntax). v7.0.0: there was NO table support at all, so
-  // every table in the documentation rendered as a wall of literal `|` in the
-  // in-app viewer — 80 of 138 doc pages contain one, and docs/features.md is
-  // tables-only by policy with ~576 table lines. The AI chat and the KB share
-  // this renderer, so a table in a model's answer was equally unreadable.
-  //
-  // Runs BEFORE the list pass (both are line-oriented) and AFTER inline-code
-  // extraction, which matters: a `|` inside backticks is already a placeholder
-  // by now, so it cannot split a cell.
+  // Tables (GFM pipe syntax). v7.0.0: no table support existed, so every doc
+  // table rendered as literal `|` — 80 of 138 doc pages have one. Runs before
+  // the list pass and after inline-code extraction, so a `|` in backticks is
+  // already a placeholder and cannot split a cell.
   const tLines = html.split('\n');
   const tOut = [];
   const _cells = (row) => {
@@ -15889,11 +15800,8 @@ function renderMarkdown(text) {
   // Lists — collect contiguous `- foo` / `* foo` / `1. foo` runs
   // into <ul> or <ol> blocks. Process line-by-line so we get
   // proper grouping; one big regex would be hairy.
-  //
-  // v7.0.0: INDENTED bullets open a nested list instead of falling through to
-  // the paragraph branch, where they were joined with <br> and rendered as a
-  // stray "- foo" mid-sentence. The docs indent by two or three spaces; the
-  // stack handles any depth rather than hard-coding one level.
+  // v7.0.0: indented bullets open a NESTED list instead of falling through to
+  // the paragraph branch, where they rendered as a stray "- foo" mid-sentence.
   const lines = html.split('\n');
   const out = [];
   const stack = [];             // [{type: 'ul'|'ol', indent: n}, ...]
@@ -15926,10 +15834,8 @@ function renderMarkdown(text) {
     } else if (stack.length && line.trim() && /^\s/.test(line)
                && out.length && out[out.length - 1].endsWith('</li>')) {
       // Lazy continuation: an INDENTED non-bullet line belongs to the item
-      // above it. Without this every wrapped bullet closed the list, so the
-      // documentation's nested lists came out as a flat run with a stray "-"
-      // mid-sentence — which is how this was reported. The docs wrap almost
-      // every bullet, so this is the common case, not an edge one.
+      // above. Without it every WRAPPED bullet closed the list, and the docs
+      // wrap almost every bullet — the common case, not an edge one.
       out[out.length - 1] = out[out.length - 1].replace(
         /<\/li>$/, ' ' + line.trim() + '</li>');
     } else {
@@ -15956,9 +15862,8 @@ function renderMarkdown(text) {
   const blocks = html.split(/\n{2,}/).map(b => {
     const trimmed = b.trim();
     if (!trimmed) return '';
-    // `</?` — a block may START with a closing tag when a list or table ends
-    // at a blank line, and wrapping `</ul>` in a <p> produced visible stray
-    // markup once nesting made that arrangement possible.
+      // `</?` — a block may START with a closing tag when a list or table ends
+    // at a blank line; wrapping `</ul>` in a <p> showed stray markup.
     if (/^<\/?(?:div|ul|ol|pre|h[1-6]|blockquote|table)/i.test(trimmed)) return trimmed;
     return `<p class="isl-521">${trimmed.replace(/\n/g, '<br>')}</p>`;
   });

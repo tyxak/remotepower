@@ -27,6 +27,13 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 _APP = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text(encoding='utf-8')
+# v7.0.0: the renderer moved to its own LAZY module — 4,438 bytes that run only
+# when the dialog opens, and the eager JS payload has a hard budget it would
+# otherwise have blown by 4,221. app.js keeps a loader stub. Both files are
+# searched together below, because "is this derived from the sidebar" is a
+# property of the feature, not of which file happens to hold it.
+_MOD = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-sitemap.js').read_text(encoding='utf-8')
+_JS = _APP + '\n' + _MOD
 _CSS = (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text(encoding='utf-8')
 
 
@@ -45,7 +52,7 @@ class TestTheSourceOfTruthIsTheSidebar(unittest.TestCase):
             'description:\n' + '\n'.join('  ' + m for m in missing))
 
     def test_the_renderer_reads_the_dom_not_a_list(self):
-        fn = _APP[_APP.index('function _sitemapGroups'):]
+        fn = _JS[_JS.index('function _sitemapGroups'):]
         fn = fn[:fn.index('\nfunction ')]
         self.assertIn('querySelectorAll', fn)
         self.assertIn(".nav-btn[data-page]", fn)
@@ -54,7 +61,7 @@ class TestTheSourceOfTruthIsTheSidebar(unittest.TestCase):
     def test_there_is_no_second_page_list(self):
         """A literal array of page names next to the renderer would be the
         registry this design exists to avoid."""
-        fn = _APP[_APP.index('function _sitemapGroups'):]
+        fn = _JS[_JS.index('function _sitemapGroups'):]
         fn = fn[:fn.index('\nfunction renderSitemap')]
         # A page-name array would look like ['home', 'devices', ...]
         self.assertNotRegex(
@@ -64,7 +71,7 @@ class TestTheSourceOfTruthIsTheSidebar(unittest.TestCase):
     def test_hidden_pages_are_excluded(self):
         """Module-gated pages are hidden in the sidebar; the map must respect
         that rather than advertising a page whose API answers 404."""
-        fn = _APP[_APP.index('function _sitemapGroups'):]
+        fn = _JS[_JS.index('function _sitemapGroups'):]
         fn = fn[:fn.index('\nfunction renderSitemap')]
         self.assertIn("classList.contains('hidden')", fn)
         self.assertIn("display", fn)
@@ -78,7 +85,7 @@ class TestTheEntryPointsExist(unittest.TestCase):
     def test_the_actions_resolve_to_functions(self):
         for name in ('openSitemap', 'sitemapGo', 'renderSitemap',
                      'expandAllSidebarGroups'):
-            self.assertRegex(_APP, rf'\bfunction {name}\s*\(',
+            self.assertRegex(_JS, rf'\b(?:async )?function {name}\s*\(',
                              f'data-action="{name}" resolves to nothing')
 
     def test_the_modal_is_at_body_level(self):
@@ -99,7 +106,7 @@ class TestTheEntryPointsExist(unittest.TestCase):
 class TestTheSidebarAllowsMoreThanOneOpenGroup(unittest.TestCase):
 
     def test_the_stored_state_is_a_set(self):
-        self.assertIn('_SIDEBAR_OPEN_KEY', _APP)
+        self.assertIn('_SIDEBAR_OPEN_KEY', _APP)  # sidebar state stays eager
         fn = _APP[_APP.index('function _openGroupSet'):]
         fn = fn[:fn.index('\nfunction ')]
         self.assertIn('new Set', fn)
