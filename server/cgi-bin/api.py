@@ -44514,6 +44514,30 @@ def _load_custom_scripts():
     return load(CUSTOM_SCRIPTS_FILE) or {}
 
 
+def _custom_script_reachable(script, visible=None):
+    """May this caller read or modify this script?
+
+    A custom script's body is executed AS ROOT on every device in its
+    `assigned_devices`, so the assignment list is the blast radius and the body
+    is the payload. The rule is therefore about the devices, not about who
+    typed it: a caller may touch a script only when every host it currently
+    runs on is a host they can already see.
+
+    A script assigned to nothing is reachable by anyone — it executes nowhere,
+    and treating the unassigned pool as shared keeps the ordinary
+    single-organisation install exactly as it was.
+
+    `visible` is passed in by callers that already computed the filtered device
+    set, so a list handler does not re-filter the fleet once per script.
+    """
+    assigned = script.get('assigned_devices') or []
+    if not assigned:
+        return True
+    if visible is None:
+        visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
+    return all(d in visible for d in assigned)
+
+
 def _get_custom_scripts_for_device(dev_id):
     """Return list of {id, name, body, timeout} for scripts assigned to dev_id.
 
@@ -46292,12 +46316,19 @@ def handle_monitoring_profile_apply():
     if not prof:
         respond(404, {'error': 'profile not found'})
     devices = load(DEVICES_FILE)
-    valid = [d for d in device_ids if d in _scope_filter_devices(devices)]  # SEC: tenant/scope filter
+    _visible = _scope_filter_devices(devices)
+    valid = [d for d in device_ids if d in _visible]  # SEC: tenant/scope filter
     applied = 0
     with _LockedUpdate(CUSTOM_SCRIPTS_FILE) as scripts:
         for sid in (prof.get('script_ids') or []):
             sc = scripts.get(sid)
             if not isinstance(sc, dict):
+                continue
+            # The target devices were filtered above, but the SCRIPT was not:
+            # applying one the caller cannot reach both runs a body they are
+            # not allowed to read and writes their device ids into another
+            # tenant's script record.
+            if not _custom_script_reachable(sc, set(_visible)):
                 continue
             assigned = set(sc.get('assigned_devices') or [])
             assigned.update(valid)
@@ -46312,8 +46343,13 @@ def handle_custom_scripts_list():
     require_auth()
     scripts = _load_custom_scripts()
     # Strip body from list view to keep payload small; body is in the detail endpoint
+    # `assigned_devices` is a list of device ids, so an unfiltered listing hands
+    # every caller the ids of hosts in other tenants. Filter once, here.
+    _visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
     out = []
     for s in sorted(scripts.values(), key=lambda x: x.get('created_at', 0)):
+        if not _custom_script_reachable(s, _visible):
+            continue
         out.append({
             'id':               s['id'],
             'name':             s['name'],
@@ -46332,7 +46368,10 @@ def handle_custom_script_get(script_id):
     require_auth()
     scripts = _load_custom_scripts()
     s = scripts.get(script_id)
-    if not s:
+    # 404 rather than 403 for an out-of-scope script, matching how every other
+    # cross-tenant lookup in this codebase answers: a 403 would confirm the id
+    # exists. The body is root-privileged code and may embed credentials.
+    if not s or not _custom_script_reachable(s):
         respond(404, {'error': 'Script not found'})
     respond(200, s)
 
@@ -46362,10 +46401,18 @@ def handle_custom_script_create():
     desc = _sanitize_str(str(body.get('description', '')), MAX_CUSTOM_SCRIPT_DESC)
 
     # Validate assigned_devices: must be strings that look like known device IDs
+    # AND devices this caller can actually see. Checking against the unfiltered
+    # store let a tenant admin assign a script to another tenant's host: the
+    # heartbeat hands `custom_scripts` to whatever device the assignment names
+    # and the agent runs the body as root, so this list is a code-execution
+    # target, not a label. _scope_filter_devices folds in role scope AND the
+    # tenant filter (a tenant admin has _caller_scope() == None, so a
+    # `scope is not None` test would have passed them straight through) and
+    # no-ops for an unscoped superadmin, which must keep working.
     raw_devs = body.get('assigned_devices', [])
     if not isinstance(raw_devs, list):
         respond(400, {'error': 'assigned_devices must be a list'})
-    devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     assigned = []
     for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
         d = str(d).strip()
@@ -46401,7 +46448,10 @@ def handle_custom_script_update(script_id):
         respond(400, {'error': _err})
     scripts = _load_custom_scripts()
     s = scripts.get(script_id)
-    if not s:
+    # Filtering `assigned_devices` alone would have left the bigger door open:
+    # editing the BODY of a script already assigned elsewhere is the same root
+    # execution on the same foreign host, with no assignment change at all.
+    if not s or not _custom_script_reachable(s):
         respond(404, {'error': 'Script not found'})
 
     if 'name' in body:
@@ -46419,7 +46469,9 @@ def handle_custom_script_update(script_id):
         raw_devs = body['assigned_devices']
         if not isinstance(raw_devs, list):
             respond(400, {'error': 'assigned_devices must be a list'})
-        devices = load(DEVICES_FILE)
+        # Scope-filtered for the same reason as create: this is the other door
+        # into the same root-execution assignment, and it was equally open.
+        devices = _scope_filter_devices(load(DEVICES_FILE) or {})
         assigned = []
         for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
             d = str(d).strip()
@@ -46438,7 +46490,9 @@ def handle_custom_script_delete(script_id):
     """DELETE /api/custom-scripts/:id — remove script and clear stored results."""
     actor = require_admin_auth()
     scripts = _load_custom_scripts()
-    if script_id not in scripts:
+    # Deleting another tenant's script is a denial of their monitoring, and the
+    # cleanup below walks the whole DEVICES store to strip results.
+    if script_id not in scripts or not _custom_script_reachable(scripts[script_id]):
         respond(404, {'error': 'Script not found'})
 
     name = scripts[script_id].get('name', script_id)
