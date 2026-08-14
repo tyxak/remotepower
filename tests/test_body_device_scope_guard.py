@@ -32,9 +32,34 @@ CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
 HANDLER_FILES = ['api.py'] + sorted(p.name for p in CGI.glob('*_handlers.py'))
 
 # Reads a device id (or a target set that contains device ids) from the body.
+#
+# THE KEY LIST IS THE POPULATION, and that is where this guard was weakest.
+# It matched only `device_id`/`device_ids`, so nine handlers reading a device
+# reference under a DIFFERENT body key were not in the enumeration at all --
+# not failing, not EXEMPT, invisible. One of them (`assigned_devices` on a
+# custom script) was a cross-tenant root RCE: the heartbeat hands every script
+# assigned to a device to that device's agent, which runs the body as root.
+#
+# An EXEMPT list is visible and gets re-read. A population regex is read once,
+# when the guard is written, and thereafter looks like an implementation
+# detail -- so reviewing this file showed you the rule and the exemptions, and
+# never the set they were applied to.
+#
+# Adding a key here is cheap; leaving one out is silent. When a new body field
+# carries a device reference, add it.
+_DEVICE_BODY_KEYS = (
+    'device_ids?',          # the original pair
+    'assigned_devices',     # custom scripts -- the agent RUNS these as root
+    'endpoints',            # network-map tunnels
+    'scope_device_id',      # inbound-webhook token pinning (attribution target)
+    'affected_devices',     # tickets -- resolved to HOSTNAMES on read
+    'linked_devices',       # KB articles
+    'target_devices',       # not currently used; here so it cannot be missed
+)
 _READ = re.compile(
-    r"""body\s*(\.get\(\s*['"]device_ids?['"]|\[\s*['"]device_ids?['"]\s*\])"""
-    r"""|_resolve_targets\s*\(""")
+    r"""body\s*(\.get\(\s*['"](?:%s)['"]|\[\s*['"](?:%s)['"]\s*\])"""
+    % ('|'.join(_DEVICE_BODY_KEYS), '|'.join(_DEVICE_BODY_KEYS))
+    + r"""|_resolve_targets\s*\(""")
 
 # The canonical, reviewed gating mechanisms.
 _GATE = re.compile(
@@ -63,8 +88,19 @@ EXEMPT = {
     'handle_webterm_session_audit': 'daemon shared-secret (webterm_daemon_secret); id is audit metadata only',
     # ---- non-device / metadata: the id is stored as a free label and the
     #      device's data is never read / mutated / commanded through it.
-    'handle_tickets':        'metadata (ticket affected-host label; never reads/commands the device)',
-    'handle_ticket_update':  'metadata (ticket affected-host label; never reads/commands the device)',
+    # v7.0.0: surfaced when the population regex was widened to include
+    # `linked_devices`. Refuted on inspection: the ids are stored and
+    # returned verbatim, never resolved to a name and never read back by
+    # the frontend, so a caller learns only what they themselves typed.
+    'handle_kb':             'metadata (KB article device links; stored verbatim, never resolved or read back)',
+    'handle_kb_article':     'metadata (KB article device links; stored verbatim, never resolved or read back)',
+    'handle_tickets':        'metadata (ticket affected-host label; now scope-filtered on write AND read)',
+    # The reason here used to read "never reads/commands the device".
+    # That stopped being true: handle_ticket_get resolves affected_devices
+    # to HOSTNAMES, which was a working cross-tenant name oracle. Both the
+    # write and the read are scope-filtered now; the exemption stands only
+    # because the filtering is inline rather than via a canonical helper.
+    'handle_ticket_update':  'metadata (ticket affected-host label; now scope-filtered on write AND read)',
     'handle_ignored_add':    'metadata (UI hide-list key; never reads/mutates/commands the device)',
     'handle_ignored_remove': 'metadata (UI hide-list key; never reads/mutates/commands the device)',
     # ---- gated by a custom mechanism (not the three canonical helpers): a
