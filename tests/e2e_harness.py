@@ -188,6 +188,26 @@ def start_stack(data_dir=None):
         def do_GET(self):
             if self.path.startswith('/api/'):
                 return self._proxy_api()
+            # v7.0.0: serve docs/ too. The static root is server/html, so every
+            # `docs/*.md` request 404'd and the in-app documentation viewer
+            # showed its "could not load" fallback — which means the viewer, and
+            # the markdown renderer behind it, could not be measured here AT ALL.
+            # A browser check against it reported "0 tables, 0 raw pipe rows" and
+            # read like a clean result. A real deployment serves the directory
+            # from the install root beside server/html, so this matches it.
+            if self.path.startswith('/docs/') and self.path.endswith('.md'):
+                rel = self.path.lstrip('/').split('?', 1)[0]
+                target = (_ROOT / rel).resolve()
+                if target.is_file() and str(target).startswith(str(_ROOT / 'docs')):
+                    payload = target.read_bytes()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+                    self.send_header('Content-Length', str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                self.send_error(404)
+                return
             return super().do_GET()
 
         def do_POST(self):

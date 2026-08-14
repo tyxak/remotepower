@@ -15707,30 +15707,115 @@ function renderMarkdown(text) {
   html = html.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
 
+  // Tables (GFM pipe syntax). v7.0.0: there was NO table support at all, so
+  // every table in the documentation rendered as a wall of literal `|` in the
+  // in-app viewer — 80 of 138 doc pages contain one, and docs/features.md is
+  // tables-only by policy with ~576 table lines. The AI chat and the KB share
+  // this renderer, so a table in a model's answer was equally unreadable.
+  //
+  // Runs BEFORE the list pass (both are line-oriented) and AFTER inline-code
+  // extraction, which matters: a `|` inside backticks is already a placeholder
+  // by now, so it cannot split a cell.
+  const tLines = html.split('\n');
+  const tOut = [];
+  const _cells = (row) => {
+    let r = row.trim();
+    if (r.startsWith('|')) r = r.slice(1);
+    if (r.endsWith('|')) r = r.slice(0, -1);
+    return r.split('|').map(c => c.trim());
+  };
+  for (let i = 0; i < tLines.length; i++) {
+    const head = tLines[i];
+    const sep = tLines[i + 1];
+    // A header row plus a separator row is what makes it a table. Requiring
+    // the separator is what stops an ordinary sentence containing a pipe from
+    // being eaten.
+    if (/^\s*\|.*\|\s*$/.test(head || '') &&
+        /^\s*\|(?:\s*:?-{2,}:?\s*\|)+\s*$/.test(sep || '')) {
+      const cols = _cells(head);
+      const align = _cells(sep).map(c => (
+        c.startsWith(':') && c.endsWith(':') ? 'center'
+          : c.endsWith(':') ? 'right' : ''));
+      const rows = [];
+      let j = i + 2;
+      while (j < tLines.length && /^\s*\|.*\|\s*$/.test(tLines[j])) {
+        rows.push(_cells(tLines[j]));
+        j++;
+      }
+      const th = cols.map((c, n) => `<th scope="col"${
+        align[n] ? ` class="ta-${align[n]}"` : ''}>${c}</th>`).join('');
+      const tb = rows.map(r => '<tr>' + cols.map((_c, n) => `<td${
+        align[n] ? ` class="ta-${align[n]}"` : ''}>${r[n] === undefined ? '' : r[n]}</td>`
+      ).join('') + '</tr>').join('');
+      // Wide reference tables are the norm here, so the table scrolls inside
+      // its own container rather than making the whole page scroll sideways.
+      tOut.push(`<div class="md-table-wrap"><table class="md-table">` +
+                `<thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`);
+      i = j - 1;
+      continue;
+    }
+    tOut.push(head);
+  }
+  html = tOut.join('\n');
+
   // Lists — collect contiguous `- foo` / `* foo` / `1. foo` runs
   // into <ul> or <ol> blocks. Process line-by-line so we get
   // proper grouping; one big regex would be hairy.
+  //
+  // v7.0.0: INDENTED bullets open a nested list instead of falling through to
+  // the paragraph branch, where they were joined with <br> and rendered as a
+  // stray "- foo" mid-sentence. The docs indent by two or three spaces; the
+  // stack handles any depth rather than hard-coding one level.
   const lines = html.split('\n');
   const out = [];
-  let listType = null;          // 'ul', 'ol', or null
-  function closeList() {
-    if (listType) { out.push(`</${listType}>`); listType = null; }
+  const stack = [];             // [{type: 'ul'|'ol', indent: n}, ...]
+  function closeTo(indent) {
+    while (stack.length && stack[stack.length - 1].indent > indent) {
+      out.push(`</${stack.pop().type}>`);
+    }
+  }
+  function closeAll() {
+    while (stack.length) out.push(`</${stack.pop().type}>`);
   }
   for (const line of lines) {
-    const bullet = line.match(/^(?:[-*]) +(.+)$/);
-    const numbered = line.match(/^\d+\.\s+(.+)$/);
-    if (bullet) {
-      if (listType !== 'ul') { closeList(); out.push('<ul class="isl-519">'); listType = 'ul'; }
-      out.push(`<li>${bullet[1]}</li>`);
-    } else if (numbered) {
-      if (listType !== 'ol') { closeList(); out.push('<ol class="isl-519">'); listType = 'ol'; }
-      out.push(`<li>${numbered[1]}</li>`);
+    const bullet = line.match(/^(\s*)(?:[-*]) +(.+)$/);
+    const numbered = line.match(/^(\s*)\d+\.\s+(.+)$/);
+    const m = bullet || numbered;
+    if (m) {
+      const indent = m[1].length;
+      const type = bullet ? 'ul' : 'ol';
+      closeTo(indent);
+      const top = stack[stack.length - 1];
+      if (!top || top.indent < indent) {
+        out.push(`<${type} class="isl-519">`);
+        stack.push({ type, indent });
+      } else if (top.type !== type) {
+        out.push(`</${stack.pop().type}>`);
+        out.push(`<${type} class="isl-519">`);
+        stack.push({ type, indent });
+      }
+      out.push(`<li>${m[2]}</li>`);
+    } else if (stack.length && line.trim() && /^\s/.test(line)
+               && out.length && out[out.length - 1].endsWith('</li>')) {
+      // Lazy continuation: an INDENTED non-bullet line belongs to the item
+      // above it. Without this every wrapped bullet closed the list, so the
+      // documentation's nested lists came out as a flat run with a stray "-"
+      // mid-sentence — which is how this was reported. The docs wrap almost
+      // every bullet, so this is the common case, not an edge one.
+      out[out.length - 1] = out[out.length - 1].replace(
+        /<\/li>$/, ' ' + line.trim() + '</li>');
     } else {
-      closeList();
+      // A blank line closes the list, which is what shipped. Keeping the list
+      // open across one looked more correct and was not: the paragraph splitter
+      // below cuts on blank lines, so the run became `<ul>…<li>a</li>` in one
+      // block and `<li>b</li></ul>` in the next, and the second got wrapped in
+      // a <p>. Fixing that properly means teaching the splitter about list
+      // state, which is a bigger change than this is worth.
+      closeAll();
       out.push(line);
     }
   }
-  closeList();
+  closeAll();
   html = out.join('\n');
 
   // Blockquotes
@@ -15743,7 +15828,10 @@ function renderMarkdown(text) {
   const blocks = html.split(/\n{2,}/).map(b => {
     const trimmed = b.trim();
     if (!trimmed) return '';
-    if (/^<(?:div|ul|ol|pre|h[1-6]|blockquote)/i.test(trimmed)) return trimmed;
+    // `</?` — a block may START with a closing tag when a list or table ends
+    // at a blank line, and wrapping `</ul>` in a <p> produced visible stray
+    // markup once nesting made that arrangement possible.
+    if (/^<\/?(?:div|ul|ol|pre|h[1-6]|blockquote|table)/i.test(trimmed)) return trimmed;
     return `<p class="isl-521">${trimmed.replace(/\n/g, '<br>')}</p>`;
   });
   html = blocks.join('\n');

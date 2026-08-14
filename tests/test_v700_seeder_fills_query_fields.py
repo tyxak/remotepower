@@ -25,7 +25,7 @@ agrees with the mounts panel beside it. A demo that contradicts itself teaches
 the reader to distrust the product.
 """
 import collections
-import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -43,23 +43,57 @@ _SEEDER = _ROOT / 'packaging' / 'seed-demo-data.py'
 EXEMPT: dict = {}
 
 
+_PROBE = r"""
+import json, os, sys, importlib.util
+os.environ['RP_DATA_DIR'] = sys.argv[1]
+cgi = sys.argv[2]
+sys.path.insert(0, cgi)
+spec = importlib.util.spec_from_file_location('api_seedq', cgi + '/api.py')
+api = importlib.util.module_from_spec(spec)
+sys.modules['api'] = api
+spec.loader.exec_module(api)
+devices = api.load(api.DEVICES_FILE) or {}
+rows = [r for r in api._qe_devices_rows()
+        if not devices.get(r['device_id'], {}).get('agentless')]
+slim = {k: {'sysinfo': v.get('sysinfo') or {}} for k, v in devices.items()}
+print(json.dumps({'fields': sorted(api._QE_DEVICE_FIELDS), 'rows': rows,
+                  'devices': slim, 'total': len(devices)}))
+"""
+
+
 def _seed_and_project():
-    """Seed a throwaway instance and project its agent devices."""
+    """Seed a throwaway instance and project its agent devices, IN A CHILD.
+
+    Two things about the environment, both learned the hard way.
+
+    **The child forces the JSON backend.** `seed-demo-data.py` only ever writes
+    flat JSON — deliberately, so it stays standalone with no api.py import — and
+    `install-demo.sh` migrates that JSON into Postgres afterwards when a
+    Postgres demo is asked for. So under `make test-sqlite`, where
+    RP_STORAGE_BACKEND is set for the whole run, the seeder wrote JSON files and
+    the reader looked in an empty database: zero devices, three failures, and a
+    result that looks exactly like a seeder producing nothing. The seeded
+    CONTENT is backend-agnostic — it is the same records either side of the
+    migration — so measuring it once on the backend the seeder actually writes
+    is the honest check.
+
+    **It runs in its own interpreter** rather than importing api.py here,
+    because `storage` is a module-level singleton bound to whichever data
+    directory reached it first in this process.
+    """
     d = tempfile.mkdtemp(prefix='rp-seedq-')
+    env = dict(os.environ)
+    env.pop('RP_STORAGE_BACKEND', None)
     r = subprocess.run([sys.executable, str(_SEEDER), '--data-dir', d, '--apply'],
-                       capture_output=True, cwd=str(_ROOT), timeout=900)
+                       capture_output=True, cwd=str(_ROOT), timeout=900, env=env)
     if r.returncode != 0:
         raise unittest.SkipTest(f'seeder failed: {r.stderr.decode()[-500:]}')
-    os.environ['RP_DATA_DIR'] = d
-    if str(_CGI) not in sys.path:
-        sys.path.insert(0, str(_CGI))
-    spec = importlib.util.spec_from_file_location('api_seedq', _CGI / 'api.py')
-    api = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(api)
-    devices = api.load(api.DEVICES_FILE) or {}
-    rows = [r for r in api._qe_devices_rows()
-            if not devices.get(r['device_id'], {}).get('agentless')]
-    return api, devices, rows
+    q = subprocess.run([sys.executable, '-c', _PROBE, d, str(_CGI)],
+                       capture_output=True, cwd=str(_ROOT), timeout=600, env=env)
+    if q.returncode != 0:
+        raise AssertionError(f'projection probe failed: {q.stderr.decode()[-1200:]}')
+    out = json.loads(q.stdout.decode().strip().split('\n')[-1])
+    return out['fields'], out['devices'], out['rows'], out['total']
 
 
 class TestTheSeededFleetIsUsable(unittest.TestCase):
@@ -68,7 +102,7 @@ class TestTheSeededFleetIsUsable(unittest.TestCase):
     def setUpClass(cls):
         if not _SEEDER.is_file():
             raise unittest.SkipTest('demo seeder excluded from this tree')
-        cls.api, cls.devices, cls.rows = _seed_and_project()
+        cls.fields, cls.devices, cls.rows, cls.total = _seed_and_project()
 
     def test_there_are_agent_devices_to_measure(self):
         """Agentless devices have no sysinfo by design, so the denominator has
@@ -77,7 +111,7 @@ class TestTheSeededFleetIsUsable(unittest.TestCase):
         agentless, and concluded the seeder wrote no sysinfo at all."""
         self.assertGreater(len(self.rows), 8,
                            f'only {len(self.rows)} agent devices seeded')
-        self.assertLess(len(self.rows), len(self.devices),
+        self.assertLess(len(self.rows), self.total,
                         'no agentless devices seeded — the demo should have both')
 
     def test_every_queryable_field_has_data_somewhere(self):
@@ -86,7 +120,7 @@ class TestTheSeededFleetIsUsable(unittest.TestCase):
             for k, v in row.items():
                 if v is not None and v != '':
                     filled[k] += 1
-        empty = sorted(k for k in self.api._QE_DEVICE_FIELDS
+        empty = sorted(k for k in self.fields
                        if filled[k] == 0 and k not in EXEMPT)
         self.assertEqual(
             empty, [],
@@ -107,7 +141,7 @@ class TestTheSeededFleetIsUsable(unittest.TestCase):
         """cpu_percent tracks the load average and disk_percent matches the
         mounts, because a demo that contradicts itself teaches distrust."""
         for r in self.rows:
-            si = (self.devices[r['device_id']].get('sysinfo') or {})
+            si = (self.devices.get(r['device_id'], {}).get('sysinfo') or {})
             load = si.get('loadavg_1m')
             cpus = si.get('cpu_count') or 1
             if load is None:

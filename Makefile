@@ -79,6 +79,7 @@ help:
 	@echo "  make test-pg     - the THIRD backend; no-ops without a DSN and says so"
 	@echo "  make test-all    - all three backends"
 	@echo "  make e2e         - Playwright browser suite only"
+	@echo "  make test-import-isolation - import AND run each test module alone (~10m)"
 	@echo ""
 	@echo " Check"
 	@echo "  make lint        - format + isort + mypy + the F821 undefined-name gate"
