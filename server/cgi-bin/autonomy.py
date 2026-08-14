@@ -443,6 +443,9 @@ def receipt(plan, decision, *, outcome=None, verified=None, verify_due=None):
     `verified` is True, False or None (not yet).
     """
     return {
+        # Unique per receipt. `ts` is a whole second and a sweep produces
+        # several receipts inside one, so ts is not an identity.
+        'id': plan.get('id'),
         'ts': plan.get('ts'),
         'tenant': plan.get('tenant'),
         'device_id': plan.get('device_id'),

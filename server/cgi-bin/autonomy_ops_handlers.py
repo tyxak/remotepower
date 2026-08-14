@@ -44,6 +44,7 @@ def bind(api_globals):
 
 import json
 import re
+import secrets
 import time
 
 import autonomy
@@ -528,6 +529,13 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
     family = A._device_os_family(dev)
     cmd, problem = _resolve_params(_command_for(action, family), payload, dev_id)
     return {
+        # A unique id. `ts` is a whole second and a sweep builds every
+        # candidate's plan in the same pass, so several receipts routinely
+        # share one -- and verification keyed on ts alone then wrote ONE
+        # host's verdict and check counts onto every receipt in that second,
+        # across devices and across tenants. A receipt whose entire job is
+        # answering "why did it do that?" was reporting another host's answer.
+        'id': 'rcpt_' + secrets.token_hex(6),
         'ts': int(time.time()),
         'tenant': A._device_tenant(dev),
         'device_id': dev_id,
@@ -635,6 +643,12 @@ def _verify_due_receipts(now):
     otherwise: you cannot un-restart a service or un-reboot a host. Telling the
     operator plainly that a fix made things worse is the honest capability.
     """
+    def _key(r):
+        """Stable identity for a receipt. Falls back to (ts, device_id) for
+        rows written before receipts carried an id -- still far better than ts
+        alone, which collides across every device in the same second."""
+        return r.get('id') or (r.get('ts'), r.get('device_id'))
+
     store = A._load_ro(A.AUTONOMY_RECEIPTS_FILE) or {}
     rows = store.get('receipts') or []
     due = [r for r in rows if isinstance(r, dict) and r.get('verified') is None
@@ -646,17 +660,17 @@ def _verify_due_receipts(now):
     for r in due:
         dev = devices.get(r.get('device_id'))
         if not dev:
-            verdicts[r.get('ts')] = (False, 'device is gone')
+            verdicts[_key(r)] = (False, 'device is gone')
             continue
         after = _check_summary_for(r['device_id'], dev)
         worse = autonomy.verification_failed(r.get('before_checks') or {}, after)
-        verdicts[r.get('ts')] = (not worse, after)
+        verdicts[_key(r)] = (not worse, after)
         if worse:
             alerts.append((r, after))
     if verdicts:
         with A._LockedUpdate(A.AUTONOMY_RECEIPTS_FILE) as st:
             for row in (st.get('receipts') or []):
-                v = verdicts.get(row.get('ts')) if isinstance(row, dict) else None
+                v = verdicts.get(_key(row)) if isinstance(row, dict) else None
                 if v is None:
                     continue
                 ok, after = v
