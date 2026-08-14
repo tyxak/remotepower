@@ -446,7 +446,12 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
 
     def test_dialogs_opened_by_clicking_are_capped(self):
         pages = _nav_pages()
-        self.assertGreater(len(pages), 50, 'page enumeration found almost nothing')
+        # 78, not 50. A floor far below the true count only catches TOTAL
+        # collapse: this sweep sat at 75 of 81 for releases — six buttons
+        # carry an id before data-page and were never enumerated — and the
+        # old `> 50` passed the whole time. A threshold has to be near the
+        # real number to catch shrinkage.
+        self.assertGreater(len(pages), 78, 'page enumeration found almost nothing')
         # If the derivation breaks, the sweep clicks nothing and reports a
         # clean result — the exact shape this release exists to close.
         self.assertGreater(

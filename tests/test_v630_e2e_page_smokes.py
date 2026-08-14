@@ -85,7 +85,12 @@ class TestEveryPageOpensClean(unittest.TestCase):
 
     def test_every_sidebar_page_activates_without_js_errors(self):
         pages = _sidebar_pages()
-        self.assertGreater(len(pages), 50, 'sidebar page enumeration broke')
+        # 78, not 50. A floor far below the true count only catches TOTAL
+        # collapse: this sweep sat at 75 of 81 for releases — six buttons
+        # carry an id before data-page and were never enumerated — and the
+        # old `> 50` passed the whole time. A threshold has to be near the
+        # real number to catch shrinkage.
+        self.assertGreater(len(pages), 78, 'sidebar page enumeration broke')
         page = self.browser.new_page()
         errors = []   # (current_page, error)
         current = ['login']
