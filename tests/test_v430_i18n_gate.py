@@ -726,7 +726,7 @@ class TestAttributeTranslationRatchet(unittest.TestCase):
     def test_the_recorded_debt_is_shrinking_not_invented(self):
         """Guard the guard. A baseline that silently grew to cover everything
         would make the test above pass forever while measuring nothing."""
-        self.assertLessEqual(len(self.backlog), 1008,
+        self.assertLessEqual(len(self.backlog), 195,
                              'the attribute backlog may only shrink; it was '
                              '1,081 before the v6.4.3 batch and 984 after')
         self.assertGreater(len(self.backlog), 0)
