@@ -237,7 +237,16 @@ def _data_dir():
     env = os.environ.get('RP_DATA_DIR')
     if env:
         return env
-    base = os.environ.get('ProgramData', r'C:\ProgramData')
+    base = os.environ.get('ProgramData')
+    if not base:
+        # On Windows %ProgramData% is always set, so this fallback only ever
+        # fires OFF Windows — where `C:\ProgramData` is not an absolute path at
+        # all. os.path.join then yields a RELATIVE path and _init_logging()'s
+        # makedirs creates a literal `C:\ProgramData` directory inside whatever
+        # the current working directory happens to be. One had accumulated in
+        # the repo root, holding an agent.log, from tests that exec this agent
+        # without setting RP_DATA_DIR.
+        base = r'C:\ProgramData' if os.name == 'nt' else tempfile.gettempdir()
     return os.path.join(base, 'RemotePower')
 
 

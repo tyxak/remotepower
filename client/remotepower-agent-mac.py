@@ -283,6 +283,19 @@ MAX_DOWNLOAD  = 64 * 1024 * 1024     # a self-update binary
 
 
 def _data_dir():
+    # v7.0.0: RP_DATA_DIR overrides, matching the Windows agent. Without it the
+    # mac agent had NO sandbox: exec'd on a non-macOS host the first path is
+    # unwritable and the second is `~/Library/Application Support/RemotePower`,
+    # which it creates in the running user's real home — so a test could not
+    # drive credential load/save without touching it, and one had accumulated
+    # in this dev box's home directory.
+    env = os.environ.get('RP_DATA_DIR')
+    if env:
+        try:
+            os.makedirs(env, exist_ok=True)
+        except Exception:
+            pass
+        return env
     # launchd daemons run as root; fall back to the user dir for a manual run.
     for d in ('/Library/Application Support/RemotePower',
               os.path.expanduser('~/Library/Application Support/RemotePower')):
