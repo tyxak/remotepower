@@ -108,6 +108,35 @@ This block must appear **before** any catch-all `location ^~ /api/`
 block in the same server stanza — nginx routes on first match.
 `sudo nginx -t && sudo systemctl reload nginx` after editing.
 
+## What the model is told about your fleet
+
+Every request carries a short **fleet snapshot** preamble: a count line, then one
+line per host with its name, OS, package manager, online state, group and your
+own notes.
+
+Since v7.0.0 a host also names its **notable conditions** — high CPU, memory or
+disk, a pending reboot, failed units, mount problems, an inactive host firewall,
+unencrypted disks, an unsynchronised clock, quarantined files, or the agent's own
+"my metrics are limited" signal. Before that the preamble was pure inventory, so
+an advisor asked what to fix first saw a list of machines and nothing about their
+state.
+
+Two things about it worth knowing:
+
+- **A healthy host adds nothing.** Conditions appear only when they cross the
+  same thresholds the product already alerts on, so a fleet that is fine costs
+  no extra tokens and never shows the model a "problem" your own pages call
+  fine.
+- **Each host names at most four.** One very sick machine must not crowd out the
+  rest of the fleet in a bounded prompt.
+
+Anything beyond that comes from [RAG retrieval](rag.md), which fires per
+question. The preamble is what the model knows before it retrieves anything.
+
+The privacy toggles below apply to this preamble exactly as they do to
+everything else — with **Send hostnames** off, the host names in it are
+redacted too.
+
 ## Privacy toggles
 
 Located under Settings → AI assistant → **Privacy**.

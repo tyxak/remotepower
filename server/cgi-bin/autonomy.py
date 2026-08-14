@@ -184,8 +184,19 @@ class Decision(dict):
 
 
 def _decision(verdict, reason, **extra):
-    assert verdict in VERDICTS, verdict
-    assert reason in REASONS, reason
+    # NOT an assert. `python -O` strips asserts, and these two lines are the
+    # only thing that keeps an unrecognised verdict or an undeclared reason out
+    # of a receipt — in the module whose whole job is to be the mechanical gate
+    # on executing commands against production hosts. A validation that a
+    # command-line flag can remove is not a validation. (bandit B101 flagged
+    # exactly this; it is not a false positive here.)
+    if verdict not in VERDICTS:
+        raise ValueError(f'unknown verdict {verdict!r} (expected one of {VERDICTS})')
+    if reason not in REASONS:
+        raise ValueError(
+            f'undeclared reason {reason!r}. Add it to REASONS — the closed set '
+            f'is what lets the receipts page aggregate refusals instead of '
+            f'showing a pile of prose.')
     d = Decision(verdict=verdict, reason=reason)
     d.update(extra)
     return d

@@ -977,6 +977,125 @@ from one that cannot.
   written.
 
 
+### Every signal reaches the surface that needs it
+
+A sweep that enumerated every sysinfo key the agents send against every consumer
+that could read it, and printed the ratio per consumer rather than asking
+whether each was "wired". Three of them were starved in a way reading the code
+does not show, because in each case the popular keys were wired and the file
+therefore reads as complete.
+
+**The Data Explorer could only ask about fourteen things.** Its `devices` entity
+projected 14 fields, four of them from sysinfo, against the 105 keys the
+heartbeat sanitiser persists. So the richest question you could put to the page
+whose entire purpose is arbitrary questions was "which hosts are above 80% CPU".
+Whether a host's disks are encrypted, whether its firewall is up, whether sshd
+still permits root, whether automatic updates are on, when it was last seen,
+whether it is online at all: collected, alerted on, rendered in a drawer, and
+not queryable. **45 fields now**, covering posture, capacity, health counts and
+last-seen/online.
+
+The posture booleans are **tri-state** and that is deliberate: `false` means the
+host reported and the answer is no, absent means it never reported. A Windows box
+does not report sshd; a container host may not see device-mapper. Collapsing
+those to `false` is exactly how the encryption-at-rest control put every Linux
+host into a findings list it did not belong in for four releases.
+
+**An estate could pass every compliance framework with sshd accepting root on a
+password.** Resolved sshd posture has been collected since v6.4.1 and read by the
+Security Advisory since; no compliance control referenced it, though PCI DSS
+2.2.7, SOC 2 CC6.1 and Essential Eight E8-5 all concern hardened administrative
+access and each was evidenced by something else. There is now a remote-access
+control mapped into all three. A host that does not report sshd is **Not
+assessed**, never a pass — a fleet with no Linux hosts has demonstrated nothing
+here, and a green control would be an assurance an auditor relies on.
+
+**The AI advisor's always-on context had no health in it.** The preamble every
+request carries emitted, per host, name, OS, package manager, online state,
+group, notes and tags — and nothing about the host's state; the rollup line
+carried offline and needs-reboot counts. So an advisor asked what to fix first
+started from a list of machines with no idea which were in trouble, and posture
+reached the model only when retrieval happened to fetch it. Hosts now name their
+**notable conditions**, and the design constraint is the interesting part: the
+preamble is on every call, so conditions appear only above the thresholds the
+product already alerts on. A healthy host adds nothing — measured at 24
+characters, unchanged — and each host names at most four, so one very sick
+machine cannot crowd out the other seventy-nine.
+
+Also in this pass: **the Data Explorer had no documentation at all** and its page
+pointed at the Fleet Query doc, which describes a different surface. It has its
+own page now, including why the posture booleans are tri-state and how to find
+the hosts that never answered.
+
+### Two test modules could have overwritten a live install's admin user
+
+Six could, strictly. `api.py` calls `ensure_default_user()` at import, which
+WRITES, and six test modules executed it without pinning `RP_DATA_DIR` first —
+so they targeted `/var/lib/remotepower`. On a development box that is a
+permission error. On a machine with a live install it is a successful write over
+the install's administrator.
+
+The suite was green throughout, and the reason is worth recording: `unittest
+discover` imports every module into ONE process, so whichever module set the
+variable first set it for all of them, and the order that produced happened to
+work. Run one of the six alone — or under xdist, where each worker is its own
+process — and it reaches for the real directory. It surfaced from a targeted run
+during the version bump.
+
+A related twenty-five could not be run alone at all: they import a helper from
+`tests/`, which `unittest discover` puts on the path for free and a targeted run
+does not. Benign for what ships; it removes the ability to run a single file,
+which is how most debugging here happens.
+
+Both classes now have gates, and building the first one is the part worth
+reading. Three drafts were confidently wrong before the fourth was right: a
+substring search for `RP_DATA_DIR` was satisfied by the **comment above the
+guard**, so deleting a guard changed nothing and the gate looked like it worked;
+anchoring on the spec call flagged a module that sets the variable in the two
+lines before executing it; and matching raw text flagged one module that loads
+`storage.py`, one that loads the Windows agent, and one whose `api.py` exec lives
+inside a subprocess probe string with its own correct guard. A string literal's
+contents are not AST nodes of the module containing them, and that one fact
+resolves all three.
+
+The second gate is the more instructive failure. A version that ran in 3.6
+seconds instead of 30, by skipping modules that touch `sys.path` at all,
+measured **nothing** — the fix for every affected module is itself a `sys.path`
+line, so each one left the candidate set the moment it was fixed. It passed its
+own control test, because the control checked the wider set it was filtered from
+rather than the set it actually spawned for.
+
+### Smaller things
+
+- The **autonomy action catalog** went from 7 classes to 24, and the event map
+  underneath it had six rows of which **four named events that do not exist** —
+  so the loop looked six-wide and was two-wide, and nothing failed, because a
+  dictionary key nobody looks up raises nothing. An event now maps to an ordered
+  **ladder** of remedies and the loop takes the first rung your allow-list
+  permits, which is what makes the allow-list a control rather than a switch.
+  Commands go out in the server's own grammar, so autonomy inherits maintenance
+  mode, quarantine, audit mode and the approval queue instead of growing private
+  copies of them.
+- **Autonomy moved out of Security and into Automation**, where the command
+  queue, scripts and automation rules already live, and its page is visible by
+  default. Hiding it added no safety — the per-tenant mode is what holds the loop
+  still — and a headline feature nobody can find cannot be graded.
+- The **card header band overhung its own card by four pixels** at compact
+  density on 15 cards, because the compact override named two of the five header
+  wrappers. Invisible at the default density, which is why it survived.
+- The Alerts row packed up to **ten action buttons into a `nowrap` cell**, so the
+  table scrolled sideways; they wrap now, at a width measured rather than
+  guessed.
+- The decision core validated verdicts and refusal reasons with `assert`, which
+  `python -O` removes. That was the only thing keeping an unrecognised verdict
+  out of the ACT branch, in the module whose entire job is to be the mechanical
+  gate on running commands against production hosts.
+- The **Windows and macOS agents wrote outside their sandbox** when exec'd off
+  their own OS: a literal `C:\ProgramData` directory in the repository root, and
+  `~/Library/Application Support/RemotePower` in the developer's real home. The
+  macOS agent also did not honour `RP_DATA_DIR` at all, so no test could sandbox
+  it — two of three agents honouring an override is the half-applied shape.
+
 ### What the widened gates found within a day
 
 Un-blinding the page enumeration paid for itself immediately. The first

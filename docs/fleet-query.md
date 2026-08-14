@@ -13,3 +13,11 @@ table you can act on.
 
 For one-off numeric/telemetry questions, the [AI assistant](ai.md) can also
 answer fleet queries in natural language using the same data.
+
+## When you want more than ANDed conditions
+
+Fleet Query is deliberately simple. When you need nested AND/OR/NOT, or you want
+to query security posture (disk encryption, host firewall, sshd configuration),
+capacity, or CVE and drift rows rather than devices, use the
+**[Data Explorer](data-explorer.md)** — 45 device fields across three entities,
+with the same saved-query store and the same scoping.
