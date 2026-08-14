@@ -151,19 +151,59 @@ class TestAgentlessLoadAverageSurvivesLocale(unittest.TestCase):
         self.assertIn("LC_ALL=C", ssh_agent.SYSINFO_SCRIPT)
         self.assertIn("/proc/loadavg", ssh_agent.SYSINFO_SCRIPT)
 
+    @staticmethod
+    def _load1():
+        with open("/proc/loadavg") as fh:
+            return float(fh.read().split()[0])
+
     @unittest.skipUnless(Path("/proc/loadavg").exists(), "Linux only")
     def test_the_fraction_survives_a_comma_decimal_locale(self):
+        """v7.0.0: BRACKETED rather than compared for equality.
+
+        This asserted `probe_output == open('/proc/loadavg').read()`, comparing a
+        live, constantly-moving metric against itself sampled at a different
+        instant. On an idle machine the two agree and it passes; under load they
+        do not, and it failed a full gate run with `1.34 != 1.37` — the load
+        average moving while two backends ran concurrently. A test that fails
+        precisely when the machine is busy fails precisely when the gate runs,
+        and reads as a real defect every time.
+
+        WHAT THIS TEST IS AND IS NOT FOR, stated because the equality version
+        implied more than it delivered. The definitive guard against the
+        `awk -F,` bug — splitting on the DECIMAL SEPARATOR, so every load below
+        1.00 arrived as 0.0 — is the sibling test above, which pins the probe to
+        /proc/loadavg and LC_ALL=C at the source. Reverting the probe to the
+        buggy form was measured: that one fails, this one did not.
+
+        This is the runtime half: it confirms the script actually runs under
+        three locales and returns a plausible, well-formed decimal. Bracketing
+        between two readings taken either side of the run is what makes that
+        race-free. It is a weaker check than its sibling and it is honest about
+        being one; its value is that it no longer produces a false failure
+        whenever the machine is busy.
+        """
         import json
         import subprocess
 
         import ssh_agent
-        truth = open("/proc/loadavg").read().split()[0]
         for loc in ("C", "da_DK.UTF-8", "de_DE.UTF-8"):
+            before = self._load1()
             r = subprocess.run(["sh", "-c", ssh_agent.SYSINFO_SCRIPT],
                                capture_output=True, text=True,
                                env={"PATH": "/usr/bin:/bin", "LC_ALL": loc, "LANG": loc})
-            got = json.loads(r.stdout).get("loadavg_1m")
-            self.assertEqual(got, truth, f"locale {loc} mangled the load average")
+            after = self._load1()
+            raw = json.loads(r.stdout).get("loadavg_1m")
+            self.assertIsNotNone(raw, f"locale {loc}: no loadavg_1m in the output")
+            self.assertIn(".", str(raw),
+                          f"locale {loc} dropped the decimal point — this is the "
+                          f"awk -F, bug: {raw!r}")
+            got = float(raw)
+            lo, hi = min(before, after), max(before, after)
+            # 0.01 covers the two-decimal rounding /proc/loadavg reports at.
+            self.assertGreaterEqual(got, lo - 0.01,
+                                    f"locale {loc}: {got} below [{lo}, {hi}]")
+            self.assertLessEqual(got, hi + 0.01,
+                                 f"locale {loc}: {got} above [{lo}, {hi}]")
 
 
 class TestBruteForceSourcesAreRealAddresses(unittest.TestCase):
