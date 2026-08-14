@@ -4,6 +4,65 @@ All notable changes to RemotePower. Newest first.
 
 ## v6.4.3 — "Gu4rdMatters" — unreleased (test)
 
+> **Note on versioning.** The autonomy subsystem below is the start of what is
+> intended as a major release. `SERVER_VERSION` is deliberately still 6.4.3 —
+> that release is fully gated and staged for promotion, and stranding it to
+> open a new major is a decision for the maintainer, not a side effect of
+> starting the work. If it becomes v7.0.0 this section is renamed in place,
+> the way v3.14.0 became v4.0.0.
+
+### The fleet can start fixing itself, and hands you a receipt
+
+Every product in this category that offers autonomous remediation asks you to
+trust a model. This does not. The safety here is mechanical, and it predates the
+AI: a signed command channel in all three agents, four-eyes approval,
+break-glass, maintenance windows, tenant isolation, a complete audit log, and a
+per-host checks engine that already defines what "healthy" means. Autonomy is
+those parts, wired into a loop.
+
+**It ships off, and switching it on does not let it act.** Every tenant starts
+in **shadow**, where the loop reaches a real verdict and records it without
+touching anything. You read the receipts, decide whether you would have done the
+same, and only then grant it something. That is the intended way to adopt this,
+and it is why shadow is a first-class mode rather than a debug flag.
+
+**It acts on precedent, not on a guess.** The proposal comes from this fleet's
+own incident memory — what actually closed this exact signature before. Two
+prior incidents minimum, 70% success minimum, and an outcome a person confirmed
+counts double one written by the advisor: an AI verdict nobody contradicted is
+weaker evidence than an engineer writing down what fixed it. With no precedent,
+it does nothing.
+
+**Before acting it works out what goes dark.** Monitors bound to the host, the
+containers it runs, watched services, network neighbours — discounted when the
+host has healthy siblings, because taking one of three replicas is not the same
+as taking the only one. That preview is available on its own, whether or not
+autonomy is ever enabled: *what breaks if I reboot this host* is worth answering
+for a human about to do it by hand.
+
+**Destructive actions require a backup that is proven recoverable** — a restore
+drill that actually restored and verified within the last month, not a backup
+that merely ran — and escalate for approval rather than running.
+
+**Every decision leaves a receipt**: the trigger, the action, the verdict, a
+machine-readable reason, the blast radius, and the precedent behind it. It is
+self-contained on purpose, because the alert will be pruned and the fleet will
+have changed by the time anyone asks. Refusal reasons come from a closed set, so
+the page can say *"blocked 41 times for blast radius"* rather than showing you
+forty-one paragraphs.
+
+**What it will not do**: act on an event class nobody analysed; act on an action
+absent from your allow-list, or one this build does not recognise; build a
+command out of alert text; touch a device outside the acting tenant; or decide
+for itself whether it worked — that judgement belongs to the checks engine, and
+an increase in failing checks rolls the action back.
+
+Execution is not enabled in this build. The loop reaches its verdict and records
+it; a receipt that would have acted is marked `not-executed`. The signed command
+hop, the approval flow and post-action verification land next, behind the same
+switch. Shadow is complete and is the way to use this today.
+
+
 A release about the checks rather than the code they check. Six guardrails
 turned out to be reporting success while measuring nothing: the Postgres
 backend — the enterprise default — was run by no gate at all, `ruff --select

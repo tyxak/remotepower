@@ -358,3 +358,4 @@ index — a doc nobody can find is a doc nobody reads.)
 ### For contributors
 - **[testing-deep.md](testing-deep.md)** — Property-based and fuzz testing
  (Hypothesis), and how to run the deeper suite.
+- [Autonomous remediation](autonomy.md) — the loop that can fix recurring problems on its own, and the safety envelope around it
