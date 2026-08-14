@@ -190,11 +190,23 @@ class TestLazyModuleLockstep(unittest.TestCase):
     freeze-bug class); a module in NEITHER is dead code nobody can reach."""
 
     def _lazy_set(self):
+        """Every module the app can load on demand.
+
+        TWO registries, not one. `_LAZY_PAGE_MODULES` is keyed by page, but a
+        module whose entry point is not a page — the product map, opened from a
+        sidebar button reachable everywhere — has no page key and lives in
+        `_LAZY_NON_PAGE_MODULES` instead. Reading only the first would report it
+        as unreachable, which is what happened when it was added.
+        """
+        import re
         js = (_ROOT / "server/html/static/js/app.js").read_text()
         block = js[js.index("_LAZY_PAGE_MODULES = {"):]
         block = block[:block.index("};")]
-        import re
-        return set(re.findall(r"'([a-z-]+\.js)'", block))
+        out = set(re.findall(r"'([a-z-]+\.js)'", block))
+        if "_LAZY_NON_PAGE_MODULES = [" in js:
+            nb = js[js.index("_LAZY_NON_PAGE_MODULES = ["):]
+            out |= set(re.findall(r"'([a-z-]+\.js)'", nb[:nb.index("];")]))
+        return out
 
     def test_lazy_modules_not_also_boot_loaded(self):
         html = _html()

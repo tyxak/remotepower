@@ -98,8 +98,16 @@ class TestSurfaceWiring(unittest.TestCase):
         # of a boot-time <script> tag in index.html.
         js = (_ROOT / "server/html/static/js/app.js").read_text()
         self.assertIn("'app-billing.js'", js)
+        # Anchored on the DECLARATION and bounded by the literal's own closing
+        # brace, not `split(name)[1][:1200]`. That form broke the moment a
+        # COMMENT elsewhere in app.js mentioned `_LAZY_PAGE_MODULES` — the split
+        # then landed on that mention instead of the map, and the failure read
+        # as "timesheet is no longer lazy" rather than "the window moved". It is
+        # the fixed-window source pin CLAUDE.md says to stop writing.
+        block = js[js.index("_LAZY_PAGE_MODULES = {"):]
+        block = block[:block.index("};")]
         for page in ("timesheet", "billing", "users"):
-            self.assertIn(f"{page}:", js.split("_LAZY_PAGE_MODULES")[1][:1200], page)
+            self.assertIn(f"{page}:", block, page)
 
     def test_pages_present(self):
         html = (_ROOT / "server/html/index.html").read_text()
