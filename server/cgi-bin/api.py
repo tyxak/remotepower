@@ -30250,12 +30250,86 @@ def _paginate_list(items):
 # normalizes JSON/SQLite/Postgres to the same in-memory shape. SQL pushdown
 # for very large fleets is a deferred perf optimization, not a v1 correctness
 # requirement. See docs/feature-buildout-scoping-internal.md #2.
+def _qe_device_posture(si):
+    """The posture/telemetry scalars the Data Explorer can query on.
+
+    v7.0.0. The projection used to expose FOURTEEN fields, four of them from
+    sysinfo, against 105 keys safe_si persists — so the richest thing an
+    operator could ask the Data Explorer was "which hosts are above 80% CPU".
+    Whether a host's disks are encrypted, whether its firewall is up, whether
+    sshd still permits root, whether automatic updates are on: all collected,
+    all rendered somewhere, none of it queryable or joinable.
+
+    Kept to SCALARS, deliberately. The predicate engine compares numbers,
+    strings and booleans; handing it a nested dict would give every operator a
+    field whose only useful operator is `exists`. Composite signals are reduced
+    here to the question someone would actually ask — a list of quarantined
+    files becomes a count, the firewall's backend list becomes "is any backend
+    active".
+
+    Shapes were read off safe_si rather than assumed: `battery` is a LIST of
+    dicts, `disk_encryption`/`autoupdate`/`clock` are dicts, `ssh_config` is a
+    dict of strings, `guard_quarantine`/`canary_status` are lists.
+    """
+    def _n(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    de = si.get('disk_encryption') if isinstance(si.get('disk_encryption'), dict) else {}
+    au = si.get('autoupdate') if isinstance(si.get('autoupdate'), dict) else {}
+    sc = si.get('ssh_config') if isinstance(si.get('ssh_config'), dict) else {}
+    ck = si.get('clock') if isinstance(si.get('clock'), dict) else {}
+    fw = si.get('firewall') if isinstance(si.get('firewall'), dict) else {}
+    bats = [b for b in (si.get('battery') or []) if isinstance(b, dict)]
+    bat = bats[0] if bats else {}
+    backends = [b for b in (fw.get('backends') or []) if isinstance(b, dict)]
+    return {
+        'hostname': si.get('hostname') or '',
+        'kernel': si.get('kernel') or '',
+        'chassis': si.get('chassis') or '',
+        'uptime_seconds': _n(si.get('uptime_seconds')),
+        'loadavg_1m': _n(si.get('loadavg_1m')),
+        'cpu_count': _n(si.get('cpu_count')),
+        'mem_total_mb': _n(si.get('mem_total_mb')),
+        'disk_total_gb': _n(si.get('disk_total_gb')),
+        'fd_pct': _n(si.get('fd_percent')),
+        'conntrack_pct': _n(si.get('conntrack_percent')),
+        'failed_units': len(si.get('failed_units') or []),
+        'mount_issues': len(si.get('mount_issues') or []),
+        'quarantined_files': len(si.get('guard_quarantine') or []),
+        'listening_ports': len(si.get('listening_ports') or []),
+        # Tri-state on purpose: False means "reported, and it is off", None
+        # means "this host never told us". Collapsing them to False is how a
+        # non-reporting host ends up in a list of findings it does not belong in.
+        'disk_encrypted': de.get('encrypted') if isinstance(de.get('encrypted'), bool) else None,
+        'firewall_active': (any(b.get('active') for b in backends)
+                            if backends else None),
+        'autoupdate_enabled': bool(au.get('enabled')) if au else None,
+        'autoupdate_mechanism': au.get('mechanism') or '',
+        'ssh_root_login': sc.get('permit_root_login') or '',
+        'ssh_password_auth': sc.get('password_authentication') or '',
+        'ssh_empty_passwords': sc.get('permit_empty_passwords') or '',
+        'ssh_x11_forwarding': sc.get('x11_forwarding') or '',
+        'secure_boot': si.get('secure_boot') if isinstance(si.get('secure_boot'), bool) else None,
+        'clock_synced': ck.get('synced') if isinstance(ck.get('synced'), bool) else None,
+        'clock_offset_ms': _n(ck.get('offset_ms')),
+        'battery_pct': _n(bat.get('percent')),
+        'battery_health_pct': _n(bat.get('health_pct')),
+        'audit_mode': bool(si.get('audit_mode')),
+        # The agent's own "my metrics are limited" signal. Without it an empty
+        # CPU column is indistinguishable from an idle host.
+        'metrics_limited': si.get('psutil') is False,
+    }
+
+
 def _qe_devices_rows():
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    ttl = get_online_ttl()
+    now = int(time.time())
     out = []
     for dev_id, d in devices.items():
         si = d.get('sysinfo') or {}
-        out.append({
+        last = int(d.get('last_seen') or 0)
+        row = {
             'device_id': dev_id, 'name': d.get('name', dev_id),
             'group': d.get('group', ''), 'site': d.get('site', ''),
             'os': d.get('os', ''), 'agent_version': d.get('version', ''),
@@ -30265,13 +30339,31 @@ def _qe_devices_rows():
             'cpu_pct': si.get('cpu_percent'), 'mem_pct': si.get('mem_percent'),
             'disk_pct': si.get('disk_percent'), 'swap_pct': si.get('swap_percent'),
             'tags': ','.join(d.get('tags') or []),
-        })
+            # v7.0.0: the two fields every "which hosts…" question starts from
+            # and neither of which was queryable.
+            'last_seen': last,
+            'online': (_agentless_online(d) if d.get('agentless')
+                       else bool(last and (now - last) < ttl)),
+        }
+        row.update(_qe_device_posture(si))
+        out.append(row)
     return out
 
 
 _QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'device_id', 'name', 'group', 'site', 'os', 'agent_version', 'monitored',
-    'agentless', 'reboot_required', 'cpu_pct', 'mem_pct', 'disk_pct', 'swap_pct', 'tags')}
+    'agentless', 'reboot_required', 'cpu_pct', 'mem_pct', 'disk_pct', 'swap_pct',
+    'tags', 'last_seen', 'online',
+    # v7.0.0 posture + telemetry, derived in _qe_device_posture. Adding a key
+    # there is not enough — the engine only exposes what this tuple names, so
+    # tests/test_v700_query_fields.py checks the two agree in both directions.
+    'hostname', 'kernel', 'chassis', 'uptime_seconds', 'loadavg_1m', 'cpu_count',
+    'mem_total_mb', 'disk_total_gb', 'fd_pct', 'conntrack_pct', 'failed_units',
+    'mount_issues', 'quarantined_files', 'listening_ports', 'disk_encrypted',
+    'firewall_active', 'autoupdate_enabled', 'autoupdate_mechanism',
+    'ssh_root_login', 'ssh_password_auth', 'ssh_empty_passwords',
+    'ssh_x11_forwarding', 'secure_boot', 'clock_synced', 'clock_offset_ms',
+    'battery_pct', 'battery_health_pct', 'audit_mode', 'metrics_limited')}
 
 
 def _qe_cve_rows():
