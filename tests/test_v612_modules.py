@@ -52,6 +52,9 @@ class TestModuleDefaults(unittest.TestCase):
                 # v6.2.0: the governed AI executor ships OFF. An install that
                 # never opts in must have no AI-initiated action path at all.
                 "ai_exec": False,
+                # v7.0.0: autonomous remediation ships OFF. An install that
+                # never opts in has no reachable autonomy surface at all.
+                "autonomy": False,
             },
         )
 

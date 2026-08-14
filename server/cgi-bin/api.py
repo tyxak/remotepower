@@ -456,7 +456,9 @@ FLOW_DEPS_FILE   = DATA_DIR / 'flow_deps.json'         # v6.3.1: per-edge observ
 # hence hours, not minutes. Anything tighter would flag quiet standby links.
 _FLOW_SILENT_S = 3 * 3600
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
-INCIDENT_MEMORY_FILE = DATA_DIR / 'incident_memory.json'  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
+INCIDENT_MEMORY_FILE = DATA_DIR / 'incident_memory.json'
+AUTONOMY_POLICY_FILE   = DATA_DIR / 'autonomy_policy.json'   # v7.0.0: per-tenant safety envelope
+AUTONOMY_RECEIPTS_FILE = DATA_DIR / 'autonomy_receipts.json' # v7.0.0: what the loop did / would have done  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
@@ -1073,6 +1075,22 @@ for _ri_name in (
 ):
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
+
+# v7.0.0: Autonomous remediation loop — policy, shadow receipts, blast radius.
+_ao_spec = _tk_ilu.spec_from_file_location(
+    'autonomy_ops_handlers', Path(__file__).parent / 'autonomy_ops_handlers.py')
+autonomy_ops_handlers_mod = _tk_ilu.module_from_spec(_ao_spec)
+_ao_spec.loader.exec_module(autonomy_ops_handlers_mod)
+autonomy_ops_handlers_mod.bind(globals())
+for _ao_name in (
+        'handle_autonomy_policy', 'handle_autonomy_receipts',
+        'handle_autonomy_preview', 'run_autonomy_if_due',
+        '_policy_for', '_append_receipt', '_blast_radius_for',
+        '_candidate_alerts', '_build_plan', '_actions_this_hour',
+        '_backup_is_verified',
+):
+    globals()[_ao_name] = getattr(autonomy_ops_handlers_mod, _ao_name)
+del _ao_name
 
 # CVE scan lifecycle, findings, campaigns and the ignore list — carved at v6.4.3
 # to give the inline-handler ratchet headroom (it was at 605 of 605, zero slack).
@@ -10396,6 +10414,9 @@ _MODULES = {
     # dispatcher — an enterprise that wants zero AI-initiated actions must be able
     # to make that structurally true, not merely a UI preference.
     'ai_exec':    ('ai_exec_enabled',        False, ('/api/ai-exec',)),
+    # v7.0.0: autonomous remediation. OFF by default and gated at the
+    # dispatcher, so an install that never opts in has no reachable surface.
+    'autonomy':   ('autonomy_enabled',       False, ('/api/autonomy',)),
 }
 
 
@@ -68465,6 +68486,12 @@ def _build_exact_routes():
         ('POST', '/api/ipam/subnets'): handle_ipam_subnets,
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
+        # v7.0.0: autonomous remediation. The whole prefix is behind the
+        # `autonomy` module gate in _MODULES, so these 404 until opted in.
+        ('GET', '/api/autonomy/policy'): handle_autonomy_policy,
+        ('PUT', '/api/autonomy/policy'): handle_autonomy_policy,
+        ('GET', '/api/autonomy/receipts'): handle_autonomy_receipts,
+        ('POST', '/api/autonomy/preview'): handle_autonomy_preview,
         ('POST', '/api/tenants'): handle_tenant_create,
         # v6.1.1: tenancy isolation-coverage transparency panel
         ('GET', '/api/tenancy/readiness'): handle_tenancy_readiness,
@@ -69937,6 +69964,7 @@ def main():
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
     _safe(run_flow_export_check_if_due, 'run_flow_export_check_if_due')  # v6.4.3 exporter went silent
     _safe(run_incident_memory_if_due, 'run_incident_memory_if_due')   # v6.3.1 harvest resolved triaged incidents
+    _safe(run_autonomy_if_due, 'run_autonomy_if_due')                 # v7.0.0 autonomy loop (shadow by default)
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the

@@ -2258,6 +2258,7 @@ const MODULE_PAGES = {
   // be wrong: switching the executor off must not hide the MCP maker-checker
   // queue, which is a different feature entirely.
   ai_exec:    null,
+  autonomy:   'autonomy',
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2271,6 +2272,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-compliance', 'compliance_enabled', true],
   ['cfg-mod-pentest',    'pentest_enabled',    true],
   ['cfg-mod-ai_exec',    'ai_exec_enabled',    false],
+  ['cfg-mod-autonomy',   'autonomy_enabled',   false],
 ];
 
 function _applyModuleNavGates(modules) {
