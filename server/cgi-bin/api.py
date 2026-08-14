@@ -43515,6 +43515,12 @@ def _compliance_facts(devices=None):
     # tri-state: None (unreadable probe) is not counted as data or as off.
     firewall_off = []
     firewall_data_devices = 0
+    # v7.0.0: resolved sshd posture. Collected and persisted since v6.4.1 and
+    # read by the Security Advisory's identity layer — and by no compliance
+    # control at all, though PCI, SOC 2 and the Essential Eight each have a
+    # remote-access control this is the evidence for.
+    ssh_weak = []
+    ssh_data_devices = 0
     # v6.4.2 (audit): encryption-at-rest (BitLocker per OS volume / FileVault) and
     # AV/malware posture. Both drove alerts, the Checks page and the risk score
     # but no compliance CONTROL — HIPAA's "Protection from malicious software"
@@ -43545,6 +43551,22 @@ def _compliance_facts(devices=None):
             firewall_data_devices += 1
             if fw.get('active') is False:
                 firewall_off.append(nm)
+        # sshd posture. Present-and-bad only: a host that never reported is not
+        # a host that reported bad news, which is the distinction the
+        # encryption-at-rest control got wrong on Linux for four releases.
+        sc = si.get('ssh_config')
+        if isinstance(sc, dict) and sc:
+            ssh_data_devices += 1
+            _bad = []
+            if str(sc.get('permit_root_login', '')).lower() in ('yes', 'without-password',
+                                                                'prohibit-password'):
+                _bad.append('root login permitted')
+            if str(sc.get('password_authentication', '')).lower() == 'yes':
+                _bad.append('password authentication')
+            if str(sc.get('permit_empty_passwords', '')).lower() == 'yes':
+                _bad.append('empty passwords')
+            if _bad:
+                ssh_weak.append(f"{nm} ({', '.join(_bad)})")
         # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
         # volume, list of {status}). Present-and-off only; absence is not data.
         mp = si.get('mac_posture')
@@ -43585,6 +43607,8 @@ def _compliance_facts(devices=None):
     facts['os_known_devices'] = os_known_devices
     facts['firewall_off'] = firewall_off
     facts['firewall_data_devices'] = firewall_data_devices
+    facts['ssh_weak'] = ssh_weak
+    facts['ssh_data_devices'] = ssh_data_devices
     facts['encryption_off'] = encryption_off
     facts['encryption_data_devices'] = encryption_data_devices
     facts['av_bad'] = av_bad

@@ -159,6 +159,35 @@ def _traffic_restrict_control(facts):
                 "at the firewall.")
 
 
+def _remote_access_control(facts):
+    """Secure remote administrative access, evidenced by resolved sshd posture.
+
+    v7.0.0. The agent has reported permit-root-login, password-authentication
+    and permit-empty-passwords since v6.4.1, and the Security Advisory has read
+    them since; no compliance control did, so an estate could pass every
+    framework here with sshd accepting root logins on a password.
+
+    Present-and-bad only. A host that never reported sshd state is not a host
+    that reported bad news — collapsing those is how the encryption-at-rest
+    control put every Linux host into a findings list it did not belong in.
+    Windows and macOS hosts simply do not report this, so NA is the honest
+    answer on a fleet without Linux rather than a failure.
+    """
+    weak = facts.get('ssh_weak') or []
+    if weak:
+        return FAIL, (f"{len(weak)} host(s) with weak sshd configuration: "
+                      + "; ".join(str(h) for h in weak[:10])
+                      + ". Set PermitRootLogin no, PasswordAuthentication no "
+                        "(keys only) and PermitEmptyPasswords no.")
+    if facts.get('ssh_data_devices'):
+        return PASS, ("Every host that reported sshd configuration denies root "
+                      "login, password authentication and empty passwords. "
+                      "Remote access by other means (VPN, RDP, console) is out "
+                      "of scope — verify those separately.")
+    return NA, ("No host has reported sshd configuration yet — verify remote "
+                "administrative access controls directly.")
+
+
 def _av_control(facts):
     """Anti-malware / protection from malicious software. Evidenced by the AV
     posture the agent reports (clamav/rkhunter/Defender) — infection or
@@ -304,6 +333,11 @@ _CONTROLS = [
      'Enable audit logging.'),
     ('pci', '11.5.1', 'Detect and respond to intrusions',           _intrusion_control,
      'Review brute-force sources; block at the firewall.'),
+    # v7.0.0: PCI 2.2.7 — harden non-console administrative access.
+    # Evidenced by resolved sshd posture, which the product has collected
+    # since v6.4.1 and no control read.
+    ('pci', '2.2.7',  'Harden non-console administrative access',   _remote_access_control,
+     'Deny root login, password authentication and empty passwords in sshd.'),
 
     # HIPAA Security Rule
     # v6.4.2 (audit): "Protection from malicious software" is now evidenced by
@@ -336,6 +370,8 @@ _CONTROLS = [
      'Investigate brute-force activity.'),
     ('soc2', 'CC6.1', 'Logical access — encryption of secrets',      _vault_control,
      'Store secrets in the encrypted vault.'),
+    ('soc2', 'CC6.1b', 'Logical access — hardened remote administration', _remote_access_control,
+     'Deny root login and password authentication in sshd.'),
     ('soc2', 'CC6.6', 'Restrict transmission to authorized TLS',     _tls_control,
      'Renew expiring certificates.'),
     ('soc2', 'CC6.7', 'Manage vulnerabilities (patching)',           _patch_control,
@@ -367,6 +403,8 @@ _CONTROLS = [
      'Harden browsers/PDF/Java per the ACSC guidance.'),
     ('e8', 'E8-5', 'Restrict administrative privileges',         _admin_privilege_control,
      'Review privileged-group membership; enforce least privilege.'),
+    ('e8', 'E8-5b', 'Restrict administrative privileges — remote root', _remote_access_control,
+     'Deny direct root login over SSH; require a named account plus sudo.'),
     ('e8', 'E8-6', 'Patch operating systems',                    _eol_control,
      'Upgrade hosts on end-of-life operating systems.'),
     ('e8', 'E8-6b', 'Patch operating systems — pending reboots',  _reboot_control,
