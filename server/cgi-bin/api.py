@@ -10055,6 +10055,17 @@ _ALERT_IDENTITY_FIELDS = (
     # on battery and a chatty linkDown share one row, and acknowledging the
     # noisy one buries the one that mattered.
     'rule',
+    # v7.0.0: two more of the same class, both found by walking every
+    # `resolves=` event against its sub_match branch rather than spot-checking.
+    # ping_missed carries NO device_id at all (it is a dead-man's-switch job,
+    # not a host), so its identity was ('ping_missed', '', ()) for EVERY job:
+    # all overdue jobs merged into one row, and the per-job sub_match had
+    # nothing to tell them apart. Since ping_missed only fires on the
+    # newly-late transition, the masked job then went permanently silent.
+    'job_id',
+    # snapshot_old is the same shape per Proxmox guest -- also no device_id --
+    # so every VM with stale snapshots shared a single alert row.
+    'vmid',
     # v6.4.0: same coalescing class — dependency_missing fires per EDGE and
     # ticket_sla_breached per TICKET, both carrying a device_id. Without these,
     # two broken upstream edges (or two breaching tickets) on one host merged
@@ -43546,7 +43557,16 @@ def _compliance_facts(devices=None):
     _compliance_lookback_days = _compl_int('compliance_lookback_days', 30)
 
     # Patches / reboots from sysinfo + config threshold.
-    patch_thresh = int((cfg.get('thresholds') or {}).get('patch_alert', 50) or 50)
+    # The operator-facing key is PATCH_ALERT_KEY ('patch_alert_threshold') --
+    # the one Settings saves and the one the alerting path reads. There is no
+    # top-level `thresholds` dict anywhere in the server: this read had no
+    # writer, so it always fell back to 50 and the Settings control had no
+    # effect whatsoever on the compliance verdict.
+    _pt_raw = cfg.get(PATCH_ALERT_KEY)
+    try:
+        patch_thresh = int(_pt_raw) if _pt_raw is not None else 50
+    except (TypeError, ValueError):
+        patch_thresh = 50
     pending_bad, reboot = [], []
     # v6.3.1: CAPABLE-SOURCE coverage counts (the "silence isn't clearance"
     # rule). A control that infers PASS from an empty offenders list is
@@ -48501,6 +48521,14 @@ _NA_MUTE_EVENTS = {
     ('snapshot',           'warning'):  ('snapshot_old', 'snapshot_stale'),
     ('service_down',       'critical'): ('service_down',),
     ('service_down',       'warning'):  ('service_down',),
+    # v7.0.0: the ssh_key item is emitted per host, decorated with a device_id
+    # like its neighbours, and both of its events are alertable — it simply had
+    # no row, which by this map's own rule made it permanently unmuteable. The
+    # half-applied shape exactly: new_port sits next to it in the same Settings
+    # list and works. An operator who accepted a deploy key had no way to stop
+    # it depressing the host's and the fleet's health score.
+    ('ssh_key',            'critical'): ('ssh_key_added', 'hostkey_changed'),
+    ('ssh_key',            'warning'):  ('ssh_key_added', 'hostkey_changed'),
 }
 
 
@@ -50451,8 +50479,27 @@ def handle_home():
     # negligible vs. shipping 7 parallel CGI requests)
     cfg = load(CONFIG_FILE) or {}
 
-    # Links — operator-curated bookmarks
-    links = (cfg.get('links') or [])
+    # Links — operator-curated bookmarks.
+    #
+    # Read from LINKS_FILE, which is where every write goes (_links_load /
+    # handle_link_create / _update / _delete all use it). This used to read
+    # `cfg['links']`, a config key with NO writer anywhere in the server, so
+    # the list was permanently empty -- and the client hides the whole card on
+    # an empty list, which made the "Quick links" dashboard widget impossible
+    # to see no matter how many links an operator saved. The Documentation page
+    # meanwhile promised the card "automatically appears" once one is saved.
+    #
+    # Shape matches handle_links_list, because _renderHomeLinks reads title,
+    # url, description, category and scope off each row.
+    links = sorted(
+        ({'id': _lid,
+          'title': _l.get('title', ''),
+          'url': _l.get('url', ''),
+          'description': _l.get('description', ''),
+          'category': _l.get('category') or LINK_DEFAULT_CATEGORY,
+          'scope': _l.get('scope', 'external')}
+         for _lid, _l in _links_load().items() if isinstance(_l, dict)),
+        key=lambda x: (x['category'].lower(), x['title'].lower()))
 
     # v4.1.0: which widgets the operator actually has enabled (?w=key1,key2),
     # so _dashboard_extra_widgets can skip the heavy ones. Absent param → all.
