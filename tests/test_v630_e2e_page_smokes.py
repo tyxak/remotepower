@@ -28,10 +28,25 @@ if browser_available():                                  # noqa: E402
 _ROOT = Path(__file__).resolve().parent.parent
 
 
+# Pages whose module ships OFF, so their nav button is hidden on the empty
+# install this sweep runs against. Named rather than silent — the assertion in
+# the walk fails if anything ELSE becomes unreachable, which is the whole point
+# of listing them.
+MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb', 'autonomy'}
+
+
 def _sidebar_pages():
+    """Every sidebar page, using the TOLERANT attribute order.
+
+    The strict form — `class="nav-btn…" data-page=…` with nothing between —
+    silently missed six buttons that carry an `id` first, among them `billing`
+    and `kb`. They were not being smoke-tested at all, and the omission looked
+    like a pass. The same strictness bug was already fixed in the other page
+    sweeps; this one still had it.
+    """
     html = (_ROOT / 'server/html/index.html').read_text()
     pages = []
-    for m in re.finditer(r'class="nav-btn[^"]*" data-page="([a-z-]+)"', html):
+    for m in re.finditer(r'class="nav-btn[^"]*"[^>]*?\sdata-page="([a-z-]+)"', html):
         if m.group(1) not in pages:
             pages.append(m.group(1))
     return pages
@@ -88,6 +103,8 @@ class TestEveryPageOpensClean(unittest.TestCase):
             page.wait_for_selector('#app', state='visible', timeout=15000)
             failed_nav = []
             for p in pages:
+                if p in MODULE_GATED_OFF_ON_EMPTY_INSTALL:
+                    continue          # nav hidden by design; audited seeded
                 current[0] = p
                 with self.subTest(page=p):
                     try:

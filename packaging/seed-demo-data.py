@@ -1811,6 +1811,11 @@ def build_config() -> dict:
 
         # v5.6.0 — Knowledge base (also a RAG source).
         'kb_enabled':            True,
+        # v7.0.0: the demo runs autonomy in SHADOW. Enabling the module is what
+        # makes the page reachable at all — and the empty-install a11y and
+        # page-smoke sweeps walk the seeded stack, so a gated page that the
+        # demo never switches on is simply unreachable to them.
+        'autonomy_enabled':      True,
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).
