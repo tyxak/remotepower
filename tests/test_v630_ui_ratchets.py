@@ -35,6 +35,14 @@ UNCAPPED_STATIC_BASELINE = 3
 
 _CAP_MARKERS = re.compile(
     r"scrollable-table-wrap|table-card|audit-scroll|scroll-cap|devices-minimal-wrap"
+    # v7.0.0: `md-table-wrap` is the markdown renderer's table container. It
+    # scrolls HORIZONTALLY and deliberately does not cap height, which is the
+    # same judgement the rendered box-overflow sweep already records for
+    # `docs-container`: "the Documentation page IS a document — it scrolls at
+    # page level, like every other long-form page". A reference table inside a
+    # scrolling modal that ALSO capped its own height would put the reader in a
+    # box inside a box, and features.md is 29 tables long.
+    r"|md-table-wrap"
     r"|sticky-head-scroll")
 
 # v6.4.3: the ratchet above reads ONLY index.html, so the 146 tables built in
