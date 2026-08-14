@@ -126,9 +126,20 @@ estate could satisfy every framework in the report while accepting root logins
 on a password.
 
 There is now a control that reads that posture, mapped into all three
-frameworks. A host that does not report SSH configuration is marked **not
-assessed** rather than passing: a fleet with no Linux hosts has demonstrated
-nothing here, and a green control would be an assurance an auditor relies on.
+frameworks. Two things about how it judges, because a compliance control that
+cries wolf is worse than none:
+
+- A host that does not report SSH configuration is marked **not assessed**
+  rather than passing. A fleet with no Linux hosts has demonstrated nothing
+  here, and a green control would be an assurance an auditor relies on.
+- Accepting root logins **on a password** fails. Permitting root **by key only**
+  — `PermitRootLogin prohibit-password`, which is Debian's shipped default —
+  does not: it is reported as a note on the pass, with the hosts listed for
+  anyone whose policy forbids direct root access at all. Failing it would fail
+  nearly every stock Debian host, and a control that fires on every healthy
+  machine is one operators learn to skip. That distinction was caught by
+  checking the control against what the demo fleet actually reports, not by
+  reading it.
 
 ### A test could have overwritten a live installation's administrator
 

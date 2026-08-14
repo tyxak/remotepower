@@ -43533,6 +43533,7 @@ def _compliance_facts(devices=None):
     # control at all, though PCI, SOC 2 and the Essential Eight each have a
     # remote-access control this is the evidence for.
     ssh_weak = []
+    ssh_keyonly_root = []
     ssh_data_devices = 0
     # v6.4.2 (audit): encryption-at-rest (BitLocker per OS volume / FileVault) and
     # AV/malware posture. Both drove alerts, the Checks page and the risk score
@@ -43571,15 +43572,23 @@ def _compliance_facts(devices=None):
         if isinstance(sc, dict) and sc:
             ssh_data_devices += 1
             _bad = []
-            if str(sc.get('permit_root_login', '')).lower() in ('yes', 'without-password',
-                                                                'prohibit-password'):
-                _bad.append('root login permitted')
+            # `yes` only. `prohibit-password` / `without-password` permit root
+            # by KEY and are DEBIAN'S DEFAULT — counting them as a failure would
+            # fail nearly every stock Debian host, which is a control that fires
+            # on every healthy machine and trains the operator to ignore it. It
+            # is a weaker posture than `no` and it is reported as a note on the
+            # PASS message rather than as a finding.
+            _prl = str(sc.get('permit_root_login', '')).lower()
+            if _prl == 'yes':
+                _bad.append('root login with a password')
             if str(sc.get('password_authentication', '')).lower() == 'yes':
                 _bad.append('password authentication')
             if str(sc.get('permit_empty_passwords', '')).lower() == 'yes':
                 _bad.append('empty passwords')
             if _bad:
                 ssh_weak.append(f"{nm} ({', '.join(_bad)})")
+            elif _prl in ('prohibit-password', 'without-password'):
+                ssh_keyonly_root.append(nm)
         # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
         # volume, list of {status}). Present-and-off only; absence is not data.
         mp = si.get('mac_posture')
@@ -43621,6 +43630,7 @@ def _compliance_facts(devices=None):
     facts['firewall_off'] = firewall_off
     facts['firewall_data_devices'] = firewall_data_devices
     facts['ssh_weak'] = ssh_weak
+    facts['ssh_keyonly_root'] = ssh_keyonly_root
     facts['ssh_data_devices'] = ssh_data_devices
     facts['encryption_off'] = encryption_off
     facts['encryption_data_devices'] = encryption_data_devices

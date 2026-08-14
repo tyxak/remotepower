@@ -3,6 +3,12 @@
 One test class per shipped wave-1 item. Each class is self-contained so
 items can land (and be reviewed) one commit at a time.
 """
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts that directory on sys.path for
+# free, so the omission is invisible there; `python3 -m unittest
+# tests.<this>` reaches the method and fails on the import.
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import http.server
 import json
 import os

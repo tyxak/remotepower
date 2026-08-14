@@ -17,6 +17,12 @@ against fixture payloads rather than grepping the source, because a grep proves
 a line exists and never that it runs.
 """
 
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts that directory on sys.path for
+# free, so the omission is invisible there; `python3 -m unittest
+# tests.<this>` reaches the method and fails on the import.
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import json
 import os
 import subprocess

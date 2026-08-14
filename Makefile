@@ -167,6 +167,17 @@ test-import-isolation:
 	  | xargs -P 8 -I{} $(PY) -c 'import importlib,os,sys;sys.path.insert(0,os.getcwd());\
 importlib.import_module("{}")' 2>&1 | grep -v '^$$' || true
 	@echo "OK — every module imports alone (no output above means clean)."
+	@echo
+	@echo "RUNNING every test module in its own interpreter (~10 min) ..."
+	@# The import pass above cannot see a sibling import written INSIDE a test
+	@# method — the module loads fine and the method fails when it runs. Four
+	@# modules were in that state. Only running them finds it, which is why this
+	@# is a target and not a gate.
+	@ls tests/test_*.py | sed 's|tests/|tests.|; s|\.py$$||' \
+	  | xargs -P 8 -I{} sh -c '$(PY) -m unittest {} >/tmp/rp-iso-$$$$.log 2>&1 || \
+	    { echo "=== {}"; grep -E "^(FAIL|ERROR):" /tmp/rp-iso-$$$$.log | head -3; }; \
+	    rm -f /tmp/rp-iso-$$$$.log'
+	@echo "OK — every module also RUNS alone (no output above means clean)."
 
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)

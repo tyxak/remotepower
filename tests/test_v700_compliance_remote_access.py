@@ -76,15 +76,43 @@ class TestTheFactIsAssembled(unittest.TestCase):
             'permit_root_login': 'yes', 'password_authentication': 'yes',
             'permit_empty_passwords': 'yes'}}}})
         row = f['ssh_weak'][0]
-        for expect in ('root login', 'password authentication', 'empty passwords'):
+        for expect in ('root login with a password', 'password authentication',
+                       'empty passwords'):
             self.assertIn(expect, row)
 
-    def test_prohibit_password_root_login_is_still_root_login(self):
-        """`PermitRootLogin prohibit-password` still lets root in, by key. The
-        frameworks are about root logging in, not about how."""
+    def test_key_only_root_login_is_reported_but_not_a_failure(self):
+        """`PermitRootLogin prohibit-password` permits root by KEY and is
+        DEBIAN'S DEFAULT. Counting it as a failure would fail nearly every
+        stock Debian host — a control that fires on every healthy machine, which
+        is the guard-on-a-proxy shape CLAUDE.md records from the initramfs
+        incident. It is a weaker posture than `no`, so it is surfaced as a note
+        on the PASS rather than dropped."""
         f = _facts({'d1': {'name': 'web01', 'sysinfo': {
             'ssh_config': dict(_HARDENED, permit_root_login='prohibit-password')}}})
+        self.assertEqual(f['ssh_weak'], [])
+        self.assertEqual(f['ssh_keyonly_root'], ['web01'])
+        st, msg = compliance._remote_access_control(f)
+        self.assertEqual(st, compliance.PASS)
+        self.assertIn('by KEY', msg)
+        self.assertIn('web01', msg)
+        self.assertIn('Debian default', msg)
+
+    def test_a_root_password_is_a_failure(self):
+        f = _facts({'d1': {'name': 'web01', 'sysinfo': {
+            'ssh_config': dict(_HARDENED, permit_root_login='yes')}}})
         self.assertEqual(len(f['ssh_weak']), 1)
+        self.assertEqual(f['ssh_keyonly_root'], [])
+        self.assertEqual(compliance._remote_access_control(f)[0], compliance.FAIL)
+
+    def test_permit_root_login_no_is_neither(self):
+        """Positive control: the fully hardened case must produce no note at
+        all, or the note is just noise on every install."""
+        f = _facts({'d1': {'name': 'web01', 'sysinfo': {'ssh_config': _HARDENED}}})
+        self.assertEqual(f['ssh_weak'], [])
+        self.assertEqual(f['ssh_keyonly_root'], [])
+        st, msg = compliance._remote_access_control(f)
+        self.assertEqual(st, compliance.PASS)
+        self.assertNotIn('by KEY', msg)
 
 
 class TestASilentHostIsNotAFinding(unittest.TestCase):
@@ -117,7 +145,8 @@ class TestTheControlAnswersHonestly(unittest.TestCase):
 
     def test_all_hardened_passes_and_declares_its_scope(self):
         st, msg = compliance._remote_access_control(
-            {'devices': 2, 'ssh_data_devices': 2, 'ssh_weak': []})
+            {'devices': 2, 'ssh_data_devices': 2, 'ssh_weak': [],
+             'ssh_keyonly_root': []})
         self.assertEqual(st, compliance.PASS)
         self.assertIn('out of scope', msg,
                       'a PASS that implies it covered VPN/RDP/console is a '

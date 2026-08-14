@@ -25,6 +25,12 @@ refusing beats leaking — a v6.4.2 security fix), and 400s when RAG is off. The
 palette section therefore has to degrade SILENTLY for those callers.
 """
 
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+# A sibling from tests/ is imported inside a test method below.
+# `unittest discover -s tests` puts that directory on sys.path for
+# free, so the omission is invisible there; `python3 -m unittest
+# tests.<this>` reaches the method and fails on the import.
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import re
 import unittest
 from pathlib import Path

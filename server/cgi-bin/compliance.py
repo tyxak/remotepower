@@ -180,9 +180,23 @@ def _remote_access_control(facts):
                       + ". Set PermitRootLogin no, PasswordAuthentication no "
                         "(keys only) and PermitEmptyPasswords no.")
     if facts.get('ssh_data_devices'):
-        return PASS, ("Every host that reported sshd configuration denies root "
-                      "login, password authentication and empty passwords. "
-                      "Remote access by other means (VPN, RDP, console) is out "
+        keyonly = facts.get('ssh_keyonly_root') or []
+        note = ''
+        if keyonly:
+            # Reported, not failed. `prohibit-password` is Debian's default and
+            # permits root by key only; treating it as a failure would fail
+            # almost every stock Debian host, and a control that fires on every
+            # healthy machine gets ignored. Auditors who require no direct root
+            # login at all will want to see the list, so it is shown.
+            note = (f" {len(keyonly)} host(s) permit root login by KEY "
+                    f"(PermitRootLogin prohibit-password, the Debian default): "
+                    + ", ".join(str(h) for h in keyonly[:10])
+                    + ". That is not a failure here; tighten to `no` if your "
+                      "policy forbids direct root access entirely.")
+        return PASS, ("No host that reported sshd configuration accepts a root "
+                      "password, password authentication or empty passwords."
+                      + note +
+                      " Remote access by other means (VPN, RDP, console) is out "
                       "of scope — verify those separately.")
     return NA, ("No host has reported sshd configuration yet — verify remote "
                 "administrative access controls directly.")

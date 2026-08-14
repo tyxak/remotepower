@@ -25,8 +25,17 @@ sys.path line, so each one left the candidate set the moment it was fixed. A
 gate that goes green by having nothing to look at is the exact failure this file
 exists to prevent, so the cost is paid instead.
 
-`make test-import-isolation` does the same thing over EVERY module, including
-the ones with no sibling import, and is the authority when this needs auditing.
+WHAT THIS CANNOT SEE, stated plainly because a gate whose blind spot is
+undocumented gets trusted for more than it covers: a sibling import written
+INSIDE a test method. The module imports fine and the method fails when it runs,
+so no amount of importing finds it. Four modules were in that state
+(test_improvements_w1, test_v642_knowledge_search, test_v643_lazy_integrations,
+test_v643_ux_reported) and were found by running the suite one module at a time.
+
+`make test-import-isolation` does both — imports every module in its own
+interpreter, then RUNS every module in its own interpreter — and is the authority
+when this needs auditing. It takes about ten minutes, which is why it is a target
+and this is the gate.
 """
 import ast
 import subprocess
