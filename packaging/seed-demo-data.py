@@ -5419,6 +5419,99 @@ def build_roles() -> dict:
     ]}
 
 
+def build_autonomy_policy() -> dict:
+    """The per-tenant safety envelope.
+
+    The demo runs the default tenant in SHADOW, because shadow is what the
+    feature is for: a page full of decisions to grade. Leaving it off would
+    render an empty table on every demo instance and teach the wrong thing about
+    what this does — the same blind-gate trap the v6.4.3 seeder work closed four
+    times over.
+    """
+    return {'tenants': {'default': {
+        'mode': 'shadow',
+        'allowed_actions': ['restart_service', 'restart_container',
+                            'clear_journal', 'clear_cache'],
+        'max_blast_radius': 3,
+        'require_verified_backup': True,
+        'require_window': True,
+        'max_actions_per_hour': 3,
+        'approval_for_destructive': True,
+    }}}
+
+
+def build_autonomy_receipts() -> dict:
+    """Decisions the loop reached — the demo's whole point.
+
+    A deliberate spread of verdicts, because a page showing only refusals reads
+    as broken and a page showing only actions reads as reckless. Each carries the
+    precedent and blast radius that justified it, exactly as the real receipt
+    does.
+    """
+    t0 = now()
+    R = []
+    R.append({'ts': t0 - 900, 'tenant': 'default', 'device_id': 'ng01',
+              'device_name': 'nginx.lab', 'trigger': 'unit_failed',
+              'action': 'restart_service', 'command': 'systemctl restart nginx',
+              'verdict': 'shadow', 'reason': 'ok',
+              'blast_radius': {'device_id': 'ng01', 'score': 2, 'raw': 2,
+                               'monitors': 2, 'containers': 0,
+                               'status_services': 0, 'peers': 0,
+                               'redundant': False, 'group_size': 1},
+              'precedent': {'confidence': 1.0, 'samples': 4,
+                            'action': 'systemctl restart nginx'},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None,
+              'rolled_back': False})
+    R.append({'ts': t0 - 5400, 'tenant': 'default', 'device_id': 'db01',
+              'device_name': 'postgres.lab', 'trigger': 'disk_low',
+              'action': 'clear_journal', 'command': 'journalctl --vacuum-time=3d',
+              'verdict': 'refuse', 'reason': 'blast_radius',
+              'blast_radius': {'device_id': 'db01', 'score': 9, 'raw': 9,
+                               'monitors': 3, 'containers': 4,
+                               'status_services': 2, 'peers': 0,
+                               'redundant': False, 'group_size': 1},
+              'precedent': {'confidence': 0.83, 'samples': 6,
+                            'action': 'vacuum the journal'},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None,
+              'rolled_back': False})
+    R.append({'ts': t0 - 9000, 'tenant': 'default', 'device_id': 'nc01',
+              'device_name': 'nextcloud.lab', 'trigger': 'container_restarting',
+              'action': 'restart_container', 'command': 'docker restart app',
+              'verdict': 'shadow', 'reason': 'ok',
+              'blast_radius': {'device_id': 'nc01', 'score': 1, 'raw': 3,
+                               'monitors': 1, 'containers': 2,
+                               'status_services': 0, 'peers': 0,
+                               'redundant': True, 'group_size': 3},
+              'precedent': {'confidence': 1.0, 'samples': 3,
+                            'action': 'restart the app container'},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None,
+              'rolled_back': False})
+    R.append({'ts': t0 - 14400, 'tenant': 'default', 'device_id': 'gt01',
+              'device_name': 'gitea.lab', 'trigger': 'unit_failed',
+              'action': 'restart_service', 'command': 'systemctl restart gitea',
+              'verdict': 'refuse', 'reason': 'no_precedent',
+              'blast_radius': {'device_id': 'gt01', 'score': 1, 'raw': 1,
+                               'monitors': 1, 'containers': 0,
+                               'status_services': 0, 'peers': 0,
+                               'redundant': False, 'group_size': 1},
+              'precedent': {'confidence': 0.0, 'samples': 0, 'action': ''},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None,
+              'rolled_back': False})
+    R.append({'ts': t0 - 21600, 'tenant': 'default', 'device_id': 'ng01',
+              'device_name': 'nginx.lab', 'trigger': 'disk_low',
+              'action': 'clear_journal', 'command': 'journalctl --vacuum-time=3d',
+              'verdict': 'refuse', 'reason': 'outside_window',
+              'blast_radius': {'device_id': 'ng01', 'score': 2, 'raw': 2,
+                               'monitors': 2, 'containers': 0,
+                               'status_services': 0, 'peers': 0,
+                               'redundant': False, 'group_size': 1},
+              'precedent': {'confidence': 0.9, 'samples': 5,
+                            'action': 'vacuum the journal'},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None,
+              'rolled_back': False})
+    return {'receipts': R, 'last_run': t0 - 300}
+
+
 def build_tenants() -> dict:
     """The tenant registry.
 
@@ -5549,6 +5642,8 @@ BUILDERS = {
     'users.json':            build_users,
     # v6.4.3: three stores that backed visible, empty pages.
     'roles.json':            build_roles,
+    'autonomy_policy.json':   build_autonomy_policy,
+    'autonomy_receipts.json': build_autonomy_receipts,
     'tenants.json':          build_tenants,
     'query_templates.json':  build_query_templates,
     'log_rules_global.json': build_log_rules_global,
