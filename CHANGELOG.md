@@ -989,6 +989,27 @@ from one that cannot.
   written.
 
 
+### The rate limit held only when nothing was happening
+
+Each tenant has a ceiling on autonomous actions per hour, described in the
+interface as stopping a flapping host from becoming a storm. It counted actions
+recorded in the receipt ledger — and receipts are written after the sweep's
+candidate loop finishes, so every candidate in one sweep read the same
+pre-sweep number. Measured: a ceiling of three, against twelve simultaneous
+alerts, dispatched **all twelve**.
+
+The scenario that defeats it is precisely the scenario it exists for. A flapping
+host, or a rack losing power, produces its alerts all at once and they land in
+one sweep.
+
+Found by being asked whether the security review was current — it was not.
+That document was written while the loop could only plan, said so, and then
+execution was wired later in the same release while the prose stayed put. A
+review that describes a safer product than the one shipping is worse than no
+review, and nothing automatic catches it: the code was tested, the gates were
+green, and the claim quietly went out of date. It now carries a second pass over
+the same subsystem, written after execution landed.
+
 ### You could not see what the product contained
 
 89 pages across 12 domains, and the sidebar accordion showed exactly one domain

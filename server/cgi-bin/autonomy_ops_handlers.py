@@ -384,13 +384,26 @@ _ACTION_PARAMS = {
 _SAFE_PARAM = re.compile(r'[A-Za-z0-9._@/+][A-Za-z0-9._@/+-]{0,63}')
 
 
-def _actions_this_hour(tenant):
+def _actions_this_hour(tenant, taken_this_sweep=None):
+    """Actions this tenant has taken in the last hour, INCLUDING this sweep.
+
+    The `taken_this_sweep` term is not an optimisation, it is the whole guard.
+    Receipts are appended after the candidate loop finishes, so a version that
+    only counted the STORE gave every candidate in a sweep the same pre-sweep
+    number: with a ceiling of 3 and 25 candidate alerts, all 25 dispatched.
+
+    And that is exactly the scenario the ceiling exists for. The setting is
+    described as stopping a flapping host becoming a storm — a flapping host
+    produces its alerts all at once, which means they land in ONE sweep. The
+    limit held only in the case nobody needed it to.
+    """
     now = int(time.time())
     rows = (A._load_ro(A.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
-    return sum(1 for r in rows if isinstance(r, dict)
-               and r.get('tenant') == tenant
-               and r.get('verdict') == autonomy.ACT
-               and (now - int(r.get('ts') or 0)) < 3600)
+    stored = sum(1 for r in rows if isinstance(r, dict)
+                 and r.get('tenant') == tenant
+                 and r.get('verdict') == autonomy.ACT
+                 and (now - int(r.get('ts') or 0)) < 3600)
+    return stored + int((taken_this_sweep or {}).get(tenant, 0))
 
 
 def _backup_is_verified(dev_id):
@@ -698,6 +711,10 @@ def run_autonomy_if_due():
 
     devices = A.load(A.DEVICES_FILE) or {}
     made = []
+    # Actions dispatched so far IN THIS SWEEP, per tenant. Receipts are written
+    # after the loop, so without this the rate limit reads a stale count for
+    # every candidate after the first.
+    _taken = {}
     for alert, ladder in cands[:25]:
         dev_id = alert.get('device_id') or ''
         dev = devices.get(dev_id)
@@ -728,7 +745,7 @@ def run_autonomy_if_due():
             backup_verified=_backup_is_verified(dev_id),
             in_window=A._in_maintenance_window(dev) if hasattr(
                 A, '_in_maintenance_window') else True,
-            actions_this_hour=_actions_this_hour(tenant),
+            actions_this_hour=_actions_this_hour(tenant, _taken),
             dry_run_ok=True, has_plan=False,
             os_family=plan.get('os_family'), plan_problem=plan.get('problem'))
 
@@ -747,6 +764,7 @@ def run_autonomy_if_due():
             outcome, ok = _dispatch(dev_id, dev, plan.get('command') or '')
             rec['outcome'] = outcome
             if ok:
+                _taken[tenant] = _taken.get(tenant, 0) + 1
                 # Dispatch is asynchronous — the agent collects the command on
                 # its next heartbeat — so the second checks sample is owed
                 # later, not now.

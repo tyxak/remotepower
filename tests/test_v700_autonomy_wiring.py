@@ -208,6 +208,59 @@ class TestTheLoopExecutes(_Base):
         self.assertEqual(prob, 'missing_parameter')
 
 
+class TestTheRateLimitHoldsWithinOneSweep(_Base):
+    """The ceiling exists to stop a flapping host becoming a storm — and a
+    flapping host produces its alerts ALL AT ONCE, so they land in one sweep.
+
+    Receipts are appended after the candidate loop, so a rate check that counts
+    only the stored receipts gives every candidate in a sweep the same
+    pre-sweep number. Measured before the fix: a ceiling of 3 against 12
+    candidate alerts dispatched all 12. The limit held only in the case where
+    nobody needed it to.
+    """
+
+    def _many_alerts(self, n):
+        api.save(api.DEVICES_FILE, {f'd{i}': {'name': f'web{i:02d}', 'group': 'prod'}
+                                    for i in range(n)})
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': f'a{i}', 'event': 'failed_unit', 'device_id': f'd{i}',
+            'severity': 'high', 'payload': {'unit': 'nginx.service'},
+        } for i in range(n)]})
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'source': 'operator', 'event': 'failed_unit', 'kind': '',
+             'tenant': 'default', 'resolution': 'restarted',
+             'recommended_action': 'systemctl restart nginx'} for _ in range(4)]})
+
+    def test_it_stops_at_the_ceiling(self):
+        self._many_alerts(12)
+        self._policy('enabled', allowed_actions=['restart_service'],
+                     max_blast_radius=99, require_window=False,
+                     require_verified_backup=False, approval_for_destructive=False,
+                     max_actions_per_hour=3)
+        api.run_autonomy_if_due()
+        acted = [r for r in self._receipts() if r['verdict'] == autonomy.ACT]
+        limited = [r for r in self._receipts() if r.get('reason') == 'rate_limited']
+        self.assertEqual(len(acted), 3,
+                         f'ceiling is 3, {len(acted)} actions dispatched in one '
+                         f'sweep')
+        self.assertTrue(limited, 'nothing was recorded as rate-limited, so the '
+                                 'refusals are invisible to the operator')
+
+    def test_the_queue_agrees_with_the_receipts(self):
+        """A receipt saying 'queued' three times while twelve commands sit in
+        the queue would make the ceiling a fiction in the only place that
+        matters."""
+        self._many_alerts(12)
+        self._policy('enabled', allowed_actions=['restart_service'],
+                     max_blast_radius=99, require_window=False,
+                     require_verified_backup=False, approval_for_destructive=False,
+                     max_actions_per_hour=3)
+        api.run_autonomy_if_due()
+        cmds = api.load(api.CMDS_FILE) or {}
+        queued = sum(len(v or []) for v in cmds.values())
+        self.assertEqual(queued, 3, f'{queued} commands reached the queue')
+
+
 class TestVerificationClosesTheLoop(_Base):
     """Dispatch is asynchronous, so "did it work" is answered on a later sweep.
 

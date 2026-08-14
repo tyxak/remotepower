@@ -1,7 +1,7 @@
 # Security review — v7.0.0 "Aut0nomyMatters"
 
-Every release gets a review before it ships. This one ran in four passes and
-found **twenty-five** issues worth reporting, all of them **caught before
+Every release gets a review before it ships. This one ran in five passes and
+found **twenty-six** issues worth reporting, all of them **caught before
 release** and all fixed in the release they are described in.
 
 The fourth pass reviewed the release's own new subsystem — autonomous
@@ -51,11 +51,22 @@ ships. That bar is met.
 
 Autonomous remediation is the first thing in RemotePower that can choose to run
 a command on a host without a person asking. It was reviewed on that basis
-rather than as a feature, and three findings came out of its own code — all in
-this release, none ever reachable, because this build **plans** actions and does
-not dispatch them. Reporting them anyway is the point: each was one wiring
-commit from mattering, and the time to close that kind of thing is while it is
-still theoretical.
+rather than as a feature, in **two passes**: once when it could only plan, and
+again after execution was wired later in the same release.
+
+The three findings below came out of the first pass, when the loop reached a
+verdict and dispatched nothing — so none of them was ever reachable. Reporting
+them anyway was the point: each was one commit from mattering. That commit then
+landed, which is why there is a second pass after them.
+
+**A note on how the second pass came about**, because it is the more useful part
+of this section than any individual finding. This document was written while
+execution was still unwired, and it said so. Execution was then added — and the
+document still said the loop "does not dispatch". A security review that
+describes a *safer* product than the one shipping is worse than no review, and
+nothing automatic catches it: the code was tested, the gates were green, and the
+prose quietly went out of date. It was caught by someone asking whether the
+review was current.
 
 **A command was assembled from alert text.** The first draft built its command as
 a shell string with the failing unit's name interpolated into it, taking that
@@ -113,6 +124,49 @@ lists faults tells you nothing about the shape of the thing:
 - **Destructive actions require a backup proven recoverable** — a restore drill
   that actually restored and verified within the last 30 days, not a backup job
   that ran.
+
+### Second pass: the same subsystem, once it could actually act
+
+Wiring execution turned every earlier finding from theoretical into live, and
+added a new surface: a sweep that queues commands to hosts on a schedule, with
+no request and no operator behind it. Reviewed on those terms.
+
+**The rate limit did not hold within a single sweep.** Each tenant has a ceiling
+on actions per hour, described in the interface as stopping a flapping host from
+becoming a storm. The check counted actions recorded in the receipt ledger — but
+receipts are written after the sweep's candidate loop finishes, so every
+candidate in one sweep read the same pre-sweep number. Measured: a ceiling of
+three, against twelve simultaneous alerts, dispatched **all twelve**.
+
+The scenario that defeats it is the exact scenario it exists for. A flapping
+host, or a rack losing power, produces its alerts all at once, and they land in
+one sweep. The limit held only when nothing was happening.
+
+Fixed by counting actions taken within the sweep as well as those on record.
+Both the receipt count and the command queue are now asserted against the
+ceiling, because a ledger that says three while twelve commands sit in the queue
+would make the limit a fiction in the only place it matters.
+
+What was checked and found sound in this pass:
+
+- **Tenancy holds without a request context.** This is the class the project has
+  been bitten by before — a scheduled sweep has no caller, so the usual tenant
+  gate is unavailable. It does not need one here: the safety envelope is looked
+  up from the *device's* own tenant, so one customer's settings can never
+  authorise an action on another's host. There is no caller to impersonate.
+- **An escalated action is visible only to its own tenant.** It is parked in the
+  ordinary approvals queue, which filters on the device's tenant when listing,
+  approving, rejecting and bulk-clearing.
+- **An agent cannot aim the loop at another host.** The action targets the
+  device the alert belongs to, and alerts are recorded against the host that
+  reported them. A compromised agent can at most provoke an action on the
+  machine it has already compromised — and only one the operator has permitted,
+  with precedent, inside the blast-radius limit.
+- **Dispatch inherits every operator-path guard.** It uses the same queueing
+  helper an operator's own command does, so maintenance mode, quarantine, audit
+  mode and the approval gate all apply. It deliberately does not use the
+  request-path variant, which signals refusals by raising an HTTP response — in
+  a scheduled sweep that would surface as a failed heartbeat.
 
 ### A compliance report could pass with root logins enabled over SSH
 
