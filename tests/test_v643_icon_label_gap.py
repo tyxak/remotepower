@@ -74,6 +74,36 @@ _MEASURE = """() => {
 }"""
 
 
+_ROW_HEIGHTS = r"""(name) => {
+  const root = document.getElementById('page-' + name);
+  if (!root) return {rows: 0, bad: []};
+  let rows = 0; const bad = [];
+  root.querySelectorAll('*').forEach(par => {
+    const kids = [...par.children].filter(
+      k => k.tagName === 'BUTTON' && k.getBoundingClientRect().height > 3);
+    if (kids.length < 2) return;
+    // Group by top edge: a wrapped row is a different row, not a mismatch.
+    const byRow = new Map();
+    kids.forEach(k => {
+      const r = k.getBoundingClientRect();
+      const key = Math.round(r.top / 4);
+      if (!byRow.has(key)) byRow.set(key, []);
+      byRow.get(key).push({h: Math.round(r.height),
+                           t: (k.textContent || '').trim().slice(0, 14) || '(icon)'});
+    });
+    byRow.forEach(row => {
+      if (row.length < 2) return;
+      rows++;
+      if (new Set(row.map(x => x.h)).size > 1) {
+        bad.push({par: (par.className || par.tagName).toString().slice(0, 26),
+                  btns: row.map(x => `${x.t}=${x.h}px`)});
+      }
+    });
+  });
+  return {rows, bad};
+}"""
+
+
 class TestOneIconLabelGap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -142,6 +172,59 @@ class TestOneIconLabelGap(unittest.TestCase):
                            'measured almost no icon buttons — did the walk run?')
         self.assertEqual(bad, {}, 'icon-to-label gaps that are not 5px:\n' +
                          '\n'.join(f'  {g}: {v[:4]}' for g, v in bad.items()))
+
+    def test_buttons_in_one_action_row_render_the_same_height(self):
+        """v7.0.0: a button whose label carries no icon was SHORTER than its
+        neighbours that do.
+
+        The box is `svg 14px + padding` for one and `text line box ~12px +
+        padding` for the other, so an Alerts action cell rendered its seven
+        icon buttons at 22px and `Resolve`, `Incident` and `Ticket` at 20px —
+        a row of ten buttons at two heights. Same 2px step on Checks, CVE and
+        Scripts, and a 1px one on the device-table pager. 84 occurrences across
+        24 pages; fixed by pinning `.btn-icon`'s line-height to the icon's 14px.
+
+        Measured per ROW rather than per class, because the aggregate spread is
+        a deliberate size system (btn-sm / btn-xs / in-cell / toolbar) and
+        flagging that would be noise. Two buttons SIDE BY SIDE at different
+        heights is the thing a reader sees.
+
+        Shares this class's booted stack rather than starting its own — a second
+        browser gate would add ~40s to every run for one CSS property.
+        """
+        html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+        pages, seen = [], set()
+        for m in re.finditer(r'class="nav-btn[^"]*"[^>]*?\sdata-page="([a-z-]+)"', html):
+            if m.group(1) not in seen:
+                seen.add(m.group(1)); pages.append(m.group(1))
+        ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        page = ctx.new_page()
+        rows_seen, bad = 0, []
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            for name in pages:
+                page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
+                page.wait_for_timeout(700)
+                res = page.evaluate(_ROW_HEIGHTS, name)
+                rows_seen += res['rows']
+                bad.extend(f"{name} .{x['par']}: " + '  '.join(x['btns'])
+                           for x in res['bad'])
+        finally:
+            page.close(); ctx.close()
+
+        self.assertGreater(
+            rows_seen, 60,
+            f'only {rows_seen} multi-button rows measured — the walk did not '
+            f'run, so an empty `bad` list means nothing')
+        self.assertEqual(
+            sorted(set(bad)), [],
+            'buttons sitting side by side in one row render at different '
+            'heights:\n' + '\n'.join('  ' + b for b in sorted(set(bad))[:12]))
 
     def test_the_exemptions_state_a_reason(self):
         for cls, why in EXEMPT_CLASSES.items():

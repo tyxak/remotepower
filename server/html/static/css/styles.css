@@ -1386,6 +1386,17 @@
   }
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
   .btn-icon svg { width: 14px; height: 14px; }
+  /* v7.0.0: pin the CONTENT height to the icon's 14px, so a button whose label
+     has no icon is exactly as tall as its neighbours that do.
+     Measured before this: in one Alerts action row, the seven buttons with an
+     icon rendered 22px and `Resolve`, `Incident` and `Ticket` — which carry no
+     icon — rendered 20px, giving a row of ten buttons two different heights.
+     Same 2px step on Checks, CVE and Scripts action cells, and the reason is
+     mechanical: the box was `svg 14px + padding` for one and `text line box
+     ~12px + padding` for the other. `line-height` makes the text box 14px too,
+     so the two agree at every size variant without hard-coding a height per
+     variant. */
+  .btn-icon { line-height: 14px; }
   /* v6.4.1: .btn-icon is `display:flex`, i.e. BLOCK-level, so two of them as
      bare siblings in a table cell stacked vertically instead of sitting in a
      row — the literal spaces between them are inert between flex boxes. Most
