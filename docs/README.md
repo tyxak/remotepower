@@ -48,6 +48,9 @@ holds long-form docs that don't fit there.
 - **[api.md](api.md)** — REST endpoints + auth model. Interactive at
  `/swagger.html`; spec at `/api/openapi.json`.
 - **[agent-commands.md](agent-commands.md)** — CLI for the Linux agent.
+- **[release-checklist.md](release-checklist.md)** — how a release goes from
+ the test branch to production: version bump, the pre-release gate, tagging,
+ packages, and what to verify afterwards.
 - **[fleet-management.md](fleet-management.md)** — operating the fleet from the
  dashboard: agent updates, release signing, the command queue, install/uninstall,
  reboot/WoL, quarantine, SLA targets, OpenSCAP, and AI Investigate.
