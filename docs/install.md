@@ -211,7 +211,7 @@ docker run -d --name remotepower -p 443:8443 -p 80:8080 \
   ghcr.io/tyxak/remotepower:latest
 ```
 
-**Verify it before you run it** *(v6.4.3)* — the images are cosign-signed
+**Verify it before you run it** *(v7.0.0)* — the images are cosign-signed
 (keyless, bound to the release workflow's identity):
 
 ```bash

@@ -185,7 +185,7 @@ that hasn't run OK in a long time is visible immediately, with a rolling list of
 recent internal errors underneath. Served by `GET /api/self/observability`
 (admin).
 
-## Subsystem readiness — and muting a row (v6.4.3)
+## Subsystem readiness — and muting a row (v7.0.0)
 
 The **readiness** table on the same page is one row per subsystem — storage,
 request tier, scheduler, sweeps, recurring jobs, backup/DR, and each optional

@@ -97,7 +97,7 @@ links that were fine.
 
 Server status counts silent exporters separately, so one healthy router no
 longer hides the rest behind a recent "last export" timestamp — and **names
-them** (v6.4.3), because "1 of 3 exporter(s) silent" leaves you to work out
+them** (v7.0.0), because "1 of 3 exporter(s) silent" leaves you to work out
 which of three routers it meant.
 
 ### "Never exported" is usually not the router

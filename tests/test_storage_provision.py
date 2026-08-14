@@ -12,9 +12,16 @@ exec: commands are shell-interpreted on the agent (see _valid_fw_token's
 docstring) and this is the only thing standing between a bad parameter and
 command injection into an mdadm/lvm/mkfs invocation.
 """
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+# A bare `import api` runs api.py's module body, and that calls
+# ensure_default_user(), which WRITES. Pin the data dir before the import
+# below or a targeted run of this file overwrites a real install's admin user.
+os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-sp-'))
 
 _CGI = Path(__file__).parent.parent / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))

@@ -17,7 +17,7 @@ five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.4.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -185,7 +185,22 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.4.3 "Gu4rdMatters"** — the checks rather than the code they check. Six
+- **v7.0.0 "Aut0nomyMatters"** — the major number is for **autonomous
+  remediation**, and the design point is that you grade it before it is allowed
+  to act. Every tenant starts *off*; you move one to **shadow**, where the loop
+  reaches a real verdict and writes a **receipt** without touching anything, and
+  you read those for a few weeks first. It acts on **precedent from your own
+  incident memory** — what actually closed this exact signature on this fleet
+  before — never on a model's improvisation, and before acting it works out
+  **what goes dark**: monitors, containers, watched services, network
+  neighbours, discounted when the host has healthy siblings. That preview stands
+  on its own whether or not autonomy is switched on. **24 action classes**, and
+  an event maps to an ordered *ladder* of them, so which remedy runs is your
+  decision; commands go out in the same grammar an operator's own actions use,
+  inheriting maintenance mode, quarantine, audit mode and the approval queue.
+  Destructive actions require a backup **proven recoverable** — a restore drill
+  that actually restored and verified, not one that merely ran.
+  The rest of the release is the checks rather than the code they check. Six
   guardrails were reporting success while measuring nothing: the **Postgres
   backend** — the enterprise default — was run by no gate at all while 28 tests
   written for it skipped themselves for want of a server; undefined-name

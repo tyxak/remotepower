@@ -313,7 +313,7 @@ to recover it.
 
 Rotation re-encrypts **every** store keyed by this passphrase — per-device
 credentials, scoped credentials, DNS provider tokens, and the KMIP CA and
-server-certificate private keys plus any stored key material. Before v6.4.3 it
+server-certificate private keys plus any stored key material. Before v7.0.0 it
 re-encrypted only the per-device credentials, so a completely successful
 rotation permanently orphaned the rest.
 
@@ -542,7 +542,7 @@ more secrets did not decrypt under the old passphrase, and **nothing was
 changed**. Either someone hand-edited a store, or an earlier rotation did not
 finish. Restore the vault metadata from backup before retrying.
 
-(Before v6.4.3 this case was reported as `dropped=N` and the offending secrets
+(Before v7.0.0 this case was reported as `dropped=N` and the offending secrets
 were DELETED, with a 200 and a success toast — so retrying after a failed
 rotation destroyed everything it could not read. If you are on an older version,
 do not retry a rotation that reported drops.) Check `cmdb_vault_change_drop`

@@ -322,7 +322,7 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 The test suite is ~11,100 methods across 545 files, and the real gate runs the
 *entire* suite three times — on the JSON backend, on SQLite, and against a real
 PostgreSQL — because the cross-backend bugs are the ones that reach production.
-Postgres is the enterprise default and was, until v6.4.3, run by no gate at
+Postgres is the enterprise default and was, until v7.0.0, run by no gate at
 all: the tests written for it skipped themselves when no server was present,
 which reads as a pass. `RP_PG_REQUIRE` / `PG_STRICT` now make that skip a
 failure, so the gate cannot go green by declining to test. (Production CI adds

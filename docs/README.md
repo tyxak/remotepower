@@ -69,8 +69,8 @@ holds long-form docs that don't fit there.
  export that did not neutralise spreadsheet formula cells — plus a set of
  monitoring controls that were evaluating nothing, and the concurrency defects
  behind a lost device row and a reverted security setting.
-- **[security-review-6.4.3.md](security-review-6.4.3.md)** — the v6.4.3
- "Gu4rdMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
+- **[security-review-7.0.0.md](security-review-7.0.0.md)** — the v7.0.0
+ "Aut0nomyMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
  though every caller were an unrestricted admin (metrics, calendar feed, rack
  elevation) — long-standing, read-only, no credential exposed, all fixed here;
  plus a Linux-only safety gate bypassable by editing rather than creating a
@@ -88,7 +88,8 @@ holds long-form docs that don't fit there.
  the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
  of unlocking storage against a server that storage hosts); no
  Critical/High/Medium ships.
-- **[v6.4.3.md](v6.4.3.md)** — "Gu4rdMatters": the checks rather than the code
+- **[v7.0.0.md](v7.0.0.md)** — "Aut0nomyMatters": autonomous remediation, and
+  the checks rather than the code
  they check. Six guardrails were reporting success while measuring nothing —
  the Postgres backend run by no gate, undefined-name detection at 238 findings
  and 100% false positives, the accessibility sweep walking every page against

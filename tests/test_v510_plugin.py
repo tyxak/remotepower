@@ -5,6 +5,7 @@ inherits the entire integrations machinery — SSRF-safe client, poll cadence,
 alerts, secret-scrub, and the generic Settings UI. These tests pin the connector
 logic + that the declarative spec survives the save path.
 """
+
 import importlib.util
 import unittest
 from pathlib import Path

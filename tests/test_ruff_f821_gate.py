@@ -26,6 +26,7 @@ bitten by. Running ruff is the Makefile `lint` target's job (a hard dependency,
 like black and mypy); proving the gate is still wired and still accurate is
 this file's job, and it works with nothing installed.
 """
+
 import ast
 import importlib.util
 import re

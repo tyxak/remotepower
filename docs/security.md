@@ -33,7 +33,7 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. **v6.4.3** (see [security-review-6.4.3.md](security-review-6.4.3.md)) went
+High, or Medium finding ships**. **v7.0.0** (see [security-review-7.0.0.md](security-review-7.0.0.md)) went
 looking specifically at fleet-wide READ endpoints and found three that
 authenticated the caller and then answered as though every caller were an
 unrestricted administrator — metrics, the calendar feed and rack elevation.
@@ -192,11 +192,11 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.4.3.md](security-review-6.4.3.md).
+summarised in the latest, [security-review-7.0.0.md](security-review-7.0.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, Semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most
 recent full run reported **no exploitable findings** (see *Security testing*
-below). At v6.4.3 all four static scanners report **zero**: Semgrep 0 across the
+below). At v7.0.0 all four static scanners report **zero**: Semgrep 0 across the
 security-audit and secrets rulesets, Bandit 0 new against its baseline with no
 high-severity finding in it, gitleaks clean over the full history, and CodeQL 0
 in both languages under the same configuration production runs. Where a finding
@@ -404,7 +404,7 @@ detached **GPG signature** (`.tar.gz.asc`); the signing key fingerprint is
 signature at build time, and the agent self-update can be pinned to require a
 signed binary (fail-closed).
 
-The **container images** are signed too, since v6.4.3 — they were the gap, and
+The **container images** are signed too, since v7.0.0 — they were the gap, and
 for most people the image is what actually runs. They use **cosign keyless
 signing** (Sigstore) rather than a key, because the reason the GPG key is kept
 local is that CI must not hold a signing key, and putting a cosign key in CI
@@ -413,7 +413,7 @@ OIDC identity, so verification asserts *which workflow in which repository*
 built the image:
 
 ```bash
-cosign verify ghcr.io/tyxak/remotepower:6.4.3 \
+cosign verify ghcr.io/tyxak/remotepower:7.0.0 \
   --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -477,7 +477,7 @@ Recommended for production deployments beyond the secure defaults:
       every device token, the CMDB credential vault, API-key hashes and the
       backups — a stolen or decommissioned disk hands over the fleet, and no
       application-level control can undo that. **Settings → Security posture**
-      reports the state of the volume `RP_DATA_DIR` sits on (v6.4.3); a host
+      reports the state of the volume `RP_DATA_DIR` sits on (v7.0.0); a host
       that cannot see device-mapper — a container, typically — reports
       "cannot be determined" rather than a finding, so check the underlying
       host yourself in that case.

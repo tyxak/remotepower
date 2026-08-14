@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.4.3 — "Gu4rdMatters" — unreleased (test)
+## v7.0.0 — "Aut0nomyMatters" — unreleased (test)
 
 > **Note on versioning.** The autonomy subsystem below is the start of what is
 > intended as a major release. `SERVER_VERSION` is deliberately still 6.4.3 —
@@ -300,7 +300,7 @@ from one that cannot.
   nothing could be changed through them — and all three predate this release.
   The machine scrape deliberately keeps its instance-wide view, since narrowing
   that would break fleet monitoring rather than protect anything. See
-  `docs/security-review-6.4.3.md`.
+  `docs/security-review-7.0.0.md`.
 - **A Linux-only safety gate could be bypassed by editing instead of
   creating.** File-backup jobs refuse a Windows or macOS target on creation;
   editing an existing job onto one was accepted, and the scheduler then

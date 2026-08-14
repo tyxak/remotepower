@@ -1,4 +1,4 @@
-"""v6.4.3 "Gu4rdMatters" — release pins.
+"""v7.0.0 "Aut0nomyMatters" — release pins.
 
 The CURRENT release carries the strict version pins; older test_vXYZ.py files
 have theirs loosened to shape checks. Headline: six guardrails that were
@@ -20,13 +20,13 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v643-"))
-_spec = importlib.util.spec_from_file_location("api_v643_pins", _CGI / "api.py")
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v700-"))
+_spec = importlib.util.spec_from_file_location("api_v700_pins", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-V = "6.4.3"
-CODENAME = "Gu4rdMatters"
+V = "7.0.0"
+CODENAME = "Aut0nomyMatters"
 
 _JS = _ROOT / "server/html/static/js"
 

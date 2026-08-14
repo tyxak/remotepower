@@ -6,6 +6,7 @@ guard (_guard_demo_target) must refuse to --apply into anything that looks
 like production. These tests load the script as a module and exercise the
 guard directly.
 """
+
 import importlib.util
 import json
 import re

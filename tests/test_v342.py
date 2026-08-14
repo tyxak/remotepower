@@ -6,6 +6,15 @@ this file ships, per the standing convention). v3.4.2's headline feature is the
 script and/or notify a channel" — composing the existing event registry, channel
 routing, and saved scripts into a rule model evaluated on every fired event.
 """
+
+# A module that executes api.py must fix RP_DATA_DIR at IMPORT time:
+# api.py's import-time ensure_default_user() writes to DATA_DIR, so
+# without this a targeted run of this file targets a REAL install and
+# overwrites its admin user. Ordering luck under `unittest discover` is
+# what hid this — another module happened to set it first.
+import os as _rp_os, tempfile as _rp_tf  # noqa: E402
+_rp_os.environ.setdefault('RP_DATA_DIR', _rp_tf.mkdtemp(prefix='rp-t-'))
+
 import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))

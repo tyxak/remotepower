@@ -40,7 +40,7 @@ sortable, filterable table.
     nftables / iptables / ufw actually enforcing) is **always on** — an
     unprotected host is real exposure, not a preference. `linux_ssh_hardening`
     (root login, password authentication, empty passwords, and — since
-    v6.4.3 — X11 forwarding) and `linux_auto_update` (unattended-upgrades /
+    v7.0.0 — X11 forwarding) and `linux_auto_update` (unattended-upgrades /
     dnf-automatic and friends) are **opt-in**: they only render when *Security
     hardening* is enabled under Settings → Security, because password SSH and
     manual patching are deliberate choices on plenty of fleets, and an advisory

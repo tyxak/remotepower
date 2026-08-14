@@ -406,13 +406,13 @@ Limit: **200 tenants** per instance.
 
 ### Which tenant a new account lands in
 
-**Every account-creation path now stamps a tenant** *(v6.4.3)*. `POST /api/users`
+**Every account-creation path now stamps a tenant** *(v7.0.0)*. `POST /api/users`
 and Admin → Users stamp the **creator's** tenant; SSO/SAML/SCIM/LDAP JIT
 provisioning stamps `sso_default_tenant` (see [sso.md](sso.md)).
 
 This matters because an account with no `tenant_id` falls back to `default`, and
 an account with `role=admin` in the `default` tenant *is* a platform superadmin.
-Before v6.4.3 nothing stamped one, so adding a customer's administrator through
+Before v7.0.0 nothing stamped one, so adding a customer's administrator through
 Admin → Users silently granted them full cross-tenant control — and a
 **tenant** admin creating an account produced one that outranked its own
 creator, which was a privilege-escalation path rather than merely a footgun.
@@ -539,7 +539,7 @@ summary is:
 - **A tenant admin cannot promote itself.** `/api/tenants*` is gated on
   superadmin specifically so a tenant admin cannot
   `POST /api/tenants/default/users {self}` its way to platform control. Until
-  v6.4.3 that gate had an open side door: account creation stamped no tenant, so
+  v7.0.0 that gate had an open side door: account creation stamped no tenant, so
   a tenant admin could create an admin account (which landed in `default`, and
   was therefore a superadmin), log in as it, and use *that* to move itself. The
   account-management endpoints are tenant-scoped now — a tenant admin sees,

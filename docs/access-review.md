@@ -71,7 +71,7 @@ actually done since the last review". Two things to look for beyond the obvious:
   rewrite the audit entries naming them — that is deliberate, and is what keeps
   the log usable as evidence — but deactivation keeps the history readable.
 - Revoke unused API keys, and set an expiry on the ones you keep.
-- For live sessions, **Settings → Security → Active sessions** *(v6.4.3)* lists
+- For live sessions, **Settings → Security → Active sessions** *(v7.0.0)* lists
   every login on the instance — user, role, IdP source, IP, last-active and
   expiry — and revokes them. Revocation is **per user**, not per session: the
   server offers `POST /api/sessions/revoke {username}`, which signs that account

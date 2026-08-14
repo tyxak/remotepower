@@ -225,7 +225,7 @@ default and none of it applies.
 
 This matters because a user with `role=admin` in the built-in `default` tenant
 is a **platform superadmin** — the account that sees and manages *every*
-tenant. Until v6.4.3 no SSO path stamped a tenant at all, so an account created
+tenant. Until v7.0.0 no SSO path stamped a tenant at all, so an account created
 by an IdP group that mapped to `admin` silently became one, and there was no
 way to express "admin *of* Acme" anywhere in the configuration.
 

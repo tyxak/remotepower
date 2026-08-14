@@ -4,6 +4,7 @@ Drives _run_container_update / _container_run_argv with a fake subprocess so no
 docker is needed: verifies the compose-refusal, the already-up-to-date no-op,
 the argv reconstruction from inspect data, and the recreate happy path.
 """
+
 import importlib.util
 import json
 import os

@@ -1,4 +1,4 @@
-# Security review — v6.4.3 "Gu4rdMatters"
+# Security review — v7.0.0 "Aut0nomyMatters"
 
 Every release gets a review before it ships. This one ran in three passes and
 found **twenty-two** issues worth reporting, all of them **caught before
@@ -26,7 +26,7 @@ ships. That bar is met.
 
 ## What was reviewed
 
-- The full v6.4.2 → v6.4.3 diff, read adversarially rather than for correctness.
+- The full v6.4.2 → v7.0.0 diff, read adversarially rather than for correctness.
 - **Second pass:** every path that CREATES an account or reads a stored
   credential, checked against "may this caller act on this tenant?" — the write
   side of the same question the first pass asked of reads.

@@ -4,6 +4,7 @@
 Stdlib-only; its pure functions (command mapping, payload assembly, redacting
 secrets scan) run on Linux — no Mac needed. v3.14.0 (#50).
 """
+
 import importlib.util
 import json
 import tempfile

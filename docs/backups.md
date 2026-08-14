@@ -117,7 +117,7 @@ the server after a loss:
 - A **scheduled restore drill** *(v6.3.0)* runs the same
   decrypt→decompress→structure-check as the manual test-restore against the
   latest archive — **and, when an off-host destination is configured, against
-  the copy there too** *(v6.4.3)*. Until then the drill globbed the local
+  the copy there too** *(v7.0.0)*. Until then the drill globbed the local
   directory only, so the off-host copy — the one that exists because it
   survives losing this machine — had never been verified by anything; a green
   drill meant the archive on the box that just burned down was fine. If the

@@ -39,7 +39,7 @@ Three sources, all reproducible from the repository:
   enabled** — there are no disabled rules and no exemptions. `color-contrast`
   and `nested-interactive` are both fully enforced; the last exemption was
   removed in v6.1.1, and `tests/test_v430_a11y.py` asserts it cannot come back.
-- **Automated again, this time with data on the screen** (v6.4.3). The sweep
+- **Automated again, this time with data on the screen** (v7.0.0). The sweep
   above walks an *empty* install, where a table has no rows and a status pill
   has no state — so anything that only exists inside a populated row was
   structurally invisible to it. A second pass now seeds the demo dataset, ages
@@ -142,7 +142,7 @@ These are real, current, and each one is a reason a criterion below is marked
 
 **Four forms** mark the offending field with `aria-invalid` and move focus to
 it — sign-in, the step-up prompt, adding a user, and Settings → Alert
-parameters *(the last added in v6.4.3, which also gave `aria-invalid` a visible
+parameters *(the last added in v7.0.0, which also gave `aria-invalid` a visible
 style; before that the attribute was set for screen readers with no visual
 counterpart, which is half of this criterion)*.
 
@@ -184,7 +184,7 @@ there: 368 unlabelled checkboxes in the notification event matrix, an unnamed
 button, and two colour-contrast failures. The pane sweep found the last of those
 the first time it ran.
 
-The same blindness had a second form, closed in v6.4.3: the sweep ran against
+The same blindness had a second form, closed in v7.0.0: the sweep ran against
 an **empty database**. A page with no rows renders none of the controls that
 live in rows, so "zero violations" meant "zero violations in the chrome". The
 seeded pass described above found 48 contrast failures the moment there was

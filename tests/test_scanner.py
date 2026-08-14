@@ -5,6 +5,7 @@ The worker (client/remotepower-scanner.py) shells out to nuclei/nikto/nmap in a
 sandboxed container; the dual-use tools can't run here, so we test the pure
 PARSE step (tool stdout -> normalised findings) with representative fixtures.
 """
+
 import importlib.util
 import json
 import re

@@ -58,7 +58,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 
 | Capability | SOC 2 | ISO 27001:2022 |
 |---|---|---|
-| Backup & DR — encrypted controller backup, off-host mirroring, **test-restore** verification of both the local and the off-host copy *(v6.4.3; before that the drill verified the local archive only)* | A1.2 | A.8.13, A.5.30 |
+| Backup & DR — encrypted controller backup, off-host mirroring, **test-restore** verification of both the local and the off-host copy *(v7.0.0; before that the drill verified the local archive only)* | A1.2 | A.8.13, A.5.30 |
 | Availability — agent/agentless monitoring, maintenance mode/windows, webhook DLQ + replay | A1.1, A1.2 | A.5.30, A.8.16 |
 | Boundary protection — SSRF guards on all outbound, per-IP/login rate limits, IP allowlist, CSP | CC6.6 | A.8.20, A.8.23 |
 | Multi-tenant isolation — RBAC-scoped soft tenancy (group/tag/site); optional **hard multi-tenancy** (`tenancy_enforced`) with optional Postgres **row-level security** (`tenancy_rls`) **(operator)** | CC6.1 | A.5.15, A.8.2 |
@@ -109,7 +109,7 @@ as your audit artifacts.
 too: RemotePower encrypts the CMDB vault and — with `RP_CONFIG_KEY` — config
 secrets, but device tokens, API-key hashes and DR backups live in `RP_DATA_DIR` on
 whatever volume you gave it. **Settings → Security posture** grades that volume
-(v6.4.3) so the gap is visible rather than assumed; inside a container it reports
+(v7.0.0) so the gap is visible rather than assumed; inside a container it reports
 "cannot be determined", which is an instruction to check the host, not a pass.
 
 Three of those responsibilities are procedures rather than settings, and each now

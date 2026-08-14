@@ -236,7 +236,7 @@ archive. For long-term retention, keep shipping to a real log store alongside
 RemotePower (the two aren't mutually exclusive — an appliance can fan out to
 both).
 
-## A source that can never receive (v6.4.3)
+## A source that can never receive (v7.0.0)
 
 The receiver maps an incoming line to a token by the datagram's **source IP**,
 matched against the enrolled device's `ip` field — the sender is never
