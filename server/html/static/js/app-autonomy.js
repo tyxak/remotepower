@@ -69,9 +69,17 @@ async function loadAutonomy() {
       const on = allowed.includes(name) ? ' checked' : '';
       const d = spec && spec.destructive
         ? ` <span class="chk-pill chk-warning">${escHtml('destructive')}</span>` : '';
+      // Which agents can actually carry it out. Ticking an action for a fleet
+      // that cannot run it is the success-toast-then-silence shape, so say so
+      // here rather than only in the refusal after the fact.
+      const plats = (spec && spec.platforms) || [];
+      const p = plats.length && plats.length < 3
+        ? ` <span class="chk-pill chk-unknown">${escHtml(plats.join(' / '))}</span>` : '';
+      const lbl = spec && spec.label
+        ? ` <span class="hint">${escHtml(spec.label)}</span>` : '';
       return `<div class="settings-row"><label class="form-label">` +
              `<input type="checkbox" class="autonomy-act" data-act="${escAttr(name)}"${on}> ` +
-             `<code>${escHtml(name)}</code>${d}</label></div>`;
+             `<code>${escHtml(name)}</code>${d}${p}${lbl}</label></div>`;
     }).join('');
   }
 

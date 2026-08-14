@@ -1087,7 +1087,8 @@ for _ao_name in (
         'handle_autonomy_preview', 'run_autonomy_if_due',
         '_policy_for', '_append_receipt', '_blast_radius_for',
         '_candidate_alerts', '_build_plan', '_actions_this_hour',
-        '_backup_is_verified',
+        '_backup_is_verified', '_pick_action', '_command_for',
+        '_resolve_params', '_container_runtime',
 ):
     globals()[_ao_name] = getattr(autonomy_ops_handlers_mod, _ao_name)
 del _ao_name

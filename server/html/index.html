@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-128">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.3-129">
 
 </head>
 <body>
@@ -375,10 +375,6 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
           <span>Advisory</span>
         </button>
-        <button class="nav-btn" data-page="autonomy" title="What the autonomous remediation loop did, or would have done — one receipt per decision">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.9 4.9l2.9 2.9"/><path d="M16.2 16.2l2.9 2.9"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.9 19.1l2.9-2.9"/><path d="M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg>
-          <span>Autonomy</span>
-        </button>
         <button class="nav-btn" data-page="cve" title="Package vulnerabilities per device via OSV.dev — installed packages vs known CVEs">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
@@ -484,6 +480,10 @@
         <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span>Automation</span>
+        </button>
+        <button class="nav-btn" data-page="autonomy" title="What the autonomous remediation loop did, or would have done — one receipt per decision">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.9 4.9l2.9 2.9"/><path d="M16.2 16.2l2.9 2.9"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.9 19.1l2.9-2.9"/><path d="M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Autonomy</span>
         </button>
         <button class="nav-btn" data-page="cmdqueue" title="Commands waiting for each agent's next heartbeat — view or cancel pending work">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
@@ -7650,7 +7650,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-approval"> Destructive actions need a second pair of eyes</label></div>
           <div class="settings-row">
             <label class="form-label" for="autonomy-actions">Permitted actions</label>
-            <div id="autonomy-actions" class="scroll-cap-sm"></div>
+            <div id="autonomy-actions" class="scroll-cap"></div>
           </div>
         </div>
 
@@ -11662,37 +11662,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.3-128"></script>
+<script defer src="static/js/app.js?v=6.4.3-129"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-containers.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-network.js?v=6.4.3-128"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-containers.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-network.js?v=6.4.3-129"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.3-128"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.3-129"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-dns.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-drift.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-cve.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-backups.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-iac.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-virt.js?v=6.4.3-128"></script>
+<script defer src="static/js/app-ai.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-dns.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-drift.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-cve.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-backups.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-iac.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-virt.js?v=6.4.3-129"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-logs.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-remote.js?v=6.4.3-128"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.3-128"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-logs.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-remote.js?v=6.4.3-129"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.3-129"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.3-128"></script>
+<script defer src="static/js/app-self.js?v=6.4.3-129"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11702,6 +11702,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.3-128"></script>
+<script defer src="static/js/sw-register.js?v=6.4.3-129"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ The cases that matter, in order of what would hurt most:
 """
 import importlib.util
 import os
+import re
 import sys
 import tempfile
 import time
@@ -63,7 +64,7 @@ class _Base(unittest.TestCase):
     def _receipts(self):
         return (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
 
-    def _alert(self, event='unit_failed', dev='d1'):
+    def _alert(self, event='failed_unit', dev='d1'):
         api.save(api.ALERTS_FILE, {'alerts': [{
             'id': 'a1', 'event': event, 'device_id': dev,
             'severity': 'high', 'payload': {'unit': 'nginx.service'},
@@ -110,7 +111,7 @@ class TestShadowRecordsButNeverActs(_Base):
         rows = self._receipts()
         self.assertEqual(len(rows), 1, rows)
         self.assertEqual(rows[0]['device_name'], 'web01')
-        self.assertEqual(rows[0]['trigger'], 'unit_failed')
+        self.assertEqual(rows[0]['trigger'], 'failed_unit')
 
     def test_no_shadow_receipt_claims_to_have_acted(self):
         self._alert()
@@ -144,7 +145,7 @@ class TestTheLoopCannotExecuteYet(_Base):
                      require_verified_backup=False)
         # Give it precedent so the envelope permits acting.
         api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
-            {'source': 'operator', 'event': 'unit_failed', 'kind': '',
+            {'source': 'operator', 'event': 'failed_unit', 'kind': '',
              'tenant': 'default', 'resolution': 'restarted',
              'recommended_action': 'systemctl restart nginx'} for _ in range(4)]})
         api.run_autonomy_if_due()
@@ -153,22 +154,46 @@ class TestTheLoopCannotExecuteYet(_Base):
                 self.assertIn('not-executed', str(r.get('outcome') or ''), r)
 
     def test_no_command_is_built_from_remote_alert_text(self):
-        """The command template lives beside the safety analysis, not in the
-        alert payload — a command assembled from remote data is how an alert
-        becomes an injection vector."""
-        src = (_CGI / 'autonomy_ops_handlers.py').read_text()
-        self.assertIn('_ACTION_COMMANDS', src)
-        i = src.index('_ACTION_COMMANDS')
-        block = src[i:i + 600]
-        self.assertIn('systemctl restart {unit}', block)
+        """The command SHAPE lives beside the safety analysis; the alert may
+        only supply a parameter, and only one that survives sanitising. A
+        command assembled from remote data is how an alert becomes an
+        injection vector."""
+        import autonomy_ops_handlers as _ops
+        for action, tmpl in _ops._ACTION_COMMANDS.items():
+            for t in ([tmpl] if isinstance(tmpl, str) else list(tmpl.values())):
+                # Every substitution point is a named parameter this module
+                # declares. An f-string or a concatenation would not be.
+                for field in re.findall(r'\{(\w+)\}', t):
+                    self.assertTrue(
+                        field == 'runtime' or field in _ops._ACTION_PARAMS,
+                        f'{action}: {{{field}}} has no declared source')
+
+    def test_a_hostile_parameter_cannot_change_the_verb(self):
+        """The wire format is colon-delimited and the agent re-splits it, so a
+        unit named `x:stop:sshd` would arrive as a different action."""
+        cmd, prob = api._resolve_params(
+            'svc:restart:{unit}', {'unit': 'x:stop:sshd'}, 'd1')
+        self.assertEqual(cmd, '')
+        self.assertEqual(prob, 'missing_parameter')
 
 
 class TestEventsWithoutAnAnalysisAreNeverCandidates(_Base):
 
+    UNMAPPED = 'smart_failure'
+
+    def test_the_unmapped_event_is_a_real_one(self):
+        """Otherwise the test below proves only that a typo is ignored, which
+        it would be either way. `cve_found` used to be used here and has since
+        been mapped to `patch` — the test would have kept passing while
+        measuring nothing."""
+        import autonomy_ops_handlers as _ops
+        self.assertIn(self.UNMAPPED, api.EVENT_REGISTRY)
+        self.assertNotIn(self.UNMAPPED, _ops._EVENT_ACTIONS)
+
     def test_an_unmapped_event_is_ignored(self):
         """Default deny at the trigger layer too: the loop cannot invent an
         action for a signal nobody analysed."""
-        self._alert(event='cve_found')
+        self._alert(event=self.UNMAPPED)
         self._policy('shadow')
         api.run_autonomy_if_due()
         self.assertEqual(self._receipts(), [])
@@ -176,9 +201,9 @@ class TestEventsWithoutAnAnalysisAreNeverCandidates(_Base):
     def test_resolved_and_acked_alerts_are_skipped(self):
         self._policy('shadow')
         api.save(api.ALERTS_FILE, {'alerts': [
-            {'id': 'r', 'event': 'unit_failed', 'device_id': 'd1',
+            {'id': 'r', 'event': 'failed_unit', 'device_id': 'd1',
              'resolved_at': int(time.time()), 'payload': {}},
-            {'id': 'k', 'event': 'unit_failed', 'device_id': 'd1',
+            {'id': 'k', 'event': 'failed_unit', 'device_id': 'd1',
              'acked_at': int(time.time()), 'payload': {}},
         ]})
         api.run_autonomy_if_due()

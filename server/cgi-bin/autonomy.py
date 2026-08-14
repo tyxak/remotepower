@@ -51,6 +51,12 @@ REASONS = (
     'dry_run_failed',        # the simulation did not come back clean
     'rate_limited',          # too many actions in the window
     'needs_approval',        # policy demands a human for this class
+    # v7.0.0: three refusals that exist because the alternative is a command
+    # the target silently drops, or a malformed one it rejects — both of which
+    # look like success from the server's side.
+    'unsupported_platform',  # this action's verb is not implemented on that OS
+    'missing_parameter',     # the alert does not say WHICH unit/container/pool
+    'no_command_template',   # recognised action, nothing in this build runs it
     'ok',                    # no refusal — used on ACT/SHADOW verdicts
 )
 
@@ -58,14 +64,99 @@ REASONS = (
 # `destructive` means: it can lose state or take the host away. Those require a
 # PROVEN-recoverable backup (a restore drill that actually restored and
 # verified), not merely a backup that ran.
+#
+# `platforms` is the OS families whose AGENT can actually carry the action out.
+# It is not decoration: the command channel implements a different subset of
+# verbs per platform (`svc:` is Linux and Windows, `ps:` is Windows only), and
+# an agent handed a verb it does not know returns success and does nothing.
+# `tests/test_v700_action_catalog.py` derives the same matrix from api.py's
+# `_VERB_OS_SUPPORT` and fails when this column and the command templates
+# disagree — the two are edited in different files, which is exactly how they
+# would otherwise drift apart.
+#
+# `label` is prose for the allow-list UI. The machine name is what the receipt
+# and the policy carry; the label is only there so an operator ticking boxes
+# does not have to infer what `clear_tmp` reaches for.
 ACTION_CLASSES = {
-    'restart_service':   {'destructive': False, 'default_allowed': True},
-    'restart_container': {'destructive': False, 'default_allowed': True},
-    'clear_journal':     {'destructive': False, 'default_allowed': True},
-    'clear_cache':       {'destructive': False, 'default_allowed': True},
-    'reboot':            {'destructive': True,  'default_allowed': False},
-    'patch':             {'destructive': True,  'default_allowed': False},
-    'rotate_credential': {'destructive': True,  'default_allowed': False},
+    # ── service and container lifecycle ─────────────────────────────────────
+    'restart_service':     {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux', 'windows'),
+                            'label': 'Restart a failed or flapping service'},
+    'start_service':       {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux', 'windows'),
+                            'label': 'Start a service that has stopped'},
+    'restart_timer':       {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Restart a failed systemd timer'},
+    'restart_container':   {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux', 'windows'),
+                            'label': 'Restart a container'},
+    'start_container':     {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux', 'windows'),
+                            'label': 'Start a stopped container'},
+
+    # ── reclaiming disk, which is the most common recurring toil ────────────
+    'clear_journal':       {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Vacuum the systemd journal to 3 days'},
+    'rotate_logs':         {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Force a log rotation'},
+    'clear_tmp':           {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Clean expired files from temporary directories'},
+    'clear_package_cache': {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Clear the package manager cache'},
+    'prune_container_images': {'destructive': False, 'default_allowed': False,
+                               'platforms': ('linux',),
+                               'label': 'Remove unused container images'},
+    'trim_filesystem':     {'destructive': False, 'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Discard unused blocks (fstrim)'},
+    'clear_cache':         {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Drop reclaimable page cache'},
+
+    # ── host services that fix themselves with a nudge ──────────────────────
+    'resync_clock':        {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Re-synchronise the system clock'},
+    'restart_resolver':    {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Restart the DNS resolver'},
+    'flush_mail_queue':    {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux',),
+                            'label': 'Flush the outbound mail queue'},
+    'update_av_definitions': {'destructive': False, 'default_allowed': True,
+                              'platforms': ('linux', 'windows'),
+                              'label': 'Update anti-virus definitions'},
+    'start_scrub':         {'destructive': False, 'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Start an overdue storage scrub'},
+
+    # ── destructive: can lose state, or take the host away ──────────────────
+    'kill_process':        {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Terminate a runaway process'},
+    'remount_rw':          {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Remount a read-only filesystem read-write'},
+    'restart_networking':  {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Restart host networking'},
+    'enable_firewall':     {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux', 'windows', 'darwin'),
+                            'label': 'Turn the host firewall back on'},
+    'reboot':              {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux', 'windows', 'darwin'),
+                            'label': 'Reboot the host'},
+    'patch':               {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux', 'windows', 'darwin'),
+                            'label': 'Install pending updates'},
+    'rotate_credential':   {'destructive': True,  'default_allowed': False,
+                            'platforms': ('linux', 'windows', 'darwin'),
+                            'label': 'Rotate an exposed or stale credential'},
 }
 
 MODES = ('off', 'shadow', 'enabled')
@@ -218,7 +309,7 @@ def blast_radius(device_id, *, monitors=(), containers=(), status_services=(),
 def decide(*, action, policy, module_enabled, tenant_ok, radius,
            precedent_conf=0.0, precedent_samples=0, backup_verified=False,
            in_window=True, actions_this_hour=0, dry_run_ok=True,
-           has_plan=False):
+           has_plan=False, os_family=None, plan_problem=None):
     """The whole safety envelope, as one total function.
 
     Order is deliberate: the cheapest and most absolute refusals come first, so a
@@ -244,6 +335,20 @@ def decide(*, action, policy, module_enabled, tenant_ok, radius,
         return _decision(REFUSE, 'tenant_mismatch')
 
     spec = ACTION_CLASSES[action]
+
+    # Can this host's agent even do it? A verb the agent does not implement
+    # comes back as success having done nothing, so "we tried" would be a
+    # fiction in the receipt. Refuse, and name the platform.
+    plats = spec.get('platforms')
+    if plats and os_family and os_family not in plats:
+        return _decision(REFUSE, 'unsupported_platform', action=action,
+                         os_family=os_family, supported=list(plats))
+
+    # Could a concrete command be built at all? The caller resolves the alert's
+    # payload into the template's parameters; when it cannot — the alert says a
+    # service failed but not WHICH one — there is nothing honest to run.
+    if plan_problem:
+        return _decision(REFUSE, plan_problem, action=action)
 
     # Evidence: either this fleet has fixed this before, or a plan was drafted.
     if precedent_samples < MIN_PRECEDENT_SAMPLES and not has_plan:

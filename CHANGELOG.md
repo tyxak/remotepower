@@ -33,6 +33,41 @@ the per-tenant mode. A headline feature nobody can find is not shipped, and an
 inert loop nobody can read the receipts of cannot be graded — so the page is on
 and the loop is held still by the thing that actually holds it still.
 
+**Twenty-four action classes, and an event maps to a LADDER of them.** Service
+and container lifecycle, seven ways to reclaim disk, the nudges that fix a
+skewed clock or a wedged resolver or a stale AV database, and the destructive
+set — kill, remount, restart networking, firewall, reboot, patch, rotate. A
+host low on disk has half a dozen plausible remedies of escalating nerve, so
+the event names them in order and the loop takes the first rung the tenant's
+allow-list permits. That is what makes the allow-list a control rather than an
+on/off switch: which remedy gets used is the operator's decision, not a
+hard-coded one.
+
+Commands go out in the server's own grammar — `svc:`, `container:`, `exec:`,
+`ps:` — not as raw shell. Three things follow, and the first draft got all
+three wrong by writing `systemctl restart {unit}`: the typed verbs run fixed
+argv on the agent so a unit name can never become shell; `_verb_unsupported_on`
+already knows which verbs each platform implements, so the per-action platform
+column is enforceable rather than aspirational; and `_command_block_reason`
+keys off the same grammar, so autonomy inherits maintenance mode, quarantine,
+audit mode and the approval gate instead of needing its own copies.
+
+Three new refusals come out of that, all of them cases the previous draft would
+have reported as an action taken: `unsupported_platform` (an agent handed a
+verb it does not know answers *success* and does nothing), `missing_parameter`
+(the alert says a service failed but not which one — the old code emitted
+`svc:restart:` and called it a command), and `no_command_template`.
+
+**The event map had six rows and four of the names did not exist.**
+`unit_failed`, `container_down`, `disk_low` and `inode_low` are not
+`EVENT_REGISTRY` names, so those rows could never match an alert: the loop
+looked six-wide and was two-wide, and nothing failed, because a key nobody
+looks up raises nothing. `tests/test_v700_action_catalog.py` now checks every
+event name against the registry, every action against the class table, every
+template parameter against the payload keys `_record_alert` actually stores,
+and every template's verb against the platform it claims to support. All four
+checks were demonstrated failing before the file was committed.
+
 **It acts on precedent, not on a guess.** The proposal comes from this fleet's
 own incident memory — what actually closed this exact signature before. Two
 prior incidents minimum, 70% success minimum, and an outcome a person confirmed

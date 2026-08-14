@@ -64,6 +64,29 @@ never discounts to zero.
 You can use this on its own, without enabling anything: **what breaks if I
 reboot this host?** is worth answering for a human about to do it by hand.
 
+## What it can do
+
+Twenty-four action classes, each with a fixed command and a declared list of
+the platforms whose agent can actually carry it out:
+
+| Group | Actions |
+|---|---|
+| Services and containers | restart / start a service, restart a failed timer, restart / start a container |
+| Reclaiming disk | vacuum the journal, force a log rotation, clean temporary directories, clear the package cache, prune unused container images, `fstrim`, drop page cache |
+| Nudges | re-sync the clock, restart the resolver, flush the mail queue, update AV definitions, start an overdue scrub |
+| Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, patch, rotate a credential |
+
+An event maps to an **ordered ladder**, not one action. A host low on disk has
+half a dozen plausible remedies of escalating nerve; the loop takes the first
+one *you* have permitted. That is what makes the allow-list a real control
+rather than an on/off switch — the choice of remedy is yours, not the source
+code's.
+
+Commands go out in the same grammar an operator's own actions use (`svc:`,
+`container:`, `exec:`, `ps:`), so autonomy inherits every gate they pass:
+maintenance mode, quarantine, audit mode, the approval queue. Nothing here has
+a private path to a host.
+
 ## What it will not do
 
 * Act on an event class nobody has analysed. The event→action map is explicit;
@@ -72,7 +95,16 @@ reboot this host?** is worth answering for a human about to do it by hand.
   recognise. A policy naming an unknown action has that action discarded.
 * Build a command out of alert text. Command templates live in the source beside
   the safety analysis — a command assembled from remote data is how an alert
-  becomes an injection vector.
+  becomes an injection vector. An alert may supply a *parameter* (which unit,
+  which container), and only one that survives sanitising: a name containing a
+  colon would re-split the wire format into a different action, so it is
+  refused rather than cleaned up.
+* Send a host's agent a verb it does not implement. `svc:` is Linux and
+  Windows; `ps:` is Windows only. An agent handed an unknown verb answers
+  *success* and does nothing, so the loop refuses with `unsupported_platform`
+  instead of writing a receipt that claims it acted.
+* Act on an alert that does not say *which* thing broke. "A service failed"
+  with no unit name refuses as `missing_parameter`.
 * Touch a device outside the acting tenant.
 * Decide for itself whether it worked. That judgement belongs to the same
   per-host checks engine you already use; if failing checks increase, the action

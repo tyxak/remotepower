@@ -43,6 +43,7 @@ def bind(api_globals):
 
 
 import json
+import re
 import time
 
 import autonomy
@@ -228,27 +229,144 @@ def handle_autonomy_preview():
 
 _LOOP_INTERVAL_S = 300
 
-# Which alert events map to which action class. An event with no mapping is
+# Which alert events map to which action classes. An event with no mapping is
 # never a candidate — the loop cannot invent an action for a signal nobody
 # analysed, which is the same default-deny rule the decision core applies to
 # action names.
+#
+# The value is an ORDERED LADDER, not a single action, and that is what makes
+# the allow-list mean something. A host low on disk has half a dozen plausible
+# remedies of escalating nerve; the operator ticks the ones they are willing to
+# have happen unattended and the loop takes the first of those. A single-action
+# map would have forced that judgement into the source, where the operator
+# cannot see or change it.
+#
+# EVERY KEY IS AN EVENT_REGISTRY NAME. The first version of this table invented
+# four of its six — `unit_failed`, `container_down`, `disk_low`, `inode_low` do
+# not exist, so the loop could only ever have fired on the two real ones and
+# would have looked, from a green test suite, as though it covered six.
+# `tests/test_v700_action_catalog.py` checks each key against the registry now.
 _EVENT_ACTIONS = {
-    'unit_failed':          'restart_service',
-    'failed_unit':          'restart_service',
-    'container_restarting': 'restart_container',
-    'container_down':       'restart_container',
-    'disk_low':             'clear_journal',
-    'inode_low':            'clear_journal',
+    # services and timers
+    'failed_unit':          ('restart_service',),
+    'unit_flapping':        ('restart_service',),
+    'service_down':         ('restart_service', 'start_service'),
+    'vpn_handshake_stale':  ('restart_service',),
+    'win_update_stopped':   ('start_service',),
+    'timer_failed':         ('restart_timer',),
+    # containers
+    'container_restarting': ('restart_container',),
+    'container_stopped':    ('start_container',),
+    # disk pressure — the ladder, gentlest first
+    'server_disk_low':      ('clear_journal', 'rotate_logs', 'clear_package_cache',
+                             'clear_tmp', 'prune_container_images',
+                             'trim_filesystem'),
+    'disk_predict_fail':    ('clear_journal', 'rotate_logs', 'clear_package_cache',
+                             'trim_filesystem'),
+    'resource_saturation_predicted': ('clear_cache',),
+    # host services that fix themselves with a nudge
+    'clock_skew':           ('resync_clock',),
+    'resolver_unhealthy':   ('restart_resolver',),
+    'mailq_high':           ('flush_mail_queue',),
+    'mailflow_delayed':     ('flush_mail_queue',),
+    'av_warning':           ('update_av_definitions',),
+    'win_defender_stale':   ('update_av_definitions',),
+    'scrub_overdue':        ('start_scrub',),
+    # destructive territory — reachable, but off in the default policy
+    'process_alert':        ('kill_process',),
+    'oom_detected':         ('kill_process',),
+    'readonly_fs':          ('remount_rw',),
+    'wan_down':             ('restart_networking',),
+    'gateway_unreachable':  ('restart_networking',),
+    'mac_firewall_off':     ('enable_firewall',),
+    'win_firewall_off':     ('enable_firewall',),
+    'reboot_required':      ('reboot',),
+    'kernel_outdated':      ('reboot',),
+    'patch_alert':          ('patch',),
+    'cve_found':            ('patch',),
+    'patch_sla_violation':  ('patch',),
+    'password_stale':       ('rotate_credential',),
+    'secret_exposed':       ('rotate_credential',),
 }
 
-# The command each class runs. Kept HERE, next to the safety analysis, rather
-# than assembled from an alert payload — a command built out of remote data is
-# how an alert becomes an injection vector.
+# The command each class runs, in the SERVER'S COMMAND GRAMMAR — `svc:`,
+# `container:`, `ps:`, `exec:` — not a raw shell line. Three reasons that
+# matters and the first version (`systemctl restart {unit}`) got wrong:
+#
+#  * the typed verbs run through fixed argv on the agent, so a unit name can
+#    never become shell;
+#  * `_verb_unsupported_on()` already knows which verbs each platform's agent
+#    implements, so routing through them is what makes the platform column in
+#    ACTION_CLASSES enforceable rather than aspirational;
+#  * `_command_block_reason()` — maintenance mode, quarantine, audit mode, the
+#    approval gate — keys off the same grammar, so autonomy inherits every
+#    guard an operator-issued command already passes.
+#
+# Kept HERE, next to the safety analysis, and never assembled from alert text: a
+# command built out of remote data is how an alert becomes an injection vector.
+# A value may be a single template or a per-OS-family dict.
 _ACTION_COMMANDS = {
-    'restart_service':   'systemctl restart {unit}',
-    'restart_container': 'docker restart {container}',
-    'clear_journal':     'journalctl --vacuum-time=3d',
-    'clear_cache':       'sync; echo 3 > /proc/sys/vm/drop_caches',
+    'restart_service':     'svc:restart:{unit}',
+    'start_service':       'svc:start:{unit}',
+    'restart_timer':       'svc:restart:{unit}',
+    'restart_container':   'container:{runtime}:restart:{container}',
+    'start_container':     'container:{runtime}:start:{container}',
+
+    'clear_journal':       'exec:journalctl --vacuum-time=3d',
+    'rotate_logs':         'exec:logrotate -f /etc/logrotate.conf',
+    'clear_tmp':           'exec:systemd-tmpfiles --clean',
+    'clear_package_cache': ('exec:apt-get clean 2>/dev/null || dnf clean all '
+                            '2>/dev/null || pacman -Sc --noconfirm 2>/dev/null '
+                            '|| zypper clean 2>/dev/null'),
+    'prune_container_images': ('exec:docker image prune -af 2>/dev/null '
+                               '|| podman image prune -af'),
+    'trim_filesystem':     'exec:fstrim -av',
+    'clear_cache':         'exec:sync; echo 3 > /proc/sys/vm/drop_caches',
+
+    'resync_clock':        ('exec:chronyc makestep 2>/dev/null '
+                            '|| timedatectl set-ntp true'),
+    'restart_resolver':    'svc:restart:systemd-resolved',
+    'flush_mail_queue':    'exec:postqueue -f',
+    'update_av_definitions': {'linux':   'exec:freshclam',
+                              'windows': 'ps:Update-MpSignature'},
+    'start_scrub':         'exec:zpool scrub -- {pool}',
+
+    'kill_process':        'exec:pkill -TERM -x -- {process}',
+    'remount_rw':          'exec:mount -o remount,rw -- {mount}',
+    # Detached on purpose: restarting networking from a command the network
+    # delivered kills the delivery. Same shape as the agent-restart rule.
+    'restart_networking':  ('exec:systemd-run --on-active=5 systemctl restart '
+                            'NetworkManager systemd-networkd'),
+    'enable_firewall':     {
+        'linux':   ('exec:ufw --force enable 2>/dev/null '
+                    '|| systemctl start firewalld'),
+        'windows': ('ps:Set-NetFirewallProfile -Profile Domain,Public,Private '
+                    '-Enabled True'),
+        'darwin':  ('exec:/usr/libexec/ApplicationFirewall/socketfilterfw '
+                    '--setglobalstate on'),
+    },
+    'reboot':              'reboot',
+    # Linux patches via the server's own vetted upgrade script (the one with
+    # the initramfs safety analysis in it); Windows and macOS take the bare
+    # `upgrade` verb. Resolved in _command_for so it tracks _UPGRADE_CMD.
+    'patch':               {'linux': '@upgrade', 'windows': 'upgrade',
+                            'darwin': 'upgrade'},
+    # No entry for rotate_credential: rotation is a server-side operation on
+    # the vault, not a command sent to a host, and this build does not wire it.
+    # The absence is deliberate and refuses with `no_command_template` rather
+    # than emitting an empty command that would read as "nothing to do".
+}
+
+# Where each template parameter comes from in the alert payload, in preference
+# order. `_record_alert` stores only a whitelisted subset of a payload, so an
+# alias that is not on that whitelist can never arrive — the catalog test pins
+# that at least one alias per parameter is a key the alert can actually carry.
+_ACTION_PARAMS = {
+    'unit':      ('unit', 'name', 'label'),
+    'container': ('container', 'name', 'label'),
+    'process':   ('process', 'name'),
+    'mount':     ('path', 'name'),
+    'pool':      ('disk', 'name', 'label'),
 }
 
 
@@ -277,34 +395,111 @@ def _backup_is_verified(dev_id):
 
 
 def _candidate_alerts(alerts):
-    """Open, unacknowledged alerts whose event maps to a known action."""
+    """Open, unacknowledged alerts whose event maps to a ladder of actions."""
     out = []
     for a in alerts or []:
         if not isinstance(a, dict):
             continue
         if a.get('resolved_at') or a.get('acked_at'):
             continue
-        act = _EVENT_ACTIONS.get(a.get('event'))
-        if act:
-            out.append((a, act))
+        ladder = _EVENT_ACTIONS.get(a.get('event'))
+        if ladder:
+            out.append((a, tuple(ladder)))
     return out
+
+
+def _pick_action(ladder, policy):
+    """The first rung of the ladder this tenant has actually permitted.
+
+    When none are permitted we still return the FIRST rung rather than nothing,
+    so the receipt names a concrete action and refuses with `action_not_allowed`
+    against it. Dropping the candidate silently would leave the operator with a
+    fleet full of alerts and an empty receipts page, which reads as "autonomy
+    found nothing to do" when the truth is "you have not allowed anything".
+    """
+    allowed = policy.get('allowed_actions') or []
+    return next((a for a in ladder if a in allowed), ladder[0])
+
+
+def _command_for(action, family):
+    """The command template for this action on this OS family, or ''."""
+    tmpl = _ACTION_COMMANDS.get(action)
+    if isinstance(tmpl, dict):
+        tmpl = tmpl.get(family) or ''
+    tmpl = tmpl or ''
+    if tmpl == '@upgrade':
+        # The vetted upgrade script — the same one auto-patch runs, carrying the
+        # initramfs safety analysis. Resolved here rather than copied so a fix
+        # to that script reaches autonomy too.
+        return 'exec:' + A._UPGRADE_CMD
+    return tmpl
+
+
+def _container_runtime(dev_id, name):
+    """docker | podman for this container, from what the agent REPORTED.
+
+    Never a guess: a host may run either, and `container:docker:…` sent to a
+    podman host is a verb the agent recognises and an action that does nothing.
+    """
+    items = ((A.load(A.CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items') or []
+    for c in items:
+        if isinstance(c, dict) and c.get('name') == name \
+                and c.get('runtime') in ('docker', 'podman'):
+            return c['runtime']
+    return ''
+
+
+def _resolve_params(tmpl, payload, dev_id):
+    """Fill a template's parameters from the alert payload.
+
+    Returns (command, problem). `problem` is a REASONS code, so the caller hands
+    it straight to decide() and the refusal is machine-readable like every
+    other one. Every value is passed through `_sanitize_str` before it reaches
+    a template — the typed verbs run fixed argv on the agent, but a unit name
+    with a colon in it would still split the wire format.
+    """
+    if not tmpl:
+        return '', 'no_command_template'
+    fields = set(re.findall(r'\{(\w+)\}', tmpl))
+    vals = {}
+    for f in sorted(fields):
+        if f == 'runtime':
+            continue                     # resolved below, once we know the name
+        raw = ''
+        for alias in _ACTION_PARAMS.get(f, (f,)):
+            v = payload.get(alias)
+            if v:
+                raw = str(v)
+                break
+        clean = A._sanitize_str(raw, 64).strip()
+        if not clean or ':' in clean:
+            # No name, or one that would corrupt the wire format. Either way
+            # there is no honest command to build.
+            return '', 'missing_parameter'
+        vals[f] = clean
+    if 'runtime' in fields:
+        rt = _container_runtime(dev_id, vals.get('container', ''))
+        if not rt:
+            return '', 'missing_parameter'
+        vals['runtime'] = rt
+    return tmpl.format(**vals), None
 
 
 def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
     payload = alert.get('payload') if isinstance(alert.get('payload'), dict) else {}
-    tmpl = _ACTION_COMMANDS.get(action) or ''
-    unit = A._sanitize_str(str(payload.get('unit') or payload.get('name') or ''), 64)
-    container = A._sanitize_str(str(payload.get('container') or payload.get('name') or ''), 64)
-    cmd = tmpl.format(unit=unit, container=container) if tmpl else ''
+    family = A._device_os_family(dev)
+    cmd, problem = _resolve_params(_command_for(action, family), payload, dev_id)
     return {
         'ts': int(time.time()),
         'tenant': A._device_tenant(dev),
         'device_id': dev_id,
         'device_name': dev.get('name') or dev_id,
+        'os_family': family,
         'trigger': alert.get('event'),
         'alert_id': alert.get('id'),
         'action': action,
         'command': cmd,
+        'problem': problem,
         'blast_radius': radius,
         'precedent_action': precedent_action,
         'dry_run': 'not-run',
@@ -337,7 +532,7 @@ def run_autonomy_if_due():
 
     devices = A.load(A.DEVICES_FILE) or {}
     made = []
-    for alert, action in cands[:25]:
+    for alert, ladder in cands[:25]:
         dev_id = alert.get('device_id') or ''
         dev = devices.get(dev_id)
         if not dev:
@@ -346,6 +541,7 @@ def run_autonomy_if_due():
         policy = _policy_for(tenant)
         if policy.get('mode') == 'off':
             continue                      # nothing to record; nobody opted in
+        action = _pick_action(ladder, policy)
 
         similar = []
         try:
@@ -367,7 +563,8 @@ def run_autonomy_if_due():
             in_window=A._in_maintenance_window(dev) if hasattr(
                 A, '_in_maintenance_window') else True,
             actions_this_hour=_actions_this_hour(tenant),
-            dry_run_ok=True, has_plan=False)
+            dry_run_ok=True, has_plan=False,
+            os_family=plan.get('os_family'), plan_problem=plan.get('problem'))
 
         rec = autonomy.receipt(plan, decision)
         # v7.0.0: execution is NOT wired in this commit. A receipt with an ACT
