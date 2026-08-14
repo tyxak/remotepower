@@ -1933,8 +1933,13 @@ def build_network_map_corpus(devices, discovery, now=0, lldp=None, peers=None):
     for did, rec in recs:
         if not did:
             continue
-        if rec.get('connected_to'):
-            deps.append(f"- {_ep(did)} -> {_ep(rec['connected_to'])} (uplink)")
+        # Normalised: a list here rendered as "-> ['sw02']" in the text fed
+        # to the model, which is not a device id and not an answer.
+        _up = rec.get('connected_to')
+        if isinstance(_up, (list, tuple)):
+            _up = next((x for x in _up if isinstance(x, str) and x), '')
+        if _up and isinstance(_up, str):
+            deps.append(f"- {_ep(did)} -> {_ep(_up)} (uplink)")
         upstreams = rec.get('depends_on')
         for up in (upstreams if isinstance(upstreams, list) else []):
             if up:

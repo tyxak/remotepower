@@ -40047,6 +40047,29 @@ def _upstream_down(dev_id, devices, now, ttl):
     return None
 
 
+def _connected_to_id(dev):
+    """The upstream device id, whatever shape the store happens to hold.
+
+    `connected_to` is a scalar device id by contract: request_models declares
+    it `str`, the PUT handler sanitises it as one, and the docs describe it as
+    "the device-id this one connects to upstream". The demo seeder wrote a
+    LIST, and `target in devices` with an unhashable key raised TypeError —
+    which the WSGI layer turned into a 500 on GET /api/network-map, i.e. the
+    Network map page did not load at all on the seeded instance.
+
+    A read path should not crash on a field whose type it merely assumes. A
+    hand-edited store, an older record or a future importer can all produce
+    the other shape, so this normalises rather than trusting: a list yields its
+    first usable entry, anything else yields ''.
+    """
+    v = dev.get('connected_to') if isinstance(dev, dict) else None
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (list, tuple)):
+        return next((x for x in v if isinstance(x, str) and x), '')
+    return ''
+
+
 def handle_network_map() -> None:
     """``GET /api/network-map`` — nodes, edges, tunnels, positions.
 
@@ -40134,7 +40157,7 @@ def handle_network_map() -> None:
         })
     edges = []
     for dev_id, dev in devices.items():
-        target = dev.get('connected_to', '')
+        target = _connected_to_id(dev)
         if target and target in devices:
             edges.append({'from': dev_id, 'to': target})
     # v3.4.2: dependency edges (downstream → upstream), distinct from physical

@@ -188,31 +188,31 @@ def _guard_demo_target(target, override=False):
 # so the agented hosts can reference them in connected_to.
 FAKE_DEVICES = [
     # Agentless — switches, APs
-    {'id': 'sw01', 'name': 'switch-core',  'os': 'JunOS',   'ip': '10.0.0.1',  'mac': '02:00:5e:00:01:01', 'group': 'network', 'tags': ['switch', 'core'],  'agentless': True, 'connected_to': []},
-    {'id': 'sw02', 'name': 'switch-rack',  'os': 'UniFi',   'ip': '10.0.0.2',  'mac': '02:00:5e:00:01:02', 'group': 'network', 'tags': ['switch'],          'agentless': True, 'connected_to': ['sw01']},
-    {'id': 'ap01', 'name': 'ap-living',    'os': 'UniFi',   'ip': '10.0.0.10', 'mac': '02:00:5e:00:01:10', 'group': 'network', 'tags': ['ap', 'wifi'],      'agentless': True, 'connected_to': ['sw01']},
-    {'id': 'ap02', 'name': 'ap-office',    'os': 'UniFi',   'ip': '10.0.0.11', 'mac': '02:00:5e:00:01:11', 'group': 'network', 'tags': ['ap', 'wifi'],      'agentless': True, 'connected_to': ['sw01']},
+    {'id': 'sw01', 'name': 'switch-core',  'os': 'JunOS',   'ip': '10.0.0.1',  'mac': '02:00:5e:00:01:01', 'group': 'network', 'tags': ['switch', 'core'],  'agentless': True, 'connected_to': ''},
+    {'id': 'sw02', 'name': 'switch-rack',  'os': 'UniFi',   'ip': '10.0.0.2',  'mac': '02:00:5e:00:01:02', 'group': 'network', 'tags': ['switch'],          'agentless': True, 'connected_to': 'sw01'},
+    {'id': 'ap01', 'name': 'ap-living',    'os': 'UniFi',   'ip': '10.0.0.10', 'mac': '02:00:5e:00:01:10', 'group': 'network', 'tags': ['ap', 'wifi'],      'agentless': True, 'connected_to': 'sw01'},
+    {'id': 'ap02', 'name': 'ap-office',    'os': 'UniFi',   'ip': '10.0.0.11', 'mac': '02:00:5e:00:01:11', 'group': 'network', 'tags': ['ap', 'wifi'],      'agentless': True, 'connected_to': 'sw01'},
 
     # Agented hosts
-    {'id': 'pmx01', 'name': 'proxmox.lab',       'os': 'Debian 12',           'ip': '10.0.1.10', 'mac': '52:54:00:11:01:10', 'group': 'infra',   'tags': ['hypervisor', 'critical'],   'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'tnas',  'name': 'truenas.lab',       'os': 'Debian 12',           'ip': '10.0.1.20', 'mac': '52:54:00:11:01:20', 'group': 'storage', 'tags': ['nas', 'critical', 'backup'], 'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'fw01',  'name': 'opnsense.lab',      'os': 'Debian 12',           'ip': '10.0.0.254','mac': '52:54:00:11:00:fe', 'group': 'network', 'tags': ['firewall', 'critical'],     'agentless': False, 'connected_to': ['sw01']},
-    {'id': 'pi1',   'name': 'pihole.lab',        'os': 'Raspberry Pi OS',     'ip': '10.0.2.10', 'mac': '52:54:00:11:02:10', 'group': 'services','tags': ['dns', 'pi'],                'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'ng01',  'name': 'nginx.lab',         'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.20', 'mac': '52:54:00:11:02:20', 'group': 'services','tags': ['web', 'proxy'],             'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'jf01',  'name': 'jellyfin.lab',      'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.30', 'mac': '52:54:00:11:02:30', 'group': 'media',   'tags': ['media', 'streaming'],       'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'gt01',  'name': 'gitea.lab',         'os': 'Debian 12',           'ip': '10.0.2.40', 'mac': '52:54:00:11:02:40', 'group': 'services','tags': ['git', 'dev'],               'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'ha01',  'name': 'home-assistant.lab','os': 'Alpine 3.20',         'ip': '10.0.2.50', 'mac': '52:54:00:11:02:50', 'group': 'services','tags': ['home', 'iot'],              'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'nc01',  'name': 'nextcloud.lab',     'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.60', 'mac': '52:54:00:11:02:60', 'group': 'services','tags': ['files', 'cloud'],           'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'vw01',  'name': 'vaultwarden.lab',   'os': 'Alpine 3.20',         'ip': '10.0.2.70', 'mac': '52:54:00:11:02:70', 'group': 'services','tags': ['secrets'],                  'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'pr01',  'name': 'prometheus.lab',    'os': 'Debian 12',           'ip': '10.0.2.80', 'mac': '52:54:00:11:02:80', 'group': 'monitoring','tags': ['metrics', 'grafana'],     'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'bk01',  'name': 'backup.lab',        'os': 'Debian 12',           'ip': '10.0.2.90', 'mac': '52:54:00:11:02:90', 'group': 'storage', 'tags': ['backup', 'restic'],         'agentless': False, 'connected_to': ['sw02']},
+    {'id': 'pmx01', 'name': 'proxmox.lab',       'os': 'Debian 12',           'ip': '10.0.1.10', 'mac': '52:54:00:11:01:10', 'group': 'infra',   'tags': ['hypervisor', 'critical'],   'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'tnas',  'name': 'truenas.lab',       'os': 'Debian 12',           'ip': '10.0.1.20', 'mac': '52:54:00:11:01:20', 'group': 'storage', 'tags': ['nas', 'critical', 'backup'], 'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'fw01',  'name': 'opnsense.lab',      'os': 'Debian 12',           'ip': '10.0.0.254','mac': '52:54:00:11:00:fe', 'group': 'network', 'tags': ['firewall', 'critical'],     'agentless': False, 'connected_to': 'sw01'},
+    {'id': 'pi1',   'name': 'pihole.lab',        'os': 'Raspberry Pi OS',     'ip': '10.0.2.10', 'mac': '52:54:00:11:02:10', 'group': 'services','tags': ['dns', 'pi'],                'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'ng01',  'name': 'nginx.lab',         'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.20', 'mac': '52:54:00:11:02:20', 'group': 'services','tags': ['web', 'proxy'],             'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'jf01',  'name': 'jellyfin.lab',      'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.30', 'mac': '52:54:00:11:02:30', 'group': 'media',   'tags': ['media', 'streaming'],       'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'gt01',  'name': 'gitea.lab',         'os': 'Debian 12',           'ip': '10.0.2.40', 'mac': '52:54:00:11:02:40', 'group': 'services','tags': ['git', 'dev'],               'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'ha01',  'name': 'home-assistant.lab','os': 'Alpine 3.20',         'ip': '10.0.2.50', 'mac': '52:54:00:11:02:50', 'group': 'services','tags': ['home', 'iot'],              'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'nc01',  'name': 'nextcloud.lab',     'os': 'Ubuntu 24.04 LTS',    'ip': '10.0.2.60', 'mac': '52:54:00:11:02:60', 'group': 'services','tags': ['files', 'cloud'],           'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'vw01',  'name': 'vaultwarden.lab',   'os': 'Alpine 3.20',         'ip': '10.0.2.70', 'mac': '52:54:00:11:02:70', 'group': 'services','tags': ['secrets'],                  'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'pr01',  'name': 'prometheus.lab',    'os': 'Debian 12',           'ip': '10.0.2.80', 'mac': '52:54:00:11:02:80', 'group': 'monitoring','tags': ['metrics', 'grafana'],     'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'bk01',  'name': 'backup.lab',        'os': 'Debian 12',           'ip': '10.0.2.90', 'mac': '52:54:00:11:02:90', 'group': 'storage', 'tags': ['backup', 'restic'],         'agentless': False, 'connected_to': 'sw02'},
     # v6.4.1: the demo had ZERO Windows and ZERO macOS hosts, so every
     # cross-platform surface built over the last three releases — win_posture,
     # mac_posture, the laptop signals (chassis/battery/uptime_seconds), launchd
     # services — rendered empty in the demo even though the code shipped. One
     # of each, and both are laptops so the chassis/battery path is exercised.
-    {'id': 'wks01', 'name': 'design-win11',      'os': 'Windows 11 Pro 24H2', 'ip': '10.0.3.10', 'mac': '52:54:00:11:03:10', 'group': 'workstations', 'tags': ['laptop', 'windows'], 'agentless': False, 'connected_to': ['sw02']},
-    {'id': 'mbp01', 'name': 'mette-macbook',     'os': 'macOS 15.2',          'ip': '10.0.3.20', 'mac': '52:54:00:11:03:20', 'group': 'workstations', 'tags': ['laptop', 'macos'],   'agentless': False, 'connected_to': ['ap02']},
+    {'id': 'wks01', 'name': 'design-win11',      'os': 'Windows 11 Pro 24H2', 'ip': '10.0.3.10', 'mac': '52:54:00:11:03:10', 'group': 'workstations', 'tags': ['laptop', 'windows'], 'agentless': False, 'connected_to': 'sw02'},
+    {'id': 'mbp01', 'name': 'mette-macbook',     'os': 'macOS 15.2',          'ip': '10.0.3.20', 'mac': '52:54:00:11:03:20', 'group': 'workstations', 'tags': ['laptop', 'macos'],   'agentless': False, 'connected_to': 'ap02'},
 ]
 
 
@@ -573,7 +573,7 @@ def build_devices() -> dict:
             'enrolled_at': now() - 86400 * rng.randint(30, 365),
             'last_seen':   last_seen,
             'agentless':   dev['agentless'],
-            'connected_to': dev.get('connected_to', []),
+            'connected_to': dev.get('connected_to', ''),
             # v3.0.2: most devices are monitored; bk01 (backup.lab) is
             # intentionally unmonitored to showcase how alerts get
             # suppressed for a device that's mid-migration / decommissioning.
