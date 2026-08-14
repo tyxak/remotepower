@@ -422,12 +422,25 @@ def verification_failed(before, after):
     return a > b
 
 
-def receipt(plan, decision, *, outcome=None, verified=None, rolled_back=False):
+def receipt(plan, decision, *, outcome=None, verified=None, verify_due=None):
     """The artifact an operator, an auditor or a client actually reads.
 
     Deliberately self-contained: it carries the precedent and the blast radius
     that justified the decision, not a pointer to them, because the alert may be
     pruned and the fleet will have changed by the time anyone asks.
+
+    v7.0.0: `rolled_back` is GONE and `verify_due` replaces it. Nothing here
+    rolls back, and nothing can: you cannot un-restart a service, un-vacuum a
+    journal or un-reboot a host. A field that was always False implied a
+    capability that does not exist — the same UI-that-lies shape this project
+    keeps finding — and an operator reading a receipt would reasonably conclude
+    a failed action had been undone.
+
+    What actually happens instead is VERIFICATION: the host's own checks engine
+    is sampled before the action and again after the agent has had time to run
+    it, and a result that made things worse raises `remediation_failed` rather
+    than being quietly reversed. `verify_due` is when that second sample is owed;
+    `verified` is True, False or None (not yet).
     """
     return {
         'ts': plan.get('ts'),
@@ -448,5 +461,5 @@ def receipt(plan, decision, *, outcome=None, verified=None, rolled_back=False):
         'dry_run': plan.get('dry_run'),
         'outcome': outcome,
         'verified': verified,
-        'rolled_back': bool(rolled_back),
+        'verify_due': verify_due,
     }

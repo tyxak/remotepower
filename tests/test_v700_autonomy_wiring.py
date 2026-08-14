@@ -133,12 +133,13 @@ class TestShadowRecordsButNeverActs(_Base):
             self.assertIn(k, r, k)
 
 
-class TestTheLoopCannotExecuteYet(_Base):
+class TestTheLoopExecutes(_Base):
 
-    def test_an_act_verdict_is_recorded_as_not_executed(self):
-        """Execution lands behind the same switch in a later commit. Until it
-        does, an ACT must be visibly inert — if this ever silently passes, the
-        loop stopped being shadow without anyone deciding that."""
+    def test_an_act_verdict_dispatches_and_owes_a_verification(self):
+        """v7.0.0: ACT now dispatches. The receipt must say what happened to
+        the command AND carry the before-snapshot plus the time the second
+        checks sample is owed — a dispatch with no verify_due is an action
+        nobody will ever grade."""
         self._alert()
         self._policy('enabled', allowed_actions=['restart_service'],
                      max_blast_radius=99, require_window=False,
@@ -149,9 +150,39 @@ class TestTheLoopCannotExecuteYet(_Base):
              'tenant': 'default', 'resolution': 'restarted',
              'recommended_action': 'systemctl restart nginx'} for _ in range(4)]})
         api.run_autonomy_if_due()
-        for r in self._receipts():
-            if r['verdict'] == autonomy.ACT:
-                self.assertIn('not-executed', str(r.get('outcome') or ''), r)
+        acted = [r for r in self._receipts() if r['verdict'] == autonomy.ACT]
+        self.assertTrue(acted, 'nothing acted — the envelope refused, so this '
+                               'test is measuring the wrong thing')
+        for r in acted:
+            self.assertEqual(r.get('outcome'), 'queued', r)
+            self.assertIsNotNone(r.get('verify_due'),
+                                 'an action with no verify_due is one nobody '
+                                 'will ever grade')
+            self.assertIsNotNone(r.get('before_checks'),
+                                 'no before-snapshot — the comparison has '
+                                 'nothing to compare against')
+            # The normalisation that makes the comparison mean anything.
+            self.assertIn('failing', r['before_checks'],
+                          '_host_check_summary has no `failing` key; without '
+                          'normalising it, verification compares 0 with 0 on '
+                          'every host and reports every action as verified')
+            self.assertIsNone(r.get('verified'), 'not verified yet')
+            self.assertNotIn('rolled_back', r)
+
+    def test_the_command_actually_reaches_the_queue(self):
+        """'queued' in a receipt is a claim. This checks the command channel."""
+        self._alert()
+        self._policy('enabled', allowed_actions=['restart_service'],
+                     max_blast_radius=99, require_window=False,
+                     require_verified_backup=False, approval_for_destructive=False)
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'source': 'operator', 'event': 'failed_unit', 'kind': '',
+             'tenant': 'default', 'resolution': 'restarted',
+             'recommended_action': 'systemctl restart nginx'} for _ in range(4)]})
+        api.run_autonomy_if_due()
+        queued = (api.load(api.CMDS_FILE) or {}).get('d1') or []
+        self.assertIn('svc:restart:nginx.service', [str(c) for c in queued],
+                      f'the receipt said queued; the queue holds {queued}')
 
     def test_no_command_is_built_from_remote_alert_text(self):
         """The command SHAPE lives beside the safety analysis; the alert may
@@ -175,6 +206,101 @@ class TestTheLoopCannotExecuteYet(_Base):
             'svc:restart:{unit}', {'unit': 'x:stop:sshd'}, 'd1')
         self.assertEqual(cmd, '')
         self.assertEqual(prob, 'missing_parameter')
+
+
+class TestVerificationClosesTheLoop(_Base):
+    """Dispatch is asynchronous, so "did it work" is answered on a later sweep.
+
+    The comparison uses the host's OWN checks engine, so the loop cannot invent
+    a definition of healthy nobody else shares — and it does not roll anything
+    back, because nothing here can be rolled back.
+    """
+
+    def _acted_receipt(self, before_failing, verify_due_offset=-1):
+        """A receipt in the state a dispatch leaves behind."""
+        now = int(time.time())
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [{
+            'ts': now - 5000, 'tenant': 'default', 'device_id': 'd1',
+            'device_name': 'web01', 'trigger': 'failed_unit',
+            'action': 'restart_service', 'command': 'svc:restart:nginx.service',
+            'verdict': autonomy.ACT, 'reason': 'ok', 'outcome': 'queued',
+            'verified': None, 'verify_due': now + verify_due_offset,
+            'before_checks': {'failing': before_failing},
+        }], 'last_run': 0})
+        return now
+
+    def test_a_receipt_whose_window_has_not_elapsed_is_left_alone(self):
+        """Verifying before the agent has had a chance to run the command would
+        report every action as a failure."""
+        self._acted_receipt(0, verify_due_offset=+9999)
+        api._verify_due_receipts(int(time.time()))
+        self.assertIsNone(self._receipts()[0]['verified'])
+
+    def test_no_regression_verifies_the_action(self):
+        self._acted_receipt(9)          # it was bad before; anything is an improvement
+        api._verify_due_receipts(int(time.time()))
+        r = self._receipts()[0]
+        self.assertIs(r['verified'], True)
+        self.assertIn('after_checks', r)
+
+    def test_a_regression_marks_it_failed_and_raises_the_alert(self):
+        """The honest capability: say the fix made things worse. There is no
+        rollback — you cannot un-restart a service."""
+        self._acted_receipt(0)          # nothing was failing before
+        fired = []
+        real = api.fire_webhook
+        api.fire_webhook = lambda ev, payload=None, **kw: fired.append((ev, payload))
+        try:
+            # Force the "after" sample to look worse than the before.
+            real_sum = api._host_check_summary
+            api._host_check_summary = lambda checks: {
+                'counts': {'ok': 0, 'warning': 0, 'critical': 3, 'unknown': 0},
+                'worst': 'critical', 'total': 3}
+            try:
+                api._verify_due_receipts(int(time.time()))
+            finally:
+                api._host_check_summary = real_sum
+        finally:
+            api.fire_webhook = real
+        r = self._receipts()[0]
+        self.assertIs(r['verified'], False)
+        self.assertIn('verification failed', str(r.get('outcome')))
+        self.assertEqual([e for e, _p in fired], ['remediation_failed'],
+                         'a fix that made things worse must page somebody')
+
+    def test_the_event_it_raises_is_a_real_one(self):
+        """An invented event name reaches no channel and no inbox."""
+        self.assertIn('remediation_failed', api.EVENT_REGISTRY)
+        self.assertIn('severity', api.EVENT_REGISTRY['remediation_failed'])
+
+
+class TestEscalationBecomesARealApproval(_Base):
+
+    def test_it_parks_a_confirmation_an_admin_can_see(self):
+        """An ESCALATE verdict that only wrote the word "escalate" into a
+        receipt would be a queue nobody can approve."""
+        self._alert()
+        self._policy('enabled', allowed_actions=['reboot'],
+                     max_blast_radius=99, require_window=False,
+                     require_verified_backup=False, approval_for_destructive=True)
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'reboot_required', 'device_id': 'd1',
+            'severity': 'high', 'payload': {}}]})
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'source': 'operator', 'event': 'reboot_required', 'kind': '',
+             'tenant': 'default', 'resolution': 'rebooted',
+             'recommended_action': 'reboot'} for _ in range(4)]})
+        api.run_autonomy_if_due()
+        esc = [r for r in self._receipts() if r['verdict'] == autonomy.ESCALATE]
+        self.assertTrue(esc, f'nothing escalated: {self._receipts()}')
+        self.assertIn('approval', str(esc[0].get('outcome')))
+        self.assertTrue(esc[0].get('confirmation_id'),
+                        'no confirmation id — the approval is not in the ledger')
+        pend = api.load(api.CONFIRMATIONS_FILE) or {}
+        blob = repr(pend)
+        self.assertIn(esc[0]['confirmation_id'], blob,
+                      'the id is in the receipt but not in the confirmations '
+                      'store, so no admin can act on it')
 
 
 class TestEventsWithoutAnAnalysisAreNeverCandidates(_Base):

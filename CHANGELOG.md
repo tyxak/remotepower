@@ -99,10 +99,22 @@ command out of alert text; touch a device outside the acting tenant; or decide
 for itself whether it worked — that judgement belongs to the checks engine, and
 an increase in failing checks rolls the action back.
 
-Execution is not enabled in this build. The loop reaches its verdict and records
-it; a receipt that would have acted is marked `not-executed`. The signed command
-hop, the approval flow and post-action verification land next, behind the same
-switch. Shadow is complete and is the way to use this today.
+**It acts through the operator's own command channel, and it verifies.** A
+permitted action is queued the way a person's command is queued, so every guard
+they pass it passes — maintenance mode, quarantine, audit mode, the four-eyes
+gate — and a refusal is recorded as a refusal rather than as success. An
+escalated action becomes a real Confirmations entry an admin can approve.
+
+Dispatch is asynchronous, so "did it work" is answered on a later sweep: the
+host's own checks are sampled before the action and again fifteen minutes later,
+and if failing checks went UP the receipt says so and `remediation_failed` fires.
+
+**There is no rollback, and the receipt no longer implies one.** You cannot
+un-restart a service, un-vacuum a journal or un-reboot a host. The `rolled_back`
+field was always false, which claimed a capability that does not exist — an
+operator reading a receipt could reasonably have concluded a failed action had
+been undone. It is replaced by `verify_due`, and the honest capability is
+telling you promptly, with the numbers, that a fix made things worse.
 
 
 A release about the checks rather than the code they check. Six guardrails

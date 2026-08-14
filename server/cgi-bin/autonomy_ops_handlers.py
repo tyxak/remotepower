@@ -531,6 +531,139 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
     }
 
 
+# How long the agent gets to pick the command up and run it before the second
+# checks sample is taken. Dispatch is ASYNCHRONOUS — the command waits in the
+# queue until the host's next heartbeat — so "verify after acting" cannot mean
+# "verify on the next line". Generous on purpose: a slow poll interval must not
+# be reported as a failed remediation.
+_VERIFY_DELAY_S = 900
+
+
+def _check_summary_for(dev_id, dev):
+    """The host's own checks verdict, from the engine the Checks page uses.
+
+    Autonomy does NOT get its own opinion of whether a host is healthy. Reusing
+    `_host_checks` means the operator's own thresholds, mutes and disabled rows
+    decide, so the loop can never claim success against a definition of healthy
+    nobody else shares.
+    """
+    cfg = A._config_ro() or {}
+    disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
+    hw = {}
+    if A.backend_exists(A.HARDWARE_FILE):
+        hw = (A.load(A.HARDWARE_FILE) or {}).get(dev_id) or {}
+    checks = A._host_checks(
+        dev_id, dev, hw, disabled, int(time.time()), A.get_online_ttl(),
+        custom_defs=cfg.get('custom_checks') or [],
+        scripts=A._load_custom_scripts(),
+        exposure_mutes=cfg.get('exposure_mutes') or [],
+        **A._checks_threshold_kwargs(cfg))
+    sm = A._host_check_summary(checks) or {}
+    # NORMALISE to the key the pure comparison reads. `_host_check_summary`
+    # returns {'counts': {ok, warning, critical, unknown}, 'worst', 'total'} —
+    # it has no `failing`, so `verification_failed` would have compared 0 with 0
+    # on every host, forever, and reported every action as verified. Caught by
+    # printing a real summary instead of assuming its shape; it is the same
+    # dead-signal shape as a consumer reading a key no producer writes.
+    counts = sm.get('counts') or {}
+    sm['failing'] = int(counts.get('critical', 0) or 0) + int(counts.get('warning', 0) or 0)
+    return sm
+
+
+def _dispatch(dev_id, dev, cmd):
+    """Queue the command. Returns (outcome, ok).
+
+    `_queue_command_batch`, never `_queue_command`: the latter calls respond()
+    on its gate checks, which raises HTTPError and is only safe inside a real
+    request. This runs from the cadence sweep with none in flight, and the
+    difference between the two is a 500 on somebody's heartbeat.
+
+    The batch helper carries every guard an operator's own command passes —
+    maintenance mode, quarantine, audit mode, the four-eyes gate — so a refusal
+    here is the same refusal a person would have got, reported as it happened
+    rather than as success.
+    """
+    try:
+        res = (A._queue_command_batch([dev_id], cmd, 'autonomy') or {}).get(dev_id) or {}
+    except Exception as exc:                       # a guard that raises, not returns
+        return f'refused: {type(exc).__name__}', False
+    if res.get('approval_required'):
+        return f"awaiting approval ({res.get('confirmation_id')})", False
+    if not res.get('ok'):
+        return f"refused: {res.get('error') or 'unknown'}", False
+    return 'queued', True
+
+
+def _escalate(dev_id, cmd):
+    """Park the action as a real four-eyes confirmation.
+
+    An ESCALATE verdict that only wrote the word "escalate" into a receipt would
+    be a queue nobody can see and nobody can approve. This puts it in the
+    confirmations ledger an admin already works from, so approving it dispatches
+    through the ordinary path.
+    """
+    try:
+        cid = A._park_for_approval(dev_id, cmd, 'autonomy', A._command_kind(cmd),
+                                   reason='Proposed by autonomous remediation')
+        return f'parked for approval ({cid})', cid
+    except Exception as exc:
+        return f'could not park for approval: {type(exc).__name__}', None
+
+
+def _verify_due_receipts(now):
+    """Second checks sample for actions whose verify window has passed.
+
+    Compares against the snapshot taken before the action, using the pure
+    `verification_failed` rule: any increase in FAILING checks is a regression.
+    A regression raises `remediation_failed` — the event that already exists for
+    exactly this ("an auto-remediation ran but its alert did not clear").
+
+    It does NOT roll anything back, and the receipt no longer pretends
+    otherwise: you cannot un-restart a service or un-reboot a host. Telling the
+    operator plainly that a fix made things worse is the honest capability.
+    """
+    store = A._load_ro(A.AUTONOMY_RECEIPTS_FILE) or {}
+    rows = store.get('receipts') or []
+    due = [r for r in rows if isinstance(r, dict) and r.get('verified') is None
+           and r.get('verify_due') and int(r['verify_due']) <= now]
+    if not due:
+        return
+    devices = A.load(A.DEVICES_FILE) or {}
+    verdicts, alerts = {}, []
+    for r in due:
+        dev = devices.get(r.get('device_id'))
+        if not dev:
+            verdicts[r.get('ts')] = (False, 'device is gone')
+            continue
+        after = _check_summary_for(r['device_id'], dev)
+        worse = autonomy.verification_failed(r.get('before_checks') or {}, after)
+        verdicts[r.get('ts')] = (not worse, after)
+        if worse:
+            alerts.append((r, after))
+    if verdicts:
+        with A._LockedUpdate(A.AUTONOMY_RECEIPTS_FILE) as st:
+            for row in (st.get('receipts') or []):
+                v = verdicts.get(row.get('ts')) if isinstance(row, dict) else None
+                if v is None:
+                    continue
+                ok, after = v
+                row['verified'] = bool(ok)
+                row['after_checks'] = after if isinstance(after, dict) else None
+                if not ok:
+                    row['outcome'] = (row.get('outcome') or '') + ' — verification failed'
+    # Fire AFTER the lock: fire_webhook is self-locking and the deferral rules
+    # apply, but keeping it outside is the habit this codebase asks for.
+    for r, after in alerts:
+        A.fire_webhook('remediation_failed', {
+            'device_id': r.get('device_id'), 'device_name': r.get('device_name'),
+            'name': r.get('action'), 'rule_name': r.get('action'),
+            'detail': (f"autonomous {r.get('action')} on {r.get('device_name')} ran, "
+                       f"and failing checks went from "
+                       f"{(r.get('before_checks') or {}).get('failing', 0)} to "
+                       f"{after.get('failing', 0)}"),
+        })
+
+
 def run_autonomy_if_due():
     """Cadence: evaluate open alerts against each tenant's policy.
 
@@ -547,6 +680,14 @@ def run_autonomy_if_due():
         return
     if not A._module_on('autonomy'):
         return
+
+    # Close out anything whose verify window has elapsed BEFORE looking for new
+    # work, so a host that a previous action made worse is on record before this
+    # sweep considers acting on it again.
+    try:
+        _verify_due_receipts(now)
+    except Exception as exc:
+        A.sys.stderr.write(f'[remotepower] autonomy verify failed: {exc}\n')
 
     alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
     cands = _candidate_alerts(alerts)
@@ -592,13 +733,29 @@ def run_autonomy_if_due():
             os_family=plan.get('os_family'), plan_problem=plan.get('problem'))
 
         rec = autonomy.receipt(plan, decision)
-        # v7.0.0: execution is NOT wired in this commit. A receipt with an ACT
-        # verdict means "the envelope would have permitted this" — the signed
-        # command path, the four-eyes hop and the post-action verification land
-        # next, behind the same module switch. Recording the verdict first is
-        # what makes shadow mode gradeable before anything can run.
+        # v7.0.0: ACT dispatches, ESCALATE parks for approval. Both go through
+        # the operator's own command path, so every guard a person's command
+        # passes applies here unchanged.
+        #
+        # SHADOW NEVER REACHES THIS: `decide()` short-circuits on the mode
+        # before any ACT branch, so a shadow tenant produces a SHADOW verdict
+        # and falls through both arms below. That is checked exhaustively over
+        # every input combination in tests/test_v700_autonomy_core.py, and it is
+        # the property the whole adoption story rests on.
         if decision.verdict == autonomy.ACT:
-            rec['outcome'] = 'not-executed (execution not yet enabled)'
+            before = _check_summary_for(dev_id, dev)
+            outcome, ok = _dispatch(dev_id, dev, plan.get('command') or '')
+            rec['outcome'] = outcome
+            if ok:
+                # Dispatch is asynchronous — the agent collects the command on
+                # its next heartbeat — so the second checks sample is owed
+                # later, not now.
+                rec['before_checks'] = before
+                rec['verify_due'] = now + _VERIFY_DELAY_S
+        elif decision.verdict == autonomy.ESCALATE:
+            rec['outcome'], cid = _escalate(dev_id, plan.get('command') or '')
+            if cid:
+                rec['confirmation_id'] = cid
         made.append(rec)
 
     for rec in made:

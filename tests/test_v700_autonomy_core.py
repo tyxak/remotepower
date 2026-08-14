@@ -339,7 +339,16 @@ class TestReceiptIsSelfContained(unittest.TestCase):
             self.assertIn(k, r, k)
         self.assertEqual(r['precedent']['samples'], 3)
         self.assertEqual(r['device_name'], 'web01')
-        self.assertFalse(r['rolled_back'])
+        # v7.0.0: `rolled_back` is gone. Nothing here rolls back and nothing
+        # can — you cannot un-restart a service or un-reboot a host — so a
+        # field that was always False implied a capability that does not
+        # exist. Verification replaces it.
+        self.assertNotIn('rolled_back', r)
+        self.assertIn('verify_due', r)
+        self.assertIs(r['verified'], True)          # what the caller passed
+        # …and None when nobody has verified it yet, which is the state every
+        # receipt starts in.
+        self.assertIsNone(A.receipt(plan, d, outcome='ok')['verified'])
 
 
 if __name__ == '__main__':

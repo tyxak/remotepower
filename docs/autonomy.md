@@ -22,8 +22,8 @@ it do that?" is always a receipt rather than a shrug.
    services, network neighbours — discounted if the host has healthy siblings.
 4. It checks the whole safety envelope you configured.
 5. In shadow it writes a receipt and stops. With autonomy enabled it acts
-   through the same signed, audited command path an operator uses, then
-   re-runs that host's own checks to decide whether it worked.
+   through the same audited command path an operator uses, then re-runs that
+   host's own checks 15 minutes later to decide whether it worked.
 
 ## It acts on precedent, not on a guess
 
@@ -107,8 +107,9 @@ a private path to a host.
   with no unit name refuses as `missing_parameter`.
 * Touch a device outside the acting tenant.
 * Decide for itself whether it worked. That judgement belongs to the same
-  per-host checks engine you already use; if failing checks increase, the action
-  is rolled back.
+  per-host checks engine you already use; if failing checks increase, the
+  receipt says so and `remediation_failed` fires. It does not undo anything —
+  see below for why there is no rollback.
 
 ## Receipts
 
@@ -135,10 +136,33 @@ for blast_radius"* instead of showing you forty-one paragraphs.
 Step 3 is the point of the whole design. You are not asked to trust it — you are
 asked to check its homework for a month first.
 
-## Current limitations
+## What happens when it acts
 
-Execution is not enabled in this build: the loop reaches a verdict and records
-it, and a receipt that would have acted is marked `not-executed`. The signed
-command hop, the approval flow and post-action verification land next, behind
-the same switch. Shadow mode is complete and is the intended way to use this
-today.
+1. The command is queued through **the same channel an operator's own commands
+   use**. Every guard they pass, it passes: maintenance mode, quarantine, audit
+   mode, the four-eyes gate. A refusal is reported as a refusal, not as success.
+2. A **snapshot of the host's own checks** is taken first.
+3. Dispatch is asynchronous — the agent collects the command on its next
+   heartbeat — so a second checks sample is taken **15 minutes later**.
+4. If failing checks went **up**, the receipt is marked unverified and
+   `remediation_failed` fires. If they did not, the receipt is verified.
+
+An **escalated** action becomes a real entry in the Confirmations queue, with a
+reason saying it was proposed by autonomous remediation. Approving it dispatches
+through the ordinary path; ignoring it does nothing.
+
+## There is no rollback, and the receipt no longer implies one
+
+You cannot un-restart a service, un-vacuum a journal or un-reboot a host. Almost
+nothing this loop does is reversible, so a `rolled_back` field that was always
+false was claiming a capability that does not exist — an operator reading a
+receipt could reasonably have concluded a failed action had been undone.
+
+What you get instead is the honest version: it tells you the fix made things
+worse, promptly and with the numbers, and leaves the host in the state it is
+actually in. If you want a change reversed, you reverse it — with the full
+picture in front of you.
+
+That is also the argument for the blast-radius limit and the allow-list being
+tight to begin with. An action you would not want to have to undo by hand is one
+to leave switched off.
