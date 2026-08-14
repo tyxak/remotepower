@@ -27,6 +27,7 @@ Schedule a cron entry to re-run this every 30 minutes if you want
     */30 * * * * www-data python3 /opt/remotepower/packaging/seed-demo-data.py --apply --quiet
 """
 
+import math as _math
 import argparse
 import base64
 import datetime
@@ -663,8 +664,47 @@ def build_devices() -> dict:
                 'loadavg_5m':   round(load_per_cpu * cpu_count * rng.uniform(0.85, 1.05), 2),
                 'loadavg_15m':  round(load_per_cpu * cpu_count * rng.uniform(0.7, 1.0), 2),
                 'mounts':       mounts,
+                # v7.0.0: cpu_percent and disk_percent were NEVER SEEDED, so the
+                # CPU and Disk columns of the device table were blank on every
+                # host of the demo, along with the same two fields in the Data
+                # Explorer, the AI fleet preamble and the resource checks —
+                # `cpu_percent` alone is read in 21 places. Both are DERIVED from
+                # figures this function already computed rather than rolled
+                # separately, so the demo is internally consistent: a host the
+                # load average calls busy also reads busy in the CPU column, and
+                # the disk figure agrees with the mounts panel beside it.
+                # Saturating rather than linear: load-per-CPU above ~1 does not
+                # keep raising utilisation (it is queueing, often on I/O), and a
+                # linear multiplier pinned three hosts at exactly 99.0, which
+                # reads as the clamp artefact it was. 1 - e^-load lands busy
+                # hosts at 80-95%, medium at 30-60%, idle at 5-20%.
+                'cpu_percent':  round(min(99.0, max(0.4,
+                                     100 * (1 - _math.exp(-load_per_cpu))
+                                     + rng.gauss(0, 3))), 1),
+                'disk_percent': max([m['percent'] for m in mounts
+                                     if not m.get('network')] or [0.0]),
                 'kernel':       rng.choice(['6.1.0-21-amd64', '6.8.0-31-generic', '6.6.32-current']),
-                'uptime_s':     rng.randint(86400, 86400 * 180),
+                # v7.0.0: was `uptime_s`, which NOTHING on the server reads —
+                # the numeric field every consumer wants is `uptime_seconds`
+                # (added v6.1.2 precisely so hosts could be ranked by uptime).
+                # The seeder had been writing a dead key.
+                'uptime_seconds': rng.randint(86400, 86400 * 180),
+                # v7.0.0: the host's own hostname. Seeded from the device's real
+                # hostname so topology and LLDP joins, which match on it, line up
+                # on the demo the way they do in the field.
+                'hostname':     dev.get('hostname') or dev.get('name') or dev['id'],
+                # v7.0.0: UEFI Secure Boot, and the clock. One host deliberately
+                # skewed so the clock_skew check and the AI "clock unsynced" flag
+                # have something to show — an all-green demo teaches nothing.
+                'secure_boot':  bool(rng.random() < 0.7),
+                'clock':        ({'synced': False, 'offset_ms': 4200.0}
+                                 if dev['id'] == 'jf01'
+                                 else {'synced': True,
+                                       'offset_ms': round(rng.uniform(-40, 40), 1)}),
+                # v7.0.0: file-descriptor and conntrack headroom — both have
+                # configurable warn/crit thresholds and both rendered blank.
+                'fd_percent':   round(rng.uniform(2, 28), 1),
+                'conntrack_percent': round(rng.uniform(1, 22), 1),
                 'packages':     (lambda u: {'upgradable': u, 'security_updates': rng.randint(0, u) if u else 0})(rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]),
                 # v6.2.2: kernel modules visible from the agent context (healthy)
                 # so the demo shows the forced module-visibility Check passing.
