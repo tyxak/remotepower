@@ -2272,7 +2272,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-compliance', 'compliance_enabled', true],
   ['cfg-mod-pentest',    'pentest_enabled',    true],
   ['cfg-mod-ai_exec',    'ai_exec_enabled',    false],
-  ['cfg-mod-autonomy',   'autonomy_enabled',   false],
+  ['cfg-mod-autonomy',   'autonomy_enabled',   true],
 ];
 
 function _applyModuleNavGates(modules) {

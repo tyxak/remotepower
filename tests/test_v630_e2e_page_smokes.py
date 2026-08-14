@@ -32,7 +32,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 # install this sweep runs against. Named rather than silent — the assertion in
 # the walk fails if anything ELSE becomes unreachable, which is the whole point
 # of listing them.
-MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb', 'autonomy'}
+MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb'}
 
 
 def _sidebar_pages():

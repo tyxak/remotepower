@@ -1,8 +1,14 @@
 # Autonomous remediation
 
-RemotePower can fix recurring problems on its own. It ships switched **off**,
-and switching it on does not let it act — every tenant starts in **shadow**,
-where it records what it would have done so you can grade it first.
+RemotePower can fix recurring problems on its own. The page is there from the
+start so you can read it; the loop is **inert** until you say otherwise. Every
+tenant begins at **off**, which records nothing and acts on nothing. You move a
+tenant to **shadow** to have it write down what it *would* have done, grade
+that, and only then let it act.
+
+Visibility and permission are separate on purpose. Hiding the page would not
+have made anything safer — the per-tenant mode is what holds the loop still —
+and a feature nobody can find is a feature nobody can audit.
 
 This page explains what it will and will not do, and why the answer to "why did
 it do that?" is always a receipt rather than a shrug.
@@ -87,7 +93,7 @@ for blast_radius"* instead of showing you forty-one paragraphs.
 
 ## Recommended rollout
 
-1. Enable the module in **Settings → Advanced**. Nothing acts.
+1. Open the **Autonomy** page. It is empty, because nothing is recording yet.
 2. Set one tenant to **shadow**. Leave it for a few weeks.
 3. Read the receipts. For each one ask: would I have done that?
 4. Narrow the allow-list to the actions you agreed with, set a blast-radius

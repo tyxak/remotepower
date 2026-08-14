@@ -630,7 +630,7 @@ function _alertRowHtml(a, role) {
     <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
-    <td class="nowrap">${actions}</td>
+    <td><div class="alert-actions">${actions}</div></td>
   </tr>`;
 }
 function renderAlerts() {

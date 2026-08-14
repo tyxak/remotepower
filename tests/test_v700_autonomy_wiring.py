@@ -193,8 +193,14 @@ class TestSurfacesAreGated(_Base):
         self.assertIn('autonomy', api._MODULES)
         key, default, prefixes = api._MODULES['autonomy']
         self.assertEqual(key, 'autonomy_enabled')
-        self.assertFalse(default, 'autonomy must ship OFF')
         self.assertIn('/api/autonomy', prefixes)
+        # The module ships ON so the page is discoverable. That is NOT what
+        # keeps the loop inert — the per-tenant policy default is, and it is
+        # asserted right below. Hiding the nav was never the safety property;
+        # conflating the two is how a feature ends up invisible AND unsafe.
+        import autonomy as _a
+        self.assertEqual(_a.default_policy()['mode'], 'off',
+                         'the per-tenant default is the real safety gate')
 
     def test_policy_write_requires_admin(self):
         import inspect

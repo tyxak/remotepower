@@ -52,9 +52,10 @@ class TestModuleDefaults(unittest.TestCase):
                 # v6.2.0: the governed AI executor ships OFF. An install that
                 # never opts in must have no AI-initiated action path at all.
                 "ai_exec": False,
-                # v7.0.0: autonomous remediation ships OFF. An install that
-                # never opts in has no reachable autonomy surface at all.
-                "autonomy": False,
+                # v7.0.0: the PAGE is visible; the loop is inert. What keeps
+                # it inert is the per-tenant policy defaulting to off, not
+                # hiding the nav — a feature nobody can find is not shipped.
+                "autonomy": True,
             },
         )
 

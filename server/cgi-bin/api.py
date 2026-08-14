@@ -10416,7 +10416,7 @@ _MODULES = {
     'ai_exec':    ('ai_exec_enabled',        False, ('/api/ai-exec',)),
     # v7.0.0: autonomous remediation. OFF by default and gated at the
     # dispatcher, so an install that never opts in has no reachable surface.
-    'autonomy':   ('autonomy_enabled',       False, ('/api/autonomy',)),
+    'autonomy':   ('autonomy_enabled',       True,  ('/api/autonomy',)),
 }
 
 

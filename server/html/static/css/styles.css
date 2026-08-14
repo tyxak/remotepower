@@ -4913,6 +4913,14 @@ label.form-label:has(> input[type="checkbox"]) > .hint,
 label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3px 0 0; }
 .row-12-center { display: flex; align-items: center; gap: 12px; }
 .row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+/* v7.0.0: the Alerts row carries up to seven actions (Triage, Fix,
+   Mute, Clear line, Resolve, Incident, Ticket). They were in a
+   `nowrap` cell, so the whole table scrolled sideways to fit one long
+   line. Wrap them instead; the cap is what forces the wrap rather than
+   letting the column widen the table again. */
+.alert-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+                 min-width: 288px; max-width: 312px; }
+
 .col-4 { display: flex; flex-direction: column; gap: 4px; }
 .mb-6 { margin-bottom: 6px; }
 .mb-8 { margin-bottom: 8px; }

@@ -20,11 +20,18 @@ break-glass, maintenance windows, tenant isolation, a complete audit log, and a
 per-host checks engine that already defines what "healthy" means. Autonomy is
 those parts, wired into a loop.
 
-**It ships off, and switching it on does not let it act.** Every tenant starts
-in **shadow**, where the loop reaches a real verdict and records it without
-touching anything. You read the receipts, decide whether you would have done the
-same, and only then grant it something. That is the intended way to adopt this,
-and it is why shadow is a first-class mode rather than a debug flag.
+**The page is visible and the loop is inert.** Every tenant starts at **off**,
+recording nothing and acting on nothing; you move one to **shadow**, where the
+loop reaches a real verdict and writes it down without touching anything. You
+read the receipts, decide whether you would have done the same, and only then
+grant it something. That is the intended way to adopt this, and it is why shadow
+is a first-class mode rather than a debug flag.
+
+The module switch was initially default-off as well, which was one layer too
+many: it hid the page, and the safety it appeared to add was already carried by
+the per-tenant mode. A headline feature nobody can find is not shipped, and an
+inert loop nobody can read the receipts of cannot be graded — so the page is on
+and the loop is held still by the thing that actually holds it still.
 
 **It acts on precedent, not on a guess.** The proposal comes from this fleet's
 own incident memory — what actually closed this exact signature before. Two

@@ -276,7 +276,7 @@ class TestAccessibilityAxe(unittest.TestCase):
     # default to off, so they are unreachable here BY DESIGN — and audited for
     # real by the seeded sweep, whose demo config switches them on. Named, not
     # silent: the assertion below fails if anything ELSE becomes unreachable.
-    MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb', 'autonomy'}
+    MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb'}
 
     def _check_walk_result(self, target, results, label):
         with self.subTest(target=target):
@@ -456,7 +456,7 @@ _SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb',
                  # Module-gated OFF by default, so the empty-install breadth
                  # sweep cannot reach them at all — the demo config switches
                  # both on, which makes this the only place they get audited.
-                 'billing', 'kb', 'autonomy')
+                 'billing', 'kb')
 
 # ZERO, not a baseline. Every violation was a stray opacity declaration and
 # they are all gone, so there is nothing to grandfather.
