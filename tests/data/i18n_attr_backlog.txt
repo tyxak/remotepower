@@ -38,18 +38,13 @@
 127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
 192.168.1.1 / host:22 / https://…
 ASSET-12345
-Add another ring (up to 10)
-Ask anything. Ctrl/⌘+Enter to send
 CHG-1042
 CVE-2026-1234 CVE-2026-5678
-Click Render to fill the template…
 Cmdb func filter
 Customer-facing web 99.9%
 DELETE VOLUMES
-Download every monitor definition as JSON this Import accepts
 Dpol mode
 Dpol scope
-Filter blueprints…
 Get-Service | Where-Object Status -eq 'Stopped'
 Hc text cron
 Hi, we believe {ticket_id} is resolved…
@@ -59,13 +54,9 @@ Linux
 Linux baseline, Web server pack…
 Oti device
 Oti target value
-Previous device ([)
-Quick = fast/shallow. Full = thorough (all ports/severities, slower)
-Quick = fast/shallow. Full = thorough (all ports/severities, slower).
 REMOVE KMIP
 Rack A1
 RemotePower
-Send a redacted summary — titles, severities and host counts only, never the evidence — to the AI advisor
 Slack, , PagerDuty
 Swpol type
 Uncategorised
