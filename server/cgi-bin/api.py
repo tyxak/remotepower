@@ -40274,7 +40274,11 @@ def handle_tunnels_list() -> None:
     so the UI never has to deal with dangling endpoints.
     """
     require_auth()
-    devices = load(DEVICES_FILE)
+    # Scope-filtered: a tunnel row is a pair of device ids, so an unfiltered
+    # listing discloses ids of hosts in other tenants. Filtering here also
+    # keeps the existing "drop dangling endpoints" rule doing the right thing:
+    # an endpoint the caller cannot see is, for them, not a device.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     raw = _tunnels_load()
     out = []
     for tid, t in raw.items():
@@ -40312,7 +40316,10 @@ def handle_tunnel_add() -> None:
         respond(400, {'error': 'endpoints must be two non-empty strings'})
     if a == b:
         respond(400, {'error': 'a tunnel cannot have the same device on both ends'})
-    devices = load(DEVICES_FILE)
+    # Scope-filtered so a tenant admin cannot assert a relationship between
+    # two hosts they do not own; "not found" is the same answer they get for
+    # an id that does not exist, which is the right amount of information.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     for ep in (a, b):
         if ep not in devices:
             respond(400, {'error': f'device {ep} not found'})
@@ -59104,6 +59111,13 @@ def handle_inbound_webhooks_create():
     if not label:
         respond(400, {'error': 'label required'})
     scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
+    # A pinned device is an ATTRIBUTION target: _resolve_inbound_device honours
+    # the pin unconditionally, so every alert, syslog line and flow record
+    # POSTed to this token lands on that host. Pinning a device the caller
+    # cannot see lets one tenant write rows onto another's fleet. Sanitising
+    # the string checked its shape and nothing about who owns it.
+    if scope_dev:
+        _scope_block_device(scope_dev)
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
     if kind not in ('alert', 'syslog', 'snmp_trap', 'flow', 'itsm'):
@@ -59191,6 +59205,10 @@ def handle_inbound_webhook_toggle(token_id):
                         sd = str(body['scope_device_id'] or '').strip()
                         if sd and not _validate_id(sd):
                             respond(400, {'error': 'invalid scope_device_id'})
+                        # Same attribution target as create — re-pinning an
+                        # existing token is the same cross-tenant write.
+                        if sd:
+                            _scope_block_device(sd)
                         t['scope_device_id'] = sd
                         changes.append(f'scope_device_id={sd}')
                     if 'scope_tag' in body:

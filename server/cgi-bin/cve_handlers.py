@@ -156,6 +156,28 @@ def handle_cve_scan_status():
     A.respond(200, A.load(A.CVE_SCAN_STATUS_FILE) or {'running': False})
 
 
+def _campaign_visible(camp):
+    """May this caller see this campaign?
+
+    Campaigns carried no tenant at all, so any authenticated caller could read
+    every tenant's remediation plan and any admin could DELETE one. They are
+    stamped at create now; a row with no stamp predates that and stays visible
+    to everyone, because hiding existing campaigns on upgrade would look like
+    data loss. Mutating an unstamped row is restricted separately, below.
+    """
+    t = A._tenant_gate()
+    if t is None:                       # superadmin, or tenancy switched off
+        return True
+    return camp.get('tenant') in (None, t)
+
+
+def _campaign_mutable(camp):
+    """Stricter than visibility: an unstamped legacy campaign belongs to the
+    instance, so only an unscoped caller may edit or delete it."""
+    t = A._tenant_gate()
+    return True if t is None else camp.get('tenant') == t
+
+
 def handle_cve_campaigns():
     """GET /api/cve/campaigns — remediation campaigns with live affected counts.
     POST — create one (admin). A campaign scopes a set of CVEs (explicit ids OR a
@@ -165,8 +187,12 @@ def handle_cve_campaigns():
         A.require_auth()
         cve_all = A.load(A.CVE_FINDINGS_FILE) or {}
         cve_ignore = A.load(A.CVE_IGNORE_FILE) or {}
-        devices = A.load(A.DEVICES_FILE) or {}
-        camps = (A.load(A.CVE_CAMPAIGNS_FILE) or {}).get('campaigns') or []
+        # Scope-filtered: the burn-down counts are computed over this set, so an
+        # unfiltered fleet also inflates every campaign's affected-host numbers
+        # with hosts the caller cannot see.
+        devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+        camps = [c for c in ((A.load(A.CVE_CAMPAIGNS_FILE) or {}).get('campaigns') or [])
+                 if isinstance(c, dict) and _campaign_visible(c)]
         rows = [A._campaign_public(c, cve_all, cve_ignore, devices) for c in camps]
         rows.sort(key=lambda r: (r['completed_at'] is not None, -(r.get('created_at') or 0)))
         A.respond(200, {'ok': True, 'campaigns': rows})
@@ -184,6 +210,9 @@ def handle_cve_campaigns():
             if s in ('critical', 'high', 'medium', 'low')]
     now = int(A.time.time())
     camp = {'id': 'camp_' + A.secrets.token_hex(5), 'name': name,
+            # Stamped at create: there is no request context later, and this is
+            # the only thing that tells the read and delete paths who owns it.
+            'tenant': A._tenant_gate(),
             'owner': A._sanitize_str(str(body.get('owner') or actor), 64),
             'cve_ids': cve_ids, 'severities': sevs,
             'kev_only': bool(body.get('kev_only')),
@@ -205,7 +234,11 @@ def handle_cve_campaign(cid):
         removed = False
         with A._LockedUpdate(A.CVE_CAMPAIGNS_FILE) as store:
             before = store.get('campaigns') or []
-            after = [c for c in before if c.get('id') != cid]
+            # Keep a row whose id matches but which this caller may not mutate,
+            # so a cross-tenant delete falls through to the 404 below rather
+            # than silently succeeding.
+            after = [c for c in before
+                     if c.get('id') != cid or not _campaign_mutable(c)]
             removed = len(after) != len(before)
             store['campaigns'] = after
         if not removed:
@@ -218,7 +251,8 @@ def handle_cve_campaign(cid):
     body = A._read_valid(A.request_models.CveCampaignRequest)
     found = False
     with A._LockedUpdate(A.CVE_CAMPAIGNS_FILE) as store:
-        camp = next((c for c in (store.get('campaigns') or []) if c.get('id') == cid), None)
+        camp = next((c for c in (store.get('campaigns') or [])
+                     if c.get('id') == cid and _campaign_mutable(c)), None)
         if camp:
             found = True
             if 'name' in body:

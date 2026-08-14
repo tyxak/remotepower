@@ -160,7 +160,12 @@ def handle_dns_providers():
     # reported yet (the harvest reads account.conf on demand). Flag which report
     # an acme.sh install + which are online, so the picker can hint.
     acme_state = A.load(A.ACME_STATE_FILE) or {}
-    devs = A.load(A.DEVICES_FILE) or {}
+    # Scope-filtered: this list carries device ids AND hostnames, so an
+    # unfiltered roster hands a tenant admin the whole fleet. They are also
+    # the candidates for an "Import from agent" action, which should not offer
+    # a host the caller cannot otherwise reach. _scope_filter_devices folds in
+    # role scope and the tenant filter, and no-ops for an unscoped superadmin.
+    devs = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
     now = int(time.time())
     agent_devices = [{'id': did,
                       'name': d.get('name', did),

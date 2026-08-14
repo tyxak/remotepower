@@ -236,7 +236,11 @@ def handle_tickets():
     device_id = str(body.get('device_id', '')).strip()
     alert_internal = str(body.get('alert_id', '')).strip()
     now = int(time.time())
-    devices = A.load(A.DEVICES_FILE)
+    # Scope-filtered: `affected_devices` and the primary `device_id` are both
+    # validated against this set, and the ticket detail view later resolves
+    # those ids to HOSTNAMES. Naming a device the caller cannot see turned the
+    # ticket into a cross-tenant name oracle.
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
     dev_name = (devices.get(device_id) or {}).get('name', '') if device_id else ''
     alertid = ''
     number = None
@@ -369,7 +373,11 @@ def handle_ticket_get(tid):
             t['new_reply'] = False
         except Exception:
             pass
-    devs = A.load(A.DEVICES_FILE)
+    # Filtered on READ as well as on write: a ticket created before this fix,
+    # or by a superadmin, can still name a device this caller cannot see, and
+    # resolving it would hand over the hostname. An unresolvable id falls back
+    # to the id itself, exactly as it already did for a deleted device.
+    devs = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
     resp = dict(t)
     resp['affected_devices_resolved'] = [
         {'id': d, 'name': (devs.get(d) or {}).get('name', d)} for d in (t.get('affected_devices') or [])]
@@ -702,7 +710,9 @@ def handle_ticket_update(tid):
             if 'group' in body:
                 t['group'] = A._sanitize_str(str(body['group']), 64)
             if 'affected_devices' in body and isinstance(body['affected_devices'], list):
-                _devs = A.load(A.DEVICES_FILE)
+                # Same filter as create — this is the other door to the same
+                # field, and it also writes device_name into the ticket.
+                _devs = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
                 _aff = [str(x).strip() for x in body['affected_devices'][:50]
                         if A._validate_id(str(x).strip()) and str(x).strip() in _devs]
                 t['affected_devices'] = _aff
