@@ -989,6 +989,35 @@ from one that cannot.
   written.
 
 
+### You could not see what the product contained
+
+89 pages across 12 domains, and the sidebar accordion showed exactly one domain
+at a time — so about ten of them were visible at once. The command palette and
+the sidebar search both work well and both require you to already know what to
+type, which is no help when the question is "what is even in here?".
+
+**All pages** is a filterable map of every page, grouped by domain, each with a
+one-line description of what it answers. Type to narrow, Enter to open the first
+match.
+
+It is BUILT FROM THE SIDEBAR rather than from a list of pages, and that is the
+part worth keeping: a hand-kept copy would be a second registry, and every
+recurring bug in this project's notes is two registries drifting apart. Deriving
+it means a page added tomorrow appears with no code change, and a page hidden by
+a module switch is absent because it is hidden there.
+
+**The sidebar allows more than one group open at once.** The stored state is a
+set now, the old single-group key is migrated rather than discarded, and
+navigating to a page opens its domain WITHOUT closing anything you deliberately
+left open. There is an expand-all control that also collapses, so getting the
+tidy twelve-domain rail back is one click rather than twelve.
+
+A keyboard detail found by measuring rather than reading: pressing Enter in the
+filter navigated correctly and left the dialog OPEN, while a mouse click on the
+same card closed it. The Enter handler was synthesising a click, and the keydown
+carried on to another handler after the close had run. It calls the action
+directly and stops the event now.
+
 ### Every signal reaches the surface that needs it
 
 A sweep that enumerated every sysinfo key the agents send against every consumer

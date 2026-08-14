@@ -352,6 +352,9 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[rollouts.md](rollouts.md)** — Health-gated staged rollouts.
 - **[command-library.md](command-library.md)** — Saved commands and scripts.
 - **[app-catalog.md](app-catalog.md)** — One-click app deployment.
+- **[navigation.md](navigation.md)** — Finding your way around: the All-pages
+ map, the sidebar, the command palette and the search box, and which to use
+ when.
 - **[fleet-query.md](fleet-query.md)** — Fleet Query: the quick device-only
  filter in the toolbar.
 - **[data-explorer.md](data-explorer.md)** — Data Explorer: nested AND/OR

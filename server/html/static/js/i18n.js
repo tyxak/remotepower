@@ -54,6 +54,17 @@
     "Reboot the host": { fr: "Redémarrer l'hôte", de: "Den Host neu starten", zh: "重启主机", hi: "होस्ट रीबूट करें", es: "Reiniciar el host", ar: "إعادة تشغيل المضيف" },
     "Install pending updates": { fr: "Installer les mises à jour en attente", de: "Ausstehende Updates installieren", zh: "安装待处理的更新", hi: "लंबित अद्यतन स्थापित करें", es: "Instalar las actualizaciones pendientes", ar: "تثبيت التحديثات المعلقة" },
     "Rotate an exposed or stale credential": { fr: "Renouveler un identifiant exposé ou obsolète", de: "Eine offengelegte oder veraltete Anmeldeinformation rotieren", zh: "轮换已泄露或过期的凭据", hi: "उजागर या पुराना क्रेडेंशियल बदलें", es: "Rotar una credencial expuesta o caducada", ar: "تدوير بيانات اعتماد مكشوفة أو قديمة" },
+    // v7.0.0: the product map — the sidebar entry, the dialog and its
+    // filter. New static labels, so the i18n gate requires them.
+    "All pages": { fr: "Toutes les pages", de: "Alle Seiten", zh: "所有页面", hi: "सभी पृष्ठ", es: "Todas las páginas", ar: "كل الصفحات" },
+    "Expand every sidebar group": { fr: "Déplier tous les groupes du menu", de: "Alle Menügruppen aufklappen", zh: "展开所有侧边栏分组", hi: "सभी साइडबार समूह विस्तारित करें", es: "Expandir todos los grupos del menú lateral", ar: "توسيع كل مجموعات الشريط الجانبي" },
+    "Every page in RemotePower, by domain — one screen, filterable": { fr: "Toutes les pages de RemotePower, par domaine — un seul écran, filtrable", de: "Alle Seiten in RemotePower, nach Bereich — ein Bildschirm, filterbar", zh: "RemotePower 的所有页面，按领域分组 — 一屏可筛选", hi: "RemotePower के सभी पृष्ठ, क्षेत्र अनुसार — एक स्क्रीन, फ़िल्टर योग्य", es: "Todas las páginas de RemotePower, por dominio — una pantalla, filtrable", ar: "كل صفحات RemotePower حسب المجال — شاشة واحدة قابلة للتصفية" },
+    // The aria-label carries no ellipsis, so it is a DIFFERENT string from
+    // the placeholder above it and needs its own entry — a screen reader
+    // would otherwise announce it in English.
+    "Filter pages": { fr: "Filtrer les pages", de: "Seiten filtern", zh: "筛选页面", hi: "पृष्ठ फ़िल्टर करें", es: "Filtrar páginas", ar: "تصفية الصفحات" },
+    "Filter pages…": { fr: "Filtrer les pages…", de: "Seiten filtern…", zh: "筛选页面…", hi: "पृष्ठ फ़िल्टर करें…", es: "Filtrar páginas…", ar: "تصفية الصفحات…" },
+    "No page matches that.": { fr: "Aucune page ne correspond.", de: "Keine Seite passt dazu.", zh: "没有匹配的页面。", hi: "कोई पृष्ठ मेल नहीं खाता।", es: "Ninguna página coincide.", ar: "لا توجد صفحة مطابقة." },
     "Autonomy": { "fr": "Autonomie", "de": "Autonomie", "zh": "自治运维", "hi": "स्वायत्तता", "es": "Autonomía", "ar": "الاستقلالية" },
     "Safety envelope": { "fr": "Enveloppe de sécurité", "de": "Sicherheitsrahmen", "zh": "安全边界", "hi": "सुरक्षा सीमा", "es": "Envolvente de seguridad", "ar": "إطار الأمان" },
     "Save envelope": { "fr": "Enregistrer l'enveloppe", "de": "Rahmen speichern", "zh": "保存边界", "hi": "सीमा सहेजें", "es": "Guardar envolvente", "ar": "حفظ الإطار" },

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.0-3">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.0-4">
 
 </head>
 <body>
@@ -191,6 +191,13 @@
              data-input="sidebarSearch" data-input-value="1">
       <div id="sidebar-search-results" class="sidebar-search-results hidden"></div>
     </div>
+    <!-- v7.0.0: the way IN to the product map. The sidebar shows one domain at
+         a time and the palette needs you to know what to type; this is the
+         "show me everything" control both were missing. -->
+    <button class="nav-btn" data-action="openSitemap" title="Every page in RemotePower, by domain — one screen, filterable">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span>All pages</span>
+    </button>
     <div class="sidebar-label"><span>Main</span></div>
     <!-- v3.14.0: starred sidebar entries are cloned into here (populated by
          _initFavorites in app.js; persisted in localStorage 'rp_favorites'). -->
@@ -9134,6 +9141,22 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      half-filled form and got markdown source (or, where nginx has no .md MIME
      mapping and sends nosniff, a file download). renderMarkdown() already
      shipped for the KB and the AI chat. -->
+<!-- v7.0.0: the product map. 89 pages across 12 domains, and the sidebar shows
+     one domain at a time — so there was no surface that answered "what is in
+     this product and where". Built from the sidebar DOM at open time, NOT from
+     a second list: every nav button already carries a one-line title, and a
+     hand-kept copy would be one more registry to drift. Pages hidden by a
+     module gate are absent here for free, because they are hidden there. -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sitemap-title" id="sitemap-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="sitemap-title">All pages</div>
+  <div class="modal-subtitle">Every page in RemotePower, by domain. Type to filter; Enter opens the first match. <a href="docs/navigation.md" class="c-accent">Documentation</a></div>
+  <input type="text" id="sitemap-filter" class="form-input" placeholder="Filter pages…" aria-label="Filter pages" autocomplete="off">
+  <div id="sitemap-body" class="scroll-cap"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="expandAllSidebarGroups">Expand every sidebar group</button>
+    <button class="btn-primary" data-action="closeModal" data-arg="sitemap-modal">Close</button>
+  </div>
+</div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="doc-viewer-title" id="doc-viewer-modal"><div class="modal modal-wide">
   <div class="modal-title" id="doc-viewer-title">Documentation</div>
   <div class="modal-subtitle" id="doc-viewer-path"></div>
@@ -11663,37 +11686,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.0-3"></script>
+<script defer src="static/js/app.js?v=7.0.0-4"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-containers.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-network.js?v=7.0.0-3"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-containers.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-network.js?v=7.0.0-4"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.0-3"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.0-4"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-dns.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-drift.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-cve.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-backups.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-iac.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-virt.js?v=7.0.0-3"></script>
+<script defer src="static/js/app-ai.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-dns.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-drift.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-cve.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-backups.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-iac.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-virt.js?v=7.0.0-4"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-logs.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-remote.js?v=7.0.0-3"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.0-3"></script>
+<script defer src="static/js/app-alerts.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-logs.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-remote.js?v=7.0.0-4"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.0-4"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.0-3"></script>
+<script defer src="static/js/app-self.js?v=7.0.0-4"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11703,6 +11726,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.0-3"></script>
+<script defer src="static/js/sw-register.js?v=7.0.0-4"></script>
 </body>
 </html>

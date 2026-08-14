@@ -1721,22 +1721,56 @@ async function api(method, path, body, extra) {
 // toggles and nothing ever updated it, so every group announced itself as
 // collapsed permanently — including the open one. A frozen state attribute is
 // worse than none, because it actively lies to a screen reader (SC 4.1.2).
-function _paintSidebarGroups(openName) {
+// v7.0.0: MORE THAN ONE group may be open. The accordion allowed exactly one,
+// so with 89 pages across 12 domains an operator could see about ten of them at
+// a time and had no way to hold two related domains open at once — reported as
+// "hard to get an overview of all the pages mashed together".
+//
+// The stored state is a SET now. The old key held a single name; it is read once
+// and migrated rather than discarded, so nobody's open group is lost on upgrade.
+const _SIDEBAR_OPEN_KEY = 'sidebar.open_groups';
+function _openGroupSet() {
+  try {
+    const raw = localStorage.getItem(_SIDEBAR_OPEN_KEY);
+    if (raw !== null) return new Set(JSON.parse(raw) || []);
+    const legacy = localStorage.getItem('sidebar.open_group');
+    return new Set(legacy ? [legacy] : []);
+  } catch (_) { return new Set(); }
+}
+function _paintSidebarGroups(openSet) {
   document.querySelectorAll('.sidebar-group').forEach(g => {
-    const open = g.dataset.group === openName;
+    const open = openSet.has(g.dataset.group);
     g.classList.toggle('collapsed', !open);
     const t = g.querySelector('.sidebar-group-toggle');
     if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
   });
 }
+function _saveSidebarGroups(openSet) {
+  _paintSidebarGroups(openSet);
+  try {
+    localStorage.setItem(_SIDEBAR_OPEN_KEY, JSON.stringify([...openSet]));
+  } catch (_) {}
+}
 function _openSidebarGroup(name) {
-  _paintSidebarGroups(name);
-  try { localStorage.setItem('sidebar.open_group', name || ''); } catch (_) {}
+  // Used by navigation to reveal the active page's domain. ADDITIVE — opening
+  // a page must not close the group the operator deliberately left open.
+  const set = _openGroupSet();
+  if (name) set.add(name);
+  _saveSidebarGroups(set);
 }
 function toggleSidebarGroup(name) {
   const group = document.querySelector(`.sidebar-group[data-group="${name}"]`);
   if (!group) return;
-  _openSidebarGroup(group.classList.contains('collapsed') ? name : null);
+  const set = _openGroupSet();
+  if (set.has(name)) set.delete(name); else set.add(name);
+  _saveSidebarGroups(set);
+}
+function expandAllSidebarGroups() {
+  const all = [...document.querySelectorAll('.sidebar-group')].map(g => g.dataset.group);
+  const set = _openGroupSet();
+  // A single control that both expands and collapses: if everything is already
+  // open the operator wants the tidy rail back.
+  _saveSidebarGroups(set.size >= all.length ? new Set() : new Set(all));
 }
 
 // v6.0.1: sort each sidebar group's sub-menu items alphabetically by label.
@@ -1757,13 +1791,11 @@ function _sortSidebarGroups() {
 }
 function _restoreSidebarGroups() {
   _sortSidebarGroups();
-  let open = null;
-  try { open = localStorage.getItem('sidebar.open_group'); } catch (_) {}
   // Default (no stored state): everything closed — the tidy 12-domain rail;
   // navigating (or the boot deep-link) opens the active page's domain.
   // Through the shared painter, so a restored group's aria-expanded is correct
   // from the first paint rather than only after the user clicks something.
-  _paintSidebarGroups(open);
+  _paintSidebarGroups(_openGroupSet());
 }
 // Run on load — sidebar exists by the time DOMContentLoaded fires
 if (document.readyState === 'loading') {
@@ -1791,6 +1823,102 @@ if (document.readyState === 'loading') {
 // delegated intercept, so every existing link is covered without touching 126
 // anchors — and anything it cannot fetch falls through to the normal navigation
 // rather than trapping the operator in a broken modal.
+// v7.0.0: the product map.
+//
+// 89 pages across 12 domains, with the sidebar showing one domain at a time,
+// left no surface answering "what is in this product and where". The command
+// palette and the sidebar search both require already knowing what to type.
+//
+// DERIVED FROM THE SIDEBAR, not from a list. Every nav button already carries a
+// one-line `title`, so a hand-kept copy would be a second registry — and every
+// recurring bug in this project's notes is two registries drifting apart. It
+// also means a page hidden by a module gate is absent here for free, because it
+// is hidden there, and a page added tomorrow appears with no edit to this code.
+function _sitemapGroups() {
+  return [...document.querySelectorAll('.sidebar-group')].map(g => {
+    const head = g.querySelector('.sidebar-group-toggle span:not(.nav-group-badge)');
+    const pages = [...g.querySelectorAll('.nav-btn[data-page]')]
+      .filter(b => !b.classList.contains('hidden')
+                   && getComputedStyle(b).display !== 'none')
+      .map(b => {
+        const lbl = [...b.querySelectorAll('span')].find(
+          x => !x.classList.contains('nav-badge')
+               && !x.classList.contains('nav-group-badge'));
+        return {
+          page: b.dataset.page,
+          label: (lbl ? lbl.textContent : b.textContent).trim(),
+          desc: (b.getAttribute('title') || '').trim(),
+        };
+      });
+    return { group: g.dataset.group,
+             title: (head ? head.textContent : g.dataset.group).trim(),
+             pages };
+  }).filter(x => x.pages.length);
+}
+
+function renderSitemap(filter) {
+  const body = document.getElementById('sitemap-body');
+  if (!body) return;
+  const q = (filter || '').trim().toLowerCase();
+  const groups = _sitemapGroups();
+  let shown = 0;
+  const html = groups.map(g => {
+    const hits = g.pages.filter(p => !q
+      || p.label.toLowerCase().includes(q)
+      || p.desc.toLowerCase().includes(q)
+      || g.title.toLowerCase().includes(q));
+    if (!hits.length) return '';
+    shown += hits.length;
+    return `<div class="sitemap-group">`
+      + `<div class="section-title">${escHtml(g.title)}`
+      + ` <span class="chk-pill chk-unknown">${hits.length}</span></div>`
+      + `<div class="sitemap-cards">` + hits.map(p =>
+          `<button class="sitemap-card" data-action="sitemapGo" `
+          + `data-arg="${escAttr(p.page)}">`
+          + `<span class="sitemap-card-name">${escHtml(p.label)}</span>`
+          + `<span class="sitemap-card-desc">${escHtml(p.desc)}</span></button>`
+        ).join('') + `</div></div>`;
+  }).join('');
+  body.innerHTML = html || `<div class="empty-state">${
+    escHtml('No page matches that.')}</div>`;
+  const t = document.getElementById('sitemap-title');
+  if (t) {
+    const total = groups.reduce((n, g) => n + g.pages.length, 0);
+    t.textContent = q ? `All pages — ${shown} of ${total}` : `All pages — ${total}`;
+  }
+}
+
+function openSitemap() {
+  renderSitemap('');
+  openModal('sitemap-modal');
+  const f = document.getElementById('sitemap-filter');
+  if (f) { f.value = ''; setTimeout(() => f.focus(), 40); }
+}
+
+function sitemapGo(page) {
+  closeModal('sitemap-modal');
+  try { showPage(page); } catch (_) {}
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'sitemap-filter') renderSitemap(e.target.value);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target || e.target.id !== 'sitemap-filter') return;
+  const first = document.querySelector('#sitemap-body .sitemap-card');
+  if (!first) return;
+  // Call the action directly and stop the event, rather than synthesising a
+  // click. Measured: the click DID navigate but left the dialog open, because
+  // the keydown carried on to another handler after closeModal had run. A
+  // mouse click on the same card closed it correctly, which is what made the
+  // difference visible — worth keeping in mind when a keyboard path behaves
+  // differently from the pointer path that shares its handler.
+  e.preventDefault();
+  e.stopPropagation();
+  sitemapGo(first.getAttribute('data-arg'));
+});
+
+
 async function openDocViewer(path, title) {
   const modal = document.getElementById('doc-viewer-modal');
   if (!modal) return false;
