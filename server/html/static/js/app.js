@@ -29928,7 +29928,7 @@ function _palBuildIndex() {
   }
   // v3.14.0: global omnisearch — also index open alerts and CVE findings so the
   // palette searches across data, not just pages/devices/scripts.
-  for (const a of (_alertsCache || []).slice(0, 80)) {
+  for (const a of _palAlerts().slice(0, 80)) {
     items.push({
       label: `Alert: ${a.title || a.event || a.id}`,
       kind: 'alert',
@@ -29959,6 +29959,27 @@ function _palBuildIndex() {
   }
   return items;
 }
+// v7.0.0: the palette's own alert cache.
+//
+// It used to read `_alertsCache`, a top-level binding in app-alerts.js. That
+// worked only because app-alerts.js was boot-loaded; making it lazy turned the
+// reference into a hard `ReferenceError` that killed the WHOLE palette on every
+// page until the operator happened to visit Alerts. Caught by the gate, not by
+// review — my check of what eager code reached into that module enumerated
+// FUNCTION names and never looked at variables.
+//
+// The lesson generalises past this instance: an eager surface reaching into a
+// lazy module's private state is a dependency the module has no idea it has.
+// The palette now keeps its own cache and prefers the module's when it happens
+// to be loaded, so the two stay in step without either owning the other.
+let _palAlertCache = [];
+function _palAlerts() {
+  if (typeof _alertsCache !== 'undefined' && _alertsCache && _alertsCache.length) {
+    return _alertsCache;          // Alerts page is loaded — reuse what it has
+  }
+  return _palAlertCache || [];
+}
+
 function openCommandPalette() {
   if (_palOpen) return;
   _palOpen = true;
@@ -29977,9 +29998,9 @@ function openCommandPalette() {
   // v3.14.0: warm the alerts + CVE caches so omnisearch covers them even when
   // those pages haven't been visited yet. Fire-and-forget; rebuild on land.
   const _palRefresh = () => { if (_palOpen) { _palItems = _palBuildIndex(); _palRender(); } };
-  if (!_alertsCache || !_alertsCache.length) {
+  if (!_palAlerts().length) {
     api('GET', '/alerts?status=open&limit=100').then(d => {
-      if (d && d.alerts) { _alertsCache = d.alerts; _palRefresh(); }
+      if (d && d.alerts) { _palAlertCache = d.alerts; _palRefresh(); }
     }).catch(() => {});
   }
   if (!cveReportData) {
