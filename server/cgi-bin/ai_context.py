@@ -101,6 +101,65 @@ def _is_online(d, now, ttl):
     return (now - last_seen) < ttl
 
 
+# v7.0.0: how many notable conditions one host may contribute to the preamble.
+# A host with fifteen problems is still one host; without a cap a single very
+# sick machine could crowd out the other seventy-nine.
+_MAX_FLAGS_PER_DEVICE = 4
+
+
+def _device_flags(d):
+    """Short notable-condition flags for the fleet preamble, or [].
+
+    The ALWAYS-ON context was pure INVENTORY — name, OS, package manager,
+    online, group, notes, tags — with no health signal on any host. So an
+    advisor asked "what should I fix first" started from a list of machines and
+    nothing about their state, and only saw posture when RAG retrieval happened
+    to fire. The fleet rollup carried offline and reboot counts and nothing else.
+
+    Emitted only when NOTABLE, which is what keeps this affordable: a healthy
+    fleet adds zero characters, and a fleet in trouble spends its tokens on
+    exactly the hosts worth attending to. Thresholds match the ones the product
+    already alerts on, so the model never sees a "problem" the operator's own
+    pages call fine.
+    """
+    si = d.get('sysinfo') or {}
+    out = []
+
+    def _pct(key, label, limit=90):
+        v = si.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= limit:
+            out.append(f'{label} {int(v)}%')
+
+    _pct('cpu_percent', 'cpu')
+    _pct('mem_percent', 'mem')
+    _pct('disk_percent', 'disk')
+    if si.get('reboot_required') is True:
+        out.append('reboot pending')
+    units = si.get('failed_units') or []
+    if units:
+        out.append(f'{len(units)} failed unit' + ('s' if len(units) != 1 else ''))
+    if si.get('mount_issues'):
+        out.append('mount issues')
+    fw = si.get('firewall')
+    if isinstance(fw, dict):
+        backends = [b for b in (fw.get('backends') or []) if isinstance(b, dict)]
+        if backends and not any(b.get('active') for b in backends):
+            out.append('firewall off')
+    de = si.get('disk_encryption')
+    if isinstance(de, dict) and de.get('encrypted') is False:
+        out.append('disks unencrypted')
+    ck = si.get('clock')
+    if isinstance(ck, dict) and ck.get('synced') is False:
+        out.append('clock unsynced')
+    if si.get('guard_quarantine'):
+        out.append('quarantined files')
+    # An explicit "my metrics are limited" beats an empty percentage the model
+    # would otherwise read as healthy.
+    if si.get('psutil') is False:
+        out.append('limited metrics')
+    return out[:_MAX_FLAGS_PER_DEVICE]
+
+
 def _device_one_liner(d, now=None, ttl=300):
     """Compact one-line summary of a single device.
 
@@ -149,6 +208,12 @@ def _device_one_liner(d, now=None, ttl=300):
     if tags:
         parts.append('[' + ','.join(tags[:5]) + ']')
 
+    # v7.0.0: notable conditions last, so a length-pressured model still reads
+    # the identity first and the problems are the thing nearest the next host.
+    flags = _device_flags(d)
+    if flags:
+        parts.append('!! ' + '; '.join(flags))
+
     return ' '.join(parts)
 
 
@@ -192,11 +257,21 @@ def build_fleet_context(devices, max_devices=80, now=None, ttl=300):
                    and not d.get('agentless') and d.get('monitored') is not False)
     _reboot = sum(1 for d in devs
                   if (d.get('sysinfo') or {}).get('reboot_required') is True)
+    # v7.0.0: the rollup carried offline + reboot and nothing else, so a fleet
+    # with a dozen hosts out of disk read as healthy at the top of the prompt.
+    # Each of these is a count the product already alerts on.
+    _flagged = sum(1 for d in devs if _device_flags(d))
+    _units = sum(1 for d in devs
+                 if ((d.get('sysinfo') or {}).get('failed_units') or []))
     _rollup = []
     if _offline:
         _rollup.append(f"{_offline} offline")
     if _reboot:
         _rollup.append(f"{_reboot} need reboot")
+    if _units:
+        _rollup.append(f"{_units} with failed units")
+    if _flagged:
+        _rollup.append(f"{_flagged} with notable conditions")
     head = f"Fleet snapshot ({len(devs)} devices"
     head += (', ' + ', '.join(_rollup)) if _rollup else ''
     head += '):'

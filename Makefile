@@ -149,6 +149,25 @@ test-fast:
 	  $(addprefix --ignore=,$(filter-out tests/e2e_harness.py,$(E2E_TESTS))) \
 	  --ignore=tests/test_a11y_axe.py
 
+# v7.0.0: the AUTHORITY for "can every test module be run on its own?".
+# `unittest discover -s tests` puts tests/ on sys.path for free, so a module
+# importing a sibling (browser_required, clientjs, srcpin, apisrc, a shared
+# fixture module) works in the suite and fails under
+# `python3 -m unittest tests.<name>` — the command you type while iterating on
+# one file. 25 modules were in that state.
+#
+# Each module needs its OWN interpreter: import them all in one process and the
+# first module that fixes sys.path fixes it for every later one, which is the
+# exact mechanism under test. ~2.5 min, so it is a target rather than a gate;
+# tests/test_modules_import_alone.py holds the cheap subset (modules that never
+# touch sys.path at all) at 3.6s and runs every time.
+test-import-isolation:
+	@echo "Importing every test module in its own interpreter ..."
+	@ls tests/test_*.py | sed 's|tests/|tests.|; s|\.py$$||' \
+	  | xargs -P 8 -I{} $(PY) -c 'import importlib,os,sys;sys.path.insert(0,os.getcwd());\
+importlib.import_module("{}")' 2>&1 | grep -v '^$$' || true
+	@echo "OK — every module imports alone (no output above means clean)."
+
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)
 bump:

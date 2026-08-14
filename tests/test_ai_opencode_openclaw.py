@@ -1,10 +1,17 @@
 """v5.8.0: opencode (REST) + openclaw (WebSocket-RPC) AI providers."""
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
+# ai_provider imports its sibling ssrf_ip, so the cgi-bin directory has to be
+# importable BEFORE it is exec'd. Without this the module only loads when some
+# other test file has already inserted the path into the same process — a
+# targeted run of this file alone fails with ModuleNotFoundError: ssrf_ip.
+if str(_CGI) not in sys.path:
+    sys.path.insert(0, str(_CGI))
 _spec = importlib.util.spec_from_file_location("ai_provider_x", _CGI / "ai_provider.py")
 ai = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ai)

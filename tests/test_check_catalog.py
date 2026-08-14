@@ -21,6 +21,12 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 _API_SRC = (_CGI / 'api.py').read_text()
 _AGENT_SRC = (_ROOT / 'client' / 'remotepower-agent.py').read_text()
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+# This module imports a sibling from tests/. `unittest discover -s tests`
+# puts that directory on sys.path for free, so the omission is invisible
+# there — but `python3 -m unittest tests.<this>` does not, and the module
+# then fails to import at all. Make it runnable on its own.
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 from clientjs import client_js
 _APP_JS = client_js()   # checks-page JS moved to app-checks.js in the app.js split
 _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text()

@@ -30,6 +30,12 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 CSS = (_HTML / "static" / "css" / "styles.css").read_text()
+import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
+# This module imports a sibling from tests/. `unittest discover -s tests`
+# puts that directory on sys.path for free, so the omission is invisible
+# there — but `python3 -m unittest tests.<this>` does not, and the module
+# then fails to import at all. Make it runnable on its own.
+_rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 from clientjs import client_js
 APPJS = client_js()   # logs-page JS (appendLogLines) moved to app-logs.js in the app.js split
 I18NJS = (_HTML / "static" / "js" / "i18n.js").read_text()
