@@ -40,25 +40,17 @@
 ASSET-12345
 CHG-1042
 CVE-2026-1234 CVE-2026-5678
-Cmdb func filter
 Customer-facing web 99.9%
 DELETE VOLUMES
-Dpol mode
-Dpol scope
 Get-Service | Where-Object Status -eq 'Stopped'
-Hc text cron
 Hi, we believe {ticket_id} is resolved…
 INBOX
-Inv op
 Linux
 Linux baseline, Web server pack…
-Oti device
-Oti target value
 REMOVE KMIP
 Rack A1
 RemotePower
 Slack, , PagerDuty
-Swpol type
 Uncategorised
 Windows
 [connection] id=remotepower-managed type=ethernet
