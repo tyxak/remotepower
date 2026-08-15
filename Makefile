@@ -468,6 +468,15 @@ CI_PY := 3.14
 # prod CI at import time. tests/test_ci_green_parity.py pins this list == the
 # ci.yml pip line, so neither can drift without the other.
 CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
+# NOTE on RP_BROWSER_REQUIRE: `pre-release` exports it at TARGET scope, and
+# make propagates that to every prerequisite — including this one. Inside this
+# venv playwright is absent, correctly, because the ci.yml dep list does not
+# install it. The flag then turns the browser suites' legitimate skips into
+# hard failures, and the mirror reds on a state prod CI never reaches: prod
+# installs no playwright and sets no such flag, so those tests skip there.
+# The recipe clears it so this target reproduces prod CI rather than exceeding
+# it. The browser gates still run for real in `check`, where the flag belongs
+# and a browser exists.
 ci-parity:
 	@command -v uv >/dev/null 2>&1 || { echo "⚠ uv not installed — skipping CI-$(CI_PY) parity (pip install uv). Prod CI runs $(CI_PY); dev is $$(python3 --version)."; exit 0; }
 	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list + the ci.yml runner (unittest discover)"
@@ -476,7 +485,7 @@ ci-parity:
 	@uv venv --python $(CI_PY) .ci-parity-venv >/dev/null 2>&1
 	@. .ci-parity-venv/bin/activate && uv pip install --quiet $(CI_DEPS) >/dev/null 2>&1 && \
 		RPD=$$(mktemp -d /tmp/rp-ciparity-XXXXXX) && \
-		{ RP_DATA_DIR=$$RPD python -m unittest discover -s tests > .ci-parity-run.log 2>&1; \
+		{ RP_DATA_DIR=$$RPD RP_BROWSER_REQUIRE= python -m unittest discover -s tests > .ci-parity-run.log 2>&1; \
 		  ec=$$?; tail -5 .ci-parity-run.log; rm -rf "$$RPD"; \
 		  [ $$ec -eq 0 ]; } || \
 		{ rm -rf .ci-parity-venv; echo "✗ CI-$(CI_PY) parity FAILED (full log: .ci-parity-run.log)"; exit 1; }
