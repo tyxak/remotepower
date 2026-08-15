@@ -102,7 +102,7 @@ jobs:
       # at next. `latest` and X.Y resolve to this same digest, so one signature
       # covers every tag pushed above.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign the image (keyless)
         env:
@@ -169,7 +169,7 @@ jobs:
       # at next. `latest` and X.Y resolve to this same digest, so one signature
       # covers every tag pushed above.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign the image (keyless)
         env:

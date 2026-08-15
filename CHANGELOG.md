@@ -4,13 +4,6 @@ All notable changes to RemotePower. Newest first.
 
 ## v7.0.0 — "Aut0nomyMatters" — 2026-08-15
 
-> **Note on versioning.** The autonomy subsystem below is the start of what is
-> intended as a major release. `SERVER_VERSION` is deliberately still 6.4.3 —
-> that release is fully gated and staged for promotion, and stranding it to
-> open a new major is a decision for the maintainer, not a side effect of
-> starting the work. If it becomes v7.0.0 this section is renamed in place,
-> the way v3.14.0 became v4.0.0.
-
 ### The fleet can start fixing itself, and hands you a receipt
 
 Every product in this category that offers autonomous remediation asks you to
@@ -193,7 +186,7 @@ from one that cannot.
   branch that names its verb explicitly, so six any-method routes were live and
   undocumented: agent self-registration and the entire SCIM 2.0 surface. SCIM
   was the one that mattered — RFC 7644 says where the endpoints are, but only
-  the server can say which it implements, and this one is deliberately partial
+  the server can say which it implements, and this one is partial
   (groups are read-only; roles are defined in RemotePower, not by the IdP).
   Methods are taken from what each handler enforces, not guessed. The standing
   note put this gap at ~48 paths; measured, it was nine, three of which were
@@ -246,8 +239,8 @@ from one that cannot.
   to catch is discarded — while the unit reports active and the sidecar watch
   says nothing. `ingest_source_unmappable` (cleared by `ingest_source_mapped`)
   fires per token, so two dead sources are two alerts and fixing one does not
-  close the other. A deliberately disabled token is never alerted on. The check
-  is pure config analysis and deliberately does **not** sit behind the sweep's
+  close the other. A disabled token is never alerted on. The check
+  is pure config analysis and does **not** sit behind the sweep's
   `systemctl` gate, which would have skipped it entirely on a container install.
 - **A status row that named a problem without naming the thing.** The Server
   status page reported "Running — 1 of 3 exporter(s) silent" and left the
@@ -257,7 +250,7 @@ from one that cannot.
   capped with a `+N more` tail, and both receiver rows link straight to the
   inbound tokens that feed them — the place you go next either way.
 - **Readiness rows can be muted.** A row you have already decided about — an
-  optional receiver you deliberately have not wired up — sat amber forever with
+  optional receiver you have not wired up — sat amber forever with
   no way to acknowledge it, and a tally that permanently reads "1 needing a
   look" for a reason nobody intends to act on trains operators to ignore the
   number. Muting a row greys it, keeps what it would have said, counts it
@@ -267,7 +260,7 @@ from one that cannot.
   as always-on, it warned "no encrypted volume found" on every Linux host in the
   fleet at once. Unlike BitLocker and FileVault — the platform default, so their
   absence is a real finding — an unencrypted Linux root is the norm, chosen
-  deliberately by anyone who has tried to unlock one remotely. It now has its own
+  by anyone who has tried to unlock one remotely. It now has its own
   setting (Settings → Security → Disk encryption checks), off by default and
   separate from the Security hardening bundle so that wanting SSH advice does not
   force fleet-wide LUKS warnings. A host whose agent cannot see device-mapper
@@ -321,7 +314,7 @@ from one that cannot.
   identifiers and hostnames of other tenants' devices sharing a rack. All three
   are read paths — no credential, secret or command channel was exposed, and
   nothing could be changed through them — and all three predate this release.
-  The machine scrape deliberately keeps its instance-wide view, since narrowing
+  The machine scrape keeps its instance-wide view, since narrowing
   that would break fleet monitoring rather than protect anything. See
   `docs/security-review-7.0.0.md`.
 - **A Linux-only safety gate could be bypassed by editing instead of
@@ -667,7 +660,7 @@ from one that cannot.
   the page said only "0 connected now". When every client on an enabled tunnel
   has existed past a 30-minute grace and not one has **ever** handshaked, the
   panel says so, names the UDP port, and points at the port forward.
-  Deliberately an inference rather than a probe: WireGuard never replies to
+  An inference rather than a probe: WireGuard never replies to
   unauthenticated packets — that silence is a design property — so an open,
   working port and a firewalled one are indistinguishable to a scanner, and a
   check built on probing would report the same thing in both cases. It also
@@ -753,7 +746,7 @@ from one that cannot.
   Security posture** now carries a `host_disk_encrypted` row that resolves the
   volume `RP_DATA_DIR` actually sits on — longest-prefix through
   `/proc/self/mounts`, then the device-mapper `CRYPT-` UUID — and it is
-  deliberately three-valued: inside a container, where the mount table
+  three-valued: inside a container, where the mount table
   describes the container and the host's sysfs is not visible, it reports
   "cannot be determined" rather than manufacturing a finding out of a blind
   spot. Added to the operator hardening checklist in `docs/security.md` and to
@@ -761,7 +754,7 @@ from one that cannot.
   application-level control can substitute for it.
 - **Restoring a quarantined file on Windows or macOS said it was queued and
   was not.** Integrity Guard is Linux-only — both agents list the directive
-  among the things they deliberately ignore — but the server accepted it for
+  among the things they ignore — but the server accepted it for
   any host, so Restore and Delete returned success and nothing ever happened.
   Refused up front now, and a fleet-wide "accept current state" still
   rebaselines the Linux hosts while naming the ones it skipped.
@@ -788,7 +781,7 @@ from one that cannot.
   been translating `placeholder`, `title` and `aria-label` for releases — what
   was missing was the dictionary behind it, and nothing was watching, so 1,081
   attribute strings had accumulated in English. A screen reader in any of the
-  six other languages announced them verbatim. The chrome a keyboard user hits
+  six other languages announced them unchanged. The chrome a keyboard user hits
   on every page — every search and filter box, pagination, sort, the density
   and column toggles, undo/redo, the three dashboard tiles — is translated now,
   and the rest is recorded exactly so it can only shrink. It is a recorded
@@ -885,7 +878,7 @@ from one that cannot.
   read only the static page, so every dropdown option, column header and field
   label built from a template literal — most of the newer UI — was invisible to
   it. 93 such strings had accumulated. 34 are now translated into all six
-  languages, and 59 are recorded as deliberately English with which of the four
+  languages, and 59 are recorded as English with which of the four
   reasons applies: filesystem names, hash algorithms, nftables verbs, field
   abbreviations and parameter labels that name an actual config key. A new
   untranslated string in either source now fails the build and says which file
@@ -930,7 +923,7 @@ from one that cannot.
   version from `api.py` rather than being a fourth place to remember. And no
   seeded sensor carried its own critical threshold, so the Thermal page's
   Threshold and Headroom columns were empty everywhere and the dead-pin
-  handling had nothing to act on; there is now a deliberate implausible sensor
+  handling had nothing to act on; there is now a considered implausible sensor
   reading past its limit, which is what the Implausible flag exists for.
 - **Documentation that described a different product.** `containers.md` said
   there is no image scanning, which the agent has done with Trivy since v6.0.0.
@@ -959,7 +952,7 @@ from one that cannot.
   63 pages rendered none: the subtitle is translated by replacing its whole
   markup, which destroyed the chip row appended into it. You got the translated
   subtitle or the links, never both.
-- **Enrollment PINs are genuinely single-use now.** They were documented as
+- **Enrollment PINs are single-use now.** They were documented as
   such and were not — the check-and-delete ran without the store lock, while
   the sibling credential fourteen lines above had been fixed a release earlier.
 - **The Documentation page no longer denies features the product has.** It said
@@ -995,7 +988,7 @@ from one that cannot.
 - **More of the interface speaks your language.** The translation gate only ever
   checked the app chrome, so dropdown options, column headers and field labels
   had quietly drifted out of it; 72 strings were translated into all six
-  languages and the rest are now recorded as deliberately English. Three
+  languages and the rest are now recorded as English. Three
   entries had been dead since the day they landed because of how they were
   written.
 
@@ -1040,7 +1033,7 @@ a module switch is absent because it is hidden there.
 
 **The sidebar allows more than one group open at once.** The stored state is a
 set now, the old single-group key is migrated rather than discarded, and
-navigating to a page opens its domain WITHOUT closing anything you deliberately
+navigating to a page opens its domain WITHOUT closing anything you
 left open. There is an expand-all control that also collapses, so getting the
 tidy twelve-domain rail back is one click rather than twelve.
 
@@ -1068,7 +1061,7 @@ whether it is online at all: collected, alerted on, rendered in a drawer, and
 not queryable. **45 fields now**, covering posture, capacity, health counts and
 last-seen/online.
 
-The posture booleans are **tri-state** and that is deliberate: `false` means the
+The posture booleans are **tri-state** and that is on purpose: `false` means the
 host reported and the answer is no, absent means it never reported. A Windows box
 does not report sshd; a container host may not see device-mapper. Collapsing
 those to `false` is exactly how the encryption-at-rest control put every Linux
@@ -1202,7 +1195,7 @@ the code. Six gates turned out to be looking at less than they appeared to.
   enumerate 80 and pin the count.
 - **The typography gate read one stylesheet of five.** In the four it never
   opened: a 15px heading on the public status page, and a 14px body size in the
-  report — 14 being the stop this scale deliberately retired so it "can't creep
+  report — 14 being the stop this scale retired so it "can't creep
   back". It crept back where the gate could not look.
 - **The class-parity gate counted classes named in COMMENTS as defined**, and
   the comments in question are mostly retirement notes. So a class could be
@@ -1214,7 +1207,7 @@ the code. Six gates turned out to be looking at less than they appeared to.
   note removed a rule; nothing stopped the shape. Now a ratchet at zero.
 - **The Settings doc-pointer gate treated the rest of the document as Settings**
   (one section had a 565,735-character body carrying 58 doc references), which
-  hid two sections that genuinely had no pointer.
+  hid two sections that had no pointer.
 - **Four browser gates have never run in the release pipeline** — CI installs no
   playwright, so they skip there every time. `make pre-release` now sets
   `RP_BROWSER_REQUIRE=1`, turning that skip into a failure.
@@ -1314,12 +1307,12 @@ much the same thing. SCIM in particular is what an administrator opens the spec
 to find, because they are wiring an identity provider against it.
 
 They are now declared explicitly rather than inferred, because for some of them
-the verbs genuinely cannot be read from outside the handler: the tunnel route is
+the verbs cannot be read from outside the handler: the tunnel route is
 a single dispatcher entry that re-splits its path and fans out to nine routes
 across four methods. The published document covers 891 routes, and a new
 route of this shape now fails the build instead of disappearing from it.
 
-Two SCIM verbs stay deliberately undocumented, and are asserted to: creating a
+Two SCIM verbs stay undocumented, and are asserted to: creating a
 group answers 501 and deleting one answers 405, because roles are defined in
 RemotePower rather than by the identity provider. Listing them would send an
 integrator down a path the server refuses.
@@ -1475,7 +1468,7 @@ claimed to cover.
   step-up gate.
 - **A webhook header credential no longer leaves in clear text.** A bearer token
   or API key placed in a delivery destination's custom headers was missed by the
-  redaction (header *names* aren't secret-shaped), so it appeared verbatim in the
+  redaction (header *names* aren't secret-shaped), so it appeared unchanged in the
   support bundle, the config export and the encrypted-backup redaction. Both
   redaction modes now mask header values.
 - **Authenticate before the lookup.** The network-appliance config-archive
@@ -1504,7 +1497,7 @@ claimed to cover.
   macOS posture checks that already existed.
 - **Security hardening is opt-in, and alerts when you turn it on.** Because the
   sshd-hardening, auto-updates-off and stale-account-password checks flag choices
-  that are often deliberate (password SSH auth, manual patching, a service
+  that are often considered (password SSH auth, manual patching, a service
   account whose password never rotates), they are **off by default** and gated
   behind a single **Security hardening** toggle (Settings → Security) — like
   protect baselines. A **blank** password and an **inactive host firewall** are
@@ -1629,7 +1622,7 @@ claimed to cover.
   buttons are safe and they are there.
 - **It tells you what it did not touch.** A group is the primary selector for
   role scopes, alert routing, auto-patch targets, rollout rings and smart
-  groups. Renaming one deliberately does **not** rewrite those — silently
+  groups. Renaming one does **not** rewrite those — silently
   repointing an RBAC scope from a device-taxonomy screen is the worse failure —
   so the response lists every store that still names the old group, and the
   toast is a warning naming them rather than a success.
@@ -1769,7 +1762,7 @@ claimed to cover.
   never chart it, alert on it, or put it beside anything else. `/api/metrics`
   now carries `remotepower_device_uptime_percent`, `remotepower_device_sla_met`
   and per-framework score and control counts.
-- Two deliberate omissions there. A device whose window predates its enrolment
+- Two considered omissions there. A device whose window predates its enrolment
   is left out entirely rather than reported as zero — unknown is not an outage,
   and a zero would read as one on a dashboard. And framework metrics carry
   scores and counts only, never individual controls: the compliance report
@@ -1861,7 +1854,7 @@ claimed to cover.
   that needed a tab stop got one. Native controls are skipped on purpose so a
   checkbox nested inside a clickable row still fires once, not twice; and Space
   still scrolls the page when nothing actionable has focus.
-- Table rows got a tab stop but deliberately **not** a button role — that would
+- Table rows got a tab stop but **not** a button role — that would
   strip a row's implicit semantics and break the table for the same screen
   readers the change is meant to help.
 - **The accessibility gate was blind to Settings, and things were living there.**
@@ -1954,7 +1947,7 @@ claimed to cover.
   `unsupported command`, because the agent had no handler. Start, stop, restart,
   pause, unpause and logs now run through `docker` on Windows, argv-only with the
   same container-id validation as the Linux agent. **Update** (pull and recreate)
-  is deliberately not implemented there and refuses with a message saying so.
+  does not implemented there and refuses with a message saying so.
 
 ### Disaster recovery you can actually restore from
 
@@ -1965,7 +1958,7 @@ claimed to cover.
   disk, so its nightly archives held no devices, alerts, config, tickets,
   tokens or vault at all. Every database backend now exports its logical
   documents into the archive under the same filenames the JSON backend uses, so
-  one archive shape restores onto any backend. `pg_dump` is deliberately not
+  one archive shape restores onto any backend. `pg_dump` does not
   used: it would need a client binary, credentials and a version-matched server
   on the restore host — three more things to be wrong on the worst day of the
   year. The backup result and Server status report `stores`, how many documents
@@ -1973,7 +1966,7 @@ claimed to cover.
   than after.
 - **Restoring a nightly archive did not work on any backend.** Scheduled
   archives prefix every member with `remotepower/`, and `POST
-  /api/backup/restore` joined member names onto the data directory verbatim —
+  /api/backup/restore` joined member names onto the data directory unchanged —
   so uploading one recreated the whole install one directory down and restored
   nothing usable, while still reporting how many files it had restored. The
   restore strips that root when every member carries it, and afterwards imports
@@ -2048,7 +2041,7 @@ claimed to cover.
   **`control_plane_security_change`** through the normal event path — inbox,
   webhook, e-mail, push, activity feed — with the payload keys added to both
   whitelists (the half that silently drops fields when it is missed). It is a
-  point event with no recovery, deliberately: an auto-resolving row would let a
+  point event with no recovery,: an auto-resolving row would let a
   real escalation disappear from the inbox the moment the attacker undid the
   visible half of it. `handle_user_create` had no audit entry at all before
   this.
@@ -2095,7 +2088,7 @@ claimed to cover.
   `smtp_tenants`). The filter is applied at the two delivery chokepoints rather
   than at each of the ~200 firing sites, so every event is covered by
   construction. An absent filter still means everything, which is what every
-  existing destination has. A *scoped* destination deliberately does not
+  existing destination has. A *scoped* destination does not
   receive an event it cannot attribute to its slice — "tenant A's Slack" asked
   for tenant A's events and a fleet-wide sweep is not one — and when that
   leaves no destination at all, one `filtered` row is logged so the silence is
@@ -2183,7 +2176,7 @@ case; the connector was not.
   Kubernetes and OpenShift responses too, which had the same silent failure.
 - **`invalid JSON` was the answer to every question.** That one string covered
   an HTML login page, a WAF interstitial, an empty body, a truncated read and
-  genuinely broken JSON — none of which it named. Each now reports its own
+  broken JSON — none of which it named. Each now reports its own
   cause and what to do about it.
 - **A PHP notice no longer breaks monitoring.** A theme or plugin emitting a
   warning prepends it to every REST response. The JSON after it is valid and the
@@ -2202,13 +2195,13 @@ case; the connector was not.
 - **A `null` body was reported healthy.** It produced a green "site up" tile for
   something that was never confirmed to be WordPress at all.
 - **"Credentials rejected" was blamed for everything.** A 404, an HTML login
-  page and a genuinely wrong password all said "check the Application
+  page and a wrong password all said "check the Application
   password". They are now told apart — including the common case where a
   CGI/FastCGI host strips the `Authorization` header before PHP sees it, where
   the password is perfectly correct and that advice sends the operator to the
   wrong place.
 - **Application password spaces are stripped.** WordPress displays the password
-  in space-separated groups and ignores the spaces itself; pasting it verbatim
+  in space-separated groups and ignores the spaces itself; pasting it unchanged
   was reported as a wrong password.
 - **Every login timestamp was zero.** `date_gmt` was parsed only in MySQL's
   space-separated form, but WP core's REST layer serialises ISO-8601 with a
@@ -2245,7 +2238,7 @@ release ships.
 
 - **Every expiring certificate on one port was a single alert.** `tls_expiry`
   targets are not devices, so an alert's identity was `(event, '', port)` and
-  every certificate expiring on :443 coalesced into a single inbox row. Renewing the
+  every certificate expiring on:443 coalesced into a single inbox row. Renewing the
   first host then auto-resolved that row and the rest expired with nothing in
   the inbox at all. `host` is an identity field now.
 - **A certificate that could not be reached was reported as expired.** A failed
@@ -2386,7 +2379,7 @@ release ships.
   version of the very same report has always filtered correctly, which is why
   this was invisible: right on screen, wrong in the export.
 - **Retrieval returned hosts the caller cannot see.** The AI chat path
-  deliberately withholds retrieval from scoped roles because the knowledge index
+  withholds retrieval from scoped roles because the knowledge index
   is not tagged per scope; the standalone search endpoint and the per-device
   runbook generator ran the same index for anyone signed in, returning device
   notes, open ports and inventory for out-of-scope hosts, and chat's own check
@@ -2437,7 +2430,7 @@ release ships.
   remaining budget could only ever read 100% or 0%, and Prometheus saw a hard
   breach the moment a single check failed for a probe that was up 99.67%.
   Measuring the window in time rather than in checks does not help: it is
-  bounded by sample count either way, so the information is genuinely absent.
+  bounded by sample count either way, so the information is absent.
   The API and the SLO page now say the window is too coarse to measure the
   budget and name both the step size and the target, instead of printing a
   number that carries no information, and a monitor whose window cannot resolve
@@ -2470,7 +2463,7 @@ release ships.
   silenced the world-exposed check there. An address that cannot be classified
   stays "world" — an exposure we cannot read should fail loud, which is why an
   empty bind address now classifies as "world" rather than "local", matching
-  what Linux has done deliberately since v3.11.0.
+  what Linux has done since v3.11.0.
 - **Agentless hosts reported a load average of 0.0 for any load below 1.00.**
   The remote probe parsed `uptime` with `awk -F,`, which splits on the decimal
   separator in most of Europe. It reads `/proc/loadavg` under a pinned C locale
@@ -2481,7 +2474,7 @@ release ships.
   join on the hostname then failed against the machine's real name — including
   the EDR coverage cross-reference, which reported a protected host as
   uncovered. A false "unprotected" is what teaches an operator to stop reading
-  that list. Underscores are kept now; genuinely unsafe characters are still
+  that list. Underscores are kept now; unsafe characters are still
   stripped.
 - **The IP allowlist blocked agents it promised not to.** Enabling it broke the
   self-update signature fetch on all three platforms (so an agent downloaded an
@@ -2499,7 +2492,7 @@ release ships.
   never act on.** Structured file jobs are POSIX-only — every source path must
   be absolute and the generated command is rsync or tar over ssh — and desired
   state is implemented in the Linux agent alone, which the Windows and macOS
-  agents document as a heartbeat key they deliberately do not read. Both were
+  agents document as a heartbeat key they do not read. Both were
   offered from the same device picker as everything else, returned a success
   toast, and then did nothing on every cron tick. They are split by OS now,
   reusing the helper OpenSCAP already uses: a file job reports which non-Linux
@@ -2523,7 +2516,7 @@ release ships.
   returns the *first* bytes — the oldest content — and ClamAV, rkhunter and the
   sudo fallback all append. Once the log passed its cap the parse was stuck on
   ancient data permanently. `av_infected` is edge-triggered on the count rising
-  between heartbeats, so a frozen count can never rise and a genuine new
+  between heartbeats, so a frozen count can never rise and a real new
   detection never fires the critical alert, while a host cleaned months ago
   stays dirty in the drawer, the attention items and the retrieval corpus.
   Append-only logs are read from the tail now; the head reader keeps its
@@ -2566,7 +2559,7 @@ release ships.
 - **"Send IP addresses = off" did not hide IPv6 addresses.** The matcher could
   only recognise the fully expanded eight-group form, so `2001:db8::1`,
   `fe80::1` and `::1` — every address anyone actually writes — went to the AI
-  provider verbatim while the toggle read as on. A long address could even match
+  provider unchanged while the toggle read as on. A long address could even match
   in two halves, which looks redacted in a spot check.
 - **The network-topology source read the wrong store**, so half its corpus was
   always empty: the topology lives on the device record itself, not in a
@@ -2594,7 +2587,7 @@ release ships.
 ### Interface
 
 - **Confirm dialogs stopped eating their own paragraph breaks.** Around forty
-  confirm and prompt messages deliberately author a blank line to separate the
+  confirm and prompt messages author a blank line to separate the
   action from its consequence — "This cannot be undone. Use *Clear resolved* if
   you only want to purge resolved." The dialog's message element had no
   `white-space` rule, so every one of those collapsed into a single run-on grey
@@ -2744,7 +2737,7 @@ release ships.
 
 - **The interface-table walk existed and was thrown away.** It ran only on the
   on-demand deep poll, which draws a one-shot table in the drawer, because
-  walking it every five minutes is genuinely too heavy for a big switch. So a
+  walking it every five minutes is too heavy for a big switch. So a
   switch, router or firewall had no per-port bandwidth history, no utilisation
   graph, no error trend, and no alert when a port went down or saturated — and
   `nic_errors` only ever fired from agent telemetry, so it covered Linux,
@@ -2826,7 +2819,7 @@ release ships.
   looks like an answer and is not one.
 - **The evidence pack labelled itself loosely.** A `period_days: 90` header sat
   next to a posture block of today's numbers. It now says so in the document,
-  and carries the archived reports that genuinely cover the period.
+  and carries the archived reports that cover the period.
 - **Reports leave the box as uninterpreted numbers.** The model that writes a
   covering paragraph already existed behind an in-app button, with no cadence,
   no recipient list and no path into anything delivered — so the person a report
@@ -3057,7 +3050,7 @@ self-hostable, lightweight server for a homelab or small fleet to point them
 at. Now there is one, and it is monitored by the same system that runs it.
 - **`remotepower-kmipd` sidecar** (tcp/5696, `--with-kmip`, off by default) —
   a native TTLV/KMIP 1.0–1.4 implementation over mandatory mutual TLS.
-  Deliberately stateless: it terminates TLS and parses the protocol, then
+  Stateless by design: it terminates TLS and parses the protocol, then
   forwards each operation over loopback. It holds no keys, no master key and
   no data-directory access at all, which is why its unit runs under
   `DynamicUser=yes`. Operations: Discover Versions, Query, Create, Register,
@@ -3247,7 +3240,7 @@ pages rather than a page-by-page sweep: scope pickers (*Whole fleet*, *A group*,
 status filters (*Critical only*, *High and up*, *Not OK (warn + crit)*), device
 states, roles, and device types.
 
-**What was deliberately left in English**, because translating it would be wrong
+**What was left in English**, because translating it would be wrong
 rather than merely incomplete: product and tool names (Splunk, Loki, nuclei,
 lynis, ufw, firewalld, PostgreSQL, Tasmota, Terraform, …), protocol and format
 tokens (`tcp`, `udp`, `iPXE`, `min_version`), sort tokens (`asc`/`desc`),
@@ -3309,7 +3302,7 @@ agent ever read the key. Assign a script to a Mac or a Windows box and you got a
 success toast, an assignment that looked applied, and a results page that stayed
 empty forever.
 
-The two platforms are deliberately handled differently, because pretending they
+The two platforms are handled differently, because pretending they
 are the same would be worse than the bug:
 
 - **macOS** ships `/bin/bash`, so it runs the body exactly as Linux does — same
@@ -3330,14 +3323,14 @@ a skipped id is invisible — which is the bug, not the fix.
 Both agents honour observe-only `audit-mode`, which the Linux agent has always
 done for this channel: custom scripts run server-supplied script text as
 root/SYSTEM, which is precisely what that mode exists to block. The agent-side
-cap is 20 — a runaway backstop deliberately kept *above* the server's limit of
+cap is 20 — a runaway backstop kept *above* the server's limit of
 10, so a future raise there cannot make an agent silently drop assigned scripts.
 
 ### The macOS agent's log was unbounded
 
 Reported from the field: `/var/log/remotepower-agent.log` looked like it had no
 rotation. On Linux and Windows it does — both agents carry a
-`RotatingFileHandler` (5 MB × 5 and 1 MB × 3) and deliberately self-rotate so no
+`RotatingFileHandler` (5 MB × 5 and 1 MB × 3) and self-rotate so no
 logrotate or cron file is required; a Linux file sitting at 1.5 MB has simply
 not reached the threshold yet.
 
@@ -3451,7 +3444,7 @@ What it confirms: the TLS-terminating sidecar holds no key material, no master
 key and no store access; mTLS is enforced at the handshake *and* re-checked with
 revocation on every operation; per-client key scoping is applied on all nine
 object operations rather than merely documented in a comment; key material is
-AES-256-GCM at rest under a master key deliberately excluded from backups
+AES-256-GCM at rest under a master key excluded from backups
 (PBKDF2-SHA256 at 600k iterations for the recovery bundle); and the listener is
 bounded against resource exhaustion — message size, TTLV nesting depth,
 connection count, handshake and idle timeouts.
@@ -3802,7 +3795,7 @@ so it had rotted to red unnoticed. A gate nobody runs is not a gate.
   binds from `RP_KMIP_BIND` and never read it, while the page and the appliance
   walkthrough both quoted it. The daemon now reports its actual bind and the
   field is display-only.
-- The install dialog claimed a fresh secret per view; the handler deliberately
+- The install dialog claimed a fresh secret per view; the handler
   does the opposite. Re-issue lost the client's type, dropping the
   Synology-specific assignment step. The wizard leaked its poll and retained the
   issued private key when closed with Escape. The installer wrote the daemon
@@ -3924,7 +3917,7 @@ issued certificates, not DSM being fussy.
   derived from its name as a DNS-safe label.
 - **Neither leaf had Subject/Authority Key Identifiers**, which is what chain
   building uses. Both now do, and `openssl verify` accepts the chain.
-- The client CN dropped its `(kind)` suffix — it displays verbatim in appliance
+- The client CN dropped its `(kind)` suffix — it displays unchanged in appliance
   UIs, where "nas-01 (synology)" reads like a mistake.
 - **Both leaf certificates now carry both extended key usages**
   (`serverAuth, clientAuth`). KMIP mutual TLS blurs the client/server roles and
@@ -3938,7 +3931,7 @@ issued certificates, not DSM being fussy.
   address, so a replacement certificate does not silently lose it.
 - A CA minted by the earlier build is detected and **replaced automatically —
   but only while no clients exist**. Once appliances depend on it, replacing it
-  would cut them off, so it is kept and flagged instead for a deliberate
+  would cut them off, so it is kept and flagged instead for a considered
   re-issue.
 
 ### KMIP: handshake failures say what to fix
@@ -3990,7 +3983,7 @@ http/https checks":
   whose DNS answer changed — `400`d the whole save, naming the *other* monitor.
   Adding or even **deleting** an unrelated monitor became impossible. Now only
   the entry the operator actually touched hard-fails; an untouched broken entry
-  is carried through verbatim and reported in `monitor_warnings`, which the UI
+  is carried through unchanged and reported in `monitor_warnings`, which the UI
   raises as a toast so it can't rot unseen.
 
 ### Settings: one section that had become four things, and a quieter `/api/health`
@@ -4008,7 +4001,7 @@ http/https checks":
   a `200` — while an unauthenticated caller could read the precise patch level
   and fingerprint instances against version-specific advisories at scale. It
   now returns liveness only; authenticated callers read the version on the
-  Server-status page. `/api/public-info` **deliberately keeps** its
+  Server-status page. `/api/public-info` **keeps** its
   `server_version`: the peer-instance connector reads it from a peer's no-auth
   endpoint, so removing it there would break federation — that endpoint is the
   one intentional pre-auth version disclosure, not an accident.
@@ -4138,7 +4131,7 @@ success toast and did nothing. All three now work on all three agents:
   macOS, Windows Update pending on Windows).
 - `force_agent_upgrade` runs the agent's own signed self-update.
 - `backup_monitors` collect backup file/dir freshness (mtime + size).
-And the genuinely Linux-only action is now **honest** instead of silent: an
+And the Linux-only action is now **honest** instead of silent: an
 OpenSCAP scan queued against a Windows/macOS host reports "Linux only —
 N skipped" (and scans the Linux hosts in a mixed batch) rather than
 pretending it queued. New guardrail `tests/test_v640_agent_flag_parity.py`
@@ -4154,8 +4147,8 @@ drives all three agents and the server gate.
   real recovery observers: `cve_cleared` (a scan reports no findings left in
   the severity filter), `patch_ok` (upgradable count back under the
   threshold), `tls_renewed` (the probe crosses back above the warn window;
-  matched host+port so a renewal on :443 can't clear a still-expiring
-  :8443), `ecc_stable` (24 quiet hours after the last counter rise, latched),
+  matched host+port so a renewal on:443 can't clear a still-expiring
+:8443), `ecc_stable` (24 quiet hours after the last counter rise, latched),
   and `secret_cleared` (a rescan finds no unmuted findings). Every stateful
   alert now resolves itself when its condition clears.
 - **Protect/baseline alerts say WHERE to accept the change** (field report:
@@ -4314,7 +4307,7 @@ real logs, all fixed:
   folded but the domain didn't, so every blocklist was a different signature and
   clearing one left the rest. Signatures now fold 3+-label hostnames/FQDNs to
   `<host>` (unit names like `docker.service` and filenames like `app.js` are
-  deliberately spared), so clearing one clears the whole class.
+  spared), so clearing one clears the whole class.
 - Cleared log lines are also surfaced under **Settings → Ignored items** now (a
   "Cleared log lines" section with a Restore button), not only Logs → Cleared
   lines. *(NB: this changes line signatures, so pre-existing cleared lines need
@@ -4350,7 +4343,7 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
 - **Baseline acceptance is server-authoritative.** Accepting a change records
   the exact value accepted and suppresses the check instantly — surviving a
   page refresh and cache, not waiting for the agent round-trip — and re-fires
-  only on a genuinely new change. Accepting (and disabling, and deleting) a
+  only on a new change. Accepting (and disabling, and deleting) a
   check now **resolves its open alert**, and the agent re-baselines on-host so
   its own state agrees.
 - **Every status that returns to good closes its alert.** Deleting a device now
@@ -4681,7 +4674,7 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
   registered in `_LAZY_PAGE_MODULES` — the same "touch two registries" shape as
   FLEET_EVENTS and the scheduler CADENCE tuple. Registered, plus:
   `data-action-btn` now recovers by loading the pending modules and retrying
-  (`data-action` already did), and a genuinely missing handler now warns to the
+  (`data-action` already did), and a missing handler now warns to the
   console instead of returning silently, which is what made a whole page look
   dead with no signal. Guardrail: `tests/test_lazy_page_modules.py` parses
   `showPage`'s dispatch and fails if a page calls a lazy module's function
@@ -4793,7 +4786,7 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
 - **`Clear line`** — the third option between snoozing (comes back) and deleting
   the rule (goes blind). It acknowledges a matched line by its SIGNATURE: the
   line with timestamps, pids, ids, addresses and sizes folded out, so the same
-  message from a different worker still matches while a genuinely different
+  message from a different worker still matches while a different
   error still fires. Scope is per (host, unit), widenable to any-unit or — for
   admins — fleet-wide, with an optional expiry and note.
 - Cleared lines stop counting toward their rule's threshold, so the alert never
@@ -4920,7 +4913,7 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
 - **Server-status: syslog-receiver watcher** — the Distributed-subsystems
   card now shows the v6.3.0 `remotepower-syslogd` receiver (enrolled
   sources, last intake, local unit probe) as an **informational** row —
-  deliberately never a warning/health input, since the receiver is optional
+  never a warning/health input, since the receiver is optional
   and may run on another host. The opt-in **alerting** side is a new
   baseline-checks catalog row (`rp_syslogd_running`, tag `rp-server`) —
   apply it to the server host for a critical Checks row when the unit stops.
@@ -4986,7 +4979,7 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
   now tag a verdict with real ATT&CK technique ids, each labelled **observed /
   inferred / theoretical** (strict id + proof validation server-side; the
   model can't inflate proof or invent ids). Rendered as linked chips in the
-  verdict, shown only when the evidence genuinely suggests adversary
+  verdict, shown only when the evidence suggests adversary
   behaviour.
 
 ### Wave 8 — agentless network flow visibility (NetFlow / IPFIX)
@@ -5093,7 +5086,7 @@ waves, fixed before release:
 - **Correctness — auto-remediation auto-disabled working rules.** The verify
   loop judged a fix "failed" by "is the alert still open?", but events with no
   auto-recover path (log_alert, oom_detected, disk_full, brute_force, …) keep
-  their alert open until a human resolves it — so a genuinely-successful fix
+  their alert open until a human resolves it — so a-successful fix
   was marked failed every pass and the rule auto-disabled after 3. Those
   attempts are now **`unverifiable`** (no page, no fail count, no disable);
   gated on the registry-derived `_AUTO_RESOLVABLE_EVENTS`.
@@ -5145,7 +5138,7 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   leaves the server, so a lost commit can only ever mean "not deleted".
   Command-snippet delete previously had *no* confirmation at all; it is now
   undoable instead. (Side-effectful deletes — DNS records, firewall rules, cert
-  revoke, VM snapshots, bulk alert-clear — deliberately keep their confirmations.)
+  revoke, VM snapshots, bulk alert-clear — keep their confirmations.)
 - **Optimistic alert actions** — the keyboard `a` ack flips the row instantly
   and offers Undo (wired to the existing `POST /api/alerts/<id>/unack`);
   Resolve flips the row before the server round-trip and reverts with an error
@@ -5334,7 +5327,7 @@ the other posture axes need data plumbing first).
   boxes now feed the alert pipeline with zero new auth surface (unknown
   sources are dropped, rate-limited logging). Backend-aware store reads
   (the push-daemon StoreReader pattern — no raw file reads); static
-  `DynamicUser` unit (deliberately NOT install-rendered, so the sidecar
+  `DynamicUser` unit (NOT install-rendered, so the sidecar
   refresh may safely update it); deploy + self-update wiring included.
   Driven end-to-end in `tests/test_v630_syslogd.py` (real daemon, real UDP,
   captured POSTs).
@@ -5386,7 +5379,7 @@ the other posture axes need data plumbing first).
   via `restore_drill_ok`. Passphrase rot, a missing cryptography library, or
   corrupt archives now surface within a week instead of during a disaster.
   Guardrail: `tests/test_v630_restore_drill.py` drives the real sweep with
-  real (and deliberately corrupt) archives. Also fixed while there:
+  real (and corrupt) archives. Also fixed while there:
   `test_v541.py` was missing the module-scope `RP_DATA_DIR` guard (the
   dangerous /var/lib class) — found by running it standalone.
 
@@ -5819,7 +5812,7 @@ code, and de-duplicated docs.
 - Documentation: `storage.md` is now an umbrella that links the focused
   disk-health / GPU / thermal / power guides instead of duplicating them.
 - **CI green-on-push contract.** `make ci-parity` now mirrors prod CI exactly
-  (Python 3.12, the ci.yml dep list verbatim, the same `unittest discover`
+  (Python 3.12, the ci.yml dep list unchanged, the same `unittest discover`
   runner); a new guardrail test fails locally on any new hard import missing
   from the CI dep list, on dep-list drift between ci.yml and the Makefile,
   and on any test module that imports a package CI doesn't install; a
@@ -5841,7 +5834,7 @@ day.
   else) hides it, the host gets a **critical "Kernel modules visible" check**
   on the Checks page and a `modules_hidden` alert — including on first contact,
   so a freshly enrolled host with the problem is flagged immediately. The alert
-  auto-resolves once the modules are visible again. This check deliberately
+  auto-resolves once the modules are visible again. This check
   cannot be disabled per host: an agent context that can't see kernel modules
   can build an unbootable initramfs on its next package upgrade, and that
   signal must never be mutable into invisibility. Hosts with no initramfs
@@ -6209,7 +6202,7 @@ of that gap, and fixes two real bugs found on the way.
   `Get-PhysicalDisk` + `Get-StorageReliabilityCounter` (a degraded drive maps to
   the server's FAILED, so failure prediction/wear/trends all light up); **hardware
   inventory** via WMI (`Win32_ComputerSystem`/`Win32_BIOS`/`Win32_PhysicalMemory`);
-  **config-drift** (watched-file hashing — genuinely OS-agnostic); and
+  **config-drift** (watched-file hashing — OS-agnostic); and
   **containers** via the `docker` CLI (Docker Desktop / Windows containers,
   feature-invisible when absent). All feed the existing server pipelines with zero
   server change. (Still Linux-only, and honestly so: **OpenSCAP** — `oscap` is a
@@ -6245,11 +6238,11 @@ of that gap, and fixes two real bugs found on the way.
   `/etc/group`, the Windows agent runs `Get-LocalGroupMember` — but nothing ever
   diffed it, so the classic post-compromise persistence step (and the equally
   classic nobody-told-me change) was invisible. First contact baselines silently;
-  removals deliberately do not fire.
+  removals do not fire.
 - **Windows Defender AV posture.** Defender joins the existing AV pipeline as a
   distinct `defender` engine — signature age, threat count, last scan — rather
   than masquerading as ClamAV, which would have misled every webhook consumer.
-  The genuinely new signal is **real-time protection switched OFF**
+  The new signal is **real-time protection switched OFF**
   (`av_realtime_off`): "AV installed but disabled" has no equivalent among the
   on-demand Linux scanners, and it makes every other AV number on that host
   meaningless. It is a *condition*, not an event, so it fires even on first
@@ -6259,7 +6252,7 @@ of that gap, and fixes two real bugs found on the way.
   signal → `usb_device_added`. Read from sysfs, not `lsusb` (which is not in the
   containerized agent's image and would have returned nothing there, silently,
   forever), and keyed by VID:PID so the same stick in a different port does not
-  re-fire. Detection only — peripheral *enforcement* is deliberately out of scope
+  re-fire. Detection only — peripheral *enforcement* is out of scope
   for an audit-first product. It lands in the inbox but does not page by default:
   on a homelab desktop this is a phone charger, and an event that pings you at 3am
   for a phone charger is one you mute — losing the one that mattered.
@@ -6303,7 +6296,7 @@ of that gap, and fixes two real bugs found on the way.
   (0–100) with an explainable factor breakdown, derived entirely from telemetry
   already stored: SMART trends (reallocated sectors *growing*, not merely
   present), pending sectors, wear, NVMe spare, ECC errors, reboot churn,
-  health-score trajectory, thermals, recent OOM. Deliberately a *separate* number
+  health-score trajectory, thermals, recent OOM. A *separate* number
   from the risk score — risk answers "how exposed is this host", reliability
   answers "how likely is it to break", and a fully-patched server with a dying
   disk is low-risk and low-reliability. On **Monitoring → Predictive health**;
@@ -6321,7 +6314,7 @@ of that gap, and fixes two real bugs found on the way.
   stopped reporting — is listed apart from a protected one rather than folded into
   the "covered" count, because that is precisely the failure an EDR rollout makes
   and precisely the one a coverage number would hide. On the **Risk** page.
-  (Microsoft Defender for Endpoint is deliberately absent: its OAuth token host
+  (Microsoft Defender for Endpoint is absent: its OAuth token host
   differs from its API host, and the SSRF-bound client refuses cross-host token
   fetches. Working around that guard for a connector is not a trade worth making.)
 
@@ -6337,7 +6330,7 @@ of that gap, and fixes two real bugs found on the way.
      registered playbook fixes. Its answer is validated against that catalog and
      anything else is refused and audited. A completely compromised model can, at
      absolute worst, pick *a different script you wrote yourself*. It cannot author
-     shell. There is deliberately no free-form-command path at all — not an
+     shell. There is no free-form-command path at all — not an
      oversight, the design. `GET /api/ai-exec/catalog` shows the entire action
      space, because you should be able to read every action your AI could ever
      propose, in one place.
@@ -6385,7 +6378,7 @@ of that gap, and fixes two real bugs found on the way.
   known-safe fields, so a tampered or future agent posting a `value` or a
   `fingerprint` is *structurally* unable to get one into the store.
 
-  Deliberately a **report, not an alert** — PII sitting in `/srv/data` is the
+  A **report, not an alert** — PII sitting in `/srv/data` is the
   expected state of a business, not an incident, and an event per finding would be
   pure alert fatigue that trains people to mute the one category they must not.
   On the **Compliance** page; the existing `secret_exposed` alert still covers the
@@ -6419,7 +6412,7 @@ of that gap, and fixes two real bugs found on the way.
   the Integrations page. Every pause is **timed** (30 s – 4 h, clamped in the
   driver, not merely in the handler): the blocker re-enables *itself*, so the safe
   state is restored by the remote device rather than by a sweep here that might
-  never run. There is deliberately **no disable-forever action** — a blocker
+  never run. There is **no disable-forever action** — a blocker
   switched off and forgotten is a silent, permanent security regression, which is
   the opposite of the point. Admin-only and audit-logged with the window, so "who
   turned the ad-blocker off, when, and for how long" is answerable afterwards.
@@ -6445,7 +6438,7 @@ of that gap, and fixes two real bugs found on the way.
   maintenance mode, quarantine, or audit mode) the confirmation was marked
   `failed` and could never be approved again — forcing a brand-new request once
   the host drained. A block reason is now returned as retryable (HTTP 503) and
-  leaves the confirmation `pending`; only a genuine failure marks it `failed`.
+  leaves the confirmation `pending`; only a real failure marks it `failed`.
 - **The Windows/macOS rollout dispatch sent a bash script too.** The ring-based
   rollout orchestrator (`_rollout_dispatch_ring`) queued a single bash
   `exec:<upgrade>` for every device in the ring — the same OS-blind bug the
@@ -6479,7 +6472,7 @@ of that gap, and fixes two real bugs found on the way.
   server never emitted it. Every server-side upgrade path (on-demand
   `handle_upgrade_device`, auto-patch policies, scheduled jobs) queued
   `exec:<bash script>` with **no OS branch anywhere**, and commands are delivered
-  to agents verbatim. So a Windows host was sent a shell script, which its agent
+  to agents unchanged. So a Windows host was sent a shell script, which its agent
   dutifully handed to PowerShell. The shipped feature was dead end to end: fully
   wired on the agent, never triggered by the server. All three paths are now
   OS-aware. Fixing it surfaced a second, security-relevant bug: `_command_kind`
@@ -6626,7 +6619,7 @@ written up. Both have been live since v5.1.1; recording them properly now.
   a stale UI until a second reload. It now fetches with `cache: 'reload'`, bypassing
   the HTTP cache. (#14)
 - **Security: the WireGuard hub's private key was handed to an unprivileged
-  caller.** The `wg-apply` helper returned the hub interface's config verbatim, and
+  caller.** The `wg-apply` helper returned the hub interface's config unchanged, and
   line 0 of that config carries the interface `PrivateKey` — the one secret that
   compromises the entire tunnel. It is now redacted before the config crosses the
   privilege boundary. (#16)
@@ -6684,7 +6677,7 @@ written up. Both have been live since v5.1.1; recording them properly now.
 - **`/api/devices` and `/api/home` skip the fleet-dict deep copy.** Both build their
   response by projecting each device into a fresh row and never modify the loaded
   data, so they now read it through the copy-free `_load_ro` path — the same change
-  already applied to nav-counts. (They are deliberately NOT given a conditional
+  already applied to nav-counts. (They are NOT given a conditional
   request: their rows carry a live "minutes since last seen" counter that ticks
   every minute, so revalidation would never save anything.)
 
@@ -6773,7 +6766,7 @@ written up. Both have been live since v5.1.1; recording them properly now.
   require typing a confirmation phrase — and that phrase is checked **on the
   server**, because a browser-only `confirm()` is theatre when anything can POST
   to the endpoint. `docker system df` shows what's actually reclaimable before
-  you commit. The *scheduled* nightly prune deliberately offers only the safe
+  you commit. The *scheduled* nightly prune offers only the safe
   scopes: a recurring job that quietly deletes volumes every night is precisely
   what nobody wants, and an unattended cron can't be shown a warning.
 
@@ -6876,7 +6869,7 @@ written up. Both have been live since v5.1.1; recording them properly now.
 - **Copy host summary** — a drawer action that puts a plain-text digest (OS,
   kernel, CPU, RAM, utilisation, load, temperature, pending updates, failed
   units) on the clipboard, for pasting into a forum or Discord help thread. It
-  deliberately omits IP addresses and the device id: a summary gets pasted in
+  omits IP addresses and the device id: a summary gets pasted in
   public by definition.
 - **Longest-uptime dashboard widget.** This needed a *numeric* uptime — the only
   uptime ever stored was the `uptime -p` prose ("up 3 weeks"), which cannot be
@@ -6937,7 +6930,7 @@ written up. Both have been live since v5.1.1; recording them properly now.
 
 - **Settings → Advanced → Optional modules.** Alerts, Tickets, Billing, Knowledge
   base, Compliance and Pentest can each be switched off. A disabled module leaves
-  the sidebar *and* its whole API prefix 404s at the dispatcher — it is genuinely
+  the sidebar *and* its whole API prefix 404s at the dispatcher — it is
   off, not merely hidden. Nothing is deleted: switch it back on and the data is
   where you left it. Defaults preserve current behaviour exactly. Switching
   **Alerts** off stops inbox rows being recorded while webhook/email
@@ -7106,7 +7099,7 @@ breaking API changes. Full write-up: `docs/v6.1.1.md`.
   topology graph as dashed, muted nodes/edges. OPNsense DHCP-lease reading
   reaches parity with RouterOS via the Kea plugin.
 - New **Data Explorer** page: a whitelisted predicate-tree query engine
-  over devices/CVEs/drift (deliberately not raw SQL — a raw-SQL surface
+  over devices/CVEs/drift (not raw SQL — a raw-SQL surface
   would be a direct RLS-bypass risk), plus a batch endpoint for up to 10
   queries in one call.
 - **Real OTLP distributed tracing** — one span per HTTP request, recorded
@@ -7418,7 +7411,7 @@ whole product, plus a batch of UI fixes and two new alerts.
   SHA-2 family (SHA-224/256/384/512), AES-128 privacy, optional context.
   Engine discovery, time-window resync and response authentication are
   handled automatically; passwords are write-only in the API/UI. DES privacy
-  is deliberately not supported (broken cipher — use AES on the agent). All
+  does not supported (broken cipher — use AES on the agent). All
   existing pollers (sys-group, processors, storage, Mikrotik/Synology vendor
   reads, deep interface walks) work over v3 unchanged.
 - **GitHub issue monitor integration.** New `github` connector (Settings →
@@ -7668,7 +7661,7 @@ ship. Fixed:
   `port_unexposed` (matched per exact proto+port). All are edge-triggered off
   existing per-host state (no new polling); recover events create no inbox row.
   Point/security/ack events (brute-force, ssh-key-added, new-source login, OOM,
-  fail2ban ban, …) deliberately stay non-resolving. `WEBHOOK_EVENTS` 91→99.
+  fail2ban ban, …) stay non-resolving. `WEBHOOK_EVENTS` 91→99.
   Guardrail: `tests/test_v560_recover.py`.
 
 ## v5.6.0 — "HeapMatters" — 2026-07-01
@@ -7894,7 +7887,7 @@ Batch 2 (credential-at-rest + API contract + observability):
 - **API keys are hashed at rest** (SHA-256): a datastore read no longer yields a
   reusable bearer secret (the clearest SOC2 finding). The raw key is shown once at
   creation; a pre-existing plaintext key is accepted and transparently migrated to a
-  hash on first use. (Device tokens + enrollment tokens are a deliberate later step.)
+  hash on first use. (Device tokens + enrollment tokens are a considered later step.)
 - **API versioning**: every route is now also reachable under **`/api/v1/...`** (a
   permanent alias of the unversioned path), so integrators can pin a versioned base
   URL; future breaking changes can land under `/api/v2`.
@@ -8270,7 +8263,7 @@ Correctness, performance and hardening fixes (folded into 5.1.0):
   (@tbouquet, #7).
 - **`_sanitize_ip` rejects trailing garbage** — the IPv4 branch of the validation
   regex was unanchored, so a valid-IP prefix matched and the whole string passed
-  through verbatim into device records and the audit log. Contributed by
+  through unchanged into device records and the audit log. Contributed by
   @tbouquet (#3).
 - **RAG embedding cache invalidated on model/provider change** — switching the
   embedding model/provider left stale vectors in the cache, silently collapsing
@@ -8745,7 +8738,7 @@ tree / migration guide in [docs/tls-selfsigned.md](docs/tls-selfsigned.md).
   one `remotepower-locations.conf` (also the Docker config) so they can't drift,
   and HTTPS is a clean uncomment.
 - **Docker opt-in TLS.** `RP_TLS_SELFSIGNED=1` makes the container generate a
-  CA+leaf into the data volume on first boot and serve HTTPS on :8443, printing
+  CA+leaf into the data volume on first boot and serve HTTPS on:8443, printing
   the fingerprint to `docker logs`.
 - **Switching self-signed → real is a server-only change:** because the agent
   trusts the system roots *and* the CA simultaneously, you point nginx at a real
@@ -9166,7 +9159,7 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
   the built-in *default* tenant) still sees everything. Enforced at the same
   chokepoints as RBAC scoping (device roster, per-device access, and every
   scope-filtered fleet view), with explicit cross-tenant isolation tests.
-  **Off by default** — enabling it is a deliberate, reversible flip; device
+  **Off by default** — enabling it is a considered, reversible flip; device
   reassignment between tenants is superadmin-only.
 - **Browser push notifications (Web Push).** Operators can get a desktop
   notification for high/critical alerts even when RemotePower isn't the active
@@ -9266,7 +9259,7 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
 - **Multi-tenancy — foundation (P1).** A tenant registry (`GET/POST /api/tenants`,
   `PUT/DELETE /api/tenants/<id>`), user→tenant assignment
   (`POST /api/tenants/<id>/users`, `tenant_id` on the user record), and the
-  caller's tenant in `GET /api/me`. This is **deliberately behaviour-neutral** —
+  caller's tenant in `GET /api/me`. This is **behaviour-neutral** —
   everyone is in the built-in `default` tenant and nothing is partitioned or
   filtered by tenant yet (the existing RBAC scopes still govern access). The
   enforcing half (per-tenant storage isolation) is intentionally left for a
@@ -9528,7 +9521,7 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
   poller now appends CPU/memory/busiest-disk to the same time-series the agent
   path uses, so SNMP hosts trend like agent hosts.
 - **CVE page: KEV feed status is now visible.** When KEV showed 0 there was no
-  way to tell "feed not loaded / errored" from "genuinely no known-exploited
+  way to tell "feed not loaded / errored" from "no known-exploited
   CVEs". The page now shows the loaded KEV count + last update (or the feed
   error), with a button to refresh the CISA KEV / FIRST EPSS feeds on demand.
 - **Button polish.** Icons sat flush against their labels on some buttons; added
@@ -9757,7 +9750,7 @@ already being reported and stored.
   `/proc/cpuinfo`, total RAM, total **local** disk deduped by block device so
   btrfs subvolumes don't multi-count, and the kernel release), and the server
   passes them through. CPU-model parsing matches the exact `model name` field so
-  the numeric `model :` line isn't shown instead.
+  the numeric `model:` line isn't shown instead.
 - Purely numeric device tags now highlight correctly when selected.
 - `escHtml` now also escapes single quotes (matches the other escape helpers).
 - The update banner's release-notes link is scheme-validated before render.
@@ -9938,7 +9931,7 @@ row write.
   `@_skip_sqlite`; everything else is green on both backends.
 - `fleet_events.json` is kept a cold blob (it is polymorphic in the codebase —
   written dict-wrapped, read bare-list by `_compute_attention`), so it
-  round-trips any shape verbatim under SQLite.
+  round-trips any shape unchanged under SQLite.
 - **RAG reindex works under SQLite.** The index rebuild trigger used source-file
   mtimes, which don't exist under SQLite. New `backend_mtime()` + a per-file
   `file_meta` write-time table (touched by every writer) give a backend-agnostic
@@ -10973,7 +10966,7 @@ collecting but the detail view didn't show:
 - **Health-score history survives un-monitoring a device.** The daily sampler
   pruned any series not in the *monitored* set, so flipping a host to
   `monitored:false` permanently deleted its accumulated health history (and
-  re-monitoring restarted from zero). It now prunes only genuinely deleted hosts.
+  re-monitoring restarted from zero). It now prunes only deleted hosts.
 - **Command queue: no more lost commands.** The heartbeat dispatch and the
   enqueue paths did unlocked load → modify → save on the queue, so a command
   queued in the exact window of a heartbeat could be silently dropped (or a
@@ -11535,7 +11528,7 @@ operator UX.
 - **SSRF default flipped.** `webhook_block_local` now defaults to
   `True`, blocking link-local targets (cloud metadata services at
   169.254.169.254) and unspecified addresses. Loopback
-  (127.0.0.1, ::1) is still allowed by default via a new
+  (127.0.0.1,::1) is still allowed by default via a new
   `webhook_allow_loopback` flag so homelab Gotify/ntfy sidecars
   keep working.
 - **Optional admin-only alert mutation** via `viewers_can_ack_alerts`
@@ -11786,7 +11779,7 @@ testing on the deployed v3.2.0. No schema migrations.
   `metric_warning` / `metric_critical` / `metric_recovered` events
   as the agent path. Two new metric kinds (`snmp_cpu`, `temp_board`/
   `temp_cpu`); disk/memory percent share the agent's thresholds.
-  Defaults: SNMP CPU warn 75 / crit 90 ; temperature warn 70 / crit 85.
+  Defaults: SNMP CPU warn 75 / crit 90; temperature warn 70 / crit 85.
 - **`snmp_unreachable` / `snmp_dead` / `snmp_recover` events.**
   Unreachable fires at the 2nd consecutive poll failure (single-packet
   UDP loss never alerts); `snmp_dead` escalates at the 72nd
@@ -12425,8 +12418,8 @@ no migrations needed.
   `chat_openai_compatible()` in the wrong order — the `messages` parameter
   received the system-prompt STRING, then `payload_messages.extend(messages)`
   iterated it character by character and sent the LLM a messages array like
-  `[{role:'system', content:'Alert:...'}, 'Y', 'o', 'u', ...]`. Ollama
-  rejected the malformed payload, the provider returned `{ok: False, ...}`,
+  `[{role:'system', content:'Alert:...'}, 'Y', 'o', 'u',...]`. Ollama
+  rejected the malformed payload, the provider returned `{ok: False,...}`,
   and the caller's `ai_result.get('text', '')` happily returned `''`. Fix:
   build a proper `messages=[{role, content}]` list, pass the system prompt
   as `system`, unpack the per-prompt overrides into matching kwargs. And —
@@ -13173,7 +13166,7 @@ enrolled devices. The agent runs each check every 5 minutes (no agent
 restart or update required), captures stdout+stderr, and reports back
 over the existing heartbeat channel.
 
-**Exit code contract:** 0 = OK, anything else = FAIL. Deliberately
+**Exit code contract:** 0 = OK, anything else = FAIL. On purpose,
 binary — no MRPE severity levels.
 
 **Server (`server/cgi-bin/api.py`):**
@@ -13674,7 +13667,7 @@ Security release — Proxmox token secret hardening.
   fallback. Settings → Proxmox detects an env-sourced secret and
   disables the config field.
 - **Backup export redacts config.json secrets.** The backup ZIP
-  used to include `config.json` verbatim — carrying the live
+  used to include `config.json` unchanged — carrying the live
   Proxmox token, SMTP password and LDAP bind password. All three
   are now redacted in the exported copy (keys kept, values
   replaced with `(redacted)`).
@@ -13996,7 +13989,7 @@ drift detection story.
    `--amber-soft/edge`, `--red-soft/edge`, `--accent-soft/edge`
    CSS variables. New `.status-pill` component with five
    variants. Critical-state pulse animation (warning states are
-   deliberately *not* pulsing — too noisy at fleet scale).
+   *not* pulsing — too noisy at fleet scale).
    `prefers-reduced-motion` honoured.
 
 4. **Skeleton loaders replace centred spinners.** Shimmer-animated
@@ -14125,7 +14118,7 @@ query the fleet in natural English.
   `get_patches`, `get_tls`, `search_devices`.
 - Device-name resolution: exact → prefix → substring →
   ambiguity error.
-- **No write tools**, by deliberate design. Test suite asserts
+- **No write tools**, by considered design. Test suite asserts
   no write-shaped names slipped in. Write tools land in a future
   release with the server-side allow-list and per-token role in
   place — not before.
@@ -14241,7 +14234,7 @@ Two new AI features and a few README/docs polish bits.
     Runbook section on the device detail modal with View / Regenerate
     / Delete buttons.
   - Rate-limited under the same per-user-per-day cap as `/api/ai/chat`.
-  - No batch "regenerate all" button, deliberately — cost-sensitive.
+  - No batch "regenerate all" button — cost-sensitive.
 
 - **Level-1 RAG context awareness.** Every AI request now prepends
   a project-context block (what RemotePower is, the storage
@@ -14318,7 +14311,7 @@ AI work plus the long-pending stderr-spam fix.
   route that doesn't exist. Fixed: assemble the snapshot in parallel
   from `/sysinfo`, `/output`, and the devices list. Bails visibly
   ("No data available yet — has the agent checked in?") if there's
-  genuinely nothing to send.
+  nothing to send.
 - **AI responses now render Markdown.** Models love their `**bold**`
   and `## headers` and `` `code` `` — showing them as raw punctuation
   was jarring. New `renderMarkdown()` helper: HTML-escape *first*,
@@ -14555,7 +14548,7 @@ that do RMW, who now opt in explicitly.
 
 13 new tests in `tests/test_v212.py` including a threaded
 reproducer for the race (20 concurrent updaters, asserts every
-update is preserved) and a deliberate demonstration of the bug
+update is preserved) and a considered demonstration of the bug
 using the old pattern. Total suite: **660 tests, all passing.**
 
 Other admin-action RMW sites (note/group/tag/poll-interval edits)
@@ -14582,7 +14575,7 @@ fsync-outside-lock work). Only the *optional* saves below it
 bug above invisible to operators: `check_offline_webhooks()` only logged
 inside `fire_webhook()`, so an operator without webhooks got a silent
 state flip; and `main()` wrapped every per-request maintenance sweep in
-`try: ... except Exception: pass`, swallowing every error including
+`try:... except Exception: pass`, swallowing every error including
 ones an operator most needs to see. Now: state transitions always log
 `[remotepower] OFFLINE dev=… last_seen=… delta=…s ttl=…s` regardless
 of webhook config; heartbeat arrival logs to stderr (visible in nginx
@@ -14620,7 +14613,7 @@ since the agent generally doesn't have the kubectl context to act on
 them through this path.
 
 **Demo data reflects v2.1 features.** `seed-demo-data.py` now also
-seeds `scripts.json` (5 example scripts including one deliberately
+seeds `scripts.json` (5 example scripts including one
 flagged dangerous to demo the `⚠ DANGER` badge), `batch_jobs.json`
 (one recently-completed batch run for the status modal), and
 `log_watch.json` (two log-watch rules and one fired alert showing
@@ -14682,7 +14675,7 @@ refuses syntax-erroring scripts outright.
 
 **docker compose dropdown** (`docs/compose.md`). The Linux agent now
 scans `/opt`, `/home`, `/docker`, `/srv` (`find -L -maxdepth 4`,
-5 s timeout, 50-project cap, prune list for .git / node_modules /
+5 s timeout, 50-project cap, prune list for.git / node_modules /
 .cache / venv) for `docker-compose.yml` / `compose.yml` and reports
 the listing alongside containers in the heartbeat. Device cards get
 a **docker compose (N)** entry in the ⋯ menu with Up / Down /
@@ -14782,7 +14775,7 @@ The split is strictly mechanical — no code was rewritten or restructured. Same
 - Want to find a function? `grep 'function foo' static/js/app.js`
 - Want to see the page structure? `index.html` is a fifth its old size and now actually readable.
 
-I deliberately did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
+I did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
 
 `deploy-server.sh` updated to rsync the `server/html/static/` tree to `/var/www/remotepower/static/`. The deploy is otherwise identical.
 
@@ -14841,7 +14834,7 @@ This release makes that class of corruption impossible going forward.
 
 1. **Round-trip integrity check before any disk write.** Serialise with `allow_nan=False`, then parse the result back. If the data won't round-trip, raise `ValueError` immediately instead of writing it. Catches NaN/Infinity (Python's json silently allows them, but most other tools reject them) and any logic bug producing a malformed structure.
 
-2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE, ...)` will queue on the lock instead of racing.
+2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE,...)` will queue on the lock instead of racing.
 
 3. **Per-process unique tmp filename.** `<file>.tmp.<pid>.<nonce>` instead of just `<file>.tmp`. Even with the lock, this is belt-and-braces — if two writers ever did manage to be in `save()` simultaneously (lock file deleted, filesystem weirdness), they wouldn't share a tmp file and couldn't trample each other's bytes.
 
@@ -14899,9 +14892,9 @@ sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
 
 **529 passing** (513 from v1.12.0 + 16 new in `test_v1121.py`):
 
-Atomic save (8 tests): basic round-trip, lock sidecar created, .bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
+Atomic save (8 tests): basic round-trip, lock sidecar created,.bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
 
-Load with fallback (4 tests): missing returns empty, corrupt falls back to .bak, no .bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
+Load with fallback (4 tests): missing returns empty, corrupt falls back to.bak, no.bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
 
 End-to-end recovery (1 test): plant corruption, verify load() falls back, verify next save() re-establishes clean state with both files valid.
 
@@ -15303,9 +15296,9 @@ Drop-in upgrade. Existing `config.json` keeps working — the new `last_monitor_
 **Update history was always empty.** This was a critical agent bug that shipped in v1.10.0 and went unnoticed until somebody actually tried to use the per-device "Update history" panel after running an upgrade.
 
 The flow was supposed to be:
-1. Dashboard pushes `exec:apt-get -y upgrade ...` to the device.
+1. Dashboard pushes `exec:apt-get -y upgrade...` to the device.
 2. Server's heartbeat response includes `command: <the script>`.
-3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade && ...`).
+3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade &&...`).
 4. Agent puts the result in the next heartbeat → server detects it's a package upgrade → archives to `update_logs.json` → "Update history" shows it.
 
 Step 4 is what was broken. Look at `client/remotepower-agent` line 1037–1040 (v1.11.6):
@@ -15319,7 +15312,7 @@ if cmd:
     payload['executed_command'] = cmd       # <- same bug
 ```
 
-`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0): ...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
+`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0):...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
 
 Fix: send a dedicated minimal follow-up heartbeat right after the command finishes. Carries just `device_id`, `token`, `ip`, `os`, `version`, `cmd_output`, `executed_command` — no sysinfo or journal, those are already on the server from the first heartbeat in this iteration. If the follow-up POST itself fails (network blip, server restart at exactly the wrong moment), the cmd_output gets stashed to `/var/lib/remotepower-pending-cmd.json` (or `/tmp/` if `/var/lib` isn't writable) and picked up by the next successful heartbeat.
 
@@ -15511,7 +15504,7 @@ All three default to enabled, respect the existing per-event toggle in Settings 
 
 - `GET /api/containers` — each entry now includes `is_stale: bool`.
 - `GET /api/devices/{id}/containers` — response now includes `is_stale: bool` and `stale_ttl: int`.
-- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've deliberately removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
+- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
 - `POST /api/config` — accepts `container_stale_ttl` (300–86400 seconds).
 
 ### Modified behaviour
@@ -15704,7 +15697,7 @@ Podman, and Kubernetes pods independently — three try/except blocks
 around three runtime probes, none of which can break the heartbeat
 if a runtime is missing or stuck. Each runtime gets at most a
 five-second timeout on its listing command. The agent normalises
-output across all three (Docker's `--format '{{json .}}'` lines,
+output across all three (Docker's `--format '{{json.}}'` lines,
 Podman's similar output, kubectl's `-o json` document) into a single
 schema and posts a list of up to 100 entries every five polls,
 roughly five minutes at the default cadence.
@@ -15825,7 +15818,7 @@ POST   /api/tls/scan                            probe all targets now
 
 - `containers.json` — `{device_id → {ts, items: [...]}}` last-seen state
 - `tls_targets.json` — `{tls_<hex> → {host, port, label, warn_days, crit_days}}`
-- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer, ...}}`
+- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer,...}}`
 
 ### Modified data files
 
@@ -15903,7 +15896,7 @@ and a Copy button that puts a plain `ssh user@host -p port` command
 on your clipboard. The host comes from the asset's hostname (or IP if
 hostname is empty), the port from a new per-asset `ssh_port` field
 (default 22, validated 1-65535), and the username from the credential.
-The password is **deliberately not** included in the URI — `ssh://`
+The password is **not** included in the URI — `ssh://`
 URIs technically can carry one but that ends up in browser history
 and process tables, so the password stays in the reveal modal where
 it belongs.
@@ -15950,7 +15943,7 @@ format`, `make typecheck`, `make check`, and `make install-dev`. The
 `make lint` target is intentionally scoped to the v1.10.0 baseline
 files — running black across the entire 5800-line `api.py` would
 produce an unreviewable diff in this release; broadening the scope
-is its own deliberate effort.
+is its own considered effort.
 
 A small but meaningful cleanup: the long-standing `respond(); sys.exit(0)`
 pattern is replaced by a proper `HTTPError(status, body)` exception
@@ -16744,7 +16737,7 @@ The new page has three stacked widgets:
 - No agent changes in 1.8.1 — everything is server-side plus UI. v1.8.0
   agents work unchanged with a v1.8.1 server.
 - The live tail uses client-side polling, not WebSockets or SSE. A
-  genuine push channel would need persistent connection state in the CGI
+  real push channel would need persistent connection state in the CGI
   model, which doesn't fit. 10-second polling is cheap and survives server
   restarts invisibly.
 - Alert rules editor is per-device. A fleet-wide "apply to all devices
@@ -16785,7 +16778,7 @@ unit; server keeps a rolling buffer and can fire webhooks on regex matches.
 - Per-device `log_watch` rules `[{unit, pattern, threshold}]` — regex matches
   trigger `log_alert` webhooks (priority 4, `warning,scroll` tags)
 - New `/api/logs/search?q=<regex>&device=<id>` endpoint — cross-device grep
-  over the rolling buffer. No indexing, just regex scan; deliberately not a
+  over the rolling buffer. No indexing, just regex scan; not a
   full log analytics stack
 - Captured logs appear inline in the per-device service drill-down so you
   can see *why* a service went red without SSH-ing in
@@ -16863,7 +16856,7 @@ with audit trail.
 
 - Service monitoring requires `systemctl` — agent silently skips reporting
   on non-systemd hosts
-- The log tail deliberately does not do indexing, retention policies, or
+- The log tail does not do indexing, retention policies, or
   structured parsing. It's a rolling buffer with regex search. If you need
   Loki or Graylog, run those
 - Maintenance windows only suppress *webhooks* — the events themselves are
@@ -16996,7 +16989,7 @@ Metric families exposed:
 - All version strings bumped to 1.6.3.
 
 ### Note on custom `apt` commands
-The Custom Command dialog runs whatever string you type verbatim. If you
+The Custom Command dialog runs whatever string you type unchanged. If you
 manually type `apt update && apt upgrade -y …` on a box that still has
 `NoNewPrivileges=yes` in its agent service file, you'll still see the
 `seteuid 105 failed` error — that's expected, and the fix is to deploy
@@ -17509,7 +17502,7 @@ enrolled devices. The agent runs each check every 5 minutes (no agent
 restart or update required), captures stdout+stderr, and reports back
 over the existing heartbeat channel.
 
-**Exit code contract:** 0 = OK, anything else = FAIL. Deliberately
+**Exit code contract:** 0 = OK, anything else = FAIL. On purpose,
 binary — no MRPE severity levels.
 
 **Server (`server/cgi-bin/api.py`):**
@@ -18010,7 +18003,7 @@ Security release — Proxmox token secret hardening.
   fallback. Settings → Proxmox detects an env-sourced secret and
   disables the config field.
 - **Backup export redacts config.json secrets.** The backup ZIP
-  used to include `config.json` verbatim — carrying the live
+  used to include `config.json` unchanged — carrying the live
   Proxmox token, SMTP password and LDAP bind password. All three
   are now redacted in the exported copy (keys kept, values
   replaced with `(redacted)`).
@@ -18332,7 +18325,7 @@ drift detection story.
    `--amber-soft/edge`, `--red-soft/edge`, `--accent-soft/edge`
    CSS variables. New `.status-pill` component with five
    variants. Critical-state pulse animation (warning states are
-   deliberately *not* pulsing — too noisy at fleet scale).
+   *not* pulsing — too noisy at fleet scale).
    `prefers-reduced-motion` honoured.
 
 4. **Skeleton loaders replace centred spinners.** Shimmer-animated
@@ -18461,7 +18454,7 @@ query the fleet in natural English.
   `get_patches`, `get_tls`, `search_devices`.
 - Device-name resolution: exact → prefix → substring →
   ambiguity error.
-- **No write tools**, by deliberate design. Test suite asserts
+- **No write tools**, by considered design. Test suite asserts
   no write-shaped names slipped in. Write tools land in a future
   release with the server-side allow-list and per-token role in
   place — not before.
@@ -18577,7 +18570,7 @@ Two new AI features and a few README/docs polish bits.
     Runbook section on the device detail modal with View / Regenerate
     / Delete buttons.
   - Rate-limited under the same per-user-per-day cap as `/api/ai/chat`.
-  - No batch "regenerate all" button, deliberately — cost-sensitive.
+  - No batch "regenerate all" button — cost-sensitive.
 
 - **Level-1 RAG context awareness.** Every AI request now prepends
   a project-context block (what RemotePower is, the storage
@@ -18654,7 +18647,7 @@ AI work plus the long-pending stderr-spam fix.
   route that doesn't exist. Fixed: assemble the snapshot in parallel
   from `/sysinfo`, `/output`, and the devices list. Bails visibly
   ("No data available yet — has the agent checked in?") if there's
-  genuinely nothing to send.
+  nothing to send.
 - **AI responses now render Markdown.** Models love their `**bold**`
   and `## headers` and `` `code` `` — showing them as raw punctuation
   was jarring. New `renderMarkdown()` helper: HTML-escape *first*,
@@ -18891,7 +18884,7 @@ that do RMW, who now opt in explicitly.
 
 13 new tests in `tests/test_v212.py` including a threaded
 reproducer for the race (20 concurrent updaters, asserts every
-update is preserved) and a deliberate demonstration of the bug
+update is preserved) and a considered demonstration of the bug
 using the old pattern. Total suite: **660 tests, all passing.**
 
 Other admin-action RMW sites (note/group/tag/poll-interval edits)
@@ -18918,7 +18911,7 @@ fsync-outside-lock work). Only the *optional* saves below it
 bug above invisible to operators: `check_offline_webhooks()` only logged
 inside `fire_webhook()`, so an operator without webhooks got a silent
 state flip; and `main()` wrapped every per-request maintenance sweep in
-`try: ... except Exception: pass`, swallowing every error including
+`try:... except Exception: pass`, swallowing every error including
 ones an operator most needs to see. Now: state transitions always log
 `[remotepower] OFFLINE dev=… last_seen=… delta=…s ttl=…s` regardless
 of webhook config; heartbeat arrival logs to stderr (visible in nginx
@@ -18956,7 +18949,7 @@ since the agent generally doesn't have the kubectl context to act on
 them through this path.
 
 **Demo data reflects v2.1 features.** `seed-demo-data.py` now also
-seeds `scripts.json` (5 example scripts including one deliberately
+seeds `scripts.json` (5 example scripts including one
 flagged dangerous to demo the `⚠ DANGER` badge), `batch_jobs.json`
 (one recently-completed batch run for the status modal), and
 `log_watch.json` (two log-watch rules and one fired alert showing
@@ -19018,7 +19011,7 @@ refuses syntax-erroring scripts outright.
 
 **docker compose dropdown** (`docs/compose.md`). The Linux agent now
 scans `/opt`, `/home`, `/docker`, `/srv` (`find -L -maxdepth 4`,
-5 s timeout, 50-project cap, prune list for .git / node_modules /
+5 s timeout, 50-project cap, prune list for.git / node_modules /
 .cache / venv) for `docker-compose.yml` / `compose.yml` and reports
 the listing alongside containers in the heartbeat. Device cards get
 a **docker compose (N)** entry in the ⋯ menu with Up / Down /
@@ -19118,7 +19111,7 @@ The split is strictly mechanical — no code was rewritten or restructured. Same
 - Want to find a function? `grep 'function foo' static/js/app.js`
 - Want to see the page structure? `index.html` is a fifth its old size and now actually readable.
 
-I deliberately did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
+I did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
 
 `deploy-server.sh` updated to rsync the `server/html/static/` tree to `/var/www/remotepower/static/`. The deploy is otherwise identical.
 
@@ -19177,7 +19170,7 @@ This release makes that class of corruption impossible going forward.
 
 1. **Round-trip integrity check before any disk write.** Serialise with `allow_nan=False`, then parse the result back. If the data won't round-trip, raise `ValueError` immediately instead of writing it. Catches NaN/Infinity (Python's json silently allows them, but most other tools reject them) and any logic bug producing a malformed structure.
 
-2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE, ...)` will queue on the lock instead of racing.
+2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE,...)` will queue on the lock instead of racing.
 
 3. **Per-process unique tmp filename.** `<file>.tmp.<pid>.<nonce>` instead of just `<file>.tmp`. Even with the lock, this is belt-and-braces — if two writers ever did manage to be in `save()` simultaneously (lock file deleted, filesystem weirdness), they wouldn't share a tmp file and couldn't trample each other's bytes.
 
@@ -19235,9 +19228,9 @@ sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
 
 **529 passing** (513 from v1.12.0 + 16 new in `test_v1121.py`):
 
-Atomic save (8 tests): basic round-trip, lock sidecar created, .bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
+Atomic save (8 tests): basic round-trip, lock sidecar created,.bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
 
-Load with fallback (4 tests): missing returns empty, corrupt falls back to .bak, no .bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
+Load with fallback (4 tests): missing returns empty, corrupt falls back to.bak, no.bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
 
 End-to-end recovery (1 test): plant corruption, verify load() falls back, verify next save() re-establishes clean state with both files valid.
 
@@ -19639,9 +19632,9 @@ Drop-in upgrade. Existing `config.json` keeps working — the new `last_monitor_
 **Update history was always empty.** This was a critical agent bug that shipped in v1.10.0 and went unnoticed until somebody actually tried to use the per-device "Update history" panel after running an upgrade.
 
 The flow was supposed to be:
-1. Dashboard pushes `exec:apt-get -y upgrade ...` to the device.
+1. Dashboard pushes `exec:apt-get -y upgrade...` to the device.
 2. Server's heartbeat response includes `command: <the script>`.
-3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade && ...`).
+3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade &&...`).
 4. Agent puts the result in the next heartbeat → server detects it's a package upgrade → archives to `update_logs.json` → "Update history" shows it.
 
 Step 4 is what was broken. Look at `client/remotepower-agent` line 1037–1040 (v1.11.6):
@@ -19655,7 +19648,7 @@ if cmd:
     payload['executed_command'] = cmd       # <- same bug
 ```
 
-`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0): ...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
+`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0):...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
 
 Fix: send a dedicated minimal follow-up heartbeat right after the command finishes. Carries just `device_id`, `token`, `ip`, `os`, `version`, `cmd_output`, `executed_command` — no sysinfo or journal, those are already on the server from the first heartbeat in this iteration. If the follow-up POST itself fails (network blip, server restart at exactly the wrong moment), the cmd_output gets stashed to `/var/lib/remotepower-pending-cmd.json` (or `/tmp/` if `/var/lib` isn't writable) and picked up by the next successful heartbeat.
 
@@ -19847,7 +19840,7 @@ All three default to enabled, respect the existing per-event toggle in Settings 
 
 - `GET /api/containers` — each entry now includes `is_stale: bool`.
 - `GET /api/devices/{id}/containers` — response now includes `is_stale: bool` and `stale_ttl: int`.
-- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've deliberately removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
+- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
 - `POST /api/config` — accepts `container_stale_ttl` (300–86400 seconds).
 
 ### Modified behaviour
@@ -20040,7 +20033,7 @@ Podman, and Kubernetes pods independently — three try/except blocks
 around three runtime probes, none of which can break the heartbeat
 if a runtime is missing or stuck. Each runtime gets at most a
 five-second timeout on its listing command. The agent normalises
-output across all three (Docker's `--format '{{json .}}'` lines,
+output across all three (Docker's `--format '{{json.}}'` lines,
 Podman's similar output, kubectl's `-o json` document) into a single
 schema and posts a list of up to 100 entries every five polls,
 roughly five minutes at the default cadence.
@@ -20161,7 +20154,7 @@ POST   /api/tls/scan                            probe all targets now
 
 - `containers.json` — `{device_id → {ts, items: [...]}}` last-seen state
 - `tls_targets.json` — `{tls_<hex> → {host, port, label, warn_days, crit_days}}`
-- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer, ...}}`
+- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer,...}}`
 
 ### Modified data files
 
@@ -20239,7 +20232,7 @@ and a Copy button that puts a plain `ssh user@host -p port` command
 on your clipboard. The host comes from the asset's hostname (or IP if
 hostname is empty), the port from a new per-asset `ssh_port` field
 (default 22, validated 1-65535), and the username from the credential.
-The password is **deliberately not** included in the URI — `ssh://`
+The password is **not** included in the URI — `ssh://`
 URIs technically can carry one but that ends up in browser history
 and process tables, so the password stays in the reveal modal where
 it belongs.
@@ -20286,7 +20279,7 @@ format`, `make typecheck`, `make check`, and `make install-dev`. The
 `make lint` target is intentionally scoped to the v1.10.0 baseline
 files — running black across the entire 5800-line `api.py` would
 produce an unreviewable diff in this release; broadening the scope
-is its own deliberate effort.
+is its own considered effort.
 
 A small but meaningful cleanup: the long-standing `respond(); sys.exit(0)`
 pattern is replaced by a proper `HTTPError(status, body)` exception
@@ -21080,7 +21073,7 @@ The new page has three stacked widgets:
 - No agent changes in 1.8.1 — everything is server-side plus UI. v1.8.0
   agents work unchanged with a v1.8.1 server.
 - The live tail uses client-side polling, not WebSockets or SSE. A
-  genuine push channel would need persistent connection state in the CGI
+  real push channel would need persistent connection state in the CGI
   model, which doesn't fit. 10-second polling is cheap and survives server
   restarts invisibly.
 - Alert rules editor is per-device. A fleet-wide "apply to all devices
@@ -21121,7 +21114,7 @@ unit; server keeps a rolling buffer and can fire webhooks on regex matches.
 - Per-device `log_watch` rules `[{unit, pattern, threshold}]` — regex matches
   trigger `log_alert` webhooks (priority 4, `warning,scroll` tags)
 - New `/api/logs/search?q=<regex>&device=<id>` endpoint — cross-device grep
-  over the rolling buffer. No indexing, just regex scan; deliberately not a
+  over the rolling buffer. No indexing, just regex scan; not a
   full log analytics stack
 - Captured logs appear inline in the per-device service drill-down so you
   can see *why* a service went red without SSH-ing in
@@ -21199,7 +21192,7 @@ with audit trail.
 
 - Service monitoring requires `systemctl` — agent silently skips reporting
   on non-systemd hosts
-- The log tail deliberately does not do indexing, retention policies, or
+- The log tail does not do indexing, retention policies, or
   structured parsing. It's a rolling buffer with regex search. If you need
   Loki or Graylog, run those
 - Maintenance windows only suppress *webhooks* — the events themselves are
@@ -21332,7 +21325,7 @@ Metric families exposed:
 - All version strings bumped to 1.6.3.
 
 ### Note on custom `apt` commands
-The Custom Command dialog runs whatever string you type verbatim. If you
+The Custom Command dialog runs whatever string you type unchanged. If you
 manually type `apt update && apt upgrade -y …` on a box that still has
 `NoNewPrivileges=yes` in its agent service file, you'll still see the
 `seteuid 105 failed` error — that's expected, and the fix is to deploy
