@@ -91,4 +91,4 @@ The noise gate is the same operator-tunable R² floor as the disk projection
   chartable `series` / `slope` / `intercept` / `t0_ts`.
   Both lists are scoped to the caller's tenant and role.
   `devices` counts hosts with a mount projection; `resource_devices` counts
-  hosts with a resource projection — they are deliberately separate.
+  hosts with a resource projection — they are separate.

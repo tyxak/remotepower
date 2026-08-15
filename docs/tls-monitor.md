@@ -71,7 +71,7 @@ The verification pass's outcome shows separately as a
 `verify_error` field in the detail modal but doesn't change the
 overall status — it's possible to have a perfectly valid
 self-signed cert with `verify_error: "self signed certificate"`,
-and that's fine if you're using internal CAs deliberately.
+and that's fine if you're using internal CAs.
 
 ---
 
@@ -251,7 +251,7 @@ and deferred. May come back if there's demand.
 the host is down, the port is wrong (default 443 — non-HTTPS
 services need an explicit port), or a firewall is in the way.
 
-**"TLS error: ..." but the host works in browsers.** Most often
+**"TLS error:..." but the host works in browsers.** Most often
 the host requires SNI for a non-default vhost. The probe sends
 SNI by default (passes `server_hostname=host`), so this should
 work; if it doesn't, the cert chain might require an

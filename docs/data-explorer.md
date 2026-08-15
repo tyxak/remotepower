@@ -104,7 +104,7 @@ A predicate is capped at 100 nodes and six levels of nesting. Both are cost
 guards — a wide shallow tree with thousands of leaves is as expensive as a deep
 one.
 
-There is no raw SQL, deliberately. Every entity's rows are fetched through the
+There is no raw SQL,. Every entity's rows are fetched through the
 same path every other page uses, so the tenant and role scoping that applies to
 your data elsewhere applies here without a second implementation to keep in
 step. See [scaling.md](scaling.md) for how that scoping works.

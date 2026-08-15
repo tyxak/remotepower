@@ -194,7 +194,7 @@ metrics. Each block is emitted only when the underlying store has data.
 | `remotepower_device_compliance_pass_ratio` | — | Per-host, omitted when no check applied (a 0 would read as total failure) |
 | `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Device counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
 
-Health, risk and reliability are deliberately three separate families, not one
+Health, risk and reliability are three separate families, not one
 number: health is the Needs-Attention rollup, risk is security posture, and
 reliability is predicted hardware failure. Folding them together would lose the
 distinction the product makes everywhere else.

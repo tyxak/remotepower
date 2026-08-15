@@ -40,11 +40,11 @@ showing:
 - **What will be matched** — the same line with timestamps, process ids,
   addresses, hashes, numbers **and hostnames/FQDNs** folded out. That folded
   form is the identity, so the same message tomorrow, from a different worker
-  pid, still matches; a genuinely different error does not. Folding hostnames
+  pid, still matches; a different error does not. Folding hostnames
   matters for host-varying noise — a postfix `dnsblog` line checks each sender
   against many blocklists (`…bl.spamcop.net`, `…zen.spamhaus.org`, …), and
   because the domain folds to `<host>`, clearing one clears the whole class.
-  (Two-label names like `docker.service` or `app.js` are deliberately *not*
+  (Two-label names like `docker.service` or `app.js` are *not*
   folded, so unrelated unit or file messages stay distinct.)
 
 Choose how wide it applies (this host + unit, this host + any unit, or — for
@@ -69,12 +69,12 @@ An alert recorded before RemotePower kept matched lines has nothing to clear by
 signature. Those alerts offer **Silence rule** instead: it stops that whole
 pattern firing on that unit and host.
 
-This is deliberately coarser and labelled as such — it hides future messages you
+This is coarser and labelled as such — it hides future messages you
 have not seen yet, which clearing a line does not. Prefer clearing a line
 whenever the alert carries one. Rule silences appear in the same **Cleared
 lines** list and are un-done the same way.
 
-A rule's `exclude_pattern` is still there for the cases where you genuinely
+A rule's `exclude_pattern` is still there for the cases where you
 want a regex; clearing a line needs no regex authoring and is reversible per
 line.
 
@@ -85,5 +85,5 @@ can also be ingested directly (`POST /api/syslog/in/{token}` accepts either
 `{lines:[…]}` or a bare JSON array) for devices that forward rather than
 run an agent.
 
-The buffer is deliberately short-retention — it is an operational triage
+The buffer is short-retention — it is an operational triage
 window, not a log archive. Ship to a real log store for retention.

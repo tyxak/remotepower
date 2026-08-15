@@ -51,7 +51,7 @@ Unmapped exporters are dropped and logged (at most once per 10 min each).
 ## Where it shows up
 
 Device drawer → **Network flows**: the latest window's top talkers (by bytes),
-top conversations (`src → dst :port/proto`), the protocol split, and totals.
+top conversations (`src → dst:port/proto`), the protocol split, and totals.
 `GET /api/devices/{id}/flows` returns `{latest, history}` (a short rolling
 history of total-bytes/flows for a trend). The receiver appears on the
 Server-status **Distributed subsystems** card once sources are enrolled.
@@ -85,13 +85,13 @@ dependency verification slowly degraded into false "link broken" alerts about
 links that were fine.
 
 `flow_export_stale` now fires when an enrolled exporter goes quiet, and
-`flow_export_resumed` clears it. Two deliberate properties:
+`flow_export_resumed` clears it. Two considered properties:
 
 - It only fires for an exporter that has sent **at least once**. A token created
   while you are still configuring the router is a setup in progress, not an
   outage.
 - The window defaults to **3 hours**, tunable under *Settings → Alert
-  parameters → Flow export silence*. It is deliberately not minutes: the daemon
+  parameters → Flow export silence*. It does not minutes: the daemon
   skips empty windows, so a standby link that only carries traffic during a
   failover is indistinguishable on the wire from a dead exporter.
 
@@ -119,7 +119,7 @@ The first three also raise **`ingest_source_unmappable`** (cleared by
 `ingest_source_mapped`), because a source dropping every packet is data loss and
 a card on a page nobody has open during an outage is not a control. It fires per
 token, so two dead sources are two alerts and fixing one does not close the
-other. A **disabled** token is deliberately never alerted on — switching one off
+other. A **disabled** token is never alerted on — switching one off
 is a decision, and alerting on decisions is how an event earns a mute.
 
 The first three are reported only for a token that has **never** received

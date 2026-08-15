@@ -131,7 +131,7 @@ server-only change. Full guide and decision tree:
 
 For a hardened production nginx config (TLS 1.2+, OCSP, rate-limiting,
 IP allowlist), see [`deploy/nginx/remotepower.conf`](https://github.com/tyxak/remotepower/blob/main/deploy/nginx/remotepower.conf)
-in the repository. (`deploy/` is deliberately not part of the release
+in the repository. (`deploy/` does not part of the release
 tarball, so a relative link here would resolve for someone reading the
 source and dangle for everyone reading the shipped docs or the wiki.)
 
@@ -235,7 +235,7 @@ git clone https://github.com/tyxak/remotepower && cd remotepower
 docker compose up -d
 ```
 
-(To run the published image via compose instead of building, replace `build: .` with `image: ghcr.io/tyxak/remotepower:latest` in `docker-compose.yml`.)
+(To run the published image via compose instead of building, replace `build:.` with `image: ghcr.io/tyxak/remotepower:latest` in `docker-compose.yml`.)
 
 Dashboard at **`https://localhost/`**. Compose publishes host `443` → container `8443` (self-signed HTTPS, on by default) and host `80` → `8080`; remap either with `RP_HTTPS_PORT=8443 RP_HTTP_PORT=8080 docker compose up -d`, and set `RP_TLS_HOST` to the address you actually reach it on (see [tls-selfsigned.md](tls-selfsigned.md)). Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front instead if you'd rather it hold the certificate.
 

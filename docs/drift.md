@@ -30,7 +30,7 @@ The default watched list (configurable):
 | `/etc/pam.d/sshd` | PAM stack for SSH logins |
 
 Each one is operationally significant — a change here is either a
-deliberate operator action or something that should make you look
+considered operator action or something that should make you look
 twice. Files that legitimately change often (`/etc/passwd` on
 distros that update it on login, `/etc/mtab`, runtime-generated
 configs) are *not* in the default list.

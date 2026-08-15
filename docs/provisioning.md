@@ -28,7 +28,7 @@ download. Two macros are always available:
   a cloud-init blueprint can bake the agent and a provisioned box auto-enrols.
 
 Rendering is pure string substitution — nothing is executed. (Terraform
-blueprints are returned **verbatim** on Render, because Terraform owns the
+blueprints are returned **unchanged** on Render, because Terraform owns the
 `${…}` interpolation syntax; Terraform values are supplied natively as
 `var.<name>` at Run time, below.)
 

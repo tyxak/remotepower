@@ -20,7 +20,7 @@ fleet health score, compliance score, and per-device resource history
   drag across it to zoom, double-click (or **Reset**) to go back, or type the
   exact **From** / **To** and press Enter. Narrowing to a short recent window
   re-fetches the finest tier that still covers it rather than stretching the
-  points already on screen, so zooming in genuinely gains resolution. The pinned
+  points already on screen, so zooming in gains resolution. The pinned
   window survives a data refresh. The same control is on the temperature
   timeline — see [Thermal](thermal.md).
 

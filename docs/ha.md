@@ -119,7 +119,7 @@ verify on your hardware rather than trusting ours:
   for the multi-node app tier behind a load balancer (the same floating-IP
   pattern, load-balanced instead of active/passive).
 
-## What this deliberately is not
+## What this is not
 
 - **Not active/active application HA** — one scheduler, one Postgres primary.
   Active/active app workers behind a load balancer work (scaling.md Step 4),

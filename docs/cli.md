@@ -179,7 +179,7 @@ is in the TUI's **?** panel.)
 | **data dir … mode** WARN | The data dir isn't `0700` (too open, or missing). | `chown -R <webuser> /var/lib/remotepower && chmod 700 /var/lib/remotepower` |
 | **`remotepower-wsgi` installed but NOT running** FAIL | The app server is down — the whole UI/API is offline. | `rp logs wsgi` to see why, then `sudo rp restart wsgi`; if it's a missing dep, `rp install` |
 | optional unit **stopped** WARN | scheduler / scanner / push / webterm is installed but not running. | `sudo rp restart <name>` (or leave it if you don't use it) |
-| **active but nothing on :PORT** WARN | The unit is up but not listening (crashed after start, or wrong bind). | `rp logs <name>` |
+| **active but nothing on:PORT** WARN | The unit is up but not listening (crashed after start, or wrong bind). | `rp logs <name>` |
 | **storage backend unknown** | Root: the marker is unreadable/corrupt. Non-root: just needs `sudo`. | `sudo rp doctor`; if still unknown, inspect `/var/lib/remotepower/storage_backend.json` |
 | **Postgres … DSN check failed** FAIL | The backend is Postgres but the DSN in the marker is missing/invalid — the app *and* the push daemon can't read devices. | check `storage_backend.json` has a valid `dsn`; verify Postgres is up (`pg_isready`); see [scaling.md](scaling.md) |
 | **nginx -t reports errors** FAIL | The live nginx config is invalid. | run `nginx -t` (as root) to see the exact line, fix it, `systemctl reload nginx` |

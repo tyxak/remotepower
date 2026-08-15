@@ -35,7 +35,7 @@ array. Five recipes — `mdadm_create` (RAID 0/1/5/6/10), `lvm_pvcreate`,
 
 `POST /api/devices/{id}/storage-provision` with `{recipe, params, confirm}`.
 
-It is deliberately narrower than a general partition-table editor, and the
+It is narrower than a general partition-table editor, and the
 limits are the point:
 
 - **Whole-disk block devices only** — `/dev/sdX`, `/dev/vdX`, `/dev/nvmeXnY`.

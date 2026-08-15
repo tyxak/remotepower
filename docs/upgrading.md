@@ -70,7 +70,7 @@ anything, if you want to see the plan first.
   as long as `RP_STORAGE_BACKEND` is set in the compose file, which it is by
   default) — only a container restart re-runs it.
 - **Arch (AUR):** `yay -S remotepower-server` upgrades the package files and
-  Python deps. The package deliberately isn't fully turnkey (you already
+  Python deps. The package isn't fully turnkey (you already
   wired your own nginx vhost and admin account) — its `post_upgrade` hook
   detects whether `remotepower-wsgi.service` is already active and, if not
   (the case for anyone still on a pre-6.1.0 CGI/fcgiwrap AUR install — that
@@ -104,7 +104,7 @@ app server — it assumes gunicorn/Flask is already the transport (v6.1.0+); if
 `remotepower-wsgi.service` doesn't exist yet, it warns rather than guessing,
 since installing packages and rewriting nginx config unattended from a
 web-triggered button is exactly the kind of thing that should require a human
-running `install.sh update` once, deliberately. Because the API runs
+running `install.sh update` once,. Because the API runs
 unprivileged, the script re-execs itself under scoped passwordless `sudo` —
 its header has the setup commands (drop it in `/usr/local/sbin/` and add a
 one-line sudoers entry for the API user). Then set the path to

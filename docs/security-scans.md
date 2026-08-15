@@ -154,7 +154,7 @@ target's **Scan** button.
   aggressively. Enumerable usernames are reported as a *medium* finding on
   their own: they are not a flaw, but they are the target list for the
   credential attack that starts most real WordPress compromises.
-- **Password attacks are deliberately not available.** wpscan can brute-force
+- **Password attacks do not available.** wpscan can brute-force
   logins; that is intrusive, trips account lockouts and floods the target's auth
   log, so it is not wired into RemotePower at any profile.
 

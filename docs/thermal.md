@@ -36,7 +36,7 @@ not measurements.
 **Doubtful readings are flagged, never dropped.** A sensor reading at or above
 its *own* critical limit while the host is up and heartbeating is almost
 certainly a dead pin — hardware cuts power at crit, so a machine that is
-genuinely there is not genuinely past it. Expand the host and that sensor is
+there is not past it. Expand the host and that sensor is
 marked **Implausible**. RemotePower will not silently discard it, because
 "almost certainly" is the wrong confidence level at which to stop alerting on a
 machine that might really be overheating.
@@ -52,7 +52,7 @@ machine that might really be overheating.
 
 It stays in the per-sensor table, greyed, with **Restore** to count it again.
 The list is per device and is stored alongside that device's metric thresholds,
-so resetting your thresholds does not un-ignore a pin you deliberately muted.
+so resetting your thresholds does not un-ignore a pin you muted.
 
 ## The temperature timeline
 

@@ -6,7 +6,7 @@ knob that trims it, and — the part that matters for a retention policy — **w
 the shipped default actually does.**
 
 The short version: **most stores default to keeping everything forever.** That is
-a deliberate choice (silently deleting an operator's history is worse than
+a choice (silently deleting an operator's history is worse than
 growth), but it means a retention policy that says "we keep operational data for
 N days" is not true of a default install until you set these.
 
@@ -75,14 +75,14 @@ trim, `_purge_old_data`, and each of the knobs above. Both the daily sweep and
 the manual *Run maintenance now* button route through the same gate, so neither
 can bypass it.
 
-It is deliberately coarse — all-or-nothing, never per-entity. A per-record hold
+It is coarse — all-or-nothing, never per-entity. A per-record hold
 sounds more precise but risks the one failure a hold exists to prevent: something
 that should have been preserved being purged because it was missed. The hold
 records `started_at`, `started_by` and `reason`, and **enabling and lifting are
 each independently audit-logged** — lifting a hold is as consequential as
 starting one, and a disputed end date is answered from the log.
 
-What it does *not* stop: deliberate operator deletions (deleting a device, a
+What it does *not* stop: considered operator deletions (deleting a device, a
 ticket, a user). Those are actions, not automated purging, and a hold that
 silently blocked them would be a surprise in the other direction. If a hold
 requires that no one delete anything, pair it with read-only mode or a role
@@ -101,7 +101,7 @@ belong in a retention policy as "retained for the life of the record":
 | CMDB assets + the credential vault | Until deleted by an operator. The vault is separately encrypted. |
 | Tickets, KB articles | Until deleted, then a hard cap of 5,000 rows each. |
 | Contacts, runbooks, saved scripts | Until deleted. |
-| Users and API keys | Until deleted or deprovisioned. Deleting a user does **not** rewrite the audit entries naming them — that is deliberate, and is what makes the log evidence. |
+| Users and API keys | Until deleted or deprovisioned. Deleting a user does **not** rewrite the audit entries naming them — that is on purpose, and is what makes the log evidence. |
 | Command history | Capped by row count (`command_history_max`), not by age. On the JSON backend the overflow is archived; on SQLite/Postgres it is dropped, and the same actions remain in the audit log and the archived `command_queued` fleet events. |
 | DR backups | Whatever your backup destination retains. RemotePower does not prune them. |
 
@@ -113,7 +113,7 @@ If you are handling GDPR Article 15 / 17 requests, the relevant surface is
 `GET /api/privacy/subject?who=&email=` and `POST /api/privacy/erase` (v6.4.2) —
 API-only, there is no page for them. The first enumerates every record naming a
 person and marks each erasable or retained; the second removes what can go and
-reports what it did not touch. The audit log is deliberately **not** rewritten:
+reports what it did not touch. The audit log is **not** rewritten:
 editing an entry destroys the hash chain that makes it evidence, so retention is
 the lawful position there. Retention settings are the background policy; those
 endpoints are the per-subject action. See [compliance.md](compliance.md).

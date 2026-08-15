@@ -98,7 +98,7 @@ was written with `assert` statements, and the Python interpreter removes those
 when run in optimised mode. Nothing runs the server that way today, which is
 exactly why it was worth fixing: the failure would have arrived as a deployment
 change nobody connected to this subsystem, and it would have arrived silently.
-It now raises a real error, and a test runs a genuinely optimised child
+It now raises a real error, and a test runs a optimised child
 interpreter to confirm it.
 
 What was checked and found sound in the same pass, since a review that only
@@ -164,7 +164,7 @@ What was checked and found sound in this pass:
   with precedent, inside the blast-radius limit.
 - **Dispatch inherits every operator-path guard.** It uses the same queueing
   helper an operator's own command does, so maintenance mode, quarantine, audit
-  mode and the approval gate all apply. It deliberately does not use the
+  mode and the approval gate all apply. It does not use the
   request-path variant, which signals refusals by raising an HTTP response — in
   a scheduled sweep that would surface as a failed heartbeat.
 
@@ -248,7 +248,7 @@ all three now match it.
 Fixed by filtering the device set through the same permission helper the rest
 of the product uses, which folds in both role scope and tenant, and which does
 nothing at all on a single-tenant install with unrestricted administrators —
-the common case is unchanged. The machine-scrape path deliberately keeps its
+the common case is unchanged. The machine-scrape path keeps its
 instance-wide view, and there is a test asserting it, because quietly narrowing
 that would break fleet monitoring rather than protect anything.
 
@@ -321,7 +321,7 @@ This was found by following up something that looked like the *opposite* of a
 problem: an internal readiness report told operators the asset database was
 "not tenant-partitioned at any layer". That was inaccurate — most of it was
 partitioned — and auditing why the report understated its own coverage is what
-exposed the handlers that genuinely were not.
+exposed the handlers that were not.
 
 ### Rotating the credential-vault passphrase destroyed most of the vault
 
@@ -377,7 +377,7 @@ answer by enrolling the server as a managed device, but the installer does not
 do that and no document suggested it, so having the answer depended on somebody
 thinking of the question.
 
-It is now a graded item on the security-posture page, and deliberately
+It is now a graded item on the security-posture page, and
 three-valued. Inside a container the mount table describes the container and the
 host's disks are not visible; reporting "unencrypted" there would manufacture a
 finding out of a blind spot, so it reports that it cannot tell and says to check
@@ -411,7 +411,7 @@ of the two copies that no guard covered was found to have silently lost an
 ordering decision. A sixth copy was outside that consolidation and outside the
 guard: the certificate monitor.
 
-Its *policy* is deliberately different and stays local — it allows loopback and
+Its *policy* is different and stays local — it allows loopback and
 private addresses, because inspecting an internal or same-host certificate is
 the feature and the probe reads certificate metadata only. What it should never
 have owned is the policy-free half: the encodings that smuggle an IPv4 address
@@ -498,7 +498,7 @@ two exporters apart in a log, with nothing that can be replayed. Its sibling
 receiver logged no token at all, so this was also the odd one out rather than a
 house style.
 
-Severity is genuinely low — six hexadecimal characters do not meaningfully
+Severity is low — six hexadecimal characters do not meaningfully
 narrow a search for the rest, and the endpoint is rate-limited — but "low" is
 not a reason to keep credential material in a log when the alternative is a
 one-line change.
@@ -522,7 +522,7 @@ pin in every served page is now checked against the file it pins.
 
 Any signed-in user can subscribe their own account to notifications and have
 them delivered to a webhook or an email address they choose. That is the
-feature, and it is deliberately open to everyone.
+feature, and it is open to everyone.
 
 Delivery was filtered by the subscriber's device permissions — but that filter
 is skipped for any role that is allowed to see the whole fleet, which on a
@@ -617,7 +617,7 @@ single-tenant install, and the review asserts that rather than assuming it.
 ### A setting that distrusts the server still trusted two of its channels
 
 An agent can be configured to run only commands carrying a valid signature.
-It is deliberately strict, and it exists for one situation: the management
+It is strict, and it exists for one situation: the management
 server, or its database, is no longer trusted.
 
 The check covered the command channel. Two other things arriving in the same
@@ -646,7 +646,7 @@ decline the untrusted instruction rather than carry it out.
     parameter in any case — placeholders stand where a *value* goes, never
     where an identifier does.
   - **File permissions (11).** Every one sets `0700` or tighter, except two:
-    the agent's own executable, which is deliberately world-readable like any
+    the agent's own executable, which is world-readable like any
     other program in a system binary directory and holds no secret, and a
     scanner working directory that is already documented and annotated, whose
     parent is `0700` and therefore not traversable by other local users.
@@ -693,7 +693,7 @@ decline the untrusted instruction rather than carry it out.
 - The nine analyser findings that appeared during the third pass were all one
   pattern in one file, and all of it pre-existing code that had been *moved*
   during a refactor — the baseline records line numbers, so relocating a
-  function reports it as new. Each was confirmed to be the deliberate
+  function reports it as new. Each was confirmed to be the considered
   "recording an event must never fail the request" shape, with the success
   response correctly outside the guarded block. The baseline was regenerated
   only after that check, not before it.

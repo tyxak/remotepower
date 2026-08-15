@@ -16,7 +16,7 @@ with the operator app.
 - **Open a ticket** to read the conversation and status, **reply** to it, and
   **submit a new ticket**.
 
-That's the whole surface. The portal is deliberately narrow: tickets in, replies
+That's the whole surface. The portal is narrow: tickets in, replies
 out, nothing else.
 
 ## How it fits together

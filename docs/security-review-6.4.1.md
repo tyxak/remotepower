@@ -28,8 +28,8 @@ agents. The new or substantially changed surfaces:
 - **SAST** — `ruff --select F821`: **0** on all three agents and every
   `*_handlers.py` module (the 185 hits in `api.py` are the documented
   bound-handler false-positive class, confirmed still confined to that one
-  file). `gitleaks -c .gitleaks.toml`: **no leaks**, 1,571 commits scanned.
-  `bandit -b .bandit-baseline.json`: **0 High**, and the 4 new findings were the
+  file). `gitleaks -c.gitleaks.toml`: **no leaks**, 1,571 commits scanned.
+  `bandit -b.bandit-baseline.json`: **0 High**, and the 4 new findings were the
   by-design `B110`/`B112` "one host's bad data must not abort the fleet loop"
   pattern in the new advisory/posture code — triaged and absorbed into the
   baseline. CodeQL run through `tools/codeql-local.sh` (config-honoring, the
@@ -47,7 +47,7 @@ agents. The new or substantially changed surfaces:
 
 ## KMIP: the trust boundaries
 
-The subsystem is deliberately split so the network-facing process holds nothing
+The subsystem is split so the network-facing process holds nothing
 worth stealing. That split is the main security property, so it was verified
 rather than assumed:
 
@@ -79,7 +79,7 @@ enumerate another's keys. There is no path that reads an object without it.
 **Key material is encrypted at rest under a dedicated master key.** AES-256-GCM
 with a fresh 12-byte random nonce per encryption (`secrets.token_bytes`), via
 the shared `cmdb_vault` primitives. The master key is 32 bytes of
-`secrets.token_bytes` in a real `0600` file — deliberately not a storage key, so
+`secrets.token_bytes` in a real `0600` file — not a storage key, so
 it is excluded from scheduled backups; a stolen backup archive yields ciphertext
 only. The recovery bundle uses PBKDF2-HMAC-SHA256 at **600,000 iterations** with
 a 32-byte random salt (OWASP's current floor), and refuses a passphrase under 12
@@ -114,7 +114,7 @@ without limit.
 only, to admit legacy suites (`TLS_RSA_WITH_AES_256_CBC_SHA256`) that some
 appliances are hard-coded to offer — no forward secrecy, CBC. It is **off by
 default**, opt-in per install, scoped to that one listener, and logs a warning
-whenever it is enabled. Enabling it is a deliberate choice to make an otherwise
+whenever it is enabled. Enabling it is a choice to make an otherwise
 impossible appliance work; the mTLS client-authentication requirement is
 unaffected either way.
 
@@ -151,7 +151,7 @@ credentials — a broader read than the fixed poll set, so it is `require_admin_
 only. The OID is strictly validated as dotted-decimal with arc-count and
 per-arc-value caps (the value is BER-encoded, never shell-adjacent, but an
 unbounded arc count would still let a caller inflate the request); results are
-capped at 1–2,000 rows with a timeout. The handler genuinely writes an
+capped at 1–2,000 rows with a timeout. The handler writes an
 `audit_log` entry, matching what its docstring and the release notes claim.
 Values are `_sanitize_str`-clamped server-side and `escHtml`-escaped in all three
 rendered columns — SNMP v1/v2c is spoofable UDP, and this is exactly the stored-XSS
@@ -159,7 +159,7 @@ class fixed in v6.3.0.
 
 **Recurring-class sweeps came back clean.** An AST sweep for a success
 `respond(2xx)` inside a broad `except Exception` found five candidate sites, all
-of which handle `HTTPError` deliberately — one re-raises it explicitly with a
+of which handle `HTTPError` — one re-raises it explicitly with a
 comment naming this exact class, the other reaches the same 204 on both paths. A
 sweep for bare `require_auth()` on a mutating handler surfaced two candidates,
 both correct on inspection: one is a read-only Proxmox cache refresh, the other
@@ -176,7 +176,7 @@ and file-presence checks used as tamper detection — reported `unknown`
 indefinitely, and watched files produced no config-drift report at all, while
 the server and UI showed both as configured and applied. An operator could
 reasonably have believed a Mac was covered when nothing was evaluating it. Both
-now run; a check type macOS genuinely cannot evaluate reports `unknown` with the
+now run; a check type macOS cannot evaluate reports `unknown` with the
 reason attached rather than a false OK.
 
 The new macOS evaluation paths were written to the same standard as the Windows
@@ -208,11 +208,11 @@ fingerprint an instance's exact patch level and match it against
 version-specific advisories at scale, without touching anything else. The
 endpoint is now liveness-only.
 
-`GET /api/public-info` deliberately keeps its version field. That is not an
+`GET /api/public-info` keeps its version field. That is not an
 oversight: a RemotePower instance federating with a peer reads the peer's
 version from that no-auth endpoint to report it, so removing it would break
 federation. It is the one intentional pre-authentication version disclosure,
-and it is a deliberate trade — visible to anyone who can reach the login page,
+and it is a considered trade — visible to anyone who can reach the login page,
 in exchange for peers being able to report each other's state.
 
 **LOW (availability, not exploitable) — the KMIP server's own certificates had
@@ -279,7 +279,7 @@ suite (bandit, gitleaks, `ruff --select F821`, CodeQL) reports clean.
 ### A note on what "reviewed" means here
 
 This document lists what was examined and what was found, including the things
-that were only ever cosmetic or operational. That is deliberate. A security
+that were only ever cosmetic or operational. That is on purpose. A security
 review that reports nothing is either a very small change or an incurious
 review, and the low-severity entries above — a version string, an expiry
 nobody watched, a filter that quietly did nothing — are the kind of finding

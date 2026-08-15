@@ -19,7 +19,7 @@ Activity** (two events: `service_down` then `service_up`) but disappears from
 
 This split exists because reading a "today's events" feed to work out current
 state is exhausting and error-prone. NA only ever shows live conditions, so an
-empty NA list genuinely means "nothing is broken right now".
+empty NA list means "nothing is broken right now".
 
 | Surface | Source | What it shows |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Driving RemotePower from Terraform
 
-RemotePower does **not** ship a bespoke Terraform provider — and deliberately so.
+RemotePower does **not** ship a bespoke Terraform provider — and so.
 A provider is a separate Go project with its own release cadence, and it would
 mostly re-wrap the REST API that RemotePower already exposes. Everything a
 provider would manage is reachable today through the API + a scoped API key.

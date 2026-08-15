@@ -26,7 +26,7 @@ whole fleet or a single device.
 
 The audit rows answer "what changed right before this broke", which the event
 stream alone cannot. They are shown only to callers who can already read
-`GET /api/audit-log`; that gate is deliberate, so the Timeline does not become a
+`GET /api/audit-log`; that gate is on purpose, so the Timeline does not become a
 way around it. Read-only login/read entries are excluded — folding the whole
 audit log in would bury the events under noise.
 

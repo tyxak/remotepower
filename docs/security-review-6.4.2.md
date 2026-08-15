@@ -39,8 +39,8 @@ The new or substantially changed surfaces:
 
 ## Process
 
-- **Static analysis.** `bandit -b .bandit-baseline.json` over `server/cgi-bin`
-  and the three agents: **0 new findings, 0 High**. `gitleaks -c .gitleaks.toml`:
+- **Static analysis.** `bandit -b.bandit-baseline.json` over `server/cgi-bin`
+  and the three agents: **0 new findings, 0 High**. `gitleaks -c.gitleaks.toml`:
   **no leaks**, 1,629 commits scanned. `ruff --select F821`: **0** on all three agents
   and on every `*_handlers.py` module; the hits in `api.py` remain the documented
   bound-handler false-positive class, confirmed still confined to that one file.
@@ -104,7 +104,7 @@ has been drawing Start / Stop / Restart / Logs buttons for Windows hosts ever
 since, and every one of them returned `unsupported command`. The actions run now.
 They are argv-only — there is no shell — against a fixed action allowlist, with
 the same container-id character validation the server and the Linux agent apply.
-`update` (pull and recreate) is deliberately not implemented there and refuses
+`update` (pull and recreate) does not implemented there and refuses
 with a message saying so.
 
 The server side changed with it: an action the target platform cannot perform is
@@ -145,7 +145,7 @@ Settings → AI has a **send IP addresses** toggle. With it off, addresses are
 meant to be replaced before any text reaches the configured provider. The matcher
 recognised only the fully expanded eight-group form of an IPv6 address, so the
 compressed forms — which is what anyone actually writes, and what every tool
-prints — passed through verbatim while the control read as on. A long address
+prints — passed through unchanged while the control read as on. A long address
 could also match in two halves, which looks redacted in a spot check and is not.
 Validation now goes through the standard library's address parser.
 
@@ -172,7 +172,7 @@ invisible: the data was right on screen and wrong in the export. The scope and
 tenant filter now lives in the shared helper, so every present and future export
 through it is covered.
 
-**Retrieval.** The AI chat path deliberately withholds fleet-wide retrieval from
+**Retrieval.** The AI chat path withholds fleet-wide retrieval from
 restricted callers, because the knowledge index is not tagged per scope or
 tenant. The standalone search endpoint ran the same index behind a plain
 authentication check, and the per-device runbook path had no check at all — so
@@ -254,7 +254,7 @@ checking the producer of every value a control reads.
   from their start under a size cap, so once such a log grew past that cap the
   parse froze permanently on old content. For the antivirus log this is not just
   a stale panel: the infection alert is edge-triggered on the count *rising*
-  between heartbeats, so a frozen count can never rise and a genuine new
+  between heartbeats, so a frozen count can never rise and a real new
   detection never fires the critical alert, while a host cleaned months ago stays
   dirty in the drawer, the attention list and the AI corpus. Those three now read
   the tail.
@@ -381,7 +381,7 @@ case that motivated the original helper stays closed.
   fields it reads, the transport can tell a complete response from a truncated
   one and says which it got, and the several distinct failures previously reported
   as one message — an HTML login page, an interstitial, an empty body, a
-  truncated read, genuinely broken JSON, and a host that strips the authorisation
+  truncated read, broken JSON, and a host that strips the authorisation
   header before the application sees it — each report their own cause.
 - Scheduled work driven by a cron expression could silently never run. There were
   three expression evaluators with three different sets of capabilities, and all

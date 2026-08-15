@@ -131,7 +131,7 @@ a minute. Hit **Refresh** in the modal.
 
 **Output is truncated.**
 The agent's cap for upgrade commands is 256 KB. If your `apt upgrade`
-genuinely produces more than that — a major distribution upgrade,
+produces more than that — a major distribution upgrade,
 maybe — it'll be cut off. Bump `MAX_CMD_OUT_BYTES` cap detection in
 `client/remotepower-agent` and re-deploy the agent if you need more.
 

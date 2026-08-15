@@ -53,7 +53,7 @@ a fault):
 | **KMIP** | Live clients, stored keys, last sidecar check-in, the `remotepower-kmipd` unit state, and the **soonest PKI expiry** across the CA and every live client certificate — see [kmip.md](kmip.md) |
 
 Since v6.4.2 an enabled sidecar that **stops** also raises `sidecar_down` (and
-its `sidecar_recovered` clear). It is deliberately conservative: it only speaks
+its `sidecar_recovered` clear). It is conservative: it only speaks
 when systemd is present *and* reports a definite dead state (`inactive` /
 `failed`), so a sidecar legitimately running on a different host and POSTing over
 the network still says nothing — the enablement check is the gate, not the unit
@@ -211,7 +211,7 @@ Two things make that tally trustworthy rather than decorative:
   and syslog sources that feed them are enrolled, renamed and revoked.
 
 **Muting a row.** An amber row you have already decided about — an optional
-receiver you deliberately have not wired up, say — can be muted from the row
+receiver you have not wired up, say — can be muted from the row
 itself. A muted row turns grey, keeps showing what it would have said, and stops
 counting toward *needing a look*; the summary reports it separately as
 `N muted`. **Unmute** on the row puts it back. Mutes are an admin setting

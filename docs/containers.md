@@ -41,7 +41,7 @@ prominent banner explaining what stale means and where to look.
 
 The agent probes three runtimes independently:
 
-1. **Docker** — `docker ps --no-trunc --format '{{json .}}'`
+1. **Docker** — `docker ps --no-trunc --format '{{json.}}'`
 2. **Podman** — same command, just `podman` instead of `docker`
 3. **Kubernetes** — `kubectl get pods --all-namespaces -o json` if
    `kubectl` is on PATH and a kubeconfig can be found
@@ -181,7 +181,7 @@ Two suppression rules:
   fire), the staleness of its container data isn't a separate
   alert — the device is dead, you already know.
 - **Skip unmonitored devices.** Devices flagged
-  `monitored=false` are deliberately ignored by all RemotePower
+  `monitored=false` are ignored by all RemotePower
   alerting; this stays consistent.
 
 Webhook payload:
@@ -239,7 +239,7 @@ A mute is a decision about **paging**, not about recording:
 | SIEM forwarding | **still forwarded** |
 | Containers page counts | **still counted**, with an `N muted` note |
 
-The last three are deliberate. **Monitoring → Tuning** still shows
+The last three are on purpose. **Monitoring → Tuning** still shows
 you how often the muted signal fires, which is what you need to
 decide whether the mute should become a fix — and the Containers
 page is an inventory, so it shows everything and flags what is
@@ -487,7 +487,7 @@ runtime returned. Different Docker versions render status
 differently ("Up 2 hours" vs "running" depending on `--format`),
 and the server-side `summarise()` handles common variants but
 isn't exhaustive. Look at the per-device modal — the raw status
-string is shown verbatim there.
+string is shown unchanged there.
 
 **`container_stopped` fires when a container restarts.** If a
 restart happens between heartbeats and the new instance has the

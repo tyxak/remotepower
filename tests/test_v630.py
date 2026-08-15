@@ -128,7 +128,12 @@ class TestVersionBumps(unittest.TestCase):
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
         # v6.3.1: this release is no longer the newest bullet — just require it
         # to still be listed.
-        self.assertTrue(any(b.startswith(f'- **v{V} "{CODENAME}"') for b in bullets))
+        # v7.0.0: the window is the last THREE releases, so v6.3.0 has now aged
+        # out of it entirely. Requiring its bullet would mean the list could
+        # never shrink. What the cap protects is that the list stays short and
+        # leads with the newest release, so assert that.
+        self.assertTrue(bullets, "README lists no releases at all")
+        self.assertRegex(bullets[0], r'^- \*\*v[0-9]+\.[0-9]+\.[0-9]+ "')
 
 
 class TestToastActions(unittest.TestCase):

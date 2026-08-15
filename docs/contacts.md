@@ -5,7 +5,7 @@ phonebook for your team — the people you call when something breaks: the on-ca
 network admin, a vendor's support line, the data-centre's remote hands, a
 customer's IT contact.
 
-It is deliberately separate from the [ticket system](ticket-system.md): contacts
+It is separate from the [ticket system](ticket-system.md): contacts
 are reference information, not work items, and the page is available whether or
 not the ticket system is enabled.
 

@@ -15,7 +15,7 @@ it outright — so an interrupted delete always fails toward "still there",
 never silent loss. Closing the tab flushes pending deletes first.
 
 Destructive fan-out operations (device removal, Docker prune, VM rollback,
-alert purges) deliberately keep their explicit — sometimes typed —
+alert purges) keep their explicit — sometimes typed —
 confirmations. Undo is for the deletes you do ten times a day.
 
 - **Topbar undo/redo arrows** (and `Ctrl/Cmd-Z`, `Ctrl-Shift-Z` outside form
@@ -35,7 +35,7 @@ The topbar bell replays the last 30 toasts of your session with timestamps,
 so a missed "Failed" or "Saved" is recoverable. An unread dot appears when
 something fired while the popover was closed. Session-only by design —
 alerts and the audit log are the durable records. Pure form-validation nags
-("Subject required") are deliberately excluded: they're feedback about a
+("Subject required") are excluded: they're feedback about a
 field you were looking at, not events.
 
 ## Drafts that survive

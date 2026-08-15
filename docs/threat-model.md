@@ -80,7 +80,7 @@ shipped control — this is not an aspirational design doc.
 | Threat | Mitigation |
 |---|---|
 | A runaway or leaked API key exhausts server capacity | Per-key rate limiting (`rate_limit`, requests/minute), enforced independently of the per-IP login throttle, so one key's misbehavior can't starve every other caller. |
-| Unbounded growth of an append-only store (audit log, history, alerts) exhausts disk | Every append-log has both a count cap and an age-based retention sweep (independently configurable, whichever fires first); litigation hold suspends the age-based half deliberately (a legal-preservation feature, not a DoS gap) but the count caps remain in force, so live-log size is still bounded even during a hold. |
+| Unbounded growth of an append-only store (audit log, history, alerts) exhausts disk | Every append-log has both a count cap and an age-based retention sweep (independently configurable, whichever fires first); litigation hold suspends the age-based half (a legal-preservation feature, not a DoS gap) but the count caps remain in force, so live-log size is still bounded even during a hold. |
 | A malformed or oversized request body crashes a handler | `get_json_obj()` coerces any non-dict top-level JSON (an array, `null`, a bare string) to `{}` instead of raising into the ~hundreds of `body.get(...)` call sites; string/list fields are length- and count-capped throughout (`_sanitize_str`, per-field list-size limits). |
 | A single scheduled sweep (patch/rollout/backup) run against the whole fleet at once saturates the network or the agents | Ringed rollouts (canary → pilot → broad, each ring health-gated before the next fires); maintenance windows suppress alert noise during planned work; per-device poll-interval tuning. |
 

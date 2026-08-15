@@ -25,7 +25,7 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 | `zendesk` | explicit | Opens a Zendesk ticket via `POST /api/v2/tickets.json` — email/token Basic auth. Fires on alert ACK (v5.0.0) |
 | `telegram` | `api.telegram.org` | Telegram Bot API — `POST /bot<token>/sendMessage` (bot token + chat id on the destination) |
 | `matrix` | explicit (`/_matrix/…`) | Matrix Client-Server API — posts the alert into a room (homeserver + access token + room id) |
-| `generic` | Anything else | JSON `{event, ts, title, message, priority, ...payload}` + `X-Title`/`X-Priority`/`X-Tags` headers |
+| `generic` | Anything else | JSON `{event, ts, title, message, priority,...payload}` + `X-Title`/`X-Priority`/`X-Tags` headers |
 
 Format auto-detect runs only on the legacy `webhook_url`. Entries in the new array carry an explicit `format` field — change it in the UI dropdown.
 
@@ -83,7 +83,7 @@ Priority mapping (RemotePower internal → Pushover):
 | 1 (warning) | 1 (high) | Bypasses user's quiet hours |
 | 2 (critical) | 1 (high) | NOT Pushover 2 (emergency tier) |
 
-We deliberately don't map internal critical to Pushover priority=2. Pushover's emergency tier requires `retry` and `expire` parameters and demands user acknowledgment; that's not behaviour you want to opt into accidentally because RemotePower decided a "critical" event happened. If you need it, set up your own Pushover integration outside RemotePower.
+We don't map internal critical to Pushover priority=2. Pushover's emergency tier requires `retry` and `expire` parameters and demands user acknowledgment; that's not behaviour you want to opt into accidentally because RemotePower decided a "critical" event happened. If you need it, set up your own Pushover integration outside RemotePower.
 
 ## Per-destination filters
 

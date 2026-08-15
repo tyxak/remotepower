@@ -77,7 +77,7 @@ Turn **Escalation** on and give it:
   `critical, high` (any of `critical, high, medium, low, info`).
 - **Per-tier target** *(optional)* — a webhook destination **name or id**,
   position-aligned with the tiers; blank = all destinations. Example: tiers
-  `15, 60, 240` with targets `Slack, , PagerDuty` re-notifies Slack at 15
+  `15, 60, 240` with targets `Slack,, PagerDuty` re-notifies Slack at 15
   minutes, everything at 60, and only PagerDuty at 4 hours — the "page a
   human at tier 3" pattern.
 

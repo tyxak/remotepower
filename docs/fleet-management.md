@@ -91,7 +91,7 @@ and **tags** the moment it enrols, matched by either:
 - **Source IP** — a CIDR the enrolling agent's address must fall in
   (`10.20.0.0/16`).
 
-The **first** matching rule applies. Precedence is deliberate: an enrolment
+The **first** matching rule applies. Precedence is on purpose: an enrolment
 **token**'s `default_group` / `default_tags` always win — a rule only fills a
 group that would otherwise be empty and *adds* tags, and freely sets the site
 (tokens have no site). Rules run **only at first enrolment**; they never

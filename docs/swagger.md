@@ -30,7 +30,7 @@ your live server.
 ## What's documented
 
 The spec covers the endpoints a human would reasonably call. It
-deliberately **omits** the agent-only endpoints:
+**omits** the agent-only endpoints:
 
 - `/api/heartbeat` (agents post sysinfo and pull queued commands)
 - `/api/enroll/pin` and `/api/enroll/register` (enrollment with a server-issued ticket)

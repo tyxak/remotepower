@@ -32,14 +32,14 @@ Attributes, Get Attribute List, Add/Modify/Delete Attribute, Check, Obtain
 Lease, Get Usage Allocation, Locate, Activate, Revoke, Destroy, Archive,
 Recover. Object types: symmetric keys, secret data, opaque objects.
 
-That set is deliberately matched to the community `kmip-server-dsm` PyKMIP
+That set is matched to the community `kmip-server-dsm` PyKMIP
 policy, which is the best available statement of what DSM actually calls. An
 appliance that hits an unimplemented operation aborts its whole setup with a
 generic error, so anything the policy grants is implemented here.
 
 ## How it fits together
 
-Three pieces, deliberately separated:
+Three pieces, separated:
 
 - **`remotepower-kmipd`** — the listener (tcp/5696). It terminates mutual TLS
   and parses the KMIP wire format. It holds no keys, no database access and no
@@ -110,7 +110,7 @@ Useful if you are comparing against another KMIP setup or debugging an import:
 Both leaf certificates carry **both** extended key usages. KMIP mutual TLS
 blurs the client/server roles and appliances expect both — this matches the
 community `kmip-server-dsm` setup that Synology users run successfully. The CA
-deliberately carries **no path-length constraint**: a self-signed root with
+carries **no path-length constraint**: a self-signed root with
 `pathlen:0` is read by some appliances (DSM included) as an intermediate, and
 then refused as a trust anchor.
 
@@ -127,7 +127,7 @@ in-process with the `cryptography` library — no `openssl` binary required.
 - **Keys are encrypted at rest** with AES-256-GCM, using the same primitives as
   the credential vault, under a dedicated 32-byte master key stored `0600` at
   `/var/lib/remotepower/kmip_master.key`.
-- **That master key is deliberately excluded from scheduled backups.** Your
+- **That master key is excluded from scheduled backups.** Your
   normal backups therefore contain the key objects as ciphertext with no way to
   decrypt them — which is the point. The master key travels only inside a
   recovery bundle (below).
@@ -236,7 +236,7 @@ which reads like a certificate problem but is really an assignment problem.
 - **Certificate Authority** — select `ca.crt` **again**
 
 That is the second use of `ca.crt`: in step 2 it completed your identity chain,
-here it is the trust anchor DSM uses to decide whether *this server* is genuine.
+here it is the trust anchor DSM uses to decide whether *this server* is real.
 Both are required.
 
 Click **Apply**.
@@ -265,7 +265,7 @@ Three checks, in increasing order of how much they prove:
 3. **Reboot the NAS.** This is the only check that actually proves the thing
    works: encrypted shares must come back on their own. You have just moved the
    unlock path onto a network dependency, and it is far better to discover a
-   problem now, deliberately, than during an unplanned power cut.
+   problem now,, than during an unplanned power cut.
 
 On the NAS, `sudo journalctl -u kmip.service -ef` is DSM's side of the
 conversation and lines up with this server's activity log.

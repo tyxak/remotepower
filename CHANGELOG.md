@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v7.0.0 — "Aut0nomyMatters" — unreleased (test)
+## v7.0.0 — "Aut0nomyMatters" — 2026-08-15
 
 > **Note on versioning.** The autonomy subsystem below is the start of what is
 > intended as a major release. `SERVER_VERSION` is deliberately still 6.4.3 —

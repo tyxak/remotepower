@@ -52,7 +52,7 @@ docker compose up -d
 Open the printed URL and log in. To add hosts, use the self-hosted one-line agent
 installer (`wget -qO- "https://your-server/install?t=<token>" | sudo sh`) or push
 agents over SSH with
-`sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2 ...]`.
+`sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2...]`.
 Tear any of it down with `sudo bash install.sh uninstall` (server, agent or demo;
 add `--purge` to also remove data). See [install.md](install.md) for the full
 quick-start.
@@ -127,7 +127,7 @@ record. A file sitting well under its cap has simply not reached the rotation
 threshold yet — that is normal, not a missing rotation.
 
 On macOS, launchd's own crash output goes to a **separate**
-`/var/log/remotepower-agent-boot.log`, deliberately not the rotating file: the
+`/var/log/remotepower-agent-boot.log`, not the rotating file: the
 rotating handler renames on rollover while launchd keeps an open descriptor to
 the old file, so sharing one path would send launchd's output somewhere nothing
 reads. That boot file normally stays empty — it only catches a traceback that
@@ -293,7 +293,7 @@ files), and start the server.
 RemotePower checks the project's GitHub repository and shows an
 in-app notice when the running version is behind. The notice
 includes the update commands. RemotePower never modifies its own
-code — upgrading is always a deliberate operator action.
+code — upgrading is always a considered operator action.
 
 ### 7.2 Upgrade procedure
 

@@ -164,7 +164,7 @@ Two consequences, both bad for a screen-reader or cognitively-impaired user:
   who tabs away and returns has no way to find the error.
 - Validation toasts are additionally flagged `transient`, which is the one
   class the notification centre (the topbar bell, which replays the last 30
-  toasts) deliberately drops. So the message is genuinely gone when it fades —
+  toasts) drops. So the message is gone when it fades —
   it is not recoverable anywhere.
 
 This is the gap that keeps the overall self-assessment at *partially supports*.
@@ -212,7 +212,7 @@ The palette is now a `role="dialog"` with `aria-modal="true"` and an accessible
 name. Its input is a `role="combobox"` with its own `aria-label` (rather than
 relying on the placeholder), `aria-controls` pointing at the results, and
 `aria-activedescendant` tracking the highlighted row — which is what makes
-arrow-key navigation audible, since focus deliberately stays in the input. The
+arrow-key navigation audible, since focus stays in the input. The
 results list is a `role="listbox"` of `role="option"` rows. Tab is trapped, and
 closing restores focus to wherever it was opened from.
 
@@ -225,13 +225,13 @@ at the first re-render.
 The dispatcher now has a keydown twin: Enter and Space on any element carrying
 `data-action` replay a click through the same single dispatcher, so there is one
 code path and the two cannot drift. Native activatable elements
-(`button`, `a[href]`, form controls, `summary`) are skipped deliberately — the
+(`button`, `a[href]`, form controls, `summary`) are skipped — the
 browser already synthesises a click from Enter/Space on those, and firing here
 as well would invoke the handler twice. That is not hypothetical: a checkbox
 with its own `data-action` sits inside a row carrying another one.
 
 Elements that needed a tab stop got one. Table rows and cells got `tabindex`
-**only** — deliberately not `role="button"`, which would strip a `<tr>`'s
+**only** — not `role="button"`, which would strip a `<tr>`'s
 implicit `row` role and break table semantics. Simple leaf controls (status
 pills, chips, the notes and ticket icons) got `role="button"` as well.
 
@@ -294,7 +294,7 @@ do not read this as either a pass or a fail.
 | Criterion | Level | Assessment | Notes |
 |---|---|---|---|
 | 2.1.1 Keyboard | A | Supports | Buttons, links, form controls, sortable headers, modals and the drawer are keyboard-operable, and since v6.4.2 so is every `data-action` element — the dispatcher gained an Enter/Space twin and non-native targets gained tab stops (limitation 5). |
-| 2.1.2 No Keyboard Trap | A | Supports | Modal and drawer traps are deliberate, scoped to an open dialog, and always escapable with Escape. The dialogs in limitation 3 do not trap at all — the failure is the opposite direction. |
+| 2.1.2 No Keyboard Trap | A | Supports | Modal and drawer traps are on purpose, scoped to an open dialog, and always escapable with Escape. The dialogs in limitation 3 do not trap at all — the failure is the opposite direction. |
 | 2.1.4 Character Key Shortcuts | A | Supports | Single-character shortcuts are suppressed while a form field has focus. |
 | 2.2.1 Timing Adjustable | A | Partially supports | Session idle timeout is operator-configurable; toast dismissal timing is not adjustable, which is the substance of limitation 1. |
 | 2.2.2 Pause, Stop, Hide | A | Supports | The only continuous motion is the status-dot pulse, which stops under `prefers-reduced-motion`. No auto-updating content moves or scrolls on its own. |

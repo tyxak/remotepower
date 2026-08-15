@@ -5,7 +5,7 @@ right next to your fleet, so the alert you just saw and the work you do about it
 stay in one place. It is **on by default**; switch it off under **Settings →
 Advanced → Optional modules → Tickets** if you don't want it.
 
-Tickets are deliberately simple: no separate tool to run, no per-seat licence, no
+Tickets are simple: no separate tool to run, no per-seat licence, no
 data leaving your server. If you already use Jira / ServiceNow / Zendesk, those
 integrations still exist (see [webhooks.md](webhooks.md)) — the built-in system is
 for teams who'd rather not.
@@ -15,7 +15,7 @@ for teams who'd rather not.
 **Settings → Advanced → Optional modules → Tickets** is the master switch, and it
 is **on by default**. Switch it off and the **Tickets** nav item disappears *and*
 every `/api/tickets/*` route returns 404 at the dispatcher — the module is
-genuinely off, not merely hidden. Nothing is deleted: switch it back on and your
+off, not merely hidden. Nothing is deleted: switch it back on and your
 tickets are where you left them.
 
 ## What a ticket is

@@ -15,7 +15,7 @@ inside the process.
 
 ## The philosophy: boring on purpose
 
-RemotePower is deliberately built out of the least exciting technology that will
+RemotePower is built out of the least exciting technology that will
 do the job. The guiding rules:
 
 - **Near-stdlib.** The server runs on Python's standard library plus a short list
@@ -208,7 +208,7 @@ body into a clean, structured 400 — never echoing the submitted value back, si
 bodies can carry secrets. If pydantic isn't installed, validation short-circuits
 and the hand-rolled checks run unchanged.
 
-There's a genuinely subtle rule baked in here: if the old code *clamped* an
+There's a subtle rule baked in here: if the old code *clamped* an
 out-of-range number (`max(1, min(43200, n))`), the model must **not** add a
 `le=43200` bound, because that would reject a value the old code accepted — a
 breaking change. Faithfulness to existing behavior beats theoretical strictness.

@@ -17,7 +17,7 @@ quarantined hosts on its own would be its own incident.
 Queued commands are dropped server-side while quarantined and no new action can
 be dispatched — but the agent keeps checking in, so you keep telemetry and do not
 have to choose between containment and visibility. Poll-interval changes still
-apply, deliberately, so you can slow a noisy host down. The toggle is admin-only
+apply,, so you can slow a noisy host down. The toggle is admin-only
 and audited.
 
 Quarantine is **not** network isolation. It stops RemotePower from acting on the

@@ -123,7 +123,7 @@ sc query wuauserv | find "RUNNING" >nul || exit /b 1
 Accepted markers: `#!ps` / `#!powershell`, and `#!cmd` / `#!bat` / `#!batch`.
 The marker line is stripped before execution. A body with **no** marker on a
 Windows host is reported as a **failed run** whose output tells you to add one —
-deliberately a visible red result rather than silence, so an unrunnable
+a visible red result rather than silence, so an unrunnable
 assignment can't look like a passing one.
 
 The same script can therefore target one OS family at a time. To cover a mixed

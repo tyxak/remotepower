@@ -321,7 +321,7 @@ Almost always one of:
   `services.msc` (or PowerShell) *as administrator*.
 - **Stop looks stuck for a few seconds.** A stop that lands during a heartbeat
   waits up to the HTTP timeout (~20 s). The service sends the SCM a wait hint so
-  it shouldn't error — give it a moment. If it's genuinely wedged, force it:
+  it shouldn't error — give it a moment. If it's wedged, force it:
   ```powershell
   $svc = Get-CimInstance Win32_Service -Filter "Name='RemotePowerAgent'"
   Stop-Process -Id $svc.ProcessId -Force        # kill the process; SCM marks it stopped
@@ -355,7 +355,7 @@ SCM restarts the agent after any self-update exit).
 ### The device shows a terminal icon, or no green "verified" badge
 
 Cosmetic and server-side — the fixes ship with the server. Redeploy the server
-(`git pull && ./deploy-server.sh`); the content-hash cache-bust also clears a
+(`git pull &&./deploy-server.sh`); the content-hash cache-bust also clears a
 stale service-worker copy of the dashboard (a hard refresh is the manual
 equivalent). The "verified" badge additionally needs the served Windows-agent
 hash to match the running agent (it will once both are current).

@@ -50,14 +50,14 @@ Drift reporting is read-only by default — it tells you a host has moved, it do
 move it back. **Enforce** is the explicit, admin-only action that queues a command to
 bring a drifted device back to the reference versions.
 
-Enforce it deliberately, per device, when you have decided that the reference really
+Enforce it, per device, when you have decided that the reference really
 is what that host should be running. Rolling a package *backwards* is not always
 safe (a downgrade can be blocked, or can break a dependency that has since moved),
 so this is a decision, not a background job.
 
 ## What it does *not* do
 
-Package snapshots are a **reporting and reference** tool. They are deliberately
+Package snapshots are a **reporting and reference** tool. They are
 separate from patching:
 
 - Taking or promoting a snapshot **does not change what

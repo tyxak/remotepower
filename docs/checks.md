@@ -43,7 +43,7 @@ sortable, filterable table.
     v7.0.0 — X11 forwarding) and `linux_auto_update` (unattended-upgrades /
     dnf-automatic and friends) are **opt-in**: they only render when *Security
     hardening* is enabled under Settings → Security, because password SSH and
-    manual patching are deliberate choices on plenty of fleets, and an advisory
+    manual patching are reasonable choices on plenty of fleets, and an advisory
     nobody asked for is an advisory that gets muted. `linux_disk_encryption`
     (dm-crypt / LUKS) is opt-in too, under its own *Disk encryption checks*
     setting — BitLocker and FileVault are the platform default, so their absence
@@ -107,7 +107,7 @@ Six agent-side types back the Protect set and can be used in any check:
 - **`egress_flagged`** — alerts on an active outbound connection to an address
   in your flagged IP/CIDR list.
 - **`egress_baseline`** — learns the external destinations the host normally
-  reaches (grouped by /24 or /64) and alerts once on each genuinely new one;
+  reaches (grouped by /24 or /64) and alerts once on each new one;
   `param` takes an optional CIDR ignore-list.
 - **`auth_new_source`** — learns which source networks successfully authenticate
   over SSH, and alerts the first time a new one does.

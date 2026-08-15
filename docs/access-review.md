@@ -68,7 +68,7 @@ actually done since the last review". Two things to look for beyond the obvious:
 ## 4. Act, then record
 
 - Deactivate rather than delete where you can. Deleting a user does **not**
-  rewrite the audit entries naming them — that is deliberate, and is what keeps
+  rewrite the audit entries naming them — that is on purpose, and is what keeps
   the log usable as evidence — but deactivation keeps the history readable.
 - Revoke unused API keys, and set an expiry on the ones you keep.
 - For live sessions, **Settings → Security → Active sessions** *(v7.0.0)* lists

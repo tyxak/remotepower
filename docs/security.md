@@ -283,7 +283,7 @@ defences in place (kept current):
   multi-destination configurations.
 - Optional `webhook_block_local` config flag refuses POSTs to loopback /
   link-local / unspecified IPs (covers cloud metadata services at
-  169.254.169.254). RFC1918 private networks are deliberately permitted —
+  169.254.169.254). RFC1918 private networks are permitted —
   homelab Gotify / ntfy on the LAN is legitimate.
 - **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, the
   OIDC discovery / token-exchange fetches, and (since v3.9.0) the HTTP uptime
@@ -314,7 +314,7 @@ defences in place (kept current):
 
 - Runs as root by design (needs `dpkg` / `pacman` / `systemctl`), but every
   subprocess invocation uses the argv-list form — no shell injection — except
-  the deliberate `exec:` command path, which is the agent's product feature.
+  the considered `exec:` command path, which is the agent's product feature.
 - TLS verification is mandatory: `CERT_REQUIRED` + `check_hostname=True`;
   `http_post()` rejects non-HTTPS URLs at the function head.
 - Self-updates are SHA-256 verified with `hmac.compare_digest` and applied

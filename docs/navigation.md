@@ -23,8 +23,8 @@ toggles it, and the set is remembered. *Expand every sidebar group* (in the All
 pages dialog) opens all twelve, and opens them again into a tidy rail if they are
 already open.
 
-Navigating to a page opens its domain without closing anything you had open
-deliberately.
+Navigating to a page opens its domain, and leaves the other domains you
+opened exactly as they were.
 
 **Star a page** to pin it to the top of the sidebar, above the domains.
 
@@ -53,7 +53,7 @@ Searches page titles *and the concepts they contain* — typing `SLA`, `cron` or
 Some pages belong to optional modules — Alerts, Tickets, Billing, the Knowledge
 Base, Compliance, Pentest and Autonomy can each be switched off under
 **Settings → Advanced**. A module that is off hides its nav entry *and* answers
-its whole API with a not-found, so the page is genuinely absent rather than
+its whole API with a not-found, so the page is absent rather than
 merely hidden. Turn it back on there.
 
 If you are signed in with a restricted role, pages outside your permissions do

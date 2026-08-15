@@ -37,7 +37,7 @@ vulnerable plugin is not a package, does not appear in a distro CVE feed, and
 does not open a new port. That is why scan findings are folded in here rather
 than left on their own page.
 
-### What it deliberately does not include
+### What it does not include
 
 A finding has to be answerable from stored state. Two candidates were written
 and then removed: "ports opened since the baseline" and "SSH keys added since
@@ -92,7 +92,7 @@ that.
 receives only finding titles, layers, severities and host counts. It never
 receives the evidence — no hostnames, paths, URLs, package names or matched log
 content — because the configured provider may be off-box. That redaction happens
-server-side deliberately: building the brief in the browser from the loaded
+server-side: building the brief in the browser from the loaded
 advisory would have shipped all of it.
 
 The trade is that the model cannot invent specifics it was not given, which is

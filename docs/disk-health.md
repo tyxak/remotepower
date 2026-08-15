@@ -29,7 +29,7 @@ RemotePower carries two 0–100 scores and they answer different questions:
 | **Risk** (`/api/risk`) | *How exposed is this host?* | CVEs, world-open ports, policy violations, EOL, lifecycle |
 | **Reliability** (`/api/reliability`) | *How likely is it to **break**?* | dying hardware |
 
-They are deliberately separate. A fully-patched server with a failing disk is
+They are separate. A fully-patched server with a failing disk is
 **low-risk and low-reliability** — merging the two into one number would hide
 exactly that host.
 
@@ -51,12 +51,12 @@ Only **high** and **critical** hosts raise a Needs-Attention card. A low bar
 becomes noise, and a noisy predictor is one people learn to ignore — which is
 worse than no predictor at all. The card is muteable.
 
-### What is deliberately *not* scored
+### What is *not* scored
 
 **Unit flapping.** `services.json` keeps systemd's `NRestarts` as a *cumulative*
 counter and stores only the latest value — the flap **delta** the `unit_flapping`
 event fires on is computed in flight and never persisted. Scoring on
 `restarts > 0` would mark every host that ever deployed a service as failing,
-while a genuinely crash-looping unit that reset its counter scored zero. An
+while a crash-looping unit that reset its counter scored zero. An
 honest omission beats a confidently wrong number; persisting a daily delta would
 make this a real factor.

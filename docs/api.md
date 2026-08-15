@@ -18,7 +18,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   Settings → Advanced → Optional modules (Alerts, Tickets, Billing, Knowledge base,
   Compliance, Pentest, AI executor, Autonomy) makes every route under its prefix return **404** at the
   dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
-  genuinely off, not merely hidden from the sidebar.
+  off, not merely hidden from the sidebar.
 - **Tenant isolation.** Where tenancy is enforced, a device id belonging to another
   tenant returns **404** (not 403 — a 403 would confirm the id exists), and every
   fleet-wide aggregate is filtered to your tenant.
@@ -178,7 +178,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 ### Ingest, key custody & liveness (v6.3.1–v6.4.1)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/health` | - | Unauthenticated liveness probe. Returns `{"status":"ok"}` and **deliberately no version** *(v6.4.1)* — for orchestrators and load balancers |
+| `GET` | `/api/health` | - | Unauthenticated liveness probe. Returns `{"status":"ok"}` and **no version** *(v6.4.1)* — for orchestrators and load balancers |
 | `GET` | `/api/security/advisory` | | "What to fix first" — the prioritized cross-layer list; `?scope=` for fleet / group / tag / host. See [security-advisory.md](security-advisory.md) |
 | `POST` | `/api/security/advisory/brief` | | Server-side-redacted brief for the optional AI ordering pass (titles/severities/counts only — never evidence) |
 | `POST` | `/api/devices/:id/snmp/walk` | admin | SNMP **OID browser** — walk any subtree with the device's stored credentials; audited, capped per walk *(v6.4.1)*. See [monitors.md](monitors.md) |

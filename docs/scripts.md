@@ -171,7 +171,7 @@ the agent.
 | `rm -rf /` | `rm -rf /` |
 | `rm -rf /*` | `rm -rf /*` |
 | `rm --no-preserve-root /` | `rm -rf --no-preserve-root /` |
-| Fork bomb | `:(){ :\|:& };:` |
+| Fork bomb | `:(){:\|:& };:` |
 | `dd` to block device | `dd if=/dev/zero of=/dev/sda` |
 | `mkfs` against raw device | `mkfs.ext4 /dev/sdb1` |
 | `chmod` against `/` | `chmod -R 777 /` |
@@ -259,7 +259,7 @@ default 300s. See [agent-commands.md](agent-commands.md).
 
 - **Admin-only** for every mutation, dispatch, and dry-run. Listing and
  read are session-auth.
-- **No shell interpolation** of the script body. It goes verbatim into
+- **No shell interpolation** of the script body. It goes unchanged into
  the agent's `exec:` channel, which runs it through `subprocess.run(…,
  shell=True)` on the agent. That's the same execution surface the
  one-liner exec uses.

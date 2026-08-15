@@ -126,7 +126,7 @@ tail -n 5 /var/log/nginx/<vhost>_error.log                # no upstream errors
 
 ## Troubleshooting
 
-**`gunicorn :8090 → 000`** — gunicorn isn't answering. It's stopped
+**`gunicorn:8090 → 000`** — gunicorn isn't answering. It's stopped
 (`systemctl status remotepower-wsgi`), or crash-looping because a dependency
 is missing (`journalctl -u remotepower-wsgi -n 40` — check for a missing
 `flask`/`gunicorn`/`psycopg` import).

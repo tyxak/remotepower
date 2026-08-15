@@ -17,7 +17,7 @@ devices-scanned) and a KEV-feed status bar, then a per-device findings table:
 | **Critical / High / Medium / Low** | Finding counts by severity |
 | **Last scan** | When this host was last scanned |
 
-Rows sort **KEV first, then severity, then EPSS** so the genuinely dangerous
+Rows sort **KEV first, then severity, then EPSS** so the dangerous
 items rise to the top. Toolbar: **Refresh**, **AI prioritise**, **Scan all
 devices**, **Re-alert backlog**, and **Fleet SBOM** (CycloneDX / SPDX).
 
@@ -60,7 +60,7 @@ Generate a Software Bill of Materials per host or for the whole fleet:
 
 - **`cve_found`** is edge-triggered — it fires only when *new* CVEs appear on a
   host, so a static backlog doesn't re-page you. **Re-alert backlog**
-  (`POST /api/cve/realert`) deliberately re-raises it for the current findings.
+  (`POST /api/cve/realert`) re-raises it for the current findings.
 - The `cve_severity_filter` config controls which severities page you; `cve_found`
   webhooks can be turned off with `cve_webhook_enabled`.
 - **Ignore** a CVE globally or per host with a reason (`POST /api/cve/ignore`);

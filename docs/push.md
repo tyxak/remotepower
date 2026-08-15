@@ -3,7 +3,7 @@
 **Status: opt-in, off by default.** The daemon itself is *installed* by
 default (`install-server.sh`; pass `--no-push` to skip it), but the channel
 stays off until an admin flips the Settings toggle — nothing connects out
-of the box. This is a genuine, working
+of the box. This is a real, working
 implementation, but it has not been load-tested against a real fleet with
 hundreds of concurrently-connected agents (there has been no environment
 to spin that up in). Turn it on
@@ -12,7 +12,7 @@ it at real scale. Use the **Test daemon connection** button next to the
 toggle (Settings → Advanced) for a quick reachability check, and see
 "Verifying it's actually working" below for the full end-to-end procedure.
 
-## What it does, and deliberately does NOT do
+## What it does, and does NOT do
 
 The agent normally polls the server every `poll_interval` seconds (default
 60s) and picks up queued commands on that cycle. This channel does **one**

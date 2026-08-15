@@ -21,7 +21,7 @@ daemon — which stays idle until you switch the channel on under Settings.
 | **Recommended, tuned** (same box) | 2–4 | 4 GB | 20–40 GB | PostgreSQL | 200–1,000 devices — raise the poll interval + gunicorn worker/thread count, no new hardware ([scaling.md](scaling.md) Steps 1–3) |
 | **Heavy fleet** (1,000+) | see below | see below | single-digit GB+ with retention tuned | PostgreSQL (+ HA) | still single-box-capable up to ~5,000 on strong-enough hardware; see [scaling.md](scaling.md) |
 
-This is a genuinely capable default, not a toy: [scaling.md](scaling.md)'s
+This is a capable default, not a toy: [scaling.md](scaling.md)'s
 own words are "[Postgres + poll interval] alone carries most fleets to
 several thousand agents on a single node" — the same one box in the
 **Recommended** row above, just with the interval and worker/thread knobs

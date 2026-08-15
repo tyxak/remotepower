@@ -32,7 +32,7 @@ because that is exactly the case the page exists to surface.
 ## Why no Microsoft Defender for Endpoint
 
 MDE's OAuth token endpoint lives on a *different host* from its API. The shared
-integration client is deliberately **bound to the instance's base URL and refuses
+integration client is **bound to the instance's base URL and refuses
 absolute URLs** — that binding is what keeps the SSRF guard meaningful. Loosening
 it so one connector could fetch a token from another host would weaken the guard
 for every connector. It is left out on purpose.

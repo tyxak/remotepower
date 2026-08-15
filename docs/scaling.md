@@ -8,7 +8,7 @@
 > comfortably runs a typical homelab / SMB fleet (up to a few hundred hosts).
 > HA (read replicas/failover), relay satellites, multiple **app nodes** and
 > load balancers below are the separate **heavy-fleet** track — ignore them
-> unless you are genuinely at large scale.
+> unless you are at large scale.
 >
 > To see and control that single-node stack (app server, scheduler, scanner,
 > push) on a box, use [`rp status` / `rp tui` / `rp doctor`](cli.md).
@@ -523,8 +523,8 @@ summary is:
 | Tickets | No — one shared store |
 | CMDB assets & credentials | No — one shared store |
 | Billing, time tracking, invoices | No — one shared store |
-| Audit log | No — **deliberately** global; a superadmin needs one complete trail |
-| Users & roles | No — **deliberately** global control-plane |
+| Audit log | No — global on purpose; a superadmin needs one complete trail |
+| Users & roles | No — a global control-plane, on purpose |
 
 ### Other things worth knowing
 

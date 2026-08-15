@@ -152,7 +152,7 @@ the server after a loss:
 
 ### Key escrow / break-glass
 
-`RP_BACKUP_PASSPHRASE` is deliberately **never persisted anywhere RemotePower
+`RP_BACKUP_PASSPHRASE` is **never persisted anywhere RemotePower
 controls** — it lives only in the process environment of whatever runs the
 server (systemd unit, Docker Compose, etc.). That's the right posture for the
 passphrase itself, but it means **RemotePower cannot help you if you lose it**:

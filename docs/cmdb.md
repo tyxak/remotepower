@@ -103,7 +103,7 @@ random salt per vault. Each individual encryption uses a fresh 12-byte
 nonce.
 
 There's a single shared passphrase, not one per user. This was a
-deliberate choice: a CMDB credential is shared infrastructure — if
+considered choice: a CMDB credential is shared infrastructure — if
 three admins all need to be able to look up the IPMI password at 2 AM,
 they need a shared key, not three separate vaults of the same data.
 The model is closer to a team password manager than to GPG.
@@ -258,7 +258,7 @@ clipboard.
 The host comes from the asset's hostname (or IP if hostname is
 empty), the port from the asset's `ssh_port` field, the username
 from the credential. The password is **not** in the URI — that
-deliberate. Passwords in `ssh://` URIs end up in browser history,
+considered. Passwords in `ssh://` URIs end up in browser history,
 process listings, and shell history, so the password stays in the
 reveal modal where it's at least audit-logged when accessed.
 
@@ -552,7 +552,7 @@ before the desync, restoring just those credentials from the old
 file's `nonce`/`ct` is straightforward — the old passphrase still
 decrypts them.
 
-**Documentation preview looks wrong** — the renderer is deliberately
+**Documentation preview looks wrong** — the renderer is
 small. It supports headings, lists, code, bold, italic, and links.
 Tables, images, and HTML blocks don't render — they show as escaped
 text. This is on purpose: a richer renderer would mean an XSS audit

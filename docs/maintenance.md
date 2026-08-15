@@ -21,7 +21,7 @@ expected downtime (patching, reboots, migrations) doesn't page anyone.
   data keeps flowing, so [Trends](trends.md) and [Timeline](timeline.md) stay
   complete.
 - [Auto-patch](auto-patch.md) upgrades and [scheduled commands](schedule.md)
-  deliberately honour maintenance windows and device quarantine.
+  honour maintenance windows and device quarantine.
 
 ## Related
 

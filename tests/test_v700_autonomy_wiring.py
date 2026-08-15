@@ -46,8 +46,15 @@ class _Base(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp(prefix='rp-aw-'))
         self._saved = {}
+        # CMDS_FILE belongs here: two tests below COUNT the commands that
+        # reached the queue, and without the redirect they count whatever any
+        # other module left in the shared store. That is what made
+        # test_the_queue_agrees_with_the_receipts report 4 against a ceiling of
+        # 3 in a large mixed run while passing alone, with its own module, and
+        # across every v7 module — a rate limit appearing to leak when the
+        # fixture was reading someone else's rows.
         for n in ('DEVICES_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'SERVICES_FILE', 'LLDP_NEIGHBORS_FILE', 'BACKUP_JOBS_FILE',
-                  'AUTONOMY_POLICY_FILE', 'AUTONOMY_RECEIPTS_FILE',
+                  'AUTONOMY_POLICY_FILE', 'AUTONOMY_RECEIPTS_FILE', 'CMDS_FILE',
                   'INCIDENT_MEMORY_FILE', 'TENANTS_FILE', 'USERS_FILE'):
             if hasattr(api, n):
                 self._saved[n] = getattr(api, n)

@@ -37,7 +37,7 @@ actually read `upsc`. Two things must both be true for anything to happen:
    dependency), pointing at the device that reports the UPS.
 
 The shutdown is queued as the same command the manual **Shut down** button
-uses, and deliberately bypasses change-approval (Settings → Security) — this
+uses, and bypasses change-approval (Settings → Security) — this
 is an unattended safety response to a UPS that is about to lose power, not
 an operator-initiated change, so parking it for a second admin to approve
 would defeat the point. Quarantined and audit-mode devices are still

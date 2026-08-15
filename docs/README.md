@@ -140,7 +140,7 @@ Older release notes (v6.4.0 and earlier) live in
  forever), what the audit archive does instead of deleting, and litigation hold.
 - **[access-review.md](access-review.md)** — Quarterly access recertification:
  which fields answer which question, what to check on API keys and live sessions,
- and what RemotePower deliberately will not decide for you.
+ and what RemotePower will not decide for you.
 - **[incident-response.md](incident-response.md)** — The RemotePower half of an IR
  plan: containing a compromised host without losing telemetry, what to do when the
  control plane itself is suspect, and telling a real incident from a noisy rule.

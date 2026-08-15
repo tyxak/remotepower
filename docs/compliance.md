@@ -83,7 +83,7 @@ say so explicitly rather than implying a clean sweep:
 
 - **Erasable:** the user account, the avatar file, the session rows, and the
   Contacts record.
-- **Retained — deliberately:** hash-chained **audit-log** entries (rewriting one
+- **Retained —** hash-chained **audit-log** entries (rewriting one
   destroys the tamper-evidence that makes the log evidence at all; retention is
   the lawful position under Art. 17(3)(b)/(e)), plus **ticket authorship**,
   **comment authorship** and **time entries**, which are business and billing
@@ -119,7 +119,7 @@ because "the operator owns this" is not useful guidance on its own:
 
 - **[access-review.md](access-review.md)** — the quarterly recertification
   (CC6.2/CC6.3, A.5.18): which field answers which question, and what the product
-  deliberately will not decide for you.
+  will not decide for you.
 - **[incident-response.md](incident-response.md)** — the RemotePower half of an IR
   plan (CC7.3/CC7.4, A.5.24–A.5.26), including the case where the control plane
   itself is the suspect.
@@ -147,7 +147,7 @@ on one of four verdicts:
 - **Not assessed** (amber) — the control *is* assessable, but its capable
   source hasn't run yet: no host has reported package status, no CVE scan is on
   record, no TLS endpoint is monitored, no account baseline exists. This is a
-  **monitoring blind spot** — deliberately shown, never a silent green, so a
+  **monitoring blind spot** — shown, never a silent green, so a
   control does not read Pass just because its offenders list happens to be
   empty.
 - **N/A** (grey) — RemotePower *structurally* cannot assess this control at all

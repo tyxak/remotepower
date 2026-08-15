@@ -1,7 +1,7 @@
 # Governed AI executor
 
 The AI can **propose** a remediation for a host. It executes nothing on its own.
-This is the deliberate opposite of the "autonomous AI operator" pitch: the design
+This is the considered opposite of the "autonomous AI operator" pitch: the design
 assumes the model is **fully prompt-injected by a hostile log line**, and makes
 the worst case still safe.
 
@@ -60,7 +60,7 @@ always stops at a pending confirmation; a person approves or it does not happen.
 Selective autonomy and closed-loop outcome reporting DO exist, as a separate,
 separately-gated feature — see [autonomy.md](autonomy.md). That loop acts only
 on precedent from resolved incidents, only on action classes you have
-explicitly allow-listed, and starts every tenant at `off`. It is deliberately
+explicitly allow-listed, and starts every tenant at `off`. It is
 not reachable from here: proposing one action for a person to approve and
 running a class of actions unattended are different powers, and conflating
 their switches is how one becomes the other by accident.

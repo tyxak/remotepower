@@ -92,7 +92,7 @@ service on Linux, a launchd agent on macOS, and a **Windows service**
 one-liner. See [docs/windows-client.md](docs/windows-client.md) for the Windows
 specifics.
 
-Deliberately small and readable: nginx + Python (gunicorn/Flask) on the
+Small and readable on purpose: nginx + Python (gunicorn/Flask) on the
 server, plain vanilla JS in the browser — no React/Vue, no build step, no
 Node.js, no Redis, no Kubernetes. `install-server.sh` or `docker compose up`
 provisions the full stack — PostgreSQL, the app server, a maintenance
@@ -226,8 +226,9 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   **data-binding sweep** put Linux firewall / SSH / auto-update posture on the
   Checks page, into fleet-query, and behind PCI 1.2.1, and made
   **Windows/macOS endpoint posture feed the risk score**. **Security hardening
-  is now opt-in** (Settings → Security) — the advisory checks that flag
-  deliberate choices are off by default and alert only when you enable them.
+  is now opt-in** (Settings → Security) — the advisory checks that flag things
+  plenty of fleets choose on purpose are off by default, and alert only once
+  you turn them on.
 - **v6.4.1 "Cust0dyMatters"** — key custody: a built-in **KMIP key server** so a
   Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys
   on the same hardware that holds the encrypted data. Off by default, a separate
@@ -235,27 +236,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   installer flags for the optional syslog/flow receivers, an INGEST & KEYS view
   in `rp status`/`rp tui`, and two monitor fixes: an actionable rejection message
   and one stale monitor no longer blocking every other monitor edit.
-- **v6.4.0 "Sh1eldMatters"** — the security-and-protection release. Integrity-
-  guard and baseline checks now behave exactly as expected: **disable one and
-  it stops evaluating on the host**, not just in the UI, and accept a
-  legitimate change as the new baseline with one click. Backed by a full,
-  public security review and pentest pass (nothing Critical, High or Medium
-  ships). Plus **agentic diagnosis used defensively** — a bounded, secret-
-  redacted log sweep and read-only alert triage that writes a verdict with its
-  evidence trail — a data-binding sweep so everything the agent collects lands
-  in the UI, RAG and AI context, **SLA/SLO objects** for remote probes
-  (availability targets with error budgets, exported as Prometheus gauges), a
-  WordPress connector showing the last logins with IP + geo, and a
-  typography / box-overflow / performance polish wave.
-- **v6.3.0 "Fl0wMatters"** — a fourteen-wave UX program: **undo instead of
-  "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
-  alert ack), a notification center, configuration history with rollback,
-  draft autosave, shift-click range selection, chart crosshairs and a
-  per-host posture radar — plus a native **syslog listener** for agentless
-  appliances, **macOS agent self-update**, chassis-aware offline grace for
-  laptops, weekly restore drills, laptop battery health, an "agents
-  outdated" filter, a Postgres migration CLI, app-wide axe-verified
-  accessibility, and deploy/self-update restarting the sidecar daemons.
 ## Security
 
 Security-reviewed every release and pentested as hard as we can — the bar is

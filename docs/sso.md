@@ -59,7 +59,7 @@ DN casing rarely survives typing); OIDC/SAML group names stay case-sensitive.
 ## OIDC / OpenID Connect
 
 No extra dependencies — the confidential-client authorization-code flow is
-built in (implicit flow and front-channel id_tokens are deliberately not
+built in (implicit flow and front-channel id_tokens do not
 supported).
 
 **On the IdP**: create a confidential (server-side) client with redirect URI
@@ -180,7 +180,7 @@ up to their matrix-mapped role — never auto-demoted. Usernames are filter-esca
 
 If LDAP itself is down, logins fall back to local-only and the failure is
 recorded in the audit log (`login_ldap_error`) — the client sees a normal
-invalid-credentials response, deliberately not revealing directory state.
+invalid-credentials response, not revealing directory state.
 
 ## SCIM 2.0 provisioning
 
@@ -238,7 +238,7 @@ applies. With multi-tenancy off it changes nothing: everyone already resolves
 to the default tenant.
 
 **`POST /api/users` and Admin → Users still do not stamp a tenant** — an
-admin creating an account by hand is a deliberate act, not a federated one, and
+admin creating an account by hand is a considered act, not a federated one, and
 the account resolves to `default` unless assigned. Assign it explicitly:
 
 

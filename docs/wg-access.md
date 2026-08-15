@@ -131,7 +131,7 @@ the UDP port, and points at the port forward. Check, in order:
 
 **A port scan cannot answer this**, which is why the product infers instead of
 probing. WireGuard never replies to unauthenticated packets — that silence is
-deliberate — so an open, working port and a firewalled one look identical to a
+considered — so an open, working port and a firewalled one look identical to a
 scanner. One successful handshake settles it, and once any client has handshaked
 the notice does not return: the message is about whether inbound UDP has *ever*
 worked, not whether someone is connected right now.

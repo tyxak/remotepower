@@ -114,7 +114,7 @@ on any client. Only re-distribute `ca.crt` if you ever regenerate the CA itself
 
 ## Switching from self-signed → a real cert
 
-This is deliberately painless. The agent trusts the **system root store *and*
+This is painless. The agent trusts the **system root store *and*
 your CA at the same time** (`RP_CA_BUNDLE` *adds* to the public roots, it doesn't
 replace them). So moving to a real cert is a **server-only** change:
 
@@ -146,7 +146,7 @@ environment:
 ```
 
 On first boot the container generates a CA+leaf into the data volume (so it
-persists) and serves HTTPS on :8443, printing the CA fingerprint to
+persists) and serves HTTPS on:8443, printing the CA fingerprint to
 `docker logs remotepower`. Enrol agents with that fingerprint as above. For
 production, terminating TLS at a real reverse proxy (Caddy/Traefik/nginx with a
 real cert) is still the recommended setup.

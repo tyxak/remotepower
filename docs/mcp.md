@@ -173,7 +173,7 @@ The tools accept friendly names. The MCP server does:
 You can also pass full names. The matching is conservative — it
 only auto-disambiguates when there's exactly one match.
 
-## Guarded write tools — and what's still deliberately absent
+## Guarded write tools — and what's still absent
 
 The five write tools (`reboot_device`, `run_saved_script`,
 `force_package_scan`, `force_acme_rescan`) ship with exactly the guard rails an
@@ -185,12 +185,12 @@ LLM acting on a fleet needs:
  back. The AI host's own "Allow this tool to run? [y/n]" consent prompt is
  **not** the control; the server is.
 - **Role-gated, and admins are excluded too.** Only a key created with role
- `mcp` reaches these endpoints. An *admin* key is deliberately rejected here as
+ `mcp` reaches these endpoints. An *admin* key is rejected here as
  well — admins have their own direct endpoints — so anything in the audit log
  that came through this path is unambiguously AI-initiated rather than a human
  clicking a button.
 - **Pre-saved actions only.** `run_saved_script` runs a script from the library
- by id — there is deliberately **no `run_command`** and **no `edit_device`**, so
+ by id — there is **no `run_command`** and **no `edit_device`**, so
  the model can never assemble an arbitrary shell command.
 - **Per-token roles + scope.** Write calls are checked against the token's role
  permissions and device scope, just like any other action.

@@ -135,7 +135,7 @@ devices both get a 400.
 
 ## Why manual
 
-Auto-discovery for "what's plugged into what" is genuinely hard:
+Auto-discovery for "what's plugged into what" is hard:
 
 - ARP tables tell you who's reachable on a subnet, not who's
   plugged into which port
@@ -183,6 +183,6 @@ library. The data structure is graph-friendly enough that any
 JS graph library can render it directly.
 
 **Cycle in the map.** Allowed but rendered as crossing edges. If
-you genuinely have a back-up link or LACP ring, this is correct;
+you have a back-up link or LACP ring, this is correct;
 if it's a mistake, fix one of the `connected_to` values via the
 Edit links modal.

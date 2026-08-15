@@ -39,7 +39,7 @@ The server refuses to queue any command matching these patterns. The operator ca
 - `dd of=/dev/{sd,nvme,xvd,vd,hd}*`
 - `mkfs.*`
 - `shred /dev/...`
-- Fork bombs (`:(){ :|:& };:`)
+- Fork bombs (`:(){:|:& };:`)
 - Redirects to block devices
 - `chmod -R 000/777 /`
 - Redirects to `/etc/passwd` or `/etc/shadow`
@@ -55,7 +55,7 @@ Allowed but the operator must type `RUN` in the confirmation box before exec. Th
 - `iptables -F|-X`, `nft flush`
 - `userdel`, `groupdel`
 - `apt-get purge|remove`, `dnf remove`, `pacman -R*`
-- `curl ... | bash` / `wget ... | sh`
+- `curl... | bash` / `wget... | sh`
 
 The client mirrors the server's classifier as a UI preview, but the **server is authoritative**. Bypassing the client check just gets you a 400 with `{"error": "confirmation required"}`.
 

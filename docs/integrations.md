@@ -64,7 +64,7 @@ is what the rest of the alert pipeline keys on.
   on the alert, so a failing service is attributable to a machine and a location
   rather than to a bare label.
 
-Recovery still matches on the integration id, deliberately: if you bind an
+Recovery still matches on the integration id,: if you bind an
 instance *after* its down-alert was recorded, the stored alert has no device
 while the recovery carries one, and requiring both to match would strand that
 alert open forever.
@@ -79,7 +79,7 @@ alert open forever.
 - Credentials are stored server-side and redacted from `GET /api/config` and
   `GET /api/integrations` (a `*_set` boolean is returned instead of the value).
 - Polling is read-only — RemotePower never changes the target's state. The one
-  deliberate exception is **DNS-blocker control** (Pi-hole / AdGuard): an admin
+  considered exception is **DNS-blocker control** (Pi-hole / AdGuard): an admin
   can pause blocking for a bounded window (30 s – 4 h, always self-re-enabling,
   audit-logged) from the Integrations page — see [dns-control.md](dns-control.md).
 
@@ -156,7 +156,7 @@ alert open forever.
   | `returned HTML, not JSON` | Something answered instead of WordPress — a login wall, a "checking your browser" interstitial, or a parked domain. |
   | `refusing anonymous requests` | A security plugin or host rule blocks the REST API for logged-out callers. |
   | `the site did not accept the login … Authorization header` | The credentials never reached PHP. Many CGI/FastCGI hosts drop the `Authorization` header; the fix is a host/`.htaccess` rule, not a new password. |
-  | `credentials rejected` | WordPress genuinely rejected them. Application Passwords also require HTTPS. |
+  | `credentials rejected` | WordPress rejected them. Application Passwords also require HTTPS. |
   | `sent output before its JSON` | A theme or plugin is emitting a PHP notice. RemotePower reads past it, so this only appears when the rest failed to parse too. |
   | `login history unavailable` | The site is healthy; Simple History just isn't installed. |
 

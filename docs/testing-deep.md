@@ -29,5 +29,5 @@ crashes / schema violations.
 
 ## Static (already wired, keep at zero)
 `tools/codeql-local.sh` (the real gate), `bandit -r server/cgi-bin client -b
-.bandit-baseline.json`, `gitleaks detect -c .gitleaks.toml`, plus
+.bandit-baseline.json`, `gitleaks detect -c.gitleaks.toml`, plus
 `ruff check --select F,B` and `vulture` for dead code.

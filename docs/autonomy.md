@@ -48,7 +48,7 @@ enables anything for another.
 | **Maximum blast radius** | How much may go dark. Refuses above this. |
 | **Actions per hour** | A ceiling per tenant, so a flapping host cannot become a storm. |
 | **Proven-recoverable backup** | Destructive actions require a restore drill that actually restored and verified, within 30 days — not a backup that merely ran. |
-| **Maintenance window** | Restricts action to the window, or waive it deliberately. |
+| **Maintenance window** | Restricts action to the window, or waive it. |
 | **Second pair of eyes** | Destructive actions escalate for approval instead of running. |
 | **Permitted actions** | An explicit allow-list. Anything not on it is refused. |
 
@@ -117,7 +117,7 @@ Every decision produces one, whether it acted, refused, escalated or was in
 shadow. A receipt carries the trigger, the action, the verdict, a
 machine-readable reason, the blast radius, and the precedent that justified it.
 
-It is deliberately self-contained. The alert will be pruned and the fleet will
+It is self-contained. The alert will be pruned and the fleet will
 have changed by the time somebody asks why this happened, so the receipt does
 not point at that context — it holds it.
 

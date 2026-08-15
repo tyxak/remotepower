@@ -125,7 +125,7 @@ burst, no failure spike, nothing anomalous except **where it came from**. Each
 new network alerts once and is then remembered, and the output names the user
 (`root@203.0.113.0/24`).
 
-Private ranges are deliberately **not** excluded here (unlike `egress_baseline`):
+Private ranges are **not** excluded here (unlike `egress_baseline`):
 a new *internal* source is just as interesting — that is what lateral movement
 looks like. Put your office and VPN ranges in the ignore-list instead.
 
@@ -240,7 +240,7 @@ group or single host straight from the card. Removing is a deferred-commit with
 The **first** definitive observation of a check is **seeded silently**. That
 stops a storm when you apply 40 templates at once and several fail immediately.
 A check **still failing on its next report alerts**, then stays quiet until it
-recovers. So a genuinely broken check pages you one report late — never not at
+recovers. So a broken check pages you one report late — never not at
 all.
 
 ---
@@ -292,13 +292,13 @@ baseline** on the check's row (Monitoring → Checks) or on Security → Protect
 The check returns to OK immediately — the acceptance is recorded on the server,
 so it holds through a page refresh — its open alert resolves, and the agent
 re-baselines on its next check-in so its own on-host baseline agrees. A
-genuinely *new* change (a different value) re-fires. For a check applied across
+*new* change (a different value) re-fires. For a check applied across
 a tag or group, one Reset fans the acceptance out to every host it covers.
 
 ### A check fails for software that isn't installed
 
 Expected when a broad set is applied fleet-wide — `AppArmor active` on a host
-without AppArmor is a genuine "not hardened" signal, but if it doesn't apply to
+without AppArmor is a real "not hardened" signal, but if it doesn't apply to
 that host, delete the check or narrow its scope (a tag rather than the fleet).
 
 ### Restore didn't put the file back

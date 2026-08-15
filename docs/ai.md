@@ -256,7 +256,7 @@ a final verdict) each round, hard-capped at 4 tool calls, every tool result
 clipped and secret-redacted.
 
 The verdict (root cause, confidence, evidence lines, recommended action, and —
-when the evidence genuinely suggests adversary behaviour — **proof-labelled
+when the evidence suggests adversary behaviour — **proof-labelled
 MITRE ATT&CK techniques**: observed / inferred / theoretical, never a claim of
 certainty) and the tool trail are stored on the alert and reopen from the
 **AI verdict** badge on the row. The model **never executes anything** — acting on a verdict
@@ -433,7 +433,7 @@ key is editable under **Settings → AI assistant → Prompts**.
 - **Audit log**: every `/api/ai/chat` call appends an entry to the
  audit log with provider, model, token counts, elapsed time,
  context label, and rate-limit position. **Content is not logged**
- — neither the prompt nor the response. That's deliberate.
+ — neither the prompt nor the response. that's on purpose.
 
 ## Troubleshooting
 
@@ -489,7 +489,7 @@ transitions stay unconditional.
 
 ## What's not in scope
 
-These are deliberately deferred. Each one is a real feature, none
+These are deferred. Each one is a real feature, none
 of them are in this release. (Tool calls / agent mode used to be on
 this list; it shipped in v6.4.0 as the bounded investigate loop
 described above, where the model requests evidence through a fixed
