@@ -99,10 +99,32 @@ def _expected(group, labels):
 
 # ── Settings → the same rule, the same reason ──────────────────────────────
 # Settings is a second surface with the same drift: all four of its tab groups
-# were in ship order. Same escapes apply; none is currently needed, which is
-# itself worth noting — nothing in Settings has a position that carries meaning.
-_SETTINGS_PIN_FIRST: dict[str, list[str]] = {}
-_SETTINGS_PIN_LAST: dict[str, list[str]] = {}
+# were in ship order. Alphabetical is the default because it stops that drift,
+# but it is only a tie-breaker — a few tabs have a position that says something,
+# and sorting by first letter threw that away. The escapes below say what.
+#
+#   Alerting first        it is the switch the rest of the group configures;
+#                         "Alert parameters" tunes the numbers Alerting uses,
+#                         so reading them in alphabetical order is backwards.
+#   Mailbox monitor last  one specific input, next to four group-wide settings.
+#   Integrations first    the broadest connection, and the one most people open.
+#   AI assistant last     an optional add-on rather than a connection you need.
+#   Security first        the most consequential pane in its group.
+#   Advanced last         the escape hatch. It sorted to the TOP of System,
+#                         which put the riskiest settings first in the group and
+#                         made the whole nav end on Tickets.
+#
+# Everything unnamed stays alphabetical.
+_SETTINGS_PIN_FIRST: dict[str, list[str]] = {
+    "Monitoring": ["Alerting"],
+    "Connections": ["Integrations"],
+    "System": ["Security"],
+}
+_SETTINGS_PIN_LAST: dict[str, list[str]] = {
+    "Monitoring": ["Mailbox monitor"],
+    "Connections": ["AI assistant"],
+    "System": ["Advanced"],
+}
 
 
 def _settings_groups():

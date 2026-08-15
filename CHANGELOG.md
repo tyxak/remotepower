@@ -161,14 +161,25 @@ from one that cannot.
   added. Measured, that was exactly right — of twelve sidebar groups, ONE was in
   alphabetical order; the rest were in whatever order features happened to ship
   in. Someone alphabetised that one group at some point and nothing held the
-  line. All twelve groups and all four Settings tab groups are now alphabetical,
-  with three declared escapes for the positions that genuinely carry meaning:
-  *Needs Attention* leads Monitoring because triage starts there, *Documentation*
-  and *About* trail Admin by convention, and the patch group keeps its lifecycle
-  sequence. Each escape is a named entry with its reason beside it, which is the
-  opposite of what was happening. `tests/test_v643_nav_ordering.py` enforces it,
+  line. All twelve sidebar groups and all four Settings tab groups sort
+  alphabetically now, with named escapes for the positions that carry meaning.
+
+  In the sidebar: *Needs Attention* leads Monitoring because triage starts
+  there, *Documentation* and *About* trail Admin by convention, and the patch
+  group keeps its lifecycle sequence.
+
+  Settings needed escapes too, which a first pass had missed — alphabetical
+  alone still read as arbitrary there, because it ignores what the panes do.
+  *Alerting* now comes before the *Alert parameters* that tune it rather than
+  after, *Security* leads its group and *Advanced* ends it instead of sorting
+  to the top of it, and the two optional panes — *AI assistant* and *Mailbox
+  monitor* — sit last in theirs. Alphabetical stops the drift, but it is only a
+  tie-breaker; where a pane's position says something, that is written down.
+
+  Each escape is a named entry with its reason beside it, which is the opposite
+  of what was happening. `tests/test_v643_nav_ordering.py` enforces it,
   so a new page has exactly one correct position and the build says so when it
-  is not there. Deliberately NOT a third menu level: the rail is a
+  is not there. No third menu level, on purpose: the rail is a
   one-group-open-at-a-time accordion, more nesting adds a click to reach every
   leaf, and random placement is a decision problem rather than a depth problem —
   more nesting would only add more places to put something arbitrarily.
