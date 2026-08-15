@@ -14548,7 +14548,7 @@ that do RMW, who now opt in explicitly.
 
 13 new tests in `tests/test_v212.py` including a threaded
 reproducer for the race (20 concurrent updaters, asserts every
-update is preserved) and a considered demonstration of the bug
+update is preserved) and a demonstration of the bug
 using the old pattern. Total suite: **660 tests, all passing.**
 
 Other admin-action RMW sites (note/group/tag/poll-interval edits)
@@ -15697,7 +15697,7 @@ Podman, and Kubernetes pods independently — three try/except blocks
 around three runtime probes, none of which can break the heartbeat
 if a runtime is missing or stuck. Each runtime gets at most a
 five-second timeout on its listing command. The agent normalises
-output across all three (Docker's `--format '{{json.}}'` lines,
+output across all three (Docker's `--format '{{json .}}'` lines,
 Podman's similar output, kubectl's `-o json` document) into a single
 schema and posts a list of up to 100 entries every five polls,
 roughly five minutes at the default cadence.
@@ -18884,7 +18884,7 @@ that do RMW, who now opt in explicitly.
 
 13 new tests in `tests/test_v212.py` including a threaded
 reproducer for the race (20 concurrent updaters, asserts every
-update is preserved) and a considered demonstration of the bug
+update is preserved) and a demonstration of the bug
 using the old pattern. Total suite: **660 tests, all passing.**
 
 Other admin-action RMW sites (note/group/tag/poll-interval edits)
@@ -20033,7 +20033,7 @@ Podman, and Kubernetes pods independently — three try/except blocks
 around three runtime probes, none of which can break the heartbeat
 if a runtime is missing or stuck. Each runtime gets at most a
 five-second timeout on its listing command. The agent normalises
-output across all three (Docker's `--format '{{json.}}'` lines,
+output across all three (Docker's `--format '{{json .}}'` lines,
 Podman's similar output, kubectl's `-o json` document) into a single
 schema and posts a list of up to 100 entries every five polls,
 roughly five minutes at the default cadence.
