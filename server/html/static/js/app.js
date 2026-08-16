@@ -13155,6 +13155,11 @@ function _formatTs(ts) {
 // replace-chain lives in exactly one place.
 function _escapeHtml(s) { return escHtml(s == null ? '' : s); }
 
+// Last open-alert count seen. Declared here, next to its writer, so it is
+// initialised long before any paint can read it (_applySidebarAlertPin, which
+// consumes it, lives with the rest of the auto-hide code further down).
+let _openAlertCount = 0;
+
 function _paintAlertsBadge(n) {
   const badge = document.getElementById('alerts-badge');
   if (!badge) return;
@@ -13166,8 +13171,13 @@ function _paintAlertsBadge(n) {
   badge.classList.toggle('nav-badge-ok', n === 0);
   badge.classList.toggle('nav-badge-alert', n > 0);
   // v6.0.0: auto-hide is SUSPENDED while any alert is open — the sidebar rail
-  // overlay-expands and the tucked top bar slides back in (CSS on this class).
-  document.body.classList.toggle('has-active-alert', n > 0);
+  // overlay-expands so nothing needing attention is concealed.
+  // v7.0.0: that used to be a `has-active-alert` body class the CSS keyed off
+  // directly, which is why a MANUALLY collapsed sidebar could not stay closed
+  // (see _applySidebarAlertPin). Whether open alerts pin the rail open is a
+  // decision with three inputs, so one function owns it and sets one class.
+  _openAlertCount = n;
+  _applySidebarAlertPin();
   badge.title = n === 0 ? 'No open alerts' :
                 n === 1 ? '1 open alert' :
                 `${n} open alerts`;
@@ -28561,9 +28571,32 @@ function toggleSidebarCollapse() {
 
 // v6.0.0: AUTO-HIDE SIDEBAR (default ON; My Account → Appearance → Navigation).
 // Sidebar auto-hide = the 56px rail + hover-expand overlay (body.autohide-sidebar
-// + body.sidebar-collapsed), FORCED visible while body.has-active-alert is set
-// (see _paintAlertsBadge) — suspended whenever alerts are open. (Top-bar
-// auto-hide was removed by request; the top bar is always visible.)
+// + body.sidebar-collapsed). While alerts are open the rail is pinned open so
+// nothing needing attention is concealed. (Top-bar auto-hide was removed by
+// request; the top bar is always visible.)
+//
+// v7.0.0 — two fixes to that pin:
+//  1. It used to key off body.sidebar-collapsed.has-active-alert, which is also
+//     the state of a MANUALLY collapsed sidebar with auto-hide switched off. So
+//     open alerts made the Collapse button unusable: the content shifted to the
+//     56px rail margin while the sidebar stayed 248px wide and overlapped it.
+//     The pin now requires auto-hide to be on.
+//  2. The pin is opt-out (`rp_autohide_thru_alerts`) for operators who run with
+//     alerts open all day and want the rail to keep hiding regardless.
+function _autohideThroughAlerts() {
+  try { return localStorage.getItem('rp_autohide_thru_alerts') === '1'; } catch (_) { return false; }
+}
+
+// The one place that decides whether open alerts hold the sidebar open. Called
+// from the alert-count paint and from both preference toggles, so flipping
+// either switch takes effect without waiting for the next alert poll.
+function _applySidebarAlertPin() {
+  const pin = _openAlertCount > 0
+    && document.body.classList.contains('autohide-sidebar')
+    && !_autohideThroughAlerts();
+  document.body.classList.toggle('sidebar-alert-pinned', pin);
+}
+
 function toggleAutohideSidebar(on) {
   document.body.classList.toggle('autohide-sidebar', !!on);
   try { localStorage.setItem('rp_autohide_sidebar', on ? '1' : '0'); } catch (_) {}
@@ -28574,7 +28607,14 @@ function toggleAutohideSidebar(on) {
     try { manual = localStorage.getItem('rp_sidebar_collapsed') || '0'; } catch (_) {}
     document.body.classList.toggle('sidebar-collapsed', manual === '1');
   }
+  _applySidebarAlertPin();
 }
+
+function toggleAutohideThroughAlerts(on) {
+  try { localStorage.setItem('rp_autohide_thru_alerts', on ? '1' : '0'); } catch (_) {}
+  _applySidebarAlertPin();
+}
+
 (function _initAutohide() {
   let sb = '1';   // v6 default: sidebar auto-hide ON
   try { sb = localStorage.getItem('rp_autohide_sidebar') || '1'; } catch (_) {}
@@ -28582,6 +28622,8 @@ function toggleAutohideSidebar(on) {
   const sync = () => {
     const a = document.getElementById('acct-autohide-sidebar');
     if (a) a.checked = document.body.classList.contains('autohide-sidebar');
+    const t = document.getElementById('acct-autohide-thru-alerts');
+    if (t) t.checked = _autohideThroughAlerts();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync); else sync();
 })();

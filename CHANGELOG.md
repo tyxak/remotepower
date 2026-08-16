@@ -1133,6 +1133,15 @@ rather than the set it actually spawned for.
 
 ### Smaller things
 
+- **The sidebar could not be collapsed while an alert was open**, and unticking
+  auto-hide made no difference. The rule that keeps the sidebar visible during
+  an alert keyed off the collapsed state alone, which a manually collapsed
+  sidebar also has — so it forced the sidebar back to full width while the page
+  content kept its narrow-rail margin, and the two overlapped. That was the
+  "it just moves the content instead of hiding" report. The reveal now applies
+  only in auto-hide mode, and there is a new per-browser option under **My
+  Account → Appearance → Navigation** — *Keep hiding while alerts are open* —
+  for anyone who works with alerts open all day.
 - The **autonomy action catalog** went from 7 classes to 24, and the event map
   underneath it had six rows of which **four named events that do not exist** —
   so the loop looked six-wide and was two-wide, and nothing failed, because a

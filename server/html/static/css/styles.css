@@ -4694,13 +4694,19 @@ body.sidebar-collapsed #sidebar-collapse-icon svg { transform: rotate(180deg); }
 
 /* ═══ v6.0.0 — AUTO-HIDE CHROME (default ON; My Account → Navigation) ════════
    Sidebar: the 56px rail expands to full width on hover as an OVERLAY
-   (.sidebar is fixed, so content never shifts). An open alert forces both the
-   rail and the top bar visible so nothing needing attention is concealed.
-   In auto-hide mode the manual Collapse button is redundant → hidden. */
+   (.sidebar is fixed, so content never shifts). While alerts are open the rail
+   is pinned open so nothing needing attention is concealed.
+   In auto-hide mode the manual Collapse button is redundant → hidden.
+
+   v7.0.0: the pin keys off `body.sidebar-alert-pinned`, which app.js sets only
+   when auto-hide is ON and the operator has not opted out. It used to key off
+   `.has-active-alert`, which is set whenever alerts are open — so a MANUALLY
+   collapsed sidebar (auto-hide off) was forced back to 248px while the content
+   kept the 56px rail margin, and the two overlapped. */
 body.sidebar-collapsed .sidebar { transition: width 0.16s ease; }
 body.autohide-sidebar .sidebar-collapse-btn { display: none !important; }
 body.sidebar-collapsed .sidebar:hover,
-body.sidebar-collapsed.has-active-alert .sidebar {
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar {
   width: 248px; padding-left: 8px; padding-right: 8px;
   /* v6.4.2: the flyout sidebar lifts from a vertical EDGE, so it cannot reuse
      --shadow-3's downward offset — but it takes the same per-theme alpha via
@@ -4708,32 +4714,32 @@ body.sidebar-collapsed.has-active-alert .sidebar {
   box-shadow: var(--shadow-edge); z-index: 900;
 }
 body.sidebar-collapsed .sidebar:hover .sidebar-group-items,
-body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-items { display: flex; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .sidebar-group-items { display: flex; }
 body.sidebar-collapsed .sidebar:hover .sidebar-label,
-body.sidebar-collapsed.has-active-alert .sidebar .sidebar-label { display: block; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .sidebar-label { display: block; }
 body.sidebar-collapsed .sidebar:hover .sidebar-search-wrap,
-body.sidebar-collapsed.has-active-alert .sidebar .sidebar-search-wrap { display: block; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .sidebar-search-wrap { display: block; }
 body.sidebar-collapsed .sidebar:hover .nav-btn span:not(.nav-icon),
 body.sidebar-collapsed .sidebar:hover .sidebar-group-toggle span:not(.nav-icon),
 body.sidebar-collapsed .sidebar:hover .brand .logo-text,
 body.sidebar-collapsed .sidebar:hover .brand-v,
 body.sidebar-collapsed .sidebar:hover .acct-name,
-body.sidebar-collapsed.has-active-alert .sidebar .nav-btn span:not(.nav-icon),
-body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-toggle span:not(.nav-icon),
-body.sidebar-collapsed.has-active-alert .sidebar .brand .logo-text,
-body.sidebar-collapsed.has-active-alert .sidebar .brand-v,
-body.sidebar-collapsed.has-active-alert .sidebar .acct-name { display: inline; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-btn span:not(.nav-icon),
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .sidebar-group-toggle span:not(.nav-icon),
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .brand .logo-text,
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .brand-v,
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .acct-name { display: inline; }
 body.sidebar-collapsed .sidebar:hover .nav-btn,
 body.sidebar-collapsed .sidebar:hover .sidebar-group-toggle,
 body.sidebar-collapsed .sidebar:hover .sidebar .brand,
 body.sidebar-collapsed .sidebar:hover .side-foot .acct-btn,
-body.sidebar-collapsed.has-active-alert .sidebar .nav-btn,
-body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-toggle,
-body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn {
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-btn,
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .sidebar-group-toggle,
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .side-foot .acct-btn {
   justify-content: flex-start; padding-left: 9px; padding-right: 9px;
 }
 body.sidebar-collapsed .sidebar:hover .side-foot .acct-btn > svg,
-body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn > svg { display: inline; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .side-foot .acct-btn > svg { display: inline; }
 /* v6.1.1: the favorite star (+ its "star a page" empty hint) must reveal
    the same way every other row control does here -- the base
    `body.sidebar-collapsed .nav-star { display: none }` rule (above, for the
@@ -4741,9 +4747,9 @@ body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn > svg { di
    has expanded the rail to full width, permanently hiding the star with no
    way to reach it in auto-hide sidebar mode. */
 body.sidebar-collapsed .sidebar:hover .nav-star,
-body.sidebar-collapsed.has-active-alert .sidebar .nav-star { display: inline-flex; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-star { display: inline-flex; }
 body.sidebar-collapsed .sidebar:hover .nav-fav-empty,
-body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block; }
+body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: block; }
 
 /* (v6: top-bar auto-hide was removed by request — only the sidebar auto-hides.) */
 
