@@ -110,6 +110,46 @@ class TestAlertsDoNotBlockCollapse(unittest.TestCase):
         self.assertIn("_openAlertCount = n;", js_function(js, "_paintAlertsBadge"))
 
 
+class TestCollapseBreakpointMatchesTheButton(unittest.TestCase):
+    """The Collapse button is hidden at ≤720px; the rules it drives must
+    therefore start at 721px. They started at 769px — a floor left behind when
+    v2.2.7 moved the drawer breakpoint 768→720 — so the button was visible and
+    inert across a 48px band. The rendered proof is the e2e file; this pins the
+    two numbers to each other so they cannot drift apart again."""
+
+    def test_the_rail_rules_start_where_the_button_appears(self):
+        css = _css_no_comments()
+        # Walk back from the rule that hides the button to the media query it
+        # sits in. A forward regex cannot do this: `[^}]*` stops at the sibling
+        # rule's closing brace, and a DOTALL `.*?` would happily match a
+        # @media header several blocks earlier.
+        hide = css.find(".sidebar-collapse-btn { display: none !important; }")
+        self.assertNotEqual(hide, -1, "the drawer block no longer hides the button")
+        headers = re.findall(r"@media \(max-width: (\d+)px\) \{", css[:hide])
+        self.assertTrue(headers, "the button-hiding rule left its max-width block")
+        hidden_upto = int(headers[-1])
+
+        rail = re.search(r"@media \(min-width: (\d+)px\) \{\s*"
+                         r"body\.sidebar-collapsed \.sidebar \{", css)
+        self.assertIsNotNone(rail, "the collapse-rail media block moved or changed shape")
+        floor = int(rail.group(1)) if rail else 0
+
+        self.assertEqual(
+            floor, hidden_upto + 1,
+            f"the Collapse button is visible above {hidden_upto}px but the rail "
+            f"rules only start at {floor}px — every width in between renders a "
+            "button that does nothing")
+
+    def test_there_is_one_copy_of_the_rail_rules(self):
+        """Two copies at two breakpoints is how the browser case got left
+        behind: the gap was patched in the installed-PWA copy only."""
+        css = _css_no_comments()
+        self.assertEqual(
+            css.count("body.sidebar-collapsed .app-content { margin-left: 56px; }"), 1,
+            "the collapse-rail block is duplicated again — fix the breakpoint on "
+            "the one copy instead of adding a display-mode-scoped twin")
+
+
 class TestKeepHidingOptOut(unittest.TestCase):
     LABEL = "Keep hiding while alerts are open"
 

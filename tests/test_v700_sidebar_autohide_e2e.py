@@ -122,6 +122,35 @@ class TestSidebarAutohideRendered(unittest.TestCase):
         self.assertAlmostEqual(width, RAIL, delta=1,
                                msg='the keep-hiding option did not survive open alerts')
 
+    def test_collapse_works_at_every_width_that_offers_it(self):
+        """The Collapse button must do something wherever it is visible.
+
+        v2.2.7 moved the mobile-drawer breakpoint 768→720 but left the desktop
+        collapse rules at min-width:769px, so between 721 and 768 the button
+        rendered and was inert — no rail, no content margin. 760 and 730 are
+        inside that band; 780 and 1280 are the widths that always worked.
+        """
+        for width in (730, 760, 780, 1280):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 800})
+                self.page.wait_for_timeout(150)
+                # Auto-hide OFF first: the Collapse button is hidden in
+                # auto-hide mode (it is redundant there), so checking its
+                # visibility before this reads false at every width.
+                self._set(autohide=False, alerts=0)
+                self.assertTrue(
+                    self.page.is_visible('.sidebar-collapse-btn'),
+                    f'the Collapse button is hidden at {width}px — if that '
+                    'is intended, this width does not belong in the list')
+                width_px, margin = self._widths()
+                self.assertAlmostEqual(
+                    width_px, RAIL, delta=1,
+                    msg=f'at {width}px the sidebar offers Collapse but ignores it')
+                self.assertAlmostEqual(
+                    margin, RAIL, delta=1,
+                    msg=f'at {width}px the content keeps the full-width margin '
+                        'beside a collapsed sidebar')
+
     def test_clearing_the_alerts_releases_the_pin(self):
         self._set(autohide=True, alerts=3)
         self.page.evaluate("_paintAlertsBadge(0)")

@@ -1142,6 +1142,13 @@ rather than the set it actually spawned for.
   only in auto-hide mode, and there is a new per-browser option under **My
   Account → Appearance → Navigation** — *Keep hiding while alerts are open* —
   for anyone who works with alerts open all day.
+- **Collapse did nothing between 721 and 768 pixels wide.** The button is
+  hidden below 721px, where the sidebar is a slide-over drawer, but the rules
+  it drives started at 769px — a floor left behind when the drawer breakpoint
+  moved from 768 to 720. In the 48 pixels between, the button rendered and had
+  no effect at all. A copy of those rules scoped to the installed app had
+  patched the gap there and nowhere else; there is now one copy, starting at
+  the width where the button appears.
 - The **autonomy action catalog** went from 7 classes to 24, and the event map
   underneath it had six rows of which **four named events that do not exist** —
   so the loop looked six-wide and was two-wide, and nothing failed, because a

@@ -3919,35 +3919,11 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
 @media (not (display-mode: browser)) and (min-width: 721px) {
   .sidebar-mobile-close { display: none !important; }
   .sidebar-collapse-btn { display: block; }
-
-  /* Apply collapse-rail width + label hiding at 721–768px in standalone
-     (the default @media (min-width: 769px) rule misses that gap). */
-  body.sidebar-collapsed .sidebar {
-    width: 56px;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-  body.sidebar-collapsed .app-content { margin-left: 56px; }
-  body.sidebar-collapsed header { margin-left: 56px; }
-  body.sidebar-collapsed .sidebar-label,
-  body.sidebar-collapsed .nav-btn span:not(.nav-icon),
-  body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
-  body.sidebar-collapsed .sidebar-group-items,
-  body.sidebar-collapsed .brand .logo-text,
-  body.sidebar-collapsed .brand-v,
-  body.sidebar-collapsed .acct-name {
-    display: none;
-  }
-  body.sidebar-collapsed .sidebar .brand,
-  body.sidebar-collapsed .side-foot .acct-btn { justify-content: center; }
-  body.sidebar-collapsed .side-foot .acct-btn > svg { display: none; }
-  body.sidebar-collapsed .nav-btn,
-  body.sidebar-collapsed .sidebar-group-toggle {
-    justify-content: center;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-  body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
+  /* v7.0.0: the collapse-rail rules that used to be duplicated here are gone.
+     They lived in this standalone-only block because the desktop copy started
+     at 769px and missed the 721–768px gap — patching the gap for the installed
+     app while leaving the browser broken. The desktop block now starts at
+     721px itself, so it covers every display mode and there is one copy. */
 }
 
 /* v3.3.x: docked-sidebar clipping fixes (browser + installed PWA).
@@ -4637,7 +4613,15 @@ td .kev-badge { margin-left: 0; }
 
 
 /* v3.0.1: collapsible desktop sidebar */
-@media (min-width: 769px) {
+/* v7.0.0: the floor here is 721px, matching the width at which the Collapse
+   button becomes visible (it is hidden at ≤720px, where the sidebar is an
+   overlay drawer). It used to be 769px — left behind when v2.2.7 moved the
+   mobile drawer breakpoint 768→720 — so between 721 and 768 in a browser the
+   button rendered and did nothing at all: no rail, no content margin, no
+   label hiding. A copy of this block scoped to installed-PWA mode patched the
+   gap there and nowhere else; that copy is gone now, because one rule at the
+   right breakpoint is what stops the two drifting apart again. */
+@media (min-width: 721px) {
   body.sidebar-collapsed .sidebar {
     width: 56px;
     padding-left: 6px;
