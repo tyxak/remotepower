@@ -17,7 +17,7 @@ five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -185,6 +185,12 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v7.0.1 "C0llapseMatters"** — the sidebar collapses when you ask it to.
+  Open alerts were holding it open in every mode, including a manual collapse
+  with auto-hide switched off, so the page content slid to the rail margin
+  while the menu stayed full width on top of it; and between 721 and 768
+  pixels wide the Collapse button appeared but did nothing at all. Plus a new
+  per-browser option to keep hiding while alerts are open.
 - **v7.0.0 "Aut0nomyMatters"** — the major number is for **autonomous
   remediation**, and the design point is that you grade it before it is allowed
   to act. Every tenant starts *off*; you move one to **shadow**, where the loop

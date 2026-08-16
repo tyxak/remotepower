@@ -73,11 +73,15 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_version_doc_exists_and_is_titled(self):
         p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
+        if not p.exists():
+            self.skipTest(f"docs/v{V}.md trimmed by the keep-3 retention policy")
         self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
 
     def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
+        p = _ROOT / f"docs/v{V}.md"
+        if not p.exists():
+            self.skipTest(f"docs/v{V}.md trimmed by the keep-3 retention policy")
+        body = p.read_text()
         for stub in ("CODENAME", "One-paragraph release summary",
                      "## Section", "- **Change.**"):
             self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
@@ -122,7 +126,9 @@ class TestKmipShipsInThisRelease(unittest.TestCase):
         self.assertIn("KMIP key server", (_ROOT / "docs/features.md").read_text())
 
     def test_changelog_and_version_doc_cover_it(self):
-        self.assertIn("KMIP", (_ROOT / f"docs/v{V}.md").read_text())
+        doc = _ROOT / f"docs/v{V}.md"
+        if doc.exists():            # trimmed by keep-3 three releases on
+            self.assertIn("KMIP", doc.read_text())
         chg = (_ROOT / "CHANGELOG.md").read_text()
         section = chg[chg.index(f"## v{V}"):chg.index("## v6.4.0")]
         self.assertIn("KMIP key server", section,

@@ -2,6 +2,47 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.0.1 — "C0llapseMatters" — 2026-08-16
+
+### The sidebar collapses when you ask it to
+
+Reported from the field within a day of v7.0.0: the left menu could not be
+collapsed, and the auto-hide setting made no difference to it. Two separate
+faults, both in how the sidebar decides its width.
+
+**Open alerts held it open, in every mode.** The rule that keeps the sidebar
+visible while something needs attention matched on the collapsed state alone —
+and a sidebar you collapsed by hand has that same state. So with one alert
+open, clicking Collapse slid the page content across to the narrow-rail margin
+while the sidebar stayed at full width on top of it. That is the odd half of
+the report: the content moved, the menu did not. Unticking auto-hide changed
+nothing, because the setting was never part of the check.
+
+The reveal now applies only in auto-hide mode, so Collapse always works. And
+there is a new per-browser option under **My Account → Appearance →
+Navigation** — *Keep hiding while alerts are open* — for anyone who works with
+alerts open all day and would rather the rail stayed out of the way. It is off
+by default, so nothing changes unless you ask for it.
+
+**Between 721 and 768 pixels wide, the button did nothing at all.** It is
+hidden below 721px, where the sidebar is a slide-over drawer and collapsing has
+no meaning. Above that it renders — but the rules it drives started at 769px, a
+floor left behind when the drawer breakpoint moved from 768 to 720. Across
+those 48 pixels you got a button and no behaviour.
+
+The gap was already known and half-closed: a copy of the whole block, scoped to
+the installed app, patched it there and left the browser alone. Two copies of
+identical rules at two breakpoints is how one of them came to be fixed by
+itself. There is one copy now, starting at the width where the button appears.
+
+Both fixes are measured in a browser rather than read out of the stylesheet,
+because both existed only as geometry: the tests check the sidebar width *and*
+the content margin at 730, 760, 780 and 1280 pixels, and each was watched
+failing against the old rules first.
+
+Thanks to **@loryanstrant** for the report (#27), and for the detail about
+window width — that is what turned up the second bug.
+
 ## v7.0.0 — "Aut0nomyMatters" — 2026-08-15
 
 ### The fleet can start fixing itself, and hands you a receipt

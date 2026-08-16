@@ -91,6 +91,12 @@ holds long-form docs that don't fit there.
  the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
  of unlocking storage against a server that storage hosts); no
  Critical/High/Medium ships.
+- **[v7.0.1.md](v7.0.1.md)** — "C0llapseMatters": the sidebar collapses when
+  you ask it to. Open alerts were holding it open in every mode, including a
+  manual collapse with auto-hide switched off, so the page content moved to
+  the rail margin while the sidebar stayed full width on top of it; and
+  between 721 and 768 pixels the Collapse button appeared but did nothing at
+  all. Plus a new per-browser option to keep hiding while alerts are open.
 - **[v7.0.0.md](v7.0.0.md)** — "Aut0nomyMatters": autonomous remediation, and
   the checks rather than the code
  they check. Six guardrails were reporting success while measuring nothing —
@@ -105,20 +111,6 @@ holds long-form docs that don't fit there.
  keep recording), a real container log window (waits for the agent with a live
  elapsed count, 100–2000 lines, filter, copy, download, auto-refresh) and
  Windows container actions, which had been drawing buttons that could never run.
-- **[v6.4.1.md](v6.4.1.md)** — "Cust0dyMatters": a built-in KMIP key server so
- Synology / TrueNAS / vSphere keep their encryption keys off the appliance that
- holds the encrypted data (opt-in sidecar, mutual TLS, encrypted recovery
- bundle); a cross-agent parity program (custom scripts, live view, PII scan,
- canary files, delta heartbeats, watched services and file-path log rules on
- Windows/macOS); a dead-signal sweep (CPU temps on Thermal Health, the Security
- Advisory's revived inputs, six new risk factors); an SNMP OID browser; device
- rename; installer flags for the optional receivers; and two monitor fixes —
- an actionable rejection message and a stale monitor no longer blocking saves.
-Older release notes (v6.4.0 and earlier) live in
-[CHANGELOG.md](../CHANGELOG.md).
-
-## Feature guides
-
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
