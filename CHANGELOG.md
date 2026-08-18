@@ -2,6 +2,88 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.0.2 — "Prec3dentMatters" — unreleased (test)
+
+### The autonomy loop refused everything, and here is why
+
+Reported from a live instance: the Autonomy page held 22 receipts and every one
+was a refusal. Fourteen said `no_precedent`, four `no_verified_backup`, four
+`action_not_allowed`. Not one shadow verdict in weeks of sweeps — which, for a
+feature whose whole adoption story is "run it in shadow and grade what it would
+have done", means there was nothing to grade.
+
+**Precedent could not accumulate.** The loop acts only where your fleet has
+fixed the same thing before, and it counted an incident as a prior fix only if
+that record carried a *recommended action* — a field filled by AI triage and
+nothing else. With no AI provider configured, which is the default, confidence
+came out at zero however many incidents you had resolved.
+
+It was worse than neutral. A resolution note you write counts double an
+AI-authored one, so it counted double toward the denominator and nothing toward
+the numerator: a fleet whose incidents people fix scored **lower** than a fleet
+with no memory at all.
+
+**Nothing recorded a fix that worked.** Two sweeps already computed exactly
+that and kept only the failure half. Press **Fix** on an alert and a sweep
+checks a few minutes later whether the alert cleared; if it did not you get
+`mitigation_unverified`, and if it did, nothing happened. An automation rule's
+remediation was verified the same way and remembered just as little.
+
+Both now record it. So do this loop's own verified actions. Three kinds of
+prior fix, none of which needs a model:
+
+- a fix an operator ran that cleared its alert
+- an automation rule whose remediation verified
+- one of the loop's own actions that a person approved and that came back
+  verified against the host's own checks
+
+And if you would rather not wait for two of them, **Only act where this fleet
+has fixed the same thing before** is now a checkbox. Turning it off accepts the
+curated command catalog as the plan instead. It is on by default.
+
+**A backup is not what makes restarting networking safe.** "Destructive" and
+"can lose data" were one flag, so `restart_networking` on an unreachable-gateway
+alert refused with `no_verified_backup` — advice about a different problem, and
+no amount of backup testing would ever have let it through. Patching, rebooting,
+remounting a filesystem the kernel forced read-only and rotating a credential
+keep the requirement. Killing a process, restarting networking, enabling the
+firewall and shutting a host down do not; they stay destructive, so they still
+need the allow-list, the blast-radius limit and a second pair of eyes.
+
+**"Only inside a maintenance window" had never been evaluated.** The check
+called a function that does not exist, behind a guard that silently skipped it.
+The ticked box did nothing at all. It now honours change-gated maintenance
+windows — and holds nothing on a host no such window covers, so it deadlocks
+nobody who never declared one.
+
+### Two mappings aimed at the wrong thing
+
+When an alert did not name the unit, container, process, mount point or storage
+pool, the loop fell back to the *device* name. So an overdue scrub on `web01`
+built `zpool scrub web01`, and a read-only filesystem built
+`mount -o remount,rw web01`. Both were reachable and both would have been
+recorded as an action taken.
+
+The fallback is gone. An alert that does not say which thing broke now refuses
+with `missing_parameter`, which is what the receipt should have said all along.
+A read-only filesystem reporting exactly one path is remounted; two or more
+refuses rather than fixing one and leaving the rest.
+
+### Six more things it can do
+
+`flush_dns_cache` (the gentle rung before restarting the resolver),
+`remount_all`, `enable_autoupdates`, `enable_av_realtime`, `enable_gatekeeper`
+and `shutdown_host` — the last for a UPS on its last minutes of battery, which
+is the one action that gets less useful the longer approval takes. Thirty action
+classes now, each still off unless you tick it.
+
+### Receipts can be cleared
+
+A **Clear receipts** button on the card, and a delete button on each row. Both
+are admin-only and audited: who cleared it, how many rows, and how many were
+still waiting on their verification sample. Clearing changes nothing the loop
+decided and does not stop it running.
+
 ## v7.0.1 — "C0llapseMatters" — 2026-08-16
 
 ### The sidebar collapses when you ask it to

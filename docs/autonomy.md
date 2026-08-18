@@ -31,11 +31,26 @@ The proposal comes from **incident memory** — the durable record of resolved
 incidents and what closed them. Two prior incidents minimum with the same
 signature, and at least 70% of them must have actually been resolved.
 
+Three things count as a prior fix, and none of them needs an AI provider:
+
+* **A fix an operator ran** that cleared its alert. You press Fix on an alert
+  row; the verify sweep checks a few minutes later whether the alert closed. It
+  did, so that is now on record as something that works on this fleet.
+* **An automation rule** whose remediation verified the same way.
+* **One of this loop's own actions** that a person approved and that came back
+  verified against the host's own checks.
+* Plus, as before, a resolution note you wrote when closing an alert, or an AI
+  triage verdict if you have one configured.
+
 An outcome a person confirmed counts double one written by the AI advisor. An
 AI verdict nobody contradicted is weaker evidence than an engineer writing down
 what fixed it, and the arithmetic reflects that.
 
-Where there is no precedent, the loop does nothing. It does not improvise.
+Where there is no precedent, the loop does nothing. It does not improvise — but
+you can decide that the curated command catalog is enough of a plan on its own,
+by unticking **Only act where this fleet has fixed the same thing before**. That
+is a real decision with a real trade-off, which is why it is a switch you have
+to flip rather than something that quietly happens.
 
 ## The safety envelope
 
@@ -47,10 +62,19 @@ enables anything for another.
 | **Mode** | `off` records nothing at all · `shadow` records, never acts · `enabled` acts within every limit below |
 | **Maximum blast radius** | How much may go dark. Refuses above this. |
 | **Actions per hour** | A ceiling per tenant, so a flapping host cannot become a storm. |
-| **Proven-recoverable backup** | Destructive actions require a restore drill that actually restored and verified, within 30 days — not a backup that merely ran. |
-| **Maintenance window** | Restricts action to the window, or waive it. |
+| **Proven-recoverable backup** | Actions that can lose data require a restore drill that actually restored and verified, within 30 days — not a backup that merely ran. |
+| **Change window** | Holds action on hosts covered by a maintenance window with change gating switched on, until that window is open. A host no such window covers is never held. |
 | **Second pair of eyes** | Destructive actions escalate for approval instead of running. |
+| **Prior fixes required** | Act only where this fleet has fixed the same signature before. On by default. |
 | **Permitted actions** | An explicit allow-list. Anything not on it is refused. |
+
+**"Can lose data" and "destructive" are separate questions.** Restarting
+networking is destructive — it can take a host off the network — and a backup is
+not what makes it safe or unsafe. Patching, rebooting, remounting a filesystem
+the kernel forced read-only and rotating a credential are the ones where a
+proven restore is the thing standing between you and a bad day, so those are
+the ones the backup setting applies to. Each row in the allow-list says which it
+is.
 
 ## Blast radius
 
@@ -66,15 +90,16 @@ reboot this host?** is worth answering for a human about to do it by hand.
 
 ## What it can do
 
-Twenty-four action classes, each with a fixed command and a declared list of
-the platforms whose agent can actually carry it out:
+Thirty action classes, each with a fixed command and a declared list of the
+platforms whose agent can actually carry it out:
 
 | Group | Actions |
 |---|---|
 | Services and containers | restart / start a service, restart a failed timer, restart / start a container |
 | Reclaiming disk | vacuum the journal, force a log rotation, clean temporary directories, clear the package cache, prune unused container images, `fstrim`, drop page cache |
-| Nudges | re-sync the clock, restart the resolver, flush the mail queue, update AV definitions, start an overdue scrub |
-| Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, patch, rotate a credential |
+| Nudges | re-sync the clock, flush the DNS cache, restart the resolver, re-mount what fstab declares, flush the mail queue, update AV definitions, start an overdue scrub |
+| Posture that drifted off | turn automatic security updates back on, turn real-time malware protection back on, turn Gatekeeper back on |
+| Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, shut down, patch, rotate a credential |
 
 An event maps to an **ordered ladder**, not one action. A host low on disk has
 half a dozen plausible remedies of escalating nerve; the loop takes the first
@@ -123,6 +148,11 @@ not point at that context — it holds it.
 
 Refusal reasons are a closed set, so the page can tell you *"blocked 41 times
 for blast_radius"* instead of showing you forty-one paragraphs.
+
+You can delete a receipt, or clear every receipt you can see, from the toolbar
+on that card. It is admin-only and audited — who cleared it, how many rows, and
+how many of those were still waiting on their verification sample. It changes
+nothing the loop decided and does not stop it running.
 
 ## Recommended rollout
 

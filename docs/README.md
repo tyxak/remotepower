@@ -91,6 +91,12 @@ holds long-form docs that don't fit there.
  the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
  of unlocking storage against a server that storage hosts); no
  Critical/High/Medium ships.
+- **[v7.0.2.md](v7.0.2.md)** — "Prec3dentMatters": the autonomy loop refused
+  every single thing it looked at. Precedent could not accumulate (a fleet whose
+  incidents people fix scored lower than one with no memory at all), nothing
+  recorded a fix that worked, the maintenance-window gate called a function that
+  does not exist, and `no_verified_backup` was refusing actions a backup has
+  nothing to do with. Six more actions, and receipts you can clear.
 - **[v7.0.1.md](v7.0.1.md)** — "C0llapseMatters": the sidebar collapses when
   you ask it to. Open alerts were holding it open in every mode, including a
   manual collapse with auto-hide switched off, so the page content moved to
@@ -105,12 +111,6 @@ holds long-form docs that don't fit there.
  an empty database, the translation gate stopping at the app chrome — plus the
  surfaces that told you something untrue: success toasts on refusals,
  single-use PINs that were not, "?" in push notifications.
-- **[v6.4.2.md](v6.4.2.md)** — "Ver1tyMatters": per-container alert mutes
- (silence one noisy container without silencing its host — inbox, webhooks,
- push and health score go quiet while fleet-event history and the SIEM stream
- keep recording), a real container log window (waits for the agent with a live
- elapsed count, 100–2000 lines, filter, copy, download, auto-refresh) and
- Windows container actions, which had been drawing buttons that could never run.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
