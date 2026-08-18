@@ -61,9 +61,27 @@ REASONS = (
 )
 
 # ── action classes ──────────────────────────────────────────────────────────
-# `destructive` means: it can lose state or take the host away. Those require a
-# PROVEN-recoverable backup (a restore drill that actually restored and
-# verified), not merely a backup that ran.
+# `destructive` means: it can lose state or take the host away. Those escalate
+# for a second pair of eyes when the policy asks for one.
+#
+# `requires_backup` is a SEPARATE question: would a proven-recoverable backup (a
+# restore drill that actually restored and verified) be the thing that saves you
+# if this went wrong? For a while the two were one flag, and the result was a
+# refusal whose stated cause had nothing to do with the risk: on a live fleet,
+# `restart_networking` on a gateway_unreachable alert refused with
+# `no_verified_backup` — a restore drill is not what makes restarting
+# NetworkManager safe or unsafe, and no amount of backup testing would ever have
+# let that action through. It reads as "go and fix your backups", which is
+# advice about a different problem.
+#
+# So: remounting a filesystem the kernel forced read-only can corrupt data,
+# patching can break boot, and a reboot may not come back — those keep the
+# backup precondition. Killing a process, restarting networking and turning the
+# firewall on cannot lose stored state; they stay destructive (four-eyes,
+# default-off, blast radius) without pretending a backup is what protects you.
+#
+# ABSENT KEY MEANS `destructive`, so a new action class added without thinking
+# about it inherits the strict behaviour rather than the permissive one.
 #
 # `platforms` is the OS families whose AGENT can actually carry the action out.
 # It is not decoration: the command channel implements a different subset of
@@ -137,24 +155,35 @@ ACTION_CLASSES = {
 
     # ── destructive: can lose state, or take the host away ──────────────────
     'kill_process':        {'destructive': True,  'default_allowed': False,
+                            'requires_backup': False,
                             'platforms': ('linux',),
                             'label': 'Terminate a runaway process'},
+    # The kernel forced this filesystem read-only because it found something
+    # wrong. Forcing it back is the one action here that can destroy data.
     'remount_rw':          {'destructive': True,  'default_allowed': False,
+                            'requires_backup': True,
                             'platforms': ('linux',),
                             'label': 'Remount a read-only filesystem read-write'},
     'restart_networking':  {'destructive': True,  'default_allowed': False,
+                            'requires_backup': False,
                             'platforms': ('linux',),
                             'label': 'Restart host networking'},
     'enable_firewall':     {'destructive': True,  'default_allowed': False,
+                            'requires_backup': False,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Turn the host firewall back on'},
+    # A host that does not come back needs rebuilding, and rebuilding needs a
+    # backup somebody has actually restored from.
     'reboot':              {'destructive': True,  'default_allowed': False,
+                            'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Reboot the host'},
     'patch':               {'destructive': True,  'default_allowed': False,
+                            'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Install pending updates'},
     'rotate_credential':   {'destructive': True,  'default_allowed': False,
+                            'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Rotate an exposed or stale credential'},
 }
@@ -217,6 +246,12 @@ def default_policy():
         'max_blast_radius': 1,        # only a host nothing else depends on
         'require_verified_backup': True,
         'require_window': True,
+        # Act only where this fleet has fixed this signature before. ON by
+        # default, and the reason the loop does nothing on a new install: two
+        # prior outcomes have to exist first. An operator who would rather trust
+        # the curated command catalog turns it off, which is a visible, audited
+        # choice instead of the invisible deadlock it used to be.
+        'require_precedent': True,
         'max_actions_per_hour': 3,
         'approval_for_destructive': True,
     }
@@ -244,7 +279,7 @@ def normalize_policy(raw):
             except (TypeError, ValueError):
                 pass
         for key in ('require_verified_backup', 'require_window',
-                    'approval_for_destructive'):
+                    'require_precedent', 'approval_for_destructive'):
             if key in raw:
                 p[key] = bool(raw[key])
     return p
@@ -398,22 +433,29 @@ def decide(*, action, policy, module_enabled, tenant_ok, radius,
     if plan_problem:
         return _decision(REFUSE, plan_problem, action=action)
 
-    # Evidence: either this fleet has fixed this before, or a plan was drafted.
-    if precedent_samples < MIN_PRECEDENT_SAMPLES and not has_plan:
-        return _decision(REFUSE, 'no_precedent',
-                         precedent_samples=precedent_samples)
-    if precedent_samples >= MIN_PRECEDENT_SAMPLES and \
-            precedent_conf < MIN_PRECEDENT_CONFIDENCE:
-        return _decision(REFUSE, 'low_confidence',
-                         precedent_confidence=round(precedent_conf, 3))
+    # Evidence: either this fleet has fixed this before, or the caller has a
+    # drafted plan — a concrete command out of the curated catalog, which the
+    # operator has to waive `require_precedent` to accept.
+    #
+    # BOTH halves hang off `has_plan`. The `low_confidence` half used not to,
+    # which made the waiver a trap: a tenant with two weak priors refused with
+    # `low_confidence` no matter what it had waived, so turning the knob off
+    # opened one door and left the next one shut with a different sign on it.
+    if not has_plan:
+        if precedent_samples < MIN_PRECEDENT_SAMPLES:
+            return _decision(REFUSE, 'no_precedent',
+                             precedent_samples=precedent_samples)
+        if precedent_conf < MIN_PRECEDENT_CONFIDENCE:
+            return _decision(REFUSE, 'low_confidence',
+                             precedent_confidence=round(precedent_conf, 3))
 
     max_radius = int(policy.get('max_blast_radius', 0))
     if int(radius.get('score', 0)) > max_radius:
         return _decision(REFUSE, 'blast_radius',
                          blast_radius=radius, limit=max_radius)
 
-    if spec['destructive'] and policy.get('require_verified_backup') \
-            and not backup_verified:
+    if spec.get('requires_backup', spec['destructive']) \
+            and policy.get('require_verified_backup') and not backup_verified:
         return _decision(REFUSE, 'no_verified_backup', action=action)
 
     if policy.get('require_window') and not in_window:

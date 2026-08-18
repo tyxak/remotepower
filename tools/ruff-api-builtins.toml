@@ -308,6 +308,7 @@ builtins = [
     "handle_autonomy_policy",
     "handle_autonomy_preview",
     "handle_autonomy_receipts",
+    "handle_autonomy_receipts_clear",
     "handle_backup_clear",
     "handle_backup_download",
     "handle_backup_encrypt_existing",

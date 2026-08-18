@@ -1084,6 +1084,7 @@ _ao_spec.loader.exec_module(autonomy_ops_handlers_mod)
 autonomy_ops_handlers_mod.bind(globals())
 for _ao_name in (
         'handle_autonomy_policy', 'handle_autonomy_receipts',
+        'handle_autonomy_receipts_clear',
         'handle_autonomy_preview', 'run_autonomy_if_due',
         '_policy_for', '_append_receipt', '_blast_radius_for',
         '_candidate_alerts', '_build_plan', '_actions_this_hour',
@@ -64888,7 +64889,18 @@ def _window_active(window, now):
 
 
 def _parse_iso(s):
-    """Parse ISO-8601 timestamp → unix ts. Supports 'Z' suffix and +HH:MM."""
+    """Parse ISO-8601 timestamp → unix ts. Supports 'Z' suffix and +HH:MM.
+
+    A numeric value is taken as an epoch already. `_window_active` catches only
+    ValueError, so a window whose `start` is a number — hand-edited store,
+    GitOps config, an importer — used to raise AttributeError straight out of
+    the maintenance check and into whatever called it: the heartbeat's command
+    dispatch, and now the autonomy sweep's window gate.
+    """
+    if isinstance(s, (int, float)) and not isinstance(s, bool):
+        return int(s)
+    if not isinstance(s, str):
+        raise ValueError(f'not a timestamp: {type(s).__name__}')
     if s.endswith('Z'):
         s = s[:-1] + '+00:00'
     # Python 3.7+ handles the rest
@@ -68836,6 +68848,7 @@ def _build_exact_routes():
         ('GET', '/api/autonomy/policy'): handle_autonomy_policy,
         ('PUT', '/api/autonomy/policy'): handle_autonomy_policy,
         ('GET', '/api/autonomy/receipts'): handle_autonomy_receipts,
+        ('DELETE', '/api/autonomy/receipts'): handle_autonomy_receipts_clear,
         ('POST', '/api/autonomy/preview'): handle_autonomy_preview,
         ('POST', '/api/tenants'): handle_tenant_create,
         # v6.1.1: tenancy isolation-coverage transparency panel

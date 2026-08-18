@@ -130,6 +130,60 @@ def handle_autonomy_receipts():
                     'total': len(rows)})
 
 
+def handle_autonomy_receipts_clear():
+    """DELETE /api/autonomy/receipts[?id=<receipt id>] — drop receipts.
+
+    Without `id`, every receipt the caller may SEE goes; with one, just that row.
+
+    Tenant-scoped the same way the GET is: a tenant admin resolves to a
+    `_tenant_gate()` of their own tenant and can only remove their own rows,
+    while an unscoped superadmin (or a single-tenant install) removes all. That
+    is not decoration — a bulk clear was the one alert mutation that shipped
+    WITHOUT its siblings' tenant filter, so this one gets it at birth.
+
+    Admin-only and audited. The receipts page is the evidence an operator grades
+    the loop on, so who emptied it and how much they emptied is worth keeping;
+    the audit entry carries both, plus how many rows still owed a verification
+    sample, since deleting those drops the second half of their measurement.
+
+    `last_run` is preserved. It is the sweep's cadence marker, not a receipt, and
+    resetting it would make the next request re-evaluate every open alert.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    want_id = A._sanitize_str((qs.get('id', [''])[0] or ''), 64)
+    gate = A._tenant_gate()
+    removed = 0
+    pending = 0
+    with A._LockedUpdate(A.AUTONOMY_RECEIPTS_FILE) as store:
+        rows = store.get('receipts')
+        if not isinstance(rows, list):
+            rows = []
+        kept = []
+        for r in rows:
+            mine = isinstance(r, dict) and (gate is None or r.get('tenant') == gate)
+            hit = mine and (not want_id or r.get('id') == want_id)
+            if not hit:
+                kept.append(r)
+                continue
+            removed += 1
+            if r.get('verified') is None and r.get('verify_due'):
+                pending += 1
+        store['receipts'] = kept
+    if want_id and not removed:
+        # 404 rather than a cheerful 200: an id that matched nothing is either
+        # gone or another tenant's, and both answers are "not yours to delete".
+        A.respond(404, {'error': 'receipt not found'})
+    A.audit_log(actor, 'autonomy_receipts_clear',
+                detail=f"tenant={gate or 'all'} "
+                       f"id={want_id or '*'} removed={removed} "
+                       f"awaiting_verification={pending}")
+    A.respond(200, {'ok': True, 'removed': removed,
+                    'awaiting_verification': pending})
+
+
 # ── blast radius ─────────────────────────────────────────────────────────────
 
 def _blast_radius_for(dev_id, dev, devices):
@@ -757,10 +811,33 @@ def run_autonomy_if_due():
             tenant_ok=bool(tenant), radius=radius,
             precedent_conf=conf, precedent_samples=samples,
             backup_verified=_backup_is_verified(dev_id),
-            in_window=A._in_maintenance_window(dev) if hasattr(
-                A, '_in_maintenance_window') else True,
+            # A change-GATED maintenance window is this product's "only touch
+            # this host inside the window" model, and `_exec_gated` is the
+            # predicate the heartbeat dispatch already uses for it (True ==
+            # hold). Refusing here rather than letting the command sit in the
+            # queue is the right call for an autonomous action: a held command
+            # fires whenever the window next opens — hours later, on a decision
+            # made against evidence that has moved on since.
+            #
+            # It is also inert on a fleet that has declared no change window,
+            # which matters because the shipped default is require_window=True
+            # and most installs have none: the setting holds where an operator
+            # asked for it and deadlocks nobody who did not.
+            #
+            # This replaces a call to `A._in_maintenance_window` behind a
+            # `hasattr` guard. No function of that name exists anywhere in the
+            # codebase, so the guard was always False, `in_window` was always
+            # True, and "Only inside a maintenance window" — ticked, in the UI,
+            # on the maintainer's own instance — had never once been evaluated.
+            in_window=not A._exec_gated(dev_id, dev),
             actions_this_hour=_actions_this_hour(tenant, _taken),
-            dry_run_ok=True, has_plan=False,
+            dry_run_ok=True,
+            # A drafted plan: a concrete command out of the curated catalog. It
+            # only counts as evidence where the operator has waived precedent,
+            # so this is False on a default policy and the loop keeps asking the
+            # fleet's own history first.
+            has_plan=(bool(plan.get('command'))
+                      and not policy.get('require_precedent', True)),
             os_family=plan.get('os_family'), plan_problem=plan.get('problem'))
 
         rec = autonomy.receipt(plan, decision)
