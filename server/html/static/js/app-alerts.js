@@ -1328,10 +1328,23 @@ function showPriorIncidents(alertId) {
   paint();
 }
 
+// v7.0.2: four sources, not two. Precedent now also comes from a fix that
+// demonstrably worked — an operator's Fix button, an automation rule, or the
+// autonomy loop's own verified action. Leaving the else-branch as "AI" would
+// have credited a model with a machine's work, on a card an operator reads to
+// decide whether to trust the loop.
+const _INCIDENT_SOURCES = {
+  operator: ['ok', 'operator', "An operator: their own resolution note, or a fix they ran that cleared the alert"],
+  rule: ['', 'rule', 'An automation rule whose remediation was verified'],
+  autonomy: ['', 'autonomy', "The autonomy loop's own action, verified against the host's own checks"],
+};
+
 function _incidentSourceBadge(o) {
-  return o.source === 'operator'
-    ? `<span class="patch-badge ok fs-10" title="An operator's own resolution note — they were there">operator</span>`
-    : `<span class="patch-badge fs-10" title="Captured from the stored AI triage verdict">AI</span>`;
+  const s = _INCIDENT_SOURCES[o.source];
+  if (!s) {
+    return `<span class="patch-badge fs-10" title="${escAttr('Captured from the stored AI triage verdict')}">AI</span>`;
+  }
+  return `<span class="patch-badge ${s[0]} fs-10" title="${escAttr(s[2])}">${escHtml(s[1])}</span>`;
 }
 
 function _incidentRatingCell(o) {
@@ -1368,7 +1381,7 @@ function _renderIncidentMemory(errMsg) {
   if (!rows.length) {
     tb.innerHTML = `<tr><td colspan="7" class="empty-state">${
       f ? 'No prior incident on this fleet matches that signature yet.'
-        : 'No resolved incidents recorded yet. Resolve an alert with a note (or run AI triage on one) and it is remembered here.'
+        : 'No resolved incidents recorded yet. Anything that demonstrably fixed an alert is remembered here — a fix you ran that cleared it, an automation rule that verified, an autonomous action that verified — as is a resolution note you write when closing one.'
     }</td></tr>`;
     if (summary) {
       summary.textContent = f
@@ -1393,6 +1406,9 @@ function _renderIncidentMemory(errMsg) {
     const sev = o.severity || '';
     const action = o.recommended_action
       ? `<div class="hint">Recommended: ${_escapeHtml(o.recommended_action)}</div>` : '';
+    // The machine-checkable one: what ran, and the alert then closed.
+    const fix = o.fix_command
+      ? `<div class="hint">Fixed by: <code>${_escapeHtml(o.fix_command)}</code></div>` : '';
     return `<tr>
       <td class="nowrap">${_escapeHtml(_formatTs(o.resolved_at))}</td>
       <td class="nowrap">${_escapeHtml(o.event || '—')}${
@@ -1401,7 +1417,7 @@ function _renderIncidentMemory(errMsg) {
       <td>${o.device_id
         ? `<span data-dev-hover="${escAttr(o.device_id)}">${_escapeHtml(dev)}</span>`
         : _escapeHtml(dev)}</td>
-      <td>${_incidentSourceBadge(o)} ${_escapeHtml(o.root_cause || '—')}${action}</td>
+      <td>${_incidentSourceBadge(o)} ${_escapeHtml(o.root_cause || '—')}${action}${fix}</td>
       <td>${_escapeHtml(o.resolution || '—')}</td>
       <td class="ta-center">${_incidentRatingCell(o)}</td>
     </tr>`;
