@@ -291,6 +291,78 @@ class TestTheRuleRemediationSweepRecordsItToo(_Base):
                          'cannot record the same incident a second time')
 
 
+class TestTheLoopsOwnVerifiedActionsCount(_Base):
+    """The third precedent source, and the strictest: it acted, the host's own
+    checks did not get worse, AND the alert it was triggered by closed."""
+
+    def _acted(self, alert_id='a1', before_failing=9):
+        now = int(time.time())
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [{
+            'id': 'rcpt_1', 'ts': now - 5000, 'tenant': 'default',
+            'device_id': 'd1', 'device_name': 'web01', 'trigger': 'failed_unit',
+            'alert_id': alert_id, 'action': 'restart_service',
+            'command': 'svc:restart:nginx.service', 'verdict': autonomy.ACT,
+            'reason': 'ok', 'outcome': 'queued', 'verified': None,
+            'verify_due': now - 1, 'before_checks': {'failing': before_failing},
+        }], 'last_run': 0})
+        api._LOAD_CACHE.clear()
+        return now
+
+    def _outcomes(self):
+        return (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
+
+    def test_a_receipt_carries_the_alert_it_came_from(self):
+        """Without this the standard below cannot be applied at all."""
+        plan = ops._build_plan({'event': 'failed_unit', 'id': 'a1',
+                                'payload': {'unit': 'nginx.service'}},
+                               'restart_service', {'os': 'Debian 12'}, 'd1',
+                               {'score': 0}, '')
+        rec = autonomy.receipt(plan, autonomy.Decision(verdict='act', reason='ok'))
+        self.assertEqual(rec['alert_id'], 'a1')
+
+    def test_a_verified_action_whose_alert_cleared_becomes_precedent(self):
+        self._acted()
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        rows = self._outcomes()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]['source'], 'autonomy')
+        self.assertEqual(rows[0]['fix_command'], 'svc:restart:nginx.service')
+
+    def test_an_alert_still_open_is_not_a_fix(self):
+        """Stricter than `verified`. Checks-did-not-worsen on its own would let
+        an action that changed nothing count as evidence that it works."""
+        self._acted()
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1'}]})
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertIs((api.load(api.AUTONOMY_RECEIPTS_FILE) or {})
+                      ['receipts'][0]['verified'], True,
+                      'the receipt still verifies — only the precedent is withheld')
+        self.assertEqual(self._outcomes(), [])
+
+    def test_an_action_that_made_things_worse_records_nothing(self):
+        self._acted(before_failing=0)
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        real_sum, real_fire = api._host_check_summary, api.fire_webhook
+        api._host_check_summary = lambda checks: {
+            'counts': {'ok': 0, 'warning': 0, 'critical': 3, 'unknown': 0},
+            'worst': 'critical', 'total': 3}
+        api.fire_webhook = lambda *a, **k: None
+        try:
+            api._verify_due_receipts(int(time.time()))
+        finally:
+            api._host_check_summary, api.fire_webhook = real_sum, real_fire
+        self.assertEqual(self._outcomes(), [])
+
+
 class TestABackupIsNotWhatMakesEveryActionSafe(_Base):
 
     def _decide(self, action, **over):

@@ -559,6 +559,12 @@ def receipt(plan, decision, *, outcome=None, verified=None, verify_due=None):
         'device_id': plan.get('device_id'),
         'device_name': plan.get('device_name'),
         'trigger': plan.get('trigger'),
+        # The alert this decision came from. Carried so a verified action can
+        # be checked against whether that alert actually cleared, which is the
+        # same standard the operator-fix and automation-rule sources are held
+        # to — and because "which alert was this?" is a fair question to ask of
+        # a receipt whose whole job is explaining itself.
+        'alert_id': plan.get('alert_id'),
         'action': plan.get('action'),
         'command': plan.get('command'),
         'verdict': decision.get('verdict'),

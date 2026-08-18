@@ -781,7 +781,9 @@ def _verify_due_receipts(now):
     if not due:
         return
     devices = A.load(A.DEVICES_FILE) or {}
-    verdicts, alerts = {}, []
+    still_open = {a.get('id') for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
+                  if isinstance(a, dict) and not a.get('resolved_at')}
+    verdicts, alerts, worked = {}, [], []
     for r in due:
         dev = devices.get(r.get('device_id'))
         if not dev:
@@ -792,6 +794,18 @@ def _verify_due_receipts(now):
         verdicts[_key(r)] = (not worse, after)
         if worse:
             alerts.append((r, after))
+        elif r.get('alert_id') and r['alert_id'] not in still_open:
+            # It acted, the host's own checks did not get worse, and the alert
+            # it was triggered by has closed. That is the same standard the
+            # operator-fix and automation-rule sources are held to, and it is
+            # stricter than `verified` on purpose: checks-did-not-worsen alone
+            # would let an action that changed nothing count as a fix.
+            #
+            # Self-reinforcement is bounded by the same things as the other two
+            # sources: one outcome per ALERT, and the loop can only have acted
+            # here because it already had precedent or the operator waived it,
+            # and — for anything destructive — because a person approved it.
+            worked.append((r, dev))
     if verdicts:
         with A._LockedUpdate(A.AUTONOMY_RECEIPTS_FILE) as st:
             for row in (st.get('receipts') or []):
@@ -803,6 +817,17 @@ def _verify_due_receipts(now):
                 row['after_checks'] = after if isinstance(after, dict) else None
                 if not ok:
                     row['outcome'] = (row.get('outcome') or '') + ' — verification failed'
+    # After the lock, for the same reason the webhooks are: capture_fix_outcome
+    # takes its own _LockedUpdate and a nested one is an OperationalError on the
+    # SQL backends.
+    for r, dev in worked:
+        A.capture_fix_outcome(
+            alert_id=r.get('alert_id'), event=r.get('trigger') or '',
+            device_id=r.get('device_id') or '',
+            device_name=r.get('device_name') or '',
+            tenant=r.get('tenant') or '', actor='autonomous remediation',
+            fix_command=r.get('command') or r.get('action') or '',
+            source='autonomy', now=now)
     # Fire AFTER the lock: fire_webhook is self-locking and the deferral rules
     # apply, but keeping it outside is the habit this codebase asks for.
     for r, after in alerts:
