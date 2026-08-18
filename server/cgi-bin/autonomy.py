@@ -140,9 +140,15 @@ ACTION_CLASSES = {
     'resync_clock':        {'destructive': False, 'default_allowed': True,
                             'platforms': ('linux',),
                             'label': 'Re-synchronise the system clock'},
+    'flush_dns_cache':     {'destructive': False, 'default_allowed': True,
+                            'platforms': ('linux', 'windows'),
+                            'label': 'Flush the DNS resolver cache'},
     'restart_resolver':    {'destructive': False, 'default_allowed': True,
                             'platforms': ('linux',),
                             'label': 'Restart the DNS resolver'},
+    'remount_all':         {'destructive': False, 'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Re-mount everything fstab declares'},
     'flush_mail_queue':    {'destructive': False, 'default_allowed': True,
                             'platforms': ('linux',),
                             'label': 'Flush the outbound mail queue'},
@@ -152,6 +158,20 @@ ACTION_CLASSES = {
     'start_scrub':         {'destructive': False, 'default_allowed': False,
                             'platforms': ('linux',),
                             'label': 'Start an overdue storage scrub'},
+
+    # ── posture that drifted off, and can be switched back on ───────────────
+    # Off by default like everything else: turning a control back on is a
+    # change to a host's configuration, and an operator may have switched it
+    # off for a reason the fleet cannot see.
+    'enable_autoupdates':  {'destructive': False, 'default_allowed': False,
+                            'platforms': ('linux',),
+                            'label': 'Turn automatic security updates back on'},
+    'enable_av_realtime':  {'destructive': False, 'default_allowed': False,
+                            'platforms': ('windows',),
+                            'label': 'Turn real-time malware protection back on'},
+    'enable_gatekeeper':   {'destructive': False, 'default_allowed': False,
+                            'platforms': ('darwin',),
+                            'label': 'Turn Gatekeeper back on'},
 
     # ── destructive: can lose state, or take the host away ──────────────────
     'kill_process':        {'destructive': True,  'default_allowed': False,
@@ -178,6 +198,15 @@ ACTION_CLASSES = {
                             'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Reboot the host'},
+    # Power is about to go away and the host is going down either way. The
+    # question is whether it goes down cleanly. Requiring a proven restore
+    # first would block the one action whose entire job is protecting what is
+    # on the disk — so it is destructive (four-eyes, off by default) without
+    # the backup precondition.
+    'shutdown_host':       {'destructive': True,  'default_allowed': False,
+                            'requires_backup': False,
+                            'platforms': ('linux', 'windows', 'darwin'),
+                            'label': 'Shut the host down while it still can'},
     'patch':               {'destructive': True,  'default_allowed': False,
                             'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),

@@ -306,7 +306,10 @@ _EVENT_ACTIONS = {
     'failed_unit':          ('restart_service',),
     'unit_flapping':        ('restart_service',),
     'service_down':         ('restart_service', 'start_service'),
-    'vpn_handshake_stale':  ('restart_service',),
+    # NOT vpn_handshake_stale: `_vpn_evt_payload` carries client_id / tunnel_id
+    # and no device_id at all, so the sweep — which resolves a device before it
+    # does anything else — could never see it. The tunnel is server-side; there
+    # is no host command to send.
     'win_update_stopped':   ('start_service',),
     'timer_failed':         ('restart_timer',),
     # containers
@@ -321,11 +324,18 @@ _EVENT_ACTIONS = {
     'resource_saturation_predicted': ('clear_cache',),
     # host services that fix themselves with a nudge
     'clock_skew':           ('resync_clock',),
-    'resolver_unhealthy':   ('restart_resolver',),
+    # Gentlest rung first: a stale cache is the common cause and flushing it
+    # costs nothing, where restarting the resolver drops every in-flight lookup.
+    'resolver_unhealthy':   ('flush_dns_cache', 'restart_resolver'),
+    'mount_issue':          ('remount_all',),
     'mailq_high':           ('flush_mail_queue',),
     'mailflow_delayed':     ('flush_mail_queue',),
     'av_warning':           ('update_av_definitions',),
     'win_defender_stale':   ('update_av_definitions',),
+    # Posture that drifted off. Each is a single, reversible switch.
+    'autoupdate_disabled':  ('enable_autoupdates',),
+    'av_realtime_off':      ('enable_av_realtime',),
+    'mac_gatekeeper_off':   ('enable_gatekeeper',),
     'scrub_overdue':        ('start_scrub',),
     # destructive territory — reachable, but off in the default policy
     'process_alert':        ('kill_process',),
@@ -336,6 +346,11 @@ _EVENT_ACTIONS = {
     'mac_firewall_off':     ('enable_firewall',),
     'win_firewall_off':     ('enable_firewall',),
     'reboot_required':      ('reboot',),
+    # The UPS says minutes of battery are left. A clean shutdown is the only
+    # thing that helps, and it is the one action here that gets LESS useful the
+    # longer a human takes to approve it — which is the argument for having the
+    # loop able to do it at all.
+    'ups_critical':         ('shutdown_host',),
     'kernel_outdated':      ('reboot',),
     'patch_alert':          ('patch',),
     'cve_found':            ('patch',),
@@ -380,11 +395,22 @@ _ACTION_COMMANDS = {
 
     'resync_clock':        ('exec:chronyc makestep 2>/dev/null '
                             '|| timedatectl set-ntp true'),
+    'flush_dns_cache':     {'linux':   'exec:resolvectl flush-caches',
+                            'windows': 'ps:Clear-DnsClientCache'},
     'restart_resolver':    'svc:restart:systemd-resolved',
+    # What fstab already says, re-applied. A stalled network share is the usual
+    # cause and the agent's exec timeout bounds the wait.
+    'remount_all':         'exec:mount -a',
     'flush_mail_queue':    'exec:postqueue -f',
     'update_av_definitions': {'linux':   'exec:freshclam',
                               'windows': 'ps:Update-MpSignature'},
     'start_scrub':         'exec:zpool scrub -- {pool}',
+
+    'enable_autoupdates':  ('exec:systemctl enable --now unattended-upgrades.service '
+                            '2>/dev/null || systemctl enable --now '
+                            'dnf-automatic-install.timer'),
+    'enable_av_realtime':  'ps:Set-MpPreference -DisableRealtimeMonitoring $false',
+    'enable_gatekeeper':   'exec:spctl --master-enable',
 
     'kill_process':        'exec:pkill -TERM -x -- {process}',
     'remount_rw':          'exec:mount -o remount,rw -- {mount}',
@@ -401,6 +427,9 @@ _ACTION_COMMANDS = {
                     '--setglobalstate on'),
     },
     'reboot':              'reboot',
+    # Every agent implements it: systemctl poweroff on Linux, `shutdown /s /t 30`
+    # on Windows, `shutdown -h +1` on macOS. All three are graceful.
+    'shutdown_host':       'shutdown',
     # Linux patches via the server's own vetted upgrade script (the one with
     # the initramfs safety analysis in it); Windows and macOS take the bare
     # `upgrade` verb. Resolved in _command_for so it tracks _UPGRADE_CMD.
@@ -416,12 +445,45 @@ _ACTION_COMMANDS = {
 # order. `_record_alert` stores only a whitelisted subset of a payload, so an
 # alias that is not on that whitelist can never arrive — the catalog test pins
 # that at least one alias per parameter is a key the alert can actually carry.
+#
+# ⛔ `name` IS NOT AN ALIAS FOR ANYTHING, and neither is `label`.
+#
+# Every alert payload in this codebase uses `name` for the DEVICE name — the
+# `_fire`, `_fire_service_webhook` and `_fire_container_webhook` wrappers all
+# stamp `'name': dev.get('name')` and the resource travels under its own key.
+# So `('unit', 'name')` did not mean "the unit, or failing that another name for
+# the unit". It meant: when the alert does not say which unit, restart a unit
+# named after the host.
+#
+# Two mappings shipped doing exactly that, because the fallback hid it:
+#   * `scrub_overdue` fires {'pool': …} while the alias list asked for `disk`,
+#     which that payload has never carried — so `start_scrub` fell through to
+#     `name` and built `exec:zpool scrub -- web01`.
+#   * `readonly_fs` fires {'paths': [ … ]} — plural, and a list — so `remount_rw`
+#     fell through and built `mount -o remount,rw -- web01`.
+# Both were reachable, both would have been recorded as an action taken, and
+# both passed the catalog gate, which only asks whether SOME alias is on the
+# payload whitelist and never whether the MAPPED EVENT carries it.
+#
+# Without the fallback the worst case is `missing_parameter` — an honest refusal
+# on the receipt — rather than a confident command aimed at the wrong thing.
 _ACTION_PARAMS = {
-    'unit':      ('unit', 'name', 'label'),
-    'container': ('container', 'name', 'label'),
-    'process':   ('process', 'name'),
-    'mount':     ('path', 'name'),
-    'pool':      ('disk', 'name', 'label'),
+    'unit':      ('unit',),
+    'container': ('container',),
+    'process':   ('process',),
+    'mount':     ('path', 'paths'),
+    'pool':      ('pool', 'disk'),
+}
+
+# Constants for events whose payload names no resource because there is only
+# ever one of it. Curated here beside the safety analysis and never read from
+# the alert, so this cannot become a path from remote data into a command.
+#
+# `win_update_stopped` says the Windows Update service is not running and does
+# not name it, for the same reason nobody writes it down: it is always
+# `wuauserv`. Before this, that mapping resolved `{unit}` to the device name.
+_EVENT_PARAM_DEFAULTS = {
+    'win_update_stopped': {'unit': 'wuauserv'},
 }
 
 
@@ -550,6 +612,12 @@ def _resolve_params(tmpl, payload, dev_id):
         raw = ''
         for alias in _ACTION_PARAMS.get(f, (f,)):
             v = payload.get(alias)
+            if isinstance(v, (list, tuple)):
+                # A one-element list is unambiguous (`readonly_fs` reports
+                # {'paths': ['/srv']}). Two or more is not: there is no honest
+                # way to pick, and acting on the first would leave the rest
+                # broken while the receipt claimed a fix.
+                v = v[0] if len(v) == 1 else None
             if v:
                 raw = str(v)
                 break
@@ -580,6 +648,9 @@ def _resolve_params(tmpl, payload, dev_id):
 
 def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
     payload = alert.get('payload') if isinstance(alert.get('payload'), dict) else {}
+    # Curated constants first, the alert's own values second — so a payload that
+    # does name the resource always wins over the default.
+    payload = {**_EVENT_PARAM_DEFAULTS.get(alert.get('event'), {}), **payload}
     family = A._device_os_family(dev)
     cmd, problem = _resolve_params(_command_for(action, family), payload, dev_id)
     return {

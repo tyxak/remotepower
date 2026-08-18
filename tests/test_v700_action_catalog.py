@@ -332,11 +332,53 @@ class TestParameterResolution(unittest.TestCase):
         self.assertIsNone(prob)
         self.assertEqual(cmd, 'svc:restart:nginx.service')
 
-    def test_an_alias_is_used_when_the_first_choice_is_absent(self):
-        cmd, prob = ops._resolve_params('svc:restart:{unit}',
-                                        {'name': 'redis'}, 'd1')
+    def test_the_device_name_is_not_a_fallback_for_a_resource(self):
+        """`name` used to be an alias for {unit}, {container}, {process},
+        {mount} and {pool}. Every payload in this codebase uses `name` for the
+        DEVICE, so the fallback meant: when the alert does not say which unit,
+        restart a unit named after the host. Two mappings shipped doing that.
+
+        Refusing is the honest outcome — the receipt says missing_parameter
+        instead of claiming an action against the wrong target.
+        """
+        for tmpl in ('svc:restart:{unit}', 'container:docker:restart:{container}',
+                     'exec:pkill -TERM -x -- {process}',
+                     'exec:mount -o remount,rw -- {mount}',
+                     'exec:zpool scrub -- {pool}'):
+            cmd, prob = ops._resolve_params(tmpl, {'name': 'web01'}, 'd1')
+            self.assertEqual(prob, 'missing_parameter', tmpl)
+            self.assertEqual(cmd, '', tmpl)
+
+    def test_a_real_alias_still_works(self):
+        """Control: the aliases that name the RESOURCE still resolve, or the
+        assertions above would pass with parameter resolution simply broken."""
+        cmd, prob = ops._resolve_params('exec:zpool scrub -- {pool}',
+                                        {'pool': 'tank'}, 'd1')
         self.assertIsNone(prob)
-        self.assertEqual(cmd, 'svc:restart:redis')
+        self.assertEqual(cmd, 'exec:zpool scrub -- tank')
+        cmd, prob = ops._resolve_params('exec:mount -o remount,rw -- {mount}',
+                                        {'paths': ['/srv']}, 'd1')
+        self.assertIsNone(prob)
+        self.assertEqual(cmd, 'exec:mount -o remount,rw -- /srv')
+
+    def test_an_ambiguous_list_refuses(self):
+        """`readonly_fs` can report several paths. Acting on the first would
+        leave the rest broken while the receipt claimed a fix."""
+        cmd, prob = ops._resolve_params('exec:mount -o remount,rw -- {mount}',
+                                        {'paths': ['/srv', '/var']}, 'd1')
+        self.assertEqual(prob, 'missing_parameter')
+        self.assertEqual(cmd, '')
+
+    def test_a_curated_default_fills_a_payload_that_names_nothing(self):
+        """win_update_stopped never names the service because there is only one
+        of it. The default is a constant in the module, never alert data."""
+        self.assertEqual(ops._EVENT_PARAM_DEFAULTS['win_update_stopped']['unit'],
+                         'wuauserv')
+        plan = ops._build_plan({'event': 'win_update_stopped', 'payload': {}},
+                               'start_service', {'os': 'Windows Server 2022'},
+                               'd1', {'score': 0}, '')
+        self.assertIsNone(plan['problem'], plan)
+        self.assertEqual(plan['command'], 'svc:start:wuauserv')
 
     def test_a_missing_name_refuses_instead_of_emitting_a_stub(self):
         """The bug this replaces: an empty unit produced `svc:restart:` — a
