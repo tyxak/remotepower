@@ -5481,10 +5481,14 @@ def build_autonomy_policy() -> dict:
         'allowed_actions': ['restart_service', 'start_service',
                             'restart_container', 'start_container',
                             'clear_journal', 'rotate_logs', 'clear_cache',
-                            'restart_resolver', 'resync_clock'],
+                            'flush_dns_cache', 'restart_resolver',
+                            'resync_clock'],
         'max_blast_radius': 3,
         'require_verified_backup': True,
         'require_window': True,
+        # v7.0.2: on, like the shipped default — the demo's receipts include
+        # `no_precedent` refusals and they have to be honest about why.
+        'require_precedent': True,
         'max_actions_per_hour': 3,
         'approval_for_destructive': True,
     }}}
@@ -5499,8 +5503,11 @@ def build_autonomy_receipts() -> dict:
     does.
     """
     t0 = now()
+    # Every receipt carries an id: it is the delete key the Receipts page uses,
+    # and rows written before ids existed cannot be removed one at a time.
+    _rid = iter(range(0x51d0, 0x5200))
     R = []
-    R.append({'ts': t0 - 900, 'tenant': 'default', 'device_id': 'ng01',
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 900, 'tenant': 'default', 'device_id': 'ng01',
               'device_name': 'nginx.lab', 'trigger': 'failed_unit',
               'action': 'restart_service', 'command': 'svc:restart:nginx.service',
               'verdict': 'shadow', 'reason': 'ok',
@@ -5510,9 +5517,8 @@ def build_autonomy_receipts() -> dict:
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 1.0, 'samples': 4,
                             'action': 'systemctl restart nginx'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 5400, 'tenant': 'default', 'device_id': 'db01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 5400, 'tenant': 'default', 'device_id': 'db01',
               'device_name': 'postgres.lab', 'trigger': 'server_disk_low',
               'action': 'clear_journal',
               'command': 'exec:journalctl --vacuum-time=3d',
@@ -5523,9 +5529,8 @@ def build_autonomy_receipts() -> dict:
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 0.83, 'samples': 6,
                             'action': 'vacuum the journal'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 9000, 'tenant': 'default', 'device_id': 'nc01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 9000, 'tenant': 'default', 'device_id': 'nc01',
               'device_name': 'nextcloud.lab', 'trigger': 'container_restarting',
               'action': 'restart_container',
               'command': 'container:docker:restart:app',
@@ -5536,9 +5541,8 @@ def build_autonomy_receipts() -> dict:
                                'redundant': True, 'group_size': 3},
               'precedent': {'confidence': 1.0, 'samples': 3,
                             'action': 'restart the app container'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 14400, 'tenant': 'default', 'device_id': 'gt01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 14400, 'tenant': 'default', 'device_id': 'gt01',
               'device_name': 'gitea.lab', 'trigger': 'failed_unit',
               'action': 'restart_service', 'command': 'svc:restart:gitea.service',
               'verdict': 'refuse', 'reason': 'no_precedent',
@@ -5547,9 +5551,8 @@ def build_autonomy_receipts() -> dict:
                                'status_services': 0, 'peers': 0,
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 0.0, 'samples': 0, 'action': ''},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 21600, 'tenant': 'default', 'device_id': 'ng01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 21600, 'tenant': 'default', 'device_id': 'ng01',
               'device_name': 'nginx.lab', 'trigger': 'server_disk_low',
               'action': 'rotate_logs',
               'command': 'exec:logrotate -f /etc/logrotate.conf',
@@ -5560,9 +5563,8 @@ def build_autonomy_receipts() -> dict:
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 0.9, 'samples': 5,
                             'action': 'vacuum the journal'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 26000, 'tenant': 'default', 'device_id': 'mac01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 26000, 'tenant': 'default', 'device_id': 'mac01',
               'device_name': 'studio.lab', 'trigger': 'failed_unit',
               'action': 'restart_service', 'command': '',
               'verdict': 'refuse', 'reason': 'unsupported_platform',
@@ -5572,9 +5574,20 @@ def build_autonomy_receipts() -> dict:
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 1.0, 'samples': 3,
                             'action': 'restart the unit'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
-    R.append({'ts': t0 - 30000, 'tenant': 'default', 'device_id': 'db01',
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 33000, 'tenant': 'default',
+              'device_id': 'pi1', 'device_name': 'pihole.lab',
+              'trigger': 'resolver_unhealthy', 'action': 'flush_dns_cache',
+              'command': 'exec:resolvectl flush-caches',
+              'verdict': 'shadow', 'reason': 'ok',
+              'blast_radius': {'device_id': 'pi1', 'score': 1, 'raw': 1,
+                               'monitors': 1, 'containers': 0,
+                               'status_services': 0, 'peers': 0,
+                               'redundant': False, 'group_size': 1},
+              'precedent': {'confidence': 1.0, 'samples': 3,
+                            'action': 'exec:resolvectl flush-caches'},
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 30000, 'tenant': 'default', 'device_id': 'db01',
               'device_name': 'postgres.lab', 'trigger': 'service_down',
               'action': 'restart_service', 'command': '',
               'verdict': 'refuse', 'reason': 'missing_parameter',
@@ -5584,8 +5597,7 @@ def build_autonomy_receipts() -> dict:
                                'redundant': False, 'group_size': 1},
               'precedent': {'confidence': 0.8, 'samples': 5,
                             'action': 'restart the unit'},
-              'dry_run': 'not-run', 'outcome': None, 'verified': None,
-              'rolled_back': False})
+              'dry_run': 'not-run', 'outcome': None, 'verified': None})
     return {'receipts': R, 'last_run': t0 - 300}
 
 

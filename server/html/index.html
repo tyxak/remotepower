@@ -7652,9 +7652,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <label class="form-label" for="autonomy-rate">Actions per hour</label>
             <input type="number" id="autonomy-rate" class="form-input isl-80" min="0" max="100">
           </div>
-          <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-backup"> Destructive actions need a proven-recoverable backup</label></div>
-          <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-window"> Only inside a maintenance window</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-backup"> Actions that can lose data need a proven-recoverable backup</label>
+            <span class="hint">A restore drill that actually restored and verified, within 30 days. Applies to patching, rebooting, remounting a read-only filesystem and rotating a credential — not to every destructive action, because a backup is not what makes restarting networking safe.</span></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-window"> Only inside a change window</label>
+            <span class="hint">Applies to hosts covered by a maintenance window with change gating switched on. A host no such window covers is never held.</span></div>
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-approval"> Destructive actions need a second pair of eyes</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-precedent"> Only act where this fleet has fixed the same thing before</label>
+            <span class="hint">On by default, and the usual reason a new install records nothing but refusals: two prior fixes with the same signature have to exist first. A fix an operator ran, an automation rule that verified, or one of this loop's own verified actions all count. Turn it off to accept the curated command catalog as the plan instead. <a href="docs/autonomy.md" class="c-accent">Documentation</a></span></div>
           <div class="settings-row">
             <label class="form-label" for="autonomy-actions">Permitted actions</label>
             <div id="autonomy-actions" class="scroll-cap"></div>
@@ -7669,7 +7673,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card">
           <div class="section-title">Receipts</div>
-          <p class="hint">Newest first. Each row is self-contained — the precedent and blast radius that justified it are recorded on the receipt, because the alert will be pruned and the fleet will have changed by the time anyone asks.</p>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="loadAutonomy" title="Re-read the receipts ledger"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <button class="btn-icon c-danger-outline" data-action="clearAutonomyReceipts" title="Remove every receipt this account can see"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-a93e5032"/></svg> Clear receipts</button>
+          </div>
+          <p class="hint">Newest first. Each row is self-contained — the precedent and blast radius that justified it are recorded on the receipt, because the alert will be pruned and the fleet will have changed by the time anyone asks. Clearing is admin-only and audited; it does not stop the loop or change anything it decided.</p>
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table">
               <thead id="autonomy-receipts-head"><tr>
@@ -7680,6 +7688,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th data-col="verdict">Verdict</th>
                 <th data-col="reason">Reason</th>
                 <th data-col="radius">Blast radius</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="autonomy-receipts-body"></tbody>
             </table>

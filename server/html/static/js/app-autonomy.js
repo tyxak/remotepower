@@ -29,6 +29,7 @@ function _autonomyPolicyFields() {
     backup: document.getElementById('autonomy-require-backup'),
     window: document.getElementById('autonomy-require-window'),
     approval: document.getElementById('autonomy-approval'),
+    precedent: document.getElementById('autonomy-require-precedent'),
   };
 }
 
@@ -41,7 +42,7 @@ async function loadAutonomy() {
   if (!pol || !pol.ok) {
     // Module off, or the caller cannot see it. Say so plainly rather than
     // rendering an empty page that looks like "nothing has happened".
-    body.innerHTML = `<tr><td colspan="7" class="hint">${escHtml(
+    body.innerHTML = `<tr><td colspan="8" class="hint">${escHtml(
       'Autonomous remediation is switched off for this instance. Enable it in Settings → Advanced.')}</td></tr>`;
     return;
   }
@@ -54,6 +55,10 @@ async function loadAutonomy() {
   if (f.backup) f.backup.checked = !!p.require_verified_backup;
   if (f.window) f.window.checked = !!p.require_window;
   if (f.approval) f.approval.checked = !!p.approval_for_destructive;
+  // Absent on a policy stored before this field existed, and the server
+  // defaults it to true — so read it the same way rather than letting an old
+  // policy render as "precedent not required".
+  if (f.precedent) f.precedent.checked = p.require_precedent !== false;
 
   const pill = document.getElementById('autonomy-mode-pill');
   if (pill) {
@@ -69,6 +74,15 @@ async function loadAutonomy() {
       const on = allowed.includes(name) ? ' checked' : '';
       const d = spec && spec.destructive
         ? ` <span class="chk-pill chk-warning">${escHtml('destructive')}</span>` : '';
+      // Separate from `destructive`, because they are separate questions: this
+      // one says a proven-recoverable backup is what stands between the action
+      // and losing data. Restarting networking is destructive and needs no
+      // backup; patching needs one.
+      const bk = spec && (spec.requires_backup === undefined
+                            ? spec.destructive : spec.requires_backup)
+        ? ` <span class="chk-pill chk-unknown" title="${escAttr(
+            'Refused unless a restore drill has restored and verified within 30 days')
+          }">${escHtml('needs backup')}</span>` : '';
       // Which agents can actually carry it out. Ticking an action for a fleet
       // that cannot run it is the success-toast-then-silence shape, so say so
       // here rather than only in the refusal after the fact.
@@ -79,7 +93,7 @@ async function loadAutonomy() {
         ? ` <span class="hint">${escHtml(spec.label)}</span>` : '';
       return `<div class="settings-row"><label class="form-label">` +
              `<input type="checkbox" class="autonomy-act" data-act="${escAttr(name)}"${on}> ` +
-             `<code>${escHtml(name)}</code>${d}${p}${lbl}</label></div>`;
+             `<code>${escHtml(name)}</code>${d}${bk}${p}${lbl}</label></div>`;
     }).join('');
   }
 
@@ -98,7 +112,7 @@ async function loadAutonomy() {
 
   const list = r.receipts || [];
   if (!list.length) {
-    body.innerHTML = `<tr><td colspan="7" class="hint">${escHtml(
+    body.innerHTML = `<tr><td colspan="8" class="hint">${escHtml(
       'No decisions recorded yet. In shadow mode receipts appear as alerts arrive.')}</td></tr>`;
     return;
   }
@@ -123,8 +137,38 @@ async function loadAutonomy() {
       <td><span class="chk-pill ${cls}">${escHtml(x.verdict || '')}</span></td>
       <td><code>${escHtml(x.reason || '')}</code></td>
       <td>${escHtml(String(br.score != null ? br.score : ''))}${red}</td>
+      <td>${x.id
+        ? `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteAutonomyReceipt" ` +
+          `data-arg="${escAttr(x.id)}" title="${escAttr('Delete this receipt')}">${_icon('trash', 14)}</button>`
+        : ''}</td>
     </tr>`;
   }).join('');
+}
+
+// Admin-only and audited server-side; both of these detect the outcome on the
+// RESOLVED body, because api() resolves rather than throwing on a 403 or a 404.
+async function clearAutonomyReceipts() {
+  const n = (document.querySelectorAll('#autonomy-receipts-body tr') || []).length;
+  if (!await uiConfirm({
+        title: 'Clear receipts',
+        message: `Remove every receipt this account can see${n ? ` (${n})` : ''}? `
+               + 'The decisions themselves are not undone and the loop keeps running. '
+               + 'Anything still awaiting its verification sample loses that second half.',
+        confirmText: 'Clear'})) return;
+  const r = await api('DELETE', '/autonomy/receipts');
+  if (r && r.ok) {
+    toast(`Cleared ${r.removed} receipt(s)`, 'success');
+    loadAutonomy();
+  } else toast((r && r.error) || 'Could not clear the receipts', 'error');
+}
+
+async function deleteAutonomyReceipt(id) {
+  if (!id) return;
+  const r = await api('DELETE', `/autonomy/receipts?id=${encodeURIComponent(id)}`);
+  if (r && r.ok) {
+    toast('Receipt deleted', 'success');
+    loadAutonomy();
+  } else toast((r && r.error) || 'Could not delete that receipt', 'error');
 }
 
 async function saveAutonomyPolicy() {
@@ -139,6 +183,7 @@ async function saveAutonomyPolicy() {
     require_verified_backup: !!(f.backup && f.backup.checked),
     require_window: !!(f.window && f.window.checked),
     approval_for_destructive: !!(f.approval && f.approval.checked),
+    require_precedent: !!(f.precedent && f.precedent.checked),
   };
   const r = await api('PUT', '/autonomy/policy', { policy });
   if (r && r.ok) { toast('Safety envelope saved', 'success'); loadAutonomy(); }
