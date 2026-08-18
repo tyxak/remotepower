@@ -250,14 +250,50 @@ def normalize_policy(raw):
     return p
 
 
+def outcome_action(o):
+    """What this prior outcome says was DONE about the incident, or ''.
+
+    Three sources, strongest first:
+
+    * ``fix_command`` — a command that ran and whose alert then cleared. The only
+      machine-checkable one, and what the operator-fix harvest and autonomy's own
+      verified receipts record.
+    * ``recommended_action`` — the AI advisor's verdict.
+    * ``root_cause`` on an operator-sourced outcome — what the engineer typed into
+      the resolve note. Prose, but written by the person who was there.
+
+    WHY THE THIRD ONE EXISTS. ``recommended_action`` is filled only from an AI
+    triage verdict, and AI is off by default. So on an install with no model
+    provider every captured outcome had an empty ``recommended_action``, scored
+    zero, and the confidence below came out 0.0 however many incidents the fleet
+    had resolved — which refused every action with `low_confidence` forever.
+
+    It was worse than useless. An operator-sourced outcome is weighted DOUBLE, so
+    it counted double toward the denominator and nothing toward the numerator: a
+    fleet whose incidents people fix scored LOWER than a fleet with no memory at
+    all. v6.4.2 made a human resolve-note a first-class capture source and stopped
+    one step short of the arithmetic that reads it, which is the half-applied-rule
+    shape this codebase keeps finding.
+    """
+    if not isinstance(o, dict):
+        return ''
+    for key in ('fix_command', 'recommended_action'):
+        v = str(o.get(key) or '').strip()
+        if v:
+            return v
+    if o.get('source') == 'operator':
+        return str(o.get('root_cause') or '').strip()
+    return ''
+
+
 def precedent_confidence(similar):
     """Turn prior incident outcomes into (confidence, sample_count, summary).
 
     Confidence is the share of prior incidents with this signature that a human
-    or the advisor marked as actually resolved, weighted so an OPERATOR-confirmed
-    outcome counts double an AI-authored one. The distinction matters: an AI
-    verdict that was never contradicted is weaker evidence than a human writing
-    "restarting nginx fixed it".
+    or the advisor marked as actually resolved AND recorded a fix for, weighted so
+    an OPERATOR-confirmed outcome counts double an AI-authored one. The
+    distinction matters: an AI verdict that was never contradicted is weaker
+    evidence than a human writing "restarting nginx fixed it".
 
     Deliberately NOT a model call. The whole argument for acting is that this
     exact thing was fixed this exact way before, on this fleet.
@@ -274,9 +310,10 @@ def precedent_confidence(similar):
         w = 2.0 if o.get('source') == 'operator' else 1.0
         total += w
         res = str(o.get('resolution') or '').strip()
-        if res and str(o.get('recommended_action') or '').strip():
+        act = outcome_action(o)
+        if res and act:
             good += w
-            key = str(o.get('recommended_action'))[:200]
+            key = act[:200]
             counts[key] = counts.get(key, 0) + w
     if total <= 0:
         return 0.0, 0, ''

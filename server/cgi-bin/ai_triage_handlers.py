@@ -920,6 +920,102 @@ def run_incident_memory_if_due():
         store['last_run'] = now
 
 
+# ── precedent from fixes that demonstrably worked (v7.0.2) ───────────────────
+#
+# Three sweeps already computed "a fix ran and the alert then cleared" and threw
+# the answer away, keeping only the FAILURE half:
+#
+#   * api.run_mitigate_verify_if_due   — the operator's own Fix button. Sets
+#     meta['verified'] = (not still_open) and fires `mitigation_unverified` when
+#     it did not work. When it DID work: nothing.
+#   * remediation_handlers.run_remediation_verify_if_due — an automation rule's
+#     fix. Marks the attempt 'verified' and resets the failure counter. Nothing
+#     durable.
+#   * autonomy_ops_handlers._verify_due_receipts — the loop's own action, judged
+#     by the host's own checks engine.
+#
+# Each of those is exactly the evidence the autonomy decision core asks for: this
+# signature, on this fleet, closed by this action. Without them, precedent could
+# only come from an AI triage verdict or a hand-written resolve note, so an
+# install with no model provider and no note-writing habit refused every action
+# forever with `no_precedent` — a loop whose entry condition nothing produced.
+#
+# ONE helper, three callers, on purpose: the alternative is a third copy of the
+# dedup + ring-trim, which is how the sixth build_opener() came to still speak
+# `file://`.
+_FIX_SOURCE_LABELS = {
+    'operator': 'a fix an operator ran',
+    'rule':     'an automation rule',
+    'autonomy': 'autonomous remediation',
+}
+
+
+def capture_fix_outcome(*, alert_id, event, device_id, device_name='', tenant='',
+                        actor='', fix_command='', source='operator', kind='',
+                        severity='', now=None):
+    """Remember that a fix ran and its alert cleared. Returns True if stored.
+
+    Idempotent per ALERT: the id goes into the same `seen` ring
+    `run_incident_memory_if_due` uses, so one incident yields one outcome no
+    matter how many sweeps look at it. That bound is load-bearing rather than
+    tidiness — `MIN_PRECEDENT_SAMPLES` is 2, so two outcomes from a single
+    incident would satisfy "two prior incidents minimum" on the strength of one.
+
+    `fix_command` is what makes the row count: `autonomy.outcome_action` reads it
+    first, ahead of an AI recommendation and ahead of an operator's prose. It is
+    the only one of the three that is machine-checkable.
+
+    Never raises — every caller is a cadence sweep, and precedent going missing
+    is a smaller failure than a sweep dying.
+    """
+    if not alert_id or not event:
+        return False                      # nothing to key an outcome on
+    now = int(now or time.time())
+    src = source if source in _FIX_SOURCE_LABELS else 'operator'
+    try:
+        with A._LockedUpdate(A.INCIDENT_MEMORY_FILE) as store:
+            seen = store.get('seen') if isinstance(store.get('seen'), list) else []
+            if alert_id in set(seen):
+                return False              # already remembered, by any writer
+            outcomes = store.get('outcomes') if isinstance(
+                store.get('outcomes'), list) else []
+            outcomes.append({
+                # NOT 'operator' unless a person ran it: the incident-memory card
+                # badges anything non-operator as "AI", so a rule- or
+                # autonomy-sourced row wearing the operator badge would credit a
+                # human with a machine's work (and would be weighted double by
+                # precedent_confidence).
+                'source': src,
+                'alert_id': alert_id,
+                'event': event,
+                'kind': kind or (A.EVENT_KIND_MAP.get(event)
+                                 if hasattr(A, 'EVENT_KIND_MAP') else ''),
+                'severity': severity or '',
+                'tenant': tenant or '',
+                'device_id': device_id or '',
+                'device_name': device_name or device_id or '',
+                # "What happened" in the UI. Left factual: nobody diagnosed a
+                # root cause here, and inventing one would put a claim in the
+                # store that no human or model ever made.
+                'root_cause': 'The alert cleared after this fix ran',
+                'recommended_action': '',
+                'fix_command': str(fix_command or '')[:600],
+                'resolution': f'cleared by {_FIX_SOURCE_LABELS[src]}'
+                              + (f' ({actor})' if actor else ''),
+                'resolved_at': now,
+                'rating': None,
+                'captured_at': now,
+            })
+            store['outcomes'] = outcomes[-_INCIDENT_MEMORY_MAX:]
+            seen.append(alert_id)
+            store['seen'] = seen[-_INCIDENT_SEEN_MAX:]
+        return True
+    except Exception as exc:
+        A.sys.stderr.write(
+            f'[remotepower] capture_fix_outcome failed alert={alert_id}: {exc}\n')
+        return False
+
+
 def _similar_incidents(event, kind, tenant, exclude_alert_id=None, limit=5):
     """Retrieve prior resolved incidents most similar to (event, kind) within the
     SAME tenant. Rank: a thumbs-up verdict first (proven-useful), then recency.

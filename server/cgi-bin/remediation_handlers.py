@@ -152,11 +152,25 @@ def run_remediation_verify_if_due():
         store['last_verify'] = now
     if not due:
         return
-    open_alerts = {(a.get('event'), a.get('device_id'))
-                   for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
-                   if not a.get('resolved_at')}
+    open_alerts = set()
+    # v7.0.2: index the CLOSED rows in the same pass. A verified attempt is
+    # precedent — "this rule's script cleared this event on this host" — and the
+    # precedent store keys on an alert id, which the ledger never recorded.
+    closed = {}          # (event, device_id) -> (alert_id, severity, resolved_at)
+    for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', []):
+        if not isinstance(a, dict):
+            continue
+        key = (a.get('event'), a.get('device_id'))
+        if not a.get('resolved_at'):
+            open_alerts.add(key)
+            continue
+        prev = closed.get(key)
+        if not prev or int(a.get('resolved_at') or 0) > prev[2]:
+            closed[key] = (a.get('id'), a.get('severity') or '',
+                           int(a.get('resolved_at') or 0))
     verdicts = {}
     fired_payloads = []
+    worked = []        # v7.0.2: verified attempts -> precedent, written after the locks
     rules_delta = {}   # rule_id -> 'fail' | 'ok'
     for att in due:
         # v6.3.1 (BUGFIX): only judge a fix by "did the alert clear?" for events
@@ -174,6 +188,8 @@ def run_remediation_verify_if_due():
             rules_delta.get(att.get('rule_id'), 'ok')
         if failed:
             fired_payloads.append(att)
+        else:
+            worked.append(att)
     # Apply verdicts to the ledger.
     with A._LockedUpdate(A.REMEDIATIONS_FILE) as store:
         for a in (store.get('attempts') or []):
@@ -198,6 +214,30 @@ def run_remediation_verify_if_due():
                     and r.get('enabled'):
                 r['enabled'] = False
                 disabled_rules.add(r.get('id'))
+    # Precedent for the fixes that WORKED. After the locks for the same reason
+    # the webhooks are: capture_fix_outcome takes its own _LockedUpdate, and a
+    # nested one is an OperationalError on the SQL backends.
+    devices = None
+    for att in worked:
+        alert_id, sev, _rt = closed.get(
+            (att.get('event'), att.get('device_id')), (None, '', 0))
+        if devices is None:
+            devices = A.load(A.DEVICES_FILE) or {}
+        dev = devices.get(att.get('device_id')) or {}
+        A.capture_fix_outcome(
+            # No alert id means the row was pruned before the verify window
+            # closed. The attempt id still dedups this writer against itself;
+            # what it cannot do is dedup against the note harvester, so the
+            # fallback is the weaker of the two and is meant to be rare.
+            alert_id=alert_id or ('rem:' + str(att.get('id') or '')),
+            event=att.get('event') or '', severity=sev,
+            device_id=att.get('device_id') or '',
+            device_name=att.get('device_name') or '',
+            tenant=A._device_tenant(dev),
+            actor=str(att.get('rule_name') or '')[:80],
+            fix_command=f"automation rule {att.get('rule_name') or ''} "
+                        f"(script {att.get('script_id') or '?'})",
+            source='rule', now=now)
     # Fire AFTER every lock is released (fire_webhook auto-defers anyway, but
     # keep the collect-then-fire shape the codebase standardises on).
     for att in fired_payloads:

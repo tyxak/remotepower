@@ -1499,6 +1499,8 @@ for _at_name in (
         # v6.3.1: cross-fleet incident outcome memory
         '_capture_incident_outcome', '_similar_incidents',
         'run_incident_memory_if_due', 'handle_ai_incident_memory',
+        # v7.0.2: precedent from fixes that demonstrably worked
+        'capture_fix_outcome', '_FIX_SOURCE_LABELS',
 ):
     globals()[_at_name] = getattr(ai_triage_handlers_mod, _at_name)
 del _at_name
@@ -69974,7 +69976,12 @@ def run_mitigate_verify_if_due():
         return
 
     open_alerts = None      # loaded lazily — most sweeps have nothing due
+    alert_index = {}         # id -> (event, severity, device_id), same pass
     pending = []
+    # v7.0.2: fixes that WORKED, collected for the precedent store. Appended
+    # after the loop so the incident-memory lock is taken once, and never while
+    # another store is open.
+    worked = []
     for mp in metas[:500]:
         try:
             st = mp.stat()
@@ -70001,8 +70008,19 @@ def run_mitigate_verify_if_due():
             continue
         if open_alerts is None:
             _st = _load_ro(ALERTS_FILE) or {}
-            open_alerts = {a.get('id') for a in (_st.get('alerts') or [])
-                           if isinstance(a, dict) and not a.get('resolved_at')}
+            open_alerts = set()
+            for a in (_st.get('alerts') or []):
+                if not isinstance(a, dict):
+                    continue
+                if not a.get('resolved_at'):
+                    open_alerts.add(a.get('id'))
+                # The RESOLVED rows are the interesting ones here: a fix whose
+                # alert closed is precedent, and the event name lives on the
+                # alert, not on the mitigation meta (which only knows the
+                # playbook `kind`).
+                alert_index[a.get('id')] = (a.get('event') or '',
+                                            a.get('severity') or '',
+                                            a.get('device_id') or '')
         still_open = meta['alert_id'] in open_alerts
         meta['verified'] = (not still_open)
         meta['verified_at'] = now
@@ -70010,6 +70028,21 @@ def run_mitigate_verify_if_due():
             mp.write_text(json.dumps(meta))
         except Exception:
             continue
+        if not still_open:
+            # It worked. Same inference the failure arm makes, in the other
+            # direction: the operator ran a fix aimed at this alert and the
+            # alert closed inside the verify window. That is the evidence the
+            # autonomy decision core asks for and nothing was recording it.
+            _ev, _sev, _did = alert_index.get(meta['alert_id'], ('', '', ''))
+            worked.append({
+                'alert_id': meta['alert_id'],
+                'event': _ev,
+                'severity': _sev,
+                'device_id': meta.get('device_id') or _did,
+                'kind': meta.get('kind') or '',
+                'actor': meta.get('actor') or '',
+                'fix_command': meta.get('cmd') or '',
+            })
         if still_open:
             pending.append(('mitigation_unverified', {
                 'name': (load(DEVICES_FILE) or {}).get(
@@ -70022,6 +70055,16 @@ def run_mitigate_verify_if_due():
                            f'{max(1, (now - int(meta.get("queued_at") or now)) // 60)} '
                            'minutes later.'),
             }))
+    if worked:
+        _devs = load(DEVICES_FILE) or {}
+        for w in worked:
+            _dev = _devs.get(w['device_id']) or {}
+            capture_fix_outcome(
+                alert_id=w['alert_id'], event=w['event'], kind=w['kind'],
+                severity=w['severity'], device_id=w['device_id'],
+                device_name=_dev.get('name') or w['device_id'],
+                tenant=_device_tenant(_dev), actor=w['actor'],
+                fix_command=w['fix_command'], source='operator', now=now)
     for ev, payload in pending:
         try:
             fire_webhook(ev, payload)
