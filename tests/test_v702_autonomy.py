@@ -1702,3 +1702,142 @@ class TestOneAlertCanMeanSeveralThings(_Base):
         """A fixed name fails the second time with 'dataset already exists',
         which would read as an action that ran."""
         self.assertIn('$(date', ops._ACTION_COMMANDS['create_zfs_snapshot'])
+
+
+class TestPriorIncidentsCanBeForgotten(_Base):
+    """Since this release the incident store is not a log — it is the evidence
+    the loop acts on. An outcome recorded from a "fix" that did not really fix
+    anything keeps arguing for that action every time the alert returns."""
+
+    def setUp(self):
+        super().setUp()
+        self.cap = {}
+
+        def _respond(status, data=None):
+            self.cap['status'], self.cap['data'] = status, data
+            raise api.HTTPError(status, data)
+        self._saved_fns = {n: getattr(api, n) for n in
+                           ('respond', 'method', 'audit_log',
+                            'get_token_from_request', 'verify_token')}
+        api.respond = _respond
+        api.method = lambda: 'DELETE'
+        self.audit = []
+        api.audit_log = lambda *a, **k: self.audit.append((a, k))
+        api.get_token_from_request = lambda: 'tok'
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'alert_id': 'a1', 'tenant': 'default', 'device_id': 'd1',
+             'event': 'failed_unit', 'resolution': 'x', 'fix_command': 'svc:restart:n'},
+            {'alert_id': 'a2', 'tenant': 'default', 'device_id': 'd1',
+             'event': 'clock_skew', 'resolution': 'x'},
+            {'alert_id': 'a3', 'tenant': 'other', 'device_id': 'd9',
+             'event': 'failed_unit', 'resolution': 'x'},
+        ], 'seen': ['a1', 'a2', 'a3']})
+        api._LOAD_CACHE.clear()
+        self._qs = os.environ.get('QUERY_STRING')
+        os.environ['QUERY_STRING'] = ''
+
+    def tearDown(self):
+        for n, v in self._saved_fns.items():
+            setattr(api, n, v)
+        if self._qs is None:
+            os.environ.pop('QUERY_STRING', None)
+        else:
+            os.environ['QUERY_STRING'] = self._qs
+        super().tearDown()
+
+    def _as(self, role):
+        api.verify_token = lambda _t=None, _r=role: ('u_' + _r, _r)
+
+    def _call(self, qs=''):
+        os.environ['QUERY_STRING'] = qs
+        self.cap.clear()
+        try:
+            api.handle_ai_incident_memory_clear()
+            return 200
+        except api.HTTPError:
+            return self.cap.get('status')
+
+    def _rows(self):
+        api._LOAD_CACHE.clear()
+        return (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
+
+    def test_a_read_only_role_cannot_forget_anything(self):
+        for role in ('viewer', 'mcp', 'auditor', 'finance'):
+            self._as(role)
+            self.assertEqual(self._call(), 403, role)
+        self.assertEqual(len(self._rows()), 3)
+
+    def test_one_incident_by_alert_id(self):
+        self._as('admin')
+        self.assertEqual(self._call('alert_id=a1'), 200)
+        self.assertEqual(sorted(o['alert_id'] for o in self._rows()), ['a2', 'a3'])
+
+    def test_another_tenants_incident_is_not_found(self):
+        self._as('admin')
+        real = api._tenant_gate
+        api._tenant_gate = lambda: 'default'
+        try:
+            self.assertEqual(self._call('alert_id=a3'), 404)
+        finally:
+            api._tenant_gate = real
+        self.assertEqual(len(self._rows()), 3)
+
+    def test_clearing_stops_at_the_tenant_boundary(self):
+        self._as('admin')
+        real = api._tenant_gate
+        api._tenant_gate = lambda: 'default'
+        try:
+            self.assertEqual(self._call(), 200)
+        finally:
+            api._tenant_gate = real
+        self.assertEqual([o['alert_id'] for o in self._rows()], ['a3'])
+        self.assertEqual(self.cap['data']['removed'], 2)
+
+    def test_a_forgotten_incident_is_not_re_learned(self):
+        """Its alert id stays in the seen ring. Deleting an outcome is a
+        judgement that the incident is not evidence; having it reappear on the
+        next sweep would make the button a lie."""
+        self._as('admin')
+        self._call('alert_id=a1')
+        self.assertIn('a1', (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('seen'))
+        self.assertFalse(api.capture_fix_outcome(
+            alert_id='a1', event='failed_unit', device_id='d1',
+            tenant='default', fix_command='svc:restart:n', source='autonomy'))
+        self.assertEqual(len(self._rows()), 2)
+
+    def test_it_is_audited(self):
+        self._as('admin')
+        self._call()
+        self.assertTrue(self.audit, 'an unaudited wipe of what the loop acts on')
+        self.assertIn('incident_memory_clear', str(self.audit[-1]))
+
+    def test_the_read_and_the_delete_share_one_filter(self):
+        """You cannot delete what you cannot read, and the two must not drift."""
+        import inspect
+        import ai_triage_handlers as _tri
+        for fn in ('handle_ai_incident_memory', 'handle_ai_incident_memory_clear'):
+            self.assertIn('_visible_outcomes', inspect.getsource(getattr(_tri, fn)), fn)
+
+    def test_a_scoped_role_sees_and_forgets_only_its_own_hosts(self):
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web01', 'group': 'prod'},
+            'd9': {'name': 'lab01', 'group': 'lab'}})
+        api.save(api.ROLES_FILE, {'roles': [
+            {'name': 'prod-op', 'permissions': ['exec'],
+             'scope': {'type': 'groups', 'values': ['prod']}}]})
+        api._LOAD_CACHE.clear()
+        self._as('prod-op')
+        vis = api._visible_outcomes(self._rows())
+        self.assertEqual(sorted(o['alert_id'] for o in vis), ['a1', 'a2'],
+                         'a prod-scoped role can read the lab host\'s history')
+
+    def test_the_route_is_wired(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('DELETE', '/api/ai/incident-memory'), routes)
+
+    def test_the_page_offers_both(self):
+        js = (_ROOT / 'server/html/static/js/app-alerts.js').read_text()
+        html = (_ROOT / 'server/html/index.html').read_text()
+        self.assertIn('forgetIncident', js)
+        self.assertIn('clearIncidentMemory', js)
+        self.assertIn('data-action="clearIncidentMemory"', html)

@@ -1066,16 +1066,78 @@ def _similar_incidents(event, kind, tenant, exclude_alert_id=None, limit=5):
     return [o for _r, o in scored[:max(1, min(limit, 20))]]
 
 
+def _visible_outcomes(rows):
+    """The outcomes this caller may see. Both halves of the filter.
+
+    An outcome names a device, so the rule is the one every device-keyed store
+    follows: the tenant gate, AND the caller's role scope where they have one.
+    The role half was missing here, so a role confined to two hosts could read
+    the incident history of the whole fleet — the same shape as the receipts
+    ledger, and the Tuning-page leak before it.
+
+    The device scope applies ONLY where the caller actually has one. Filtering an
+    unscoped caller against the live device set would hide the history of
+    decommissioned hosts, and this store exists precisely because it outlives the
+    alert and the machine.
+    """
+    gate = A._tenant_gate()
+    out = [o for o in rows if isinstance(o, dict)
+           and (gate is None or o.get('tenant') == gate)]
+    scope = A._caller_scope()
+    if scope is not None:
+        visible = set(A._scope_filter_devices(A.load(A.DEVICES_FILE) or {}, scope))
+        out = [o for o in out
+               if not o.get('device_id') or o.get('device_id') in visible]
+    return out
+
+
 def handle_ai_incident_memory():
     """GET /api/ai/incident-memory — recent resolved-incident outcomes visible to
-    the caller's tenant (most recent first). Read-only situational memory; the
-    same data the triage `prior_incidents` tool draws on. A superadmin (or
-    tenancy off) sees every outcome; a tenant-scoped caller sees only their own
-    tenant's (the standard _tenant_gate pattern)."""
+    the caller (most recent first). Read-only situational memory; the same data
+    the triage `prior_incidents` tool draws on."""
     A.require_auth()
-    gate = A._tenant_gate()          # None = superadmin / tenancy off = see all
     mem = A.load(A.INCIDENT_MEMORY_FILE) or {}
-    outcomes = [o for o in (mem.get('outcomes') or [])
-                if isinstance(o, dict) and (gate is None or o.get('tenant') == gate)]
+    outcomes = _visible_outcomes(mem.get('outcomes') or [])
     outcomes.sort(key=lambda o: int(o.get('resolved_at') or 0), reverse=True)
     A.respond(200, {'outcomes': outcomes[:100], 'count': len(outcomes)})
+
+
+def handle_ai_incident_memory_clear():
+    """DELETE /api/ai/incident-memory[?alert_id=<id>] — forget outcomes.
+
+    This store is not a log any more. Since v7.0.2 it is the evidence the
+    autonomy loop acts on: two prior fixes with the same signature are what let
+    it stop refusing. So an outcome recorded from a "fix" that did not really fix
+    anything keeps arguing for that action every time the alert returns, and an
+    operator needs to be able to say so. Admin-only and audited, like the
+    receipts ledger, and scoped to what the caller can see.
+
+    A DELETED INCIDENT STAYS DELETED. Its alert id is left in the `seen` ring, so
+    neither the note harvester nor a later verified fix re-adds it. Deleting an
+    outcome is a judgement that the incident is not evidence; having it reappear
+    on the next sweep would make the button a lie.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    want = A._sanitize_str((qs.get('alert_id', [''])[0] or ''), 64)
+    removed = 0
+    with A._LockedUpdate(A.INCIDENT_MEMORY_FILE) as store:
+        rows = store.get('outcomes') if isinstance(store.get('outcomes'), list) else []
+        mine = {id(o) for o in _visible_outcomes(rows)}
+        kept = []
+        for o in rows:
+            hit = id(o) in mine and (not want or o.get('alert_id') == want)
+            if hit:
+                removed += 1
+            else:
+                kept.append(o)
+        store['outcomes'] = kept
+    if want and not removed:
+        # 404, not a cheerful 200: an id that matched nothing is either gone or
+        # another tenant's, and both answers are "not yours to delete".
+        A.respond(404, {'error': 'outcome not found'})
+    A.audit_log(actor, 'incident_memory_clear',
+                detail=f"alert_id={want or '*'} removed={removed}")
+    A.respond(200, {'ok': True, 'removed': removed})

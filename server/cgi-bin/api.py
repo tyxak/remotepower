@@ -1504,6 +1504,7 @@ for _at_name in (
         # v6.3.1: cross-fleet incident outcome memory
         '_capture_incident_outcome', '_similar_incidents',
         'run_incident_memory_if_due', 'handle_ai_incident_memory',
+        'handle_ai_incident_memory_clear', '_visible_outcomes',
         # v7.0.2: precedent from fixes that demonstrably worked
         'capture_fix_outcome', '_FIX_SOURCE_LABELS',
 ):
@@ -68609,7 +68610,8 @@ def _build_exact_routes():
         ('POST', '/api/ai/chat'): handle_ai_chat,
         ('GET', '/api/ai/config'): handle_ai_config_get,
         ('POST', '/api/ai/config'): handle_ai_config_set,
-        ('GET', '/api/ai/incident-memory'): handle_ai_incident_memory,  # v6.3.1 cross-fleet outcome memory
+        ('GET', '/api/ai/incident-memory'): handle_ai_incident_memory,
+        ('DELETE', '/api/ai/incident-memory'): handle_ai_incident_memory_clear,  # v6.3.1 cross-fleet outcome memory
         ('POST', '/api/ai/cron'): handle_ai_cron,
         ('GET', '/api/ai/models'): handle_ai_models,
         ('GET', '/api/ai/params'): handle_ai_params_get,

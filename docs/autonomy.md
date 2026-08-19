@@ -207,6 +207,12 @@ not point at that context — it holds it.
 Refusal reasons are a closed set, so the page can tell you *"blocked 41 times
 for blast_radius"* instead of showing you forty-one paragraphs.
 
+**Prior incidents can be forgotten.** The evidence itself lives on the Alerts
+page under *What happened last time*, and each row has a delete — because an
+outcome recorded from a fix that did not really fix anything keeps arguing for
+that action every time the alert comes back. Forgetting one is admin-only and
+audited, and it sticks: a forgotten incident is not re-learned on the next sweep.
+
 You can delete a receipt, or clear every receipt you can see, from the toolbar
 on that card. It is admin-only and audited — who cleared it, how many rows, and
 how many of those were still waiting on their verification sample. It changes

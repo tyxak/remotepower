@@ -157,6 +157,23 @@ Only an action that reported rc 0 *and* whose alert then closed becomes
 precedent. An alert that cleared on its own while the command sat uncollected in
 the queue says nothing about that command.
 
+### Prior incidents can be forgotten
+
+*What happened last time*, on the Alerts page, stopped being a log this release —
+it is the evidence the autonomy loop acts on, since two prior fixes with the same
+signature are what let it stop refusing. So an outcome recorded from a fix that
+did not really fix anything keeps arguing for that action every time the alert
+returns, and there was no way to say so.
+
+Each row has a delete now, and the card has *Forget all*. Admin-only and audited,
+scoped to what you can see, and it sticks: a forgotten incident is not re-learned
+on the next sweep.
+
+The read gained the role-scope half of its filter at the same time — it had the
+tenant gate and not the scope, so a role confined to two hosts could read the
+whole fleet's incident history. One helper serves the read and the delete, because
+you cannot delete what you cannot read.
+
 ### Receipts can be cleared
 
 A **Clear receipts** button on the card, and a delete button on each row. Both

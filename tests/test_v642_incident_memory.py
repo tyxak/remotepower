@@ -146,8 +146,27 @@ class TestServerHalf(unittest.TestCase):
             "handle_ai_incident_memory")
         self.assertIn("A.require_auth()", src)
         self.assertNotIn("require_admin_auth", src)
-        self.assertIn("_tenant_gate", src,
+        # v7.0.2: the visibility filter moved into _visible_outcomes, which the
+        # read and the DELETE both use — you cannot delete what you cannot read —
+        # and it gained the role-scope half it was missing.
+        self.assertIn("_visible_outcomes", src)
+        whole = (ROOT / "server" / "cgi-bin" / "ai_triage_handlers.py").read_text()
+        vis = srcpin.py_function(whole, "_visible_outcomes")
+        self.assertIn("_tenant_gate", vis,
                       "outcomes are tenant-tagged; the read must be gated")
+        self.assertIn("_caller_scope", vis,
+                      "a role confined to two hosts must not read the whole "
+                      "fleet's incident history")
+
+    def test_forgetting_an_outcome_is_admin_only(self):
+        """Since v7.0.2 this store is the evidence the autonomy loop acts on, so
+        removing a row changes what it will do next."""
+        src = srcpin.py_function(
+            (ROOT / "server" / "cgi-bin" / "ai_triage_handlers.py").read_text(),
+            "handle_ai_incident_memory_clear")
+        self.assertIn("require_admin_auth", src)
+        self.assertIn("audit_log", src)
+        self.assertIn("_visible_outcomes", src)
 
     def test_driven_response_shape(self):
         status, body = _drive_endpoint()

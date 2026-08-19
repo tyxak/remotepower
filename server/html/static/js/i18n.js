@@ -65,6 +65,14 @@
     "Nudges": { fr: "Coups de pouce", de: "Anstöße", zh: "轻推", hi: "हल्के सुधार", es: "Empujones", ar: "دفعات خفيفة" },
     "Posture that drifted off": { fr: "Posture qui a dérivé", de: "Abgedriftete Sicherheitseinstellungen", zh: "已偏离的安全配置", hi: "भटक चुकी सुरक्षा स्थिति", es: "Postura que se ha desviado", ar: "إعدادات الحماية التي انحرفت" },
     "Destructive": { fr: "Destructif", de: "Destruktiv", zh: "破坏性", hi: "विनाशकारी", es: "Destructivo", ar: "مدمّر" },
+    // v7.0.2: forgetting a prior incident — it is precedent for the autonomy
+    // loop now, not just a record.
+    "Forget all": { fr: "Tout oublier", de: "Alles vergessen", zh: "全部忘记", hi: "सभी भूल जाएँ", es: "Olvidar todo", ar: "نسيان الكل" },
+    "Forget every prior incident this account can see": { fr: "Oublier tous les incidents antérieurs visibles par ce compte", de: "Alle für dieses Konto sichtbaren früheren Vorfälle vergessen", zh: "忘记此账户可见的所有历史事件", hi: "इस खाते को दिखने वाली सभी पूर्व घटनाएँ भुला दें", es: "Olvidar todos los incidentes anteriores que ve esta cuenta", ar: "نسيان كل الحوادث السابقة التي يراها هذا الحساب" },
+    "Forget this incident — it stops counting as precedent for autonomous action": { fr: "Oublier cet incident — il cesse de compter comme précédent pour une action autonome", de: "Diesen Vorfall vergessen — er zählt nicht mehr als Präzedenzfall für autonomes Handeln", zh: "忘记此事件——它将不再作为自治操作的先例", hi: "यह घटना भूल जाएँ — यह स्वायत्त कार्रवाई के लिए पूर्व उदाहरण नहीं रहेगी", es: "Olvidar este incidente: deja de contar como precedente para una acción autónoma", ar: "نسيان هذه الحادثة — لن تُحتسب سابقةً للإجراء الذاتي" },
+    "Incident forgotten": { fr: "Incident oublié", de: "Vorfall vergessen", zh: "事件已忘记", hi: "घटना भुला दी गई", es: "Incidente olvidado", ar: "تم نسيان الحادثة" },
+    "Could not forget that incident": { fr: "Impossible d'oublier cet incident", de: "Dieser Vorfall konnte nicht vergessen werden", zh: "无法忘记该事件", hi: "वह घटना भुलाई नहीं जा सकी", es: "No se ha podido olvidar ese incidente", ar: "تعذر نسيان تلك الحادثة" },
+    "Could not clear the incident memory": { fr: "Impossible d'effacer la mémoire des incidents", de: "Der Vorfallspeicher konnte nicht geleert werden", zh: "无法清除事件记忆", hi: "घटना स्मृति साफ़ नहीं की जा सकी", es: "No se ha podido borrar la memoria de incidentes", ar: "تعذر مسح ذاكرة الحوادث" },
     "covers nothing": { fr: "ne couvre rien", de: "deckt nichts ab", zh: "未覆盖任何主机", hi: "किसी को कवर नहीं करता", es: "no cubre nada", ar: "لا يغطي شيئًا" },
     "Precedent": { fr: "Précédent", de: "Präzedenzfall", zh: "先例", hi: "पूर्व उदाहरण", es: "Precedente", ar: "سابقة" },
     "Clear receipts": { fr: "Effacer les reçus", de: "Belege löschen", zh: "清除记录", hi: "रसीदें साफ़ करें", es: "Borrar los comprobantes", ar: "مسح الإيصالات" },

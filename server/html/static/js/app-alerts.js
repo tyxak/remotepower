@@ -1308,6 +1308,39 @@ async function loadIncidentMemory(force) {
   if (typeof renderAlerts === 'function') renderAlerts();
 }
 
+// v7.0.2: this store stopped being a log. It is the evidence the autonomy loop
+// acts on — two prior fixes with the same signature are what let it stop
+// refusing — so an outcome recorded from a fix that did not really fix anything
+// keeps arguing for that action every time the alert returns.
+//
+// api() RESOLVES rather than throwing on a 403 or 404, so both of these read the
+// outcome off the resolved body.
+async function forgetIncident(alertId) {
+  if (!alertId) return;
+  const r = await api('DELETE',
+                      `/ai/incident-memory?alert_id=${encodeURIComponent(alertId)}`);
+  if (r && r.ok) {
+    toast('Incident forgotten', 'success');
+    loadIncidentMemory(true);
+  } else toast((r && r.error) || 'Could not forget that incident', 'error');
+}
+
+async function clearIncidentMemory() {
+  const n = (_incidentMem || []).length;
+  if (!await uiConfirm({
+        title: 'Forget prior incidents',
+        message: `Forget every prior incident this account can see${n ? ` (${n})` : ''}? `
+               + 'They stop counting as precedent, so autonomous remediation goes '
+               + 'back to refusing until new fixes are recorded. A forgotten '
+               + 'incident is not re-learned.',
+        confirmText: 'Forget'})) return;
+  const r = await api('DELETE', '/ai/incident-memory');
+  if (r && r.ok) {
+    toast(`Forgot ${r.removed} incident(s)`, 'success');
+    loadIncidentMemory(true);
+  } else toast((r && r.error) || 'Could not clear the incident memory', 'error');
+}
+
 function clearIncidentFilter() {
   _incidentMemFilter = null;
   _renderIncidentMemory();
@@ -1374,12 +1407,12 @@ function _renderIncidentMemory(errMsg) {
   if (clearBtn) clearBtn.classList.toggle('d-none', !f);
 
   if (errMsg) {
-    tb.innerHTML = `<tr><td colspan="7" class="empty-state">${_escapeHtml(errMsg)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" class="empty-state">${_escapeHtml(errMsg)}</td></tr>`;
     if (summary) summary.textContent = '';
     return;
   }
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="empty-state">${
+    tb.innerHTML = `<tr><td colspan="8" class="empty-state">${
       f ? 'No prior incident on this fleet matches that signature yet.'
         : 'No resolved incidents recorded yet. Anything that demonstrably fixed an alert is remembered here — a fix you ran that cleared it, an automation rule that verified, an autonomous action that verified — as is a resolution note you write when closing one.'
     }</td></tr>`;
@@ -1420,6 +1453,12 @@ function _renderIncidentMemory(errMsg) {
       <td>${_incidentSourceBadge(o)} ${_escapeHtml(o.root_cause || '—')}${action}${fix}</td>
       <td>${_escapeHtml(o.resolution || '—')}</td>
       <td class="ta-center">${_incidentRatingCell(o)}</td>
+      <td>${o.alert_id
+        ? `<button class="btn-icon btn-xs c-danger-outline" data-action="forgetIncident" ` +
+          `data-arg="${escAttr(o.alert_id)}" title="${escAttr(
+            'Forget this incident — it stops counting as precedent for autonomous action')
+          }">${_icon('trash', 14)}</button>`
+        : ''}</td>
     </tr>`;
   }).join('');
 

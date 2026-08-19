@@ -8788,6 +8788,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <input type="text" id="incident-mem-filter" class="form-input page-filter" placeholder="Filter event, host, or cause…" aria-label="Filter prior incidents" data-input="filterRows" data-input-el="1" data-filter-target="#incident-mem-tbody tr">
           <button class="btn-icon" data-action="loadIncidentMemory" data-arg="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon d-none" id="incident-mem-clear" data-action="clearIncidentFilter">Show all</button>
+          <button class="btn-icon c-danger-outline" data-action="clearIncidentMemory" title="Forget every prior incident this account can see"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-a93e5032"/></svg> Forget all</button>
           <span id="incident-mem-summary" class="fs-12 c-muted"></span>
         </div>
         <div class="table-card">
@@ -8801,9 +8802,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th scope="col" data-col="root_cause">What happened</th>
                 <th scope="col" data-col="resolution">Closed by</th>
                 <th scope="col" data-col="rating">Rated</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="incident-mem-tbody">
-                <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+                <tr><td colspan="8" class="empty-state">Loading…</td></tr>
               </tbody>
             </table>
           </div>
