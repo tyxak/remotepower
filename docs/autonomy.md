@@ -179,8 +179,18 @@ asked to check its homework for a month first.
 2. A **snapshot of the host's own checks** is taken first.
 3. Dispatch is asynchronous — the agent collects the command on its next
    heartbeat — so a second checks sample is taken **15 minutes later**.
-4. If failing checks went **up**, the receipt is marked unverified and
-   `remediation_failed` fires. If they did not, the receipt is verified.
+4. The agent returns the command's **exit code**, and that outranks everything
+   else: a non-zero code is the action telling you it did not do the thing, and
+   no amount of unchanged checks argues otherwise. A command the agent never
+   reported at all — the host was offline, or its poll interval is longer than
+   the verify window — is recorded as exactly that.
+5. If failing checks went **up**, the receipt is marked unverified and
+   `remediation_failed` fires. If they did not, and the command came back clean,
+   the receipt is verified.
+
+Only an action that reported **rc 0** *and* whose alert then closed becomes
+precedent. An alert that cleared on its own while a command sat uncollected in
+the queue is not evidence about that command.
 
 An **escalated** action becomes a real entry in the Confirmations queue, with a
 reason saying it was proposed by autonomous remediation. Approving it dispatches

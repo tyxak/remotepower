@@ -36,6 +36,21 @@ function _autonomyPrecedent(p) {
   return `${escHtml(String(n))}× ${escHtml(conf)}${what}`;
 }
 
+// What HAPPENED, which the receipt has always carried and the table never
+// showed: queued, parked for approval, already awaiting approval, the exit code
+// the agent came back with. On an ACT row it is the most consequential field
+// there is — "queued" and "the command exited 127" were the same picture.
+function _autonomyOutcome(x) {
+  const parts = [];
+  if (x.outcome) parts.push(String(x.outcome));
+  if (x.rc != null && x.rc !== 0) parts.push(`rc ${x.rc}`);
+  if (!parts.length) return '';
+  const full = parts.join(' · ') + (x.command_output ? `\n\n${x.command_output}` : '');
+  const cls = (x.rc != null && x.rc !== 0) ? 'c-red' : 'hint';
+  return `<div class="${cls} fs-11" title="${escAttr(full)}">${
+    escHtml(parts.join(' · ').slice(0, 60))}</div>`;
+}
+
 function _autonomyPolicyFields() {
   return {
     mode: document.getElementById('autonomy-mode'),
@@ -158,7 +173,8 @@ async function loadAutonomy() {
       <td>${escHtml(x.device_name || '')}</td>
       <td><code>${escHtml(x.trigger || '')}</code></td>
       <td><code>${escHtml(x.action || '')}</code></td>
-      <td><span class="chk-pill ${cls}">${escHtml(x.verdict || '')}</span></td>
+      <td><span class="chk-pill ${cls}">${escHtml(x.verdict || '')}</span>${
+        _autonomyOutcome(x)}</td>
       <td><code>${escHtml(x.reason || '')}</code></td>
       <td>${_autonomyPrecedent(x.precedent)}</td>
       <td>${escHtml(String(br.score != null ? br.score : ''))}${red}</td>

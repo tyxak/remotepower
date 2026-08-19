@@ -917,6 +917,36 @@ def _escalate(dev_id, cmd):
         return f'could not park for approval: {type(exc).__name__}', None
 
 
+def _command_result(outputs, dev_id, command, after_ts):
+    """The agent's own answer for this command, or None if it never reported one.
+
+    Four of the actions in the catalog are `exec:`/`ps:` one-liners whose only
+    failure signal is the exit code. The agent returns it — `cmd_output` carries
+    {ts, cmd, output, rc} and api.py stores the last N per device — and nothing
+    in this subsystem read it. So a command that exited 127 because the tool is
+    not installed and a command that worked produced byte-identical receipts:
+    `outcome: queued`, `verified: true`.
+
+    Matched on the exact command string and only rows newer than the dispatch,
+    because a host runs the same command more than once over its life and the
+    previous run's success is not evidence about this one.
+    """
+    rows = (outputs or {}).get(dev_id) or []
+    want = A._sanitize_str(str(command or ''), 512)
+    if not want:
+        return None
+    for r in reversed(rows):
+        if not isinstance(r, dict):
+            continue
+        if int(r.get('ts') or 0) < after_ts:
+            break                       # append-ordered: older still from here
+        if r.get('cmd') == want:
+            return {'rc': int(r.get('rc')) if isinstance(r.get('rc'), int) else -1,
+                    'output': str(r.get('output') or '')[:400],
+                    'ts': int(r.get('ts') or 0)}
+    return None
+
+
 def _verify_due_receipts(now):
     """Second checks sample for actions whose verify window has passed.
 
@@ -942,23 +972,34 @@ def _verify_due_receipts(now):
     if not due:
         return
     devices = A.load(A.DEVICES_FILE) or {}
+    # One read for the whole sweep. Only reached when something is actually due,
+    # which is at most once every few minutes.
+    outputs = A.load(A.CMD_OUTPUT_FILE) or {}
     still_open, resolved = set(), set()
     for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', []):
         if not isinstance(a, dict):
             continue
         (resolved if a.get('resolved_at') else still_open).add(a.get('id'))
-    verdicts, alerts, worked = {}, [], []
+    verdicts, alerts, worked, results = {}, [], [], {}
     for r in due:
         dev = devices.get(r.get('device_id'))
         if not dev:
-            verdicts[_key(r)] = (False, 'device is gone')
+            verdicts[_key(r)] = (False, 'device is gone', False)
             continue
         after = _check_summary_for(r['device_id'], dev)
         worse = autonomy.verification_failed(r.get('before_checks') or {}, after)
-        verdicts[_key(r)] = (not worse, after)
-        if worse:
-            alerts.append((r, after))
-        elif r.get('alert_id') in resolved:
+        res = _command_result(outputs, r['device_id'], r.get('command'),
+                              int(r.get('ts') or 0))
+        results[_key(r)] = res
+        # A non-zero exit is the action telling us it did not do the thing. It
+        # outranks the checks comparison, which cannot see the difference
+        # between "fixed it" and "the binary is not installed on this distro".
+        ran_ok = bool(res) and res['rc'] == 0
+        failed = worse or (res is not None and res['rc'] != 0)
+        verdicts[_key(r)] = (not failed, after, worse)
+        if failed:
+            alerts.append((r, after, res))
+        elif r.get('alert_id') in resolved and ran_ok:
             # It acted, the host's own checks did not get worse, and the alert
             # it was triggered by is PRESENT AND RESOLVED. That is the same
             # standard the operator-fix and automation-rule sources are held to,
@@ -975,6 +1016,12 @@ def _verify_due_receipts(now):
             # one); this path passes the receipt's own `trigger`, which is
             # always populated, so it has no such net.
             #
+            # And `ran_ok`: the agent has to have REPORTED this exact command
+            # with rc 0. No report at all means it never collected it — the host
+            # was offline, or its poll interval outran the window — and an alert
+            # that cleared on its own in the meantime is not evidence about a
+            # command that never ran.
+            #
             # Self-reinforcement is bounded by the same things as the other two
             # sources: one outcome per ALERT, and the loop can only have acted
             # here because it already had precedent or the operator waived it,
@@ -986,11 +1033,27 @@ def _verify_due_receipts(now):
                 v = verdicts.get(_key(row)) if isinstance(row, dict) else None
                 if v is None:
                     continue
-                ok, after = v
+                ok, after, worse = v
                 row['verified'] = bool(ok)
                 row['after_checks'] = after if isinstance(after, dict) else None
-                if not ok:
-                    row['outcome'] = (row.get('outcome') or '') + ' — verification failed'
+                # What the agent said, on the receipt — the difference between
+                # "it ran and worked" and "nothing ever ran" was invisible.
+                #
+                # Both notes when both are true: an operator reading "no result
+                # from the agent" on a row whose checks also got worse needs the
+                # second half more than the first.
+                res = results.get(_key(row))
+                row['rc'] = res['rc'] if res else None
+                row['command_output'] = res['output'] if res else None
+                notes = []
+                if res is None:
+                    notes.append('no result from the agent')
+                elif res['rc'] != 0:
+                    notes.append(f"the command exited {res['rc']}")
+                if worse:
+                    notes.append('verification failed')
+                if notes:
+                    row['outcome'] = ' — '.join([row.get('outcome') or ''] + notes)
     # After the lock, for the same reason the webhooks are: capture_fix_outcome
     # takes its own _LockedUpdate and a nested one is an OperationalError on the
     # SQL backends.
@@ -1004,14 +1067,19 @@ def _verify_due_receipts(now):
             source='autonomy', now=now)
     # Fire AFTER the lock: fire_webhook is self-locking and the deferral rules
     # apply, but keeping it outside is the habit this codebase asks for.
-    for r, after in alerts:
+    for r, after, res in alerts:
+        if res is not None and res['rc'] != 0:
+            detail = (f"autonomous {r.get('action')} on {r.get('device_name')} "
+                      f"exited {res['rc']}: {res['output'][:160]}")
+        else:
+            detail = (f"autonomous {r.get('action')} on {r.get('device_name')} ran, "
+                      f"and failing checks went from "
+                      f"{(r.get('before_checks') or {}).get('failing', 0)} to "
+                      f"{after.get('failing', 0)}")
         A.fire_webhook('remediation_failed', {
             'device_id': r.get('device_id'), 'device_name': r.get('device_name'),
             'name': r.get('action'), 'rule_name': r.get('action'),
-            'detail': (f"autonomous {r.get('action')} on {r.get('device_name')} ran, "
-                       f"and failing checks went from "
-                       f"{(r.get('before_checks') or {}).get('failing', 0)} to "
-                       f"{after.get('failing', 0)}"),
+            'detail': detail,
         })
 
 

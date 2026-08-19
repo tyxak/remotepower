@@ -92,6 +92,21 @@ whole six-rung disk ladder attached to it. The ladder moved to
 no longer maps to killing a process: the name in that alert belongs to the
 process the kernel already killed. Twenty-five action classes.
 
+### A receipt now says what happened
+
+The agent returns every command's **exit code** and nothing here read it, so a
+command that exited 127 because the tool is not installed and one that worked
+produced byte-identical receipts. A non-zero code now outranks the checks
+comparison — it is the action telling you it did not do the thing — fires
+`remediation_failed`, and shows on the row. So does the outcome (`queued`,
+`parked for approval`, `no result from the agent`) and the precedent that
+justified the decision, both of which the receipt already carried and the page
+never displayed.
+
+Only an action that reported rc 0 *and* whose alert then closed becomes
+precedent. An alert that cleared on its own while the command sat uncollected in
+the queue says nothing about that command.
+
 ### Receipts can be cleared
 
 A **Clear receipts** button on the card, and a delete button on each row. Both

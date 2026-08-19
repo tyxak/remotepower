@@ -59,7 +59,7 @@ _STORES = ('DEVICES_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'SERVICES_FILE',
            'LLDP_NEIGHBORS_FILE', 'BACKUP_JOBS_FILE', 'AUTONOMY_POLICY_FILE',
            'AUTONOMY_RECEIPTS_FILE', 'CMDS_FILE', 'INCIDENT_MEMORY_FILE',
            'TENANTS_FILE', 'USERS_FILE', 'MAINT_FILE', 'REMEDIATIONS_FILE',
-           'RULES_FILE', 'AUDIT_LOG_FILE',
+           'RULES_FILE', 'AUDIT_LOG_FILE', 'CMD_OUTPUT_FILE',
            # The escalation tests COUNT rows here. Without the redirect they
            # count whatever any other test in this process left behind, which
            # is the shared-store class CLAUDE.md records — it read as a dedupe
@@ -330,6 +330,13 @@ class TestTheLoopsOwnVerifiedActionsCount(_Base):
         api._LOAD_CACHE.clear()
         return now
 
+    def _agent_reported(self, rc=0, cmd='svc:restart:nginx.service'):
+        """The agent's own answer for the command, which is what makes an
+        action's success a fact rather than an inference."""
+        api.save(api.CMD_OUTPUT_FILE, {'d1': [
+            {'ts': int(time.time()), 'cmd': cmd, 'output': 'ok', 'rc': rc}]})
+        api._LOAD_CACHE.clear()
+
     def _outcomes(self):
         return (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
 
@@ -344,6 +351,7 @@ class TestTheLoopsOwnVerifiedActionsCount(_Base):
 
     def test_a_verified_action_whose_alert_cleared_becomes_precedent(self):
         self._acted()
+        self._agent_reported(rc=0)
         api.save(api.ALERTS_FILE, {'alerts': [{
             'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
             'resolved_at': int(time.time())}]})
@@ -353,6 +361,61 @@ class TestTheLoopsOwnVerifiedActionsCount(_Base):
         self.assertEqual(len(rows), 1, rows)
         self.assertEqual(rows[0]['source'], 'autonomy')
         self.assertEqual(rows[0]['fix_command'], 'svc:restart:nginx.service')
+
+    def test_a_command_the_agent_never_ran_is_not_a_fix(self):
+        """No report at all means the host never collected it — offline, or its
+        poll interval outran the window. An alert that cleared on its own in the
+        meantime is not evidence about a command that never ran."""
+        self._acted()
+        api.save(api.CMD_OUTPUT_FILE, {})
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertEqual(self._outcomes(), [])
+        rec = (api.load(api.AUTONOMY_RECEIPTS_FILE) or {})['receipts'][0]
+        self.assertIsNone(rec['rc'])
+        self.assertIn('no result from the agent', rec['outcome'])
+
+    def test_a_command_that_exited_non_zero_is_not_a_fix(self):
+        """Four of the catalog's actions are one-liners whose only failure
+        signal is the exit code. A command that exits 127 because the tool is
+        not installed and one that worked used to produce identical receipts."""
+        self._acted()
+        self._agent_reported(rc=127)
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        fired = []
+        real = api.fire_webhook
+        api.fire_webhook = lambda ev, payload=None, **kw: fired.append((ev, payload))
+        try:
+            api._verify_due_receipts(int(time.time()))
+        finally:
+            api.fire_webhook = real
+        self.assertEqual(self._outcomes(), [])
+        rec = (api.load(api.AUTONOMY_RECEIPTS_FILE) or {})['receipts'][0]
+        self.assertEqual(rec['rc'], 127)
+        self.assertIs(rec['verified'], False)
+        self.assertIn('exited 127', rec['outcome'])
+        self.assertEqual([e for e, _p in fired], ['remediation_failed'])
+        self.assertIn('127', str(fired[0][1].get('detail')))
+
+    def test_a_result_from_before_the_dispatch_does_not_count(self):
+        """A host runs the same command more than once over its life, and the
+        previous run's success is not evidence about this one."""
+        now = self._acted()
+        api.save(api.CMD_OUTPUT_FILE, {'d1': [
+            {'ts': now - 99999, 'cmd': 'svc:restart:nginx.service',
+             'output': 'ok', 'rc': 0}]})
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertEqual(self._outcomes(), [])
 
     def test_an_alert_still_open_is_not_a_fix(self):
         """Stricter than `verified`. Checks-did-not-worsen on its own would let
@@ -893,6 +956,9 @@ class TestPrecedentNeedsAResolvedRowNotAnAbsentOne(_Base):
     def test_a_genuinely_resolved_alert_still_counts(self):
         """Control: the guard must not refuse the case it exists to admit."""
         self._acted()
+        api.save(api.CMD_OUTPUT_FILE, {'d1': [
+            {'ts': int(time.time()), 'cmd': 'svc:restart:nginx.service',
+             'output': 'ok', 'rc': 0}]})
         api.save(api.ALERTS_FILE, {'alerts': [{
             'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
             'resolved_at': int(time.time())}]})
