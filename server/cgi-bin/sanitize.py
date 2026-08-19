@@ -292,6 +292,13 @@ def gunzip_bounded(data, limit):
         src = d.unconsumed_tail
         if not src:
             break
+    if not d.eof:
+        # zlib returns b'' without complaining while it waits for more input, so
+        # a stream that ENDS early — one to three bytes, a cut-off upload —
+        # decompressed to nothing and looked like a valid empty document. The
+        # SCAP path would have stored it and later served a blank report rather
+        # than refusing it. Found by a property test, not by example.
+        raise ValueError('truncated gzip stream')
     return bytes(out)
 
 

@@ -268,5 +268,77 @@ class TestAlertCoalesceInvariants(unittest.TestCase):
                          'coalesce/append produced the wrong number of rows')
 
 
+class TestV702SafetyHelperProperties(unittest.TestCase):
+    """The three helpers added in v7.0.2 — as_list, canary_path_safe and
+    gunzip_bounded — are all TOTAL functions on untrusted input, which is the
+    kind of claim example tests state and properties actually check.
+
+    `gunzip_bounded` had a real bug found here and nowhere else: zlib returns
+    b'' without complaining while it waits for more input, so a stream that ends
+    before its header completes decompressed to nothing and looked like a valid
+    empty document. The SCAP path would have stored a truncated upload and later
+    served a blank report instead of refusing it.
+    """
+
+    @given(st.one_of(st.none(), st.booleans(), st.integers(), st.text(),
+                     st.binary(), st.lists(st.integers()),
+                     st.dictionaries(st.text(), st.integers()),
+                     st.tuples(st.integers())),
+           st.one_of(st.none(), st.integers(min_value=-5, max_value=50)))
+    @settings(max_examples=300, deadline=None)
+    def test_as_list_is_total_and_returns_a_list(self, v, limit):
+        import sanitize
+        out = sanitize.as_list(v, limit)
+        self.assertIsInstance(out, list)
+        if isinstance(v, list):
+            self.assertEqual(out, v[:limit] if limit is not None else v)
+        else:
+            # A string slices happily and would arrive downstream as a list of
+            # characters, which is its own quiet wrong answer.
+            self.assertEqual(out, [])
+
+    @given(st.text(min_size=1, max_size=300))
+    @settings(max_examples=300, deadline=None)
+    def test_canary_path_safe_never_raises(self, p):
+        import sanitize
+        ok, why = sanitize.canary_path_safe(p)
+        self.assertIsInstance(ok, bool)
+        self.assertIsInstance(why, str)
+        self.assertEqual(ok, why == '', 'a refusal must carry its reason')
+
+    @given(st.text(alphabet='abcdefgh/\\.-_ ', min_size=1, max_size=120))
+    @settings(max_examples=300, deadline=None)
+    def test_canary_path_safe_ignores_case_and_separator(self, p):
+        """Both are attacker-controlled spellings of the same path."""
+        import sanitize
+        base = sanitize.canary_path_safe(p)[0]
+        self.assertEqual(base, sanitize.canary_path_safe(p.upper())[0])
+        self.assertEqual(base, sanitize.canary_path_safe(p.replace('/', chr(92)))[0])
+
+    @given(st.binary(max_size=3000), st.integers(min_value=1, max_value=6000))
+    @settings(max_examples=200, deadline=None)
+    def test_gunzip_bounded_round_trips_or_refuses(self, data, limit):
+        import gzip
+        import sanitize
+        try:
+            out = sanitize.gunzip_bounded(gzip.compress(data), limit)
+        except ValueError:
+            self.assertGreater(len(data), limit, 'refused a stream that fits')
+            return
+        self.assertEqual(out, data)
+        self.assertLessEqual(len(out), limit)
+
+    @given(st.binary(max_size=200))
+    @settings(max_examples=300, deadline=None)
+    def test_gunzip_bounded_refuses_anything_that_is_not_gzip(self, b):
+        """Including TRUNCATED input, which is the case that silently returned
+        an empty document."""
+        import sanitize
+        if b.startswith(b'\x1f\x8b') and len(b) > 20:
+            return                      # might be a real (tiny) stream
+        with self.assertRaises(ValueError):
+            sanitize.gunzip_bounded(b, 10_000)
+
+
 if __name__ == '__main__':
     unittest.main()
