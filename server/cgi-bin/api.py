@@ -30824,8 +30824,29 @@ def handle_query_templates():
     respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: t.get('name', '').lower())})
 
 
+def _qt_visibility(body):
+    """'shared' or 'private', refusing a read-only role the shared option.
+
+    Kept as its own function so the gate sits with the decision rather than
+    three lines above it — the shape where a later edit moves one and not the
+    other.
+    """
+    if not body.get('shared'):
+        return 'private'
+    require_write_role('publish a shared query template')
+    return 'shared'
+
+
 def handle_query_template_create():
-    """POST /api/query/templates {name, entity, where?, sort?, sort_desc?, shared?}."""
+    """POST /api/query/templates {name, entity, where?, sort?, sort_desc?, shared?}.
+
+    A PRIVATE template is the caller's own saved filter, so require_auth() is
+    the right gate — a viewer saving a query for themselves is reading, with a
+    bookmark. A SHARED one is written into a list every user of the instance
+    sees, which is shared state, and the read-only roles (viewer / mcp /
+    auditor / finance) must not write shared state. v7.0.2: the shared branch
+    is gated below, where the flag is known.
+    """
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -30870,7 +30891,7 @@ def handle_query_template_create():
                           # v6.1.1 (#38): private by default -- a saved
                           # query's filters can be business-sensitive; the
                           # caller opts INTO sharing it, not out of privacy.
-                          'visibility': 'shared' if body.get('shared') else 'private',
+                          'visibility': _qt_visibility(body),
                           'owner': actor, 'created': int(time.time()),
                           # v6.1.1 (#38 follow-up): server-stamped, never
                           # client-supplied -- see handle_query_templates.

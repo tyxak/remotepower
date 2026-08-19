@@ -100,7 +100,6 @@ def _ctx(verify):
 # 169.254.169.254 to steal the stored creds). Guard the PEER IP at connect time
 # and refuse redirects. RFC1918/LAN stays allowed (these devices live on the LAN).
 import http.client as _httpclient
-import ipaddress as _ipaddress
 
 
 def _peer_ip_blocked(ip_str):

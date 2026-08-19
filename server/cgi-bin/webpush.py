@@ -22,7 +22,7 @@ import urllib.request
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 

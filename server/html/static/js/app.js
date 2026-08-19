@@ -20219,6 +20219,18 @@ function _homeActivityAttrs(event, p) {
     case 'battery_health_low': case 'battery_health_ok':
     // v6.2.2: NIC errors/drops → the affected host's drawer
     case 'nic_errors': case 'nic_errors_cleared':
+      // v7.0.2: THIS return was missing. The KMIP labels below were appended to
+      // the end of this group at v6.4.1 and brought the only `return` with
+      // them, so all nineteen per-host events above fell through it: clicking a
+      // temperature alert, a UPS on battery, a clock skew, an OOM, NIC errors,
+      // battery health, an unreachable gateway or a predicted disk failure
+      // opened the KMIP key-server page. Every comment in the block says "the
+      // affected host's drawer" and the code said otherwise.
+      //
+      // The comment ten lines down already records this exact bug happening
+      // once before, when server-level cases were inserted between a label and
+      // its return. Same shape, opposite end.
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v6.4.1: KMIP PKI expiry is FLEET-level (no device_id) — route to the
     // KMIP page, where the certificate can actually be re-issued.
     case 'kmip_cert_expiring': case 'kmip_cert_renewed':
