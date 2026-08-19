@@ -139,7 +139,21 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         self.page.wait_for_selector('#app', state='visible', timeout=90000)
         self.page.wait_for_timeout(6000)
         self.page.evaluate("() => { try { showPage('autonomy') } catch (e) {} }")
-        self.page.wait_for_timeout(2500)
+        self._settle()
+
+    def _settle(self):
+        """Wait for the page's own content, not for a clock.
+
+        `loadAutonomy` awaits two fetches and paints between them, so a fixed
+        sleep is a race against whatever else is contending for the box — this
+        file first failed only when run alongside two other browser suites, with
+        an empty allow-list, which reads as a rendering bug rather than a slow
+        one. Waiting on the last thing painted removes the class rather than
+        widening the sleep.
+        """
+        self.page.wait_for_selector('#autonomy-actions .settings-row',
+                                    timeout=30000)
+        self.page.wait_for_selector('#autonomy-receipts-body tr', timeout=30000)
 
     def tearDown(self):
         self.page.close(); self.ctx.close()
@@ -207,9 +221,8 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         self.assertEqual(after['rows'], before['rows'] - 1, (before, after))
         self.page.reload()
         self.page.wait_for_selector('#app', state='visible', timeout=90000)
-        self.page.wait_for_timeout(5000)
         self.page.evaluate("() => { try { showPage('autonomy') } catch (e) {} }")
-        self.page.wait_for_timeout(2500)
+        self._settle()
         reloaded = self.page.evaluate(_READ_TABLE)
         self.assertEqual(reloaded['rows'], before['rows'] - 1,
                          'the row came back on reload — the DELETE never landed')
