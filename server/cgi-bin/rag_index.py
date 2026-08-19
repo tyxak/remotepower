@@ -790,25 +790,79 @@ def build_live_state_corpus(devices, facets=None, now=0):
             for _m in (de.get('encrypted_mounts') or [])[:8]:
                 _dl.append(f"encrypted mount: {_m}")
             posture.append("Linux disk encryption:\n  " + '\n  '.join(_dl))
+        # v7.0.2: UEFI Secure Boot, now that the Linux agent reports it too.
+        # "which hosts boot unverified?" is a fleet question and the answer was
+        # only ever in a column.
+        if isinstance(si.get('secure_boot'), bool):
+            posture.append('UEFI Secure Boot: '
+                           + ('on' if si['secure_boot'] else 'OFF'))
         ph = si.get('platform_health')
         if isinstance(ph, dict):
             _pl = []
+            # v7.0.2: the agent sends bit flags, never a `status` string, so
+            # this line could not appear for any real fleet — the AI could not
+            # answer the thermal-throttling question this block exists for.
+            # NOW and SINCE BOOT stay apart: a Pi that browned out at 3am and
+            # recovered is a different problem from one throttling right now.
             _thr = ph.get('throttle')
-            if isinstance(_thr, dict) and _thr.get('status'):
-                _pl.append(f"platform throttling: {_thr['status']}")
+            if isinstance(_thr, dict):
+                _now = [k[:-4].replace('_', ' ') for k in
+                        ('undervolt_now', 'throttled_now', 'freq_capped_now',
+                         'soft_temp_now') if _thr.get(k)]
+                _ever = [k[:-11].replace('_', ' ') for k in
+                         ('undervolt_since_boot', 'throttled_since_boot',
+                          'freq_capped_since_boot', 'soft_temp_since_boot')
+                         if _thr.get(k)]
+                if _now:
+                    _pl.append('platform throttling NOW: ' + ', '.join(_now))
+                elif _ever:
+                    _pl.append('platform throttled since boot: '
+                               + ', '.join(_ever))
             for _f in (ph.get('fans') or [])[:6]:
                 if isinstance(_f, dict) and _f.get('name'):
                     _pl.append(f"fan {_f['name']}: {_f.get('rpm', '?')} rpm")
-            _wifi = ph.get('wifi')
-            if isinstance(_wifi, dict) and _wifi.get('signal_dbm') is not None:
-                _pl.append(f"wifi signal: {_wifi['signal_dbm']} dBm"
-                           + (f" on {_wifi['ssid']}" if _wifi.get('ssid') else ""))
+            # v7.0.2: /proc/net/wireless gives one row per interface, so this
+            # is a LIST of {iface, link, level_dbm, noise_dbm} — there is no
+            # ssid or signal_dbm anywhere in the product. SNR is the useful
+            # figure: level alone says little, level minus noise predicts
+            # retransmits.
+            # isinstance before the slice, not after: `{...}[:4]` on a dict
+            # raises KeyError (a slice is just a missing key), so a device
+            # still carrying the pre-v7.0.2 shape would take the whole corpus
+            # build down rather than skipping one line.
+            _wifis = ph.get('wifi')
+            for _w in (_wifis[:4] if isinstance(_wifis, list) else []):
+                if not isinstance(_w, dict):
+                    continue
+                _lvl, _noi = _w.get('level_dbm'), _w.get('noise_dbm')
+                if not isinstance(_lvl, (int, float)):
+                    continue
+                _txt = f"wifi {_w.get('iface') or 'wlan'}: {_lvl:.0f} dBm"
+                if isinstance(_noi, (int, float)):
+                    _txt += f", SNR {_lvl - _noi:.0f} dB"
+                _pl.append(_txt)
             if _pl:
                 posture.append("platform health:\n  " + '\n  '.join(_pl))
+        # v7.0.2: canary_status is the ARM report — a LIST of
+        # {path, state, detail} per configured decoy. It was read as a dict
+        # with a `tripped` flag, which nothing has ever sent, so this line
+        # never appeared. A trip is a separate signal entirely
+        # (`canary_events` → the canary_accessed webhook), so what belongs
+        # here is the arming, which is the part with no other screen: a decoy
+        # the agent could not plant is a security control the operator has
+        # stopped worrying about.
         _cs = si.get('canary_status')
-        if isinstance(_cs, dict) and _cs.get('tripped'):
-            posture.append("canary/honeytoken file TRIPPED — a decoy file was "
-                           "read or modified")
+        if isinstance(_cs, list) and _cs:
+            _bad = [e for e in _cs if isinstance(e, dict)
+                    and e.get('state') in ('failed', 'pending')]
+            if _bad:
+                posture.append(
+                    f"{len(_bad)} of {len(_cs)} canary/honeytoken file(s) NOT "
+                    f"armed: " + ', '.join(
+                        f"{e.get('path')} ({e.get('detail') or e.get('state')})"
+                        for e in _bad[:4]))
+            else:
+                posture.append(f"{len(_cs)} canary/honeytoken file(s) armed")
         _gq = si.get('guard_quarantine')
         if isinstance(_gq, list) and _gq:
             posture.append(f"Integrity Guard has quarantined {len(_gq)} file(s)")

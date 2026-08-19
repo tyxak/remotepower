@@ -1657,6 +1657,7 @@ import sbom as sbom_mod
 from sanitize import (
     _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
     _sanitize_version, _canary_path_ok, canary_path_safe, gunzip_bounded,
+    as_list,
     MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
     _IP_RE, _MAC_RE, _VER_RE,
 )
@@ -12256,7 +12257,7 @@ def _validate_rule(body):
                       if isinstance(t, str)][:10],
     }
     actions = []
-    for a in (body.get('actions') or [])[:10]:
+    for a in as_list(body.get('actions'), 10):
         if not isinstance(a, dict):
             continue
         if a.get('type') == 'run_script' and a.get('script_id'):
@@ -16070,7 +16071,7 @@ def handle_invoices():
     entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
     ws = billing_mod.compute_worksheet(cfg, site, entries, pf or '', pt or '')
     extra = []
-    for li in (body.get('extra_lines') or [])[:50]:
+    for li in as_list(body.get('extra_lines'), 50):
         if not isinstance(li, dict):
             continue
         lbl = _sanitize_str(str(li.get('label') or ''), 120).strip()
@@ -16135,7 +16136,7 @@ def _quote_line_items(body):
     """Build sanitized quote line items. A quote is authored, not derived, so
     every line is operator-supplied — sanitize the label, coerce the numbers."""
     out = []
-    for li in (body.get('line_items') or [])[:100]:
+    for li in as_list(body.get('line_items'), 100):
         if not isinstance(li, dict):
             continue
         label = _sanitize_str(str(li.get('label') or ''), 120).strip()
@@ -18763,7 +18764,7 @@ def _autopatch_clean_rings(raw):
             continue
         clean = {'type': st}
         if st == 'ids':
-            clean['ids'] = [str(x).strip() for x in (sel.get('ids') or [])[:500]
+            clean['ids'] = [str(x).strip() for x in as_list(sel.get('ids'), 500)
                             if _validate_id(str(x).strip())]
             if not clean['ids']:
                 continue
@@ -20601,6 +20602,11 @@ def handle_heartbeat():
             # credentials file was already there the decoy silently became a
             # change-watch on genuine data. Same whitelist rule as the two above:
             # drop it here and the UI has nothing to show.
+            # v7.0.2: UEFI Secure Boot from the Linux agent. Same whitelist
+            # rule as everything around it — a field the sanitizer drops never
+            # reaches the check or the column that reads it.
+            if isinstance(si.get('secure_boot'), bool):
+                safe_si['secure_boot'] = si['secure_boot']
             _cst = si.get('canary_status')
             if isinstance(_cst, list):
                 safe_si['canary_status'] = [
@@ -30465,6 +30471,7 @@ def _qe_device_posture(si):
     au = si.get('autoupdate') if isinstance(si.get('autoupdate'), dict) else {}
     sc = si.get('ssh_config') if isinstance(si.get('ssh_config'), dict) else {}
     ck = si.get('clock') if isinstance(si.get('clock'), dict) else {}
+    _wp = si.get('win_posture') if isinstance(si.get('win_posture'), dict) else {}
     fw = si.get('firewall') if isinstance(si.get('firewall'), dict) else {}
     bats = [b for b in (si.get('battery') or []) if isinstance(b, dict)]
     bat = bats[0] if bats else {}
@@ -30496,7 +30503,15 @@ def _qe_device_posture(si):
         'ssh_password_auth': sc.get('password_authentication') or '',
         'ssh_empty_passwords': sc.get('permit_empty_passwords') or '',
         'ssh_x11_forwarding': sc.get('x11_forwarding') or '',
-        'secure_boot': si.get('secure_boot') if isinstance(si.get('secure_boot'), bool) else None,
+        # v7.0.2: read it from BOTH producers. This asked for a top-level
+        # `secure_boot` and only the Windows agent produced one, under
+        # `win_posture` — so the column was None on every row of every fleet
+        # since it was added. The Linux agent now reports it too (from the EFI
+        # variable), which is what makes the top-level read worth keeping: on a
+        # mostly-Linux product, Windows-only was close to nothing.
+        'secure_boot': next(
+            (v for v in (si.get('secure_boot'), _wp.get('secure_boot'))
+             if isinstance(v, bool)), None),
         'clock_synced': ck.get('synced') if isinstance(ck.get('synced'), bool) else None,
         'clock_offset_ms': _n(ck.get('offset_ms')),
         'battery_pct': _n(bat.get('percent')),

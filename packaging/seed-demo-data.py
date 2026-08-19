@@ -362,19 +362,38 @@ def _demo_enrich_sysinfo(dev, rng, si):
         _enc = dev['id'] != 'bk01'
         si['disk_encryption'] = {
             'encrypted': _enc,
-            'crypt_devices': (['dm-0'] if _enc else []),
+            # Each entry is {dm, name, type}; a bare string was skipped by
+            # the sanitizer's isinstance(dict) filter and the list came out
+            # empty, so an encrypted host showed no crypt devices.
+            'crypt_devices': ([{'dm': 'dm-0', 'name': 'luks-root',
+                                'type': 'LUKS2'}] if _enc else []),
             'encrypted_mounts': (['/', '/var'] if _enc else []),
         }
         # Platform health. The Pi gets a real under-voltage condition; the
         # rack hosts report fans; the laptop reports wifi.
         _ph = {}
         if dev.get('id') == 'pi1':
-            _ph['throttle'] = {'status': 'under-voltage detected',
+            # The agent decodes the Pi's get_throttled bits into flags; a
+            # `status` string was never one of them, so the drawer's "Platform
+            # throttling" row — which reads the flags — showed nothing here.
+            # 0x50005: under-voltage and throttling, both now and since boot.
+            _ph['throttle'] = {'undervolt_now': True, 'throttled_now': True,
+                               'freq_capped_now': False, 'soft_temp_now': False,
+                               'undervolt_since_boot': True,
+                               'throttled_since_boot': True,
+                               'freq_capped_since_boot': False,
+                               'soft_temp_since_boot': False,
                                'raw': '0x50005'}
         elif dev.get('id') in ('ha01', 'vw01'):   # the two Alpine boxes are wifi-attached in this demo
-            _ph['wifi'] = {'ssid': 'lab-wifi',
-                           'signal_dbm': -rng.randint(45, 78),
-                           'link_quality': rng.randint(48, 92)}
+            # /proc/net/wireless gives one row per interface, so the agent
+            # sends a LIST of {iface, link, level_dbm, noise_dbm}. A single dict
+            # with ssid/signal_dbm/link_quality was dropped by the sanitizer
+            # (which requires a list) and would have rendered nothing anyway —
+            # the drawer reads level_dbm and noise_dbm to show SNR.
+            _ph['wifi'] = [{'iface': 'wlan0',
+                            'link': float(rng.randint(48, 68)),
+                            'level_dbm': float(-rng.randint(45, 78)),
+                            'noise_dbm': float(-rng.randint(88, 96))}]
         else:
             _ph['fans'] = [{'name': n, 'rpm': rng.randint(1800, 4200)}
                            for n in ('cpu', 'chassis')[:rng.randint(1, 2)]]
@@ -383,30 +402,54 @@ def _demo_enrich_sysinfo(dev, rng, si):
             si['platform_health'] = _ph
         # Integrity Guard + canary. One host has a tripped canary so the
         # security surfaces are not uniformly clean.
+        # SHAPES MATCH THE AGENT, and that is checked — see
+        # tests/test_v702_seeder_shapes.py, which pushes every seeded sysinfo
+        # through the real heartbeat and fails on any key the sanitizer drops.
+        # Both of these used to be invented: canary_status was a dict when the
+        # agent sends a LIST of per-path arm records, and guard_quarantine
+        # carried path/at when the ledger uses id/orig/check/ts. The sanitizer
+        # dropped the first outright and blanked the second into empty rows, so
+        # the demo showed nothing on two security surfaces and every rendered
+        # gate measured that nothing.
         if dev.get('id') == 'ng01':
-            si['canary_status'] = {'tripped': True,
-                                   'path': '/srv/.backup-key.pem',
-                                   'at': now() - 5400}
+            si['canary_status'] = [
+                {'path': '/srv/.backup-key.pem', 'state': 'failed',
+                 'detail': 'modified 90 minutes ago'},
+                {'path': '/home/alice/Documents/passwords.txt',
+                 'state': 'armed', 'detail': ''},
+            ]
             si['guard_quarantine'] = [
-                {'path': '/usr/local/bin/.hidden-miner', 'at': now() - 5600},
+                {'id': 'gq-' + str(now() - 5600),
+                 'orig': '/usr/local/bin/.hidden-miner',
+                 'check': 'suid-in-usr-local', 'ts': now() - 5600},
             ]
         else:
-            si['canary_status'] = {'tripped': False}
+            si['canary_status'] = [
+                {'path': '/srv/.backup-key.pem', 'state': 'armed', 'detail': ''},
+            ]
         si['logged_in'] = rng.sample(['alice', 'bob', 'deploy', 'root'],
                                      rng.randint(1, 2))
-        si['zram'] = dev.get('id') in ('pi1', 'ha01')
+        # zram is a LIST of per-device stats (the agent reads /sys/block/zram*),
+        # not a bool — a bool was dropped whole.
+        si['zram'] = ([{'name': 'zram0', 'total_bytes': 2 * 1024**3,
+                        'orig_bytes': 1_400_000_000,
+                        'compr_bytes': 470_000_000,
+                        'used_bytes': 512_000_000}]
+                      if dev.get('id') in ('pi1', 'ha01') else [])
     tags = dev.get('tags') or []
     # ── v6.4.1: platform-specific posture + laptop signals ──
     # The demo had no Windows or macOS host at all, so win_posture,
     # mac_posture and the laptop signals rendered empty everywhere despite
-    # shipping. Field names and record shapes match what the agents send, so
-    # these exercise the real ingest/render path rather than a lookalike.
+    # shipping. Field names and record shapes are meant to match what the agents
+    # send — and as of v7.0.2 that is measured rather than asserted here, by
+    # tests/test_v702_seeder_shapes.py. When this comment was written it was
+    # true of these fields and false of eight others.
     _os = (dev.get('os') or '').lower()
     if 'windows' in _os:
         si['win_posture'] = {
             'tamper_protection': True, 'secure_boot': True,
             'uac_enabled': True, 'pending_reboot': True,
-            'defender_realtime': True, 'firewall_enabled': True,
+            'defender_realtime': True,
             # v6.4.2: the real Windows agent sends bitlocker as a LIST of
             # {mount,status} volumes, not a string — a string was silently
             # skipped by the win_bitlocker check and the encryption risk factor.
@@ -655,14 +698,15 @@ def build_devices() -> dict:
                                     'Intel(R) Xeon(R) E-2336 @ 2.90GHz',
                                     'AMD Ryzen 7 5800X 8-Core', '13th Gen Intel Core i5-13500',
                                     'AMD EPYC 7302P 16-Core', 'Intel(R) Core(TM) i7-10700']),
-                'mem_total_gb': mem_total_gb,
+                # mem_total_gb is not a field any agent sends — mem_total_mb
+                # is the one. It was dropped, so nothing read it either way.
                 'mem_total_mb': mem_total_gb * 1024,
                 'disk_total_gb': _disk_total,
                 'mem_percent':  round(mem_pct, 1),
                 'swap_percent': round(rng.uniform(0, 8), 1),
                 'loadavg_1m':   round(load_per_cpu * cpu_count, 2),
-                'loadavg_5m':   round(load_per_cpu * cpu_count * rng.uniform(0.85, 1.05), 2),
-                'loadavg_15m':  round(load_per_cpu * cpu_count * rng.uniform(0.7, 1.0), 2),
+                # Only loadavg_1m exists; 5m/15m were invented and dropped.
+
                 'mounts':       mounts,
                 # v7.0.0: cpu_percent and disk_percent were NEVER SEEDED, so the
                 # CPU and Disk columns of the device table were blank on every

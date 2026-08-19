@@ -70,19 +70,43 @@ class TestTheSeedCarriesThisReleasesSignals(unittest.TestCase):
         self.assertTrue(fan, 'no host reports fans')
         self.assertTrue(wifi, 'no host reports wifi signal')
 
-    def test_a_canary_is_tripped_and_a_file_quarantined(self):
-        trip = [nm for nm, si in self._si() if (si.get('canary_status') or {}).get('tripped')]
+    def test_a_canary_failed_to_arm_and_a_file_is_quarantined(self):
+        """v7.0.2: these read `canary_status.tripped`, a dict field no agent
+        sends. canary_status is the ARM report — a LIST of {path, state,
+        detail} — and a trip is a separate signal (canary_events → the
+        canary_accessed webhook). The seeder wrote the invented shape too, so
+        this file agreed with it and the sanitizer dropped the lot."""
+        bad = [nm for nm, si in self._si()
+               if any(e.get('state') in ('failed', 'pending')
+                      for e in (si.get('canary_status') or [])
+                      if isinstance(e, dict))]
         quar = [nm for nm, si in self._si() if si.get('guard_quarantine')]
-        self.assertEqual(len(trip), 1, f'expected one tripped canary, got {trip}')
+        self.assertEqual(len(bad), 1, f'expected one unarmed canary, got {bad}')
         self.assertTrue(quar, 'no host has a quarantined file')
 
-    def test_untripped_canaries_are_still_reported(self):
-        """Reporting only the tripped one makes 'no canary data' and 'canary
-        fine' indistinguishable — the same absent-vs-negative confusion the
+    def test_armed_canaries_are_still_reported(self):
+        """Reporting only the failure makes 'no canary data' and 'canary fine'
+        indistinguishable — the same absent-vs-negative confusion the
         encryption collector avoids."""
         ok = [nm for nm, si in self._si()
-              if (si.get('canary_status') or {}).get('tripped') is False]
+              if (si.get('canary_status')
+                  and all(e.get('state') == 'armed'
+                          for e in si['canary_status'] if isinstance(e, dict)))]
         self.assertGreaterEqual(len(ok), 5)
+
+    def test_the_shape_is_the_agents(self):
+        """The reason the two above were wrong. A list, with the agent's
+        per-path record — checked here as well as by the round-trip in
+        tests/test_v702_seeder_shapes.py, so a reader of this file sees it."""
+        for nm, si in self._si():
+            cs = si.get('canary_status')
+            if cs is None:
+                continue
+            self.assertIsInstance(cs, list, nm)
+            for e in cs:
+                self.assertEqual(set(e), {'path', 'state', 'detail'}, nm)
+                self.assertIn(e['state'],
+                              ('armed', 'watching', 'failed', 'pending'), nm)
 
     def test_the_linux_predicate_did_not_skip_the_odd_distros(self):
         """The seeded fleet runs 'Raspberry Pi OS' and 'Alpine 3.20'. A first

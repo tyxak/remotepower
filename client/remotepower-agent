@@ -8156,6 +8156,26 @@ def get_metrics():
             out['conntrack_percent'] = round(_ccount / _cmax * 100, 1)
     except Exception:
         pass
+    # v7.0.2: UEFI Secure Boot state. The Data Explorer and the posture set
+    # have carried a `secure_boot` column since v7.0.0 and only the WINDOWS
+    # agent ever produced one — on a product whose fleets are mostly Linux, the
+    # column was empty on nearly every row. Read straight from the EFI variable:
+    # the last byte of SecureBoot-<vendor GUID> is 1 when it is on. No firmware
+    # variable (a BIOS/CSM boot, a container, a VM without OVMF) means the
+    # question does not apply, so the key is left off rather than reported False
+    # — "not applicable" and "off" are different answers and only one of them is
+    # a finding.
+    try:
+        import glob as _glob
+        _sbv = _glob.glob(host_path(
+            '/sys/firmware/efi/efivars/SecureBoot-*'))
+        if _sbv:
+            with open(_sbv[0], 'rb') as _f:
+                _raw = _f.read(8)
+            if len(_raw) >= 5:          # 4-byte attribute header, then the value
+                out['secure_boot'] = bool(_raw[4])
+    except Exception:
+        pass
     # v4.1.0: NTP / clock-sync state. {synced: bool, offset_ms: float?}. Time
     # drift silently breaks TLS, auth (Kerberos) and log correlation.
     try:

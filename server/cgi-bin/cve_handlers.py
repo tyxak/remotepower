@@ -204,7 +204,7 @@ def handle_cve_campaigns():
     if not name:
         A.respond(400, {'error': 'name required'})
     cve_ids = [A.re.sub(r'[^A-Za-z0-9\-]', '', str(x))[:32]
-               for x in (body.get('cve_ids') or [])[:500]]
+               for x in A.as_list(body.get('cve_ids'), 500)]
     cve_ids = [c for c in cve_ids if c]
     sevs = [s for s in (str(x).lower() for x in (body.get('severities') or []))
             if s in ('critical', 'high', 'medium', 'low')]

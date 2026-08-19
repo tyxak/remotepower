@@ -276,7 +276,7 @@ def handle_tickets():
         A.respond(400, {'error': 'subject required'})
     # multiple affected devices (validated); primary device_id is included first
     affected = []
-    for _d in (body.get('affected_devices') or [])[:50]:
+    for _d in A.as_list(body.get('affected_devices'), 50):
         _d = str(_d).strip()
         if A._validate_id(_d) and _d in devices and _d not in affected:
             affected.append(_d)

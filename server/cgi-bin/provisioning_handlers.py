@@ -275,7 +275,7 @@ def _rollout_resolve_ring(selector, devices, exclude=None):
     if t == 'smart':
         out = A._smart_group_device_ids(str(selector.get('value') or ''), devices)
     elif t == 'ids':
-        for d in (selector.get('ids') or [])[:500]:
+        for d in A.as_list(selector.get('ids'), 500):
             d = str(d).strip()
             if A._validate_id(d) and d in devices:
                 out.append(d)
@@ -894,7 +894,7 @@ def handle_rollouts_create():
             continue
         clean = {'type': st}
         if st == 'ids':
-            clean['ids'] = [str(x).strip() for x in (sel.get('ids') or [])[:500]
+            clean['ids'] = [str(x).strip() for x in A.as_list(sel.get('ids'), 500)
                             if A._validate_id(str(x).strip())]
             if not clean['ids']:
                 continue

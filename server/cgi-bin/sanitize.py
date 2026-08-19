@@ -242,6 +242,21 @@ def canary_path_safe(p):
     return True, ''
 
 
+def as_list(v, limit=None):
+    """A field that should be a list, as a list — capped if `limit` is given.
+
+    `(body.get('x') or [])[:50]` is the idiom everywhere, and it raises
+    KeyError when the value is a dict: slicing a dict looks a slice object up
+    as a key. A JSON body can hold any type, so on a request field the idiom
+    turns a malformed body into a 500 instead of a 400. Strings slice happily
+    and would come through as a list of characters, which is its own quiet
+    wrong answer, so anything that is not a list becomes empty.
+    """
+    if not isinstance(v, list):
+        return []
+    return v[:limit] if limit is not None else v
+
+
 def gunzip_bounded(data, limit):
     """Decompress gzip bytes, refusing a stream that expands past `limit`.
 

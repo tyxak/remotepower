@@ -88,25 +88,50 @@ class TestTheNewSignalsReachFleetKnowledge(unittest.TestCase):
         self.assertNotIn('disk encryption at rest', t)
 
     def test_platform_health(self):
-        t = _text(platform_health={'throttle': {'status': 'under-voltage detected'},
-                                   'fans': [{'name': 'cpu', 'rpm': 2400}],
-                                   'wifi': {'signal_dbm': -71, 'ssid': 'lab'}})
-        self.assertIn('platform throttling: under-voltage detected', t)
+        # v7.0.2: these fixtures used to carry shapes no agent sends — a
+        # `status` string for throttle and a single dict for wifi — so the
+        # readers they were pinning could never fire on a real fleet, and this
+        # file passed anyway. The agent decodes get_throttled into bit flags
+        # and sends one wifi row per interface.
+        t = _text(platform_health={
+            'throttle': {'undervolt_now': True, 'throttled_now': True,
+                         'raw': '0x5'},
+            'fans': [{'name': 'cpu', 'rpm': 2400}],
+            'wifi': [{'iface': 'wlan0', 'link': 54.0,
+                      'level_dbm': -71.0, 'noise_dbm': -91.0}]})
+        self.assertIn('throttling NOW', t)
+        self.assertIn('undervolt', t)
         self.assertIn('fan cpu: 2400 rpm', t)
-        self.assertIn('wifi signal: -71 dBm on lab', t)
+        self.assertIn('wlan0', t)
+        self.assertIn('-71 dBm', t)
+        self.assertIn('SNR 20 dB', t)
 
     def test_canary_and_guard(self):
-        t = _text(canary_status={'tripped': True},
-                  guard_quarantine=[{'path': '/tmp/x'}, {'path': '/tmp/y'}])
-        self.assertIn('canary/honeytoken file TRIPPED', t)
+        # canary_status is the ARM report — a LIST of {path, state, detail}.
+        # A trip is a separate signal (canary_events → the canary_accessed
+        # webhook), so the corpus reports arming, which is the part with no
+        # other screen.
+        t = _text(canary_status=[
+                      {'path': '/srv/x.pem', 'state': 'failed',
+                       'detail': 'Read-only file system'},
+                      {'path': '/home/a/pw.txt', 'state': 'armed', 'detail': ''}],
+                  guard_quarantine=[{'id': 'q1', 'orig': '/tmp/x',
+                                     'check': 'c', 'ts': 1},
+                                    {'id': 'q2', 'orig': '/tmp/y',
+                                     'check': 'c', 'ts': 2}])
+        self.assertIn('NOT armed', t)
+        self.assertIn('/srv/x.pem', t)
         self.assertIn('quarantined 2 file', t)
 
-    def test_an_untripped_canary_is_not_reported(self):
-        self.assertNotIn('TRIPPED', _text(canary_status={'tripped': False}))
+    def test_all_armed_canaries_report_the_count(self):
+        t = _text(canary_status=[{'path': '/a', 'state': 'armed', 'detail': ''}])
+        self.assertIn('1 canary', t)
+        self.assertNotIn('NOT armed', t)
 
     def test_sshd_config_and_sessions(self):
         t = _text(ssh_config={'PermitRootLogin': 'no', 'PasswordAuthentication': 'no'},
-                  logged_in=['alice', 'bob'], chassis='rack-mount', zram=True)
+                  logged_in=['alice', 'bob'], chassis='rack-mount',
+                  zram=[{'name': 'zram0', 'total_bytes': 2 * 1024**3}])
         self.assertIn('sshd PermitRootLogin: no', t)
         self.assertIn('logged-in users: alice, bob', t)
         self.assertIn('chassis type: rack-mount', t)

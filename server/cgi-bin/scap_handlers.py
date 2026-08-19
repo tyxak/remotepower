@@ -123,7 +123,7 @@ def handle_scap_report():
         rec['pass'] = rec['counts'].get('pass', 0)
         rec['fail'] = rec['counts'].get('fail', 0)
         rec['failed_rules'] = []
-        for r in (body.get('failed_rules') or [])[:200]:
+        for r in A.as_list(body.get('failed_rules'), 200):
             if isinstance(r, dict):
                 rec['failed_rules'].append({
                     'id': A._sanitize_str(r.get('id', ''), 200),
