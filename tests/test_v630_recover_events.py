@@ -70,6 +70,41 @@ class TestUnitFlapping(_Base):
         self.assertEqual(self._open(), [], 'flap alert should auto-resolve')
 
 
+    def test_a_unit_that_gave_up_is_not_a_recovery(self):
+        """v7.0.2: "restart count stable" is exactly what systemd's
+        StartLimitBurst produces when a crash-looping unit gives up — the
+        counter freezes because nothing is restarting it any more. The alert
+        used to close on that, so the condition got worse and the inbox said it
+        had recovered."""
+        api = self.api
+        api.save(api.CONFIG_FILE, {'unit_flap_restarts': 3})
+        api._LOAD_CACHE.clear()
+        flapping = [{'unit': 'web.service', 'active': 'active',
+                     'sub': 'running', 'restarts': 0}]
+        api.process_service_report('d1', flapping)
+        api.process_service_report('d1', [dict(flapping[0], restarts=20)])
+        self.assertEqual(len(self._open()), 1, 'unit_flapping should have fired')
+        # It hit the burst limit: still reported, counter frozen, DEAD.
+        api.process_service_report('d1', [{'unit': 'web.service',
+                                           'active': 'failed', 'sub': 'failed',
+                                           'restarts': 20}])
+        events = {a.get('event') for a in self._open()}
+        self.assertIn('unit_flapping', events,
+                      'the flap alert closed while the unit was failed')
+
+    def test_and_a_unit_that_came_back_still_recovers(self):
+        """Control: the guard must not refuse the case it exists to admit."""
+        api = self.api
+        api.save(api.CONFIG_FILE, {'unit_flap_restarts': 3})
+        api._LOAD_CACHE.clear()
+        svc = lambda n, st='active': [{'unit': 'web.service', 'active': st,
+                                       'sub': 'running', 'restarts': n}]
+        api.process_service_report('d1', svc(0))
+        api.process_service_report('d1', svc(20))
+        api.process_service_report('d1', svc(20))
+        self.assertEqual(self._open(), [])
+
+
 class TestContainerRestarting(_Base):
     def _persist(self, items, restarting=None):
         rec = {'ts': 1, 'items': items}

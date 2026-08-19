@@ -11988,7 +11988,18 @@ function _registerMaintTable() {
       const status = w.active
         ? '<span class="c-amber-bold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> ACTIVE</span>'
         : '<span class="c-muted">scheduled</span>';
-      const target = w.scope === 'global' ? '—' : escHtml(w.target_name || w.target || '—');
+      // v7.0.2: say when a window covers NOTHING. Group and tag targets match
+      // on an exact string that nothing repoints, so renaming a group leaves
+      // its windows looking identical while they stop applying to any host —
+      // and for a change-gated window that is the difference between changes
+      // being held to the window and running whenever they like.
+      const covers = (w.covers == null || w.covers > 0) ? ''
+        : ` <span class="chk-pill chk-warning" title="${escAttr(
+            'This window matches no host you can see. A renamed group or tag '
+            + 'leaves its windows in place and silently uncovered.')
+          }">${escHtml('covers nothing')}</span>`;
+      const target = (w.scope === 'global' ? '—'
+                      : escHtml(w.target_name || w.target || '—')) + covers;
       const winKey = _storeEvtData(w);
       return `<tr>
         <td class="fw-500">${escHtml(w.reason || '(no reason)')}</td>

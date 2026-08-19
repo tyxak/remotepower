@@ -1225,3 +1225,74 @@ class TestReceiptsCanBeCleared(_Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAWindowThatCoversNothingSaysSo(_Base):
+    """A group- or tag-scoped window matches an EXACT string, and `group` is
+    operator-editable free text that nothing repoints. Rename `prod` to
+    `production` and every window scoped to `prod` quietly stops covering
+    anything — which for a change-gated window is the difference between
+    changes being held to the window and running whenever they like. The list
+    rendered it identically: same reason, same schedule, no hint."""
+
+    def setUp(self):
+        super().setUp()
+        self.cap = {}
+
+        def _respond(status, data=None):
+            self.cap['status'], self.cap['data'] = status, data
+            raise api.HTTPError(status, data)
+        self._saved = {n: getattr(api, n) for n in ('respond', 'require_auth')}
+        api.respond = _respond
+        api.require_auth = lambda *a, **k: 'alice'
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web01', 'group': 'prod', 'tags': ['edge']},
+            'd2': {'name': 'web02', 'group': 'prod'},
+            'd3': {'name': 'lab01', 'group': 'lab'}})
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for n, v in self._saved.items():
+            setattr(api, n, v)
+        super().tearDown()
+
+    def _list(self, *windows):
+        api.save(api.MAINT_FILE, {'windows': list(windows)})
+        api._LOAD_CACHE.clear()
+        self.cap.clear()
+        try:
+            api.handle_maintenance_list()
+        except api.HTTPError:
+            pass
+        return {w['id']: w for w in (self.cap['data'] or {}).get('windows', [])}
+
+    def test_a_group_window_counts_its_hosts(self):
+        out = self._list({'id': 'w1', 'scope': 'group', 'target': 'prod',
+                          'gate_exec': True, 'reason': 'patching'})
+        self.assertEqual(out['w1']['covers'], 2)
+
+    def test_a_renamed_group_leaves_it_covering_nothing(self):
+        out = self._list({'id': 'w1', 'scope': 'group', 'target': 'production',
+                          'gate_exec': True, 'reason': 'patching'})
+        self.assertEqual(out['w1']['covers'], 0,
+                         'the window matches no host and the list said nothing')
+
+    def test_device_tag_and_global_scopes_all_report(self):
+        out = self._list(
+            {'id': 'wd', 'scope': 'device', 'target': 'd1'},
+            {'id': 'wx', 'scope': 'device', 'target': 'gone'},
+            {'id': 'wt', 'scope': 'tag', 'target': 'edge'},
+            {'id': 'wg', 'scope': 'global', 'target': ''})
+        self.assertEqual(out['wd']['covers'], 1)
+        self.assertEqual(out['wx']['covers'], 0)
+        self.assertEqual(out['wt']['covers'], 1)
+        self.assertEqual(out['wg']['covers'], 3)
+
+    def test_an_unknown_scope_says_nothing_rather_than_zero(self):
+        """A scope this build does not know is not evidence of no coverage."""
+        out = self._list({'id': 'w9', 'scope': 'smart', 'target': 'x'})
+        self.assertIsNone(out['w9']['covers'])
+
+    def test_the_page_renders_the_warning(self):
+        js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        self.assertIn('covers nothing', js)

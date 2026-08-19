@@ -56,6 +56,7 @@
     // checkbox labels. The label rows were never in DICT — the gate's
     // `<label>` pattern is `[^<]`, so a label wrapping an `<input>` never
     // matched — so the whole card moves rather than only the new rows.
+    "covers nothing": { fr: "ne couvre rien", de: "deckt nichts ab", zh: "未覆盖任何主机", hi: "किसी को कवर नहीं करता", es: "no cubre nada", ar: "لا يغطي شيئًا" },
     "Precedent": { fr: "Précédent", de: "Präzedenzfall", zh: "先例", hi: "पूर्व उदाहरण", es: "Precedente", ar: "سابقة" },
     "Clear receipts": { fr: "Effacer les reçus", de: "Belege löschen", zh: "清除记录", hi: "रसीदें साफ़ करें", es: "Borrar los comprobantes", ar: "مسح الإيصالات" },
     "Re-read the receipts ledger": { fr: "Relire le registre des reçus", de: "Das Belegregister neu einlesen", zh: "重新读取记录台账", hi: "रसीद बही पुनः पढ़ें", es: "Volver a leer el registro de comprobantes", ar: "إعادة قراءة سجل الإيصالات" },

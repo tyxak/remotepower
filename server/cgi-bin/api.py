@@ -65083,6 +65083,31 @@ def handle_maintenance_list():
             dev = devices.get(w.get('target'))
             if dev:
                 entry['target_name'] = dev.get('name') or dev.get('hostname') or w.get('target')
+        # v7.0.2: how many hosts this window actually covers, right now.
+        #
+        # A group- or tag-scoped window matches on an EXACT string, and `group`
+        # is operator-editable free text that nothing repoints. Rename `prod` to
+        # `production` and every window scoped to `prod` quietly stops covering
+        # anything — and for a `gate_exec` window that is the difference between
+        # changes being held to the window and running whenever they like. The
+        # list rendered such a window exactly as before: same reason, same
+        # schedule, no hint that its target had stopped existing.
+        #
+        # Counted over the devices this CALLER can see, like everything else on
+        # this response, so the number is what they can act on.
+        scope = (w.get('scope') or 'device').lower()
+        if scope == 'global':
+            entry['covers'] = len(devices)
+        elif scope == 'device':
+            entry['covers'] = 1 if w.get('target') in devices else 0
+        elif scope == 'group':
+            entry['covers'] = sum(1 for d in devices.values()
+                                  if (d.get('group') or '') == w.get('target'))
+        elif scope == 'tag':
+            entry['covers'] = sum(1 for d in devices.values()
+                                  if w.get('target') in (d.get('tags') or []))
+        else:
+            entry['covers'] = None       # unknown scope — say nothing rather than 0
         out.append(entry)
     out.sort(key=lambda x: (not x['active'], x.get('reason', '')))
     respond(200, {'windows': out})
@@ -65385,7 +65410,19 @@ def process_service_report(dev_id, services_payload):
         # v6.3.0: a unit that was flapping, is still present this cycle, and did
         # NOT flap again (restart count stable) → recovered. Persist the live
         # flapping set so the recover is edge-triggered exactly once.
-        present = {e['unit'] for e in clean}
+        #
+        # v7.0.2: and it has to be RUNNING. "Restart count stable" is exactly
+        # what systemd's StartLimitBurst produces when a crash-looping unit gives
+        # up: the counter freezes because nothing is restarting it any more. So
+        # the unit that had been flapping all morning went `failed`, stopped
+        # climbing, and `unit_flapping_cleared` closed the alert — the condition
+        # got worse and the inbox said it had recovered.
+        #
+        # It matters twice over now that autonomy can restart a flapping unit: a
+        # restart that pushes a unit past its burst limit would have closed its
+        # own alert, which is the shape the loop's precedent reads as proof the
+        # action works.
+        present = {e['unit'] for e in clean if e.get('active') == 'active'}
         recovered = (prev_flapping & present) - flapped_now
         new_flapping = (prev_flapping | flapped_now) - recovered
         flap_recovers = sorted(recovered)
