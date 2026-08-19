@@ -99,6 +99,17 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
     def setUpClass(cls):
         if sync_playwright is None:
             browser_required.skip_or_fail('playwright not installed')
+        # v7.0.2: the same guard its sibling seeded-stack suites carry
+        # (test_v643_box_overflow_rendered, test_v643_icon_label_gap), and this
+        # file was written without it. The demo seeder writes JSON files; under
+        # RP_STORAGE_BACKEND=sqlite the stack looks for a users table that was
+        # never migrated, so alice/demo cannot log in and all thirteen tests
+        # ERROR on a 90-second `#app` timeout. What they measure — the rendered
+        # page — is the same whichever backend served it.
+        if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
+            raise unittest.SkipTest(
+                'the rendered page is backend-agnostic — measured once under '
+                'the default backend')
         seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
         if not seeder.is_file():
             raise unittest.SkipTest('demo seeder not in this tree')

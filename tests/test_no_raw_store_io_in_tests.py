@@ -53,6 +53,12 @@ _PATTERNS = (
 # site nobody checked.
 EXEMPT_FILES = {
     'test_no_raw_store_io_in_tests.py': 'this file quotes the patterns it bans',
+    'test_v702_seeder_shapes.py':
+        'reads the SEEDER\'s output directory, which the seeder writes as real '
+        'JSON files before any backend exists — that directory is the subject '
+        'of the test, not a storage key being read behind the backend\'s back. '
+        'Going through api.load() would need the data dir repointed and the '
+        'backend forced, which is more machinery to say the same thing.',
 }
 
 

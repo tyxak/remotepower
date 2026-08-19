@@ -43,8 +43,15 @@ MAC = _ROOT / 'client' / 'remotepower-agent-mac.py'
 TWINNED = {
     # heartbeat delta protocol
     '_apply_sysinfo_delta', '_commit_sysinfo_delta',
-    # canary / honeytoken files
-    '_canary_path_ok', '_canary_status', '_plant_canaries',
+    # canary / honeytoken files. `_canary_path_safe` (v7.0.2) is the LOCATION
+    # rule — which directories a decoy may not live in — and is mirrored from
+    # server/cgi-bin/sanitize.py, so a one-sided edit here means one platform
+    # keeps accepting a path the other now refuses.
+    '_canary_path_ok', '_canary_path_safe', '_canary_status', '_plant_canaries',
+    # self-update version comparison. Twinned in v7.0.2 when the no-downgrade
+    # guard was ported to both; a one-sided fix means one platform can still
+    # walk itself backwards on hash drift.
+    '_vtuple',
     # file-log tailing state
     '_file_log_state_path', '_load_file_log_state', '_save_file_log_state',
     '_submit_file_logs',

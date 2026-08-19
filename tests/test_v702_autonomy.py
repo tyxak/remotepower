@@ -81,7 +81,11 @@ class _Base(unittest.TestCase):
         for n in _STORES:
             if hasattr(api, n):
                 self._saved[n] = getattr(api, n)
-                setattr(api, n, self.d / f'{n.lower()}.json')
+        # The BASENAME is the storage key. Under SQLite/Postgres the backend
+        # selects its table from it, so a synthesised name like
+        # 'devices_file.json' is not the devices store — every heartbeat 403'd
+        # on the JSON-backend-only spelling. Keep the product's own filename.
+                setattr(api, n, self.d / self._saved[n].name)
         self._mitigate = api.MITIGATE_LOGS_DIR
         api.MITIGATE_LOGS_DIR = self.d / 'mitigate_logs'
         api._LOAD_CACHE.clear()

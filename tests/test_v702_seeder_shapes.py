@@ -104,7 +104,11 @@ class TestEverySeededSignalSurvivesTheHeartbeat(unittest.TestCase):
                        ('DEVICES_FILE', 'CONFIG_FILE', 'CMDS_FILE',
                         'ALERTS_FILE', 'FLEET_EVENTS_FILE')}
         for n in self._saved:
-            setattr(api, n, self.d / f'{n.lower()}.json')
+        # The BASENAME is the storage key. Under SQLite/Postgres the backend
+        # selects its table from it, so a synthesised name like
+        # 'devices_file.json' is not the devices store — every heartbeat 403'd
+        # on the JSON-backend-only spelling. Keep the product's own filename.
+            setattr(api, n, self.d / self._saved[n].name)
         self._fns = {n: getattr(api, n) for n in
                      ('respond', 'method', 'get_json_obj', 'get_json_body',
                       'audit_log', 'log_command', 'fire_webhook',

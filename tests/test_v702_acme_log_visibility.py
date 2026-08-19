@@ -45,7 +45,11 @@ class _Base(unittest.TestCase):
         for n in ('DEVICES_FILE', 'CMDS_FILE', 'ACME_STATE_FILE', 'HISTORY_FILE',
                   'AUDIT_LOG_FILE'):
             self._saved[n] = getattr(api, n)
-            setattr(api, n, self.d / f'{n.lower()}.json')
+        # The BASENAME is the storage key. Under SQLite/Postgres the backend
+        # selects its table from it, so a synthesised name like
+        # 'devices_file.json' is not the devices store — every heartbeat 403'd
+        # on the JSON-backend-only spelling. Keep the product's own filename.
+            setattr(api, n, self.d / self._saved[n].name)
         self._saved_dir = api.ACME_LOGS_DIR
         api.ACME_LOGS_DIR = self.d / 'acme_logs'
         self._fns = {n: getattr(api, n) for n in
