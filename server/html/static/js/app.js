@@ -23997,6 +23997,19 @@ async function _loadAuditSection(key) {
           ['Windows Firewall', si.win_posture && (si.win_posture.firewall || []).length
                           ? si.win_posture.firewall.map(p => `${p.name} ${p.enabled ? 'on' : 'OFF'}`).join(', ') : null],
           ['Windows Update', (si.win_posture && si.win_posture.wu_service) || null],
+          // v7.0.2: three more Windows posture fields the sanitizer persists and
+          // the Checks engine + advisory both evaluate, which had no pill here —
+          // so the drawer showed four of the eight and read as complete.
+          ['Tamper protection', (si.win_posture
+              && typeof si.win_posture.tamper_protection === 'boolean')
+                          ? (si.win_posture.tamper_protection ? 'on' : 'OFF') : null],
+          ['UAC', (si.win_posture && typeof si.win_posture.uac_enabled === 'boolean')
+                          ? (si.win_posture.uac_enabled ? 'on' : 'DISABLED') : null],
+          // The Windows twin of `reboot_required`, which has had a row for
+          // releases. Same fact, same drawer, one platform short.
+          ['Pending reboot', (si.win_posture
+              && typeof si.win_posture.pending_reboot === 'boolean')
+                          ? (si.win_posture.pending_reboot ? 'yes' : 'no') : null],
           // v6.4.0: macOS posture parity — collected + checked + now alerted;
           // shown here too. Each pill is null on a non-Mac host.
           ['FileVault', (si.mac_posture && typeof si.mac_posture.filevault === 'boolean')
@@ -24007,6 +24020,10 @@ async function _loadAuditSection(key) {
                           ? (si.mac_posture.sip ? 'on' : 'OFF') : null],
           ['macOS Firewall', (si.mac_posture && typeof si.mac_posture.firewall === 'boolean')
                           ? (si.mac_posture.firewall ? 'on' : 'OFF') : null],
+          // v7.0.2: the fifth mac_posture field — checked and indexed, never shown.
+          ['macOS auto security updates', (si.mac_posture
+              && typeof si.mac_posture.auto_security_update === 'boolean')
+                          ? (si.mac_posture.auto_security_update ? 'on' : 'OFF') : null],
           // v6.4.3: the Linux third of the same question. BitLocker and
           // FileVault have had a pill here since their posture landed, while
           // dm-crypt/LUKS — collected, sanitised, scored by compliance and the
@@ -24016,13 +24033,44 @@ async function _loadAuditSection(key) {
           // Null unless the agent actually answered: it sends {} rather than
           // encrypted:false when it cannot see device-mapper, so absence stays
           // absence instead of being drawn as "OFF".
-          ['Disk encryption', (si.disk_encryption
-                               && typeof si.disk_encryption.encrypted === 'boolean')
-                          ? (si.disk_encryption.encrypted
-                               ? 'on' + ((si.disk_encryption.crypt_devices || []).length
-                                   ? ` · ${si.disk_encryption.crypt_devices.length} volume(s)` : '')
-                               : 'OFF')
-                          : null],
+          ['Disk encryption', (() => {
+            const de = si.disk_encryption;
+            if (!de || typeof de.encrypted !== 'boolean') return null;
+            if (!de.encrypted) {
+              // v7.0.2: dm_count was collected, sanitised and read by nothing.
+              // "OFF" alone cannot tell an unencrypted plain disk from LVM
+              // sitting on no LUKS at all, and the second is the one worth
+              // saying out loud.
+              return 'OFF' + (de.dm_count
+                ? ` · ${de.dm_count} device-mapper volume(s), none encrypted` : '');
+            }
+            const vols = (de.crypt_devices || []).length || de.crypt_count || 0;
+            const mounts = de.encrypted_mounts || [];
+            return 'on'
+              + (vols ? ` · ${vols} volume(s)` : '')
+              // The mount list was persisted and read only by Checks and RAG.
+              // Which paths are covered is the actual question behind "is this
+              // encrypted" on a host with more than one filesystem.
+              + (mounts.length ? ` · ${mounts.slice(0, 4).join(', ')}`
+                                 + (mounts.length > 4 ? `, +${mounts.length - 4}` : '')
+                               : '');
+          })()],
+          // v7.0.2: UEFI Secure Boot. Absent means there was no EFI variable
+          // to read — a BIOS/CSM boot, a container, a VM without OVMF — which
+          // is a different answer from "off" and is left blank rather than
+          // guessed at.
+          ['Secure Boot', (() => {
+            // Two producers: the Linux agent reports it top-level (from the EFI
+            // variable), the Windows agent under win_posture. Reading only one
+            // leaves the other platform blank while the data is right there.
+            const sb = typeof si.secure_boot === 'boolean'
+              ? si.secure_boot
+              : (si.win_posture && typeof si.win_posture.secure_boot === 'boolean'
+                  ? si.win_posture.secure_boot : null);
+            // null means there was no firmware variable to read — a BIOS/CSM
+            // boot, a container, a VM without OVMF. Not the same as "off".
+            return sb === null ? null : (sb ? 'on' : 'OFF');
+          })()],
           // v6.4.3: platform health. All four were collected by the agent,
           // whitelisted by the sanitiser and evaluated by the Checks engine —
           // and rendered NOWHERE. The drawer already showed this host's

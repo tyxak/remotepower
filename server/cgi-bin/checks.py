@@ -773,6 +773,29 @@ def _host_checks(
             detail,
         )
 
+    # ── v7.0.2: UEFI Secure Boot, from the top-level signal ──
+    # The Linux agent reads /sys/firmware/efi/efivars/SecureBoot-*; the Windows
+    # agent reports the same fact under win_posture, which `win_secure_boot`
+    # above already covers. Only one of the two is ever present on a host, so an
+    # operator never sees both rows — the ids stay separate so a Windows fleet's
+    # existing mutes and history keep pointing at the same check.
+    #
+    # NOT opt-in, unlike LUKS above: an unencrypted root is a defensible Linux
+    # choice, while firmware that will boot an unsigned kernel is not a
+    # trade-off anyone makes on purpose. The agent leaves the key ABSENT when
+    # there is no EFI variable at all (BIOS/CSM boot, a container, a VM without
+    # OVMF), so a host where the question does not apply stays silent rather
+    # than being reported as off.
+    if isinstance(si.get("secure_boot"), bool):
+        sb = si["secure_boot"]
+        add(
+            "secure_boot",
+            "Secure Boot",
+            "security",
+            "ok" if sb else "warning",
+            "enabled" if sb else "OFF — firmware will boot an unsigned kernel",
+        )
+
     mp = si.get("mac_posture")
     if isinstance(mp, dict):
         if "filevault" in mp:

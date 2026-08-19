@@ -174,6 +174,28 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None):
             'Schedule a reboot (Fleet → Commands, or a maintenance window).',
             device_id=dev_id, device=name, source='host state'))
 
+    # v7.0.2: UEFI Secure Boot. The Windows leg of this has been an advisory
+    # finding since v6.3.0 (inside the win_posture block below), and the Linux
+    # leg did not exist because nothing collected it — the same shape as the
+    # encryption factor that scored zero on Linux hosts until v6.4.3. Reads the
+    # top-level signal, so it covers the agent that reports it that way and
+    # leaves the Windows finding to say its own piece.
+    #
+    # Absent means "no EFI variable to read" — a BIOS/CSM boot, a container, a
+    # VM without OVMF — and is silent. Only an explicit False is a finding.
+    if si.get('secure_boot') is False:
+        out.append(_finding(
+            'os.secureboot', 'os', 'medium',
+            'Secure Boot is off',
+            'The firmware will load an unsigned kernel or bootloader, so a '
+            'bootkit survives a reinstall of everything above it and the host '
+            'attests as healthy afterwards.',
+            'Enable Secure Boot in firmware. On a host with third-party kernel '
+            'modules, enroll the signing key (MOK) first, or the modules stop '
+            'loading at the next boot.',
+            device_id=dev_id, device=name, source='firmware',
+            doc='docs/security.md'))
+
     eol = (eol_rec or {}).get('status') if isinstance(eol_rec, dict) else None
     if eol in ('eol', 'expired'):
         out.append(_finding(
