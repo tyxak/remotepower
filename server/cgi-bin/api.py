@@ -12201,6 +12201,19 @@ def _run_automation_rules(event, payload, cfg):
         dm = match.get('device_match') or {}
         if (dm.get('group') or dm.get('tags')) and devices_cache is None:
             devices_cache = load(DEVICES_FILE) or {}
+        # SEC (v7.0.2): confine a tenant's rule to that tenant's devices. This
+        # fires from fire_webhook with no request context, so the gate stamped
+        # on the rule at create time is the only tenancy signal available —
+        # exactly the model `_autopatch_target_devices` has used since v6.4.0.
+        # An empty `device_match` matches EVERY device in the instance, and the
+        # `run_script` action queues a script body as `exec:` on whatever it
+        # matched, which the agent runs as root.
+        _rgate = rule.get('tenant_gate')
+        if _rgate is not None:
+            if devices_cache is None:
+                devices_cache = load(DEVICES_FILE) or {}
+            if _device_tenant(devices_cache.get(dev_id) or {}) != _rgate:
+                continue
         if not _device_matches_rule(dm, dev_id, devices_cache):
             continue
         try:
@@ -12300,10 +12313,25 @@ def _validate_rule(body):
     return rule, None
 
 
+def _rule_visible(rule):
+    """True if this caller may see/edit this automation rule.
+
+    A rule names a script id and a device match, and it RUNS CODE AS ROOT on
+    whatever it matches — so which rules exist is not neutral information, and
+    editing one is equivalent to creating it. Rules written before v7.0.2 carry
+    no gate; those stay visible to every admin, because retro-assigning them to
+    a tenant would be a guess about who owns them.
+    """
+    gate = rule.get('tenant_gate') if isinstance(rule, dict) else None
+    return gate is None or gate == _tenant_gate()
+
+
 def handle_automation_rules_list():
     """GET /api/automation/rules — list automation rules. Auth: require_auth."""
     require_auth()
-    respond(200, {'rules': (load(RULES_FILE) or {}).get('rules') or []})
+    rules = [r for r in ((load(RULES_FILE) or {}).get('rules') or [])
+             if _rule_visible(r)]
+    respond(200, {'rules': rules})
 
 
 def handle_automation_rule_create():
@@ -12315,7 +12343,20 @@ def handle_automation_rule_create():
     if err:
         respond(400, {'error': err})
     rule.update({'id': 'r-' + secrets.token_hex(6), 'created': int(time.time()),
-                 'actor': actor, 'last_fired': 0, 'fire_count': 0})
+                 'actor': actor, 'last_fired': 0, 'fire_count': 0,
+                 # SEC (v7.0.2): the rule fires from fire_webhook, which has no
+                 # request context — `_tenant_gate()` is unavailable at fire
+                 # time — so the creator's tenant is stamped ON the rule and
+                 # enforced when it matches a device. Without it, a rule with an
+                 # empty `device_match` matches EVERY device in the instance and
+                 # `run_script` queues its body as `exec:` on another tenant's
+                 # host, where the agent runs it as root. Unattended, no victim
+                 # interaction.
+                 #
+                 # The autopatch sibling has done exactly this since v6.4.0
+                 # (`_autopatch_target_devices(target, tenant_gate)`), for the
+                 # same reason and with a strictly milder payload.
+                 'tenant_gate': _tenant_gate()})
     with _LockedUpdate(RULES_FILE) as st:
         rules = st.setdefault('rules', [])
         if len(rules) >= 200:
@@ -12337,11 +12378,16 @@ def handle_automation_rule_update(rule_id):
     found = False
     with _LockedUpdate(RULES_FILE) as st:
         for r in (st.get('rules') or []):
-            if r.get('id') == rule_id:
+            if r.get('id') == rule_id and _rule_visible(r):
+                # `rule` comes from _validate_rule, which builds a fresh dict
+                # from known keys only — so the stored tenant_gate survives this
+                # update and a caller cannot supply one.
                 r.update(rule)
                 found = True
                 break
     if not found:
+        # 404 rather than 403 for another tenant's rule: the id is not theirs to
+        # learn about.
         respond(404, {'error': 'rule not found'})
     audit_log(actor, 'automation_rule_update', f"id={rule_id}")
     respond(200, {'ok': True})
@@ -12355,7 +12401,8 @@ def handle_automation_rule_delete(rule_id):
     removed = False
     with _LockedUpdate(RULES_FILE) as st:
         rules = st.get('rules') or []
-        kept = [r for r in rules if r.get('id') != rule_id]
+        kept = [r for r in rules
+                if not (r.get('id') == rule_id and _rule_visible(r))]
         removed = len(kept) != len(rules)
         st['rules'] = kept
     if not removed:
@@ -27829,6 +27876,26 @@ _BLANKABLE_CONFIG_KEYS = (
 
 def handle_config_save():
     _cfg_actor = require_admin_auth()
+    # SEC (v7.0.2): config.json is a single INSTANCE-WIDE store, and
+    # `require_admin_auth()` is true for a TENANT admin. So one POST from any
+    # tenant could set `tenancy_enforced: false` — which makes `_tenant_gate()`
+    # return None for everyone and turns every isolation helper in the product
+    # into a no-op — or repoint `webhook_urls` / `siem_url`, enable
+    # `trust_proxy` (spoof past the IP allowlist), or set `maintenance_mode`
+    # and stop command dispatch for every other tenant.
+    #
+    # The v6.4.3 pass applied exactly this restriction to the config READ path
+    # (see `_cfg_is_admin` above, "under tenancy, 'admin' is not enough … these
+    # are INSTANCE-wide integrations belonging to the platform operator"). The
+    # write path never got it, which is the half-applied shape this codebase
+    # keeps finding — and here the missing half is the more dangerous one.
+    #
+    # No-op on the common single-tenant install: with tenancy off this branch is
+    # never taken and every admin keeps exactly the access it has today.
+    if _tenancy_enforced() and not _caller_is_superadmin():
+        respond(403, {'error': 'Instance settings are managed by the platform '
+                               'operator. Your tenant\'s own settings are '
+                               'unaffected.'})
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.ConfigSaveRequest)
     body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)

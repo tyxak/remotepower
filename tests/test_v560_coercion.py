@@ -8,9 +8,13 @@ to `.get()`. These handlers (and every other `or {}` site) now use
 still uses the fragile idiom.
 """
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import srcpin  # noqa: E402
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-coerce-'))
 
@@ -28,7 +32,10 @@ class TestNoFragileBodyIdiom(unittest.TestCase):
         # reads the body via get_json_obj() internally — both coerce a non-dict
         # body to {} and never 500 on a top-level JSON array.
         for fn in ('handle_config_save', 'handle_integrations_save'):
-            seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 400]
+            # The whole function body, not a fixed character window — a comment
+            # or an added guard clause used to push the body read out of range
+            # and fail this for no reason (it did, at v7.0.2).
+            seg = srcpin.py_function(_API, fn)
             self.assertTrue('get_json_obj()' in seg or '_read_valid(' in seg,
                             f'{fn} must read its body with get_json_obj() or _read_valid()')
 
