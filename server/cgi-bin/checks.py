@@ -77,6 +77,7 @@ def _host_checks(
     cpu_pct_crit=95,
     security_hardening=False,
     disk_encryption=False,
+    secure_boot=False,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -780,13 +781,20 @@ def _host_checks(
     # operator never sees both rows — the ids stay separate so a Windows fleet's
     # existing mutes and history keep pointing at the same check.
     #
-    # NOT opt-in, unlike LUKS above: an unencrypted root is a defensible Linux
-    # choice, while firmware that will boot an unsigned kernel is not a
-    # trade-off anyone makes on purpose. The agent leaves the key ABSENT when
-    # there is no EFI variable at all (BIOS/CSM boot, a container, a VM without
-    # OVMF), so a host where the question does not apply stays silent rather
-    # than being reported as off.
-    if isinstance(si.get("secure_boot"), bool):
+    # OPT-IN (`secure_boot_checks`, default off), for the same reason as LUKS
+    # above and corrected from how this first shipped. The first version argued
+    # that booting an unsigned kernel "is not a trade-off anyone makes on
+    # purpose", which is wrong on Linux: out-of-tree modules — ZFS, NVIDIA,
+    # VirtualBox, anything via DKMS — do not load under Secure Boot unless their
+    # signing key is enrolled, so turning it off is a routine, deliberate
+    # decision. Warning by default flags that decision as a security problem on
+    # a whole fleet at once, which is the guard-fires-on-every-healthy-host
+    # failure this codebase has shipped before.
+    #
+    # The agent leaves the key ABSENT when there is no EFI variable at all
+    # (BIOS/CSM boot, a container, a VM without OVMF), so a host where the
+    # question does not apply stays silent either way.
+    if secure_boot and isinstance(si.get("secure_boot"), bool):
         sb = si["secure_boot"]
         add(
             "secure_boot",

@@ -50,7 +50,14 @@ sortable, filterable table.
     is always worth reporting, whereas an unencrypted Linux root is the norm.
     A host whose agent cannot see device-mapper reports nothing either way,
     rather than being reported as unencrypted: being unable to look is not a
-    finding.
+    finding. `secure_boot` (UEFI Secure Boot) is opt-in on the same grounds,
+    under *Secure Boot checks* — out-of-tree kernel modules such as ZFS, NVIDIA
+    or VirtualBox will not load under Secure Boot unless you enroll their
+    signing key, so switching it off is a routine decision rather than an
+    oversight. A host with no EFI variable to read — a BIOS/CSM boot, a
+    container, a virtual machine without UEFI firmware — stays silent whichever
+    way the setting is left. The state still appears on the device drawer as a
+    plain fact; the setting controls the check and the advisory finding.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code

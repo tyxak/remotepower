@@ -27417,6 +27417,7 @@ def handle_config_get():
     safe.setdefault('host_checks_disabled', {})  # v4.1.0: per-host disabled checks
     safe.setdefault('security_hardening_checks', False)  # v6.4.2: opt-in hardening advisories
     safe.setdefault('disk_encryption_checks', False)  # v6.4.3: opt-in Linux LUKS check
+    safe.setdefault('secure_boot_checks', False)      # v7.0.2: opt-in Secure Boot check
     safe.setdefault('self_readiness_mutes', [])  # v6.4.3: silenced Self-page readiness rows
     # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
     safe.setdefault('webpush_enabled', False)
@@ -29924,6 +29925,8 @@ def handle_config_save():
     # see the reasoning at the check itself in checks.py.
     if 'disk_encryption_checks' in body:
         cfg['disk_encryption_checks'] = bool(body['disk_encryption_checks'])
+    if 'secure_boot_checks' in body:
+        cfg['secure_boot_checks'] = bool(body['secure_boot_checks'])
     # v6.4.3 (reported from use): rows on the Self page's readiness table the
     # operator has acknowledged and does not want counted as "needing a look"
     # — an optional receiver that is deliberately not wired up, say. Stored as
@@ -47136,6 +47139,10 @@ def _checks_threshold_kwargs(cfg):
         # Linux norm, so warning by default flags a deliberate choice on every
         # host at once. Separate from security_hardening on purpose.
         'disk_encryption':           bool(cfg.get('disk_encryption_checks', False)),
+        # v7.0.2: UEFI Secure Boot, opt-in for the same reason and separate from
+        # the two above — an operator who wants LUKS warnings has not asked to
+        # be told about every host running DKMS modules.
+        'secure_boot':               bool(cfg.get('secure_boot_checks', False)),
     }
 
 

@@ -325,6 +325,9 @@ def _build_advisory(devs):
         agent_tamper_by_dev=A._advisory_agent_tamper(devs),
         weak_keys_by_dev=A._advisory_weak_ssh_keys(ids),
         accounts_by_dev=A._advisory_risky_accounts(ids),
+        # v7.0.2: same opt-in as the Checks row — one switch for both, so an
+        # operator who turned the check off is not told about it here instead.
+        secure_boot_checks=bool(A._config_ro().get('secure_boot_checks', False)),
         now=int(time.time()))
 
 

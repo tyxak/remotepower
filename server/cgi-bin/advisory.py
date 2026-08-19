@@ -57,7 +57,8 @@ def _finding(fid, layer, severity, title, why, fix, *, device_id='', device='',
 
 
 # ── per-host builders ────────────────────────────────────────────────────────
-def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None):
+def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None,
+                 secure_boot_checks=False):
     """Operating-system layer: patches, kernel, EOL, CVEs, benchmark."""
     out = []
     si = dev.get('sysinfo') or {}
@@ -174,16 +175,18 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None):
             'Schedule a reboot (Fleet → Commands, or a maintenance window).',
             device_id=dev_id, device=name, source='host state'))
 
-    # v7.0.2: UEFI Secure Boot. The Windows leg of this has been an advisory
-    # finding since v6.3.0 (inside the win_posture block below), and the Linux
-    # leg did not exist because nothing collected it — the same shape as the
-    # encryption factor that scored zero on Linux hosts until v6.4.3. Reads the
-    # top-level signal, so it covers the agent that reports it that way and
-    # leaves the Windows finding to say its own piece.
+    # v7.0.2: UEFI Secure Boot, behind the same `secure_boot_checks` opt-in as
+    # its Checks row. Turning Secure Boot off is a routine decision on Linux —
+    # out-of-tree modules (ZFS, NVIDIA, VirtualBox) do not load under it without
+    # an enrolled key — so a finding on every such host would be this page
+    # telling an operator their deliberate configuration is a security problem,
+    # fleet-wide. The check and the finding share one switch: an operator who
+    # turned the row off has answered this question already.
     #
     # Absent means "no EFI variable to read" — a BIOS/CSM boot, a container, a
-    # VM without OVMF — and is silent. Only an explicit False is a finding.
-    if si.get('secure_boot') is False:
+    # VM without OVMF — and is silent either way. Only an explicit False is a
+    # finding, and only when asked for.
+    if secure_boot_checks and si.get('secure_boot') is False:
         out.append(_finding(
             'os.secureboot', 'os', 'medium',
             'Secure Boot is off',
@@ -687,7 +690,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
-          weak_keys_by_dev=None, accounts_by_dev=None, now=None):
+          weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
+          now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -716,7 +720,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
             continue
         name = dev.get('name') or dev_id
         findings += _os_findings(dev_id, name, dev, cve_by_dev.get(dev_id),
-                                 eol_by_dev.get(dev_id), scap_by_dev.get(dev_id))
+                                 eol_by_dev.get(dev_id), scap_by_dev.get(dev_id),
+                                 secure_boot_checks=secure_boot_checks)
         findings += _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn)
         findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id),
                                        weak_keys_by_dev.get(dev_id),
