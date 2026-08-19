@@ -12,6 +12,10 @@ supervised service on every OS, zero inbound ports — and agentless receivers
 (syslog, NetFlow, SNMP) for the boxes that can't run one. Up and running in
 five minutes.
 
+[![CI](https://github.com/tyxak/remotepower/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tyxak/remotepower/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/tyxak/remotepower/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/tyxak/remotepower/actions/workflows/codeql.yml)
+[![Downloads](https://img.shields.io/github/downloads/tyxak/remotepower/total.svg?label=downloads)](https://github.com/tyxak/remotepower/releases)
+[![Latest release](https://img.shields.io/github/v/release/tyxak/remotepower?label=release)](https://github.com/tyxak/remotepower/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://kernel.org)
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
