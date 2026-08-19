@@ -25,8 +25,9 @@ Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
 this agent deliberately does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile` — `oscap` is a Linux tool with Linux SCAP content, and the
 server-side CIS baseline is the cross-platform path);
-`host_scan` (lynis); `image_scan_*` (trivy container-image CVEs); `du_scan_*`
-(no `du` on Windows; macOS has it since v6.4.1); `mailbox_paths` (Unix mail
+`host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy
+container-image CVEs); `du_scan_*` / `force_du_scan` (no `du` on Windows;
+macOS has it since v6.4.1); `mailbox_paths` (Unix mail
 spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
 push relay channel); `mdns_enabled`; `force_iac_collect`; `guard_actions`
 (Integrity Guard check types are Linux-only); `harvest_dns_creds` /
