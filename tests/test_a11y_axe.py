@@ -63,6 +63,16 @@ try:
 except ImportError:
     _HAVE_AXE = False
 
+# v7.0.2: the class decorators below skip on a MISSING PACKAGE, and
+# browser_required only ever saw the missing-BROWSER case (its check lives in
+# setUpClass, which a class-level skip never reaches). axe-core-python was
+# absent on this box for the whole life of the file, so the entire
+# accessibility sweep — 234 subtests — reported OK while running nothing at
+# all, including under RP_BROWSER_REQUIRE. Letting the class RUN when the flag
+# is set turns that into the loud failure the flag exists to produce.
+_A11Y_DEPS = _HAVE_PLAYWRIGHT and _HAVE_AXE
+_A11Y_GATE = _A11Y_DEPS or browser_required.required()
+
 _SERIOUS_IMPACTS = ('critical', 'serious')
 
 # v6.1.1: no rules disabled -- nested-interactive's fix (see module
@@ -85,7 +95,7 @@ def _run_axe(page, axe, options=None):
         "axe.run(%s).then(r => r)" % json.dumps(options or {}))
 
 
-@unittest.skipUnless(_HAVE_PLAYWRIGHT and _HAVE_AXE,
+@unittest.skipUnless(_A11Y_GATE,
                      'playwright + axe-core-python not installed (pip install '
                      'playwright gunicorn axe-core-python && '
                      'python -m playwright install chromium)')
@@ -102,6 +112,15 @@ class TestAccessibilityAxe(unittest.TestCase):
         if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest(
                 'a11y is backend-agnostic — audited once under the default backend')
+        # v7.0.2: FIRST, before the stack boots. When RP_BROWSER_REQUIRE lets a
+        # dependency-less class run, the point is a loud failure — and reaching
+        # it via a 90-second stack boot and a browser launch, only to die at
+        # Axe(), is a two-minute wait for a one-line answer.
+        if not _A11Y_DEPS:
+            browser_required.skip_or_fail(
+                'playwright + axe-core-python are not installed '
+                '(pip install playwright gunicorn axe-core-python && '
+                'python -m playwright install chromium)')
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)
@@ -469,7 +488,7 @@ _SEEDED_PAGES = ('devices', 'alerts', 'monitor', 'containers', 'cmdb',
 _SEEDED_CONTRAST_CEILING = 0
 
 
-@unittest.skipUnless(_HAVE_PLAYWRIGHT and _HAVE_AXE,
+@unittest.skipUnless(_A11Y_GATE,
                      'playwright + axe-core-python not installed')
 class TestAccessibilityAxeSeeded(unittest.TestCase):
     """axe over an instance that actually has rows in it."""
@@ -483,6 +502,14 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         import time as _time
         if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('a11y is backend-agnostic — audited once')
+        # Same early check as the class above — this one seeds a demo fleet
+        # before it launches anything, so reaching the real failure the slow way
+        # costs more here, not less.
+        if not _A11Y_DEPS:
+            browser_required.skip_or_fail(
+                'playwright + axe-core-python are not installed '
+                '(pip install playwright gunicorn axe-core-python && '
+                'python -m playwright install chromium)')
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)

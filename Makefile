@@ -213,6 +213,13 @@ tls-renew:
 # install chromium. Boots the real stack (static + gunicorn+wsgi.py) headless.
 # v6.1.1 (#63): test_a11y_axe (axe-core accessibility checks) also self-skips
 # without axe-core-python -- pip install axe-core-python to include it.
+# v7.0.2: and it HAD been skipping here, for the whole life of the file -- the
+# package was never installed on this box, the class-level skipUnless fired
+# before RP_BROWSER_REQUIRE could be consulted (that check lives in
+# setUpClass, which a class skip never reaches), and 234 accessibility subtests
+# reported OK while running nothing. The flag now folds into the class
+# condition, so `make pre-release` fails on a missing PACKAGE the same way it
+# already failed on a missing browser.
 e2e:
 	cd tests && $(PY) -m unittest test_v430_e2e test_a11y_axe -v
 

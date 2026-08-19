@@ -38,9 +38,19 @@ LAYERS = ('application', 'exposure', 'os', 'identity', 'integrity', 'data')
 
 
 def _finding(fid, layer, severity, title, why, fix, *, device_id='', device='',
-             evidence=None, source='', doc=''):
+             evidence=None, source='', doc='', ai_title=''):
+    """One advisory finding.
+
+    `ai_title` (v7.0.2) is what `summarize_for_ai` sends instead of `title`.
+    Most titles interpolate only COUNTS and are safe to send as they are; a few
+    interpolate a hostname, an operator-authored check name, or a title from an
+    external scanner. The Ask-AI button promises "never the evidence, which
+    carries hostnames", and those three broke it — the brief goes to whatever
+    provider is configured, which may be off-box.
+    """
     return {
         'id': fid, 'layer': layer, 'severity': severity, 'title': title,
+        'ai_title': ai_title or '',
         'why': why, 'fix': fix, 'device_id': device_id, 'device': device,
         'evidence': list(evidence or [])[:8], 'source': source, 'doc': doc,
     }
@@ -248,6 +258,7 @@ def _tls_findings(tls_expiring):
                 'through the warning, which is the worse outcome.',
                 'Renew it immediately. If ACME is configured, the renewal has '
                 'been failing for weeks — fix the cause, not just this cert.',
+                ai_title='A monitored TLS certificate has expired',
                 source='TLS monitor', doc='docs/tls-monitor.md'))
         elif days <= 14:
             out.append(_finding(
@@ -258,6 +269,7 @@ def _tls_findings(tls_expiring):
                 'than the outage.',
                 'Renew it. If ACME is configured, check why the renewal did not '
                 'run rather than renewing by hand.',
+                ai_title=f'A monitored TLS certificate expires in {days} day(s)',
                 source='TLS monitor', doc='docs/tls-monitor.md'))
     return out
 
@@ -517,6 +529,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
             'Re-baseline to accept the current state; otherwise investigate.',
             device_id=dev_id, device=name,
             evidence=[str(c.get('output', ''))[:200]] if c.get('output') else None,
+            ai_title='A protect check is failing',
             source='protect check', doc='docs/integrity-guard.md'))
     return out
 
@@ -642,6 +655,7 @@ def _application_findings(dev_id, name, scans):
                        're-run the scan to confirm it is gone.')[:400],
                 device_id=dev_id, device=name,
                 evidence=[str(f.get('matched') or f.get('url') or f.get('detail') or '')[:200]],
+                ai_title=f'{tool} reported a {sev} finding',
                 source=f'{tool} scan', doc='docs/security-scans.md'))
     return out
 
@@ -701,6 +715,10 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
         g = groups.setdefault(f['id'], {
             'id': f['id'], 'layer': f['layer'], 'severity': f['severity'],
             'title': f['title'], 'why': f['why'], 'fix': f['fix'],
+            # Carried through the grouping, or summarize_for_ai never sees it —
+            # it reads the GROUPS, not the raw findings, so a redacted title
+            # dropped here is a redaction that silently does nothing.
+            'ai_title': f.get('ai_title') or '',
             'source': f['source'], 'doc': f['doc'], 'devices': [], 'evidence': [],
         })
         # A group takes the worst severity any member reported.
@@ -742,7 +760,12 @@ def summarize_for_ai(advisory, scope_label):
     lines = [f'Security posture for {scope_label} '
              f"({advisory.get('device_count', 0)} host(s)).", '']
     for g in advisory.get('findings') or []:
-        lines.append(f"- [{g['severity'].upper()}] {g['layer']}: {g['title']} "
+        # ai_title when the finding declares one — see _finding(). A title that
+        # interpolates only counts goes as it is; one that interpolates a
+        # hostname, an operator-authored name or an external tool's own text
+        # does not, because this string leaves the box.
+        lines.append(f"- [{g['severity'].upper()}] {g['layer']}: "
+                     f"{g.get('ai_title') or g['title']} "
                      f"— affects {g.get('device_count', 0)} host(s)")
     if not advisory.get('findings'):
         lines.append('- No critical or high findings from the collected data.')

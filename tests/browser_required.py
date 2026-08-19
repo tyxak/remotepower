@@ -31,6 +31,19 @@ def _required():
         '1', 'true', 'yes', 'on')
 
 
+def required():
+    """Public name for the same question.
+
+    A class-level `@skipUnless` never reaches setUpClass, so `skip_or_fail`
+    cannot see a MISSING PACKAGE — only a missing browser. Callers whose gate is
+    a class decorator fold this into the condition instead, so the class runs
+    under the flag and fails in setUpClass with a real reason. That gap let the
+    whole accessibility sweep report OK while running nothing, because
+    axe-core-python was not installed (v7.0.2).
+    """
+    return _required()
+
+
 def skip_or_fail(reason):
     """Skip, unless RP_BROWSER_REQUIRE says a browser must be available.
 
