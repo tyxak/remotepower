@@ -7674,7 +7674,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="shadow">Shadow — record, never act</option>
               <option value="enabled">Enabled — act within the limits</option>
             </select>
-            <button class="btn-secondary" data-action="saveAutonomyPolicy">Save envelope</button>
           </div>
           <div class="settings-row">
             <label class="form-label" for="autonomy-max-radius">Maximum blast radius</label>
@@ -7705,6 +7704,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="settings-row">
             <div id="autonomy-actions" class="scroll-cap"></div>
+          </div>
+          <div class="settings-row">
+            <button class="btn-secondary" data-action="saveAutonomyPolicy">Save envelope</button>
+            <span class="hint">Saves everything on this card — the mode, the limits and the permitted actions.</span>
           </div>
         </div>
       </div>

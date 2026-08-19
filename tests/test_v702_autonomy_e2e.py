@@ -129,6 +129,19 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
 
     def setUp(self):
         self.ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        # Auto-hide OFF for this file. It is a per-browser preference that
+        # defaults ON, and it turns the sidebar into a 56px rail that expands to
+        # 248px as an OVERLAY — which covers the first 248px of content,
+        # including the envelope card's controls at x≈99. Playwright then
+        # refuses to click them: the hit test lands on `<span>Confirmations</span>`
+        # inside the nav.
+        #
+        # The reveal is a CSS `:hover` on the rail itself, so a real cursor
+        # arriving at x≈154 does not trigger it — this is the automation's
+        # pointer sequence, not something an operator hits. Auto-hide has its own
+        # e2e file; here it is a variable this test is not about.
+        self.ctx.add_init_script(
+            "try { localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
         self.page = self.ctx.new_page()
         self.errors = []
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
@@ -238,6 +251,87 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
                          'the page and the catalog disagree about which actions '
                          'a proven-recoverable backup applies to')
 
+    def test_saving_the_envelope_reaches_the_server(self):
+        """The button moved out of the Mode row — where it read as "save the
+        mode" — to the foot of the card, below the last field it saves. Nothing
+        had ever driven it, so a move that left it wired to nothing would have
+        looked exactly like this test not existing.
+
+        Toggled and toggled back, so the instance is left as it was found and
+        both directions are measured.
+        """
+        sel = '#autonomy-actions input.autonomy-act[data-act="trim_filesystem"]'
+        before = self.page.eval_on_selector(sel, 'el => el.checked')
+
+        self._set_action(sel, not before)
+        self._save_and_reload()
+        self.assertEqual(self.page.eval_on_selector(sel, 'el => el.checked'),
+                         not before,
+                         'the allow-list change did not survive a reload — the '
+                         'button saved nothing')
+
+        self._set_action(sel, before)          # leave it as it was found
+        self._save_and_reload()
+        self.assertEqual(self.page.eval_on_selector(sel, 'el => el.checked'), before)
+        self.assertEqual(self.errors, [])
+
+    def _park_cursor(self):
+        """Get the pointer away from the left edge before clicking anything.
+
+        The seeded instance runs the sidebar in auto-hide, so it is a 56px rail
+        that expands to 248px on hover. The envelope card's controls sit at
+        x≈99 — 43px clear of the rail collapsed, well under it expanded — so a
+        click left over from the previous action keeps the sidebar open and it
+        swallows the next one. Measured, not guessed: the failure log named
+        `<span>Confirmations</span> from <nav class="sidebar">` as the element
+        that intercepted the click.
+        """
+        self.page.mouse.move(1200, 400)
+        self.page.wait_for_timeout(350)     # longer than the reveal transition
+
+    def _set_action(self, sel, want):
+        """Tick or untick one allow-list row.
+
+        Scrolled into view first, and only then handed to Playwright's
+        actionability check. The card is at the FOOT of a long page now, inside
+        a 340px scroll cap, so the row sits well over a thousand pixels below
+        the fold.
+        """
+        self._park_cursor()
+        self.page.eval_on_selector(sel, "el => el.scrollIntoView({block: 'center'})")
+        self.page.wait_for_timeout(300)
+        if want:
+            self.page.check(sel, timeout=15000)
+        else:
+            self.page.uncheck(sel, timeout=15000)
+
+    def _save_and_reload(self):
+        """Save, then come back from a fresh load — a checkbox that stays ticked
+        in the DOM proves only that the click landed."""
+        self._park_cursor()
+        self.page.eval_on_selector('[data-action="saveAutonomyPolicy"]',
+                                   "el => el.scrollIntoView({block: 'center'})")
+        self.page.click('[data-action="saveAutonomyPolicy"]', timeout=15000)
+        self.page.wait_for_timeout(1500)
+        self.page.reload()
+        self.page.wait_for_selector('#app', state='visible', timeout=90000)
+        self.page.evaluate("() => { try { showPage('autonomy') } catch (e) {} }")
+        self._settle()
+
+    def test_the_save_button_sits_below_the_fields_it_saves(self):
+        """It was in the Mode row, above four thresholds, five checkboxes and a
+        26-row allow-list that it also saves."""
+        pos = self.page.evaluate(
+            "() => {const b = document.querySelector("
+            "'[data-action=\"saveAutonomyPolicy\"]');"
+            " const a = document.getElementById('autonomy-actions');"
+            " const m = document.getElementById('autonomy-mode');"
+            " return {btn: b.getBoundingClientRect().top,"
+            "         acts: a.getBoundingClientRect().top,"
+            "         mode: m.getBoundingClientRect().top};}")
+        self.assertGreater(pos['btn'], pos['acts'], pos)
+        self.assertGreater(pos['btn'], pos['mode'], pos)
+
     def test_deleting_a_row_reaches_the_server(self):
         """The whole path: a click, the DELETE, the re-render — and then a
         reload, because a row vanishing from the DOM proves only that the
@@ -245,6 +339,7 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         before = self.page.evaluate(_READ_TABLE)
         victim = before['firstId']
         self.assertTrue(victim, 'no receipt id to delete')
+        self._park_cursor()
         self.page.click(f'[data-action="deleteAutonomyReceipt"][data-arg="{victim}"]')
         self.page.wait_for_timeout(2500)
         after = self.page.evaluate(_READ_TABLE)
