@@ -775,6 +775,19 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
 _VERIFY_DELAY_S = 900
 
 
+def _verify_delay_for(dev):
+    """How long this host gets before the second checks sample.
+
+    At least the shipped 15 minutes, and at least two of its own poll intervals —
+    a device can be set to poll hourly, and verifying a command the agent has not
+    collected yet measures nothing."""
+    try:
+        poll = int((dev or {}).get('poll_interval') or 0)
+    except (TypeError, ValueError):
+        poll = 0
+    return max(_VERIFY_DELAY_S, 2 * poll)
+
+
 def _check_summary_for(dev_id, dev):
     """The host's own checks verdict, from the engine the Checks page uses.
 
@@ -1096,8 +1109,15 @@ def run_autonomy_if_due():
                 # Dispatch is asynchronous — the agent collects the command on
                 # its next heartbeat — so the second checks sample is owed
                 # later, not now.
+                #
+                # And "later" has to mean later than THIS host's poll interval.
+                # A fixed 15 minutes against a device polling hourly guarantees
+                # the sample is taken before the agent could have collected the
+                # command: checks unchanged, and if the alert happened to close
+                # on its own, a precedent row would name a command that never
+                # ran, stamped verified.
                 rec['before_checks'] = before
-                rec['verify_due'] = now + _VERIFY_DELAY_S
+                rec['verify_due'] = now + _verify_delay_for(dev)
         elif decision.verdict == autonomy.ESCALATE:
             rec['outcome'], cid = _escalate(dev_id, plan.get('command') or '')
             if cid:

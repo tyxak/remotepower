@@ -77,8 +77,16 @@ REASONS = (
 # So: remounting a filesystem the kernel forced read-only can corrupt data,
 # patching can break boot, and a reboot may not come back — those keep the
 # backup precondition. Killing a process, restarting networking and turning the
-# firewall on cannot lose stored state; they stay destructive (four-eyes,
-# default-off, blast radius) without pretending a backup is what protects you.
+# firewall on stay destructive (four-eyes, default-off, blast radius) without
+# pretending a backup is what protects you.
+#
+# Not "cannot lose data", which was the first wording and is more than the code
+# can support: on a host with NFS, CIFS or iSCSI, dropping the transport returns
+# EIO on soft mounts and can force a filesystem read-only — which fires
+# `readonly_fs`, whose remedy is the one action here marked as able to destroy
+# data. The claim is narrower and true: a proven RESTORE is not the thing that
+# makes these safe, and refusing them for the want of one sends the operator to
+# fix something unrelated.
 #
 # ABSENT KEY MEANS `destructive`, so a new action class added without thinking
 # about it inherits the strict behaviour rather than the permissive one.
@@ -259,7 +267,13 @@ def default_policy():
         'mode': 'off',
         'allowed_actions': [k for k, v in ACTION_CLASSES.items()
                             if v['default_allowed']],
-        'max_blast_radius': 1,        # only a host nothing else depends on
+        # Counted from what the fleet can SEE depending on this host: monitors
+        # bound to it, containers it runs, watched services, LLDP neighbours.
+        # That is observability coupling, not a dependency graph — a bare-metal
+        # database with no monitor, no containers and no LLDP data scores 0
+        # however many machines connect to it. Keep the limit tight and read it
+        # as "how much of what we watch goes dark", not "who needs this host".
+        'max_blast_radius': 1,
         'require_verified_backup': True,
         'require_window': True,
         # Act only where this fleet has fixed this signature before. ON by

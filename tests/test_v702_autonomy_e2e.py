@@ -28,6 +28,7 @@ _ROOT = _HERE.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 import browser_required
+from e2e_harness import browser_available, SKIP_REASON
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:                                     # pragma: no cover
@@ -88,7 +89,7 @@ _READ_ENVELOPE = """() => {
 }"""
 
 
-@unittest.skipUnless(sync_playwright is not None, 'playwright not installed')
+@unittest.skipUnless(browser_available(), SKIP_REASON)
 class TestTheAutonomyPageRenders(unittest.TestCase):
 
     @classmethod

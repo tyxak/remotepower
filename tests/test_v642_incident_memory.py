@@ -68,6 +68,11 @@ EXPECTED_OUTCOME_KEYS = {
     "alert_id", "captured_at", "confidence", "device_id", "device_name",
     "event", "kind", "rating", "recommended_action", "resolution",
     "resolved_at", "root_cause", "severity", "source", "tenant",
+    # v7.0.2: what actually ran, when the outcome came from a fix that
+    # demonstrably worked. Written by capture_fix_outcome and empty on a
+    # note-harvested row — present in both, because a store with two row shapes
+    # is how a renderer ends up reading a key half the rows do not have.
+    "fix_command",
 }
 
 

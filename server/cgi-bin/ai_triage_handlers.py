@@ -871,6 +871,10 @@ def _capture_incident_outcome(alert, dev):
         'device_name': alert.get('device_name') or dev.get('name') or '',
         'root_cause': root[:600],
         'recommended_action': str(verdict.get('recommended_action') or '')[:600],
+        # Empty here, but PRESENT: `capture_fix_outcome` fills it, and a store
+        # with two row shapes is how a renderer ends up reading a key half the
+        # rows do not have.
+        'fix_command': '',
         'confidence': str(verdict.get('confidence') or '')[:24],
         'resolution': _incident_resolution(alert),
         'resolved_at': int(alert.get('resolved_at') or 0),

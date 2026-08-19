@@ -623,6 +623,32 @@ class TestTheDeviceNameIsNeverAResourceName(_Base):
         self.assertEqual(cmd, 'exec:zpool scrub -- tank')
 
 
+class TestTheVerifyWindowOutlastsThePollInterval(_Base):
+    """A fixed 15 minutes against a device polling hourly guarantees the second
+    checks sample is taken before the agent could have collected the command."""
+
+    def test_a_slow_polling_host_gets_a_longer_window(self):
+        self.assertEqual(ops._verify_delay_for({'poll_interval': 3600}), 7200)
+
+    def test_a_normal_host_keeps_the_shipped_window(self):
+        self.assertEqual(ops._verify_delay_for({'poll_interval': 60}),
+                         ops._VERIFY_DELAY_S)
+        self.assertEqual(ops._verify_delay_for({}), ops._VERIFY_DELAY_S)
+        self.assertEqual(ops._verify_delay_for({'poll_interval': 'junk'}),
+                         ops._VERIFY_DELAY_S)
+
+    def test_the_receipt_uses_it(self):
+        api.save(api.DEVICES_FILE,
+                 {'d1': {'name': 'web01', 'group': 'prod', 'poll_interval': 3600}})
+        self._alert()
+        self._policy('enabled', allowed_actions=['restart_service'],
+                     require_precedent=False, approval_for_destructive=False)
+        rows = self._run()
+        acted = [r for r in rows if r['verdict'] == autonomy.ACT]
+        self.assertTrue(acted, rows)
+        self.assertGreaterEqual(acted[0]['verify_due'] - acted[0]['ts'], 7200)
+
+
 class TestEscalationDoesNotBecomeAStorm(_Base):
     """Fixing the backup gate made ESCALATE reachable for the first time, and
     the escalation path had never been exercised: the loop has no per-alert
