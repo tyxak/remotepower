@@ -365,7 +365,7 @@ def outcome_action(o):
     return ''
 
 
-def precedent_confidence(similar):
+def precedent_confidence(similar, action=None):
     """Turn prior incident outcomes into (confidence, sample_count, summary).
 
     Confidence is the share of prior incidents with this signature that a human
@@ -376,12 +376,23 @@ def precedent_confidence(similar):
 
     Deliberately NOT a model call. The whole argument for acting is that this
     exact thing was fixed this exact way before, on this fleet.
+
+    `action` is the remedy being considered, and it makes the second half of that
+    sentence mean something. An outcome that NAMES the action class that fixed it
+    — the loop's own verified actions do — and names a DIFFERENT one is evidence
+    for a different remedy: it still counts in the denominator, because the fleet
+    did resolve this signature, and not in the numerator, because it says nothing
+    about the action on the table. Enough of them and the confidence falls below
+    the bar, which is the honest outcome.
+
+    Outcomes that name no action (an operator's note, an automation rule's
+    script) are unchanged — most evidence cannot be attributed this precisely and
+    refusing it would close the door this release opened.
     """
     if not similar:
         return 0.0, 0, ''
     total = 0.0
     good = 0.0
-    action = None
     counts = {}
     for o in similar:
         if not isinstance(o, dict):
@@ -390,15 +401,17 @@ def precedent_confidence(similar):
         total += w
         res = str(o.get('resolution') or '').strip()
         act = outcome_action(o)
+        its_action = str(o.get('action') or '').strip()
+        if action and its_action and its_action != action:
+            continue                     # a fix, but for a different remedy
         if res and act:
             good += w
             key = act[:200]
             counts[key] = counts.get(key, 0) + w
     if total <= 0:
         return 0.0, 0, ''
-    if counts:
-        action = max(counts.items(), key=lambda kv: kv[1])[0]
-    return (good / total), len(similar), (action or '')
+    best = max(counts.items(), key=lambda kv: kv[1])[0] if counts else ''
+    return (good / total), len(similar), best
 
 
 def blast_radius(device_id, *, monitors=(), containers=(), status_services=(),

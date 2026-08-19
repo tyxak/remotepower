@@ -92,6 +92,20 @@ whole six-rung disk ladder attached to it. The ladder moved to
 no longer maps to killing a process: the name in that alert belongs to the
 process the kernel already killed. Twenty-five action classes.
 
+### Precedent got more specific, and commands got a shelf life
+
+Prior incidents were matched on the event *or* its kind, so `storage` pooled
+"start a scrub" with "remount a read-only filesystem" and let each argue for the
+other. Same event only now — and an outcome that records WHICH action fixed it
+has to name *this* action to count. Evidence that names no particular remedy
+counts as it always did.
+
+And an autonomous command no longer waits indefinitely. `commands.json` entries
+carry no timestamp and are drained only when a heartbeat pops one, so a command
+queued into a closing change window dispatched the next night, onto a host that
+had been healthy for a day. The loop's own commands are stamped and dropped
+after an hour, with an audit entry; a command you queued yourself is untouched.
+
 ### A receipt now says what happened
 
 The agent returns every command's **exit code** and nothing here read it, so a

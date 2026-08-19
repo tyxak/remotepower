@@ -838,6 +838,57 @@ def _check_summary_for(dev_id, dev):
     return sm
 
 
+# An autonomous decision has a shelf life. `CMDS_FILE` entries are plain strings
+# with no timestamp, drained only when a heartbeat pops one — so a command queued
+# at 03:58 into a change window closing at 04:00 is HELD at the next heartbeat
+# and dispatches at 02:00 the following night, onto a host that has been healthy
+# for 22 hours. A host that is simply offline holds it until it comes back.
+#
+# A human's queued command is theirs to leave sitting there. One nobody watched
+# being decided is not, so this side store stamps only the loop's own commands
+# and the dispatch chokepoint drops the ones that have gone stale. A side store
+# rather than a richer queue entry because ~20 call sites read those entries as
+# plain strings — `x in cmds[dev]`, `tag not in c` — and a dict among them fails
+# quietly (a dedup that stops matching) rather than loudly.
+_CMD_TTL_S = 3600
+
+
+def _stamp_command_ttl(dev_id, cmd, now):
+    """Record when the loop queued this command, for the dispatch-time check."""
+    try:
+        with A._LockedUpdate(A.AUTONOMY_CMD_TTL_FILE) as store:
+            row = store.get(dev_id)
+            if not isinstance(row, dict):
+                row = {}
+            # Prune this device's stale entries while we are here: bounded by the
+            # number of distinct commands the loop has queued for one host.
+            row = {c: t for c, t in row.items()
+                   if isinstance(t, int) and (now - t) < 2 * _CMD_TTL_S}
+            row[str(cmd)[:512]] = now
+            store[dev_id] = row
+    except Exception as exc:
+        A.sys.stderr.write(
+            f'[remotepower] autonomy ttl stamp failed dev={dev_id}: {exc}\n')
+
+
+def command_is_stale(dev_id, cmd, now):
+    """True when this is an autonomy-queued command older than its shelf life.
+
+    Called from the heartbeat's dispatch chokepoint, so it stays cheap: no store
+    read at all on an install that has never queued one.
+    """
+    try:
+        if not A.backend_exists(A.AUTONOMY_CMD_TTL_FILE):
+            return False
+        row = (A._load_ro(A.AUTONOMY_CMD_TTL_FILE) or {}).get(dev_id)
+        if not isinstance(row, dict):
+            return False
+        ts = row.get(str(cmd)[:512])
+        return isinstance(ts, int) and (now - ts) >= _CMD_TTL_S
+    except Exception:
+        return False        # never let this break a heartbeat's dispatch
+
+
 def _dispatch(dev_id, dev, cmd):
     """Queue the command. Returns (outcome, ok).
 
@@ -859,6 +910,7 @@ def _dispatch(dev_id, dev, cmd):
         return f"awaiting approval ({res.get('confirmation_id')})", False
     if not res.get('ok'):
         return f"refused: {res.get('error') or 'unknown'}", False
+    _stamp_command_ttl(dev_id, cmd, int(time.time()))
     return 'queued', True
 
 
@@ -1064,7 +1116,7 @@ def _verify_due_receipts(now):
             device_name=r.get('device_name') or '',
             tenant=r.get('tenant') or '', actor='autonomous remediation',
             fix_command=r.get('command') or r.get('action') or '',
-            source='autonomy', now=now)
+            action=r.get('action') or '', source='autonomy', now=now)
     # Fire AFTER the lock: fire_webhook is self-locking and the deferral rules
     # apply, but keeping it outside is the habit this codebase asks for.
     for r, after, res in alerts:
@@ -1146,7 +1198,7 @@ def run_autonomy_if_due():
                 exclude_alert_id=alert.get('id'), limit=8) or []
         except Exception:
             similar = []
-        conf, samples, prec_action = autonomy.precedent_confidence(similar)
+        conf, samples, prec_action = autonomy.precedent_confidence(similar, action)
         radius = _blast_radius_for(dev_id, dev, devices)
         plan = _build_plan(alert, action, dev, dev_id, radius, prec_action)
 

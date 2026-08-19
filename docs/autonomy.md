@@ -46,6 +46,12 @@ An outcome a person confirmed counts double one written by the AI advisor. An
 AI verdict nobody contradicted is weaker evidence than an engineer writing down
 what fixed it, and the arithmetic reflects that.
 
+Precedent is matched to the **event and the remedy**, not to a family of alerts.
+A prior fix recorded against a different action still counts as an incident this
+fleet resolved, and not as evidence for the action on the table — so a history of
+rotating logs does not argue for running `fstrim`. Evidence that names no
+particular remedy, like a resolution note, counts as it always did.
+
 Where there is no precedent, the loop does nothing. It does not improvise — but
 you can decide that the curated command catalog is enough of a plan on its own,
 by unticking **Only act where this fleet has fixed the same thing before**. That

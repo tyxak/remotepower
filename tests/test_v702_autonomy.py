@@ -1362,3 +1362,118 @@ class TestAWindowThatCoversNothingSaysSo(_Base):
     def test_the_page_renders_the_warning(self):
         js = (_ROOT / 'server/html/static/js/app.js').read_text()
         self.assertIn('covers nothing', js)
+
+
+class TestAnAutonomousCommandGoesStale(_Base):
+    """CMDS_FILE entries are plain strings with no timestamp, drained only when
+    a heartbeat pops one. A command queued at 03:58 into a change window closing
+    at 04:00 is HELD at the next heartbeat and dispatches at 02:00 the following
+    night, onto a host that has been healthy for 22 hours."""
+
+    def setUp(self):
+        super().setUp()
+        self._saved_ttl = api.AUTONOMY_CMD_TTL_FILE
+        api.AUTONOMY_CMD_TTL_FILE = self.d / 'ttl.json'
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        api.AUTONOMY_CMD_TTL_FILE = self._saved_ttl
+        super().tearDown()
+
+    def test_nothing_is_stale_on_an_install_that_never_used_the_loop(self):
+        """The check runs on every heartbeat that has a pending command, so it
+        has to cost nothing where the store does not exist."""
+        self.assertFalse(api.command_is_stale('d1', 'svc:restart:nginx',
+                                              int(time.time())))
+
+    def test_a_fresh_command_is_not_stale(self):
+        now = int(time.time())
+        api._stamp_command_ttl('d1', 'svc:restart:nginx', now)
+        api._LOAD_CACHE.clear()
+        self.assertFalse(api.command_is_stale('d1', 'svc:restart:nginx', now + 60))
+
+    def test_an_hour_old_one_is(self):
+        now = int(time.time())
+        api._stamp_command_ttl('d1', 'svc:restart:nginx', now - 3601)
+        api._LOAD_CACHE.clear()
+        self.assertTrue(api.command_is_stale('d1', 'svc:restart:nginx', now))
+
+    def test_only_the_loops_own_commands_are_stamped(self):
+        """A human's queued command is theirs to leave sitting there."""
+        now = int(time.time())
+        api._stamp_command_ttl('d1', 'svc:restart:nginx', now - 3601)
+        api._LOAD_CACHE.clear()
+        self.assertFalse(api.command_is_stale('d1', 'exec:whoami', now))
+        self.assertFalse(api.command_is_stale('d2', 'svc:restart:nginx', now))
+
+    def test_the_dispatch_drops_it_instead_of_sending_it(self):
+        """Driven through the real heartbeat chokepoint."""
+        now = int(time.time())
+        api.save(api.CMDS_FILE, {'d1': ['svc:restart:nginx.service']})
+        api._stamp_command_ttl('d1', 'svc:restart:nginx.service', now - 3601)
+        api._LOAD_CACHE.clear()
+        src = __import__('inspect').getsource(api.handle_heartbeat)
+        self.assertIn('command_is_stale', src,
+                      'the dispatch chokepoint does not consult it')
+        # and the ordering matters: stale is checked BEFORE the window hold, or
+        # a held command never gets the chance to expire.
+        self.assertLess(src.index('command_is_stale'), src.index('_exec_gated'))
+
+    def test_the_loop_stamps_what_it_dispatches(self):
+        self._alert()
+        self._policy('enabled', allowed_actions=['restart_service'],
+                     require_precedent=False, approval_for_destructive=False)
+        rows = self._run()
+        self.assertTrue([r for r in rows if r['verdict'] == autonomy.ACT], rows)
+        api._LOAD_CACHE.clear()
+        stamped = (api.load(api.AUTONOMY_CMD_TTL_FILE) or {}).get('d1') or {}
+        self.assertIn('svc:restart:nginx.service', stamped)
+
+
+class TestPrecedentIsForThisRemedyNotJustThisEvent(_Base):
+    """The core's stated contract is "this exact thing was fixed this exact way
+    before". Same-event matching gets the first half; an outcome that names the
+    action class that fixed it gets the second."""
+
+    def _prior(self, action, n=4):
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'source': 'autonomy', 'event': 'server_disk_low_x', 'kind': '',
+             'tenant': 'default', 'resolution': 'cleared',
+             'fix_command': 'exec:whatever', 'action': action}
+            for _ in range(n)]})
+        api._LOAD_CACHE.clear()
+
+    def test_evidence_for_a_different_remedy_does_not_justify_this_one(self):
+        rows = [{'source': 'autonomy', 'resolution': 'cleared',
+                 'fix_command': 'exec:logrotate -f', 'action': 'rotate_logs'}] * 4
+        conf, samples, _a = autonomy.precedent_confidence(rows, 'trim_filesystem')
+        self.assertEqual(samples, 4)
+        self.assertEqual(conf, 0.0,
+                         'four prior log rotations argued for running fstrim')
+
+    def test_evidence_for_the_same_remedy_still_does(self):
+        rows = [{'source': 'autonomy', 'resolution': 'cleared',
+                 'fix_command': 'exec:logrotate -f', 'action': 'rotate_logs'}] * 4
+        self.assertEqual(autonomy.precedent_confidence(rows, 'rotate_logs')[0], 1.0)
+
+    def test_evidence_that_names_no_remedy_is_unchanged(self):
+        """Most evidence cannot be attributed this precisely — an operator's
+        note, an automation rule's script — and refusing it would close the door
+        this release opened."""
+        rows = [{'source': 'operator', 'resolution': 'closed',
+                 'root_cause': 'restarted it'}] * 2
+        self.assertEqual(autonomy.precedent_confidence(rows, 'restart_service')[0], 1.0)
+        self.assertEqual(autonomy.precedent_confidence(rows, 'reboot')[0], 1.0)
+
+    def test_the_loop_asks_about_the_action_it_is_considering(self):
+        import inspect
+        src = inspect.getsource(api.run_autonomy_if_due)
+        self.assertIn('precedent_confidence(similar, action)', src)
+
+    def test_the_loops_own_outcomes_record_which_action_they_were(self):
+        api.capture_fix_outcome(
+            alert_id='a1', event='failed_unit', device_id='d1', tenant='default',
+            fix_command='svc:restart:nginx', source='autonomy',
+            action='restart_service')
+        rows = (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
+        self.assertEqual(rows[0]['action'], 'restart_service')

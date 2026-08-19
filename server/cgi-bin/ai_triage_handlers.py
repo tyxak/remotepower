@@ -871,10 +871,11 @@ def _capture_incident_outcome(alert, dev):
         'device_name': alert.get('device_name') or dev.get('name') or '',
         'root_cause': root[:600],
         'recommended_action': str(verdict.get('recommended_action') or '')[:600],
-        # Empty here, but PRESENT: `capture_fix_outcome` fills it, and a store
-        # with two row shapes is how a renderer ends up reading a key half the
-        # rows do not have.
+        # Empty here, but PRESENT: `capture_fix_outcome` fills them, and a
+        # store with two row shapes is how a renderer ends up reading a key half
+        # the rows do not have.
         'fix_command': '',
+        'action': '',
         'confidence': str(verdict.get('confidence') or '')[:24],
         'resolution': _incident_resolution(alert),
         'resolved_at': int(alert.get('resolved_at') or 0),
@@ -968,7 +969,7 @@ _FIX_SOURCE_LABELS = {
 
 def capture_fix_outcome(*, alert_id, event, device_id, device_name='', tenant='',
                         actor='', fix_command='', source='operator', kind='',
-                        severity='', now=None):
+                        severity='', action='', now=None):
     """Remember that a fix ran and its alert cleared. Returns True if stored.
 
     Idempotent per ALERT: the id goes into the same `seen` ring
@@ -1016,6 +1017,13 @@ def capture_fix_outcome(*, alert_id, event, device_id, device_name='', tenant=''
                 'root_cause': 'The alert cleared after this fix ran',
                 'recommended_action': '',
                 'fix_command': str(fix_command or '')[:600],
+                # The autonomy ACTION CLASS, where the writer knows one. It is
+                # what lets the decision core tell "this fleet fixed this by
+                # restarting the service" from "this fleet fixed this somehow" —
+                # the second half of its own stated contract. Empty from the
+                # operator and rule sweeps, which know a playbook kind and a
+                # script id, not an action class.
+                'action': str(action or '')[:64],
                 'resolution': f'cleared by {_FIX_SOURCE_LABELS[src]}'
                               + (f' ({actor})' if actor else ''),
                 'resolved_at': now,

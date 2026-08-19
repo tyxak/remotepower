@@ -73,6 +73,9 @@ EXPECTED_OUTCOME_KEYS = {
     # note-harvested row — present in both, because a store with two row shapes
     # is how a renderer ends up reading a key half the rows do not have.
     "fix_command",
+    # v7.0.2: the autonomy action class, where the writer knows one. Empty on a
+    # note-harvested row, present in both.
+    "action",
 }
 
 

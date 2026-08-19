@@ -458,7 +458,8 @@ _FLOW_SILENT_S = 3 * 3600
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
 INCIDENT_MEMORY_FILE = DATA_DIR / 'incident_memory.json'
 AUTONOMY_POLICY_FILE   = DATA_DIR / 'autonomy_policy.json'   # v7.0.0: per-tenant safety envelope
-AUTONOMY_RECEIPTS_FILE = DATA_DIR / 'autonomy_receipts.json' # v7.0.0: what the loop did / would have done  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
+AUTONOMY_RECEIPTS_FILE = DATA_DIR / 'autonomy_receipts.json' # v7.0.0: what the loop did / would have done
+AUTONOMY_CMD_TTL_FILE  = DATA_DIR / 'autonomy_cmd_ttl.json'  # v7.0.2: {dev: {cmd: queued_at}} — autonomous commands go stale  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
@@ -1085,6 +1086,8 @@ autonomy_ops_handlers_mod.bind(globals())
 for _ao_name in (
         'handle_autonomy_policy', 'handle_autonomy_receipts',
         'handle_autonomy_receipts_clear', '_visible_receipts',
+        # v7.0.2: the heartbeat's dispatch calls this one
+        'command_is_stale', '_stamp_command_ttl',
         'handle_autonomy_preview', 'run_autonomy_if_due',
         '_policy_for', '_append_receipt', '_blast_radius_for',
         '_candidate_alerts', '_build_plan', '_actions_this_hour',
@@ -22673,6 +22676,7 @@ def handle_heartbeat():
         # So we decide + pop inside the lock, then respond after it commits.
         dispatch_cmd = None     # command to send the agent (None = nothing)
         dropped_cmd  = None     # quarantine-dropped command, for the audit log
+        stale_cmd    = None     # v7.0.2: expired autonomous command, dropped
         with _LockedUpdate(CMDS_FILE) as live_cmds:
             live_pending = live_cmds.get(dev_id) or []
             if live_pending:
@@ -22688,6 +22692,15 @@ def handle_heartbeat():
                 if saved_dev.get('quarantined') and not is_poll:
                     live_pending.pop(0); live_cmds[dev_id] = live_pending
                     dropped_cmd = cmd
+                # v7.0.2: an AUTONOMOUS command that has gone stale. Checked
+                # before the window hold below, because a decision nobody
+                # watched being made must not wait in the queue for the next
+                # window and fire onto a host that has been healthy for a day.
+                # Only the loop's own commands are stamped; a human's queued
+                # command is theirs to leave sitting there.
+                elif not is_poll and command_is_stale(dev_id, cmd, now):
+                    live_pending.pop(0); live_cmds[dev_id] = live_pending
+                    stale_cmd = cmd
                 # v3.4.2: maintenance change-window gating. Unlike quarantine we
                 # HOLD the command (leave it queued) so it dispatches when the
                 # window opens. poll_interval is always allowed (local only).
@@ -22699,6 +22712,10 @@ def handle_heartbeat():
         if dropped_cmd is not None:
             audit_log('system', 'quarantine_blocked',
                       f'dev={dev_id} dropped queued command while quarantined')
+        if stale_cmd is not None:
+            audit_log('system', 'autonomy_command_expired',
+                      f'dev={dev_id} dropped an autonomous command queued more '
+                      f'than an hour ago: {str(stale_cmd)[:120]}')
         # v6.3.1: sign the dispatched command with the server signing key so
         # agents pinning release.pub + require-signed-commands can verify
         # fail-closed. No key configured → fields are None and old/unpinned
