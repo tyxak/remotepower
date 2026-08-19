@@ -172,6 +172,76 @@ def _sanitize_version(v):
 _WIN_DRIVE_ABS_RE = re.compile(r'^[A-Za-z]:[\\/]')
 
 
+# Places where a file IS code the system runs, or is configuration naming code
+# to run. A decoy never needs to live in one.
+#
+# The canary channel writes a root-owned file with operator-supplied content to
+# an operator-supplied path. Audit mode and require-signed-commands both exist
+# to stop the server changing a host, and this channel honoured neither — so on
+# a fleet where a stolen admin token cannot sign a command, it could still drop
+# a file in /etc/cron.d. Both halves are fixed: the agents skip planting in
+# audit mode, and these paths are refused at both ends.
+#
+# Kept in one tuple per rule so the three agents can mirror it exactly;
+# tests/test_v702_canary_paths.py fails if any copy drifts.
+CANARY_DENY_DIRS = (
+    '/bin/', '/boot/', '/etc/apt/', '/etc/bash_completion.d/',
+    '/etc/cron.d/', '/etc/cron.daily/', '/etc/cron.hourly/',
+    '/etc/cron.monthly/', '/etc/cron.weekly/', '/etc/init.d/',
+    '/etc/ld.so.conf.d/', '/etc/network/if-up.d/',
+    '/etc/networkmanager/dispatcher.d/', '/etc/pam.d/', '/etc/polkit-1/',
+    '/etc/profile.d/', '/etc/rc.d/', '/etc/sudoers.d/', '/etc/systemd/',
+    '/etc/update-motd.d/', '/etc/yum.repos.d/', '/etc/zypp/repos.d/',
+    '/lib/systemd/', '/sbin/', '/usr/bin/', '/usr/lib/systemd/',
+    '/usr/local/bin/', '/usr/local/sbin/', '/usr/sbin/',
+    '/usr/share/polkit-1/', '/var/spool/cron/',
+    # Windows, matched after separators are normalised to '/'
+    '/appdata/roaming/microsoft/windows/start menu/programs/startup/',
+    '/start menu/programs/startup/', '/startup/',
+    '/windows/system32/', '/windows/syswow64/', '/windows/tasks/',
+)
+
+# Whole files that name code to run, wherever they sit. `.ssh/id_rsa` stays a
+# legal decoy — a fake private key is one of the better honeytokens — but
+# `.ssh/authorized_keys` on a host that has none yet is a login.
+CANARY_DENY_ENDINGS = (
+    '/.ssh/authorized_keys', '/.ssh/authorized_keys2', '/.ssh/config',
+    '/.ssh/rc', '/.bashrc', '/.bash_profile', '/.bash_login', '/.profile',
+    '/.zshrc', '/.zshenv', '/.kshrc', '/.cshrc', '/.tcshrc',
+    '/etc/rc.local', '/etc/crontab', '/etc/sudoers', '/etc/environment',
+    '/etc/ld.so.preload', '/etc/hosts.allow', '/etc/hosts.deny',
+)
+
+CANARY_DENY_SUFFIXES = (
+    '.bash', '.bat', '.cmd', '.com', '.cpl', '.desktop', '.dll', '.exe',
+    '.hta', '.jar', '.js', '.jse', '.ksh', '.lnk', '.msi', '.mount', '.path',
+    '.php', '.pl', '.ps1', '.psm1', '.py', '.pyw', '.rb', '.reg', '.rules',
+    '.scr', '.service', '.sh', '.socket', '.timer', '.vbe', '.vbs', '.wsf',
+    '.zsh',
+)
+
+
+def canary_path_safe(p):
+    """(ok, reason) for a canary path that has already passed _canary_path_ok.
+
+    Says what was refused rather than dropping it, so an operator is not told
+    three files are armed when one was thrown away.
+    """
+    q = str(p).replace('\\', '/').lower()
+    while '//' in q:
+        q = q.replace('//', '/')
+    for d in CANARY_DENY_DIRS:
+        if d in q:
+            return False, f'a decoy cannot live in {d.strip("/")}'
+    for e in CANARY_DENY_ENDINGS:
+        if q.endswith(e):
+            return False, f'{e.rsplit("/", 1)[-1]} names code to run'
+    for suf in CANARY_DENY_SUFFIXES:
+        if q.endswith(suf):
+            return False, f'{suf} is an executable file type'
+    return True, ''
+
+
 def _canary_path_ok(p):
     """True if `p` is an absolute POSIX, drive-letter or UNC path with no
     traversal component. Rejects NUL and, on the Windows forms, the reserved

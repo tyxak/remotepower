@@ -1656,7 +1656,7 @@ import sbom as sbom_mod
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
 from sanitize import (
     _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
-    _sanitize_version, _canary_path_ok,
+    _sanitize_version, _canary_path_ok, canary_path_safe,
     MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
     _IP_RE, _MAC_RE, _VER_RE,
 )
@@ -18581,6 +18581,14 @@ def _autopatch_sync(pol, remove=False):
                     'events': [], 'gate_exec': False,
                     'created_by': 'auto-patch', 'created_at': int(time.time()),
                     'autopatch_id': pid, 'auto': True,
+                    # SEC (v7.0.2): inherit the policy's tenant, exactly as the
+                    # ring dispatcher has since v6.4.0. The policy got the stamp
+                    # then and this mirror of it did not, so a tenant's
+                    # "all"-scoped policy became a `global` window suppressing
+                    # every other tenant's alerts on its schedule. 'auto-patch'
+                    # is not a real user, so there was no author to fall back on
+                    # either.
+                    'tenant_gate': pol.get('tenant_gate'),
                 })
     except Exception as e:
         sys.stderr.write(f'[remotepower] autopatch maint sync: {e}\n')
@@ -22537,7 +22545,11 @@ def handle_heartbeat():
         # v2.5.0: push assigned scripts so the agent runs them every 5 min
         'custom_scripts':   custom_scripts_for_device,
         # W3-38: canary/honeytoken files the agent plants + watches (fleet-wide).
-        'canary_files':     _config_ro().get('canary_files') or [],
+        # Filtered on the way out too: a path stored before v7.0.2 would
+        # otherwise keep being pushed to every agent on every heartbeat.
+        'canary_files':     [c for c in (_config_ro().get('canary_files') or [])
+                             if isinstance(c, dict)
+                             and canary_path_safe(c.get('path', ''))[0]],
         # v6.2.2: delta-sysinfo capability. The agent only starts omitting
         # unchanged heavy fields AFTER seeing this — so a new agent against an
         # old server (no flag) keeps sending full payloads, and a server
@@ -29823,6 +29835,15 @@ def handle_config_save():
             p = _sanitize_str(str(c.get('path', '')), 512).strip()
             if not _canary_path_ok(p):
                 continue
+            # SEC (v7.0.2): a canary is a root-owned file written with content
+            # the request supplies, and the agents plant it without an audit-mode
+            # or signed-command check. Somewhere the system executes what it
+            # finds is therefore a code path, so refuse those paths here and say
+            # which — the agents refuse them again, and skip planting entirely in
+            # audit mode.
+            _cok, _cwhy = canary_path_safe(p)
+            if not _cok:
+                respond(400, {'error': f'canary path {p}: {_cwhy}'})
             out.append({'path': p,
                         'content': _sanitize_str(str(c.get('content', '')), 4000)})
         cfg['canary_files'] = out
@@ -34831,22 +34852,13 @@ def _as_pct(v):
     return f if 0 < f <= 100 else None
 
 
-def _maint_oneshot_intervals(windows, dev_id, dev_group, lo, hi):
+def _maint_oneshot_intervals(windows, dev_id, dev_group, lo, hi, dev=None):
     """One-shot (start+end) maintenance windows applicable to a device, as
     (start_ts, end_ts) tuples. Recurring (cron) windows are not subtracted from
     the SLA — only explicitly-scheduled one-shot maintenance is."""
     out = []
     for w in windows or []:
-        scope = (w.get('scope') or 'device').lower()
-        if scope == 'global':
-            applies = True
-        elif scope == 'group':
-            applies = bool(dev_group) and w.get('target') == dev_group
-        elif scope == 'device':
-            applies = w.get('target') == dev_id
-        else:
-            applies = False
-        if not applies:
+        if not _window_applies(w, dev_id, dev=dev, dev_group=dev_group):
             continue
         s, e = w.get('start'), w.get('end')
         if not (s and e):
@@ -34931,7 +34943,7 @@ def handle_fleet_sla():
             continue
         ev = (uptime.get(dev_id) or {}).get('events') or []
         maint = _maint_oneshot_intervals(windows, dev_id, dev.get('group') or '',
-                                         window_start, now)
+                                         window_start, now, dev=dev)
         pct, down, covered = _uptime_pct(ev, window_start, now, maint_intervals=maint)
         target = _resolve_sla_target(targets, dev_id, dev)
         met = (pct >= target) if (covered and pct is not None and target is not None) else None
@@ -35535,8 +35547,7 @@ def _validate_scheduled_command(command, dev_id):
         sid = command[7:]
         if not _validate_id(sid):
             respond(400, {'error': 'Invalid command'})
-        scripts_data = load(SCRIPTS_FILE)
-        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
+        if not _script_by_id(sid):
             respond(404, {'error': 'Script not found'})
         return
     if command.startswith('container_restart:'):
@@ -40888,14 +40899,73 @@ def _sanitize_script_body(s):
     return s[:MAX_SCRIPT_BODY]
 
 
+def _script_owner_tenant(s, users=None, memo=None):
+    """Which tenant a saved script belongs to, or None if it is shared.
+
+    Scripts saved from v7.0.2 carry `tenant_gate`. Older ones do not, so the
+    owner comes from the recorded author — a fact the store already holds
+    rather than a guess. A script whose author has since been deleted stays
+    shared, and the list endpoint flags it `unowned` so an operator can claim it
+    by re-saving.
+    """
+    if 'tenant_gate' in s:
+        return s.get('tenant_gate')
+    author = s.get('created_by') or ''
+    if not author:
+        return None
+    if memo is not None and author in memo:
+        return memo[author]
+    if users is None:
+        users = _load_ro(USERS_FILE) or {}
+    owner = _user_tenant(author) if author in users else None
+    if memo is not None:
+        memo[author] = owner
+    return owner
+
+
+def _visible_scripts(scripts):
+    """The saved scripts this caller may see, in order.
+
+    A script body is code that runs as root and routinely carries credentials
+    and internal hostnames, so it is not fleet-wide reference data. Returns
+    everything for a superadmin and on a single-tenant install, where
+    `_tenant_gate()` is None.
+    """
+    gate = _tenant_gate()
+    if gate is None:
+        return list(scripts)
+    users = _load_ro(USERS_FILE) or {}
+    memo = {}
+    return [s for s in scripts
+            if _script_owner_tenant(s, users=users, memo=memo) in (None, gate)]
+
+
+def _script_by_id(script_id, scripts=None, visible_only=True):
+    """One saved script by id, or None.
+
+    scripts.json is `{'scripts': [...]}` — a wrapped LIST. Reaching for
+    `data.get(script_id)` looks right and always misses; that is how the MCP
+    `run_saved_script` tool shipped dead. One lookup, so there is one shape to
+    get right.
+    """
+    rows = (scripts if scripts is not None else (load(SCRIPTS_FILE) or {})).get('scripts') or []
+    if visible_only:
+        rows = _visible_scripts(rows)
+    for s in rows:
+        if s.get('id') == script_id:
+            return s
+    return None
+
+
 def handle_scripts_list():
     require_auth()
     data = load(SCRIPTS_FILE)
-    scripts = data.get('scripts', [])
+    scripts = _visible_scripts(data.get('scripts', []))
     # Return body lengths but not bodies in the list endpoint — keeps the
     # response small for fleets with lots of long scripts. Body is fetched
     # via GET /api/scripts/<id>.
     out = []
+    _users, _memo = _load_ro(USERS_FILE) or {}, {}
     for s in scripts:
         out.append({
             'id':          s.get('id'),
@@ -40906,6 +40976,11 @@ def handle_scripts_list():
             'created_by':  s.get('created_by', ''),
             'body_len':    len(s.get('body', '')),
             'dangerous':   bool(s.get('last_lint', {}).get('dangerous')),
+            # Nobody owns it — no tenant stamp, and no author still on the
+            # system to infer one from — so every tenant can see it. Re-saving
+            # claims it. Asks the same resolver the visibility filter uses, so
+            # the badge cannot drift from the rule.
+            'unowned':     _script_owner_tenant(s, users=_users, memo=_memo) is None,
         })
     respond(200, out)
 
@@ -40914,10 +40989,9 @@ def handle_scripts_get(script_id):
     require_auth()
     if not _validate_id(script_id):
         respond(404, {'error': 'Script not found'})
-    data = load(SCRIPTS_FILE)
-    for s in data.get('scripts', []):
-        if s.get('id') == script_id:
-            respond(200, s)
+    s = _script_by_id(script_id)
+    if s:
+        respond(200, s)
     respond(404, {'error': 'Script not found'})
 
 
@@ -40949,6 +41023,7 @@ def handle_scripts_add():
         'updated':     int(time.time()),
         'created_by':  actor,
         'last_lint':   lint,
+        'tenant_gate': _tenant_gate(),
     }
     scripts.append(new)
     data['scripts'] = scripts
@@ -40970,6 +41045,8 @@ def handle_scripts_update(script_id):
         respond(400, {'error': _err})
     data = load(SCRIPTS_FILE)
     scripts = data.get('scripts', [])
+    if not _script_by_id(script_id, data):
+        respond(404, {'error': 'Script not found'})
     for s in scripts:
         if s.get('id') == script_id:
             if 'name' in body:
@@ -40998,6 +41075,8 @@ def handle_scripts_delete(script_id):
         respond(404, {'error': 'Script not found'})
     data = load(SCRIPTS_FILE)
     scripts = data.get('scripts', [])
+    if not _script_by_id(script_id, data):
+        respond(404, {'error': 'Script not found'})
     before = len(scripts)
     deleted_name = None
     for s in scripts:
@@ -41028,13 +41107,13 @@ def handle_scripts_dry_run(script_id):
     if not _validate_id(script_id):
         respond(404, {'error': 'Script not found'})
     data = load(SCRIPTS_FILE)
-    for s in data.get('scripts', []):
-        if s.get('id') == script_id:
-            lint = _script_lint(s.get('body', ''))
-            s['last_lint'] = lint
-            save(SCRIPTS_FILE, data)
-            respond(200, {'ok': True, 'lint': lint})
-    respond(404, {'error': 'Script not found'})
+    s = _script_by_id(script_id, data)
+    if not s:
+        respond(404, {'error': 'Script not found'})
+    lint = _script_lint(s.get('body', ''))
+    s['last_lint'] = lint
+    save(SCRIPTS_FILE, data)
+    respond(200, {'ok': True, 'lint': lint})
 
 
 # ── v2.1.0: Batch script execution ────────────────────────────────────────────
@@ -41069,12 +41148,7 @@ def handle_exec_batch():
         respond(400, {'error': 'valid script_id required'})
 
     # Resolve script
-    sdata = load(SCRIPTS_FILE)
-    script = None
-    for s in sdata.get('scripts', []):
-        if s.get('id') == script_id:
-            script = s
-            break
+    script = _script_by_id(script_id)
     if not script:
         respond(404, {'error': 'Script not found'})
 
@@ -50095,9 +50169,7 @@ def _dashboard_upcoming(limit=3, horizon_days=45):
         pass
     # Maintenance windows — currently active (ongoing) or upcoming one-shot/cron.
     try:
-        for w in (load(MAINT_FILE) or {}).get('windows') or []:
-            if not isinstance(w, dict):
-                continue
+        for w in _visible_windows((load(MAINT_FILE) or {}).get('windows') or []):
             title = ('Maintenance: ' + (w.get('reason') or 'window'))[:120]
             if _window_active(w, now):
                 items.append({'title': title, 'when': now, 'ongoing': True,
@@ -50189,9 +50261,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     # Maintenance windows: active now + upcoming
     try:
         active = upcoming = 0
-        for w in (load(MAINT_FILE) or {}).get('windows') or []:
-            if not isinstance(w, dict):
-                continue
+        for w in _visible_windows((load(MAINT_FILE) or {}).get('windows') or []):
             if _window_active(w, now):
                 active += 1
             elif w.get('start'):
@@ -50886,15 +50956,8 @@ def _status_page_maintenance(sp, devices, now):
         # The ANNOUNCEMENT is opt-in, because that is where the text lives, and
         # declaring a window for internal alert suppression is not consent to
         # tell the internet what you are doing.
-        scope = (w.get('scope') or 'device').lower()
-        target = w.get('target') or ''
-        if scope == 'global':
-            ids.update(devices)
-        elif scope == 'group' and target:
-            ids.update(did for did, d in devices.items()
-                       if isinstance(d, dict) and (d.get('group') or '') == target)
-        elif scope == 'device' and target in devices:
-            ids.add(target)
+        ids.update(did for did, d in devices.items()
+                   if isinstance(d, dict) and _window_applies(w, did, dev=d))
         if w.get('public'):
             announce.append({
                 'title': _sanitize_str(str(w.get('public_title') or ''), 80)
@@ -52634,11 +52697,8 @@ def _scan_window_active(dev_id, dev):
     now = int(time.time())
     dev_group = (dev or {}).get('group') or ''
     for w in windows:
-        scope = (w.get('scope') or 'device').lower()
-        applies = (scope == 'global'
-                   or (scope == 'group' and dev_group and w.get('target') == dev_group)
-                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
-        if applies and _window_active(w, now):
+        if _window_applies(w, dev_id, dev=dev, dev_group=dev_group) \
+                and _window_active(w, now):
             return True
     return False
 
@@ -60001,9 +60061,10 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
 
     elif action == 'run_saved_script':
         script_id = (params or {}).get('script_id') or ''
-        scripts = load(SCRIPTS_FILE)
-        # scripts.json is a dict keyed by script id
-        script = scripts.get(script_id)
+        # scripts.json is {'scripts': [...]}, a wrapped LIST. This read used
+        # `scripts.get(script_id)` against that, so the tool never once resolved
+        # a script and every call answered "not found".
+        script = _script_by_id(script_id)
         if not script:
             return {'ok': False, 'error': f'script_id "{script_id}" not found'}
         body = script.get('body') or ''
@@ -64317,7 +64378,7 @@ def _build_metrics_ctx(visible=None):
             last = entries[-1]
             monitor_state[label] = {'up': bool(last.get('up', True)), 'last': last.get('ts', 0)}
     maint_active = 0
-    for w in ((load(MAINT_FILE) or {}).get('windows') or []):
+    for w in _visible_windows((load(MAINT_FILE) or {}).get('windows') or []):
         try:
             if _window_active(w, now):
                 maint_active += 1
@@ -64405,7 +64466,7 @@ def _metrics_device_uptime(now, days=30, _mdu_devices=None):
                 continue
             ev = (uptime.get(dev_id) or {}).get('events') or []
             maint = _maint_oneshot_intervals(windows, dev_id, dev.get('group') or '',
-                                             window_start, now)
+                                             window_start, now, dev=dev)
             pct, _down, covered = _uptime_pct(ev, window_start, now, maint_intervals=maint)
             target = _resolve_sla_target(targets, dev_id, dev)
             met = (pct >= target) if (covered and pct is not None and target is not None) else None
@@ -64958,6 +65019,69 @@ def _cron_field_match(spec, value, lo=0, hi=59):
     return False
 
 
+def _window_owner_tenant(w, users=None, memo=None):
+    """Which tenant a maintenance window belongs to, or None for instance-wide.
+
+    Same resolution as the saved-script library: the stamp if the window has
+    one, otherwise the recorded author, which the store already holds.
+    """
+    if 'tenant_gate' in w:
+        return w.get('tenant_gate')
+    author = w.get('created_by') or ''
+    if not author:
+        return None
+    if memo is not None and author in memo:
+        return memo[author]
+    if users is None:
+        users = _load_ro(USERS_FILE) or {}
+    owner = _user_tenant(author) if author in users else None
+    if memo is not None:
+        memo[author] = owner
+    return owner
+
+
+def _visible_windows(windows):
+    """Maintenance windows this caller may see. A window's reason is free text
+    an operator writes about their own change, and its target names a host."""
+    gate = _tenant_gate()
+    if gate is None:
+        return [w for w in windows if isinstance(w, dict)]
+    users, memo = _load_ro(USERS_FILE) or {}, {}
+    return [w for w in windows if isinstance(w, dict)
+            and _window_owner_tenant(w, users, memo) in (None, gate)]
+
+
+def _window_applies(w, dev_id, dev=None, dev_group=None):
+    """Does this maintenance window cover this device?
+
+    One copy of a rule that had five, which is how a tenant check ends up on
+    some of them. A window created inside a tenant covers only that tenant's
+    hosts — a `global` one included, since "global" can only sensibly mean
+    everything the operator who wrote it can see. Without that, one tenant
+    admin could silence every other tenant's alerting with a single global
+    window, or hold all their changes with `gate_exec`.
+
+    Runs from the heartbeat and the scheduler as well as from requests, so it
+    compares the window's owner against the DEVICE's tenant. There is no caller
+    to ask.
+    """
+    if not isinstance(w, dict):
+        return False
+    owner = _window_owner_tenant(w)
+    if owner is not None and _device_tenant(dev or {}) != owner:
+        return False
+    if dev_group is None:
+        dev_group = (dev or {}).get('group') or ''
+    scope = (w.get('scope') or 'device').lower()
+    if scope == 'global':
+        return True
+    if scope == 'group':
+        return bool(dev_group) and w.get('target') == dev_group
+    if scope == 'device':
+        return bool(dev_id) and w.get('target') == dev_id
+    return False
+
+
 def _window_active(window, now):
     """Return True if this maintenance window is active right now."""
     # One-shot: ISO-8601 start + end
@@ -65053,21 +65177,15 @@ def in_maintenance(event, payload):
     now = int(time.time())
     dev_id = payload.get('device_id', '')
     dev_group = ''
+    _maint_dev = {}
     if dev_id:
         devices = load(DEVICES_FILE)
-        dev_group = (devices.get(dev_id, {}).get('group') or '')
+        _maint_dev = devices.get(dev_id) or {}
+        dev_group = (_maint_dev.get('group') or '')
 
     for w in windows:
         scope = (w.get('scope') or 'device').lower()
-        # Decide if this window applies to this target
-        applies = False
-        if scope == 'global':
-            applies = True
-        elif scope == 'group' and dev_group and w.get('target') == dev_group:
-            applies = True
-        elif scope == 'device' and dev_id and w.get('target') == dev_id:
-            applies = True
-        if not applies:
+        if not _window_applies(w, dev_id, dev=_maint_dev, dev_group=dev_group):
             continue
         if _window_active(w, now):
             # Respect an optional per-window event list (defaults to all)
@@ -65099,11 +65217,7 @@ def _exec_gated(dev_id, dev, now=None):
     for w in windows:
         if not w.get('gate_exec'):
             continue
-        scope = (w.get('scope') or 'device').lower()
-        applies = (scope == 'global'
-                   or (scope == 'group' and dev_group and w.get('target') == dev_group)
-                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
-        if not applies:
+        if not _window_applies(w, dev_id, dev=dev, dev_group=dev_group):
             continue
         covered = True
         if _window_active(w, now):
@@ -65136,7 +65250,7 @@ def handle_maintenance_list():
     require_auth()
     now = int(time.time())
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
-    windows = (load(MAINT_FILE) or {}).get('windows') or []
+    windows = _visible_windows((load(MAINT_FILE) or {}).get('windows') or [])
     # One-time repair (v6.2.0): windows created before the auto-patch sync wrote a
     # full record (or any window persisted without an id/scope) rendered "(no
     # reason)"/"undefined" and could not be deleted. Backfill a stable, NON-numeric
@@ -65157,7 +65271,7 @@ def handle_maintenance_list():
                     if not w.get('reason') and w.get('name'):
                         w['reason'] = w['name']
             _invalidate_load_cache(MAINT_FILE)
-            windows = (load(MAINT_FILE) or {}).get('windows') or []
+            windows = _visible_windows((load(MAINT_FILE) or {}).get('windows') or [])
         except Exception as e:
             sys.stderr.write(f'[remotepower] maint window id backfill: {e}\n')
     out = []
@@ -65181,19 +65295,12 @@ def handle_maintenance_list():
         #
         # Counted over the devices this CALLER can see, like everything else on
         # this response, so the number is what they can act on.
-        scope = (w.get('scope') or 'device').lower()
-        if scope == 'global':
-            entry['covers'] = len(devices)
-        elif scope == 'device':
-            entry['covers'] = 1 if w.get('target') in devices else 0
-        elif scope == 'group':
-            entry['covers'] = sum(1 for d in devices.values()
-                                  if (d.get('group') or '') == w.get('target'))
-        elif scope == 'tag':
-            entry['covers'] = sum(1 for d in devices.values()
-                                  if w.get('target') in (d.get('tags') or []))
-        else:
-            entry['covers'] = None       # unknown scope — say nothing rather than 0
+        # Counted with the predicate that decides suppression, so the number
+        # cannot claim a reach the suppression path does not have. An unknown
+        # scope covers nothing, and that is the honest answer: nothing is what
+        # it suppresses.
+        entry['covers'] = sum(1 for did, d in devices.items()
+                              if isinstance(d, dict) and _window_applies(w, did, dev=d))
         out.append(entry)
     out.sort(key=lambda x: (not x['active'], x.get('reason', '')))
     respond(200, {'windows': out})
@@ -65216,9 +65323,12 @@ def handle_maintenance_add():
     clean = _validate_maintenance_body(body)
     scope, target, reason = clean['scope'], clean['target'], clean['reason']
     window = dict(clean, **{
-        'id':         secrets.token_hex(8),
-        'created_by': actor,
-        'created_at': int(time.time()),
+        'id':          secrets.token_hex(8),
+        'created_by':  actor,
+        'created_at':  int(time.time()),
+        # A window suppresses alerts and can hold every change on the hosts it
+        # covers, so whose hosts those are is part of the record.
+        'tenant_gate': _tenant_gate(),
     })
 
     maint = load(MAINT_FILE)
@@ -65302,10 +65412,11 @@ def handle_maintenance_update(window_id):
     clean = _validate_maintenance_body(body)
     with _LockedUpdate(MAINT_FILE) as maint:
         windows = maint.get('windows') or []
-        target_win = next((w for w in windows if w.get('id') == window_id), None)
+        target_win = next((w for w in _visible_windows(windows)
+                           if w.get('id') == window_id), None)
         if not target_win:
             respond(404, {'error': 'maintenance window not found'})
-        new_win = dict(target_win)  # preserve id/created_by/created_at
+        new_win = dict(target_win)  # preserve id/created_by/created_at/tenant_gate
         new_win.update(clean)
         new_win['updated_by'] = actor
         new_win['updated_at'] = int(time.time())
@@ -65321,6 +65432,8 @@ def handle_maintenance_delete(window_id):
     actor = require_admin_auth()
     maint = load(MAINT_FILE)
     windows = maint.get('windows') or []
+    if not any(w.get('id') == window_id for w in _visible_windows(windows)):
+        respond(404, {'error': 'Window not found'})
     remaining = [w for w in windows if w.get('id') != window_id]
     if len(remaining) == len(windows):
         respond(404, {'error': 'Window not found'})

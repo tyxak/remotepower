@@ -11995,8 +11995,9 @@ function _registerMaintTable() {
       // being held to the window and running whenever they like.
       const covers = (w.covers == null || w.covers > 0) ? ''
         : ` <span class="chk-pill chk-warning" title="${escAttr(
-            'This window matches no host you can see. A renamed group or tag '
-            + 'leaves its windows in place and silently uncovered.')
+            'This window matches no host you can see. A renamed group leaves '
+            + 'its windows in place and silently uncovered, and a window with '
+            + 'a scope this version does not support suppresses nothing.')
           }">${escHtml('covers nothing')}</span>`;
       const target = (w.scope === 'global' ? '—'
                       : escHtml(w.target_name || w.target || '—')) + covers;

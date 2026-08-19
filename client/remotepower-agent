@@ -1199,6 +1199,58 @@ _canary_failed  = {}       # v6.4.2: path -> why the plant failed (arm report)
 _canary_reported = set()   # paths already reported this run
 
 
+# Mirrors server/cgi-bin/sanitize.py — a decoy never needs to live where
+# the system executes what it finds, or reads a list of things to run. The
+# server refuses these at save time; the agent refuses them again so an
+# older or compromised server cannot use this channel to write code.
+# tests/test_v702_canary_paths.py fails if any copy drifts.
+_CANARY_DENY_DIRS = (
+    '/bin/', '/boot/', '/etc/apt/', '/etc/bash_completion.d/',
+    '/etc/cron.d/', '/etc/cron.daily/', '/etc/cron.hourly/',
+    '/etc/cron.monthly/', '/etc/cron.weekly/', '/etc/init.d/',
+    '/etc/ld.so.conf.d/', '/etc/network/if-up.d/',
+    '/etc/networkmanager/dispatcher.d/', '/etc/pam.d/', '/etc/polkit-1/',
+    '/etc/profile.d/', '/etc/rc.d/', '/etc/sudoers.d/', '/etc/systemd/',
+    '/etc/update-motd.d/', '/etc/yum.repos.d/', '/etc/zypp/repos.d/',
+    '/lib/systemd/', '/sbin/', '/usr/bin/', '/usr/lib/systemd/',
+    '/usr/local/bin/', '/usr/local/sbin/', '/usr/sbin/',
+    '/usr/share/polkit-1/', '/var/spool/cron/',
+    '/appdata/roaming/microsoft/windows/start menu/programs/startup/',
+    '/start menu/programs/startup/', '/startup/', '/windows/system32/',
+    '/windows/syswow64/', '/windows/tasks/',
+)
+_CANARY_DENY_ENDINGS = (
+    '/.ssh/authorized_keys', '/.ssh/authorized_keys2', '/.ssh/config',
+    '/.ssh/rc', '/.bashrc', '/.bash_profile', '/.bash_login', '/.profile',
+    '/.zshrc', '/.zshenv', '/.kshrc', '/.cshrc', '/.tcshrc',
+    '/etc/rc.local', '/etc/crontab', '/etc/sudoers', '/etc/environment',
+    '/etc/ld.so.preload', '/etc/hosts.allow', '/etc/hosts.deny',
+)
+_CANARY_DENY_SUFFIXES = (
+    '.bash', '.bat', '.cmd', '.com', '.cpl', '.desktop', '.dll', '.exe',
+    '.hta', '.jar', '.js', '.jse', '.ksh', '.lnk', '.msi', '.mount',
+    '.path', '.php', '.pl', '.ps1', '.psm1', '.py', '.pyw', '.rb', '.reg',
+    '.rules', '.scr', '.service', '.sh', '.socket', '.timer', '.vbe',
+    '.vbs', '.wsf', '.zsh',
+)
+
+def _canary_path_safe(p):
+    """(ok, reason) — the location rule, mirrored from the server."""
+    q = str(p).replace('\\', '/').lower()
+    while '//' in q:
+        q = q.replace('//', '/')
+    for d in _CANARY_DENY_DIRS:
+        if d in q:
+            return False, 'a decoy cannot live in ' + d.strip('/')
+    for e in _CANARY_DENY_ENDINGS:
+        if q.endswith(e):
+            return False, e.rsplit('/', 1)[-1] + ' names code to run'
+    for suf in _CANARY_DENY_SUFFIXES:
+        if q.endswith(suf):
+            return False, suf + ' is an executable file type'
+    return True, ''
+
+
 def _plant_canaries(canary_cfg):
     """Create any not-yet-planted canary files. Returns nothing; updates the
     in-memory baseline. Never overwrites an existing file.
@@ -1210,12 +1262,28 @@ def _plant_canaries(canary_cfg):
     would ever contradict it. That is worse than a missing feature: it is a
     security control the operator now stops worrying about.
     """
+    # SEC (v7.0.2): the FIFTH host-mutating channel, and the one that never
+    # asked. execute_command, apply_host_config, check_for_update and custom
+    # scripts all early-return here; planting a canary writes a root-owned file
+    # with server-supplied content, which is the same kind of change, so an
+    # operator who set /etc/remotepower/audit-mode was wrong about what this
+    # agent could be made to do.
+    if _audit_mode():
+        for c in (canary_cfg or [])[:50]:
+            _p = c.get('path') if isinstance(c, dict) else c
+            if _p:
+                _canary_failed[str(_p)[:256]] = 'audit mode (read-only)'
+        return
     for c in (canary_cfg or [])[:50]:
         p = c.get('path') if isinstance(c, dict) else c
         if not p:
             continue
         if not str(p).startswith('/'):
             _canary_failed[str(p)[:256]] = 'not an absolute path'
+            continue
+        _ok, _why = _canary_path_safe(str(p))
+        if not _ok:
+            _canary_failed[str(p)[:256]] = _why
             continue
         hp = host_path(p)
         if p in _canary_planted:
@@ -1229,9 +1297,13 @@ def _plant_canaries(canary_cfg):
                 _canary_failed.pop(p, None)
                 continue
             content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
-            d = os.path.dirname(hp)
-            if d and not os.path.isdir(d):
-                os.makedirs(d, exist_ok=True)
+            # The directory is NOT created. A decoy belongs somewhere a thief
+            # would already look, so a missing parent means the path is wrong —
+            # and creating one is how this channel would make /etc/cron.d on a
+            # host that has none.
+            if not os.path.isdir(os.path.dirname(hp) or '/'):
+                _canary_failed[p] = 'directory does not exist'
+                continue
             fd = os.open(hp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
                 os.write(fd, content.encode())
@@ -8984,7 +9056,15 @@ def _handle_file_op(cmd):
     import base64 as _b64
     res, rc = {}, 0
     try:
-        bits = cmd.split(':', 3)            # files:<op>:<b64path>[:<b64content>]
+        # v7.0.2: maxsplit is 4, not 3. `upload` is the only op with FIVE
+        # parts (files:upload:<b64path>:<b64bytes>:<overwrite>), and at
+        # maxsplit=3 the flag stayed glued to the payload: bits[3] came through
+        # as 'MTIzNDU=:1', which either fails to decode or — when the length
+        # happens to land right — decodes one byte LONG and writes a corrupted
+        # file. bits[4] could never exist either, so overwrite=true was always
+        # read as false. Every other op has four parts or fewer and is
+        # unaffected.
+        bits = cmd.split(':', 4)
         op = bits[1] if len(bits) > 1 else ''
         raw_path = (_b64.urlsafe_b64decode(bits[2]).decode('utf-8', 'replace')
                     if len(bits) > 2 else '')

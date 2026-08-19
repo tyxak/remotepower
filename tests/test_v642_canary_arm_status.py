@@ -65,13 +65,23 @@ def _load_canary_ns(agent_file):
         "log": type("L", (), {"debug": staticmethod(lambda *a, **k: None)})(),
         "_canary_planted": {}, "_canary_failed": {}, "_canary_reported": set(),
         "_canary_path_ok": lambda p: str(p).startswith(("/", "C:\\", "c:\\")),
+        # v7.0.2: planting is a host mutation, so it asks audit mode like the
+        # other four channels. Off by default here; the test that cares turns
+        # it on.
+        "_audit_mode": lambda: False,
     }
-    wanted = {"_plant_canaries", "_canary_status", "_check_canaries"}
+    # `_canary_path_safe` and its three tuples are lifted for real rather than
+    # stubbed — a stub would let the deny list rot while these tests stayed
+    # green.
+    wanted = {"_plant_canaries", "_canary_status", "_check_canaries",
+              "_canary_path_safe"}
+    wanted_consts = {"_CANARY_DEFAULT", "_CANARY_DENY_DIRS",
+                     "_CANARY_DENY_ENDINGS", "_CANARY_DENY_SUFFIXES"}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in wanted:
             exec(compile(ast.Module([node], []), "<agent>", "exec"), ns)
         elif (isinstance(node, ast.Assign)
-              and getattr(node.targets[0], "id", "") == "_CANARY_DEFAULT"):
+              and getattr(node.targets[0], "id", "") in wanted_consts):
             exec(compile(ast.Module([node], []), "<agent>", "exec"), ns)
     return ns
 

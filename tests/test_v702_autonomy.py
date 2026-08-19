@@ -1353,13 +1353,26 @@ class TestAWindowThatCoversNothingSaysSo(_Base):
             {'id': 'wg', 'scope': 'global', 'target': ''})
         self.assertEqual(out['wd']['covers'], 1)
         self.assertEqual(out['wx']['covers'], 0)
-        self.assertEqual(out['wt']['covers'], 1)
         self.assertEqual(out['wg']['covers'], 3)
+        # A tag-scoped window covers ZERO, because the suppression path has
+        # never matched on tags — `_window_applies` knows device, group and
+        # global. The list used to count tagged hosts here, which read as "this
+        # window covers 1 host" for a window that suppresses nothing. The count
+        # now asks the same predicate suppression does, so it cannot claim a
+        # reach the product does not have. Nothing can create one through the
+        # API (the validator allows device/group/global, and auto-patch maps
+        # tag/site/all to global), so this is about a hand-edited store.
+        self.assertEqual(out['wt']['covers'], 0)
 
-    def test_an_unknown_scope_says_nothing_rather_than_zero(self):
-        """A scope this build does not know is not evidence of no coverage."""
+    def test_an_unknown_scope_covers_nothing_and_says_so(self):
+        """This started out reporting None — "a scope this build does not know
+        is not evidence of no coverage." That was the wrong way round. For THIS
+        build it is exactly that evidence: `_window_applies` matches device,
+        group and global, so a window with any other scope suppresses nothing
+        and holds nothing. Reporting None hid the very case the count exists to
+        surface, behind a shrug. Zero is the measurement."""
         out = self._list({'id': 'w9', 'scope': 'smart', 'target': 'x'})
-        self.assertIsNone(out['w9']['covers'])
+        self.assertEqual(out['w9']['covers'], 0)
 
     def test_the_page_renders_the_warning(self):
         js = (_ROOT / 'server/html/static/js/app.js').read_text()

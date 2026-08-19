@@ -420,9 +420,7 @@ def handle_suppressions():
     #    is not suppressing anything yet, and saying it is would be the same
     #    class of lie this page exists to end.
     try:
-        for w in ((A.load(A.MAINT_FILE) or {}).get('windows') or []):
-            if not isinstance(w, dict):
-                continue
+        for w in A._visible_windows((A.load(A.MAINT_FILE) or {}).get('windows') or []):
             start = A._parse_iso(w.get('start'))
             end = A._parse_iso(w.get('end'))
             if start and end and not (start <= now <= end):

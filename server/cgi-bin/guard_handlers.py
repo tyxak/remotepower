@@ -61,13 +61,8 @@ def _guard_maintenance_active(dev_id, dev):
     now = int(time.time())
     grp = (dev or {}).get('group') or ''
     for w in windows:
-        if not isinstance(w, dict):
-            continue
-        scope = (w.get('scope') or 'device').lower()
-        applies = (scope == 'global'
-                   or (scope == 'group' and grp and w.get('target') == grp)
-                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
-        if applies and A._window_active(w, now):
+        if A._window_applies(w, dev_id, dev=dev, dev_group=grp) \
+                and A._window_active(w, now):
             return True
     return False
 
