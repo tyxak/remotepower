@@ -164,7 +164,9 @@ class TestTheFixesAreInThisRelease(unittest.TestCase):
         """Comments stripped first: the fix's own explanatory comment names the
         helper it replaced, and a raw substring search fails on that."""
         import inspect
-        src = inspect.getsource(api.run_autonomy_if_due)
+        import autonomy_ops_handlers as _ops
+        src = (inspect.getsource(api.run_autonomy_if_due)
+               + inspect.getsource(_ops._change_window_open))
         code = "\n".join(l.split("#", 1)[0] for l in src.splitlines())
         self.assertNotIn("_in_maintenance_window", code)
         self.assertIn("_exec_gated", code)

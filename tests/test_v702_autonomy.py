@@ -623,6 +623,119 @@ class TestTheDeviceNameIsNeverAResourceName(_Base):
         self.assertEqual(cmd, 'exec:zpool scrub -- tank')
 
 
+class TestTheWindowGateFailsClosed(_Base):
+    """Every failure path in `_exec_gated` means ALLOW — right for the dispatch
+    path, which holds rather than drops, and wrong here. This file's own
+    blast-radius helper states the rule: a safety input that fails open is worse
+    than no safety input."""
+
+    def test_an_unreadable_window_store_holds(self):
+        self._alert()
+        self._policy(require_precedent=False)
+        real = api._exec_gated
+        api._exec_gated = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom'))
+        try:
+            self.assertEqual(self._verdict(), ('refuse', 'outside_window'))
+        finally:
+            api._exec_gated = real
+
+    def test_and_a_readable_one_still_allows(self):
+        """Control: fail-closed must not mean closed."""
+        self._alert()
+        self._policy(require_precedent=False)
+        self.assertEqual(self._verdict(), ('shadow', 'ok'))
+
+
+class TestPrecedentIsForThisEventNotItsKind(_Base):
+    """`_similar_incidents` matches same-event OR same-KIND. Right for a triage
+    tool showing a human related history; here it let a prior fix for one event
+    justify acting on another that merely shares a kind — `service` alone pools
+    service_down, unit_flapping and failed_unit, whose ladders differ."""
+
+    def _other_event_precedent(self, event):
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [
+            {'source': 'operator', 'event': event,
+             'kind': api.EVENT_KIND_MAP.get(event), 'tenant': 'default',
+             'resolution': 'fixed', 'fix_command': 'svc:restart:nginx.service'}
+            for _ in range(4)]})
+        api._LOAD_CACHE.clear()
+
+    # kind `storage` pools these two, and their ladders could hardly differ
+    # more: start a scrub, versus remount a filesystem the kernel forced
+    # read-only. Chosen over the service pair because it is the pairing that
+    # makes the consequence obvious.
+    PRIOR, NOW = 'scrub_overdue', 'readonly_fs'
+
+    def test_the_pair_really_shares_a_kind(self):
+        """Control for the test below — an earlier draft used two events that do
+        NOT share a kind, and would have passed while proving nothing."""
+        self.assertEqual(api.EVENT_KIND_MAP.get(self.PRIOR),
+                         api.EVENT_KIND_MAP.get(self.NOW))
+        self.assertNotEqual(self.PRIOR, self.NOW)
+
+    def test_a_sibling_event_in_the_same_kind_is_not_precedent(self):
+        self._other_event_precedent(self.PRIOR)
+        self._alert(event=self.NOW, payload={'paths': ['/srv']})
+        self._policy(allowed_actions=['remount_rw'],
+                     require_verified_backup=False)
+        self.assertEqual(self._verdict(), ('refuse', 'no_precedent'))
+
+    def test_the_same_event_still_is(self):
+        """Control."""
+        self._other_event_precedent(self.NOW)
+        self._alert(event=self.NOW, payload={'paths': ['/srv']})
+        self._policy(allowed_actions=['remount_rw'],
+                     require_verified_backup=False)
+        self.assertEqual(self._verdict(), ('shadow', 'ok'))
+
+
+class TestTheHarvesterDoesNotBurnIdsItStoresNothingFor(_Base):
+    """`seen` is the ring capture_fix_outcome dedups against. Marking an alert
+    seen without storing an outcome meant a later, machine-checkable fix could
+    never be recorded for it."""
+
+    def _resolved_alert_with_an_empty_verdict(self):
+        now = int(time.time())
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a7', 'event': 'failed_unit', 'device_id': 'd1',
+            'severity': 'high', 'resolved_at': now,
+            'ai_triage': {'verdict': {}},        # no root cause, no note
+        }]})
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [], 'seen': [],
+                                            'last_run': 0})
+        api._LOAD_CACHE.clear()
+
+    def test_an_alert_worth_nothing_yet_stays_capturable(self):
+        self._resolved_alert_with_an_empty_verdict()
+        api.run_incident_memory_if_due()
+        mem = api.load(api.INCIDENT_MEMORY_FILE) or {}
+        self.assertEqual(mem.get('outcomes') or [], [], 'nothing to store yet')
+        self.assertNotIn('a7', mem.get('seen') or [],
+                         'the id was burned, so the verified fix that arrives '
+                         'later can never be recorded for it')
+        self.assertTrue(api.capture_fix_outcome(
+            alert_id='a7', event='failed_unit', device_id='d1',
+            tenant='default', fix_command='svc:restart:nginx', source='autonomy'))
+
+    def test_an_alert_worth_storing_is_still_deduped(self):
+        """Control: the ring must still close an id once something IS stored."""
+        now = int(time.time())
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a8', 'event': 'failed_unit', 'device_id': 'd1',
+            'severity': 'high', 'resolved_at': now,
+            'resolve_note': 'restarted nginx',
+        }]})
+        api.save(api.INCIDENT_MEMORY_FILE, {'outcomes': [], 'seen': [],
+                                            'last_run': 0})
+        api._LOAD_CACHE.clear()
+        api.run_incident_memory_if_due()
+        mem = api.load(api.INCIDENT_MEMORY_FILE) or {}
+        self.assertEqual(len(mem.get('outcomes') or []), 1)
+        self.assertIn('a8', mem.get('seen') or [])
+        self.assertFalse(api.capture_fix_outcome(
+            alert_id='a8', event='failed_unit', device_id='d1', source='autonomy'))
+
+
 class TestTheVerifyWindowOutlastsThePollInterval(_Base):
     """A fixed 15 minutes against a device polling hourly guarantees the second
     checks sample is taken before the agent could have collected the command."""

@@ -472,8 +472,6 @@ _ACTION_COMMANDS = {
     'restart_networking':  ('exec:systemd-run --on-active=5 systemctl restart '
                             'NetworkManager systemd-networkd'),
     'enable_firewall':     {
-        'linux':   ('exec:ufw --force enable 2>/dev/null '
-                    '|| systemctl start firewalld'),
         'windows': ('ps:Set-NetFirewallProfile -Profile Domain,Public,Private '
                     '-Enabled True'),
         'darwin':  ('exec:/usr/libexec/ApplicationFirewall/socketfilterfw '
@@ -775,6 +773,27 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
 _VERIFY_DELAY_S = 900
 
 
+def _change_window_open(dev_id, dev):
+    """False when a change-gated maintenance window covers this host and is shut.
+
+    `_exec_gated` answers the same question for the heartbeat's dispatch, and
+    every failure path in it means ALLOW: a bare `except Exception: return False`,
+    and `load()` returning {} on a corrupt store lands in the same place. That is
+    the right default for the dispatch path, which holds rather than drops.
+
+    It is the wrong default here. This file's own blast-radius helper states the
+    house rule — a safety input that fails open is worse than no safety input —
+    so an error reading the window store means HOLD, and the receipt says
+    outside_window rather than acting through a gate it could not read.
+    """
+    try:
+        return not A._exec_gated(dev_id, dev)
+    except Exception as exc:
+        A.sys.stderr.write(
+            f'[remotepower] autonomy window check failed dev={dev_id}: {exc}\n')
+        return False
+
+
 def _verify_delay_for(dev):
     """How long this host gets before the second checks sample.
 
@@ -1047,9 +1066,15 @@ def run_autonomy_if_due():
 
         similar = []
         try:
+            # kind=None on purpose. `_similar_incidents` matches same-event OR
+            # same-KIND, which is right for the triage tool showing a human
+            # related history — but here it would let a prior fix for one event
+            # justify acting on another that merely shares a kind. `service`
+            # alone pools service_down, unit_flapping and failed_unit, whose
+            # ladders differ. The module's own contract is "this exact thing was
+            # fixed this exact way before"; kind-matching is not that.
             similar = A._similar_incidents(
-                alert.get('event'),
-                A.EVENT_KIND_MAP.get(alert.get('event')), tenant,
+                alert.get('event'), None, tenant,
                 exclude_alert_id=alert.get('id'), limit=8) or []
         except Exception:
             similar = []
@@ -1080,7 +1105,7 @@ def run_autonomy_if_due():
             # codebase, so the guard was always False, `in_window` was always
             # True, and "Only inside a maintenance window" — ticked, in the UI,
             # on the maintainer's own instance — had never once been evaluated.
-            in_window=not A._exec_gated(dev_id, dev),
+            in_window=_change_window_open(dev_id, dev),
             actions_this_hour=_actions_this_hour(tenant, _taken),
             dry_run_ok=True,
             # Whether a concrete command came out of the curated catalog. Whether

@@ -910,9 +910,21 @@ def run_incident_memory_if_due():
     for a in fresh:
         dev = devices.get(a.get('device_id')) or {}
         oc = _capture_incident_outcome(a, dev)
-        new_ids.append(a.get('id'))       # mark seen even if not worth storing
         if oc:
             new_outcomes.append(oc)
+            # Marked seen only when something was STORED. It used to be marked
+            # either way — "seen even if not worth storing" — and `seen` is the
+            # ring `capture_fix_outcome` dedups against. So an alert that
+            # resolved carrying an AI triage dict with no root cause and no note
+            # stored nothing, burned its id, and then blocked the verified fix
+            # that arrived 15 minutes later from the sweeps that CAN prove one.
+            # Zero precedent accumulated, which is the failure this release
+            # exists to close, still open in that one direction.
+            #
+            # The cost of not burning it is that such an alert is re-examined on
+            # each 5-minute pass until it prunes: one dict lookup over a bounded
+            # list, against silently losing the best evidence there is.
+            new_ids.append(a.get('id'))
     with A._LockedUpdate(A.INCIDENT_MEMORY_FILE) as store:
         outcomes = store.get('outcomes') if isinstance(store.get('outcomes'), list) else []
         outcomes.extend(new_outcomes)

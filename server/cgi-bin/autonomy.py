@@ -192,9 +192,14 @@ ACTION_CLASSES = {
                             'requires_backup': False,
                             'platforms': ('linux',),
                             'label': 'Restart host networking'},
+    # Windows and macOS only, because those are the two posture blocks that
+    # fire a firewall-off event. There is no Linux `firewall_off` — the Linux
+    # firewall state is a risk-score factor and nothing raises an alert from it —
+    # so a Linux template here advertised a path no alert could ever take. Add
+    # the event first if that changes.
     'enable_firewall':     {'destructive': True,  'default_allowed': False,
                             'requires_backup': False,
-                            'platforms': ('linux', 'windows', 'darwin'),
+                            'platforms': ('windows', 'darwin'),
                             'label': 'Turn the host firewall back on'},
     # A host that does not come back needs rebuilding, and rebuilding needs a
     # backup somebody has actually restored from.
