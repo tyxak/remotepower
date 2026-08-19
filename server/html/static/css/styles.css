@@ -5071,6 +5071,16 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
   align-items: baseline; gap: 8px; padding: 3px 0;
 }
 .autonomy-act-name { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+/* v7.0.2: the list must FILL its row.
+   #autonomy-actions is a block container wrapped in a .settings-row, which is
+   display:flex — so with no flex property it took the default `0 1 auto` and
+   sized to its content: 392px inside a 1096px row, about a third of the card.
+   The 3-column grid above then had ~110px left for the description, so every
+   row wrapped into a paragraph and the list read as a wall of text.
+   Same shape as the #cmdb-asset-tickets sliver above: a .scroll-cap in a flex
+   parent does not get min-height/min-width protection, because it is a scroll
+   container. */
+#autonomy-actions { flex: 1 1 100%; min-width: 0; }
 @media (max-width: 720px) {
   .autonomy-act-row { grid-template-columns: 18px minmax(0, 1fr); }
   .autonomy-act-row > .hint { grid-column: 2; }

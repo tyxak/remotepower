@@ -242,6 +242,58 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         after = self.page.evaluate(_READ_ENVELOPE)
         self.assertGreaterEqual(len(after['actions']), 25, 'clearing did not restore')
 
+    def test_the_allow_list_fills_the_card(self):
+        """It rendered at 392px inside a 1096px row — about a third of the card.
+
+        #autonomy-actions is a block container wrapped in a .settings-row, which
+        is display:flex, so with no flex property it took the default `0 1 auto`
+        and sized to its content. The row grid then had roughly 110px left for
+        the description column, and every row wrapped into a paragraph: the list
+        read as a wall of text with the names and the prose run together.
+
+        Measured, because the markup and every CSS rule involved are individually
+        correct — this is only visible once something lays it out.
+        """
+        m = self.page.evaluate("""() => {
+          const list = document.getElementById('autonomy-actions');
+          const row  = list.querySelector('.autonomy-act-row');
+          return {list: list.getBoundingClientRect().width,
+                  parent: list.parentElement.getBoundingClientRect().width,
+                  row: row ? row.getBoundingClientRect().width : 0};
+        }""")
+        self.assertGreater(m['parent'], 400, 'the card itself did not lay out')
+        self.assertGreaterEqual(
+            m['list'], m['parent'] - 1,
+            f"the list fills {m['list']:.0f} of {m['parent']:.0f}px "
+            f"({m['list'] / m['parent']:.0%} of its row)")
+        self.assertGreaterEqual(m['row'], m['parent'] - 1,
+                                'the rows do not fill the list')
+
+    def test_the_filter_responds_to_real_keystrokes(self):
+        """The sibling test uses page.fill(), which sets .value and dispatches
+        one input event. A person types, and the dispatch that carries this is
+        `window[el.dataset.input]` — undefined resolves to a silent return, so
+        "the filter does nothing" is what a missing or unloaded handler looks
+        like. Type it properly, and check the count label the operator reads.
+        """
+        self.page.click('#autonomy-act-filter')
+        self.page.type('#autonomy-act-filter', 'container', delay=30)
+        self.page.wait_for_timeout(600)
+        out = self.page.evaluate("""() => {
+          const rows = [...document.querySelectorAll(
+            '#autonomy-actions .autonomy-act-row')];
+          return {total: rows.length,
+                  visible: rows.filter(r => !r.classList.contains('row-hidden')).length,
+                  label: (document.getElementById('autonomy-act-filter-count')
+                          || {}).textContent || ''};
+        }""")
+        self.assertGreater(out['total'], 20, 'the list did not render')
+        self.assertGreater(out['visible'], 0, 'the filter hid everything')
+        self.assertLess(out['visible'], out['total'], 'the filter hid nothing')
+        self.assertEqual(out['label'], f"{out['visible']} of {out['total']}",
+                         'the count beside the box disagrees with the rows')
+        self.assertEqual(self.errors, [], f'page errors: {self.errors}')
+
     def test_the_allow_list_marks_exactly_the_actions_that_need_a_backup(self):
         e = self.page.evaluate(_READ_ENVELOPE)
         self.assertGreaterEqual(len(e['actions']), 25, 'the allow-list did not render')
