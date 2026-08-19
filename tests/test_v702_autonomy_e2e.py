@@ -74,13 +74,16 @@ _READ_ENVELOPE = """() => {
     return {text: b.textContent.trim(), w: r.width, h: r.height,
             svg: !!b.querySelector('svg')};
   };
-  const acts = [...document.querySelectorAll('#autonomy-actions .settings-row')]
+  const acts = [...document.querySelectorAll('#autonomy-actions .autonomy-act-row')]
     .map(r => ({
       name: (r.querySelector('code') || {}).textContent || '',
       pills: [...r.querySelectorAll('.chk-pill')].map(p => p.textContent.trim()),
     }));
   const cb = document.getElementById('autonomy-require-precedent');
+  const groups = [...document.querySelectorAll('#autonomy-actions .autonomy-act-group')]
+    .map(g => (g.textContent || '').trim());
   return {
+    groups,
     clear: btn('[data-action="clearAutonomyReceipts"]'),
     refresh: btn('#page-autonomy [data-action="loadAutonomy"]'),
     precedent: cb ? {present: true, checked: cb.checked} : {present: false},
@@ -151,7 +154,7 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         one. Waiting on the last thing painted removes the class rather than
         widening the sleep.
         """
-        self.page.wait_for_selector('#autonomy-actions .settings-row',
+        self.page.wait_for_selector('#autonomy-actions .autonomy-act-row',
                                     timeout=30000)
         self.page.wait_for_selector('#autonomy-receipts-body tr', timeout=30000)
 
@@ -198,6 +201,33 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
         self.assertTrue(e['precedent']['present'], 'the checkbox is not rendered')
         self.assertTrue(e['precedent']['checked'],
                         'the seeded policy requires precedent; the page says it does not')
+
+    def test_the_allow_list_is_grouped(self):
+        """Twenty-six machine names in one flat column is a wall — the whole
+        reason the list was regrouped. An empty heading list means the page
+        fell back to rendering one."""
+        e = self.page.evaluate(_READ_ENVELOPE)
+        self.assertGreaterEqual(len(e['groups']), 4, e['groups'])
+        self.assertTrue(any('Destructive' in g for g in e['groups']), e['groups'])
+
+    def test_the_filter_narrows_the_list_and_folds_empty_groups(self):
+        self.page.fill('#autonomy-act-filter', 'container')
+        self.page.wait_for_timeout(400)
+        vis = self.page.evaluate(
+            "() => ({rows: [...document.querySelectorAll("
+            "'#autonomy-actions .autonomy-act-row')].filter("
+            "r => !r.classList.contains('row-hidden')).length,"
+            " groups: [...document.querySelectorAll("
+            "'#autonomy-actions .autonomy-act-group')].filter("
+            "g => !g.classList.contains('row-hidden')).length})")
+        self.assertGreater(vis['rows'], 0, 'the filter hid everything')
+        self.assertLess(vis['rows'], 10, vis)
+        self.assertLessEqual(vis['groups'], 3,
+                             'a heading stayed behind labelling nothing')
+        self.page.fill('#autonomy-act-filter', '')
+        self.page.wait_for_timeout(400)
+        after = self.page.evaluate(_READ_ENVELOPE)
+        self.assertGreaterEqual(len(after['actions']), 25, 'clearing did not restore')
 
     def test_the_allow_list_marks_exactly_the_actions_that_need_a_backup(self):
         e = self.page.evaluate(_READ_ENVELOPE)
