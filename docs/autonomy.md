@@ -60,8 +60,9 @@ to flip rather than something that quietly happens.
 
 ## The safety envelope
 
-Configured per tenant on the **Autonomy** page. One customer opting in never
-enables anything for another.
+Configured per tenant at the **bottom** of the Autonomy page — the receipts come
+first, because reading them is what you do daily and setting the envelope is
+what you do once. One customer opting in never enables anything for another.
 
 | Setting | What it does |
 |---|---|

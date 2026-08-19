@@ -7634,6 +7634,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Every decision the remediation loop reached, and why. In <strong>shadow</strong> it changes nothing — the receipts are there so you can grade it before granting it anything. <a href="docs/autonomy.md" class="c-accent">Documentation</a></div>
 
         <div class="dash-card">
+          <div class="section-title">Why it decided that</div>
+          <p class="hint">Every refusal carries a machine-readable reason, so a pattern is visible rather than buried in prose.</p>
+          <div id="autonomy-reasons" class="scroll-cap-sm"></div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Receipts</div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="loadAutonomy" title="Re-read the receipts ledger"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <button class="btn-icon c-danger-outline" data-action="clearAutonomyReceipts" title="Remove every receipt this account can see"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-a93e5032"/></svg> Clear receipts</button>
+          </div>
+          <p class="hint">Newest first. Each row is self-contained — the precedent and blast radius that justified it are recorded on the receipt, because the alert will be pruned and the fleet will have changed by the time anyone asks. Clearing is admin-only and audited; it does not stop the loop or change anything it decided.</p>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table">
+              <thead id="autonomy-receipts-head"><tr>
+                <th data-col="ts">When</th>
+                <th data-col="device">Host</th>
+                <th data-col="trigger">Trigger</th>
+                <th data-col="action">Action</th>
+                <th data-col="verdict">Verdict</th>
+                <th data-col="reason">Reason</th>
+                <th data-col="precedent">Precedent</th>
+                <th data-col="radius">Blast radius</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="autonomy-receipts-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-card">
           <div class="section-title">Safety envelope</div>
           <p class="hint">Per tenant. A tenant starts at <strong>off</strong> and records nothing at all; <strong>shadow</strong> records what it would have done; <strong>enabled</strong> lets it act inside every limit below. <span id="autonomy-mode-pill"></span></p>
           <div class="settings-row">
@@ -7674,37 +7705,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="settings-row">
             <div id="autonomy-actions" class="scroll-cap"></div>
-          </div>
-        </div>
-
-        <div class="dash-card">
-          <div class="section-title">Why it decided that</div>
-          <p class="hint">Every refusal carries a machine-readable reason, so a pattern is visible rather than buried in prose.</p>
-          <div id="autonomy-reasons" class="scroll-cap-sm"></div>
-        </div>
-
-        <div class="dash-card">
-          <div class="section-title">Receipts</div>
-          <div class="toolbar">
-            <button class="btn-icon" data-action="loadAutonomy" title="Re-read the receipts ledger"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-            <button class="btn-icon c-danger-outline" data-action="clearAutonomyReceipts" title="Remove every receipt this account can see"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-a93e5032"/></svg> Clear receipts</button>
-          </div>
-          <p class="hint">Newest first. Each row is self-contained — the precedent and blast radius that justified it are recorded on the receipt, because the alert will be pruned and the fleet will have changed by the time anyone asks. Clearing is admin-only and audited; it does not stop the loop or change anything it decided.</p>
-          <div class="scrollable-table-wrap audit-scroll">
-            <table class="data-table">
-              <thead id="autonomy-receipts-head"><tr>
-                <th data-col="ts">When</th>
-                <th data-col="device">Host</th>
-                <th data-col="trigger">Trigger</th>
-                <th data-col="action">Action</th>
-                <th data-col="verdict">Verdict</th>
-                <th data-col="reason">Reason</th>
-                <th data-col="precedent">Precedent</th>
-                <th data-col="radius">Blast radius</th>
-                <th scope="col"></th>
-              </tr></thead>
-              <tbody id="autonomy-receipts-body"></tbody>
-            </table>
           </div>
         </div>
       </div>
