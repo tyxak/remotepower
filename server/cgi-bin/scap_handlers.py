@@ -38,6 +38,10 @@ class _ApiNamespace:
 
 A = None
 
+# An OpenSCAP HTML report is a few megabytes; 64 MB is far past any real one and
+# far short of what an unbounded decompress will do to a worker.
+SCAP_REPORT_MAX_HTML = 64 * 1024 * 1024
+
 
 def bind(api_globals):
     """Called once by api.py right after importing this module, with
@@ -135,6 +139,18 @@ def handle_scap_report():
             import base64 as _b64
             raw_gz = _b64.b64decode(gz_b64, validate=True)
             if 0 < len(raw_gz) <= 30 * 1024 * 1024:
+                # SEC (v7.0.2): the 30 MB above bounds the COMPRESSED bytes,
+                # which bounds nothing — gzip reaches about 1000:1 on repetitive
+                # input, so this cap admitted a stream that expands to tens of
+                # gigabytes. Nothing decompressed it here, so the bomb was
+                # simply stored and went off later, in the download handler, on
+                # a request from a logged-in operator. It needs only a device
+                # token to plant: the lowest-privilege credential in the
+                # product, held by every agent.
+                #
+                # Decompressing at ingest also means a corrupt report is
+                # refused at the door instead of 500ing a download months later.
+                A.gunzip_bounded(raw_gz, SCAP_REPORT_MAX_HTML)
                 A.SCAP_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
                 # dev_id is validated [A-Za-z0-9_-]; safe as a filename.
                 (A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz').write_bytes(raw_gz)
@@ -162,8 +178,9 @@ def handle_scap_report_download(dev_id):
     if not path.exists():
         A.respond(404, {'error': 'no report on file for this device'}); return
     try:
-        import gzip as _gz
-        html = _gz.decompress(path.read_bytes())
+        # Bounded on the way out as well as in: a report stored before v7.0.2
+        # was never size-checked, and this handler is the place it would go off.
+        html = A.gunzip_bounded(path.read_bytes(), SCAP_REPORT_MAX_HTML)
     except Exception as e:
         A.respond(500, {'error': f'report read failed: {e}'}); return
     devices = A.load(A.DEVICES_FILE) or {}

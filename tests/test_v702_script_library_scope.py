@@ -251,6 +251,21 @@ class TestTheMcpToolCanActuallyRunAScript(_Base):
         self.assertEqual((api.load(api.CMDS_FILE) or {}).get('a1'),
                          ['exec:systemctl restart nginx'])
 
+    def test_the_pre_validation_resolves_it_too(self):
+        """There were TWO copies of the wrong shape. `_mcp_prevalidate` ran
+        first and returned 400 "not found in library", so the executor's own
+        bug was never even reached — fixing one would have looked like fixing
+        nothing."""
+        api.save(api.SCRIPTS_FILE, {'scripts': [
+            {'id': 'abc123', 'name': 'x', 'body': 'true'}]})
+        api._LOAD_CACHE.clear()
+        api._tenant_gate = lambda: None
+        fn = getattr(api, '_mcp_prevalidate', None) or getattr(
+            api, '_mcp_validate_params', None)
+        self.assertTrue(fn, 'the MCP pre-validation moved or was renamed')
+        self.assertIsNone(fn('run_saved_script', {'script_id': 'abc123'}))
+        self.assertIn('not found', fn('run_saved_script', {'script_id': 'nope'}))
+
     def test_a_missing_id_still_reports_not_found(self):
         """Control: the fix must not make every id resolve."""
         api.save(api.SCRIPTS_FILE, {'scripts': []})

@@ -390,8 +390,16 @@ class TestMcpWriteTools(_ApiTestBase):
         })
         self.api.save(self.api.CMDS_FILE, {})
         self.api.save(self.api.CONFIRMATIONS_FILE, {'confirmations': []})
+        # scripts.json is {'scripts': [...]} — a wrapped LIST, which is what
+        # handle_scripts_add writes. This fixture used to be {'s1': {...}}, a
+        # dict keyed by id, matching the shape the MCP handler INCORRECTLY
+        # assumed. The test and the bug agreed with each other, so
+        # run_saved_script passed here while answering "not found" to every real
+        # call it ever received (fixed v7.0.2, see
+        # tests/test_v702_script_library_scope.py).
         self.api.save(self.api.SCRIPTS_FILE,
-                      {'s1': {'name': 'uptime', 'body': 'uptime'}})
+                      {'scripts': [{'id': 's1', 'name': 'uptime',
+                                    'body': 'uptime'}]})
 
         # Admin session for confirmation-approval tests
         users = self.api.load(self.api.USERS_FILE)

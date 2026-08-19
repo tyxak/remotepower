@@ -401,6 +401,41 @@ def _require_signed_commands_win():
         return False
 
 
+# v7.0.2: replay memory for signed commands.
+#
+# The signature binds a command to this device and an issue time, and anything
+# inside the _CMD_SIG_MAX_AGE_S second freshness window verified — so the same
+# signed command, re-sent, ran again. Every poll, for fifteen minutes. The
+# comment above already promised that replaying "at a later time" executes
+# nothing; between issue and expiry that was not true, and ten identical
+# reboots is a different event from one.
+#
+# The server signs fresh on each dispatch with a new timestamp, so a legitimate
+# re-issue produces a different digest and is unaffected.
+#
+# In-process, so a restart inside the window forgets. That is the honest
+# residual: persisting it would mean a disk write per command for a fifteen
+# minute exposure that already needs a position on the wire or the server.
+_CMD_SIG_SEEN_win = {}      # digest -> when we accepted it
+
+
+def _cmd_sig_replayed_win(device_id, ts, cmd, now=None):
+    """True if this exact signed command has already been accepted."""
+    now = int(now if now is not None else time.time())
+    for _k, _t in list(_CMD_SIG_SEEN_win.items()):
+        if now - _t > _CMD_SIG_MAX_AGE_S * 2:
+            _CMD_SIG_SEEN_win.pop(_k, None)
+    digest = hashlib.sha256(f'{device_id}\n{ts}\n{cmd}'.encode()).hexdigest()
+    if digest in _CMD_SIG_SEEN_win:
+        return True
+    _CMD_SIG_SEEN_win[digest] = now
+    if len(_CMD_SIG_SEEN_win) > 512:
+        for _k, _t in sorted(_CMD_SIG_SEEN_win.items(),
+                             key=lambda kv: kv[1])[:128]:
+            _CMD_SIG_SEEN_win.pop(_k, None)
+    return False
+
+
 def _command_sig_ok_win(cmd, sig_text, sig_ts, device_id, now=None):
     """(ok, detail). Canonical payload must byte-match the server's
     _sign_command_for_agent: 'rp-cmd\\nv1\\n{device_id}\\n{ts}\\n{cmd}'."""
@@ -417,7 +452,15 @@ def _command_sig_ok_win(cmd, sig_text, sig_ts, device_id, now=None):
     if abs(now - ts) > _CMD_SIG_MAX_AGE_S:
         return False, 'signature timestamp outside the freshness window'
     payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
-    return _verify_detached_sig_win(payload, str(sig_text), pubkey)
+    _ok, _detail = _verify_detached_sig_win(payload, str(sig_text), pubkey)
+    if not _ok:
+        return _ok, _detail
+    # Accepted once. A second delivery of the same signature is a replay,
+    # whether it came from the wire or a re-queue, and the freshness window
+    # alone cannot tell them apart.
+    if _cmd_sig_replayed_win(device_id, ts, cmd, now):
+        return False, 'signature already used (replay)'
+    return True, _detail
 
 
 def _verify_detached_sig_win(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
@@ -504,6 +547,21 @@ def _self_update():
     remote_ver = info.get('version') or '?'
     if not remote_sha:
         return {'cmd': 'update', 'output': 'server publishes no Windows agent — nothing to update', 'rc': 0}
+
+    # v7.0.2: never auto-downgrade, matching the Linux agent (v5.0.1) and the
+    # macOS one. The update trigger is hash drift, so an agent pointed at a
+    # rolled-back or stale server would otherwise walk itself backwards and
+    # lose fixes on every poll.
+    def _vtuple(v):
+        try:
+            return tuple(int(x) for x in str(v).split('.')[:3])
+        except (TypeError, ValueError):
+            return ()
+    _lv, _rv = _vtuple(VERSION), _vtuple(remote_ver)
+    if _lv and _rv and _rv < _lv:
+        return {'cmd': 'update',
+                'output': f'server advertises v{remote_ver}, older than local '
+                          f'v{VERSION} — refusing to auto-downgrade', 'rc': 1}
 
     self_path = os.path.abspath(__file__)
     local_sha = self_sha256().lower()
@@ -1983,6 +2041,17 @@ def command_argv(cmd):
         m = _re.match(r'^to=\d{1,5}:(.*)$', body, _re.DOTALL)
         if m:
             body = m.group(1)
+        # v7.0.2: strip the server's tag prefix. Certain commands are queued
+        # as `#<scope>:<action_id>#<body>` (scope is acme or mitigate) so the
+        # server can route the output to a per-action log. The Linux agent has
+        # stripped it since v3.0.1; here it was passed straight to the
+        # interpreter, where `#` starts a comment — so the whole command became
+        # a comment, exited 0, and the operator got a success toast for
+        # something that never ran. The tag stays on the reported `cmd` so the
+        # server still recognises which action the output belongs to.
+        _tag = _re.match(r'^#(?:acme|mitigate):[a-zA-Z0-9_-]+#(.*)$', body, _re.DOTALL)
+        if _tag:
+            body = _tag.group(1)
         # exec: runs via PowerShell on Windows (the native default). An operator
         # who needs a DIFFERENT interpreter — because `exec:` silently ran their
         # bash/cmd body as PowerShell — uses the explicit ps:/cmd: verbs below.

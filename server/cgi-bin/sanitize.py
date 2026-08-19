@@ -242,6 +242,44 @@ def canary_path_safe(p):
     return True, ''
 
 
+def gunzip_bounded(data, limit):
+    """Decompress gzip bytes, refusing a stream that expands past `limit`.
+
+    `gzip.decompress` has no output bound, so a few megabytes of repetitive
+    bytes expand a thousandfold and take the process out of memory. Every place
+    this product decompresses something it did not create — an agent's SCAP
+    report, a DMARC aggregate that arrived by mail, a downloaded feed — is
+    reading a size it does not control, and the SCAP one needs only a device
+    token, the lowest-privilege credential in the product.
+
+    Raises ValueError on a bomb or a corrupt stream, so a caller that already
+    wraps its decompress in try/except keeps behaving the same way.
+    """
+    import zlib
+    if limit <= 0:
+        raise ValueError('limit must be positive')
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)   # 16 → gzip wrapper
+    out = bytearray()
+    src = bytes(data)
+    while True:
+        # max_length must never be 0 — zlib reads that as "no limit", which is
+        # the bug this function exists to avoid.
+        room = limit + 1 - len(out)
+        if room <= 0:
+            raise ValueError(f'gzip stream expands past {limit} bytes')
+        try:
+            chunk = d.decompress(src, room)
+        except zlib.error as exc:
+            raise ValueError(f'corrupt gzip stream: {exc}') from exc
+        out += chunk
+        if len(out) > limit:
+            raise ValueError(f'gzip stream expands past {limit} bytes')
+        src = d.unconsumed_tail
+        if not src:
+            break
+    return bytes(out)
+
+
 def _canary_path_ok(p):
     """True if `p` is an absolute POSIX, drive-letter or UNC path with no
     traversal component. Rejects NUL and, on the Windows forms, the reserved

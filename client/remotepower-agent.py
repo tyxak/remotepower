@@ -176,8 +176,10 @@ def _audit_mode():
 # that doesn't carry a valid detached signature (release.pub key) binding the
 # command text to THIS device and a fresh timestamp. What that buys: tampering
 # with the server's command queue at rest (DB compromise, storage tampering)
-# or replaying a captured command to another host / at a later time no longer
-# executes anything — an attacker needs the signing key, not just DB write
+# or replaying a captured command to another host, at a later time, or a second
+# time inside the freshness window (v7.0.2 — the window alone left a fifteen
+# minute replay open, and this comment claimed otherwise) no longer executes
+# anything — an attacker needs the signing key, not just DB write
 # access. (A full app-server compromise still signs — same honest boundary as
 # server-side release signing.) Fail-closed by design: flag set + no pinned
 # key / no gpg / bad sig / stale ts → the command is refused and reported.
@@ -190,6 +192,41 @@ def _require_signed_commands():
         return REQUIRE_SIGNED_CMDS_FILE.exists()
     except Exception:
         return False
+
+
+# v7.0.2: replay memory for signed commands.
+#
+# The signature binds a command to this device and an issue time, and anything
+# inside the CMD_SIG_MAX_AGE_S second freshness window verified — so the same
+# signed command, re-sent, ran again. Every poll, for fifteen minutes. The
+# comment above already promised that replaying "at a later time" executes
+# nothing; between issue and expiry that was not true, and ten identical
+# reboots is a different event from one.
+#
+# The server signs fresh on each dispatch with a new timestamp, so a legitimate
+# re-issue produces a different digest and is unaffected.
+#
+# In-process, so a restart inside the window forgets. That is the honest
+# residual: persisting it would mean a disk write per command for a fifteen
+# minute exposure that already needs a position on the wire or the server.
+_CMD_SIG_SEEN = {}      # digest -> when we accepted it
+
+
+def _cmd_sig_replayed(device_id, ts, cmd, now=None):
+    """True if this exact signed command has already been accepted."""
+    now = int(now if now is not None else time.time())
+    for _k, _t in list(_CMD_SIG_SEEN.items()):
+        if now - _t > CMD_SIG_MAX_AGE_S * 2:
+            _CMD_SIG_SEEN.pop(_k, None)
+    digest = hashlib.sha256(f'{device_id}\n{ts}\n{cmd}'.encode()).hexdigest()
+    if digest in _CMD_SIG_SEEN:
+        return True
+    _CMD_SIG_SEEN[digest] = now
+    if len(_CMD_SIG_SEEN) > 512:
+        for _k, _t in sorted(_CMD_SIG_SEEN.items(),
+                             key=lambda kv: kv[1])[:128]:
+            _CMD_SIG_SEEN.pop(_k, None)
+    return False
 
 
 def _command_sig_ok(cmd, sig_text, sig_ts, device_id, now=None):
@@ -209,7 +246,15 @@ def _command_sig_ok(cmd, sig_text, sig_ts, device_id, now=None):
     if abs(now - ts) > CMD_SIG_MAX_AGE_S:
         return False, 'signature timestamp outside the freshness window'
     payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
-    return _verify_detached_sig(payload, str(sig_text), pubkey)
+    _ok, _detail = _verify_detached_sig(payload, str(sig_text), pubkey)
+    if not _ok:
+        return _ok, _detail
+    # Accepted once. A second delivery of the same signature is a replay,
+    # whether it came from the wire or a re-queue, and the freshness window
+    # alone cannot tell them apart.
+    if _cmd_sig_replayed(device_id, ts, cmd, now):
+        return False, 'signature already used (replay)'
+    return True, _detail
 
 
 def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
@@ -383,7 +428,33 @@ def _agent_file_log_handler():
         return logging.NullHandler()
     try:
         from logging.handlers import RotatingFileHandler
-        return RotatingFileHandler(
+
+        class _OwnerReadableRotatingHandler(RotatingFileHandler):
+            """Keep the log 0640 across rollovers.
+
+            v7.0.2: the stdlib handler creates every file at the process umask —
+            0644 — so this log has been world-readable, and a one-off chmod after
+            construction would be undone by the first rotation anyway. Setting
+            the mode in _open() covers the initial file and each rollover. The
+            macOS agent has done this since v6.4.0; the Linux agent, which logs
+            the most, did not.
+
+            It matters because the log records the command channel: every
+            `Executing custom command: …` line and the first 200 bytes of its
+            output. Operators paste commands carrying tokens and passwords, so
+            a world-readable copy hands any local account the fleet's command
+            traffic on that host.
+            """
+
+            def _open(self):
+                stream = super()._open()
+                try:
+                    os.chmod(self.baseFilename, 0o640)
+                except OSError:
+                    pass
+                return stream
+
+        return _OwnerReadableRotatingHandler(
             LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5)
     except Exception:
         return logging.NullHandler()

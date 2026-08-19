@@ -1656,7 +1656,7 @@ import sbom as sbom_mod
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
 from sanitize import (
     _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
-    _sanitize_version, _canary_path_ok, canary_path_safe,
+    _sanitize_version, _canary_path_ok, canary_path_safe, gunzip_bounded,
     MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
     _IP_RE, _MAC_RE, _VER_RE,
 )
@@ -60208,8 +60208,12 @@ def _mcp_validate_params(action, params):
         script_id = (params or {}).get('script_id') or ''
         if not script_id:
             return 'run_saved_script requires script_id'
-        scripts = load(SCRIPTS_FILE)
-        if script_id not in scripts:
+        # v7.0.2: this had the same wrong assumption as the executor —
+        # `script_id not in scripts` against a store shaped
+        # {'scripts': [...]}. So the tool was dead twice over: this returned
+        # 400 before the executor ever got the chance to return its own "not
+        # found". One lookup owns the shape now.
+        if not _script_by_id(script_id):
             return f'script_id "{script_id}" not found in library'
     # Other actions have no pre-validation (just need device_id which
     # is checked upstream).

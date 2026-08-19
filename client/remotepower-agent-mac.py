@@ -192,6 +192,12 @@ MAX_OUTPUT = 32 * 1024
 # timestamp. Fail-closed (needs gpg — `brew install gnupg`).
 _RELEASE_PUB_MAC = '/etc/remotepower/release.pub'
 _REQUIRE_SIGNED_CMDS_MAC = '/etc/remotepower/require-signed-commands'
+# v7.0.2: the UPDATE leg of the same idea, which this agent never had. The
+# Linux and Windows agents both refuse an unsigned self-update when a key is
+# pinned; macOS verified only the sha256 the server itself advertised, which
+# checks the download arrived intact and says nothing about who built it. An
+# operator who pinned release.pub had two of three agents enforcing it.
+_REQUIRE_SIGNED_UPDATES_MAC = '/etc/remotepower/require-signed-updates'
 _CMD_SIG_MAX_AGE_S = 900
 
 
@@ -208,6 +214,13 @@ def _release_pubkey_mac():
 def _require_signed_commands_mac():
     try:
         return os.path.exists(_REQUIRE_SIGNED_CMDS_MAC)
+    except Exception:
+        return False
+
+
+def _require_signed_updates_mac():
+    try:
+        return os.path.exists(_REQUIRE_SIGNED_UPDATES_MAC)
     except Exception:
         return False
 
@@ -246,6 +259,41 @@ def _verify_detached_sig_mac(data_bytes, sig_text, pubkey_armored):
         shutil.rmtree(home, ignore_errors=True)
 
 
+# v7.0.2: replay memory for signed commands.
+#
+# The signature binds a command to this device and an issue time, and anything
+# inside the _CMD_SIG_MAX_AGE_S second freshness window verified — so the same
+# signed command, re-sent, ran again. Every poll, for fifteen minutes. The
+# comment above already promised that replaying "at a later time" executes
+# nothing; between issue and expiry that was not true, and ten identical
+# reboots is a different event from one.
+#
+# The server signs fresh on each dispatch with a new timestamp, so a legitimate
+# re-issue produces a different digest and is unaffected.
+#
+# In-process, so a restart inside the window forgets. That is the honest
+# residual: persisting it would mean a disk write per command for a fifteen
+# minute exposure that already needs a position on the wire or the server.
+_CMD_SIG_SEEN_mac = {}      # digest -> when we accepted it
+
+
+def _cmd_sig_replayed_mac(device_id, ts, cmd, now=None):
+    """True if this exact signed command has already been accepted."""
+    now = int(now if now is not None else time.time())
+    for _k, _t in list(_CMD_SIG_SEEN_mac.items()):
+        if now - _t > _CMD_SIG_MAX_AGE_S * 2:
+            _CMD_SIG_SEEN_mac.pop(_k, None)
+    digest = hashlib.sha256(f'{device_id}\n{ts}\n{cmd}'.encode()).hexdigest()
+    if digest in _CMD_SIG_SEEN_mac:
+        return True
+    _CMD_SIG_SEEN_mac[digest] = now
+    if len(_CMD_SIG_SEEN_mac) > 512:
+        for _k, _t in sorted(_CMD_SIG_SEEN_mac.items(),
+                             key=lambda kv: kv[1])[:128]:
+            _CMD_SIG_SEEN_mac.pop(_k, None)
+    return False
+
+
 def _command_sig_ok_mac(cmd, sig_text, sig_ts, device_id, now=None):
     """(ok, detail). Canonical payload must byte-match the server's
     _sign_command_for_agent: 'rp-cmd\\nv1\\n{device_id}\\n{ts}\\n{cmd}'."""
@@ -262,7 +310,15 @@ def _command_sig_ok_mac(cmd, sig_text, sig_ts, device_id, now=None):
     if abs(now - ts) > _CMD_SIG_MAX_AGE_S:
         return False, 'signature timestamp outside the freshness window'
     payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
-    return _verify_detached_sig_mac(payload, str(sig_text), pubkey)
+    _ok, _detail = _verify_detached_sig_mac(payload, str(sig_text), pubkey)
+    if not _ok:
+        return _ok, _detail
+    # Accepted once. A second delivery of the same signature is a replay,
+    # whether it came from the wire or a re-queue, and the freshness window
+    # alone cannot tell them apart.
+    if _cmd_sig_replayed_mac(device_id, ts, cmd, now):
+        return False, 'signature already used (replay)'
+    return True, _detail
 
 # No-redirect opener (parity with the Linux agent): a 3xx must never replay the
 # token-bearing POST body to a redirect host or downgrade https→http in cleartext.
@@ -2055,6 +2111,17 @@ def command_argv(cmd):
         m = _re.match(r'^to=\d{1,5}:(.*)$', body, _re.DOTALL)
         if m:
             body = m.group(1)
+        # v7.0.2: strip the server's tag prefix. Certain commands are queued as
+        # `#<scope>:<action_id>#<body>` (scope is acme or mitigate) so the
+        # server can route the output to a per-action log. The Linux agent has
+        # stripped it since v3.0.1; here it went to /bin/sh, where `#` starts a
+        # comment — so the whole command became a comment, exited 0, and the
+        # operator got a success toast for something that never ran. The tag
+        # stays on the reported `cmd` so the server still knows which action
+        # the output belongs to.
+        _tag = _re.match(r'^#(?:acme|mitigate):[a-zA-Z0-9_-]+#(.*)$', body, _re.DOTALL)
+        if _tag:
+            body = _tag.group(1)
         return ['/bin/sh', '-c', body]
     # W6-32: patch execution via Homebrew. `upgrade` upgrades all outdated
     # formulae; `upgrade:<name>` upgrades one. Casks are NOT touched by default
@@ -2137,11 +2204,12 @@ def _self_update():
     """v6.3.0: download + sha256-verify + atomically install a fresh mac agent.
 
     Mirrors the Windows agent's flow against /api/agent/mac/{version,download}.
-    sha256 over HTTPS with a no-redirect opener is the trust anchor (same as
-    the Linux agent's default; detached-signature pinning is not yet wired on
-    macOS). rc 0 ONLY on a verified install or a genuine already-current no-op.
-    The process re-execs into the new file after reporting, so launchd
-    KeepAlive supervision (or a manual --run) continues seamlessly.
+    sha256 over HTTPS with a no-redirect opener says the download arrived
+    intact; a detached signature from a pinned release.pub says who built it,
+    and v7.0.2 wires that here — it was the one agent of three without it.
+    rc 0 only on a verified install or an already-current no-op. The process
+    re-execs into the new file after reporting, so launchd KeepAlive
+    supervision (or a manual --run) continues.
     """
     if _audit_mode():
         return {'cmd': 'update', 'output': 'audit (read-only) mode: self-update refused', 'rc': 126}
@@ -2157,6 +2225,20 @@ def _self_update():
     remote_ver = info.get('version') or '?'
     if not remote_sha:
         return {'cmd': 'update', 'output': 'server publishes no macOS agent — nothing to update', 'rc': 0}
+
+    # v7.0.2: never auto-downgrade, matching the Linux agent. The trigger is
+    # hash drift, so an agent pointed at a rolled-back or stale server would
+    # otherwise walk itself backwards and lose fixes.
+    def _vtuple(v):
+        try:
+            return tuple(int(x) for x in str(v).split('.')[:3])
+        except (TypeError, ValueError):
+            return ()
+    _lv, _rv = _vtuple(VERSION), _vtuple(remote_ver)
+    if _lv and _rv and _rv < _lv:
+        return {'cmd': 'update',
+                'output': f'server advertises v{remote_ver}, older than local '
+                          f'v{VERSION} — refusing to auto-downgrade', 'rc': 1}
     local_sha = self_sha256().lower()
     import hmac as _hmac
     if local_sha and _hmac.compare_digest(local_sha, remote_sha):
@@ -2170,6 +2252,28 @@ def _self_update():
         return {'cmd': 'update',
                 'output': f'sha256 mismatch (got {actual_sha[:12]}…, expected {remote_sha[:12]}…) '
                           '— refusing to install', 'rc': 1}
+
+    # v7.0.2: signature gate, fail-closed — the same three steps the Windows
+    # agent has run since v6.2.0. The sha256 above comes from the server, so it
+    # proves the download was not mangled in transit and nothing about who built
+    # it; only the detached signature does that.
+    pubkey = _release_pubkey_mac()
+    if not pubkey and _require_signed_updates_mac():
+        return {'cmd': 'update',
+                'output': 'require-signed-updates is set but no release.pub is pinned — '
+                          'refusing an unsigned update', 'rc': 1}
+    if pubkey:
+        try:
+            sig_obj = _http_get_json(f'{server}/api/agent/mac/signature', timeout=15)
+            sig_text = (sig_obj or {}).get('signature', '')
+        except Exception as e:
+            return {'cmd': 'update',
+                    'output': f'signature required but unavailable: {e}', 'rc': 1}
+        ok, detail = _verify_detached_sig_mac(data, sig_text, pubkey)
+        if not ok:
+            return {'cmd': 'update',
+                    'output': f'signature verification FAILED ({detail}) — refusing', 'rc': 1}
+
     self_path = os.path.abspath(__file__)
     try:
         tmp = self_path + '.rp-new'
