@@ -65,6 +65,23 @@ ops.bind(vars(api))
 _FAMILIES = ('linux', 'windows', 'darwin')
 
 
+def _all_ladders():
+    """(event, ladder) for BOTH mapping tables.
+
+    v7.0.2 added `_EVENT_ACTIONS_BY`, where an event maps through a payload
+    field — `metric_critical` is one alert for seven different resources and the
+    remedy for a full filesystem is not the remedy for CPU saturation. Every
+    check in this file has to see it, or the gate's population silently excludes
+    a whole class of mappings, which is the failure this file exists to prevent
+    one level up.
+    """
+    out = [(ev, tuple(ladder)) for ev, ladder in ops._EVENT_ACTIONS.items()]
+    for ev, (_field, table) in ops._EVENT_ACTIONS_BY.items():
+        for ladder in table.values():
+            out.append((ev, tuple(ladder)))
+    return out
+
+
 def _alert_payload_whitelist():
     """The keys `_record_alert` copies onto a stored alert.
 
@@ -125,6 +142,18 @@ class TestTheInstrumentsWork(unittest.TestCase):
         self.assertGreater(len(autonomy.ACTION_CLASSES), 15)
         self.assertGreater(len(ops._EVENT_ACTIONS), 15)
         self.assertGreater(len(ops._ACTION_COMMANDS), 15)
+        self.assertTrue(ops._EVENT_ACTIONS_BY)
+
+    def test_the_ladder_enumeration_sees_both_tables(self):
+        """Control: every check below asserts a set is empty, and an
+        enumeration that misses a table produces the same empty set."""
+        events = {ev for ev, _l in _all_ladders()}
+        self.assertGreaterEqual(events, set(ops._EVENT_ACTIONS))
+        self.assertGreaterEqual(events, set(ops._EVENT_ACTIONS_BY))
+        acts = {a for _e, ladder in _all_ladders() for a in ladder}
+        self.assertIn('create_zfs_snapshot', acts,
+                      'an action reachable only through the discriminated table '
+                      'is invisible to this enumeration')
 
     def test_the_payload_whitelist_parsed(self):
         wl = _alert_payload_whitelist()
@@ -142,7 +171,7 @@ class TestTheInstrumentsWork(unittest.TestCase):
 class TestEveryEventNameIsReal(unittest.TestCase):
 
     def test_no_invented_events(self):
-        bad = sorted(e for e in ops._EVENT_ACTIONS if e not in api.EVENT_REGISTRY)
+        bad = sorted({e for e, _l in _all_ladders() if e not in api.EVENT_REGISTRY})
         self.assertEqual(
             bad, [],
             'these are not EVENT_REGISTRY names, so no alert will ever carry '
@@ -154,8 +183,8 @@ class TestEveryEventNameIsReal(unittest.TestCase):
         row, and the loop only reads open alerts — so mapping it is the same
         dead end one layer down."""
         unreachable = sorted(
-            e for e in ops._EVENT_ACTIONS
-            if 'severity' not in (api.EVENT_REGISTRY.get(e) or {}))
+            {e for e, _l in _all_ladders()
+             if 'severity' not in (api.EVENT_REGISTRY.get(e) or {})})
         self.assertEqual(
             unreachable, [],
             'these events never land in the alerts store, so the autonomy '
@@ -165,12 +194,12 @@ class TestEveryEventNameIsReal(unittest.TestCase):
 class TestEveryActionIsKnownAndReachable(unittest.TestCase):
 
     def test_mapped_actions_exist(self):
-        bad = sorted({a for ladder in ops._EVENT_ACTIONS.values() for a in ladder
+        bad = sorted({a for _e, ladder in _all_ladders() for a in ladder
                       if a not in autonomy.ACTION_CLASSES})
         self.assertEqual(bad, [], f'unknown action classes: {bad}')
 
     def test_every_action_class_is_reachable_from_some_event(self):
-        used = {a for ladder in ops._EVENT_ACTIONS.values() for a in ladder}
+        used = {a for _e, ladder in _all_ladders() for a in ladder}
         orphans = sorted(set(autonomy.ACTION_CLASSES) - used)
         self.assertEqual(
             orphans, [],
@@ -179,8 +208,16 @@ class TestEveryActionIsKnownAndReachable(unittest.TestCase):
             + '\n'.join('  ' + o for o in orphans))
 
     def test_ladders_have_no_duplicates(self):
-        for event, ladder in ops._EVENT_ACTIONS.items():
+        for event, ladder in _all_ladders():
             self.assertEqual(len(set(ladder)), len(ladder), event)
+
+    def test_every_class_declares_a_known_group(self):
+        """The allow-list renders and filters by group; a class with an
+        unknown one would land in no section and be invisible on the page."""
+        known = {g for g, _label in autonomy.ACTION_GROUPS}
+        bad = sorted(f"{n}: {s.get('group')!r}" for n, s in
+                     autonomy.ACTION_CLASSES.items() if s.get('group') not in known)
+        self.assertEqual(bad, [], '\n'.join(bad))
 
     def test_every_class_declares_its_platforms(self):
         for name, spec in autonomy.ACTION_CLASSES.items():

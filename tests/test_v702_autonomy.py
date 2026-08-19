@@ -1592,3 +1592,113 @@ class TestAProxmoxBackupCountsAsRecoverable(_Base):
         rows = self._run()
         self.assertEqual(rows[0]['reason'], 'no_verified_backup')
         self.assertEqual(rows[0]['backup_evidence'], '')
+
+
+class TestTheAllowListIsGroupedAndSearchable(_Base):
+    """25 machine names in one flat column is a wall. The groups come from the
+    SERVER so the page and the catalog cannot drift into two taxonomies."""
+
+    def test_every_class_declares_a_group_the_server_publishes(self):
+        known = {g for g, _label in autonomy.ACTION_GROUPS}
+        for name, spec in autonomy.ACTION_CLASSES.items():
+            self.assertIn(spec.get('group'), known, name)
+
+    def test_every_group_has_at_least_one_action(self):
+        """A heading with nothing under it is a section that renders empty."""
+        used = {s.get('group') for s in autonomy.ACTION_CLASSES.values()}
+        for g, label in autonomy.ACTION_GROUPS:
+            self.assertIn(g, used, f'{g} ({label}) has no actions')
+
+    def test_the_policy_endpoint_publishes_them(self):
+        cap = {}
+
+        def _respond(status, data=None):
+            cap['data'] = data
+            raise api.HTTPError(status, data)
+        saved = (api.respond, api.method, api.require_auth)
+        api.respond, api.method = _respond, (lambda: 'GET')
+        api.require_auth = lambda *a, **k: 'alice'
+        try:
+            try:
+                api.handle_autonomy_policy()
+            except api.HTTPError:
+                pass
+        finally:
+            api.respond, api.method, api.require_auth = saved
+        groups = cap['data']['action_groups']
+        self.assertEqual([g[0] for g in groups],
+                         [g for g, _l in autonomy.ACTION_GROUPS])
+        self.assertTrue(all(len(g) == 2 and g[1] for g in groups), groups)
+
+    def test_the_page_renders_by_group_and_filters(self):
+        js = (_ROOT / 'server/html/static/js/app-autonomy.js').read_text()
+        self.assertIn('action_groups', js, 'the page invents its own grouping')
+        self.assertIn('filterAutonomyActions', js)
+        html = (_ROOT / 'server/html/index.html').read_text()
+        self.assertIn('autonomy-act-filter', html)
+        self.assertIn('data-filter-target="#autonomy-actions .autonomy-act-row"', html)
+
+    def test_the_group_classes_are_styled(self):
+        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
+        for cls in ('.autonomy-act-group', '.autonomy-act-row', '.autonomy-act-name'):
+            self.assertIn(cls, css, cls)
+
+
+class TestOneAlertCanMeanSeveralThings(_Base):
+    """`metric_critical` is one event for seven resources, and the remedy for a
+    full filesystem is not the remedy for CPU saturation."""
+
+    def test_a_full_disk_reaches_the_disk_ladder(self):
+        self._alert(event='metric_critical',
+                    payload={'metric': 'disk', 'value': 97, 'threshold': 90})
+        self._policy(require_precedent=False)
+        rows = self._run()
+        self.assertEqual(rows[0]['action'], 'clear_journal', rows)
+        self.assertEqual((rows[0]['verdict'], rows[0]['reason']), ('shadow', 'ok'))
+
+    def test_memory_pressure_reaches_a_different_one(self):
+        self._alert(event='metric_critical', payload={'metric': 'memory'})
+        self._policy(require_precedent=False)
+        self.assertEqual(self._run()[0]['action'], 'clear_cache')
+
+    def test_inodes_do_not_get_the_rungs_that_free_bytes_not_files(self):
+        ladder = ops._EVENT_ACTIONS_BY['metric_critical'][1]['inode']
+        self.assertNotIn('trim_filesystem', ladder)
+        self.assertNotIn('prune_container_images', ladder)
+        self.assertIn('clear_journal', ladder)
+
+    def test_cpu_saturation_is_not_a_candidate_at_all(self):
+        """Nothing in the catalog frees CPU. Mapping it to something would be
+        the invented-remedy shape this file keeps removing."""
+        self._alert(event='metric_critical', payload={'metric': 'cpu'})
+        self._policy(require_precedent=False)
+        self.assertEqual(self._run(), [])
+
+    def test_a_missing_discriminator_is_not_a_candidate(self):
+        self._alert(event='metric_critical', payload={})
+        self._policy(require_precedent=False)
+        self.assertEqual(self._run(), [])
+
+    def test_a_zfs_pool_with_no_recent_snapshot_gets_one(self):
+        self._alert(event='snapshot_stale',
+                    payload={'pool': 'tank', 'kind': 'zfs', 'age_days': 40})
+        self._policy(allowed_actions=['create_zfs_snapshot'],
+                     require_precedent=False)
+        rows = self._run()
+        self.assertEqual((rows[0]['verdict'], rows[0]['reason']), ('shadow', 'ok'))
+        self.assertTrue(rows[0]['command'].startswith('exec:zfs snapshot -- tank@rp-'),
+                        rows[0]['command'])
+
+    def test_btrfs_is_not_a_candidate(self):
+        """Its snapshot takes a source subvolume and a destination path, neither
+        of which the alert carries."""
+        self._alert(event='snapshot_stale',
+                    payload={'pool': 'data', 'kind': 'btrfs'})
+        self._policy(allowed_actions=['create_zfs_snapshot'],
+                     require_precedent=False)
+        self.assertEqual(self._run(), [])
+
+    def test_the_snapshot_name_is_unique_per_run(self):
+        """A fixed name fails the second time with 'dataset already exists',
+        which would read as an action that ran."""
+        self.assertIn('$(date', ops._ACTION_COMMANDS['create_zfs_snapshot'])

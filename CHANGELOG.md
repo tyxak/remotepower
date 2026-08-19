@@ -92,6 +92,26 @@ whole six-rung disk ladder attached to it. The ladder moved to
 no longer maps to killing a process: the name in that alert belongs to the
 process the kernel already killed. Twenty-five action classes.
 
+### The allow-list is grouped and searchable, and one alert can mean several things
+
+Twenty-six machine names in one flat column was a wall. The permitted-actions
+list is grouped now — services and containers, reclaiming disk, nudges, posture,
+destructive — with a filter over the name, description and platform, and a count
+of how many are permitted. The groups come from the server, so the page and the
+catalog cannot drift apart.
+
+**`metric_critical` finally has a mapping.** It is the per-host resource alert —
+the one that fires when a fleet host fills its disk — and it covers seven
+resources under one event name, so a single ladder per event could never express
+it. It now maps through the payload field that says which: a full disk takes the
+disk ladder, inodes take only the rungs that delete files, memory and swap drop
+reclaimable cache. CPU, file descriptors and conntrack are not candidates,
+because nothing in the catalog frees them.
+
+`snapshot_stale` reads the pool kind the same way, and a **zfs** pool with no
+recent snapshot now gets a timestamped one. btrfs is left alone — its snapshot
+needs a source subvolume and a destination path no alert carries.
+
 ### A Proxmox backup counts as recoverable
 
 Reported from the field: `cve_found` → `patch` refusing with

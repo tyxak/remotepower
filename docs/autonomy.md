@@ -122,16 +122,36 @@ reboot this host?** is worth answering for a human about to do it by hand.
 
 ## What it can do
 
-Twenty-five action classes, each with a fixed command and a declared list of
-the platforms whose agent can actually carry it out:
+Twenty-six action classes, each with a fixed command and a declared list of the
+platforms whose agent can actually carry it out. The allow-list on the page is
+grouped the same way and has a filter, because twenty-six machine names in one
+column is a wall:
 
 | Group | Actions |
 |---|---|
 | Services and containers | restart / start a service, restart a failed timer, restart / start a container |
 | Reclaiming disk | vacuum the journal, force a log rotation, clean temporary directories, clear the package cache, prune unused container images, `fstrim`, drop page cache |
-| Nudges | re-sync the clock, flush the mail queue, update AV definitions, start an overdue scrub |
+| Nudges | re-sync the clock, flush the mail queue, update AV definitions, start an overdue scrub, take a ZFS snapshot |
 | Posture that drifted off | turn real-time malware protection back on, turn Gatekeeper back on |
 | Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, patch, rotate a credential |
+
+### One alert, several conditions
+
+A few alerts describe more than one thing and say which in their payload.
+`metric_critical` is the per-host resource alert — the one that fires when a
+fleet host fills its disk — and it covers seven different resources. The remedy
+for a full filesystem is not the remedy for CPU saturation, so those events map
+through the payload field that distinguishes them:
+
+| Alert | Reads | Acts on |
+|---|---|---|
+| `metric_critical` / `metric_warning` | `metric` | a full **disk** takes the disk ladder; **inodes** take the rungs that delete files rather than free bytes; **memory** and **swap** drop reclaimable cache |
+| `snapshot_stale` | `kind` | a **zfs** pool gets a timestamped snapshot |
+
+A value with no entry is not a candidate at all. Nothing in the catalog frees
+CPU, and a btrfs snapshot needs a source subvolume and a destination path that no
+alert carries — so those are left alone rather than given a remedy that would not
+work.
 
 Every one is checked against what the three agents actually implement, and
 against whether the event that triggers it names a host — an action mapped to a

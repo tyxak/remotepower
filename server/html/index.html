@@ -7662,7 +7662,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-precedent"> Only act where this fleet has fixed the same thing before</label>
             <span class="hint">On by default, and the usual reason a new install records nothing but refusals: two prior fixes with the same signature have to exist first. A fix an operator ran, an automation rule that verified, or one of this loop's own verified actions all count. Turn it off to accept the curated command catalog as the plan instead. <a href="docs/autonomy.md" class="c-accent">Documentation</a></span></div>
           <div class="settings-row">
-            <label class="form-label" for="autonomy-actions">Permitted actions</label>
+            <label class="form-label" for="autonomy-act-filter">Permitted actions</label>
+            <input type="text" id="autonomy-act-filter" class="form-input input-wide"
+                   placeholder="Filter actions… (name, description, platform)"
+                   aria-label="Filter permitted actions"
+                   data-input="filterAutonomyActions" data-input-el="1"
+                   data-filter-target="#autonomy-actions .autonomy-act-row"
+                   data-filter-count="autonomy-act-filter-count">
+            <span id="autonomy-act-filter-count" class="hint"></span>
+            <span id="autonomy-act-permitted" class="hint"></span>
+          </div>
+          <div class="settings-row">
             <div id="autonomy-actions" class="scroll-cap"></div>
           </div>
         </div>

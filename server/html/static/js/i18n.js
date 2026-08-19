@@ -56,6 +56,15 @@
     // checkbox labels. The label rows were never in DICT — the gate's
     // `<label>` pattern is `[^<]`, so a label wrapping an `<input>` never
     // matched — so the whole card moves rather than only the new rows.
+    // v7.0.2: the ZFS snapshot action, the grouped allow-list and its filter.
+    "Take a ZFS snapshot of a pool that has none recent": { fr: "Prendre un instantané ZFS d'un pool qui n'en a pas de récent", de: "Einen ZFS-Snapshot eines Pools ohne aktuellen Snapshot anlegen", zh: "为没有近期快照的存储池创建 ZFS 快照", hi: "जिस पूल का हाल का स्नैपशॉट नहीं है उसका ZFS स्नैपशॉट लें", es: "Tomar una instantánea ZFS de un pool que no tiene ninguna reciente", ar: "أخذ لقطة ZFS لتجمّع ليس لديه لقطة حديثة" },
+    "Filter actions… (name, description, platform)": { fr: "Filtrer les actions… (nom, description, plateforme)", de: "Aktionen filtern… (Name, Beschreibung, Plattform)", zh: "筛选操作…（名称、描述、平台）", hi: "क्रियाएँ फ़िल्टर करें… (नाम, विवरण, प्लेटफ़ॉर्म)", es: "Filtrar acciones… (nombre, descripción, plataforma)", ar: "تصفية الإجراءات… (الاسم، الوصف، النظام)" },
+    "Filter permitted actions": { fr: "Filtrer les actions autorisées", de: "Erlaubte Aktionen filtern", zh: "筛选允许的操作", hi: "अनुमत क्रियाएँ फ़िल्टर करें", es: "Filtrar las acciones permitidas", ar: "تصفية الإجراءات المسموح بها" },
+    "Services and containers": { fr: "Services et conteneurs", de: "Dienste und Container", zh: "服务与容器", hi: "सेवाएँ और कंटेनर", es: "Servicios y contenedores", ar: "الخدمات والحاويات" },
+    "Reclaiming disk": { fr: "Récupérer de l'espace disque", de: "Speicherplatz zurückgewinnen", zh: "回收磁盘空间", hi: "डिस्क स्थान पुनः प्राप्त करना", es: "Recuperar espacio en disco", ar: "استرداد مساحة القرص" },
+    "Nudges": { fr: "Coups de pouce", de: "Anstöße", zh: "轻推", hi: "हल्के सुधार", es: "Empujones", ar: "دفعات خفيفة" },
+    "Posture that drifted off": { fr: "Posture qui a dérivé", de: "Abgedriftete Sicherheitseinstellungen", zh: "已偏离的安全配置", hi: "भटक चुकी सुरक्षा स्थिति", es: "Postura que se ha desviado", ar: "إعدادات الحماية التي انحرفت" },
+    "Destructive": { fr: "Destructif", de: "Destruktiv", zh: "破坏性", hi: "विनाशकारी", es: "Destructivo", ar: "مدمّر" },
     "covers nothing": { fr: "ne couvre rien", de: "deckt nichts ab", zh: "未覆盖任何主机", hi: "किसी को कवर नहीं करता", es: "no cubre nada", ar: "لا يغطي شيئًا" },
     "Precedent": { fr: "Précédent", de: "Präzedenzfall", zh: "先例", hi: "पूर्व उदाहरण", es: "Precedente", ar: "سابقة" },
     "Clear receipts": { fr: "Effacer les reçus", de: "Belege löschen", zh: "清除记录", hi: "रसीदें साफ़ करें", es: "Borrar los comprobantes", ar: "مسح الإيصالات" },

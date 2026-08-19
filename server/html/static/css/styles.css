@@ -5055,6 +5055,26 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
    content (the generic `.settings-row .form-group{flex:1}` would otherwise stretch
    each to a half-width column and `align-items:flex-end` would drop the shorter one
    to the bottom — the ragged look). */
+/* v7.0.2: the autonomy allow-list. 25 machine names, each with pills and a
+   sentence of description, rendered as one flat inline column — the name, the
+   platforms and the prose all ran together and wrapped differently on every
+   row. A three-column grid puts the checkbox, the name+badges and the
+   description in their own lanes so the list scans vertically, and the group
+   headings give it structure the filter can also fold away. */
+.autonomy-act-group {
+  font-size: 12px; font-weight: 620; color: var(--muted);
+  margin: 12px 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--hair);
+}
+.autonomy-act-group:first-child { margin-top: 0; }
+.autonomy-act-row {
+  display: grid; grid-template-columns: 18px minmax(0, 260px) minmax(0, 1fr);
+  align-items: baseline; gap: 8px; padding: 3px 0;
+}
+.autonomy-act-name { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .autonomy-act-row { grid-template-columns: 18px minmax(0, 1fr); }
+  .autonomy-act-row > .hint { grid-column: 2; }
+}
 .settings-row.ldap-row { align-items: flex-start; }
 .settings-row.ldap-row .form-group.isl-28 { flex: 0 0 auto; min-width: 0; }
 .settings-row.ldap-row .form-group.ldap-narrow { flex: 0 0 140px; min-width: 0; }

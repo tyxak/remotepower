@@ -72,6 +72,7 @@ def handle_autonomy_policy():
         A.respond(200, {'ok': True, 'tenant': tenant,
                         'policy': _policy_for(tenant),
                         'action_classes': autonomy.ACTION_CLASSES,
+                        'action_groups': [list(g) for g in autonomy.ACTION_GROUPS],
                         'modes': list(autonomy.MODES)})
         return
     if A.method() != 'PUT':
@@ -461,6 +462,9 @@ _ACTION_COMMANDS = {
     'update_av_definitions': {'linux':   'exec:freshclam',
                               'windows': 'ps:Update-MpSignature'},
     'start_scrub':         'exec:zpool scrub -- {pool}',
+    # Timestamped, because a fixed snapshot name fails on the second run with
+    # "dataset already exists" — which would read as an action that ran.
+    'create_zfs_snapshot': 'exec:zfs snapshot -- {pool}@rp-$(date +%Y%m%d-%H%M%S)',
 
     'enable_av_realtime':  'ps:Set-MpPreference -DisableRealtimeMonitoring $false',
     'enable_gatekeeper':   'exec:spctl --master-enable',
@@ -679,6 +683,55 @@ def _backup_evidence(dev_id, dev):
     return _proxmox_backup_evidence(dev, now)
 
 
+# Some events describe several different conditions and say WHICH in the
+# payload. `metric_critical` is the per-host resource alert — the one that
+# actually fires when a fleet host fills its disk — and the remedy for a full
+# filesystem has nothing to do with the remedy for CPU saturation. A single
+# ladder per event cannot express that, so these events map through one payload
+# field.
+#
+# A value with no entry is NOT a candidate. There is no honest ladder for `cpu`
+# at 98%: nothing in the catalog frees CPU, and mapping it to something would be
+# the invented-remedy shape this file keeps removing.
+#
+# Kept as its own table rather than overloading _EVENT_ACTIONS with two value
+# shapes: a dict where a tuple is expected fails by iterating its KEYS, which is
+# a silent wrong answer rather than an error.
+_EVENT_ACTIONS_BY = {
+    # `metric` is one of cpu / conntrack / disk / fd / inode / memory / swap.
+    'metric_critical': ('metric', {
+        'disk':   ('clear_journal', 'rotate_logs', 'clear_package_cache',
+                   'clear_tmp', 'prune_container_images', 'trim_filesystem'),
+        # Inodes are freed by deleting FILES, so the two rungs that free bytes
+        # without freeing files are not on this ladder.
+        'inode':  ('clear_journal', 'rotate_logs', 'clear_tmp',
+                   'clear_package_cache'),
+        'memory': ('clear_cache',),
+        'swap':   ('clear_cache',),
+    }),
+    'metric_warning': ('metric', {
+        'disk':   ('clear_journal', 'rotate_logs', 'clear_package_cache',
+                   'clear_tmp'),
+        'inode':  ('clear_journal', 'rotate_logs', 'clear_tmp'),
+    }),
+    # The pool kind: zfs | btrfs. btrfs has no entry on purpose — its snapshot
+    # takes a source subvolume and a destination path, neither of which the
+    # alert carries.
+    'snapshot_stale': ('kind', {'zfs': ('create_zfs_snapshot',)}),
+}
+
+
+def _ladder_for(alert):
+    """The action ladder this alert maps to, or ()."""
+    event = alert.get('event')
+    disc = _EVENT_ACTIONS_BY.get(event)
+    if disc:
+        field, table = disc
+        payload = alert.get('payload') if isinstance(alert.get('payload'), dict) else {}
+        return tuple(table.get(str(payload.get(field) or '')) or ())
+    return tuple(_EVENT_ACTIONS.get(event) or ())
+
+
 def _candidate_alerts(alerts):
     """Open, unacknowledged alerts whose event maps to a ladder of actions.
 
@@ -695,9 +748,9 @@ def _candidate_alerts(alerts):
             continue
         if a.get('resolved_at') or a.get('acknowledged_at') or a.get('acked_at'):
             continue
-        ladder = _EVENT_ACTIONS.get(a.get('event'))
+        ladder = _ladder_for(a)
         if ladder:
-            out.append((a, tuple(ladder)))
+            out.append((a, ladder))
     return out
 
 

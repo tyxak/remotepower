@@ -184,7 +184,7 @@ class TestTheFixesAreInThisRelease(unittest.TestCase):
         import autonomy
         for name in ("enable_av_realtime", "enable_gatekeeper"):
             self.assertIn(name, autonomy.ACTION_CLASSES, name)
-        self.assertEqual(len(autonomy.ACTION_CLASSES), 25)
+        self.assertEqual(len(autonomy.ACTION_CLASSES), 26)
 
     def test_the_actions_that_could_never_fire_are_gone(self):
         """Each failed one of two questions: does the alert that triggers it

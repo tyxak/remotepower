@@ -108,7 +108,12 @@ async function loadAutonomy() {
   const acts = document.getElementById('autonomy-actions');
   if (acts) {
     const allowed = p.allowed_actions || [];
-    acts.innerHTML = Object.entries(pol.action_classes || {}).map(([name, spec]) => {
+    // Grouped, because 25 machine names in one column is a wall. The groups and
+    // their order come from the SERVER (`action_groups`), so the page and the
+    // catalog cannot drift into two different taxonomies.
+    const groups = pol.action_groups || [['', '']];
+    const byGroup = new Map(groups.map(([g, label]) => [g, {label, rows: []}]));
+    Object.entries(pol.action_classes || {}).forEach(([name, spec]) => {
       const on = allowed.includes(name) ? ' checked' : '';
       const d = spec && spec.destructive
         ? ` <span class="chk-pill chk-warning">${escHtml('destructive')}</span>` : '';
@@ -127,12 +132,26 @@ async function loadAutonomy() {
       const plats = (spec && spec.platforms) || [];
       const p = plats.length && plats.length < 3
         ? ` <span class="chk-pill chk-unknown">${escHtml(plats.join(' / '))}</span>` : '';
-      const lbl = spec && spec.label
-        ? ` <span class="hint">${escHtml(spec.label)}</span>` : '';
-      return `<div class="settings-row"><label class="form-label">` +
-             `<input type="checkbox" class="autonomy-act" data-act="${escAttr(name)}"${on}> ` +
-             `<code>${escHtml(name)}</code>${d}${bk}${p}${lbl}</label></div>`;
-    }).join('');
+      const lbl = spec && spec.label ? escHtml(spec.label) : '';
+      const bucket = byGroup.get((spec && spec.group) || '') || byGroup.values().next().value;
+      bucket.rows.push(
+        `<label class="form-label autonomy-act-row">` +
+        `<input type="checkbox" class="autonomy-act" data-act="${escAttr(name)}"${on}>` +
+        `<span class="autonomy-act-name"><code>${escHtml(name)}</code>${d}${bk}${p}</span>` +
+        `<span class="hint">${lbl}</span></label>`);
+    });
+    acts.innerHTML = [...byGroup.entries()]
+      .filter(([, g]) => g.rows.length)
+      .map(([key, g]) => `<div class="autonomy-act-group" data-group="${escAttr(key)}">` +
+                         `${escHtml(g.label)} <span class="c-muted">${g.rows.length}</span></div>` +
+                         g.rows.join(''))
+      .join('');
+    const cnt = document.getElementById('autonomy-act-permitted');
+    if (cnt) {
+      cnt.textContent = `${allowed.length} of ${
+        Object.keys(pol.action_classes || {}).length} permitted`;
+    }
+    filterAutonomyActions(document.getElementById('autonomy-act-filter'));
   }
 
   const r = await api('GET', '/autonomy/receipts');
@@ -214,6 +233,24 @@ async function deleteAutonomyReceipt(id) {
     toast('Receipt deleted', 'success');
     loadAutonomy();
   } else toast((r && r.error) || 'Could not delete that receipt', 'error');
+}
+
+// The shared filter hides ROWS; a group heading whose rows all vanished would
+// sit there labelling nothing. Same helper, one extra pass.
+function filterAutonomyActions(el) {
+  if (!el) return;
+  if (typeof filterRows === 'function') filterRows(el);
+  const q = (el.value || '').trim();
+  document.querySelectorAll('#autonomy-actions .autonomy-act-group').forEach(h => {
+    let n = 0;
+    for (let sib = h.nextElementSibling;
+         sib && !sib.classList.contains('autonomy-act-group');
+         sib = sib.nextElementSibling) {
+      if (sib.classList.contains('autonomy-act-row')
+          && !sib.classList.contains('row-hidden')) n++;
+    }
+    h.classList.toggle('row-hidden', q !== '' && n === 0);
+  });
 }
 
 async function saveAutonomyPolicy() {
