@@ -80,8 +80,13 @@ def handle_autonomy_policy():
     actor = A.require_admin_auth()
     tenant = A._tenant_gate() or A.DEFAULT_TENANT
     body = A.get_json_obj()
-    new = autonomy.normalize_policy(body.get('policy') if isinstance(
-        body.get('policy'), dict) else body)
+    # Merged over what this tenant already has, not over the shipped defaults:
+    # an absent key on an update means "leave it alone". Merging over the
+    # defaults meant a partial PUT re-granted the whole default allow-list to a
+    # tenant that had narrowed it, and said "saved".
+    new = autonomy.normalize_policy(
+        body.get('policy') if isinstance(body.get('policy'), dict) else body,
+        base=_policy_for(tenant))
     with A._LockedUpdate(A.AUTONOMY_POLICY_FILE) as store:
         tenants = store.get('tenants')
         if not isinstance(tenants, dict):
@@ -109,18 +114,38 @@ def _append_receipt(rec):
         store['receipts'] = rows[-_RECEIPT_MAX:]
 
 
-def handle_autonomy_receipts():
-    """GET /api/autonomy/receipts — what the loop did, or would have done.
+def _visible_receipts(rows):
+    """The receipts this caller may see. Both halves of the filter.
 
-    Tenant-filtered: a receipt names a device, so the same rule as every other
-    device-keyed store applies. A caller sees only their own tenant's rows, and
-    an unscoped superadmin sees all.
+    A receipt names a device, so the rule is the one every device-keyed store
+    follows — and it has TWO parts. The tenant gate is the one that shipped;
+    the ROLE scope was missing, so a custom role confined to two hosts could
+    read the decision history of the whole fleet, hostnames and commands
+    included. `handle_alerts_clear` gets both from `_filter_alerts_for_caller`;
+    there is no such helper for this store, so it is spelled out here and used
+    by the read and the delete alike.
+
+    The device scope is applied ONLY when the caller actually has one. Filtering
+    an unscoped caller against the live device set would hide the receipts of
+    decommissioned hosts, and a receipt is self-contained precisely because the
+    fleet changes — the audit outlives the device.
     """
-    A.require_auth()
     gate = A._tenant_gate()
-    rows = (A.load(A.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
     if gate is not None:
         rows = [r for r in rows if isinstance(r, dict) and r.get('tenant') == gate]
+    scope = A._caller_scope()
+    if scope is not None:
+        visible = set(A._scope_filter_devices(A.load(A.DEVICES_FILE) or {}, scope))
+        rows = [r for r in rows if isinstance(r, dict)
+                and (not r.get('device_id') or r.get('device_id') in visible)]
+    return rows
+
+
+def handle_autonomy_receipts():
+    """GET /api/autonomy/receipts — what the loop did, or would have done."""
+    A.require_auth()
+    rows = _visible_receipts(
+        (A.load(A.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or [])
     rows = list(reversed(rows))[:500]
     agg = {}
     for r in rows:
@@ -161,9 +186,12 @@ def handle_autonomy_receipts_clear():
         rows = store.get('receipts')
         if not isinstance(rows, list):
             rows = []
+        # Exactly what a GET would return — you cannot delete what you cannot
+        # read, and the two must not be able to drift apart.
+        deletable = {id(r) for r in _visible_receipts(rows)}
         kept = []
         for r in rows:
-            mine = isinstance(r, dict) and (gate is None or r.get('tenant') == gate)
+            mine = id(r) in deletable
             hit = mine and (not want_id or r.get('id') == want_id)
             if not hit:
                 kept.append(r)
@@ -301,6 +329,16 @@ _LOOP_INTERVAL_S = 300
 # not exist, so the loop could only ever have fired on the two real ones and
 # would have looked, from a green test suite, as though it covered six.
 # `tests/test_v700_action_catalog.py` checks each key against the registry now.
+#
+# AND EVERY KEY IS AN EVENT THAT NAMES A DEVICE. The sweep resolves a device
+# before it does anything else, so a FLEET-SINGLETON event — one whose payload
+# carries no `device_id` — is a mapping the loop can never act on, and it fails
+# silently: the candidate is dropped before a receipt is written, so the table
+# looks wider than the loop is. Three rows were exactly that until v7.0.2:
+# `wan_down` (whose own source comment says "fleet singleton, no device_id"),
+# `mailflow_delayed` (a server-side mail round-trip) and `resolver_unhealthy`
+# (a server-side DNS check over operator-configured targets, not hosts).
+# `tests/test_v702_autonomy.py` holds the rule now.
 _EVENT_ACTIONS = {
     # services and timers
     'failed_unit':          ('restart_service',),
@@ -315,42 +353,66 @@ _EVENT_ACTIONS = {
     # containers
     'container_restarting': ('restart_container',),
     'container_stopped':    ('start_container',),
-    # disk pressure — the ladder, gentlest first
-    'server_disk_low':      ('clear_journal', 'rotate_logs', 'clear_package_cache',
-                             'clear_tmp', 'prune_container_images',
-                             'trim_filesystem'),
+    # disk pressure — the ladder, gentlest first.
+    # NOT `server_disk_low`: that is the CONTROLLER's own disk watchdog
+    # ({'target': 'server', 'name': 'RemotePower server'}), so it names no host
+    # and the sweep drops it. It was mapped to the whole six-rung ladder, which
+    # made disk pressure look covered by six remedies when the event an operator
+    # would expect to fire is about this server's data directory.
+    # The full ladder lives here now. `disk_predict_fail` is the per-HOST
+    # "this filesystem is going to fill" signal, which is what the six rungs
+    # were written for; they were on `server_disk_low`, which is this server's
+    # own data directory.
     'disk_predict_fail':    ('clear_journal', 'rotate_logs', 'clear_package_cache',
+                             'clear_tmp', 'prune_container_images',
                              'trim_filesystem'),
     'resource_saturation_predicted': ('clear_cache',),
     # host services that fix themselves with a nudge
     'clock_skew':           ('resync_clock',),
-    # Gentlest rung first: a stale cache is the common cause and flushing it
-    # costs nothing, where restarting the resolver drops every in-flight lookup.
-    'resolver_unhealthy':   ('flush_dns_cache', 'restart_resolver'),
-    'mount_issue':          ('remount_all',),
     'mailq_high':           ('flush_mail_queue',),
-    'mailflow_delayed':     ('flush_mail_queue',),
     'av_warning':           ('update_av_definitions',),
     'win_defender_stale':   ('update_av_definitions',),
     # Posture that drifted off. Each is a single, reversible switch.
-    'autoupdate_disabled':  ('enable_autoupdates',),
+    #
+    # NOT `autoupdate_disabled`: walking the states the agent's collector can
+    # produce, there is essentially none where the alert fires AND
+    # `systemctl enable --now` fixes it. On Debian the alert means the periodic
+    # switch in /etc/apt/apt.conf.d/20auto-upgrades is "0" while the unit is
+    # already enabled, so the command exits 0 having changed nothing; on
+    # RHEL/Fedora it usually means dnf-automatic is not installed, and enabling
+    # a unit does not install a package; on a non-systemd host the collector
+    # reports disabled unconditionally and both halves of the command are
+    # systemctl.
     'av_realtime_off':      ('enable_av_realtime',),
     'mac_gatekeeper_off':   ('enable_gatekeeper',),
     'scrub_overdue':        ('start_scrub',),
     # destructive territory — reachable, but off in the default policy
     'process_alert':        ('kill_process',),
-    'oom_detected':         ('kill_process',),
+    # NOT `oom_detected`: the payload's `process` is `last_oom_proc`, the name of
+    # the process the kernel ALREADY killed and systemd has since restarted. So
+    # the action would TERM the fresh one — into the middle of crash recovery on
+    # a database — and nothing resolves oom_detected, so it would repeat every
+    # hour to the rate ceiling. Verification could not catch it either: the
+    # before-sample is taken with the service already failing, so a host that
+    # cannot get worse scores as a successful remediation.
     'readonly_fs':          ('remount_rw',),
-    'wan_down':             ('restart_networking',),
     'gateway_unreachable':  ('restart_networking',),
     'mac_firewall_off':     ('enable_firewall',),
     'win_firewall_off':     ('enable_firewall',),
     'reboot_required':      ('reboot',),
-    # The UPS says minutes of battery are left. A clean shutdown is the only
-    # thing that helps, and it is the one action here that gets LESS useful the
-    # longer a human takes to approve it — which is the argument for having the
-    # loop able to do it at all.
-    'ups_critical':         ('shutdown_host',),
+    # NOT `ups_critical`. The product already shuts hosts down on a failing UPS,
+    # through `_ups_shutdown_dependents`, and that path is opt-in on TWO axes on
+    # purpose: a global `ups_auto_shutdown_enabled` flag AND each dependent
+    # device's own `ups_dependency` mapping. It also shuts down the DEPENDENTS
+    # and excludes the reporting host, because a device cannot depend on its own
+    # UPS.
+    #
+    # An autonomy action here honoured neither axis and targeted exactly the
+    # wrong host: `ups_critical` names the machine whose agent reports the UPS —
+    # the NUT master. Powering that off first ends the UPS telemetry, so
+    # `ups_on_line` never fires, the alert never clears, and the orderly
+    # shutdown of everything else on that UPS is gone. A checkbox on this page
+    # would have routed around a deliberate opt-in and made the outage worse.
     'kernel_outdated':      ('reboot',),
     'patch_alert':          ('patch',),
     'cve_found':            ('patch',),
@@ -395,20 +457,11 @@ _ACTION_COMMANDS = {
 
     'resync_clock':        ('exec:chronyc makestep 2>/dev/null '
                             '|| timedatectl set-ntp true'),
-    'flush_dns_cache':     {'linux':   'exec:resolvectl flush-caches',
-                            'windows': 'ps:Clear-DnsClientCache'},
-    'restart_resolver':    'svc:restart:systemd-resolved',
-    # What fstab already says, re-applied. A stalled network share is the usual
-    # cause and the agent's exec timeout bounds the wait.
-    'remount_all':         'exec:mount -a',
     'flush_mail_queue':    'exec:postqueue -f',
     'update_av_definitions': {'linux':   'exec:freshclam',
                               'windows': 'ps:Update-MpSignature'},
     'start_scrub':         'exec:zpool scrub -- {pool}',
 
-    'enable_autoupdates':  ('exec:systemctl enable --now unattended-upgrades.service '
-                            '2>/dev/null || systemctl enable --now '
-                            'dnf-automatic-install.timer'),
     'enable_av_realtime':  'ps:Set-MpPreference -DisableRealtimeMonitoring $false',
     'enable_gatekeeper':   'exec:spctl --master-enable',
 
@@ -427,9 +480,6 @@ _ACTION_COMMANDS = {
                     '--setglobalstate on'),
     },
     'reboot':              'reboot',
-    # Every agent implements it: systemctl poweroff on Linux, `shutdown /s /t 30`
-    # on Windows, `shutdown -h +1` on macOS. All three are graceful.
-    'shutdown_host':       'shutdown',
     # Linux patches via the server's own vetted upgrade script (the one with
     # the initramfs safety analysis in it); Windows and macOS take the bare
     # `upgrade` verb. Resolved in _command_for so it tracks _UPGRADE_CMD.
@@ -516,35 +566,75 @@ def _actions_this_hour(tenant, taken_this_sweep=None):
     """
     now = int(time.time())
     rows = (A._load_ro(A.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
+    # ESCALATE counts too. It is not an action on a host, but it is an item in
+    # the queue a human has to work through, and the setting is described as
+    # stopping a flapping host becoming a storm — a storm of approval requests
+    # is the same storm. Counting only ACT left the whole escalation path
+    # outside every ceiling.
     stored = sum(1 for r in rows if isinstance(r, dict)
                  and r.get('tenant') == tenant
-                 and r.get('verdict') == autonomy.ACT
+                 and r.get('verdict') in (autonomy.ACT, autonomy.ESCALATE)
                  and (now - int(r.get('ts') or 0)) < 3600)
     return stored + int((taken_this_sweep or {}).get(tenant, 0))
+
+
+_DRILL_MAX_AGE_S = 30 * 86400
 
 
 def _backup_is_verified(dev_id):
     """Proven recoverable — a restore drill that actually restored and checked,
     not a backup that merely ran. The distinction is the entire reason the
-    destructive gate exists."""
-    jobs = A.load(A.BACKUP_JOBS_FILE) or {}
-    row = jobs.get(dev_id) if isinstance(jobs, dict) else None
-    if not isinstance(row, dict):
+    destructive gate exists.
+
+    IT WAS READING THE WRONG STORE, AND HAD NEVER RETURNED TRUE. The first
+    version asked `BACKUP_JOBS_FILE[dev_id]['restore_drill']['ok']`. Two
+    independent reasons that can never be satisfied: the jobs store is
+    `{'jobs': [ … ]}`, a LIST under one key, so `.get(dev_id)` is None on every
+    fleet that has ever existed; and no code anywhere writes a `restore_drill`
+    field into it. So `require_verified_backup` — on by default — refused patch,
+    reboot, remount_rw and rotate_credential unconditionally, forever, with a
+    reason code that told the operator to go and drill their backups.
+
+    The real signal was three screens away in the same heartbeat that produces
+    the alerts: the agent reports `restore_drills`, api.py stores the latest per
+    path in `backup_state.json` under `<dev_id>:<path>` as `drill_status` /
+    `drill_at`, and fires restore_drill_failed / restore_drill_ok off it. That is
+    exactly what the docstring above claims to want, so this now reads it.
+
+    One passing drill on the host is enough: a host may back up several paths and
+    an operator drills what matters. A drill that succeeded two years ago is not
+    evidence about today's host, hence the age bound.
+    """
+    state = A.load(A.DATA_DIR / 'backup_state.json') or {}
+    if not isinstance(state, dict):
         return False
-    drill = row.get('restore_drill')
-    if not isinstance(drill, dict) or not drill.get('ok'):
-        return False
-    # A drill that succeeded two years ago is not evidence about today's host.
-    return (int(time.time()) - int(drill.get('ts') or 0)) < 30 * 86400
+    now = int(time.time())
+    prefix = f'{dev_id}:'
+    for key, row in state.items():
+        if not isinstance(row, dict) or not str(key).startswith(prefix):
+            continue
+        if row.get('drill_status') != 'ok':
+            continue
+        if (now - int(row.get('drill_at') or 0)) < _DRILL_MAX_AGE_S:
+            return True
+    return False
 
 
 def _candidate_alerts(alerts):
-    """Open, unacknowledged alerts whose event maps to a ladder of actions."""
+    """Open, unacknowledged alerts whose event maps to a ladder of actions.
+
+    `acknowledged_at` is the field an alert row actually carries — `_record_alert`
+    writes it and eight read sites in api.py use it. The first version of this
+    filter said `acked_at`, which appears nowhere else in the codebase, so
+    acknowledging an alert had never once stopped the loop from acting on it.
+    An operator saying "I have got this" is the clearest possible signal not to,
+    and it was being read from a key that is never set.
+    """
     out = []
     for a in alerts or []:
         if not isinstance(a, dict):
             continue
-        if a.get('resolved_at') or a.get('acked_at'):
+        if a.get('resolved_at') or a.get('acknowledged_at') or a.get('acked_at'):
             continue
         ladder = _EVENT_ACTIONS.get(a.get('event'))
         if ladder:
@@ -740,6 +830,42 @@ def _dispatch(dev_id, dev, cmd):
     return 'queued', True
 
 
+def _pending_confirmation(dev_id, cmd):
+    """An id already parked for this exact (device, command), or ''.
+
+    The loop has no per-alert memory: it re-evaluates every open candidate every
+    sweep, and an alert that needs approval is still open by definition. Without
+    this, one open `gateway_unreachable` on one host produced a new confirmation
+    row every five minutes — twelve an hour, indefinitely — and from the second
+    hour, twelve `mcp_confirmation_expired` alerts an hour as the first batch
+    aged out. Into the same ledger an operator approves real changes from, and
+    the same inbox they use to notice real problems.
+
+    It had never happened, because until the backup gate was fixed no
+    destructive action could reach ESCALATE at all. Making that verdict
+    reachable is what made this reachable.
+    """
+    try:
+        # `load()` memoises per request and this sweep writes to the same store
+        # as it goes, so a cached snapshot taken before the first escalation
+        # would not see it — and every later candidate on that host would park a
+        # duplicate. Same shape as the file-manager long-poll: a loop that reads
+        # a key something else in the same pass is writing has to bust the cache.
+        A._invalidate_load_cache(A.CONFIRMATIONS_FILE)
+        rows = (A.load(A.CONFIRMATIONS_FILE) or {}).get('confirmations') or []
+    except Exception:
+        return ''
+    for c in rows:
+        if not isinstance(c, dict) or c.get('status') != 'pending':
+            continue
+        if c.get('device_id') != dev_id:
+            continue
+        params = c.get('params') if isinstance(c.get('params'), dict) else {}
+        if params.get('command') == cmd or c.get('command') == cmd:
+            return str(c.get('id') or '')
+    return ''
+
+
 def _escalate(dev_id, cmd):
     """Park the action as a real four-eyes confirmation.
 
@@ -748,6 +874,9 @@ def _escalate(dev_id, cmd):
     confirmations ledger an admin already works from, so approving it dispatches
     through the ordinary path.
     """
+    already = _pending_confirmation(dev_id, cmd)
+    if already:
+        return f'already awaiting approval ({already})', already
     try:
         cid = A._park_for_approval(dev_id, cmd, 'autonomy', A._command_kind(cmd),
                                    reason='Proposed by autonomous remediation')
@@ -781,8 +910,11 @@ def _verify_due_receipts(now):
     if not due:
         return
     devices = A.load(A.DEVICES_FILE) or {}
-    still_open = {a.get('id') for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
-                  if isinstance(a, dict) and not a.get('resolved_at')}
+    still_open, resolved = set(), set()
+    for a in (A.load(A.ALERTS_FILE) or {}).get('alerts', []):
+        if not isinstance(a, dict):
+            continue
+        (resolved if a.get('resolved_at') else still_open).add(a.get('id'))
     verdicts, alerts, worked = {}, [], []
     for r in due:
         dev = devices.get(r.get('device_id'))
@@ -794,12 +926,22 @@ def _verify_due_receipts(now):
         verdicts[_key(r)] = (not worse, after)
         if worse:
             alerts.append((r, after))
-        elif r.get('alert_id') and r['alert_id'] not in still_open:
+        elif r.get('alert_id') in resolved:
             # It acted, the host's own checks did not get worse, and the alert
-            # it was triggered by has closed. That is the same standard the
-            # operator-fix and automation-rule sources are held to, and it is
-            # stricter than `verified` on purpose: checks-did-not-worsen alone
-            # would let an action that changed nothing count as a fix.
+            # it was triggered by is PRESENT AND RESOLVED. That is the same
+            # standard the operator-fix and automation-rule sources are held to,
+            # and it is stricter than `verified` on purpose: checks-did-not-worsen
+            # alone would let an action that changed nothing count as a fix.
+            #
+            # `in resolved` rather than `not in still_open`: an id is equally
+            # absent when the ROW IS GONE — retention, an admin clearing the
+            # inbox, the 5000-row cap, or `load()` returning {} on a corrupt
+            # store. Absence would turn every in-flight receipt into precedent
+            # at confidence 1.0 in a single pass, for commands nothing was
+            # observed to fix. The sibling sweeps fail safe here by accident
+            # (a missing row yields no event and capture_fix_outcome refuses
+            # one); this path passes the receipt's own `trigger`, which is
+            # always populated, so it has no such net.
             #
             # Self-reinforcement is bounded by the same things as the other two
             # sources: one outcome per ALERT, and the loop can only have acted
@@ -928,12 +1070,11 @@ def run_autonomy_if_due():
             in_window=not A._exec_gated(dev_id, dev),
             actions_this_hour=_actions_this_hour(tenant, _taken),
             dry_run_ok=True,
-            # A drafted plan: a concrete command out of the curated catalog. It
-            # only counts as evidence where the operator has waived precedent,
-            # so this is False on a default policy and the loop keeps asking the
-            # fleet's own history first.
-            has_plan=(bool(plan.get('command'))
-                      and not policy.get('require_precedent', True)),
+            # Whether a concrete command came out of the curated catalog. Whether
+            # that COUNTS as evidence is decide()'s call, from the policy — the
+            # envelope is one function, and a knob evaluated out here would not
+            # be part of it.
+            has_plan=bool(plan.get('command')),
             os_family=plan.get('os_family'), plan_problem=plan.get('problem'))
 
         rec = autonomy.receipt(plan, decision)
@@ -961,6 +1102,7 @@ def run_autonomy_if_due():
             rec['outcome'], cid = _escalate(dev_id, plan.get('command') or '')
             if cid:
                 rec['confirmation_id'] = cid
+                _taken[tenant] = _taken.get(tenant, 0) + 1
         made.append(rec)
 
     for rec in made:

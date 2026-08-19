@@ -419,10 +419,19 @@ class TestSurfacesAreGated(_Base):
         self.assertIn('require_admin_auth', src,
                       'changing the safety envelope is a control-plane act')
 
-    def test_receipts_are_tenant_filtered(self):
+    def test_receipts_are_filtered_by_tenant_AND_role_scope(self):
+        """v7.0.2: the filter moved into _visible_receipts, which the read and
+        the delete both use — and it gained the role-scope half it was missing,
+        so a role confined to two hosts can no longer read the decision history
+        of the whole fleet."""
         import inspect
-        src = inspect.getsource(api.handle_autonomy_receipts)
+        self.assertIn('_visible_receipts',
+                      inspect.getsource(api.handle_autonomy_receipts))
+        self.assertIn('_visible_receipts',
+                      inspect.getsource(api.handle_autonomy_receipts_clear))
+        src = inspect.getsource(api._visible_receipts)
         self.assertIn('_tenant_gate', src)
+        self.assertIn('_caller_scope', src)
 
     def test_preview_gates_the_device(self):
         import inspect

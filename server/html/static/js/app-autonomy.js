@@ -21,6 +21,21 @@ const _AUTONOMY_VERDICT_CLASS = {
   shadow: 'chk-ok', refuse: 'chk-ok',
 };
 
+// The receipt carries the precedent that justified the decision — the whole
+// reason it is self-contained — and the page rendered every other field and not
+// that one. In shadow mode, reading receipts IS the product, and "no_precedent"
+// in the reason column tells you nothing about how close it was.
+function _autonomyPrecedent(p) {
+  p = p || {};
+  const n = Number(p.samples) || 0;
+  if (!n) return `<span class="hint">${escHtml('none')}</span>`;
+  const conf = p.confidence == null ? '' : `${Math.round(Number(p.confidence) * 100)}%`;
+  const what = p.action
+    ? ` <span class="hint" title="${escAttr(String(p.action))}">${
+        escHtml(String(p.action).slice(0, 40))}</span>` : '';
+  return `${escHtml(String(n))}× ${escHtml(conf)}${what}`;
+}
+
 function _autonomyPolicyFields() {
   return {
     mode: document.getElementById('autonomy-mode'),
@@ -42,7 +57,7 @@ async function loadAutonomy() {
   if (!pol || !pol.ok) {
     // Module off, or the caller cannot see it. Say so plainly rather than
     // rendering an empty page that looks like "nothing has happened".
-    body.innerHTML = `<tr><td colspan="8" class="hint">${escHtml(
+    body.innerHTML = `<tr><td colspan="9" class="hint">${escHtml(
       'Autonomous remediation is switched off for this instance. Enable it in Settings → Advanced.')}</td></tr>`;
     return;
   }
@@ -58,7 +73,15 @@ async function loadAutonomy() {
   // Absent on a policy stored before this field existed, and the server
   // defaults it to true — so read it the same way rather than letting an old
   // policy render as "precedent not required".
-  if (f.precedent) f.precedent.checked = p.require_precedent !== false;
+  //
+  // `!== false` disagreed with the server for every falsy-but-not-`false`
+  // value: a hand-edited or GitOps policy carrying 0, '' or null had the loop
+  // treat precedent as WAIVED while this box showed it ticked. Match Python's
+  // `policy.get('require_precedent', True)` exactly — absent is on, anything
+  // else is its truthiness.
+  if (f.precedent) {
+    f.precedent.checked = ('require_precedent' in p) ? !!p.require_precedent : true;
+  }
 
   const pill = document.getElementById('autonomy-mode-pill');
   if (pill) {
@@ -112,7 +135,7 @@ async function loadAutonomy() {
 
   const list = r.receipts || [];
   if (!list.length) {
-    body.innerHTML = `<tr><td colspan="8" class="hint">${escHtml(
+    body.innerHTML = `<tr><td colspan="9" class="hint">${escHtml(
       'No decisions recorded yet. In shadow mode receipts appear as alerts arrive.')}</td></tr>`;
     return;
   }
@@ -123,6 +146,7 @@ async function loadAutonomy() {
     action: x.action || '',
     verdict: x.verdict || '',
     reason: x.reason || '',
+    precedent: (x.precedent || {}).samples || 0,
     radius: (x.blast_radius || {}).score || 0,
   }));
   body.innerHTML = sorted.map(x => {
@@ -136,6 +160,7 @@ async function loadAutonomy() {
       <td><code>${escHtml(x.action || '')}</code></td>
       <td><span class="chk-pill ${cls}">${escHtml(x.verdict || '')}</span></td>
       <td><code>${escHtml(x.reason || '')}</code></td>
+      <td>${_autonomyPrecedent(x.precedent)}</td>
       <td>${escHtml(String(br.score != null ? br.score : ''))}${red}</td>
       <td>${x.id
         ? `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteAutonomyReceipt" ` +

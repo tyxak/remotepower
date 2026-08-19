@@ -90,16 +90,21 @@ reboot this host?** is worth answering for a human about to do it by hand.
 
 ## What it can do
 
-Thirty action classes, each with a fixed command and a declared list of the
-platforms whose agent can actually carry it out:
+Twenty-five action classes, each with a fixed command and a declared list of
+the platforms whose agent can actually carry it out:
 
 | Group | Actions |
 |---|---|
 | Services and containers | restart / start a service, restart a failed timer, restart / start a container |
 | Reclaiming disk | vacuum the journal, force a log rotation, clean temporary directories, clear the package cache, prune unused container images, `fstrim`, drop page cache |
-| Nudges | re-sync the clock, flush the DNS cache, restart the resolver, re-mount what fstab declares, flush the mail queue, update AV definitions, start an overdue scrub |
-| Posture that drifted off | turn automatic security updates back on, turn real-time malware protection back on, turn Gatekeeper back on |
-| Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, shut down, patch, rotate a credential |
+| Nudges | re-sync the clock, flush the mail queue, update AV definitions, start an overdue scrub |
+| Posture that drifted off | turn real-time malware protection back on, turn Gatekeeper back on |
+| Destructive | terminate a runaway process, remount a read-only filesystem, restart networking, turn the firewall back on, reboot, patch, rotate a credential |
+
+Every one is checked against what the three agents actually implement, and
+against whether the event that triggers it names a host — an action mapped to a
+server-side check, or to an alert that does not say which machine, is a checkbox
+that can never do anything. Five were removed in v7.0.2 for exactly that.
 
 An event maps to an **ordered ladder**, not one action. A host low on disk has
 half a dozen plausible remedies of escalating nerve; the loop takes the first

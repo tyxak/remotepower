@@ -140,15 +140,14 @@ ACTION_CLASSES = {
     'resync_clock':        {'destructive': False, 'default_allowed': True,
                             'platforms': ('linux',),
                             'label': 'Re-synchronise the system clock'},
-    'flush_dns_cache':     {'destructive': False, 'default_allowed': True,
-                            'platforms': ('linux', 'windows'),
-                            'label': 'Flush the DNS resolver cache'},
-    'restart_resolver':    {'destructive': False, 'default_allowed': True,
-                            'platforms': ('linux',),
-                            'label': 'Restart the DNS resolver'},
-    'remount_all':         {'destructive': False, 'default_allowed': False,
-                            'platforms': ('linux',),
-                            'label': 'Re-mount everything fstab declares'},
+    # NO DNS ACTIONS. `resolver_unhealthy` is this product's only DNS-health
+    # signal and it is a SERVER-side check over operator-configured targets — no
+    # device_id, so the sweep can never act on it. `restart_resolver` shipped in
+    # v7.0.0 mapped to it and was therefore a checkbox that could never do
+    # anything; `flush_dns_cache` was added in v7.0.2 and inherited the same dead
+    # trigger before either had run. Both are gone rather than left in the
+    # allow-list looking like features. A per-HOST resolver signal would bring
+    # them back.
     'flush_mail_queue':    {'destructive': False, 'default_allowed': True,
                             'platforms': ('linux',),
                             'label': 'Flush the outbound mail queue'},
@@ -163,9 +162,6 @@ ACTION_CLASSES = {
     # Off by default like everything else: turning a control back on is a
     # change to a host's configuration, and an operator may have switched it
     # off for a reason the fleet cannot see.
-    'enable_autoupdates':  {'destructive': False, 'default_allowed': False,
-                            'platforms': ('linux',),
-                            'label': 'Turn automatic security updates back on'},
     'enable_av_realtime':  {'destructive': False, 'default_allowed': False,
                             'platforms': ('windows',),
                             'label': 'Turn real-time malware protection back on'},
@@ -198,15 +194,6 @@ ACTION_CLASSES = {
                             'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
                             'label': 'Reboot the host'},
-    # Power is about to go away and the host is going down either way. The
-    # question is whether it goes down cleanly. Requiring a proven restore
-    # first would block the one action whose entire job is protecting what is
-    # on the disk — so it is destructive (four-eyes, off by default) without
-    # the backup precondition.
-    'shutdown_host':       {'destructive': True,  'default_allowed': False,
-                            'requires_backup': False,
-                            'platforms': ('linux', 'windows', 'darwin'),
-                            'label': 'Shut the host down while it still can'},
     'patch':               {'destructive': True,  'default_allowed': False,
                             'requires_backup': True,
                             'platforms': ('linux', 'windows', 'darwin'),
@@ -286,14 +273,23 @@ def default_policy():
     }
 
 
-def normalize_policy(raw):
-    """Merge a stored policy over the defaults, dropping anything unrecognised.
+def normalize_policy(raw, base=None):
+    """Merge a stored policy over `base` (the defaults), dropping anything
+    unrecognised.
 
     Unknown action classes are DISCARDED rather than carried through: a policy
     written by a newer version, or by hand, must not be able to smuggle in an
     action this build has no safety analysis for.
+
+    `base` exists because merging over the DEFAULTS is the wrong thing on an
+    UPDATE. The default allow-list is permissive by design — 13 non-destructive
+    classes an operator would usually want — so `PUT {"mode": "enabled"}` against
+    a tenant that had narrowed its allow-list to two actions silently widened it
+    back to thirteen, and reported success. On an update the caller passes the
+    stored policy as the base, so an absent key means "leave it alone" rather
+    than "reset it to the shipped default".
     """
-    p = default_policy()
+    p = dict(base) if isinstance(base, dict) else default_policy()
     if isinstance(raw, dict):
         mode = raw.get('mode')
         if mode in MODES:
@@ -462,15 +458,21 @@ def decide(*, action, policy, module_enabled, tenant_ok, radius,
     if plan_problem:
         return _decision(REFUSE, plan_problem, action=action)
 
-    # Evidence: either this fleet has fixed this before, or the caller has a
-    # drafted plan — a concrete command out of the curated catalog, which the
-    # operator has to waive `require_precedent` to accept.
+    # Evidence: either this fleet has fixed this before, or the operator has
+    # accepted a drafted plan — a concrete command out of the curated catalog —
+    # by turning `require_precedent` off.
     #
-    # BOTH halves hang off `has_plan`. The `low_confidence` half used not to,
-    # which made the waiver a trap: a tenant with two weak priors refused with
+    # The policy is read HERE rather than by the caller. decide() is the whole
+    # safety envelope as one total function; a policy field evaluated somewhere
+    # else means that sentence stops being true, and the next person looking for
+    # what the envelope does would not find this half of it.
+    #
+    # BOTH halves hang off the waiver. The `low_confidence` half used not to,
+    # which made it a trap: a tenant with two weak priors refused with
     # `low_confidence` no matter what it had waived, so turning the knob off
     # opened one door and left the next one shut with a different sign on it.
-    if not has_plan:
+    waived = bool(has_plan) and not policy.get('require_precedent', True)
+    if not waived:
         if precedent_samples < MIN_PRECEDENT_SAMPLES:
             return _decision(REFUSE, 'no_precedent',
                              precedent_samples=precedent_samples)

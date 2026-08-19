@@ -71,11 +71,26 @@ refuses rather than fixing one and leaving the rest.
 
 ### Six more things it can do
 
-`flush_dns_cache` (the gentle rung before restarting the resolver),
-`remount_all`, `enable_autoupdates`, `enable_av_realtime`, `enable_gatekeeper`
-and `shutdown_host` — the last for a UPS on its last minutes of battery, which
-is the one action that gets less useful the longer approval takes. Thirty action
-classes now, each still off unless you tick it.
+`enable_av_realtime` (Windows) and `enable_gatekeeper` (macOS), both off until
+you tick them.
+
+**And five removed.** An adversarial review of this release asked of every
+action whether the alert that triggers it names a host, and whether the command
+can fix the state that fired it. Five could not answer both: `restart_resolver`
+(v7.0.0) and `flush_dns_cache` hang off a server-side DNS check that names no
+host; `enable_autoupdates` runs a command that exits 0 having changed nothing in
+the state that fires it; `remount_all` skips filesystems that are already
+mounted, which is the stalled case the alert usually means; and `shutdown_host`
+targeted the machine reporting the UPS rather than the machines depending on it,
+routing around a UPS shutdown path this product already has and gates on two
+separate opt-ins.
+
+Three more mappings went for the no-host reason — `wan_down`, `mailflow_delayed`
+and `server_disk_low`, the last being this server's own data directory with the
+whole six-rung disk ladder attached to it. The ladder moved to
+`disk_predict_fail`, the per-host signal it was written for. And `oom_detected`
+no longer maps to killing a process: the name in that alert belongs to the
+process the kernel already killed. Twenty-five action classes.
 
 ### Receipts can be cleared
 

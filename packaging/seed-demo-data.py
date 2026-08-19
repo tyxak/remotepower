@@ -5481,7 +5481,6 @@ def build_autonomy_policy() -> dict:
         'allowed_actions': ['restart_service', 'start_service',
                             'restart_container', 'start_container',
                             'clear_journal', 'rotate_logs', 'clear_cache',
-                            'flush_dns_cache', 'restart_resolver',
                             'resync_clock'],
         'max_blast_radius': 3,
         'require_verified_backup': True,

@@ -59,7 +59,12 @@ _STORES = ('DEVICES_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'SERVICES_FILE',
            'LLDP_NEIGHBORS_FILE', 'BACKUP_JOBS_FILE', 'AUTONOMY_POLICY_FILE',
            'AUTONOMY_RECEIPTS_FILE', 'CMDS_FILE', 'INCIDENT_MEMORY_FILE',
            'TENANTS_FILE', 'USERS_FILE', 'MAINT_FILE', 'REMEDIATIONS_FILE',
-           'RULES_FILE', 'AUDIT_LOG_FILE')
+           'RULES_FILE', 'AUDIT_LOG_FILE',
+           # The escalation tests COUNT rows here. Without the redirect they
+           # count whatever any other test in this process left behind, which
+           # is the shared-store class CLAUDE.md records — it read as a dedupe
+           # that half worked.
+           'CONFIRMATIONS_FILE')
 
 
 def _iso(offset):
@@ -246,6 +251,23 @@ class TestTheOperatorFixSweepRecordsTheSuccess(_Base):
         self.assertEqual(rows[0]['source'], 'operator')
         self.assertIn('systemctl restart nginx', rows[0]['fix_command'])
 
+    def test_a_purged_alert_is_not_evidence_that_the_fix_worked(self):
+        """"Cleared" is inferred from the alert not being in the OPEN set, and an
+        alert removed by retention, an inbox clear or the 5000-row cap is also
+        not in that set. Good enough to decide whether to warn the operator; not
+        good enough to become durable evidence that an action works.
+
+        What stops it is that a purged alert has no row to read an event off,
+        and capture_fix_outcome refuses an outcome that names no event. Two
+        guards written for this during review turned out to change nothing —
+        mutating each left this test green, which is how they were found — and
+        both were removed rather than left looking load-bearing. What is pinned
+        here is the OUTCOME, not any one link."""
+        self._queued_fix()
+        api.save(api.ALERTS_FILE, {'alerts': []})     # the row is gone entirely
+        api._LOAD_CACHE.clear()
+        self.assertEqual(self._sweep(), [])
+
     def test_an_alert_that_stayed_open_records_nothing(self):
         """Positive control in the other direction: without this, a sweep that
         recorded EVERY fix would pass the test above."""
@@ -399,8 +421,7 @@ class TestABackupIsNotWhatMakesEveryActionSafe(_Base):
     def test_every_class_that_can_lose_data_declares_it(self):
         for name in ('remount_rw', 'reboot', 'patch', 'rotate_credential'):
             self.assertTrue(autonomy.ACTION_CLASSES[name]['requires_backup'], name)
-        for name in ('kill_process', 'restart_networking', 'enable_firewall',
-                     'shutdown_host'):
+        for name in ('kill_process', 'restart_networking', 'enable_firewall'):
             self.assertFalse(autonomy.ACTION_CLASSES[name]['requires_backup'], name)
 
 
@@ -522,17 +543,12 @@ class TestThePrecedentWaiver(_Base):
 class TestTheNewActionsProduceRealCommands(_Base):
 
     CASES = (
-        ('mount_issue', 'remount_all', {'path': '/srv'}, 'Debian 12',
-         'exec:mount -a'),
-        ('autoupdate_disabled', 'enable_autoupdates', {'detail': 'x'}, 'Debian 12',
-         'exec:systemctl enable --now unattended-upgrades.service'),
         ('av_realtime_off', 'enable_av_realtime', {'tool': 'defender'},
          'Windows Server 2022', 'ps:Set-MpPreference -DisableRealtimeMonitoring $false'),
         ('mac_gatekeeper_off', 'enable_gatekeeper', {'detail': 'x'}, 'macOS 14',
          'exec:spctl --master-enable'),
-        ('ups_critical', 'shutdown_host', {'ups': 'apc'}, 'Debian 12', 'shutdown'),
-        ('resolver_unhealthy', 'flush_dns_cache', {'detail': 'x'}, 'Debian 12',
-         'exec:resolvectl flush-caches'),
+        ('disk_predict_fail', 'clear_tmp', {}, 'Debian 12',
+         'exec:systemd-tmpfiles --clean'),
     )
 
     def test_each_builds_the_command_it_claims(self):
@@ -549,9 +565,37 @@ class TestTheNewActionsProduceRealCommands(_Base):
         for event, action, *_rest in self.CASES:
             self.assertIn(action, ops._EVENT_ACTIONS.get(event, ()), event)
 
-    def test_the_gentler_dns_rung_comes_first(self):
-        self.assertEqual(ops._EVENT_ACTIONS['resolver_unhealthy'][0],
-                         'flush_dns_cache')
+    def test_no_action_is_mapped_to_an_event_that_names_no_device(self):
+        """The sweep resolves a device before it does anything else, so a
+        FLEET-SINGLETON event is a mapping it can never act on — and it fails
+        silently, because the candidate is dropped before a receipt is written.
+
+        Three rows were exactly that until v7.0.2. The set is checked against the
+        payloads those events really fire with, not against a memory of them.
+        """
+        singletons = {
+            'wan_down': "its own source comment says 'fleet singleton, no device_id'",
+            'wan_up': 'same',
+            'mailflow_delayed': 'a server-side mail round-trip, not a host',
+            'mailflow_ok': 'same',
+            'resolver_unhealthy': 'a server-side DNS check over operator targets',
+            'resolver_recovered': 'same',
+            'server_disk_low': "the CONTROLLER's own data directory — the payload "
+                               "is {'target': 'server', 'name': 'RemotePower server'}",
+            'server_disk_ok': 'same',
+        }
+        mapped = set(ops._EVENT_ACTIONS)
+        self.assertEqual(sorted(mapped & set(singletons)), [],
+                         'these events carry no device_id, so the loop can never '
+                         'act on them:\n' + '\n'.join(
+                             f'  {e}: {singletons[e]}'
+                             for e in sorted(mapped & set(singletons))))
+
+    def test_the_probe_would_notice(self):
+        """Control: the set above must name events that EXIST, or the assertion
+        is comparing two empty sets."""
+        for name in ('wan_down', 'mailflow_delayed', 'resolver_unhealthy'):
+            self.assertIn(name, api.EVENT_REGISTRY, name)
 
 
 class TestTheDeviceNameIsNeverAResourceName(_Base):
@@ -577,6 +621,313 @@ class TestTheDeviceNameIsNeverAResourceName(_Base):
                                         {'pool': 'tank', 'name': 'web01'}, 'd1')
         self.assertIsNone(prob)
         self.assertEqual(cmd, 'exec:zpool scrub -- tank')
+
+
+class TestEscalationDoesNotBecomeAStorm(_Base):
+    """Fixing the backup gate made ESCALATE reachable for the first time, and
+    the escalation path had never been exercised: the loop has no per-alert
+    memory, re-evaluates every open candidate every five minutes, and an alert
+    awaiting approval is still open by definition."""
+
+    def _setup(self):
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'gateway_unreachable', 'device_id': 'd1',
+            'severity': 'high', 'payload': {}}]})
+        self._policy('enabled', allowed_actions=['restart_networking'],
+                     require_precedent=False, approval_for_destructive=True)
+        api._LOAD_CACHE.clear()
+
+    def _sweep(self):
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [], 'last_run': 0})
+        api._LOAD_CACHE.clear()
+        api.run_autonomy_if_due()
+
+    def _confirmations(self):
+        st = api.load(api.CONFIRMATIONS_FILE) or {}
+        return st.get('confirmations') or []
+
+    def test_twelve_sweeps_park_one_confirmation(self):
+        self._setup()
+        for _ in range(12):
+            self._sweep()
+        pending = [c for c in self._confirmations() if c.get('status') == 'pending']
+        self.assertEqual(len(pending), 1,
+                         f'{len(pending)} confirmations for one open alert — an '
+                         f'approval queue nobody can work through, and from the '
+                         f'second hour an expiry alert for each')
+
+    def test_the_receipt_says_it_is_already_waiting(self):
+        self._setup()
+        self._sweep()
+        first = self._confirmations()[0]['id']
+        self._sweep()
+        rows = (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
+        self.assertTrue(rows, 'no receipt at all')
+        self.assertIn('already awaiting approval', str(rows[0].get('outcome')))
+        self.assertEqual(rows[0].get('confirmation_id'), first)
+
+    def test_escalations_count_across_sweeps_too(self):
+        """The ceiling has two halves — what this sweep has done, and what the
+        stored receipts say the last hour did. Counting only ACT left the second
+        half blind, so three escalations per sweep, every five minutes, all
+        stayed under a ceiling of three.
+
+        One host per sweep so the dedup above cannot be what stops it.
+        """
+        api.save(api.DEVICES_FILE, {f'd{i}': {'name': f'h{i}', 'group': 'prod'}
+                                    for i in range(5)})
+        self._policy('enabled', allowed_actions=['restart_networking'],
+                     require_precedent=False, approval_for_destructive=True,
+                     max_actions_per_hour=3)
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [], 'last_run': 0})
+        seen = []
+        for i in range(5):
+            api.save(api.ALERTS_FILE, {'alerts': [{
+                'id': f'a{i}', 'event': 'gateway_unreachable', 'device_id': f'd{i}',
+                'severity': 'high', 'payload': {}}]})
+            with api._LockedUpdate(api.AUTONOMY_RECEIPTS_FILE) as st:
+                st['last_run'] = 0          # due again, receipts kept
+            api._LOAD_CACHE.clear()
+            api.run_autonomy_if_due()
+            rows = (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
+            seen.append(rows[-1]['reason'] if rows else None)
+        self.assertEqual(seen[:3], ['needs_approval'] * 3, seen)
+        self.assertEqual(seen[3:], ['rate_limited', 'rate_limited'],
+                         f'the ceiling is 3 and five sweeps escalated: {seen}')
+
+    def test_the_in_sweep_counter_holds_too(self):
+        """The other half: a flapping fleet produces its alerts all at once, so
+        they land in ONE sweep."""
+        api.save(api.DEVICES_FILE, {f'd{i}': {'name': f'h{i}', 'group': 'prod'}
+                                    for i in range(8)})
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': f'a{i}', 'event': 'gateway_unreachable', 'device_id': f'd{i}',
+            'severity': 'high', 'payload': {}} for i in range(8)]})
+        self._policy('enabled', allowed_actions=['restart_networking'],
+                     require_precedent=False, approval_for_destructive=True,
+                     max_actions_per_hour=3)
+        api._LOAD_CACHE.clear()
+        self._sweep()
+        rows = (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts') or []
+        esc = [r for r in rows if r['verdict'] == autonomy.ESCALATE]
+        limited = [r for r in rows if r.get('reason') == 'rate_limited']
+        self.assertEqual(len(esc), 3, f'ceiling is 3, {len(esc)} escalated')
+        self.assertTrue(limited, 'the rest were not recorded as rate-limited')
+
+
+class TestPrecedentNeedsAResolvedRowNotAnAbsentOne(_Base):
+    """`_verify_due_receipts` passes the receipt's own `trigger` as the event,
+    which is always populated — so unlike its sibling sweeps it has no accidental
+    net when the alert row is simply GONE."""
+
+    def _acted(self, alert_id='a1'):
+        now = int(time.time())
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [{
+            'id': 'rcpt_x', 'ts': now - 5000, 'tenant': 'default',
+            'device_id': 'd1', 'device_name': 'web01', 'trigger': 'failed_unit',
+            'alert_id': alert_id, 'action': 'restart_service',
+            'command': 'svc:restart:nginx.service', 'verdict': autonomy.ACT,
+            'reason': 'ok', 'outcome': 'queued', 'verified': None,
+            'verify_due': now - 1, 'before_checks': {'failing': 9},
+        }], 'last_run': 0})
+        api._LOAD_CACHE.clear()
+
+    def _outcomes(self):
+        return (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
+
+    def test_an_admin_clearing_the_inbox_does_not_manufacture_precedent(self):
+        self._acted()
+        api.save(api.ALERTS_FILE, {'alerts': []})     # DELETE /api/alerts?scope=all
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertEqual(self._outcomes(), [],
+                         'one admin clearing alerts turned an in-flight receipt '
+                         'into precedent at confidence 1.0')
+
+    def test_a_corrupt_store_does_not_either(self):
+        self._acted()
+        api.save(api.ALERTS_FILE, {})                 # load() gives {} on corruption
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertEqual(self._outcomes(), [])
+
+    def test_a_genuinely_resolved_alert_still_counts(self):
+        """Control: the guard must not refuse the case it exists to admit."""
+        self._acted()
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'resolved_at': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        api._verify_due_receipts(int(time.time()))
+        self.assertEqual(len(self._outcomes()), 1, self._outcomes())
+
+
+class TestTheWindowsScriptChannelsCanBeGated(unittest.TestCase):
+    """`ps:` and `cmd:` run PowerShell and cmd.exe as SYSTEM — the Windows
+    equivalent of `exec:` — and had no branch in `_command_kind`, so both
+    classified as 'other'. 'other' is not in _APPROVAL_KINDS_ALL, so those
+    commands could not be put behind the four-eyes gate even by an operator who
+    wanted them there."""
+
+    def test_they_classify_as_exec(self):
+        self.assertEqual(api._command_kind('ps:Set-MpPreference -X $false'), 'exec')
+        self.assertEqual(api._command_kind('cmd:ipconfig /flushdns'), 'exec')
+
+    def test_and_exec_is_a_kind_the_gate_offers(self):
+        self.assertIn('exec', api._APPROVAL_KINDS_ALL)
+
+    def test_the_other_verbs_are_unchanged(self):
+        for cmd, kind in (('exec:ls', 'exec'), ('reboot', 'reboot'),
+                          ('svc:restart:nginx', 'service'),
+                          ('container:docker:restart:web', 'container'),
+                          ('upgrade', 'upgrade')):
+            self.assertEqual(api._command_kind(cmd), kind, cmd)
+
+
+class TestTheBackupGateCanActuallyBeSatisfied(_Base):
+    """It read `BACKUP_JOBS_FILE[dev_id]['restore_drill']['ok']`. That store is
+    `{'jobs': [ … ]}` — a list under one key — so the lookup is None on every
+    fleet that has ever existed, and nothing anywhere writes a `restore_drill`
+    field into it. `require_verified_backup` is on by default, so patch, reboot,
+    remount_rw and rotate_credential were refused unconditionally, forever,
+    with a reason telling the operator to go and drill their backups."""
+
+    def _state(self, **rows):
+        api.save(api.DATA_DIR / 'backup_state.json', rows)
+        api._LOAD_CACHE.clear()
+
+    def setUp(self):
+        super().setUp()
+        self._saved_dd = api.DATA_DIR
+        api.DATA_DIR = self.d
+
+    def tearDown(self):
+        api.DATA_DIR = self._saved_dd
+        super().tearDown()
+
+    def test_a_recent_passing_drill_satisfies_it(self):
+        now = int(time.time())
+        self._state(**{'d1:/srv': {'drill_status': 'ok', 'drill_at': now - 3600}})
+        self.assertTrue(ops._backup_is_verified('d1'))
+
+    def test_nothing_recorded_does_not(self):
+        self._state()
+        self.assertFalse(ops._backup_is_verified('d1'))
+
+    def test_a_failed_drill_does_not(self):
+        now = int(time.time())
+        self._state(**{'d1:/srv': {'drill_status': 'failed', 'drill_at': now}})
+        self.assertFalse(ops._backup_is_verified('d1'))
+
+    def test_a_two_year_old_drill_does_not(self):
+        self._state(**{'d1:/srv': {'drill_status': 'ok',
+                                   'drill_at': int(time.time()) - 700 * 86400}})
+        self.assertFalse(ops._backup_is_verified('d1'))
+
+    def test_another_hosts_drill_does_not(self):
+        now = int(time.time())
+        self._state(**{'d2:/srv': {'drill_status': 'ok', 'drill_at': now}})
+        self.assertFalse(ops._backup_is_verified('d1'))
+
+    def test_the_field_it_reads_is_the_one_the_heartbeat_writes(self):
+        """The producer is api.py's restore_drills ingest. If the key names ever
+        drift apart this goes back to being unsatisfiable, silently."""
+        import inspect
+        src = inspect.getsource(api.handle_heartbeat) if hasattr(
+            api, 'handle_heartbeat') else (_CGI / 'api.py').read_text()
+        for key in ("'drill_status'", "'drill_at'"):
+            self.assertIn(key, src, key)
+
+    def test_the_whole_gate_end_to_end(self):
+        """The point: an action that needs a backup now CAN pass."""
+        now = int(time.time())
+        self._state(**{'d1:/srv': {'drill_status': 'ok', 'drill_at': now - 60}})
+        self._alert(event='reboot_required', payload={})
+        self._policy('shadow', allowed_actions=['reboot'],
+                     require_precedent=False)
+        self.assertEqual(self._verdict(), ('shadow', 'ok'))
+
+    def test_and_still_refuses_without_one(self):
+        """Control in the other direction."""
+        self._state()
+        self._alert(event='reboot_required', payload={})
+        self._policy('shadow', allowed_actions=['reboot'],
+                     require_precedent=False)
+        self.assertEqual(self._verdict(), ('refuse', 'no_verified_backup'))
+
+
+class TestAnAcknowledgedAlertIsLeftAlone(_Base):
+
+    def test_acknowledging_stops_the_loop(self):
+        """`acked_at` appears nowhere else in the codebase — the field an alert
+        carries is `acknowledged_at`. So an operator saying "I have got this"
+        had never once stopped the loop from acting on it."""
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'event': 'failed_unit', 'device_id': 'd1',
+            'severity': 'high', 'acknowledged_at': int(time.time()),
+            'payload': {'unit': 'nginx.service'}}]})
+        api._LOAD_CACHE.clear()
+        self._policy(require_precedent=False)
+        self.assertEqual(self._run(), [])
+
+    def test_an_unacknowledged_one_is_still_a_candidate(self):
+        """Control: without this, a filter that dropped everything would pass."""
+        self._alert()
+        self._policy(require_precedent=False)
+        self.assertEqual(len(self._run()), 1)
+
+    def test_the_field_name_is_the_one_the_store_uses(self):
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("'acknowledged_at': None", src,
+                      'the alert row no longer carries this field')
+
+
+class TestAPartialPolicySaveDoesNotWidenTheAllowList(_Base):
+
+    def _put(self, body):
+        cap = {}
+
+        def _respond(status, data=None):
+            cap['status'], cap['data'] = status, data
+            raise api.HTTPError(status, data)
+        saved = (api.respond, api.method, api.get_json_obj,
+                 api.require_admin_auth, api.audit_log)
+        api.respond = _respond
+        api.method = lambda: 'PUT'
+        api.get_json_obj = lambda: body
+        api.require_admin_auth = lambda *a, **k: 'alice'
+        api.audit_log = lambda *a, **k: None
+        try:
+            try:
+                api.handle_autonomy_policy()
+            except api.HTTPError:
+                pass
+        finally:
+            (api.respond, api.method, api.get_json_obj,
+             api.require_admin_auth, api.audit_log) = saved
+        api._LOAD_CACHE.clear()
+        return (api.load(api.AUTONOMY_POLICY_FILE) or {}).get('tenants', {}).get('default')
+
+    def test_a_mode_only_put_leaves_the_allow_list_alone(self):
+        """The default allow-list is permissive by design, so merging an update
+        over the DEFAULTS re-granted 13 action classes to a tenant that had
+        narrowed to one — and reported success."""
+        self._policy('shadow', allowed_actions=['restart_service'])
+        after = self._put({'policy': {'mode': 'enabled'}})
+        self.assertEqual(after['allowed_actions'], ['restart_service'], after)
+        self.assertEqual(after['mode'], 'enabled')
+
+    def test_a_put_that_names_the_list_still_replaces_it(self):
+        """Control: absent means leave alone, present means set."""
+        self._policy('shadow', allowed_actions=['restart_service'])
+        after = self._put({'policy': {'allowed_actions': ['clear_journal']}})
+        self.assertEqual(after['allowed_actions'], ['clear_journal'])
+
+    def test_a_tenant_with_no_policy_still_gets_the_defaults(self):
+        api.save(api.AUTONOMY_POLICY_FILE, {})
+        api._LOAD_CACHE.clear()
+        after = self._put({'policy': {'mode': 'shadow'}})
+        self.assertGreater(len(after['allowed_actions']), 5)
 
 
 class TestReceiptsCanBeCleared(_Base):
@@ -684,6 +1035,47 @@ class TestReceiptsCanBeCleared(_Base):
         detail = str(self.audit[-1])
         self.assertIn('autonomy_receipts_clear', detail)
         self.assertIn('removed=3', detail)
+
+    def test_a_scoped_role_sees_only_its_own_hosts_receipts(self):
+        """The filter had the tenant half and not the ROLE half, so a role
+        confined to one group could read the decision history of the whole
+        fleet — hostnames and commands included. `handle_alerts_clear` gets both
+        from _filter_alerts_for_caller; there is no such helper for this store."""
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web01', 'group': 'prod'},
+            'd2': {'name': 'lab01', 'group': 'lab'}})
+        api.save(api.ROLES_FILE, {'roles': [
+            {'name': 'prod-op', 'permissions': ['exec'],
+             'scope': {'type': 'groups', 'values': ['prod']}}]})
+        api.save(api.AUTONOMY_RECEIPTS_FILE, {'receipts': [
+            {'id': 'p1', 'tenant': 'default', 'device_id': 'd1',
+             'device_name': 'web01', 'verdict': 'shadow'},
+            {'id': 'l1', 'tenant': 'default', 'device_id': 'd2',
+             'device_name': 'lab01', 'verdict': 'shadow'},
+        ], 'last_run': 1})
+        api._LOAD_CACHE.clear()
+        self._as('prod-op')
+        rows = api._visible_receipts(
+            (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts'))
+        self.assertEqual([r['id'] for r in rows], ['p1'],
+                         'a prod-scoped role can see the lab host\'s receipts')
+        # A non-admin cannot delete anything at all — the admin gate is in front
+        # of the scope filter. The filter still matters on that path because a
+        # SCOPED API KEY confines an admin-role caller too (_caller_scope
+        # intersects the two).
+        self.assertEqual(self._call('id=l1'), 403)
+        self.assertEqual(len(self._rows()), 2)
+
+    def test_an_unscoped_admin_still_sees_a_decommissioned_hosts_receipts(self):
+        """Filtering an unscoped caller against the live device set would hide
+        the receipts of hosts that have since been removed — and a receipt is
+        self-contained precisely because the fleet changes."""
+        api.save(api.DEVICES_FILE, {})
+        api._LOAD_CACHE.clear()
+        self._as('admin')
+        rows = api._visible_receipts(
+            (api.load(api.AUTONOMY_RECEIPTS_FILE) or {}).get('receipts'))
+        self.assertEqual(len(rows), 3)
 
     def test_the_route_is_wired(self):
         routes = api._build_exact_routes()

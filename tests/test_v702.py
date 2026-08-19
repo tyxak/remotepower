@@ -178,12 +178,28 @@ class TestTheFixesAreInThisRelease(unittest.TestCase):
         self.assertIn("autonomy-require-precedent", _html())
         self.assertIn("require_precedent", _js("app-autonomy.js"))
 
-    def test_the_six_new_actions_shipped(self):
+    def test_the_new_actions_shipped(self):
         import autonomy
-        for name in ("flush_dns_cache", "remount_all", "enable_autoupdates",
-                     "enable_av_realtime", "enable_gatekeeper", "shutdown_host"):
+        for name in ("enable_av_realtime", "enable_gatekeeper"):
             self.assertIn(name, autonomy.ACTION_CLASSES, name)
-        self.assertEqual(len(autonomy.ACTION_CLASSES), 30)
+        self.assertEqual(len(autonomy.ACTION_CLASSES), 25)
+
+    def test_the_actions_that_could_never_fire_are_gone(self):
+        """Each failed one of two questions: does the alert that triggers it
+        name a host, and can the command fix the state that fired it."""
+        import autonomy
+        import autonomy_ops_handlers as _ops
+        for name in ("restart_resolver", "flush_dns_cache", "enable_autoupdates",
+                     "remount_all", "shutdown_host"):
+            self.assertNotIn(name, autonomy.ACTION_CLASSES, name)
+        for event in ("resolver_unhealthy", "mailflow_delayed", "wan_down",
+                      "server_disk_low", "ups_critical", "oom_detected",
+                      "mount_issue", "autoupdate_disabled"):
+            self.assertNotIn(event, _ops._EVENT_ACTIONS, event)
+
+    def test_the_disk_ladder_moved_to_the_per_host_signal(self):
+        import autonomy_ops_handlers as _ops
+        self.assertEqual(len(_ops._EVENT_ACTIONS["disk_predict_fail"]), 6)
 
     def test_receipts_can_be_cleared_from_the_page(self):
         self.assertIn("clearAutonomyReceipts", _html())

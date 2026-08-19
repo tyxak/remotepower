@@ -1084,7 +1084,7 @@ _ao_spec.loader.exec_module(autonomy_ops_handlers_mod)
 autonomy_ops_handlers_mod.bind(globals())
 for _ao_name in (
         'handle_autonomy_policy', 'handle_autonomy_receipts',
-        'handle_autonomy_receipts_clear',
+        'handle_autonomy_receipts_clear', '_visible_receipts',
         'handle_autonomy_preview', 'run_autonomy_if_due',
         '_policy_for', '_append_receipt', '_blast_radius_for',
         '_candidate_alerts', '_build_plan', '_actions_this_hour',
@@ -23128,6 +23128,18 @@ def _command_kind(command):
         return 'service'
     if s.startswith('kill:'):
         return 'process'
+    # v7.0.2: the Windows script channels. `ps:` runs PowerShell and `cmd:` runs
+    # cmd.exe, both as SYSTEM — the Windows equivalent of `exec:` — and neither
+    # had a branch, so both classified as 'other'. 'other' is not in
+    # _APPROVAL_KINDS_ALL, so those commands could not be put behind the
+    # four-eyes gate even by an operator who wanted them there. Same class as
+    # the bare-`upgrade` and `reboot-if-required` fixes above, on the channel
+    # where the blast radius is largest. They map onto 'exec' rather than a kind
+    # of their own so an existing `approval_gated_kinds` naming exec starts
+    # covering them immediately, which is the answer an operator who gated
+    # arbitrary exec would expect.
+    if s.startswith(('ps:', 'cmd:')):
+        return 'exec'
     # v6.2.0 (SECURITY): the Windows/macOS agents take a BARE `upgrade` /
     # `upgrade:<pkg>` (the Linux path sends `exec:<bash>` instead). Without these
     # two branches a bare `upgrade` classified as 'other' — which is NOT in
@@ -70027,13 +70039,15 @@ def run_mitigate_verify_if_due():
                     continue
                 if not a.get('resolved_at'):
                     open_alerts.add(a.get('id'))
-                # The RESOLVED rows are the interesting ones here: a fix whose
-                # alert closed is precedent, and the event name lives on the
-                # alert, not on the mitigation meta (which only knows the
-                # playbook `kind`).
-                alert_index[a.get('id')] = (a.get('event') or '',
-                                            a.get('severity') or '',
-                                            a.get('device_id') or '')
+                # RESOLVED rows only — which is every row that is not open, so
+                # this narrows nothing; it states what the index is FOR. A fix
+                # whose alert closed is precedent, and the event name lives on
+                # the alert rather than on the mitigation meta, which only knows
+                # the playbook `kind`.
+                elif a.get('resolved_at'):
+                    alert_index[a.get('id')] = (a.get('event') or '',
+                                                a.get('severity') or '',
+                                                a.get('device_id') or '')
         still_open = meta['alert_id'] in open_alerts
         meta['verified'] = (not still_open)
         meta['verified_at'] = now
@@ -70042,10 +70056,17 @@ def run_mitigate_verify_if_due():
         except Exception:
             continue
         if not still_open:
-            # It worked. Same inference the failure arm makes, in the other
-            # direction: the operator ran a fix aimed at this alert and the
-            # alert closed inside the verify window. That is the evidence the
-            # autonomy decision core asks for and nothing was recording it.
+            # It worked: the operator ran a fix aimed at this alert and the alert
+            # closed inside the verify window. That is the evidence the autonomy
+            # decision core asks for, and nothing was recording it.
+            #
+            # A PURGED alert — retention, an inbox clear, the 5000-row cap — is
+            # also "not open", so `still_open` alone cannot tell "cleared" from
+            # "deleted". It does not have to: a purged alert has no row to read
+            # an event off, and capture_fix_outcome refuses an outcome that names
+            # no event. Checked by mutation rather than assumed — an added guard
+            # for this turned out to change nothing and was removed rather than
+            # left looking load-bearing.
             _ev, _sev, _did = alert_index.get(meta['alert_id'], ('', '', ''))
             worked.append({
                 'alert_id': meta['alert_id'],
