@@ -610,6 +610,10 @@ def receipt(plan, decision, *, outcome=None, verified=None, verify_due=None):
             'action': plan.get('precedent_action'),
         },
         'dry_run': plan.get('dry_run'),
+        # What said this host was recoverable, if anything did. The Proxmox
+        # evidence is matched to a guest by name, so the receipt names the guest
+        # it matched rather than asserting "your backups are fine".
+        'backup_evidence': plan.get('backup_evidence'),
         'outcome': outcome,
         'verified': verified,
         'verify_due': verify_due,

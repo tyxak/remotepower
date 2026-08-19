@@ -1013,26 +1013,28 @@ class TestTheBackupGateCanActuallyBeSatisfied(_Base):
     def test_a_recent_passing_drill_satisfies_it(self):
         now = int(time.time())
         self._state(**{'d1:/srv': {'drill_status': 'ok', 'drill_at': now - 3600}})
-        self.assertTrue(ops._backup_is_verified('d1'))
+        ok, why = ops._backup_evidence('d1', {'name': 'web01'})
+        self.assertTrue(ok)
+        self.assertIn('restore drill', why)
 
     def test_nothing_recorded_does_not(self):
         self._state()
-        self.assertFalse(ops._backup_is_verified('d1'))
+        self.assertEqual(ops._backup_evidence('d1', {'name': 'web01'}), (False, ''))
 
     def test_a_failed_drill_does_not(self):
         now = int(time.time())
         self._state(**{'d1:/srv': {'drill_status': 'failed', 'drill_at': now}})
-        self.assertFalse(ops._backup_is_verified('d1'))
+        self.assertEqual(ops._backup_evidence('d1', {'name': 'web01'}), (False, ''))
 
     def test_a_two_year_old_drill_does_not(self):
         self._state(**{'d1:/srv': {'drill_status': 'ok',
                                    'drill_at': int(time.time()) - 700 * 86400}})
-        self.assertFalse(ops._backup_is_verified('d1'))
+        self.assertEqual(ops._backup_evidence('d1', {'name': 'web01'}), (False, ''))
 
     def test_another_hosts_drill_does_not(self):
         now = int(time.time())
         self._state(**{'d2:/srv': {'drill_status': 'ok', 'drill_at': now}})
-        self.assertFalse(ops._backup_is_verified('d1'))
+        self.assertEqual(ops._backup_evidence('d1', {'name': 'web01'}), (False, ''))
 
     def test_the_field_it_reads_is_the_one_the_heartbeat_writes(self):
         """The producer is api.py's restore_drills ingest. If the key names ever
@@ -1477,3 +1479,116 @@ class TestPrecedentIsForThisRemedyNotJustThisEvent(_Base):
             action='restart_service')
         rows = (api.load(api.INCIDENT_MEMORY_FILE) or {}).get('outcomes') or []
         self.assertEqual(rows[0]['action'], 'restart_service')
+
+
+class TestAProxmoxBackupCountsAsRecoverable(_Base):
+    """Asked for from the field: two `cve_found` -> `patch` receipts refusing
+    with no_verified_backup on hosts that are Proxmox guests with backups.
+
+    A restore drill is the strongest evidence and most fleets do not run one.
+    A vzdump archive is a real backup; a snapshot is a rollback point on the
+    same storage rather than a backup — but for the question this gate actually
+    asks, "if this upgrade breaks the host, can I get it back", both are real
+    answers, and restoring either is a mechanical operation the platform
+    guarantees.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._saved_px = (api.PROXMOX_BACKUP_CACHE, api.PROXMOX_SNAPSHOT_CACHE)
+        api.PROXMOX_BACKUP_CACHE = self.d / 'pbk.json'
+        api.PROXMOX_SNAPSHOT_CACHE = self.d / 'psn.json'
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        api.PROXMOX_BACKUP_CACHE, api.PROXMOX_SNAPSHOT_CACHE = self._saved_px
+        super().tearDown()
+
+    def _vzdump(self, name='pmg01', age_days=1, vmid=101):
+        api.save(api.PROXMOX_BACKUP_CACHE, {'updated_at': int(time.time()), 'guests': [
+            {'vmid': vmid, 'name': name, 'age_days': age_days,
+             'last_backup': int(time.time()) - age_days * 86400}]})
+        api._LOAD_CACHE.clear()
+
+    def _snapshot(self, name='pmg01', age_days=1, vmid=101):
+        api.save(api.PROXMOX_SNAPSHOT_CACHE, {f'qemu_{vmid}': {
+            'vmid': vmid, 'vm_name': name, 'guest_type': 'qemu',
+            'snapshots': [{'name': 'pre-upgrade',
+                           'snaptime': int(time.time()) - age_days * 86400}],
+            'updated_at': int(time.time())}})
+        api._LOAD_CACHE.clear()
+
+    DEV = {'name': 'pmg01.tvipper.com'}
+
+    def test_a_recent_vzdump_backup_counts(self):
+        self._vzdump()
+        ok, why = ops._backup_evidence('d1', self.DEV)
+        self.assertTrue(ok)
+        self.assertIn('Proxmox backup', why)
+        self.assertIn('vmid 101', why, 'the receipt must name the guest it matched')
+
+    def test_a_recent_snapshot_counts(self):
+        self._snapshot()
+        ok, why = ops._backup_evidence('d1', self.DEV)
+        self.assertTrue(ok)
+        self.assertIn('snapshot', why)
+        self.assertIn('pmg01', why)
+
+    def test_the_fqdn_matches_the_guest_short_name(self):
+        """`pmg01.tvipper.com` is the guest called `pmg01`."""
+        self.assertEqual(ops._proxmox_guest_for(self.DEV), 'pmg01')
+
+    def test_a_stale_one_does_not(self):
+        """The operator's OWN threshold decides. A backup this product is
+        already flagging as stale must not be what lets it patch."""
+        api.save(api.CONFIG_FILE, {'autonomy_enabled': True,
+                                   'proxmox_backup_warn_days': 7})
+        self._vzdump(age_days=30)
+        api._LOAD_CACHE.clear()
+        self.assertEqual(ops._backup_evidence('d1', self.DEV), (False, ''))
+
+    def test_another_guests_backup_does_not(self):
+        self._vzdump(name='someone-else')
+        self.assertEqual(ops._backup_evidence('d1', self.DEV), (False, ''))
+
+    def test_two_guests_with_the_same_name_resolve_to_nothing(self):
+        """A heuristic standing in for a safety precondition has to refuse what
+        it cannot pin down."""
+        api.save(api.PROXMOX_BACKUP_CACHE, {'guests': [
+            {'vmid': 101, 'name': 'pmg01', 'last_backup': int(time.time())},
+            {'vmid': 202, 'name': 'pmg01', 'last_backup': int(time.time())}]})
+        api._LOAD_CACHE.clear()
+        self.assertEqual(ops._backup_evidence('d1', self.DEV), (False, ''))
+
+    def test_an_explicit_pin_beats_the_name_guess(self):
+        self._vzdump(name='mail-gw-prod')
+        self.assertEqual(
+            ops._backup_evidence('d1', dict(self.DEV, proxmox_guest='mail-gw-prod'))[0],
+            True)
+
+    def test_a_host_that_is_not_a_guest_is_unaffected(self):
+        """ns3204737 is bare metal — no guest, no evidence, still refused."""
+        self._vzdump()
+        self.assertEqual(ops._backup_evidence('d9', {'name': 'ns3204737'}),
+                         (False, ''))
+
+    def test_the_whole_gate_end_to_end_with_the_evidence_on_the_receipt(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'pmg01.tvipper.com',
+                                           'group': 'prod'}})
+        self._vzdump()
+        self._alert(event='cve_found', payload={})
+        self._policy('shadow', allowed_actions=['patch'], require_precedent=False)
+        rows = self._run()
+        self.assertEqual((rows[0]['verdict'], rows[0]['reason']), ('shadow', 'ok'),
+                         rows)
+        self.assertIn('Proxmox backup', rows[0]['backup_evidence'])
+
+    def test_and_without_it_the_refusal_stands(self):
+        """Control — the whole gate must still be a gate."""
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'pmg01.tvipper.com',
+                                           'group': 'prod'}})
+        self._alert(event='cve_found', payload={})
+        self._policy('shadow', allowed_actions=['patch'], require_precedent=False)
+        rows = self._run()
+        self.assertEqual(rows[0]['reason'], 'no_verified_backup')
+        self.assertEqual(rows[0]['backup_evidence'], '')

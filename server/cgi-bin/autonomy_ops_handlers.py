@@ -579,43 +579,104 @@ def _actions_this_hour(tenant, taken_this_sweep=None):
 _DRILL_MAX_AGE_S = 30 * 86400
 
 
-def _backup_is_verified(dev_id):
-    """Proven recoverable — a restore drill that actually restored and checked,
-    not a backup that merely ran. The distinction is the entire reason the
-    destructive gate exists.
+def _proxmox_guest_for(dev):
+    """The Proxmox guest name this device IS, or ''.
 
-    IT WAS READING THE WRONG STORE, AND HAD NEVER RETURNED TRUE. The first
-    version asked `BACKUP_JOBS_FILE[dev_id]['restore_drill']['ok']`. Two
-    independent reasons that can never be satisfied: the jobs store is
-    `{'jobs': [ … ]}`, a LIST under one key, so `.get(dev_id)` is None on every
-    fleet that has ever existed; and no code anywhere writes a `restore_drill`
-    field into it. So `require_verified_backup` — on by default — refused patch,
-    reboot, remount_rw and rotate_credential unconditionally, forever, with a
-    reason code that told the operator to go and drill their backups.
+    There is no formal link between a fleet device and a Proxmox guest — the
+    Virtualization page lists guests by name and the fleet lists hosts by name,
+    and nothing joins them. So this matches on the first DNS label, lowercased:
+    `pmg01.tvipper.com` is the guest called `pmg01`.
 
-    The real signal was three screens away in the same heartbeat that produces
-    the alerts: the agent reports `restore_drills`, api.py stores the latest per
-    path in `backup_state.json` under `<dev_id>:<path>` as `drill_status` /
-    `drill_at`, and fires restore_drill_failed / restore_drill_ok off it. That is
-    exactly what the docstring above claims to want, so this now reads it.
-
-    One passing drill on the host is enough: a host may back up several paths and
-    an operator drills what matters. A drill that succeeded two years ago is not
-    evidence about today's host, hence the age bound.
+    A heuristic standing in for a safety precondition is exactly the shape this
+    codebase keeps finding bugs in, so it is deliberately narrow: an operator can
+    pin the link explicitly with `proxmox_guest` on the device record, and the
+    name match below refuses anything ambiguous. Whatever it resolves to is
+    written onto the receipt, because "your backups are fine" is not a claim to
+    make without saying which machine's.
     """
-    state = A.load(A.DATA_DIR / 'backup_state.json') or {}
-    if not isinstance(state, dict):
-        return False
+    if not isinstance(dev, dict):
+        return ''
+    pinned = str(dev.get('proxmox_guest') or '').strip()
+    if pinned:
+        return pinned.lower()
+    name = str(dev.get('name') or dev.get('hostname') or '').strip()
+    return name.split('.')[0].lower()
+
+
+def _proxmox_backup_evidence(dev, now):
+    """(ok, why) — a recent vzdump backup or snapshot for this device's guest.
+
+    Both stores are refreshed by the Proxmox pages and keyed by guest, not by
+    device, so the join is by name (see above). Recency uses the operator's OWN
+    thresholds — `proxmox_backup_warn_days` and `proxmox_snapshot_warn_days`,
+    the same numbers that decide whether a guest is flagged as under-protected
+    on the attention list. A backup this product is already telling you is stale
+    must not be the thing that lets it patch.
+
+    A vzdump archive is a backup. A snapshot is a rollback point rather than a
+    backup — it lives on the same storage as the guest — but for the question
+    this gate actually asks, "if this upgrade breaks the host, can I get it
+    back", it is a real answer, and the operator asked for it to count.
+    """
+    guest = _proxmox_guest_for(dev)
+    if not guest:
+        return False, ''
+    cfg = A._config_ro() or {}
+
+    if A.backend_exists(A.PROXMOX_BACKUP_CACHE):
+        rows = (A.load(A.PROXMOX_BACKUP_CACHE) or {}).get('guests') or []
+        hits = [g for g in rows if isinstance(g, dict)
+                and str(g.get('name') or '').strip().lower() == guest]
+        if len(hits) == 1 and hits[0].get('last_backup'):
+            age = (now - int(hits[0]['last_backup'])) // 86400
+            try:
+                warn = int(cfg.get('proxmox_backup_warn_days', 7))
+            except (TypeError, ValueError):
+                warn = 7
+            if age <= warn:
+                return True, (f"Proxmox backup of guest {hits[0].get('name')} "
+                              f"(vmid {hits[0].get('vmid')}), {age}d old")
+        elif len(hits) > 1:
+            return False, ''      # ambiguous name — resolve nothing
+
+    if A.backend_exists(A.PROXMOX_SNAPSHOT_CACHE):
+        cache = A.load(A.PROXMOX_SNAPSHOT_CACHE) or {}
+        try:
+            warn = int(cfg.get('proxmox_snapshot_warn_days', 7))
+        except (TypeError, ValueError):
+            warn = 7
+        hits = [e for e in cache.values() if isinstance(e, dict)
+                and str(e.get('vm_name') or '').strip().lower() == guest]
+        if len(hits) != 1:
+            return False, ''
+        snaps = [s for s in (hits[0].get('snapshots') or [])
+                 if isinstance(s, dict) and s.get('snaptime')]
+        if snaps:
+            newest = max(snaps, key=lambda s: int(s.get('snaptime') or 0))
+            age = (now - int(newest['snaptime'])) // 86400
+            if age <= warn:
+                return True, (f"Proxmox snapshot \"{newest.get('name')}\" of guest "
+                              f"{hits[0].get('vm_name')} (vmid {hits[0].get('vmid')}), "
+                              f"{age}d old")
+    return False, ''
+
+
+def _backup_evidence(dev_id, dev):
+    """(ok, why) — what, if anything, says this host is recoverable."""
     now = int(time.time())
-    prefix = f'{dev_id}:'
-    for key, row in state.items():
-        if not isinstance(row, dict) or not str(key).startswith(prefix):
-            continue
-        if row.get('drill_status') != 'ok':
-            continue
-        if (now - int(row.get('drill_at') or 0)) < _DRILL_MAX_AGE_S:
-            return True
-    return False
+    state = A.load(A.DATA_DIR / 'backup_state.json') or {}
+    if isinstance(state, dict):
+        prefix = f'{dev_id}:'
+        for key, row in state.items():
+            if not isinstance(row, dict) or not str(key).startswith(prefix):
+                continue
+            if row.get('drill_status') != 'ok':
+                continue
+            age = now - int(row.get('drill_at') or 0)
+            if age < _DRILL_MAX_AGE_S:
+                return True, (f'restore drill of {str(key)[len(prefix):] or "?"}, '
+                              f'{age // 86400}d ago')
+    return _proxmox_backup_evidence(dev, now)
 
 
 def _candidate_alerts(alerts):
@@ -762,6 +823,7 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
         'blast_radius': radius,
         'precedent_action': precedent_action,
         'dry_run': 'not-run',
+        'backup_evidence': '',
     }
 
 
@@ -1201,12 +1263,16 @@ def run_autonomy_if_due():
         conf, samples, prec_action = autonomy.precedent_confidence(similar, action)
         radius = _blast_radius_for(dev_id, dev, devices)
         plan = _build_plan(alert, action, dev, dev_id, radius, prec_action)
+        # WHICH backup, on the receipt. The Proxmox evidence is matched to a
+        # guest by NAME, and "this host is recoverable" is not a claim to make
+        # without saying which machine's backup said so.
+        backup_ok, plan['backup_evidence'] = _backup_evidence(dev_id, dev)
 
         decision = autonomy.decide(
             action=action, policy=policy, module_enabled=True,
             tenant_ok=bool(tenant), radius=radius,
             precedent_conf=conf, precedent_samples=samples,
-            backup_verified=_backup_is_verified(dev_id),
+            backup_verified=backup_ok,
             # A change-GATED maintenance window is this product's "only touch
             # this host inside the window" model, and `_exec_gated` is the
             # predicate the heartbeat dispatch already uses for it (True ==

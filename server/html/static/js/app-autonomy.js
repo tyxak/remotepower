@@ -175,7 +175,11 @@ async function loadAutonomy() {
       <td><code>${escHtml(x.action || '')}</code></td>
       <td><span class="chk-pill ${cls}">${escHtml(x.verdict || '')}</span>${
         _autonomyOutcome(x)}</td>
-      <td><code>${escHtml(x.reason || '')}</code></td>
+      <td><code>${escHtml(x.reason || '')}</code>${
+        x.backup_evidence
+          ? `<div class="hint fs-11" title="${escAttr(String(x.backup_evidence))}">${
+              escHtml(String(x.backup_evidence).slice(0, 48))}</div>`
+          : ''}</td>
       <td>${_autonomyPrecedent(x.precedent)}</td>
       <td>${escHtml(String(br.score != null ? br.score : ''))}${red}</td>
       <td>${x.id

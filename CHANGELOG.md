@@ -92,6 +92,22 @@ whole six-rung disk ladder attached to it. The ladder moved to
 no longer maps to killing a process: the name in that alert belongs to the
 process the kernel already killed. Twenty-five action classes.
 
+### A Proxmox backup counts as recoverable
+
+Reported from the field: `cve_found` → `patch` refusing with
+`no_verified_backup` on hosts that are Proxmox guests with good backups. A
+restore drill is the strongest evidence and most fleets do not run one, so a
+recent vzdump archive or snapshot of the guest a host *is* now counts as well.
+Neither has been proven to restore — but restoring either is a mechanical
+operation Proxmox guarantees, which is a different proposition from hoping a
+repository is intact.
+
+Recency uses your own `proxmox_backup_warn_days` / `proxmox_snapshot_warn_days`
+thresholds: a backup this product already calls stale is not what lets it patch.
+The guest is matched by name (`pmg01.tvipper.com` is the guest `pmg01`), nothing
+matches when two guests share a name, and `proxmox_guest` on the device record
+pins it. The receipt names the guest and the age of whatever evidence applied.
+
 ### Precedent got more specific, and commands got a shelf life
 
 Prior incidents were matched on the event *or* its kind, so `storage` pooled

@@ -74,6 +74,32 @@ enables anything for another.
 | **Prior fixes required** | Act only where this fleet has fixed the same signature before. On by default. |
 | **Permitted actions** | An explicit allow-list. Anything not on it is refused. |
 
+### What counts as recoverable
+
+Two kinds of evidence, strongest first:
+
+* **A restore drill** — one that actually restored a sample and verified it,
+  within 30 days. Your agent reports these; they appear against the backup paths
+  you monitor.
+* **A recent Proxmox backup or snapshot** of the guest this host is. A vzdump
+  archive is a backup; a snapshot is a rollback point on the same storage rather
+  than a backup. Neither has been proven to restore — but for the question this
+  gate actually asks, *if this upgrade breaks the host, can I get it back*, both
+  are real answers, and restoring either is a mechanical operation Proxmox
+  guarantees.
+
+Recency for the Proxmox evidence uses **your own thresholds** — the same
+`proxmox_backup_warn_days` and `proxmox_snapshot_warn_days` that decide whether a
+guest is flagged as under-protected. A backup this product is already telling you
+is stale is not what lets it patch.
+
+The guest is matched by name: `pmg01.tvipper.com` is the guest called `pmg01`. If
+two guests share a name, nothing matches — a guess is not a safety precondition.
+Set `proxmox_guest` on the device record to pin it explicitly. Whichever evidence
+applied is written on the receipt, naming the guest and the age, because "this
+host is recoverable" is not a claim worth making without saying which machine's
+backup said so.
+
 **"Can lose data" and "destructive" are separate questions.** Restarting
 networking is destructive — it can take a host off the network — and a backup is
 not what makes it safe or unsafe. Patching, rebooting, remounting a filesystem
