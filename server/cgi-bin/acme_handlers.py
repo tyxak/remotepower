@@ -293,8 +293,14 @@ def handle_acme_detail(dev_id, domain):
     cert = next((c for c in (rec.get('certs') or []) if c.get('domain') == domain), None)
     if not cert:
         A.respond(404, {'error': 'cert not found in last scan'}); return
-    # Walk ACME_LOGS_DIR for matching action logs (most-recent first, last 10)
-    logs = []
+    # Walk ACME_LOGS_DIR for matching action logs (most-recent first, last 10).
+    #
+    # The whole walk used to sit under one `except Exception: pass`, so any
+    # error — an unreadable directory, a file removed between the listing and
+    # its stat() — produced an empty list that the page renders as "No logs
+    # yet. Trigger a force renew to capture one." An operator following that
+    # instruction gets the same empty box, forever.
+    logs, logs_error = [], ''
     try:
         if A.ACME_LOGS_DIR.is_dir():
             safe_did = re.sub(r'[^a-zA-Z0-9_-]', '_', dev_id)[:64]
@@ -310,22 +316,30 @@ def handle_acme_detail(dev_id, domain):
                 try:
                     meta_path = f.with_suffix('.meta.json')
                     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                    size, mtime = f.stat().st_size, int(f.stat().st_mtime)
                 except Exception:
-                    meta = {}
+                    # One unreadable row must not empty the list — it used to,
+                    # because the outer handler caught it.
+                    continue
                 if meta.get('domain') and meta.get('domain') != domain:
                     continue
                 logs.append({
                     'id':       f.stem.split('__', 1)[-1] if '__' in f.stem else f.stem,
-                    'ts':       int(meta.get('queued_at') or f.stat().st_mtime),
+                    'ts':       int(meta.get('queued_at') or mtime),
                     'action':   meta.get('action', ''),
                     'rc':       meta.get('rc'),
-                    'size':     f.stat().st_size,
+                    'size':     size,
                 })
                 if len(logs) >= 10:
                     break
-    except Exception:
-        pass
-    A.respond(200, {'cert': cert, 'logs': logs})
+    except Exception as exc:
+        logs_error = f'{type(exc).__name__}: {exc}'[:200]
+        A.sys.stderr.write(f'[remotepower] acme log list failed dev={dev_id}: '
+                           f'{logs_error}\n')
+    out = {'cert': cert, 'logs': logs}
+    if logs_error:
+        out['logs_error'] = logs_error
+    A.respond(200, out)
 
 
 def handle_acme_log(dev_id, action_id):
@@ -361,13 +375,25 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
     # the one funnel for issue/force-renew/revoke. (Read siblings already do.)
     A._scope_block_device(dev_id)
     action_id = secrets.token_hex(6)
-    # Reserve the log file so it shows up in the detail view immediately
-    try:
-        A.ACME_LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+    # Reserve the log file so the action shows up in the detail view
+    # immediately, as `pending`, before the agent has even collected it.
+    #
+    # THE FAILURE HERE USED TO BE INVISIBLE. Both the mkdir and the write were
+    # wrapped in `except Exception: pass`, so on any filesystem problem the
+    # command was still queued, the renewal still ran, the certificate was
+    # still replaced — and the operator saw no log entry, no pending row and no
+    # error. Reported from the field exactly that way: "the cert was renewed,
+    # but no logs or confirmation."
+    #
+    # The reservation is not worth failing the action over — a renewal that
+    # happens without a log is better than one that does not happen — so this
+    # still queues. It just says so, and the caller puts it in front of the
+    # operator instead of leaving them to wonder. The sibling mitigation path
+    # has always reported this failure; only ACME swallowed it.
+    log_error = ''
     log_path = A._acme_log_path(dev_id, action_id)
     try:
+        A.ACME_LOGS_DIR.mkdir(parents=True, exist_ok=True)
         log_path.write_text('# pending — awaiting agent\n')
         meta_path = log_path.with_suffix('.meta.json')
         meta_path.write_text(json.dumps({
@@ -376,8 +402,11 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
             'queued_at': int(time.time()),
             'actor':    actor,
         }))
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error = f'{type(exc).__name__}: {exc}'[:200]
+        A.sys.stderr.write(
+            f'[remotepower] acme log reserve failed dev={dev_id} '
+            f'action={action_id}: {log_error}\n')
     # Queue the exec — output comes back through the standard command-output
     # ingestion path and gets re-pointed at the acme log in v3.0.1 (handled
     # in handle_command_output below).
@@ -393,8 +422,12 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
     A.log_command(actor, dev_id, devices[dev_id].get('name', dev_id),
                   f'acme: {action} {domain}')
     A.audit_log(actor, f'acme_{action}',
-                detail=f'device={dev_id} domain={domain} action_id={action_id}')
-    return {'ok': True, 'action_id': action_id}
+                detail=f'device={dev_id} domain={domain} action_id={action_id}'
+                       + (f' log_error={log_error}' if log_error else ''))
+    out = {'ok': True, 'action_id': action_id}
+    if log_error:
+        out['log_error'] = log_error
+    return out
 
 
 def handle_acme_force_renew(dev_id, domain):

@@ -765,7 +765,18 @@ async function acmeForceRenew(devId, domain) {
   if (!await uiConfirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/renew`);
   if (r?.ok) {
-    toast(`Renew queued — output in detail view (Logs tab)`, 'success');
+    // The server reserves a log file so the run shows up as `pending` straight
+    // away. When that reservation fails the renewal still goes ahead — better a
+    // renewal with no log than no renewal — but promising output in a tab that
+    // will stay empty is the "success toast for something that did not happen"
+    // shape, so say which of the two happened.
+    if (r.log_error) {
+      toast(`Renew queued, but its log could not be reserved: ${r.log_error}. `
+            + 'The renewal will still run; the Logs tab will stay empty.',
+            'warning', { duration: 9000 });
+    } else {
+      toast(`Renew queued — output in detail view (Logs tab)`, 'success');
+    }
     // Re-open detail so the user can follow along
     acmeOpenDetail(devId, domain);
   } else {
@@ -908,7 +919,10 @@ function _acmeRenderDetail(r) {
         </div>`;
       }).join('')}
     </div>
-    <div id="acme-log-view" class="isl-70"></div>` : '<div class="empty-p20">No logs yet. Trigger a force renew to capture one.</div>';
+    <div id="acme-log-view" class="isl-70"></div>`
+    : `<div class="empty-p20">${r.logs_error
+        ? escHtml(`The log directory could not be read: ${r.logs_error}`)
+        : escHtml('No logs yet. Trigger a force renew to capture one.')}</div>`;
   document.getElementById('acme-detail-logs').innerHTML = logsHtml;
 }
 
