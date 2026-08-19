@@ -317,9 +317,12 @@ def handle_acme_detail(dev_id, domain):
                     meta_path = f.with_suffix('.meta.json')
                     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
                     size, mtime = f.stat().st_size, int(f.stat().st_mtime)
-                except Exception:
+                except Exception:  # nosec B112 - skipping one unreadable row IS the fix
                     # One unreadable row must not empty the list — it used to,
-                    # because the outer handler caught it.
+                    # because the outer handler caught it. Bandit reads
+                    # try/except/continue as swallowed errors; here the swallow
+                    # is scoped to a single directory entry and the alternative
+                    # is the bug this replaced.
                     continue
                 if meta.get('domain') and meta.get('domain') != domain:
                     continue
