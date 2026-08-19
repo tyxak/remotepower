@@ -7691,8 +7691,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-approval"> Destructive actions need a second pair of eyes</label></div>
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="autonomy-require-precedent"> Only act where this fleet has fixed the same thing before</label>
             <span class="hint">On by default, and the usual reason a new install records nothing but refusals: two prior fixes with the same signature have to exist first. A fix an operator ran, an automation rule that verified, or one of this loop's own verified actions all count. Turn it off to accept the curated command catalog as the plan instead. <a href="docs/autonomy.md" class="c-accent">Documentation</a></span></div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Permitted actions</div>
+          <p class="hint">Nothing happens unless it is ticked here. Each row says which platforms can carry it out, whether it is destructive, and whether it needs a proven-recoverable backup first.</p>
           <div class="settings-row">
-            <label class="form-label" for="autonomy-act-filter">Permitted actions</label>
             <input type="text" id="autonomy-act-filter" class="form-input input-wide"
                    placeholder="Filter actions… (name, description, platform)"
                    aria-label="Filter permitted actions"
@@ -7707,7 +7711,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="settings-row">
             <button class="btn-secondary" data-action="saveAutonomyPolicy">Save envelope</button>
-            <span class="hint">Saves everything on this card — the mode, the limits and the permitted actions.</span>
+            <span class="hint">Saves the whole envelope — the mode and limits above, and these actions.</span>
           </div>
         </div>
       </div>

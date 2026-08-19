@@ -61,8 +61,10 @@ to flip rather than something that quietly happens.
 ## The safety envelope
 
 Configured per tenant at the **bottom** of the Autonomy page — the receipts come
-first, because reading them is what you do daily and setting the envelope is
-what you do once. One customer opting in never enables anything for another.
+first, because reading them is what you do daily and setting the envelope is what
+you do once. The limits are one card and the **permitted actions** are the next,
+with one *Save envelope* at the end that writes both. One customer opting in
+never enables anything for another.
 
 | Setting | What it does |
 |---|---|
