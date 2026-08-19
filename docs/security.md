@@ -45,8 +45,7 @@ earlier passes went looking at fleet-wide READ endpoints and found three that
 authenticated the caller and then answered as though every caller were an
 unrestricted administrator — metrics, the calendar feed and rack elevation — and
 then at the write side. All long-standing rather than new, all fixed in the
-release that describes them. That pass built on
-[security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
+release that describes them. That pass built on the **v6.4.1** review, weighted
 toward the **KMIP key server** — the highest-consequence surface that release
 added, since it holds encryption keys for other people's storage. Every trust
 boundary was traced by hand rather than reviewed function-by-function: the
@@ -60,9 +59,19 @@ trade-offs in the open — opt-in legacy ciphers for appliances that offer nothi
 else, and the availability coupling that makes it a mistake to unlock a
 machine's storage against a KMIP server that machine hosts.
 
-The current pass is [security-review-7.0.0.md](security-review-7.0.0.md) for
-**v7.0.0**; [security-review-6.4.2.md](security-review-6.4.2.md) and
-[security-review-6.4.1.md](security-review-6.4.1.md) are the two kept before it.
+The current pass is [security-review-7.0.2.md](security-review-7.0.2.md) for
+**v7.0.2**, which reviewed the whole project rather than the release diff — the
+previous release having taught that the diff is the wrong unit. It found fifteen
+issues, nine of them the same shape: a rule this codebase already applies in most
+places, missed in one or two. Multi-tenancy was applied to the settings READ path
+and not the write path; to auto-patch policies and not to the maintenance windows
+they generate. Two of three agents refused an unsigned update. Four of eight
+Windows posture fields reached a screen. It also repaired two guards found to be
+blind — an accessibility sweep that had been reporting success while running
+nothing, and a demo instance seeded in shapes no agent produces, which is what
+the rendered checks measure.
+[security-review-7.0.0.md](security-review-7.0.0.md) and
+[security-review-6.4.2.md](security-review-6.4.2.md) are the two kept before it.
 Each found real defects, and every one of them is fixed before the release goes
 out.
 Configuration secrets stopped being encrypted at rest on one write path; the AI

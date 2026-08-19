@@ -124,7 +124,7 @@ repository is intact.
 
 Recency uses your own `proxmox_backup_warn_days` / `proxmox_snapshot_warn_days`
 thresholds: a backup this product already calls stale is not what lets it patch.
-The guest is matched by name (`pmg01.tvipper.com` is the guest `pmg01`), nothing
+The guest is matched by name (`mail01.example.com` is the guest `mail01`), nothing
 matches when two guests share a name, and `proxmox_guest` on the device record
 pins it. The receipt names the guest and the age of whatever evidence applied.
 
@@ -180,6 +180,134 @@ A **Clear receipts** button on the card, and a delete button on each row. Both
 are admin-only and audited: who cleared it, how many rows, and how many were
 still waiting on their verification sample. Clearing changes nothing the loop
 decided and does not stop it running.
+
+### Multi-tenancy: four ways one tenant could reach another
+
+A pre-release audit of the whole project, not just this release's changes. Each
+of these needed a tenant admin account; none of them needed anything else.
+
+**Instance settings could be rewritten by any tenant admin.** `config.json` is
+one instance-wide store and the save handler asked only for an admin, which a
+tenant admin is. A single request setting `tenancy_enforced: false` turned every
+isolation check in the product into a no-op at once. The same handler owns
+`trust_proxy` (which decides whether the IP allowlist can be walked past),
+`maintenance_mode`, and the SIEM forwarding settings. The equivalent restriction
+was applied to the config READ path in v6.4.3 and never to the write path.
+
+**Automation rules carried no tenant.** They fire on every event on every
+device, match on an operator-supplied device filter, and one of their actions
+queues a saved script that the agent runs as root. An empty filter matched every
+device on the instance. Rules now record the tenant that created them and are
+confined to it — for firing, and for reading, editing and deleting. Rules from
+before this release keep their existing behaviour, because assigning them an
+owner would be a guess about who wrote them.
+
+**The saved-script library was shared by everyone.** A script body is code that
+runs as root and routinely holds credentials and internal hostnames. Any role in
+any tenant could list the library and read every body; any tenant admin could
+repoint or delete another tenant's script. Scripts now belong to the tenant that
+saved them; older ones take their owner from the recorded author, and one whose
+author has since been deleted stays shared and is flagged so you can claim it by
+re-saving.
+
+**A maintenance window from one tenant covered every tenant.** A window
+suppresses alerts, and with change gating holds exec and upgrade commands until
+it opens — so a `global` window from one tenant could silence every other
+tenant's alerting or freeze their changes. Windows are now scoped to their
+tenant, and `global` means everything the operator who wrote it can see. The
+scope-matching rule had five separate copies across suppression, change gating,
+scan gating, SLA subtraction and Integrity Guard; they share one now.
+
+### Agents: an unsigned update, a decompression bomb, a replay window
+
+**macOS would install an unsigned agent update.** Pinning a release key means
+"only install builds signed by this key". Linux and Windows both fetch the
+detached signature and refuse without a valid one; macOS checked only the SHA-256
+the server itself advertised, which says the download arrived intact and nothing
+about who produced it. macOS and Windows also gained the no-auto-downgrade guard
+Linux has had since v5.0.1.
+
+**A compliance report could be a decompression bomb.** The upload was capped at
+30 MB compressed, which bounds nothing — gzip reaches about 1000:1 on repetitive
+input. Nothing decompressed it on the way in, so it was stored and expanded
+later, when an operator opened it. Both ends now decompress against a hard
+output cap, and a truncated archive is refused rather than served as a blank
+report.
+
+**A signed command could be replayed inside its freshness window.** The
+signature binds a command to one device and an issue time, and anything inside
+the 15-minute window verified — so the same signed command, re-sent, ran again.
+Agents now remember what they have accepted. A command you issue again is signed
+afresh and unaffected.
+
+**Decoy (canary) files were a fifth way to change a host, and it never asked.**
+Planting one writes a root-owned file at a path and with content you choose, and
+it honoured neither audit (read-only) mode nor require-signed-commands, which
+both exist to stop the server changing a host. Audit mode now skips planting and
+says so in the arm report; paths where the system executes what it finds are
+refused at both ends with a reason; and the parent directory is never created. A
+fake private key stays a legal decoy — it is one of the better ones.
+
+**A tagged command became a shell comment on Windows and macOS.** Two paths
+prefix a command so its output can be filed against the action that caused it.
+The Linux agent has stripped that prefix since v3.0.1; the other two passed it to
+the interpreter, where `#` starts a comment — so the command became a comment,
+exited successfully, and you got a success message for something that never ran.
+
+**The Ask-AI security brief carried internal hostnames.** The button says it
+sends titles, severities and host counts and never the evidence, and the
+redaction runs on the server for the right reason: the AI provider may be
+off-box. Four finding titles embedded a hostname, an operator-written check name
+or an external scanner's own text. Those now send a redacted title; your own
+screen still names the certificate.
+
+### Everything the agents collect now reaches a screen
+
+A signal collected, carried and stored but shown nowhere was collected for
+nothing. Measured across every field the server keeps: 73 of 86 appeared on some
+screen before this release, 80 after, and each remaining one is server-side for
+a written reason.
+
+**UEFI Secure Boot is monitored.** Only the Windows agent ever reported it, so
+on a mostly-Linux fleet the column was empty almost everywhere. The Linux agent
+now reads it from the firmware, and it has a device-drawer row, a check and an
+advisory finding. The check is **off by default**, under *Settings → Security →
+Secure Boot checks*: out-of-tree kernel modules such as ZFS, NVIDIA or VirtualBox
+will not load under Secure Boot unless you enroll their signing key, so turning
+it off is a routine decision rather than an oversight. A host with no firmware
+variable to read stays silent either way.
+
+**Four posture fields were evaluated and never shown.** Defender tamper
+protection, UAC and Windows pending-reboot, and macOS automatic security
+updates — each already drove a check row, and three of them an advisory finding,
+with no pill on the device drawer. Disk encryption now names the encrypted
+mounts, and an unencrypted host says whether it has volume management sitting on
+no encryption at all, which is the case worth knowing.
+
+**The demo instance was showing shapes the agents never send.** Eight signals —
+decoy arm status, quarantined files, compressed swap, throttling, wireless,
+encrypted volumes, memory and load — were seeded in a shape no agent produces,
+so those cards rendered empty in the demo and the fleet-knowledge index read
+fields that could never be there. Fixed on both sides.
+
+### Fixes
+
+- **Nineteen alerts opened the wrong page.** Clicking a temperature alert, a UPS
+  on battery, a clock skew, an out-of-memory event, network-interface errors,
+  battery health, an unreachable gateway or a predicted disk failure in the
+  dashboard activity feed opened the key-server page instead of the affected
+  host. A group of events lost its destination to a later insertion.
+- **Fifty-two translations were being discarded silently.** A repeated key in the
+  translation file means the later one wins, so an edit to the first never took
+  effect — including 18 where the two texts differed.
+- **The permitted-actions list rendered at a third of its card**, which is why
+  the names, badges and descriptions ran together into a wall of text.
+- **A forced certificate renewal that produced no log now says so** rather than
+  showing an empty panel.
+- Read-only roles can no longer publish a shared saved query to everyone;
+  private saved queries are unchanged.
+- A malformed request body could return a server error instead of a rejection on
+  nine endpoints.
 
 ## v7.0.1 — "C0llapseMatters" — 2026-08-16
 

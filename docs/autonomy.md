@@ -96,7 +96,7 @@ Recency for the Proxmox evidence uses **your own thresholds** — the same
 guest is flagged as under-protected. A backup this product is already telling you
 is stale is not what lets it patch.
 
-The guest is matched by name: `pmg01.tvipper.com` is the guest called `pmg01`. If
+The guest is matched by name: `mail01.example.com` is the guest called `mail01`. If
 two guests share a name, nothing matches — a guess is not a safety precondition.
 Set `proxmox_guest` on the device record to pin it explicitly. Whichever evidence
 applied is written on the receipt, naming the guest and the age, because "this

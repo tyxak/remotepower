@@ -51424,7 +51424,11 @@ def handle_ha_bridge():
         respond(403, {'error': 'invalid or missing status token'})
         return
 
-    devices = load(DEVICES_FILE) or {}
+    # v7.0.2 (perf): _load_ro — the loop below only COUNTS, reading last_seen
+    # and two flags off each record and never writing. Home Assistant polls
+    # this bridge continuously, and a deepcopy of the whole fleet per poll was
+    # the most expensive thing the handler did (~36 ms on a 500-host fleet).
+    devices = _load_ro(DEVICES_FILE) or {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -64597,7 +64601,11 @@ def handle_prometheus_metrics():
         # allow. _scope_filter_devices folds in BOTH, and no-ops for an
         # unscoped admin on a single-tenant install, so the common case is
         # unchanged.
-        _metrics_visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
+        # v7.0.2 (perf): _load_ro — this read is only ever taken as a KEY SET,
+        # and _scope_filter_devices either builds new dicts or returns its
+        # input unchanged, so nothing writes through the shared object.
+        # Prometheus scrapes this every 15-30s.
+        _metrics_visible = set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
 
     # v4.4.0 (RELIABILITY): never let a single malformed store record 500 the
     # whole scrape — that breaks Prometheus monitoring fleet-wide. Degrade to a

@@ -72,6 +72,9 @@ holds long-form docs that don't fit there.
  export that did not neutralise spreadsheet formula cells — plus a set of
  monitoring controls that were evaluating nothing, and the concurrency defects
  behind a lost device row and a reverted security setting.
+- **[security-review-7.0.2.md](security-review-7.0.2.md)** — the v7.0.2
+  pre-release review: fifteen issues, a whole-project pass rather than a
+  diff, and two guards found to be blind.
 - **[security-review-7.0.0.md](security-review-7.0.0.md)** — the v7.0.0
  "Aut0nomyMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
  though every caller were an unrestricted admin (metrics, calendar feed, rack
@@ -80,17 +83,6 @@ holds long-form docs that don't fit there.
  job. Each reproduced from the lowest-privilege account before and after the
  fix, with regression tests asserting both that restricted callers see less
  AND that the machine scrape still sees everything.
-- **[security-review-6.4.1.md](security-review-6.4.1.md)** — the
- v6.4.1 "Cust0dyMatters" pass, weighted toward the new **KMIP key server** as the
- highest-consequence surface the release adds: every trust boundary traced by
- hand from the network edge to the key material. Confirms the sidecar holds no
- key material, mTLS is enforced at both the handshake and every operation,
- per-client key scoping is applied on all nine object operations (not merely
- documented), and the listener is bounded against resource exhaustion. Also
- re-verifies `X-Forwarded-For` parsing against allowlist spoofing, and records
- the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
- of unlocking storage against a server that storage hosts); no
- Critical/High/Medium ships.
 - **[v7.0.2.md](v7.0.2.md)** — "Prec3dentMatters": the autonomy loop refused
   every single thing it looked at. Precedent could not accumulate (a fleet whose
   incidents people fix scored lower than one with no memory at all), nothing
