@@ -64,7 +64,7 @@ import hashlib
 _RICH_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:+\-]*[A-Za-z0-9]|[A-Za-z0-9]")
 _SUBSPLIT_RE = re.compile(r"[._/:+\-]+")
 
-# A deliberately small stopword set. We only strip these from the
+# A small stopword set. We only strip these from the
 # *simple* alphanumeric tokens — rich/technical tokens are always kept,
 # because "in", "on", "up" can be substrings of real signal but the
 # bare words carry none. Keeping the list short avoids dropping words
@@ -356,7 +356,7 @@ def build_cmdb_corpus(cmdb_store, resolve_device=None):
             if isinstance(v, (list, tuple)):
                 # v5.8.0 (bughunt): a list of DICTS (licenses, contacts, custom
                 # facets, …) must have its ITEM sub-keys secret-filtered too — the
-                # old `str(x)` embedded each dict verbatim, so a secret-/key-named
+                # old `str(x)` embedded each dict unchanged, so a secret-/key-named
                 # sub-field leaked into the corpus (and, with a cloud embedding
                 # provider, off-box). Mirror the dict branch + _format_facet.
                 parts = []
@@ -498,7 +498,7 @@ def build_live_state_corpus(devices, facets=None, now=0):
         name = dev.get('name', dev_id)
         ts = dev.get('last_seen') or now or 0
 
-        # Summary chunk from the device record + sysinfo. We deliberately
+        # Summary chunk from the device record + sysinfo. We 
         # index only *stable* fields here — os, kernel, platform, group,
         # tags, notes. Volatile telemetry (uptime, load, cpu_percent,
         # memory) is excluded: it churns the embedding cache on every
@@ -1483,7 +1483,7 @@ def build_metrics_corpus(summaries, now=0):
     `summaries` is a list of {device, name, text} dicts already computed by the
     caller, which owns the time-series read (the SQLite/Postgres `metric_range`
     long-retention table, or the JSON metrics window). Numeric series are
-    summarised to avg/peak text upstream — deliberately NOT raw samples, which
+    summarised to avg/peak text upstream — NOT raw samples, which
     would churn the embedding cache and pollute lexical search — so the index can
     answer "which hosts trended high CPU last week?".
     """
@@ -1509,7 +1509,7 @@ def build_vpn_corpus(store, now=0):
     access?", "is anyone connected right now?", "what can VPN clients reach?",
     "which tunnels/clients expire soon?". NO secrets — public addresses, reach
     scope and connection state only (private keys never reach the server, and the
-    hub/peer public keys are deliberately omitted as noise).
+    hub/peer public keys are omitted as noise).
     """
     docs = []
     tunnels = (store or {}).get('tunnels', []) if isinstance(store, dict) else []
@@ -1671,11 +1671,11 @@ def build_kb_corpus(store, now=0):
 # key-name filter is not enough — we redact secret-named ASSIGNMENTS and
 # always-on token SHAPES per line. Best-effort (a determined operator can still
 # hardcode an unusual secret), so the safe framing is: names + descriptions are
-# indexed verbatim, bodies are scrubbed. Operators who need a hard guarantee run
+# indexed unchanged, bodies are scrubbed. Operators who need a hard guarantee run
 # a local embedding model (no egress) — same posture as ai_provider.redact.
 _SCRIPT_SECRET_ASSIGN_RE = re.compile(
     # KEY=value / KEY: value where KEY contains a secret word. The prefix is
-    # OPTIONAL (so a bare PASSWORD= matches, not just DB_PASSWORD=). Deliberately
+    # OPTIONAL (so a bare PASSWORD= matches, not just DB_PASSWORD=). 
     # NOT matching the short ambiguous words auth/pat/pwd — they false-hit real
     # env vars (PATH, PWD, AUTHOR); the precise words below cover the real cases
     # (an AUTH_TOKEN is caught by 'token').
@@ -1705,10 +1705,10 @@ def build_scripts_corpus(store, now=0):
     """v6.2.2: the operator's saved custom scripts for the RAG, so the model can
     answer "what automation do we have?", "which script does X?", "is there a
     script for Y?". `store` is CUSTOM_SCRIPTS_FILE {'scripts': [...]} with
-    id/name/description/body. Names + descriptions index verbatim; BODIES pass
+    id/name/description/body. Names + descriptions index unchanged; BODIES pass
     through _scrub_script_body first (inline secrets redacted) — script bodies
     are the one RAG input where a credential can hide in free text, so this is
-    the deliberate difference from the other builders."""
+    the intentional difference from the other builders."""
     docs = []
     scripts = (store or {}).get('scripts', []) if isinstance(store, dict) else []
     if not isinstance(scripts, list) or not scripts:
@@ -2695,7 +2695,7 @@ class InfraIndex:
         """Map each device-scoped chunk's device id to the query tokens that
         should "focus" on it: the full id plus its first hostname label.
 
-        We deliberately exclude shared labels like the domain (`tvipper`,
+        We exclude shared labels like the domain (`tvipper`,
         `com`) — those would make every `*.tvipper.com` device match a query
         that merely contains "com". The short hostname (`tviweb01`) and the
         full id are specific enough to be a reliable focus signal.

@@ -482,7 +482,7 @@ class WebtermSession:
 
         await self._send_json(websocket, {'type': 'connecting'})
 
-        # Step 3: SSH connect. We disable host-key checking deliberately —
+        # Step 3: SSH connect. We disable host-key checking —
         # the user typed in this hostname; they know what they're connecting
         # to. Adding strict host key checking would mean a known_hosts
         # file the daemon manages and re-prompting on first connect, which
@@ -537,7 +537,7 @@ class WebtermSession:
         # W6-49: RDP mode — bridge the host's loopback 3389 over this SSH
         # connection as a raw byte stream (same mechanism as VNC). A local
         # operator-side bridge exposes it as localhost:<port> for mstsc/Remmina;
-        # there is deliberately no in-browser RDP client.
+        # there is no in-browser RDP client.
         if mode == 'rdp':
             self.reason = 'rdp'
             try:

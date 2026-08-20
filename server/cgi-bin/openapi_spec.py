@@ -13,7 +13,7 @@ keep-it-current discipline by including the spec in the test suite.
 
 The spec covers the public-facing handlers: device CRUD, command queueing,
 auth, CMDB, vault, update logs, and the various reporting endpoints. It
-deliberately does not document the agent-only endpoints (``/api/heartbeat``,
+ does not document the agent-only endpoints (``/api/heartbeat``,
 ``/api/enroll``) because users of the Swagger UI are humans, not agents,
 and exposing them just adds noise.
 """
@@ -1187,7 +1187,7 @@ def _path_identity() -> dict[str, Any]:
     the remainder to leave out, because it is a *standards-defined* surface that
     an administrator points an identity provider at — RFC 7644 says where the
     endpoints live, but not which of them this server actually implements, and
-    the answer here is deliberately partial (groups are read-only; roles are
+    the answer here is partial (groups are read-only; roles are
     defined in RemotePower, not created by the IdP).
 
     Methods are taken from what each handler ENFORCES, not guessed.
@@ -1275,7 +1275,7 @@ def _path_ingest() -> dict[str, Any]:
         "description": (
             "Per-source ingest token minted in the UI. It is the "
             "ONLY credential on these endpoints — they are "
-            "deliberately unauthenticated otherwise so an appliance "
+            "unauthenticated otherwise so an appliance "
             "that cannot send headers can still deliver."
         ),
     }

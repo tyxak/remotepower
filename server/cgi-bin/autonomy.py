@@ -394,7 +394,7 @@ def precedent_confidence(similar, action=None):
     distinction matters: an AI verdict that was never contradicted is weaker
     evidence than a human writing "restarting nginx fixed it".
 
-    Deliberately NOT a model call. The whole argument for acting is that this
+    NOT a model call. The whole argument for acting is that this
     exact thing was fixed this exact way before, on this fleet.
 
     `action` is the remedy being considered, and it makes the second half of that
@@ -472,7 +472,7 @@ def decide(*, action, policy, module_enabled, tenant_ok, radius,
            has_plan=False, os_family=None, plan_problem=None):
     """The whole safety envelope, as one total function.
 
-    Order is deliberate: the cheapest and most absolute refusals come first, so a
+    Order is intentional: the cheapest and most absolute refusals come first, so a
     receipt for a disabled module never contains a blast-radius computation that
     would imply we looked at the fleet. Shadow is evaluated LAST among the
     "would we act" checks and short-circuits before any ACT can be returned —
@@ -573,7 +573,7 @@ def verification_failed(before, after):
     """Did the action make things worse, judged by the host's OWN checks?
 
     `before`/`after` are the check-status counts from the per-host checks engine.
-    The rule is deliberately blunt: any increase in failing checks is a
+    The rule is blunt: any increase in failing checks is a
     regression and triggers rollback. A model's opinion of whether it worked is
     not consulted — the checks engine already decides what "healthy" means for
     this host, and reusing it means autonomy cannot invent its own definition of
@@ -587,7 +587,7 @@ def verification_failed(before, after):
 def receipt(plan, decision, *, outcome=None, verified=None, verify_due=None):
     """The artifact an operator, an auditor or a client actually reads.
 
-    Deliberately self-contained: it carries the precedent and the blast radius
+    self-contained: it carries the precedent and the blast radius
     that justified the decision, not a pointer to them, because the alert may be
     pruned and the fleet will have changed by the time anyone asks.
 

@@ -48,10 +48,10 @@ from typing import Any
 def _addr_blocked(ip: str) -> bool:
     """v4.8.0 SSRF guard: is this resolved IP one we must never connect to?
 
-    A DELIBERATELY LOOSER policy than ssrf_ip.blocked(), which is why this is
+    A LOOSER policy than ssrf_ip.blocked(), which is why this is
     not a call to it. Blocks link-local (169.254/16 — which INCLUDES the cloud
     metadata endpoint 169.254.169.254 — and fe80::/10), the unspecified address
-    and multicast. PRIVATE RFC1918 / unique-local addresses are deliberately
+    and multicast. PRIVATE RFC1918 / unique-local addresses are
     ALLOWED (probing an internal host's cert is a first-class feature; a blanket
     private block would break it), and so is LOOPBACK: monitoring a cert on the
     host RemotePower itself runs on is a legitimate, tested use, and this probe
@@ -214,7 +214,7 @@ def _parse_cert_der(der: bytes) -> dict:
     Uses ``cryptography`` (already a dependency for the CMDB vault). We
     use it here rather than parsing the dict that ``ssl.getpeercert()``
     returns because the latter only populates that dict when
-    verification is enabled — and we deliberately disable verification
+    verification is enabled — and we disable verification
     on the first pass so we can capture the cert from misconfigured
     hosts. Parsing the DER ourselves works regardless of verify mode.
     """
@@ -267,7 +267,7 @@ def _parse_cert_der(der: bytes) -> dict:
 # its protocol. Returns the same socket (now ready to be wrap_socket'd) on
 # success, or raises an OSError / TimeoutError / RuntimeError on failure.
 #
-# We deliberately keep these tiny — they handle the success path and a
+# We keep these tiny — they handle the success path and a
 # couple of common failure modes, nothing more. The full quirks of every
 # mail server are not our concern here; we just need to get to the TLS
 # handshake.
@@ -646,7 +646,7 @@ def _check_dane(host: str, port: int, der: bytes) -> dict:
         ok        — at least one TLSA record matches the live cert
         missing   — no TLSA records published (not configured)
         insecure  — records exist but DNSSEC validation failed; we
-                    deliberately refuse to trust them. DANE without
+                    refuse to trust them. DANE without
                     DNSSEC is theatre.
         mismatch  — records exist and validate but none match the cert
         error     — DNS lookup failed or some other unexpected condition

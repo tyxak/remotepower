@@ -310,7 +310,7 @@ def build_retrieved_context(chunks):
         "Answer directly from these snippets. Do NOT tell the operator to "
         "run an MCP tool, a `jq` filter, or a shell command to fetch data "
         "that is already provided here — read it out of the snippets and "
-        "answer. Only if the snippets genuinely don't contain the answer, "
+        "answer. Only if the snippets do not contain the answer, "
         "say so briefly (and then you may suggest how to obtain it).",
         "",
     ]

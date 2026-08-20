@@ -2,7 +2,7 @@
 """Standalone entry point for the background fleet CVE scan.
 
 Spawned by ``handle_cve_scan`` via ``subprocess.Popen(start_new_session=True)``
-so the scan runs as a genuinely independent process — never inline in the web
+so the scan runs as a independent process — never inline in the web
 worker, never sharing its client socket or DB connection. This is more robust
 across deployment models (SCGI prefork worker, fcgiwrap CGI) than fork()ing the
 request handler: that path had to hand-close every inherited fd and, when

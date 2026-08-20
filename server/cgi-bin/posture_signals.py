@@ -1,6 +1,6 @@
 """RemotePower — the shared reading of posture stores.
 
-Risk and the Security Advisory answer different questions and deliberately stay
+Risk and the Security Advisory answer different questions and stay
 separate systems: Risk is a cardinal, additive, per-DEVICE score ("which of my
 hosts do I look at?"); the Advisory is an ordinal list grouped by PROBLEM
 ("what do I fix this morning?"). Merging them would make both worse — sum the

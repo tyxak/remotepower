@@ -110,7 +110,7 @@ def _detection_selftest():
         cols = {c: bool(slot.get(c, True)) for c in
                 ('alerts', 'needs_attention', 'webhook', 'recent_activity')}
         reachable = any(cols[c] for c in _ACTIONABLE_COLUMNS)
-        # Some kinds ship deliberately quiet (agentlifecycle = expected upgrade
+        # Some kinds ship quiet (agentlifecycle = expected upgrade
         # churn, new_port/usb/github_issue = opt-in). A kind that is silent
         # because that's its SHIPPED DEFAULT is not a misconfiguration — only a
         # kind the operator silenced that normally ships LOUD is an actionable

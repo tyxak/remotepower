@@ -5,7 +5,7 @@ of the repo holds to: pydantic is not in the required dependency list
 ``available()`` the same way webauthn_auth.py/saml_auth.py gate their own
 optional library.
 
-Scope, deliberately narrow (a pilot, not a sweep): small, genuinely
+Scope, narrow (a pilot, not a sweep): small, 
 security-relevant handlers with clean, mostly-scalar request bodies —
 handle_user_create (privilege-escalation target), handle_apikeys_create
 (credential minting), handle_billing_payment_webhook (external-facing, money-
@@ -114,7 +114,7 @@ if _AVAILABLE:
         try/except), so an explicit null must still raise here too, not
         silently fall back to the field default (that only happens when the
         key is ABSENT, which pydantic already handles via the field's own
-        default -- this validator never runs for a genuinely missing key)."""
+        default -- this validator never runs for a missing key)."""
         try:
             return int(v)
         except (TypeError, ValueError):
@@ -2461,7 +2461,7 @@ if _AVAILABLE:
         the handler's `str(body.get(f) or '')`; the handler runs _validate_id on
         device_id and _sanitize_str on context.
 
-        NOTE there is deliberately no `command` / `action` field: the caller does
+        NOTE there is no `command` / `action` field: the caller does
         not get to name an action, and neither does the model. The executor selects
         from a server-built catalog by id, and that id is validated against it."""
         model_config = ConfigDict(extra='ignore')
@@ -2522,7 +2522,7 @@ if _AVAILABLE:
         str-coerced to match the handler's `str(body.get(f) or '')`; the handler
         still runs _validate_id + its own non-empty and reason checks.
 
-        `hours` is deliberately `Any`, NOT a bounded float: the handler already
+        `hours` is `Any`, NOT a bounded float: the handler already
         try/excepts a non-numeric value down to the default and then CLAMPS into
         range (max(0.25, min(24, ...))). A float bound here would 400 a body the
         old code happily accepted — the model is an additive superset, never

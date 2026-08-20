@@ -175,7 +175,7 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
         fill_ts = None
         noisy = False
         beyond_horizon = False
-        # Only forecast a fill when usage is genuinely climbing (>1 MB/day),
+        # Only forecast a fill when usage is climbing (>1 MB/day),
         # there's headroom left, and recent growth hasn't stalled.
         if slope > _CLIMB_FLOOR and total > cur and not stalled:
             if r2 >= min_r2:
@@ -320,7 +320,7 @@ def forecast_resources(samples, min_points=3, min_r2=_MIN_R2, metrics=None,
          r2, points, series, slope, intercept, t0_ts}
 
     Same discipline as the disk forecast: a date is only reported when the
-    metric is already past its floor, is genuinely climbing, the least-squares
+    metric is already past its floor, is climbing, the least-squares
     fit is clean (R² >= min_r2), recent growth hasn't stalled, and saturation
     lands inside `horizon_days`. Otherwise the row is still returned (the
     current reading and trend are useful on their own) with

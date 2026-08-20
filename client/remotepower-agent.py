@@ -51,7 +51,7 @@ AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 # native (non-container) install behaves exactly as before — zero behaviour change.
 HOST_ROOT = os.environ.get('HOST_ROOT', '').rstrip('/')
 # Container mode is implied by HOST_ROOT, or forced with RP_CONTAINER=1 (e.g. a
-# container that genuinely only wants to report itself). Drives the package-DB
+# container that only wants to report itself). Drives the package-DB
 # rooting and the "don't run host scanners that would only see the container" gate.
 IN_CONTAINER = bool(HOST_ROOT) or os.environ.get('RP_CONTAINER', '').lower() in ('1', 'true', 'yes')
 
@@ -586,7 +586,7 @@ MAX_DOWNLOAD  = 64 * 1024 * 1024     # a self-update binary
 
 # v6.1.1 (#1): OPTIONAL push-channel listener. Same "try/except ImportError,
 # feature just doesn't activate" pattern this file already uses for psutil --
-# NOT hand-rolled WebSocket framing in the core agent. This is a deliberate
+# NOT hand-rolled WebSocket framing in the core agent. This is an intentional
 # choice: the agent runs as root on every managed host, so a subtly-wrong
 # hand-written binary-protocol parser here is a much worse place to carry
 # that risk than depending on the same well-tested `websockets` library the
@@ -701,7 +701,7 @@ def _strip_url_scheme(url: str) -> str:
 # The agent used to open a fresh TCP + TLS handshake for EVERY heartbeat —
 # one full handshake per host per poll, fleet-wide. A per-thread
 # http.client.HTTPSConnection (same _SSL_CTX: CA bundle + mTLS client cert)
-# reuses the connection across beats. Deliberate properties:
+# reuses the connection across beats. Intentional properties:
 #   * http.client NEVER follows redirects, so the _NoRedirect guarantee is
 #     preserved by construction; any 3xx (and 4xx/5xx, mirroring urlopen)
 #     raises error.HTTPError exactly like the legacy opener did.
@@ -1447,7 +1447,7 @@ def _canary_status(canary_cfg):
     host. States:
       armed    — we created the decoy and are watching it
       watching — a REAL file was already there; we baselined it and left it
-                 alone, so this path is now a change-watch on genuine data and
+                 alone, so this path is now a change-watch on real data and
                  NOT a honeytoken (the operator almost certainly meant the other
                  thing, and never had a way to find out)
       failed   — the plant raised; `detail` is why
@@ -1730,7 +1730,7 @@ def collect_disk_usage(paths=None, time_budget=45.0):
     forecasting. RemotePower has always been able to say WHEN a mount fills up;
     this says WHAT to delete.
 
-    Shells out to `du` deliberately rather than walking in Python: du is C-fast
+    Shells out to `du` rather than walking in Python: du is C-fast
     and already solves hardlink double-counting, sparse files and bind mounts —
     the traps a hand-rolled os.walk + st_blocks summer gets subtly wrong. The
     server's existing AI disk diagnostic already shells the same idioms.
@@ -1977,7 +1977,7 @@ _PII_RULES = [
     ('phone', re.compile(r'(?<![\w.])\+\d{1,3}[ -]?\d{3}[ -]?\d{3,4}[ -]?\d{3,4}(?![\w.])')),
 ]
 _PII_SKIP_DIRS = _SECRETS_SKIP_DIRS | {'.terraform', 'dist', 'build'}
-# Deliberately NOT /etc: it is full of maintainer emails in config files, and a
+# NOT /etc: it is full of maintainer emails in config files, and a
 # report that opens with 400 hits from /etc is a report nobody reads twice. This
 # looks where an organisation's *data* lives, not where its config lives.
 _PII_DEFAULT_PATHS = ['/home', '/srv', '/var/www', '/opt']
@@ -2266,7 +2266,7 @@ def get_patch_info():
         # agent image's binaries) and try a rooted upgrade simulation. On any
         # failure upgradable stays None — an honest "unknown", never a false 0
         # that would read as "fully patched". dnf/pacman upgrade-rooting is
-        # deliberately left unknown for v1 (documented).
+        # left unknown for v1 (documented).
         mgr, _ = _host_pkglist_from_db()
         if mgr:
             result['manager'] = mgr
@@ -2914,7 +2914,7 @@ def run_oscap_scan(profile, creds):
 def _attach_report_html(report, html_path):
     """Attach a full oscap/usg HTML report to the result payload so the operator
     can download it from the dashboard. gzip + base64 keeps it compact and
-    JSON-safe; the server stores it verbatim. Skips quietly if the file is
+    JSON-safe; the server stores it unchanged. Skips quietly if the file is
     missing, empty, or too large (cap well under the server's body limit)."""
     try:
         if not html_path or not os.path.exists(html_path):
@@ -3883,7 +3883,7 @@ def get_containers():
 # state) so the dashboard can offer up/down/restart/pull/logs actions
 # against discovered projects without operators having to type the path.
 #
-# Scan budget is deliberately tight: only four top-level roots, max depth
+# Scan budget is tight: only four top-level roots, max depth
 # 4 (so projects nested like /opt/stack/postgres/docker-compose.yml are
 # found, but a million-file home dir won't get walked exhaustively), and
 # a hard cap on results. The `find` invocation has a timeout. If anything
@@ -6079,7 +6079,7 @@ def get_smart_status():
             # hardware cycle (~5 minutes), which defeats spindown completely:
             # the drives never sleep, and the monitoring costs power and
             # start/stop cycles on exactly the archive and backup arrays whose
-            # owners configured spindown deliberately. smartctl exits 2 and
+            # owners configured spindown . smartctl exits 2 and
             # prints "Device is in STANDBY mode" without touching the drive.
             r = subprocess.run([smartctl, '-n', 'standby', '-H', '-A', '-i', dev],
                                capture_output=True, text=True, timeout=20)
@@ -6709,7 +6709,7 @@ def get_battery():
 def get_ecc_errors():
     """v6.1.2: ECC memory error counters from EDAC.
 
-    Homelabbers (TrueNAS/ZFS especially) deliberately buy ECC RAM and then never
+    Homelabbers (TrueNAS/ZFS especially) buy ECC RAM and then never
     look at the counters — which is a shame, because a rising correctable count
     is the earliest warning a DIMM gives you, long before anything crashes.
     /sys/devices/system/edac/mc/mc*/{ce_count,ue_count} is a free read.
@@ -7644,7 +7644,7 @@ def _eval_one_agent_check(c):
         # login SUCCEEDS, so an auth-failure-rate check sees nothing at all. The
         # only anomaly is WHERE it came from.
         #
-        # Private ranges are deliberately NOT excluded (unlike egress_baseline) —
+        # Private ranges are NOT excluded (unlike egress_baseline) —
         # a new internal source is just as interesting as an external one, e.g.
         # lateral movement. Use the param ignore-list for your office/VPN.
         import ipaddress
@@ -8141,7 +8141,7 @@ def collect_mount_issues():
     # stalled: mounted network filesystems that don't respond.
     probed = 0
     for mp, fstype in list(mounted.items()):
-        # Only probe genuine network filesystems. Generic fuse mounts
+        # Only probe real network filesystems. Generic fuse mounts
         # (fuse.portal, fuse.gvfsd, …) are local desktop plumbing — the network
         # fuse types (sshfs/glusterfs/ceph) are in the explicit set above.
         base = fstype.split('.')[0]
@@ -12009,7 +12009,7 @@ def main():
 
     if args.action == 'enroll-token':
         # Server URL: --server flag, or existing creds (re-enrollment), or
-        # error out. We deliberately don't read it from env to keep the
+        # error out. We don't read it from env to keep the
         # surface small.
         server_url = args.server
         if not server_url:
@@ -12124,7 +12124,7 @@ def _safe_read_tail(path, max_bytes=200_000):
     the START — the OLDEST content. Once such a log grew past its cap the
     parse froze permanently on ancient data. For ClamAV that is not merely a
     stale display: `av_infected` is EDGE-TRIGGERED on the infected count
-    RISING between heartbeats, so a frozen count can never rise and a genuine
+    RISING between heartbeats, so a frozen count can never rise and a real
     new detection never raises the critical alert, while a host cleaned months
     ago stays permanently dirty in the drawer, the attention items and the RAG
     corpus. Same shape for rkhunter under --append-log and the auth.log sudo

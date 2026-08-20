@@ -15,7 +15,7 @@ the seed is deterministic (no random IDs except where the schema
 requires them), so the same input produces the same output. Old state
 in the data directory is overwritten.
 
-The "homelab" is a deliberately realistic small-fleet setup: hypervisor,
+The "homelab" is a realistic small-fleet setup: hypervisor,
 NAS, firewall, DNS, reverse proxy, media server, git, monitoring,
 plus a few agentless network devices. Every metric, package list, and
 service status is fabricated. Hostnames use the ``.lab`` TLD which is
@@ -75,7 +75,7 @@ CURRENT_VERSION = _current_version()
 
 def _older(version, minors_back):
     """A version `minors_back` minor releases behind, for the slice of the demo
-    fleet that is deliberately out of date (so 'upgrade available' has
+    fleet that is out of date (so 'upgrade available' has
     something to point at). Clamps at .0 rather than going negative."""
     try:
         maj, mnr, _pat = (int(x) for x in version.split('.'))
@@ -356,7 +356,7 @@ def _demo_enrich_sysinfo(dev, rng, si):
     _osl = (dev.get('os') or '').lower()
     _linux = not any(x in _osl for x in ('windows', 'macos', 'junos', 'unifi'))
     if _linux and not dev.get('agentless'):
-        # Disk encryption at rest. One host deliberately UNENCRYPTED so the
+        # Disk encryption at rest. One host UNENCRYPTED so the
         # compliance control has a real finding and the Advisory has something
         # to rank — an all-green demo teaches nothing.
         _enc = dev['id'] != 'bk01'
@@ -737,7 +737,7 @@ def build_devices() -> dict:
                 # hostname so topology and LLDP joins, which match on it, line up
                 # on the demo the way they do in the field.
                 'hostname':     dev.get('hostname') or dev.get('name') or dev['id'],
-                # v7.0.0: UEFI Secure Boot, and the clock. One host deliberately
+                # v7.0.0: UEFI Secure Boot, and the clock. One host 
                 # skewed so the clock_skew check and the AI "clock unsynced" flag
                 # have something to show — an all-green demo teaches nothing.
                 'secure_boot':  bool(rng.random() < 0.7),
@@ -809,7 +809,7 @@ def build_devices() -> dict:
 
         # v6.1.0 coverage fill: per-interface MAC list (device drawer network
         # panel — distinct from cmdb.json's NAT-focused `interfaces`, see
-        # build_cmdb()). Only the multi-NIC hosts, so it looks deliberate
+        # build_cmdb()). Only the multi-NIC hosts, so it looks intentional
         # rather than padded onto every device.
         if dev['id'] == 'pmx01':
             rec.setdefault('sysinfo', {})['network'] = [
@@ -898,7 +898,7 @@ def build_device_services(dev, rng) -> dict:
     if 'web' in dev['tags'] or 'proxy' in dev['tags']:
         svcs.update({'nginx.service': 'active'})
     if 'media' in dev['tags']:
-        # one device deliberately has a failing service, so the dashboard
+        # one device has a failing service, so the dashboard
         # has something interesting to show
         svcs.update({'jellyfin.service': rng.choice(['active', 'active', 'failed'])})
     if 'git' in dev['tags']:
@@ -1406,7 +1406,7 @@ def build_tls_results() -> dict:
 
 def build_scripts() -> dict:
     """v2.2.0 Script Library demo content. Five realistic operations
-    runbooks, one of them deliberately flagged dangerous so the UI's
+    runbooks, one of them flagged dangerous so the UI's
     `⚠ DANGER` badge is visible in the demo."""
     base_ts = now() - 86400 * 14
     return {
@@ -2111,7 +2111,7 @@ def build_hardware() -> dict:
     # seeded sensor omitted it — so the Thermal table's Threshold and Headroom
     # columns rendered '—' on every demo host, and the release's dead-pin
     # handling (which compares a reading against that threshold) had nothing to
-    # act on. `board temp3` is the deliberate dead sensor: it reads PAST its own
+    # act on. `board temp3` is the intentional dead sensor: it reads PAST its own
     # critical limit while the host is up and heartbeating, which is exactly
     # what the Implausible flag and the one-click ignore exist for. Note 104,
     # not 127: an exact ADC rail is DROPPED at ingest and so could never render
@@ -2390,7 +2390,7 @@ def build_ansible() -> dict:
 # ─── v3.6.0: AV / malware posture ───────────────────────────────────────────
 
 def build_av_status() -> dict:
-    """v3.6.0 — endpoint AV posture per monitored device. A couple deliberately
+    """v3.6.0 — endpoint AV posture per monitored device. A couple 
     trigger attention: one ClamAV infection (critical), one stale signature DB
     (>7d → warning), one rkhunter warning (>0 → warning). Shape mirrors
     _ingest_av's cleaned record."""
@@ -5252,8 +5252,7 @@ def build_portal_ticket_queue() -> dict:
     handle_portal_ticket_queue (api.py ~8639/8656): {pending: [{id, subject,
     message, site, contact_id, contact_name, contact_email, created_at}]}.
     Contact/site ids reuse build_contacts' portal-enabled HQ contact.
-    (portal_state.json — magic-link nonces + live sessions — is deliberately
-    NOT seeded: it's auth state, nothing renders it.)"""
+    (portal_state.json — magic-link nonces + live sessions — is NOT seeded: it's auth state, nothing renders it.)"""
     return {'pending': [
         {'id': 'ptq_' + _stable_hex('ptq', 1, nbytes=5),
          'subject': 'Guest Wi-Fi drops in the canteen',
@@ -5329,7 +5328,7 @@ def build_kmip() -> dict:
 def build_kmip_objects() -> dict:
     """Managed key inventory → kmip_objects.json. Shape verified against
     handle_kmip_keys (kmip_handlers.py:913): {objects: {uid: {name, kind,
-    state, client_id, created, algo, length}}}. `material` is deliberately
+    state, client_id, created, algo, length}}}. `material` is
     ABSENT — real records hold it AES-256-GCM-encrypted and the demo has no
     business carrying key bytes at all."""
     t = now()
@@ -5520,7 +5519,7 @@ def build_autonomy_policy() -> dict:
     return {'tenants': {'default': {
         'mode': 'shadow',
         # A realistic subset rather than everything: the point of the page is
-        # that an operator chose these. The disk ladder is deliberately partial
+        # that an operator chose these. The disk ladder is partial
         # so the demo shows the loop stepping past a rung it was not given.
         'allowed_actions': ['restart_service', 'start_service',
                             'restart_container', 'start_container',
@@ -5540,7 +5539,7 @@ def build_autonomy_policy() -> dict:
 def build_autonomy_receipts() -> dict:
     """Decisions the loop reached — the demo's whole point.
 
-    A deliberate spread of verdicts, because a page showing only refusals reads
+    An intentional spread of verdicts, because a page showing only refusals reads
     as broken and a page showing only actions reads as reckless. Each carries the
     precedent and blast radius that justified it, exactly as the real receipt
     does.
@@ -5655,7 +5654,7 @@ def build_tenants() -> dict:
 
     Isolation stays OFF (`tenancy_enforced` is not set here). These are records
     an operator can see and manage; nothing is partitioned by them unless the
-    switch above the panel is turned on deliberately.
+    switch above the panel is turned on .
 
     Field shape from `handle_tenants_list` / `handle_tenant_create`: the
     built-in default plus generated `tn_` ids, one suspended so the status pill
@@ -5748,7 +5747,7 @@ def build_remediations() -> dict:
     """Auto-remediation attempt ledger — the Automations page said "No
     auto-remediation attempts yet".
 
-    Deliberately mixed: a success, a failure and a still-verifying attempt. A
+    mixed: a success, a failure and a still-verifying attempt. A
     ledger showing only successes teaches an operator nothing about what the
     page is for.
     """

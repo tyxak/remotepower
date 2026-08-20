@@ -304,7 +304,7 @@ def _is_network_fs(path):
         # No /proc (non-Linux) — expected; treat as local disk, silently.
         verdict = False
     except Exception as exc:
-        # A genuine read/permission failure shouldn't be invisible: swallowing
+        # A real read/permission failure shouldn't be invisible: swallowing
         # it silently disables the WAL/network-FS corruption guard this check
         # exists for. Default to local-disk but make the failure observable.
         verdict = False
@@ -670,7 +670,7 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
 
     `clamp_last_seen=False` disables the devices.json monotonic guard — used by
     the migration (which must reproduce stored timestamps faithfully) and by
-    tests that deliberately age a device backwards."""
+    tests that age a device backwards."""
     conn = _connect(_dir(path))
     kind = _classify(path)
     name = _name(path)

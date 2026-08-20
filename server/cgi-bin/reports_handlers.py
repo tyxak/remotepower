@@ -321,7 +321,7 @@ def _build_fleet_report(site_id=None):
 # v3.14.0: custom report builder — selectable sections + saved definitions.
 _REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention',
                     'posture', 'compliance', 'period')
-# v6.4.2: sections that cost real money and latency to produce. Deliberately
+# v6.4.2: sections that cost real money and latency to produce. 
 # OUTSIDE the default tuple, because `sections or list(_REPORT_SECTIONS)` would
 # otherwise switch AI billing on for every install that has ever saved a report
 # definition. Opt-in per definition, and a no-op when AI is disabled.
@@ -622,7 +622,7 @@ def handle_evidence_pack():
         # label, which reads like a period summary and is not one. Say so in
         # the document rather than relying on the field name, and ship the
         # reports actually DELIVERED inside the window alongside it — that is
-        # the part of the pack that genuinely covers the period.
+        # the part of the pack that covers the period.
         'posture_note':   'The `posture` block is the CURRENT fleet posture at '
                           'generated_ts, not an average or an end-of-period '
                           'snapshot. Period coverage comes from '
@@ -991,7 +991,7 @@ def _maybe_send_scheduled_report():
         A._log_email('fleet_report', recipients, 'ok', '')
     except A.smtp_notifier.SmtpError as e:
         A._log_email('fleet_report', recipients, 'error', str(e))
-        # v6.1.1 (#2): genuinely transient (SMTP hiccup) -- retry with
+        # v6.1.1 (#2): transient (SMTP hiccup) -- retry with
         # backoff instead of waiting for the next cron fire, which can be
         # days away for a weekly/monthly schedule.
         A.enqueue_job('send_report_email',

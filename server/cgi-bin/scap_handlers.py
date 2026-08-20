@@ -192,7 +192,7 @@ def handle_scap_report_download(dev_id):
     print(f'Content-Disposition: inline; filename="scap-report-{safe}.html"')
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
-    # v3.13.0 hardening: this HTML is supplied verbatim by the (device-token-
+    # v3.13.0 hardening: this HTML is supplied unchanged by the (device-token-
     # authenticated) agent. Don't rely solely on the global nginx CSP — emit a
     # self-contained sandboxed CSP so a compromised agent can't land stored XSS
     # in the operator's session even if the upstream policy is ever loosened.

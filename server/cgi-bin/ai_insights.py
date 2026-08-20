@@ -164,7 +164,7 @@ def next_cron_runs(expr, n=5, now=None):
 
 # ── #9: fleet anomaly detection ────────────────────────────────────────────────
 ANOMALY_SYSTEM = (
-    "You are an SRE reviewing a fleet snapshot. Identify genuine anomalies: "
+    "You are an SRE reviewing a fleet snapshot. Identify real anomalies: "
     "hosts that stand out (resource spikes, offline, failed units, pending "
     "reboots, disks nearly full, suspicious ports). Ignore healthy hosts. "
     "Reply with ONLY a JSON array, most severe first; each item: "

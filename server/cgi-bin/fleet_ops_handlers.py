@@ -96,7 +96,7 @@ def _require_instance_wide_policy_writer():
     branch (api.py). A no-op on the common single-tenant install, where every
     admin resolves to the default tenant — this only bites multi-tenant ones.
 
-    Reads are deliberately NOT gated: seeing the policy that governs your own
+    Reads are NOT gated: seeing the policy that governs your own
     hosts is legitimate. Only the writes are."""
     if A._tenancy_enforced() and not A._caller_is_superadmin():
         A.respond(403, {'error': 'Patch approvals are an instance-wide policy '
@@ -192,7 +192,7 @@ def handle_devices_bulk_tags():
 
 
 # The attribute fields a bulk edit may set, in the order they are applied.
-# Deliberately a SUBSET of handle_device_save_bulk's bundle: the per-device
+# a SUBSET of handle_device_save_bulk's bundle: the per-device
 # bundle also carries per-host wiring (log_watch rules, watched files, SSH
 # creds, cmd allowlists, tenant moves) that makes no sense to stamp identically
 # across a whole selection.
@@ -315,7 +315,7 @@ def handle_devices_bulk_attrs():
 # ── 2. taxonomy: fleet-wide tag/group inventory + group rename/merge/delete ──
 # Stores that can NAME a group and are NOT rewritten by a rename/merge/delete.
 # Reported back as `orphan_references` so the operator is told the truth
-# instead of discovering it when an alert stops routing. Deliberately a
+# instead of discovering it when an alert stops routing. A
 # report, not a rewrite: a group is the primary selector for role scopes,
 # auto-patch targets, rollout rings and smart groups, and silently rewriting
 # an RBAC scope from a device-taxonomy screen is a worse failure than a
@@ -714,7 +714,7 @@ def _log_buffer_ttl():
 def _log_buffer_unit_cap():
     """Per-UNIT byte cap for the ingested log ring; 0 (the default) = no cap.
 
-    Deliberately opt-in, and deliberately per-unit. The old per-DEVICE byte cap
+    opt-in, and per-unit. The old per-DEVICE byte cap
     was removed in v3.0.1 because it let one bloated unit (apt.history) starve
     every other unit on the host — reinstating that as a default would re-ship
     the bug. MAX_LOG_BUFFER_BYTES survives as the value the Settings hint

@@ -21,7 +21,7 @@ this exact "separate async companion process" shape for the same underlying
 reason (long-lived connections don't mix with a fixed-size sync thread
 pool) — this daemon follows the same precedent.
 
-Deliberately narrow scope: a WAKE-ONLY push, not a full command-push
+ narrow scope: a WAKE-ONLY push, not a full command-push
 channel
 ---------------------------------------------------------------------
 
@@ -87,7 +87,7 @@ import sys
 import time
 from pathlib import Path
 
-# v6.1.1: deliberately NOT a hard sys.exit()-on-missing-import at module
+# v6.1.1: NOT a hard sys.exit()-on-missing-import at module
 # scope (unlike remotepower-webterm.py's otherwise-identical pattern) --
 # the auth/caching/nudge-dedup logic below is pure Python with no actual
 # websockets dependency, and keeping this module importable without the

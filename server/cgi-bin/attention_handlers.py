@@ -463,7 +463,7 @@ def handle_mcp_acknowledge_alert():
     "alert" across the whole file returned nothing — so an assistant could
     reboot a host and could not read, let alone touch, the Alerts inbox, which
     is the product's primary triage surface. This is the one write that pairs
-    with the new read tools, and it is deliberately the mildest one available:
+    with the new read tools, and it is the mildest one available:
     acknowledging changes who is expected to ACT and no fleet state at all.
 
     It cannot RESOLVE. Closing an alert is a judgement that the underlying
@@ -545,7 +545,7 @@ def handle_prometheus_sd():
     automatically.
 
     Auth mirrors /api/metrics exactly: `?token=<status token>` for a scrape
-    config, or a normal session token for a browser. Deliberately NOT
+    config, or a normal session token for a browser. NOT
     require_auth alone — a scraper has no session.
     """
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
@@ -626,7 +626,7 @@ def handle_itsm_callback(token_str):
     land.
 
     Body: `{ticket_ref, status?}` — or any of the providers' own issue-updated
-    shapes, which all carry the key somewhere different. Deliberately tolerant:
+    shapes, which all carry the key somewhere different. Tolerant:
     the sender is a webhook template an operator pastes into Jira/ServiceNow/
     Zendesk, and rejecting it on shape would put us back where we started.
     """
@@ -905,7 +905,7 @@ def handle_threshold_preview():
 # regulated data on managed HOSTS. That is exactly why a buyer assumes the
 # subject-rights side exists.
 #
-# Two deliberate limits, both stated in the response rather than glossed:
+# Two intentional limits, both stated in the response rather than glossed:
 #   * The AUDIT LOG is never rewritten. It is hash-chained, and editing a
 #     chained entry destroys the tamper-evidence that makes it evidence at all.
 #     Audit references are REPORTED, never erased — which is the lawful answer
@@ -925,7 +925,7 @@ def _subject_matches(value, who, email):
 def _subject_scan(who, email=''):
     """Every place this instance names a person. Read-only.
 
-    Deliberately enumerates rather than greps: a grep over the data directory
+    enumerates rather than greps: a grep over the data directory
     is what the operator was reduced to, and it cannot distinguish "the word
     appears" from "this record is about them".
     """

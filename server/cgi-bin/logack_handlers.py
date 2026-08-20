@@ -8,7 +8,7 @@ about it, but still page me about a new one.*
 An acknowledgement stores the SIGNATURE of a matched line (see logsig.py: the
 line with timestamps/pids/ids folded out). At fire time the matched lines are
 filtered through the acks; if what remains is under the rule's threshold, the
-alert does not fire at all. A genuinely different error has a different
+alert does not fire at all. A different error has a different
 signature and comes straight through.
 
 Bound-module carve-out following the tls_ct_handlers / dmarc_handlers pattern:
@@ -202,7 +202,7 @@ def handle_log_ack_add():
     # Two shapes. A LINE acknowledgement is precise: this exact message, a new
     # one still fires. A RULE acknowledgement is the coarse escape for an alert
     # that captured no line — it silences the whole pattern on that unit, so it
-    # is only offered where the precise option genuinely cannot be built.
+    # is only offered where the precise option cannot be built.
     rule_pattern = _unescape_attr(str(body.get('pattern', ''))[:500])
     sig = logsig.signature(line) if line else logsig.rule_key(rule_pattern)
     if not sig:

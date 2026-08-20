@@ -382,7 +382,7 @@ def handle_vpn_default_template() -> None:
     A saved default (allow_internet/reach_scope/dns) the tunnel-create form
     pre-fills from, so an admin creating the Nth tunnel with the same common
     settings doesn't retype them every time. Same validation as
-    handle_vpn_tunnel_create's equivalent fields (kept in sync deliberately —
+    handle_vpn_tunnel_create's equivalent fields (kept in sync —
     a template accepting a value the real create endpoint would reject
     would be worse than no template). Purely a UI convenience: creating a
     tunnel still requires an explicit request: it inherits nothing
@@ -571,7 +571,7 @@ def _vpn_inbound_verdict(tunnel, clients, now):
     common WG-Access support question and the product said only "0 connected".
 
     Why this is an INFERENCE and not a probe: WireGuard does not reply to
-    unauthenticated packets — that silence is a deliberate design property. So
+    unauthenticated packets — that silence is an intentional design property. So
     an external UDP probe gets no answer whether the port is open and working
     or dropped by a firewall, and a check built on it would report the same
     thing in both cases. The evidence that actually distinguishes them is a
@@ -583,7 +583,7 @@ def _vpn_inbound_verdict(tunnel, clients, now):
     - 'never'   — clients have existed past the grace window and not one has
                   ever handshaked. That is the shape of a blocked port.
     - 'unknown' — disabled tunnel, no clients, or all clients still inside the
-                  grace window. Says nothing, deliberately.
+                  grace window. Says nothing, .
     """
     if not tunnel.get('enabled', True) or not clients:
         return {'state': 'unknown'}
@@ -704,7 +704,7 @@ def handle_vpn_client_create(tid) -> None:
         # resistance improvement over pubkey-only WireGuard, at zero UX cost).
         # Encrypted at rest via the SAME config-secret primitive (_cfg_enc,
         # keyed by RP_CONFIG_KEY) used for every other server-managed secret
-        # -- deliberately NOT the CMDB vault (that would couple VPN to CMDB
+        # -- NOT the CMDB vault (that would couple VPN to CMDB
         # being configured at all) and NOT a new dedicated vault subsystem
         # (its own setup/unlock flow would be a much bigger lift than this
         # item's effort). Fails open to plaintext storage if RP_CONFIG_KEY

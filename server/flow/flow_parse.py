@@ -193,7 +193,7 @@ def _ip(raw):
         if len(raw) == 16:
             return str(ipaddress.IPv6Address(raw))
     except Exception:  # nosec B110
-        # Deliberate: flow bytes come off the wire from a spoofable UDP
+        # Intentional: flow bytes come off the wire from a spoofable UDP
         # source. An unparseable address yields '' and the record is
         # skipped — a malformed datagram must never kill the receiver.
         pass

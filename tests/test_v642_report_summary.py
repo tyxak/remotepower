@@ -77,6 +77,22 @@ class _AiBase(unittest.TestCase):
 
 
 class TestNobodyPaysForTokensTheyDidNotAskFor(unittest.TestCase):
+    """v7.0.2: this class asserts what happens when AI is OFF and never
+    established that state — it inherited whatever the process had. Another
+    module in the same run leaves an AI-enabled config behind, so
+    test_ai_disabled_... failed on cross-module ORDER, not on flake: reproduced
+    twice with `-p no:randomly`, and it passes alone. CLAUDE.md's
+    reads-a-shared-store-without-resetting-it class.
+
+    The subject here is "AI disabled", so pin it rather than hope for it."""
+
+    def setUp(self):
+        self._ai_cfg = api._ai_cfg
+        api._ai_cfg = lambda: {"enabled": False}
+
+    def tearDown(self):
+        api._ai_cfg = self._ai_cfg
+
     def test_summary_is_not_in_the_default_section_set(self):
         """`sections or list(_REPORT_SECTIONS)` is the default in
         `_clean_report_def`. Putting `summary` in that tuple would switch AI

@@ -17,7 +17,7 @@ exact opposite of what this product exists to do. So "disable" is modelled as a
 TIMED action: the driver always sends a timer, callers must pass one, and it is
 clamped to ``MAX_DISABLE_SECONDS``. The blocker itself re-enables when the timer
 lapses, so the safe state is restored by the *remote* device, not by a sweep here
-that might never run. There is deliberately no "disable forever" verb.
+that might never run. There is no "disable forever" verb.
 """
 
 import base64

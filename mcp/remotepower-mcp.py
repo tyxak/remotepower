@@ -592,7 +592,7 @@ def tool_get_attention(args):
 def tool_acknowledge_alert(args):
     """Acknowledge an alert, optionally with a note saying who is on it.
 
-    A WRITE, and deliberately the least destructive one here: acknowledging
+    A WRITE, and the least destructive one here: acknowledging
     changes who is expected to act, never the fleet. It still rides the same
     audited /api/mcp/ path as every other write, so the originating AI host and
     the natural-language prompt land in the audit log.

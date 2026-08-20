@@ -8,7 +8,7 @@ encryption/vTPM, and generic PKCS#11-style clients — can keep their
 encryption-key vault on the RemotePower server instead of on the same disks
 they encrypt.
 
-Architecture — a THIN PROTOCOL SHIM, deliberately stateless:
+Architecture — a THIN PROTOCOL SHIM, stateless:
   * This daemon parses/serializes TTLV and terminates mTLS. Nothing else.
   * ALL object storage, at-rest encryption (AES-256-GCM via cmdb_vault
     primitives, master key held by the API process only), locking, client
@@ -596,7 +596,7 @@ class ServerState:
                 # suites — the community DSM setup pins
                 # TLS_RSA_WITH_AES_256_CBC_SHA256, which modern OpenSSL
                 # disables (no forward secrecy, CBC). Enabling it lowers the
-                # security level for THIS listener only; it is a deliberate
+                # security level for THIS listener only; it is an intentional
                 # trade to make an otherwise-impossible appliance work, never
                 # the default.
                 try:
@@ -687,7 +687,7 @@ def handle_message(raw, client, api):
     id_placeholder = None
     for item in batch:
         op = int(_find_val(item, T_OPERATION, 0) or 0)
-        # Echoed back verbatim in the response, so it must be the type we
+        # Echoed back unchanged in the response, so it must be the type we
         # claim it is. A client that declares this tag as TY_INT hands us an
         # int, and encoding it as a byte string then allocates that many bytes
         # (see ttlv_encode). Drop anything that is not already a byte string —

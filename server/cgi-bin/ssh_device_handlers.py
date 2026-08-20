@@ -4,7 +4,7 @@ the one built-in action, the Synology DSM upgrade+reboot over SSH.
 
 Agentless devices have no RemotePower agent, and some jobs have no management
 API either (a Synology can't trigger its own DSM upgrade via SNMP) — but root
-SSH can. A deliberately tiny, gated surface: admin-only + audited + per-device
+SSH can. A tiny, gated surface: admin-only + audited + per-device
 opt-in; the exec lives in the ssh_exec.py sibling (imported per-call).
 
 A bound-module carve-out following the dmarc/netappliance pattern: api.py execs

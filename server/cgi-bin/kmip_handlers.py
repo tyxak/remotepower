@@ -137,7 +137,7 @@ def _kmip_daemon_secret():
                 with A._LockedUpdate(A.CONFIG_FILE) as cfg:
                     cfg['kmip_daemon_secret'] = from_file
             except Exception:  # nosec B110 — see below
-                # Deliberate: adopting the secret into config is an
+                # Intentional: adopting the secret into config is an
                 # OPTIMISATION. If the config is locked or read-only we still
                 # return the file's value, so auth keeps working; raising here
                 # would turn a cache miss into an outage.
@@ -411,7 +411,7 @@ def _kmip_ensure_pki(store, key):
     Also self-heals a CA from the pre-v6.4.1 build — but ONLY when no clients
     have been issued yet. Replacing the CA invalidates every certificate it
     signed, so once appliances depend on it the operator has to make that call
-    deliberately (re-issue each client) rather than have a version bump cut
+    (re-issue each client) rather than have a version bump cut
     them off.
     """
     changed = False
@@ -558,7 +558,7 @@ def handle_kmip_config():
             try:
                 A._kmip_ensure_pki(store, key)
             except A.HTTPError:
-                raise                       # a deliberate respond(), pass it on
+                raise                       # an intentional respond(), pass it on
             except Exception as e:
                 # Certificate generation touches the `cryptography` API, whose
                 # surface shifts between distro versions. An uncaught error

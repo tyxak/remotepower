@@ -218,7 +218,7 @@ def handle_autonomy_receipts_clear():
 def _blast_radius_for(dev_id, dev, devices):
     """What goes dark if we act on this host.
 
-    Assembled ONLY from stores verified to exist, and deliberately NOT wrapped
+    Assembled ONLY from stores verified to exist, and NOT wrapped
     in a blanket try/except. The first draft of this reached for MONITORS_FILE,
     STATUS_PAGE_FILE and NETWORK_MAP_FILE — none of which exist — inside
     `except Exception: pass`, which would have made every blast radius silently
@@ -281,7 +281,7 @@ def handle_autonomy_preview():
 
     Usable on its own, before any autonomy is enabled: "what breaks if I reboot
     this host?" is worth answering even for a human about to do it by hand. That
-    is deliberate — the blast-radius view earns its keep whether or not the loop
+    is intentional — the blast-radius view earns its keep whether or not the loop
     is ever switched on.
     """
     A.require_auth()
@@ -413,7 +413,7 @@ _EVENT_ACTIONS = {
     # the NUT master. Powering that off first ends the UPS telemetry, so
     # `ups_on_line` never fires, the alert never clears, and the orderly
     # shutdown of everything else on that UPS is gone. A checkbox on this page
-    # would have routed around a deliberate opt-in and made the outage worse.
+    # would have routed around an intentional opt-in and made the outage worse.
     'kernel_outdated':      ('reboot',),
     'patch_alert':          ('patch',),
     'cve_found':            ('patch',),
@@ -489,7 +489,7 @@ _ACTION_COMMANDS = {
                             'darwin': 'upgrade'},
     # No entry for rotate_credential: rotation is a server-side operation on
     # the vault, not a command sent to a host, and this build does not wire it.
-    # The absence is deliberate and refuses with `no_command_template` rather
+    # The absence is intentional and refuses with `no_command_template` rather
     # than emitting an empty command that would read as "nothing to do".
 }
 
@@ -592,7 +592,7 @@ def _proxmox_guest_for(dev):
     `pmg01.tvipper.com` is the guest called `pmg01`.
 
     A heuristic standing in for a safety precondition is exactly the shape this
-    codebase keeps finding bugs in, so it is deliberately narrow: an operator can
+    codebase keeps finding bugs in, so it is narrow: an operator can
     pin the link explicitly with `proxmox_guest` on the device record, and the
     name match below refuses anything ambiguous. Whatever it resolves to is
     written onto the receipt, because "your backups are fine" is not a claim to
@@ -1254,7 +1254,7 @@ def run_autonomy_if_due():
     """Cadence: evaluate open alerts against each tenant's policy.
 
     In shadow mode this writes receipts and touches NOTHING — that is the whole
-    adoption story, so the execution branch is deliberately the short one and
+    adoption story, so the execution branch is the short one and
     everything before it is shared, which means a shadow receipt describes the
     same reasoning a real action would have used.
 

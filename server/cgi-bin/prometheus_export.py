@@ -917,7 +917,7 @@ def _emit_framework_compliance(lines, ctx):
     Scores and counts ONLY. `compliance.build_report` embeds offending
     HOSTNAMES in each control's evidence string, and a metrics scrape is
     routinely wider-read than the compliance page — so control rows are
-    deliberately not emitted.
+    not emitted.
     """
     rep = ctx.get('framework_compliance')
     if not isinstance(rep, dict):

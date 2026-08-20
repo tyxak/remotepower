@@ -119,7 +119,7 @@ def _sandbox(image, tool_argv, volumes=None, workdir=None, env=None, caps=None):
     `env` (dict) sets environment vars (-e) — used to point a tool's HOME/cwd at
     a writable mount so its scratch files don't hit a read-only container path.
     `caps` (list of capability names, e.g. ['NET_RAW']) are added back on top of
-    --cap-drop ALL for a tool that genuinely needs them (nmap's -sV and its
+    --cap-drop ALL for a tool that needs them (nmap's -sV and its
     "safe" NSE scripts use raw sockets/pcap — found live, a blanket cap-drop
     silently broke nearly every nmap probe: nsock_pcap_open() failed on every
     interface, and the dhcp-discover script's bind to 0.0.0.0:68 needs
@@ -439,8 +439,8 @@ def _nikto_argv(target, profile, intensity):
 def _wpscan_argv(target, profile, intensity):
     """WordPress-specific scanner.
 
-    DELIBERATELY NOT WIRED: --passwords. wpscan can brute-force logins, which is
-    genuinely intrusive, trips lockouts and fills the victim's auth log. This is
+    NOT WIRED: --passwords. wpscan can brute-force logins, which is
+    intrusive, trips lockouts and fills the victim's auth log. This is
     a defensive posture scanner, so it enumerates and version-matches only.
 
     Vulnerability data needs a free WPScan API token (RP_WPSCAN_API_TOKEN);
@@ -552,7 +552,7 @@ def _run_stdout_tool(argv, parse_fn, tool=''):
     if fatal:
         return [], fatal
     findings = parse_fn(stdout)
-    # Distinguish "scanned, genuinely clean" from "tool produced nothing" — if
+    # Distinguish "scanned, clean" from "tool produced nothing" — if
     # there's no parseable output but the tool wrote to stderr, surface the last
     # line so the operator isn't left guessing at a silent 0.
     if not findings and not stdout.strip() and stderr.strip():

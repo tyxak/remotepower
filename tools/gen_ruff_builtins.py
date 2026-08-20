@@ -26,7 +26,7 @@ positives"; it had grown to 238 without anyone noticing, which is the point.)
 
 This script extracts those names straight from the bind blocks — the same source
 of truth the runtime uses — and writes them as a ruff `builtins` list, so the
-F821 check on api.py reports only names that are genuinely undefined.
+F821 check on api.py reports only names that are undefined.
 
     python3 tools/gen_ruff_builtins.py            # rewrite the config
     python3 tools/gen_ruff_builtins.py --check    # exit 1 if it is stale
@@ -72,7 +72,7 @@ def bound_names(api_src):
 
     Reads the bind blocks rather than the handler modules' own top-level defs:
     the tuple in api.py is what actually lands in api's globals, so a name a
-    module defines but api.py does not list is genuinely undefined here and
+    module defines but api.py does not list is undefined here and
     SHOULD keep failing F821.
     """
     names = set()

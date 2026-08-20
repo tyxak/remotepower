@@ -179,7 +179,7 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None,
     # its Checks row. Turning Secure Boot off is a routine decision on Linux —
     # out-of-tree modules (ZFS, NVIDIA, VirtualBox) do not load under it without
     # an enrolled key — so a finding on every such host would be this page
-    # telling an operator their deliberate configuration is a security problem,
+    # telling an operator their intentional configuration is a security problem,
     # fleet-wide. The check and the finding share one switch: an operator who
     # turned the row off has answered this question already.
     #
@@ -233,7 +233,7 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
             'Every world-reachable port is a way in. Most compromises start at '
             'a service the operator did not realise was listening publicly.',
             'For each: bind it to localhost or a private interface, put it '
-            'behind the firewall, or — if it is genuinely meant to be public — '
+            'behind the firewall, or — if it is meant to be public — '
             'mute it on the Exposure page so it stops being noise.',
             device_id=dev_id, device=name, evidence=ev,
             source='listening ports', doc='docs/exposure.md'))
@@ -247,7 +247,7 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
         out.append(_finding(
             'exp.firewall', 'exposure', 'high', 'No host firewall is active',
             'The host relies entirely on whatever is upstream. Anything that '
-            'starts listening — deliberately or not — is immediately reachable '
+            'starts listening — on purpose or not — is immediately reachable '
             'from everywhere that can route to it.',
             'Enable nftables/ufw with a default-deny inbound policy and allow '
             'only the services you actually publish.',
@@ -521,7 +521,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
             source='Integrity Guard', doc='docs/integrity-guard.md'))
 
     # Config drift. Risk counts drifted files; the advisory names them, which
-    # is the actionable half. Deliberately paths only — drift_contents.json
+    # is the actionable half. Paths only — drift_contents.json
     # holds the captured file CONTENT, and a config file's contents are exactly
     # the kind of thing that carries a credential. The Drift page already shows
     # the diff behind its own view; the advisory does not need to carry it.

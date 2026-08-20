@@ -36,7 +36,7 @@ WHAT IS BLOCKED, and why each:
                     (Alibaba), 192.0.0.192 (Oracle legacy). None of these is
                     link-local, so `is_link_local` alone misses all three.
 
-WHAT IS DELIBERATELY ALLOWED: RFC1918 private ranges. This is a fleet-
+WHAT IS ALLOWED: RFC1918 private ranges. This is a fleet-
 management product whose entire job is reaching LAN hosts; blocking 10/8 would
 block the product. That is a considered decision, not an oversight.
 
@@ -62,7 +62,7 @@ def unwrap(ip):
 
     PUBLIC because it is policy-free: which classes you then block is a
     per-feature decision, but "what address is this really" is not. tls_monitor
-    deliberately allows loopback and RFC1918 (probing an internal host's cert is
+    allows loopback and RFC1918 (probing an internal host's cert is
     the feature) and so cannot use blocked() — but it had hand-rolled this
     unwrapping and the METADATA_IPS set alongside it, which is the half most
     likely to drift, and the half an attacker probes.
@@ -111,7 +111,7 @@ def blocked(ip_str, allow_loopback=False):
     propagate. Both behaviours are preserved by their own wrappers rather than
     being baked in here.
 
-    `allow_loopback` is decided FIRST and deliberately: `::1` is loopback AND
+    `allow_loopback` is decided FIRST and : `::1` is loopback AND
     reserved, so testing reserved first blocks a loopback target the caller
     explicitly permitted. That single ordering is what one of the five copies
     had lost.

@@ -10,8 +10,7 @@ v5.8.0: SNMPv3 (User-based Security Model, RFC 3414/3826/7860):
   * security levels noAuthNoPriv / authNoPriv / authPriv
   * auth: HMAC-MD5-96, HMAC-SHA-96 and the SHA-2 family
     (SHA-224/256/384/512 per RFC 7860) — pure hashlib/hmac
-  * privacy: AES-128-CFB (RFC 3826) via `cryptography`. DES-CBC is
-    deliberately REJECTED (single DES is broken; every v3-capable agent
+  * privacy: AES-128-CFB (RFC 3826) via `cryptography`. DES-CBC is REJECTED (single DES is broken; every v3-capable agent
     this decade offers AES)
   * engine discovery + time-window sync (REPORT handling, one retry)
   * response authentication (constant-time HMAC check) and decryption
@@ -391,7 +390,7 @@ def _oid_in_subtree(oid_str, root_str):
 
 
 # Well-known subtrees, longest-prefix matched, so a raw walk result reads as
-# something rather than a wall of digits. Deliberately small: this is an
+# something rather than a wall of digits. Small: this is an
 # orientation aid for the walk browser, not a MIB compiler. A device's
 # enterprise OIDs stay numeric — resolving those needs its vendor MIB, which
 # we do not ship and will not guess at.
@@ -534,7 +533,7 @@ def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
 # GetRequest/GetNext PDUs, so _parse_pdu_body / _decode_value are shared.
 # Auth is pure hashlib/hmac; AES-128-CFB privacy uses the `cryptography`
 # package the server already depends on elsewhere (backups, TLS parsing).
-# DES-CBC is deliberately unsupported — single DES is cryptographically
+# DES-CBC is unsupported — single DES is cryptographically
 # broken and every v3-capable agent this decade offers AES.
 
 SNMP_V3 = 3

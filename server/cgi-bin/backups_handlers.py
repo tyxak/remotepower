@@ -232,7 +232,7 @@ def _run_data_backup(triggered_by='scheduled'):
     #     archive was left behind forever, retained by the pruner and counted as
     #     a backup. Observed in the field: a 192K 0644 *.tar.gz next to healthy
     #     4.6M 0600 *.tar.gz.enc files, written while a deploy restarted the app.
-    # The temp name is deliberately outside both prune globs so a stale one can
+    # The temp name is outside both prune globs so a stale one can
     # never masquerade as an archive; _sweep_stale_partials() cleans them up.
     out_path = p_base / f'.remotepower_data_{ts}.{os.getpid()}.partial'
     _sweep_stale_partials(p_base)
@@ -729,7 +729,7 @@ def _backup_job_command(job):
     (respond for a request, skip+log for the cron sweep).
 
     v6.3.0: prefix a `: rp-bk:<job_id>;` shell no-op that carries the JOB ID. It
-    runs as a no-op on the host but is echoed back verbatim in the command result,
+    runs as a no-op on the host but is echoed back unchanged in the command result,
     so _backup_job_status can tell TWO jobs with byte-identical commands apart
     (e.g. a baseline split across device sets, same paths + same dest). The job id
     is a URL-safe token (no shell metacharacters), so the prefix is injection-safe.
@@ -1144,7 +1144,7 @@ def handle_backup_restore():
     # `GET /api/backup/download` writes members relative to DATA_DIR
     # (`devices.json`); the SCHEDULED DR archive written by _run_data_backup
     # prefixes every member with `remotepower/`. Extraction joins the member
-    # name onto DATA_DIR verbatim, so uploading a nightly archive used to
+    # name onto DATA_DIR unchanged, so uploading a nightly archive used to
     # recreate the whole install one level down at DATA_DIR/remotepower/ and
     # restore nothing usable — while still reporting "N files restored". Strip
     # the shared root when (and only when) every member carries it.

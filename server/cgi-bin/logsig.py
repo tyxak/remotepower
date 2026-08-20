@@ -9,7 +9,7 @@ but still tell me about a new one.*
 That needs a stable identity for "this line", which is what a signature is: the
 line with its varying parts (timestamps, pids, ids, addresses, sizes, durations)
 folded out, hashed. Two occurrences of the same message a day apart share a
-signature; a genuinely different error does not.
+signature; a different error does not.
 
 Pure functions, no api imports — unit-testable and importable from anywhere.
 """
@@ -19,7 +19,7 @@ import re
 
 import sanitize  # stdlib-only leaf module (no api globals) — see _fold_ipv6
 
-# Deliberately ordered: the most specific shapes first, so a UUID isn't first
+# ordered: the most specific shapes first, so a UUID isn't first
 # chewed up into "a run of hex digits" and an IP isn't reduced to numbers.
 _SUBS = (
     # ISO-8601 / syslog timestamps at any position
@@ -50,7 +50,7 @@ _SUBS = (
     # Runs AFTER the ip subs so an ip literal stays `<ip>`, not `<host>`. Matches
     # a dotted name of 3+ LABELS (2+ dots) ending in a 2–24 char alpha TLD; a
     # preceding dot is allowed so the domain riding an `<ip>.` prefix folds too.
-    # The 3-label floor is deliberate: it folds real FQDNs / blocklist domains
+    # The 3-label floor is intentional: it folds real FQDNs / blocklist domains
     # (bl.spamcop.net, pmg01.tvipper.com) but SPARES 2-label systemd unit names
     # (docker.service, postfix.service) and dotted filenames (app.js, nginx.conf),
     # so unrelated unit-lifecycle or file messages don't over-merge.
@@ -116,7 +116,7 @@ def ack_key(device_id, unit, sig):
 
     Scope is per (device, unit, signature) so muting noise on one host's
     php-fpm does not blind the same message on another host — that would be a
-    fleet-wide silence nobody asked for. A deliberately fleet-wide ack passes
+    fleet-wide silence nobody asked for. A fleet-wide ack passes
     an empty device_id.
     """
     return f'{device_id or "*"}|{unit or "*"}|{sig}'

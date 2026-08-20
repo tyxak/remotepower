@@ -8,7 +8,7 @@ them. NO mailbox / SMTP needed — pure DNS:
   - DKIM:  ``<selector>._domainkey.<domain>``  (only when a selector is configured)
 
 Uses dnspython (already a dependency for the DANE/TLSA checker). The PARSE
-functions are deliberately split from the DNS query so they unit-test on
+functions are split from the DNS query so they unit-test on
 synthetic record strings without touching the network.
 """
 

@@ -285,7 +285,7 @@ def _tls_expiry_crossings(target, prev, cur):
         # No previous probe, or the previous probe FAILED — either way we hold
         # no prior day count, so treat the target as "not yet in alert state"
         # and let the crossing fire. The old 0-for-unknown return made
-        # `prev_days > crit` read 0 > 7 = False, so a cert that genuinely
+        # `prev_days > crit` read 0 > 7 = False, so a cert that 
         # crossed into critical on the probe right after a failed one never
         # alerted — and never would, because the edge had been consumed.
         prev_days = 9999

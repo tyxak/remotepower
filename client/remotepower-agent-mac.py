@@ -9,7 +9,7 @@ server-side code path. Stdlib only; `psutil` is used when present for richer
 metrics and gracefully skipped otherwise.
 
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
-this agent deliberately does NOT read): OpenSCAP (`force_scap_scan` /
+this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile`);
 `host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy);
 `mailbox_paths` (mail spools);
@@ -43,7 +43,7 @@ import urllib.error
 
 VERSION = '7.0.2'
 
-# v6.4.3: the docstring's "deliberately does NOT read" list, machine-readable.
+# v6.4.3: the docstring's " does NOT read" list, machine-readable.
 # See the Windows agent's copy for why it lives here rather than in the test.
 # macOS DOES honour du_scan (since v6.4.1), which is exactly the kind of
 # divergence this list has to record rather than leave to prose.
@@ -972,7 +972,7 @@ _watched_services = []          # server-pushed launchd labels for the Services 
 #
 # Plant a decoy at each configured path (never over an existing file), then
 # report access once. Unlike Windows, APFS/HFS+ do maintain last-access times,
-# so a pure READ of a decoy is genuinely detectable here as well as a
+# so a pure READ of a decoy is detectable here as well as a
 # modification or deletion.
 #
 # NOTE: there is no `_remove_canaries()` here on purpose. The macOS agent has
@@ -1305,7 +1305,7 @@ def _canary_status(canary_cfg):
     v6.4.2: only trip reports (`canary_events`) ever rode the heartbeat, so the
     server had no way to answer "is this honeytoken actually in place?" for any
     host. States: armed (we created the decoy), watching (a REAL file was
-    already there, so this is a change-watch on genuine data and NOT a
+    already there, so this is a change-watch on real data and NOT a
     honeytoken), failed (`detail` says why), pending (not processed yet).
     """
     out = []
@@ -1359,7 +1359,7 @@ _LAUNCHD_LABEL_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 def compute_drift_report(paths):
     """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
-    contract to the Linux and Windows agents; pure file I/O, so it is genuinely
+    contract to the Linux and Windows agents; pure file I/O, so it is
     OS-agnostic."""
     out = {}
     for p in (paths or [])[:MAX_DRIFT_FILES]:
@@ -1890,7 +1890,7 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
 # reason, so a tampered agent cannot smuggle a value through.
 #
 # Ported unchanged from the Linux agent except the default paths, which are the
-# macOS equivalents. /etc is deliberately excluded there and /private/etc here:
+# macOS equivalents. /etc is excluded there and /private/etc here:
 # it is full of maintainer emails in config files, and a report that opens with
 # 400 hits from config is a report nobody reads twice. Look where an
 # organisation's DATA lives, not where its config lives.

@@ -1,7 +1,7 @@
 """Control-mapped compliance reporting.
 
 v3.4.0 (PCI / HIPAA / SOC 2); v6.3.1 adds Essential Eight + SMB1001:2026 and a
-strict CAPABLE-SOURCE rule. This is deliberately an *evidence-from-observed-
+strict CAPABLE-SOURCE rule. This is an *evidence-from-observed-
 state* checklist, not a formal attestation engine: every control maps to data
 RemotePower already collects (patch status, CVEs, TLS expiry, firewall posture,
 login/SSH audit, backup freshness, MFA, audit logging). Each control resolves
@@ -122,7 +122,7 @@ def _audit_control(facts):
 def _exposure_detection_control(facts):
     """SOC 2 CC7.1 — "detect configuration changes / new exposure".
 
-    RemotePower genuinely satisfies this: it baselines each host's listening
+    RemotePower satisfies this: it baselines each host's listening
     ports and records changes. A change is NOT a control failure (a new port is
     usually a legitimate service) — "new since baseline" ≠ "unauthorized". So
     this PASSES because the detection capability is in place, and surfaces the
@@ -144,7 +144,7 @@ def _traffic_restrict_control(facts):
     "cannot assess" was a stale premise — it claimed a blind spot the product
     doesn't have. This now attests the HOST-firewall layer honestly: FAIL when a
     reporting host has no active ruleset, PASS when every reporting host does,
-    and NA only when genuinely no host has reported firewall state. Upstream /
+    and NA only when no host has reported firewall state. Upstream /
     network firewalls remain out of scope and are called out in the message."""
     off = facts.get('firewall_off') or []
     if off:

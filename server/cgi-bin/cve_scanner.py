@@ -230,7 +230,7 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict:
 # vector string — e.g. `'c:h' in vector` — which matched `AC:H` (Attack
 # Complexity: High) as if it were `C:H` (Confidentiality: High). The result:
 # ANY CVSS v3 vuln with high attack complexity scored 7.5 / HIGH regardless
-# of its real impact. A genuinely LOW CVE (CVSS 2.9) with AC:H was reported
+# of its real impact. A LOW CVE (CVSS 2.9) with AC:H was reported
 # as HIGH. This is now a proper tokenised parse + the real CVSS 3.1 base
 # score formula.
 
@@ -333,7 +333,7 @@ def _cvss_base_score(vector: str) -> float | None:
     # vendor and get right. This maps the v4 BASE metrics onto the v3.1 formula
     # instead: AV/AC/PR/UI carry over unchanged, the v4 subsequent-system
     # metrics (SC/SI/SA) stand in for v3's scope change, and VC/VI/VA are v3's
-    # C/I/A. The result is an approximation — deliberately labelled as one by
+    # C/I/A. The result is an approximation — labelled as one by
     # `_cvss_source()` — but it lands in the right severity band, which is the
     # decision this score actually drives.
     if vector.upper().startswith('CVSS:4'):
@@ -398,7 +398,7 @@ def _debian_severity_fallback(cve_id: str) -> str | None:
     Debian urgency high, OSV CVSS 5.0 Medium).
 
     So this fallback — which only runs when there is no real CVSS
-    score and no distro severity rating — is deliberately CAPPED at
+    score and no distro severity rating — is CAPPED at
     `medium`. It can never return `high` or `critical`: claiming a
     HIGH severity requires an actual CVSS score or a distro's explicit
     severity rating, not an urgency hint. Returning `medium` for a
@@ -795,7 +795,7 @@ def _tuple_ge(installed: str, fixed: str) -> bool:
     """Conservative installed >= fixed for non-Debian ecosystems.
 
     Splits on dots and non-digit boundaries, compares numeric
-    components. Deliberately simple — for PyPI / npm / etc. a more
+    components. Simple — for PyPI / npm / etc. a more
     correct comparator (PEP 440, semver) would be ideal, but this is
     only a fallback and erring toward 'not patched' (keep the finding)
     is the safe failure mode.

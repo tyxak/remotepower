@@ -202,7 +202,7 @@ def _ssrf_opener(ctx, allow_loopback=False):
 # and run Ollama locally — this is best-effort, not a guarantee.
 
 _IPV4_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
-# Expanded-form-only, and deliberately KEPT as a mop-up pass behind
+# Expanded-form-only, and KEPT as a mop-up pass behind
 # sanitize._fold_ipv6 (which handles every legal address, `::` included): this
 # pattern also folds the colon-separated hex runs `ipaddress` rejects — MAC and
 # EUI-64 addresses — which this toggle has incidentally redacted since v2.1.0.
@@ -815,7 +815,7 @@ MAX_EMBED_INPUT_BYTES = 8 * 1024
 def embedding_cfg(cfg):
     """Resolve the *effective* provider config used for embeddings.
 
-    By default embeddings reuse the chat provider verbatim, but operators can
+    By default embeddings reuse the chat provider unchanged, but operators can
     point them at a different service (issue #11) — e.g. chat on one LocalAI box
     and embeddings on a separate, less-contested GPU box — via the optional
     rag.embedding_{provider,base_url,api_key} overrides. Returns a synthetic
@@ -1122,7 +1122,7 @@ SYSTEM_PROMPTS = {
         "systemic fix rather than per-host work, or 'nothing systemic' if "
         "there isn't one.\n\n"
         "Be direct and specific. No preamble, no disclaimers, no restating the "
-        "input back. If the posture is genuinely clean, say so in one line "
+        "input back. If the posture is clean, say so in one line "
         "rather than manufacturing concerns."
     ),
     'free_form': (
@@ -1373,7 +1373,7 @@ SYSTEM_PROMPTS = {
         "You are a Linux storage engineer triaging a disk-pressure alert. "
         "You will be shown `df`, `du` of the largest directories, and the "
         "biggest files. Identify whether the pressure is logs, package "
-        "caches, app data, or genuine growth. Propose ONE specific cleanup "
+        "caches, app data, or real growth. Propose ONE specific cleanup "
         "command — `journalctl --vacuum-time=7d`, `apt clean`, deleting a "
         "specific path, etc. Never propose `rm -rf` on user data without "
         "explicit naming and a warning. Wrap the proposed command between "
@@ -1441,7 +1441,7 @@ SYSTEM_PROMPTS = {
         "signature-DB age + version and recent rkhunter warnings for context. "
         "Decide in ONE sentence whether this is a stale signature database "
         "(update needed), benign rkhunter noise (common false positives — "
-        "package updates changing file hashes), or a genuine indicator that "
+        "package updates changing file hashes), or a real indicator that "
         "warrants investigation. HARD RULE — match the remedy to the Target "
         "tool, never the other one: propose `freshclam` ONLY for a ClamAV "
         "(Target: clamav) signature/database problem; propose "
@@ -1566,7 +1566,7 @@ SYSTEM_PROMPTS = {
         '...],"recommended_action":"<one concrete, conservative next step>",'
         '"attack_techniques":[{"id":"T1078","name":"Valid Accounts",'
         '"proof":"observed|inferred|theoretical"}]}. '
-        "Include attack_techniques ONLY when the evidence genuinely suggests "
+        "Include attack_techniques ONLY when the evidence suggests "
         "adversary behaviour — most alerts are operational faults, not attacks, "
         "and an empty list is the correct answer for those. Use real MITRE "
         "ATT&CK Enterprise technique ids, and label each by proof: 'observed' "
@@ -1635,7 +1635,7 @@ SYSTEM_PROMPTS = {
         "identify hardware likely to fail and a rough timeframe. Cite the "
         "specific signal (rising reallocated/pending sectors, CRC errors, "
         "endurance %, power-on hours). Recommend replace/monitor per device. "
-        "Only flag genuine risk; if nothing is degrading, say so."
+        "Only flag real risk; if nothing is degrading, say so."
     ),
     # Incident reasoning
     'incident_rca': (

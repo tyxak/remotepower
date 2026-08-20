@@ -22,7 +22,7 @@ posture set for the Checks catalog (BitLocker / firewall / Defender / WU service
 and evaluates agent-side custom checks incl. a `windows_service` type.
 
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
-this agent deliberately does NOT read): OpenSCAP (`force_scap_scan` /
+this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile` — `oscap` is a Linux tool with Linux SCAP content, and the
 server-side CIS baseline is the cross-platform path);
 `host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy
@@ -62,12 +62,12 @@ import urllib.error
 
 VERSION = '7.0.2'
 
-# v6.4.3: the docstring's "deliberately does NOT read" list, machine-readable.
+# v6.4.3: the docstring's " does NOT read" list, machine-readable.
 # tests/test_heartbeat_key_parity.py enforces BOTH directions against it: a
 # server key this agent neither reads nor declares fails the build (the
 # "success toast, silent no-op" class), and a declared key that IS read, or
 # that the server no longer sends, fails as a STALE declaration. Keeping the
-# list next to the prose is deliberate — a table living only in the test is a
+# list next to the prose is intentional — a table living only in the test is a
 # second registry, and this project's recurring bug is two registries drifting.
 # Closing one of these means deleting its entry here AND in the macOS agent.
 HEARTBEAT_KEYS_NOT_HONOURED = (
@@ -1015,7 +1015,7 @@ def _parse_winget(stdout):
     """Parse `winget upgrade` table output into (count, names). Pure.
 
     winget prints a fixed-width table with a header and a dashed rule; the Id
-    column is what `winget upgrade --id <x>` takes. Deliberately tolerant: the
+    column is what `winget upgrade --id <x>` takes. Tolerant: the
     table's exact columns shift between winget versions, so key off the header
     row's 'Id' offset rather than splitting on whitespace (app names contain
     spaces, which is precisely what breaks a naive split).
@@ -1106,7 +1106,7 @@ def _parse_defender(out):
     # The agent must never invent a posture. If PowerShell gave us something
     # that isn't a bool, we report the tool WITHOUT realtime_enabled rather than
     # guessing — a wrong `False` here pages the operator for nothing, a wrong
-    # `True` hides a genuinely unprotected host.
+    # `True` hides a unprotected host.
     tool = {'installed': True,
             'db_age_days': _int(age),
             'infected': _int(threats)}
@@ -2463,7 +2463,7 @@ _HWINV_PS = (
 def get_hardware_inventory():
     """{system:{manufacturer,product,serial}, memory:[...]} via WMI, or {}.
 
-    Temps/RAID are deliberately omitted — MSAcpi_ThermalZoneTemperature is absent
+    Temps/RAID are omitted — MSAcpi_ThermalZoneTemperature is absent
     on most desktops and Storage-Spaces RAID is niche; better to send nothing than
     a flaky half-signal. Off-Windows {}."""
     if not sys.platform.startswith('win'):
@@ -2546,7 +2546,7 @@ _backup_monitors = []            # server-pushed backup-freshness monitors
 #
 # Ported unchanged from the Linux agent except the default paths, which are the
 # Windows equivalents — user profiles, the IIS web root, and shared data. Program
-# Files and Windows are deliberately excluded: they are vendor files full of
+# Files and Windows are excluded: they are vendor files full of
 # sample addresses, and a report that opens with 400 hits from them is a report
 # nobody reads twice. Look where an organisation's DATA lives.
 _PII_SKIP_DIRS = _SECRETS_SKIP_DIRS | {'.terraform', 'dist', 'build',
@@ -2959,7 +2959,7 @@ def _canary_status(canary_cfg):
     v6.4.2: only trip reports (`canary_events`) ever rode the heartbeat, so the
     server had no way to answer "is this honeytoken actually in place?" for any
     host. States: armed (we created the decoy), watching (a REAL file was
-    already there, so this is a change-watch on genuine data and NOT a
+    already there, so this is a change-watch on real data and NOT a
     honeytoken), failed (`detail` says why), pending (not processed yet).
     """
     out = []
@@ -3312,7 +3312,7 @@ MAX_DRIFT_FILES = 200
 
 def compute_drift_report(paths):
     """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
-    contract to the Linux agent; pure file I/O, so it is genuinely OS-agnostic."""
+    contract to the Linux agent; pure file I/O, so it is OS-agnostic."""
     out = {}
     for p in (paths or [])[:MAX_DRIFT_FILES]:
         try:
@@ -3400,7 +3400,7 @@ def _cap_container_output_win(action, raw):
 def _run_container_action_win(cmd):
     """container:<runtime>:<action>:<id>[:<tail>] — argv-only, no shell.
 
-    `update` is deliberately NOT implemented here: the Linux agent's version
+    `update` is NOT implemented here: the Linux agent's version
     inspects the container and recreates it with the same config, and a
     half-working recreate on Windows would be worse than an honest refusal.
     """

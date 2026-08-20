@@ -119,7 +119,7 @@ CADENCE = (
     '_record_server_version_change',
     'run_sidecar_watch_if_due',
     'run_mitigate_verify_if_due',
-    # v6.4.2: _record_self_alive is deliberately NOT a cadence sweep. Its hourly
+    # v6.4.2: _record_self_alive is NOT a cadence sweep. Its hourly
     # bucket means "the control plane served a request", and this daemon ticks on
     # its own timer whether or not gunicorn is up — stamping it here reported 100%
     # observed availability straight through a total app-server outage. main()

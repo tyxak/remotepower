@@ -188,7 +188,7 @@ def handle_device_flows(dev_id):
     # device whose exporter died months ago still returns its final window, and
     # the drawer renders it under "Latest window" as though it were current.
     # Stamp the age and let the client decide; dropping it outright would lose
-    # the last-known state, which is genuinely useful when diagnosing WHY the
+    # the last-known state, which is useful when diagnosing WHY the
     # export stopped.
     _lat = rec.get('latest') or {}
     _age = max(0, int(time.time()) - int(_lat.get('ts') or 0)) if _lat else None
@@ -427,7 +427,7 @@ def run_flow_export_check_if_due():
     production host where flowd dropped every packet for hours while the Self
     page rendered "Healthy · Running".
 
-    Deliberately mirrors run_flow_dep_check_if_due rather than inventing a
+    mirrors run_flow_dep_check_if_due rather than inventing a
     second idiom:
       * edge-triggered on the transition, so it fires once, not every sweep;
       * `ever_seen` gates it, so a token created and never used is not an

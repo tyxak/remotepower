@@ -1,7 +1,6 @@
 """RemotePower ad-hoc fleet query engine (v6.1.1).
 
-A small, WHITELISTED predicate tree over registered entities -- deliberately
-NOT a raw-SQL passthrough. A raw-SQL surface would be a direct RLS-bypass
+A small, WHITELISTED predicate tree over registered entities -- NOT a raw-SQL passthrough. A raw-SQL surface would be a direct RLS-bypass
 risk: a query issued outside the normal per-request tenant-scoped connection
 (see storage_pg.set_request_tenant / api._rls_narrow) could read across
 tenants. Every entity's rows are instead fetched through the SAME

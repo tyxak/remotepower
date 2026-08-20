@@ -11,7 +11,7 @@ WSGI ``application(environ, start_response)`` callable became a Flask view,
 and the CGI shim (``api_cgi.py``) + SCGI prefork worker (``api_worker.py``)
 are retired in favour of this being the only server path.
 
-The response bridge is deliberately UNCHANGED from the pre-Flask version of
+The response bridge is UNCHANGED from the pre-Flask version of
 this module: ``api.main()`` still writes to a captured, thread-local stdout
 proxy — ``respond()``/``HTTPError`` handlers AND the handful of handlers that
 write straight to ``sys.stdout.buffer`` then ``sys.exit()`` (file/backup/
@@ -29,7 +29,7 @@ validated against this worker model):
 
     gunicorn --workers 4 --threads 8 wsgi:application
 
-``application`` is a genuine ``flask.Flask`` instance (not a bare function)
+``application`` is a real ``flask.Flask`` instance (not a bare function)
 so gunicorn's existing ``wsgi:application`` target keeps working unchanged.
 """
 import io

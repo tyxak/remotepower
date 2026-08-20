@@ -99,7 +99,7 @@ def handle_device_snmp(dev_id):
             except (TypeError, ValueError):
                 A.respond(400, {'error': 'port must be an integer'})
         # v5.8.0: SNMPv3 fields. Validate protocols against what snmp.py
-        # actually implements (DES is deliberately rejected there — broken
+        # actually implements (DES is rejected there — broken
         # cipher), so a typo'd protocol fails at save, not at poll time.
         import snmp as _snmp_mod
         if 'version' in body and str(body['version']) not in ('2c', '3'):
@@ -415,7 +415,7 @@ def handle_device_snmp_walk(dev_id):
 # second — the entire reason to run a trap receiver — was not expressible.
 #
 # A rule maps an OID prefix (and optionally a value regex) to a severity, or
-# to `ignore`. It is deliberately NOT a new event name: an operator-defined
+# to `ignore`. It is NOT a new event name: an operator-defined
 # event could never be in EVENT_REGISTRY, and every consumer downstream —
 # routing matrix, alert rules, the webhook event list — is keyed on that
 # registry. So a matched trap stays `snmp_trap_received` and carries the rule
@@ -564,7 +564,7 @@ def handle_snmp_trap_rule_test():
 # `snmp.poll_interfaces()` — a full IF-MIB ifTable walk with in/out octets,
 # errors and admin/oper status — existed and was reachable only through the
 # on-demand deep poll, which renders a one-shot table in the drawer. The
-# recurring 5-minute sweep skipped it deliberately: "ifTable walking stays on
+# recurring 5-minute sweep skipped it : "ifTable walking stays on
 # the on-demand deep-poll — too heavy for the 5-minute sweep on big switches."
 #
 # That cost decision is real, so this does not override it. Instead the walk is

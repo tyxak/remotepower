@@ -6,7 +6,7 @@ Talks to a single Proxmox VE node's REST API from the RemotePower
 server. No agent runs on the Proxmox node — this is a direct
 server-to-API integration.
 
-Scope (deliberately small for the first release):
+Scope ( small for the first release):
   - list QEMU virtual machines        → Virtualization page
   - list LXC containers               → Containers page
   - start / graceful-shutdown / status on either type
@@ -151,7 +151,7 @@ def config_from(cfg: dict) -> dict:
         'token_secret_from_env': bool(env_secret),
         # TLS verification ON by default. Proxmox ships a self-signed
         # cert, so operators with the default cert must explicitly
-        # opt out — a deliberate, visible choice rather than a silent
+        # opt out — an intentional, visible choice rather than a silent
         # insecure default.
         'verify_tls':   bool(cfg.get('proxmox_verify_tls', True)),
     }

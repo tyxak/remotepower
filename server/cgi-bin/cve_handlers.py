@@ -383,7 +383,7 @@ def handle_cve_findings():
                        -d['counts']['high'], -d.get('epss_max', 0), d['name'].lower())
     )
     # v3.14.0 fix: surface the KEV/EPSS feed state so "why is there no KEV?" is
-    # answerable — distinguishes "feed not loaded / errored" from "genuinely no
+    # answerable — distinguishes "feed not loaded / errored" from " no
     # known-exploited CVEs on these hosts".
     _ke = A.load(A.KEV_EPSS_FILE) or {}
     report['kev_feed'] = {

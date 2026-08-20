@@ -240,7 +240,7 @@ def load_plugins(plugin_dir=None):
 
     SECURITY: this executes arbitrary Python as the web user, exactly like the
     rest of cgi-bin. The directory MUST therefore be root-owned and only writable
-    by the operator (same as cgi-bin) — there is deliberately NO UI upload path;
+    by the operator (same as cgi-bin) — there is NO UI upload path;
     plugins are filesystem-only. A plugin that raises on import is logged and
     skipped so one bad file can't take the whole feature down."""
     import glob
@@ -1918,7 +1918,7 @@ def _wordpress(inst, c):
     if user and pw:
         # An Application password is generated with spaces for readability
         # ("abcd EFGH ijkl ..."); WordPress strips them before comparing, and an
-        # operator who pastes it verbatim would otherwise be told, correctly but
+        # operator who pastes it unchanged would otherwise be told, correctly but
         # uselessly, that their correct password was rejected.
         h["Authorization"] = (
             "Basic " + base64.b64encode(f"{user}:{pw.replace(' ', '')}".encode()).decode()
@@ -2037,7 +2037,7 @@ def _wordpress(inst, c):
 #
 # Each returns, in addition to the usual health keys:
 #   edr_hosts: [{hostname, agent_version, last_seen, status}]   (capped)
-# Hostname NORMALISATION is deliberately NOT done here — connectors stay dumb
+# Hostname NORMALISATION is NOT done here — connectors stay dumb
 # parsers; the matching rules live in one place server-side.
 _EDR_HOST_CAP = 1000  # bounds the persisted blob on a big estate
 

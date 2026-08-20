@@ -3,7 +3,7 @@
 These are pure (stdlib only — no api globals, no I/O), so api.py imports them
 back without an import cycle. Kept together with the small length limits and
 regexes they need. Behaviour is byte-for-byte what lived inline in api.py;
-`_sanitize_monitor_target` deliberately stays in api.py because it reads config
+`_sanitize_monitor_target` stays in api.py because it reads config
 (load(CONFIG_FILE)) and so isn't a pure leaf.
 """
 import ipaddress
@@ -48,7 +48,7 @@ def _sanitize_hostname(h):
     host came back `covered: false` while it was in fact protected. A false
     "unprotected" is what trains an operator to stop reading that list.
 
-    The strip stays for genuinely unsafe characters — whitespace, quotes, path
+    The strip stays for unsafe characters — whitespace, quotes, path
     separators, control characters — because this value is stored, logged and
     rendered. Non-ASCII is still dropped: an IDN hostname belongs on the wire as
     punycode, and accepting raw UTF-8 here would make two spellings of the same
@@ -69,7 +69,7 @@ def _sanitize_ip(ip):
     create/update, the interface and gateway inventory, and the WordPress login
     list, so on an IPv6 network those fields were quietly empty.
 
-    The regex is kept as a FALLBACK rather than replaced, deliberately: it
+    The regex is kept as a FALLBACK rather than replaced, : it
     accepts a few things `ipaddress` rejects (leading-zero octets like
     `192.168.001.1`, which Python treats as ambiguous), and blanking a device
     IP that has worked for years would be a worse bug than the one being fixed.
@@ -99,7 +99,7 @@ def _sanitize_ip(ip):
 # so `2001:db8::1`, `fe80::1`, `::1` and `::ffff:192.0.2.1` — i.e. every address
 # anyone actually writes or logs — slipped straight through. In ai_provider that
 # meant the "Send IP addresses = off" privacy toggle shipped every IPv6 address
-# verbatim to the cloud provider while reading as ON; worse, a long address was
+# unchanged to the cloud provider while reading as ON; worse, a long address was
 # matched in two halves ('<IPv6>::<IPv6>'), which looks redacted in a spot-check
 # while both halves are still there. This is the same defect `_sanitize_ip`
 # carried above, so it gets the same cure: match a permissive CANDIDATE run and

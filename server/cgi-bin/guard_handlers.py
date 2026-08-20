@@ -125,7 +125,7 @@ def handle_guard_action():
         if not targets:
             A.respond(404, {'error': 'no devices in scope for this check'})
         # Integrity Guard is Linux-only: both the Windows and macOS agents list
-        # `guard_actions` among the keys they deliberately ignore. Queuing it
+        # `guard_actions` among the keys they ignore. Queuing it
         # for one of those hosts is the success-toast-then-silence class — 200,
         # a green toast, and the directive sits on the device row until the
         # heartbeat hands it to an agent that drops it on the floor. Report the

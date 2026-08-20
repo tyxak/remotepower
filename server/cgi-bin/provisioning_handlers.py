@@ -610,7 +610,7 @@ def handle_blueprint_render(bp_id):
     fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
     # Terraform owns ${...} for its own HCL interpolation — never rewrite it.
     # Terraform blueprints take their values natively as var.<name> at Run time;
-    # Render just returns the HCL verbatim so it copies cleanly.
+    # Render just returns the HCL unchanged so it copies cleanly.
     if bp.get('kind') == 'terraform':
         A.respond(200, {'ok': True, 'rendered': bp.get('content', ''),
                       'missing': [], 'filename': fname})

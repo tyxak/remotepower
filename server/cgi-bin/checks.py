@@ -228,7 +228,7 @@ def _host_checks(
         )
     if si.get("reboot_required"):
         add("reboot", "Reboot required", "patch", "warning", si.get("reboot_reason") or "pending")
-    # v6.2.2: kernel-module visibility — FORCED (deliberately ignores the
+    # v6.2.2: kernel-module visibility — FORCED ( ignores the
     # per-host disable list). An agent context that can't see /lib/modules
     # builds module-less, unbootable initrds on the next package upgrade;
     # that signal must not be muteable into invisibility. The agent omits
@@ -479,7 +479,7 @@ def _host_checks(
                 blank.append(str(_a.get("user") or "?"))
             if "stale_password" in _f:
                 stale.append(str(_a.get("user") or "?"))
-        # v6.4.2: a BLANK password is real exposure (never a deliberate
+        # v6.4.2: a BLANK password is real exposure (never an intentional
         # hardening trade-off), so it is ALWAYS a critical row. A password merely
         # over a year old is a hardening ADVISORY — a service account like
         # postgres legitimately never rotates — so the stale/ok row only renders
@@ -676,7 +676,7 @@ def _host_checks(
         fans = ph.get("fans")
         if isinstance(fans, list) and fans:
             spinning = [f for f in fans if isinstance(f, dict) and (f.get("rpm") or 0) > 0]
-            # INFORMATIONAL ONLY, and deliberately so. A fan reading 0 is
+            # INFORMATIONAL ONLY, and so. A fan reading 0 is
             # usually an EMPTY HEADER, not a failed fan — the machine this was
             # written on reports six fan inputs of which three are unconnected
             # and read 0 forever. Flagging 0 RPM would warn on most desktops
@@ -733,11 +733,11 @@ def _host_checks(
 
     # ── v6.4.3: Linux at-rest encryption (dm-crypt / LUKS) ──
     # OPT-IN (`disk_encryption_checks`, default off), unlike its win_bitlocker /
-    # mac_filevault siblings, and deliberately so: BitLocker and FileVault are
+    # mac_filevault siblings, and so: BitLocker and FileVault are
     # the platform default, so their ABSENCE is a real finding, while an
     # unencrypted root is the Linux norm — remote unlock is painful enough that
     # most servers ship without it by choice. Warning on every Linux host by
-    # default (which is how this first shipped) flags a deliberate decision as a
+    # default (which is how this first shipped) flags an intentional decision as a
     # security problem on the whole fleet at once.
     #
     # It also gets its OWN key rather than riding `security_hardening`: an
@@ -786,7 +786,7 @@ def _host_checks(
     # that booting an unsigned kernel "is not a trade-off anyone makes on
     # purpose", which is wrong on Linux: out-of-tree modules — ZFS, NVIDIA,
     # VirtualBox, anything via DKMS — do not load under Secure Boot unless their
-    # signing key is enrolled, so turning it off is a routine, deliberate
+    # signing key is enrolled, so turning it off is a routine, intentional
     # decision. Warning by default flags that decision as a security problem on
     # a whole fleet at once, which is the guard-fires-on-every-healthy-host
     # failure this codebase has shipped before.
@@ -889,7 +889,7 @@ def _host_checks(
         )
 
     # sshd hardening. Values are the first token of each directive, lowercased.
-    # v6.4.2: OPT-IN — root/password/empty-password SSH is often a deliberate
+    # v6.4.2: OPT-IN — root/password/empty-password SSH is often an intentional
     # choice, so this advisory only renders when Security hardening is enabled.
     sc = si.get("ssh_config")
     if security_hardening and isinstance(sc, dict) and sc:
@@ -909,7 +909,7 @@ def _host_checks(
         # X11 forwarding lets a host the user SSHes FROM read that session's
         # keystrokes and windows, so it is a lateral-movement path in exactly
         # the direction this check covers. Advisory, never critical: plenty of
-        # workstations enable it deliberately.
+        # workstations enable it .
         if str(sc.get("x11_forwarding", "")).lower() == "yes":
             issues.append("X11 forwarding enabled")
         status = "critical" if pel == "yes" else "warning" if issues else "ok"
@@ -922,7 +922,7 @@ def _host_checks(
         )
 
     # Automatic security updates — the Linux twin of mac_auto_update above.
-    # v6.4.2: OPT-IN — many operators manage patching deliberately, so this
+    # v6.4.2: OPT-IN — many operators manage patching , so this
     # advisory only renders when Security hardening is enabled.
     au = si.get("autoupdate")
     if security_hardening and isinstance(au, dict) and "enabled" in au:
@@ -1014,7 +1014,7 @@ AGENT_CHECK_TYPES = (
     "file_contains",
     #   egress_baseline — learns the EXTERNAL destinations a host normally
     #                     reaches (by /24 or /64, so CDN churn does not flap)
-    #                     and alerts ONCE per genuinely new one. Needs no prior
+    #                     and alerts ONCE per new one. Needs no prior
     #                     threat intel, unlike egress_flagged. `param` is an
     #                     optional CIDR ignore-list.
     "egress_baseline",
@@ -1395,7 +1395,7 @@ CHECK_BASELINE_CATALOG = (
         "type": "port_closed",
         "param": "2049",
         "name": "NFS (2049) not listening",
-        "desc": "Apply to hosts that are not deliberate NFS servers.",
+        "desc": "Apply to hosts that are not meant to serve NFS.",
     },
     {
         "cat": "Hardening — must not listen",
@@ -1403,7 +1403,7 @@ CHECK_BASELINE_CATALOG = (
         "type": "port_closed",
         "param": "445",
         "name": "SMB (445) not listening",
-        "desc": "Apply to hosts that are not deliberate file servers — a top ransomware vector.",
+        "desc": "Apply to hosts that are not intentional file servers — a top ransomware vector.",
     },
     {
         "cat": "Hardening — must not listen",
@@ -1491,7 +1491,7 @@ CHECK_BASELINE_CATALOG = (
         "type": "port_closed",
         "param": "161",
         "name": "SNMP (161) not listening",
-        "desc": "v1/v2c community strings are cleartext. Apply where SNMP is not deliberate.",
+        "desc": "v1/v2c community strings are cleartext. Apply where SNMP is not meant to be enabled.",
     },
     # ── Integrity — critical files (baseline on first run, alert on change) ───
     {
@@ -1841,7 +1841,7 @@ def _eval_custom_check(cdef, dev):
         # clicked "Accept as new baseline", the server recorded the exact
         # failing output they accepted. Suppress the check (show OK) as long as
         # the agent keeps reporting that SAME value — instantly, without waiting
-        # for the agent round-trip, surviving refresh/cache. A genuinely NEW
+        # for the agent round-trip, surviving refresh/cache. A NEW
         # change reports a DIFFERENT output → the match fails → it re-fires. The
         # agent also re-baselines in the background so its own state agrees.
         if status in ("critical", "warning"):

@@ -119,7 +119,7 @@ class Relay(BaseHTTPRequestHandler):
                        {'Content-Type': 'text/plain'})
 
     # ── v6.1.2: WebSocket tunnel for the agent push channel ────────────────
-    # Scope is deliberately exactly ONE path (= /api/push/connect): this is a
+    # Scope is exactly ONE path (= /api/push/connect): this is a
     # push-channel enabler, not a general WS proxy. The tunnel is byte-level —
     # no frame parsing, no protocol knowledge — so the agent↔daemon handshake,
     # token header, and ping/pong pass through untouched, and the daemon's own
@@ -175,7 +175,7 @@ class Relay(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 return
             if not resp.startswith(b'HTTP/1.1 101'):
-                return   # upstream refused the upgrade — relayed verbatim, done
+                return   # upstream refused the upgrade — relayed unchanged, done
 
             # 101 established: pump raw bytes both ways until either side
             # closes or the link goes silent past the idle timeout (the agent
