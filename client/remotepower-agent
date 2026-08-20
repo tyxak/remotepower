@@ -306,6 +306,56 @@ def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
 STATE_DIR = Path('/var/lib/remotepower')
 
 POLL_INTERVAL      = 60
+# v7.0.2: wall-clock ceiling for one file_contains check. Its pattern is
+# operator-authored and Python's re has no timeout, so a nested-quantifier regex
+# backtracks indefinitely on the agent's single poll loop and the host stops
+# reporting entirely. Well above any honest scan of a 2000-file subtree, and far
+# below POLL_INTERVAL so a slow check delays one beat rather than ending them.
+FILE_CONTAINS_BUDGET_S = 20
+
+
+class _RegexBudgetExceeded(Exception):
+    """A regex ran past its wall-clock budget and was interrupted."""
+
+
+import contextlib as _contextlib     # noqa: E402  (local to this guard)
+
+
+@_contextlib.contextmanager
+def _regex_budget(seconds):
+    """Interrupt a runaway regex after `seconds`.
+
+    Python's re has no timeout and a deadline checked between calls cannot help:
+    a nested-quantifier pattern against a few thousand characters is a single
+    call that does not return in any useful time. CPython's matching engine does
+    check for pending signals while it works, so SIGALRM reaches it — measured,
+    not assumed; the test asserts a catastrophic pattern really is catastrophic
+    on this interpreter before asserting the guard catches it.
+
+    Main thread on POSIX only. Anywhere else this is a no-op and the caller's
+    between-files deadline is the bound that remains — worse, but the Windows
+    and macOS agents have no file_contains check at all, so in practice this
+    covers every host that runs one.
+    """
+    try:
+        import signal as _signal
+        _prev = _signal.signal(_signal.SIGALRM, _raise_regex_budget)
+    except (ImportError, ValueError, AttributeError, OSError):
+        yield                       # not the main thread, or no SIGALRM here
+        return
+    try:
+        _signal.setitimer(_signal.ITIMER_REAL, max(0.1, float(seconds)))
+        yield
+    finally:
+        try:
+            _signal.setitimer(_signal.ITIMER_REAL, 0)
+            _signal.signal(_signal.SIGALRM, _prev)
+        except Exception:
+            pass
+
+
+def _raise_regex_budget(_sig, _frm):
+    raise _RegexBudgetExceeded()
 SYSINFO_EVERY      = 10
 PATCH_EVERY        = 180
 UPDATE_CHECK_EVERY = 60
@@ -7532,7 +7582,9 @@ def _eval_one_agent_check(c):
         skip = {'cache', 'tmp', 'temp', 'log', 'logs', '.git', '.cache',
                 'node_modules', 'vendor'}
         hits, scanned = [], 0
+        _fc_started = time.monotonic()
         try:
+          with _regex_budget(FILE_CONTAINS_BUDGET_S):
             for root, dirs, files in os.walk(base):
                 dirs[:] = [d for d in dirs if d not in skip]
                 for fn in files:
@@ -7545,12 +7597,39 @@ def _eval_one_agent_check(c):
                     except OSError:
                         continue
                     scanned += 1
+                    # v7.0.2: bound the WALL CLOCK, not just the file count.
+                    #
+                    # `rx` is an operator-authored regex and Python's re has no
+                    # timeout, so a pattern with nested quantifiers — (a+)+$ and
+                    # friends — backtracks for effectively forever against a
+                    # 256 KB file. This runs on the agent's single poll loop, so
+                    # one such pattern stops the host reporting at all: it goes
+                    # silent, shows offline, and collects no commands. The
+                    # existing 2000-file / 50-hit caps do not help, because the
+                    # blow-up is in ONE call.
+                    #
+                    # A deadline cannot interrupt a running re.search (there is
+                    # no way to), so the budget is checked before each file. That
+                    # bounds the many-files case outright and caps a single
+                    # pathological file at one search rather than every file in
+                    # the tree, which is the difference between a check that is
+                    # slow once and an agent that never reports again.
+                    if time.monotonic() - _fc_started > FILE_CONTAINS_BUDGET_S:
+                        return ('unknown',
+                                f'pattern too slow — stopped after '
+                                f'{FILE_CONTAINS_BUDGET_S}s and {scanned} '
+                                f'file(s); simplify the regex')
                     if rx.search(blob.decode('utf-8', 'replace')):
                         hits.append(fp)
                     if scanned >= 2000 or len(hits) >= 50:
                         break
                 if scanned >= 2000 or len(hits) >= 50:
                     break
+        except _RegexBudgetExceeded:
+            return ('unknown',
+                    f'pattern too slow — interrupted after '
+                    f'{FILE_CONTAINS_BUDGET_S}s and {scanned} file(s); '
+                    f'simplify the regex')
         except OSError:
             return 'unknown', 'scan failed'
         if hits:
