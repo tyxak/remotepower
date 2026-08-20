@@ -50,7 +50,7 @@ Options:
   --port PORT            Daemon port (default: 8765).
   --bind ADDR            Bind address (default: 127.0.0.1; don't change
                          unless you know what you're doing — the daemon is
-                         deliberately not exposed publicly).
+                         not exposed publicly).
   --data-dir DIR         Where the daemon reads tickets and writes
                          recordings (default: /var/lib/remotepower).
   --etc-dir DIR          Where the secret lives (default: /etc/remotepower).

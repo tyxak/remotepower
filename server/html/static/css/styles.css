@@ -934,7 +934,7 @@
   }
   body[data-bg="glow"] {
     /* A single stage spotlight from top-centre + a darkening edge vignette —
-       deliberately unlike Mesh's scattered multi-colour blobs. */
+       unlike Mesh's scattered multi-colour blobs. */
     background-image:
       radial-gradient(900px 600px at 50% 0%, rgba(74,158,255,0.18), transparent 55%),
       radial-gradient(140% 125% at 50% 32%, transparent 52%, rgba(0,0,0,0.30));
@@ -1585,7 +1585,7 @@
        fixed-content ones like the checkbox and the status pill — which
        showed up as mysterious black dots right after the checkbox
        (Chrome only; Firefox clips silently). Clipping with no ellipsis
-       kills the dots regardless of which cell is squeezed. Genuinely
+       kills the dots regardless of which cell is squeezed. 
        long text (OS names) hard-cuts instead of showing "…" — an
        acceptable trade for never rendering stray dots. */
     overflow: hidden;
@@ -2153,7 +2153,7 @@
   select:where(:not(.form-input)) { cursor: pointer; }
   /* Form fields inside a labelled group fill the row (matches .form-input)
    * without forcing width on inline inputs elsewhere (toolbars, steppers) or on
-   * deliberately narrow inputs. */
+   * narrow inputs. */
   .form-group > input:not([type=checkbox]):not([type=radio]):not(.input-narrow),
   .form-group > select:not(.input-narrow),
   .form-group > textarea { width: 100%; }
@@ -2266,7 +2266,7 @@
      align-items:stretch blew the wrapper out to full row width — the capped select
      then sat left-aligned inside a full-width box (and the industrial accent border
      painted across the whole row). Opt ONLY the capped wrappers out of the stretch
-     so they hug their select; genuinely full-width selects are untouched. */
+     so they hug their select; full-width selects are untouched. */
   .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-160),
   .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-200) { align-self: flex-start; }
   /* v6.0.1: a button in one of these column-stretch rows was blown out to full
@@ -2564,7 +2564,7 @@
    * which is half of WCAG 2.1 SC 3.3.1 rather than all of it. One rule covers
    * every form: the attribute is already the single source of truth, so this
    * cannot drift out of sync with the JS the way a parallel .is-invalid class
-   * would. The ring is deliberate as well as the border — a border colour
+   * would. The ring is intentional as well as the border — a border colour
    * alone fails SC 1.4.1 for anyone who cannot distinguish it. */
   [aria-invalid="true"] {
     border-color: var(--red) !important;
@@ -2798,7 +2798,7 @@
 
 :root {
   /* Refined status palette — softer shades for backgrounds, sharper for
-   * indicator dots. Existing --green/--amber/--red are kept verbatim so
+   * indicator dots. Existing --green/--amber/--red are kept unchanged so
    * unchanged code keeps working. */
   --green-soft:  rgba(34, 197, 94, 0.12);
   --green-edge:  rgba(34, 197, 94, 0.35);
@@ -2864,7 +2864,7 @@ input.form-input[type="text"][data-token],
 }
 
 /* ─── Status pulse: critical-only ──────────────────────────────────────
- * Subtle pulsing dot for critical states. Deliberately NOT applied to
+ * Subtle pulsing dot for critical states. NOT applied to
  * warning states — at 9 devices + 17 monitors + 30 services, a single
  * page can have dozens of yellow dots and pulsing them all would be
  * a visual disaster. */
@@ -3330,7 +3330,7 @@ input.form-input[type="text"][data-token],
    `justify-content: space-between` while .row-8-center is `gap: 8px;
    flex-wrap: wrap`. Renaming would have quietly re-aligned every one of those
    cards as a side effect of a cosmetic fix. The missing band is the defect; the
-   alignment is deliberate. */
+   alignment is intentional. */
 .dash-card > .section-title:first-child,
 .dash-card > .section-header:first-child,
 .dash-card > .row-8-center:first-child,
@@ -6007,7 +6007,7 @@ html { scrollbar-gutter: stable; }
    layout + paint of the off-screen children; contain-intrinsic-size gives a
    per-child size estimate so the scrollbar stays stable, and the `auto` keyword
    makes Chrome remember each child's real size once it has actually rendered.
-   Scoped to these two heavy DIV-based lists — deliberately NOT applied to
+   Scoped to these two heavy DIV-based lists — NOT applied to
    <table> rows, where skipping off-screen rows would jitter the auto-sized
    column widths as you scroll. Children are block-level (a `.fw-rule-row` is a
    flex container but sits in block flow), so containment is side-effect-free. */
@@ -6751,7 +6751,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 /* v3.4.2: print-friendly fleet report (Reports → Print / Save as PDF) */
 .print-only { display: none; }
 @media print {
-  /* Print only the posture report, on a forced-light page. We deliberately do
+  /* Print only the posture report, on a forced-light page. We do
      NOT use print-color-adjust:exact — that prints the dark theme's element
      backgrounds and hides the dark text. Instead: white page, dark text, and
      every descendant forced to a transparent (→ white) background so nothing
@@ -7053,7 +7053,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 /* v6.4.1: .settings-row and .modal-actions were missing from both lists, so
    a settings row with direct-child controls bottom-aligned a ~32px
    .btn-primary, a ~33px input and a ~34px .btn-icon at three different
-   heights. Direct-child scoped, and textareas are deliberately not in the
+   heights. Direct-child scoped, and textareas are not in the
    target list, so multi-line fields are untouched. */
 /* v6.4.3: the contract is opt-in BY EXACT CLASS NAME, so it only ever applied
    to rows someone remembered to add. A rendered sweep of every container with
@@ -7063,7 +7063,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
    device-action buttons and select.select-sm, which are controls that sit in
    these rows but were never in the child list. Still an allowlist rather than
    `> :is(button, input, select)`: a blanket child selector would also capture
-   controls in card bodies and modals that are deliberately taller. */
+   controls in card bodies and modals that are taller. */
 :is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
     .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
     .settings-row, .modal-actions)
@@ -7473,7 +7473,7 @@ body.density-compact .group-title { margin-bottom: 6px; }
    Encourage the browser to keep the fixed sidebar on its own compositor layer
    so scrolling the main content (or the nav list) doesn't repaint it every
    frame — the cause of the sidebar scroll/FPS sluggishness on long sessions.
-   will-change (not transform: translateZ(0)) is used deliberately: it's a layer
+   will-change (not transform: translateZ(0)) is used on purpose: it's a layer
    HINT on a separate property, so it never overrides the responsive
    `transform: translateX(...)` rules that drive the mobile slide-in.
    overscroll-behavior stops scroll-chaining repaints into the page. */
@@ -7500,7 +7500,7 @@ table { font-variant-numeric: tabular-nums; }
    numerals are handled elsewhere already, so this stays focused.) */
 
 /* Weight & contrast: column headers as crisp, tracked eyebrows — faster to scan
-   and reads deliberate (mirrors the mono-uppercase label language used for
+   and reads intentional (mirrors the mono-uppercase label language used for
    stat/form labels). Text/weight only — doesn't touch the sticky-header bg. */
 .table-card thead th {
   text-transform: uppercase;
@@ -7905,7 +7905,7 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
 @media (max-width: 720px) {
   /* 6. Devices minimal table: even with the low-priority columns hidden the
      name+status+actions set is ~466px; scroll the wrap instead of the page.
-     (The wrap deliberately has no overflow on desktop so row menus can pop
+     (The wrap has no overflow on desktop so row menus can pop
      out — on mobile the row menu is drawer-driven, so clipping is fine.) */
   .devices-minimal-wrap {
     overflow-x: auto;

@@ -236,7 +236,7 @@ fi
 # Flask. This script only ever redeploys CODE (never installs packages, by
 # design — see the header), so restarting remotepower-wsgi after deploying
 # this session's Flask-based wsgi.py onto such a box crash-looped every
-# worker on ModuleNotFoundError. Installing a genuinely missing hard
+# worker on ModuleNotFoundError. Installing a missing hard
 # dependency isn't optional anymore the way it was pre-6.1.0 — check and
 # install it here rather than let the restart below discover it by crashing.
 if systemctl list-unit-files 2>/dev/null | grep -q '^remotepower-wsgi\.service' \

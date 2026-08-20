@@ -173,7 +173,7 @@ s_aur() {  # manual
   confirm || return 0
 }
 
-s_site() {  # manual — recipe lives in the internal runbook, deliberately out of repo
+s_site() {  # manual — recipe lives in the internal runbook, out of repo
   info "site/: bump version badge + footer, rewrite 'New in ${VER}', refresh screenshots,"
   info "NEVER touch the logo files. Deploy per remotepower-internal-docs/ops-site-deploy-internal.md"
   info "verify:  curl -s https://remotepower.tvipper.com/ | grep -c ${NVER}"

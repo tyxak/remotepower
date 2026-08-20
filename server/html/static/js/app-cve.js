@@ -71,7 +71,7 @@ async function loadImageCves() {
   if (!imgs.length) {
     // v6.1.2: distinguish "on, but no host has reported yet" from "off" and
     // from "on and clean" — all three used to render the same dead-end text,
-    // which is how a genuinely broken scan looked exactly like an idle one.
+    // which is how a broken scan looked exactly like an idle one.
     if (!r.enabled) {
       box.innerHTML = '<div class="meta-sm-nm">Image scanning is off — enable it in Settings → Security.</div>';
     } else if (r.scanned) {

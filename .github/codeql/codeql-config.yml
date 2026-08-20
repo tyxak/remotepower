@@ -12,7 +12,7 @@ name: "RemotePower CodeQL config"
 # code and produce only noise:
 #   - packaging/aur/*/{src,pkg}: gitignored makepkg build copies of the source
 #     (CodeQL would flag every finding 2-3x over from these duplicates).
-#   - tests/: deliberately exercise edge cases (e.g. allow TLSv1 to verify the
+#   - tests/: exercise edge cases (e.g. allow TLSv1 to verify the
 #     monitor handles legacy servers, use example hostnames) — not prod code.
 #   - .codeql-cache/, site/, design/: tooling / marketing / scratch.
 paths-ignore:

@@ -1092,7 +1092,7 @@
     // The <option> surface was 80% English-only. These are the generic,
     // high-frequency ones that recur across many pages. Product and tool names
     // (Splunk, Loki, nuclei, ufw, PostgreSQL, Tasmota, …) and protocol tokens
-    // (tcp, udp, iPXE, min_version) are deliberately NOT here — you do not
+    // (tcp, udp, iPXE, min_version) are NOT here — you do not
     // translate a proper noun, and a "translated" protocol name reads as a bug.
     // Safe by construction: the engine rewrites the option's TEXT NODE, while
     // the submitted value lives in the separate value="" attribute.
@@ -1218,7 +1218,7 @@
     "Fahrenheit (°F)": { "fr": "Fahrenheit (°F)", "de": "Fahrenheit (°F)", "zh": "华氏度 (°F)", "hi": "फ़ारेनहाइट (°F)", "es": "Fahrenheit (°F)", "ar": "فهرنهايت (°F)" },
     // ── lowercase filter/selector values (v6.4.1) ──
     // These are display text with a separate value="" attribute, so translating
-    // them cannot change what the form submits. Deliberately NOT included:
+    // them cannot change what the form submits. NOT included:
     // asc/desc, min_version, banned/required, test/dev/staging/prod and the
     // tool/protocol names (tcp, udp, ufw, firewalld) — sort and config tokens
     // that operators match against API values, and proper nouns. Bare "not" is
@@ -1404,7 +1404,7 @@
     // empty states and common actions. Engine-wise they need nothing special —
     // the MutationObserver translates JS-injected text nodes like any other.
     //
-    // NOT translated here, deliberately: config/env literals
+    // NOT translated here, : config/env literals
     // (RP_BACKUP_PASSPHRASE, ~/.acme.sh/account.conf), column shorthands that
     // are really units (CPU%, Mem%, OID, CVE), and breadcrumbs into ANOTHER
     // product's UI ("Control Panel → Security → Certificate →" is Synology
@@ -1883,7 +1883,7 @@
     // ── v6.4.3: <option>/<th>/<label> text — categories the chrome-only
     // gate never scanned, so coverage there decayed silently. Brand names
     // (PostgreSQL, Cloudflare, nmap) and protocol/enum tokens (tcp, RSA 2048,
-    // DKIM, prod) are deliberately absent — see _DELIBERATE_ENGLISH in
+    // DKIM, prod) are absent on purpose — see _DELIBERATE_ENGLISH in
     // tests/test_v430_i18n_gate.py for that list and the reasoning.
     "Delivered": { fr: "Livré", de: "Zugestellt", zh: "已投递", hi: "वितरित", es: "Entregado", ar: "تم التسليم" },
     "Lift it": { fr: "Le lever", de: "Aufheben", zh: "解除", hi: "हटाएँ", es: "Levantarla", ar: "رفعه" },
@@ -4964,7 +4964,7 @@
     'No customer chosen.': { fr: 'Aucun client choisi.', de: 'Kein Kunde gewählt.', zh: '未选择客户。', hi: 'कोई ग्राहक चयनित नहीं।', es: 'Ningún cliente elegido.', ar: 'لم يُختر عميل.' },
     'No device.': { fr: 'Aucun appareil.', de: 'Kein Gerät.', zh: '无设备。', hi: 'कोई डिवाइस नहीं।', es: 'Sin dispositivo.', ar: 'لا جهاز.' },
     // v6.4.1 pass 9 — remaining natural-language form labels. Event names and
-    // permission keys (cve_found, ssh, …) deliberately stay as identifiers.
+    // permission keys (cve_found, ssh, …) stay as identifiers.
     'Notes (optional)': { fr: 'Notes (facultatif)', de: 'Notizen (optional)', zh: '备注（可选）', hi: 'नोट (वैकल्पिक)', es: 'Notas (opcional)', ar: 'ملاحظات (اختياري)' },
     'Category (optional)': { fr: 'Catégorie (facultatif)', de: 'Kategorie (optional)', zh: '类别（可选）', hi: 'श्रेणी (वैकल्पिक)', es: 'Categoría (opcional)', ar: 'الفئة (اختياري)' },
     'Unit (optional)': { fr: 'Unité (facultatif)', de: 'Unit (optional)', zh: '单元（可选）', hi: 'यूनिट (वैकल्पिक)', es: 'Unidad (opcional)', ar: 'الوحدة (اختياري)' },
@@ -5141,7 +5141,7 @@
     'Application Operation': { fr: 'Exploitation applicative', de: 'Anwendungsbetrieb', zh: '应用运维', hi: 'एप्लिकेशन संचालन', es: 'Operación de aplicaciones', ar: 'تشغيل التطبيقات' },
     'OS Operation': { fr: 'Exploitation OS', de: 'OS-Betrieb', zh: '操作系统运维', hi: 'OS संचालन', es: 'Operación del SO', ar: 'تشغيل نظام التشغيل' },
     // v6.4.1 pass 11 — the rest of the stable doc-card headings. The three
-    // "What's new" release blurbs deliberately stay English: they are
+    // "What's new" release blurbs stay English: they are
     // rewritten every release and a stale translation is worse than the
     // graceful English fallback.
     'Older releases — v6.2.1 and earlier': { fr: 'Anciennes versions — v6.2.1 et antérieures', de: 'Ältere Versionen — v6.2.1 und früher', zh: '旧版本——v6.2.1 及更早', hi: 'पुराने संस्करण — v6.2.1 और पहले', es: 'Versiones anteriores — v6.2.1 y anteriores', ar: 'الإصدارات الأقدم — v6.2.1 وما قبلها' },
@@ -5594,7 +5594,7 @@
     '24 hours': { fr: '24 heures', de: '24 Stunden', zh: '24 小时', hi: '24 घंटे', es: '24 horas', ar: '24 ساعة' },
     '8 days': { fr: '8 jours', de: '8 Tage', zh: '8 天', hi: '8 दिन', es: '8 días', ar: '8 أيام' },
     // v6.4.2: thermal per-sensor ignore controls ('Ignored' and 'Ignore'
-    // already have entries above and are reused verbatim).
+    // already have entries above and are reused unchanged).
     'State': { fr: 'État', de: 'Status', zh: '状态', hi: 'स्थिति', es: 'Estado', ar: 'الحالة' },
     'Action': { fr: 'Action', de: 'Aktion', zh: '操作', hi: 'कार्रवाई', es: 'Acción', ar: 'إجراء' },
     'Implausible': { fr: 'Invraisemblable', de: 'Unplausibel', zh: '不可信', hi: 'अविश्वसनीय', es: 'Inverosímil', ar: 'غير معقول' },

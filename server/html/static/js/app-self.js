@@ -518,7 +518,7 @@ async function _loadClientErrors() {
     + '</tbody></table></div>';
 }
 async function clearClientErrors() {
-  // Deliberately confirm-then-clear, NOT undo-instead-of-confirm (the v6.3.0
+  // confirm-then-clear, NOT undo-instead-of-confirm (the v6.3.0
   // house rule): a cleared error ring is gone — there is nothing to restore
   // an Undo from, and a fake Undo would be worse than a dialog.
   if (!await uiConfirm({
@@ -898,7 +898,7 @@ function _selfHollowArchiveWarning(s) {
 }
 
 // v6.4.2: run the same decrypt→decompress→structure check the scheduled drill
-// runs, and show its verdict verbatim — the hollow-archive case has its own
+// runs, and show its verdict unchanged — the hollow-archive case has its own
 // specific message, which a generic "restore test failed" would have hidden.
 async function selfVerifyRestore() {
   const el = document.getElementById('self-verify-restore-result');

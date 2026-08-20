@@ -263,7 +263,7 @@ async function queueScan() {
   loadScans();
 }
 
-// A zero-finding scan is ambiguous: it can mean "genuinely clean" or "the tool
+// A zero-finding scan is ambiguous: it can mean " clean" or "the tool
 // never actually checked". Saying only "clean scan" asserts the first, which is
 // the more dangerous of the two to be wrong about — so spell out what ran, and
 // what this tool can and cannot conclude.

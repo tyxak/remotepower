@@ -611,7 +611,7 @@ function clearLogLine(deviceId, unit, line, pattern) {
 }
 
 // Preview only — the server derives the authoritative signature, so a client
-// can never post one to silence something it never saw. Kept deliberately in
+// can never post one to silence something it never saw. Kept in
 // step with logsig.py's substitutions.
 function _logAckNormalize(line) {
   return String(line || '')

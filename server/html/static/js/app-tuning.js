@@ -61,7 +61,7 @@ function _renderTuningSources(rows) {
 // and the loud one got sorted to the top. The resolution data existed one
 // endpoint away, aggregated only per host; it is now joined per event.
 //
-// Deliberately a recommendation, not an automatic action — this is a judgement
+// a recommendation, not an automatic action — this is a judgement
 // call about what the operator wants to be woken for, and the page's job is to
 // inform it, not to make it.
 function _tuningVerdict(r) {

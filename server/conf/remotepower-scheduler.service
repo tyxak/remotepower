@@ -34,7 +34,7 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
-# NB: deliberately NO `RuntimeDirectory=remotepower` — the scheduler uses RP_DATA_DIR,
+# NB: NO `RuntimeDirectory=remotepower` — the scheduler uses RP_DATA_DIR,
 # nothing in /run. Declaring the shared `remotepower` runtime dir would make systemd
 # delete /run/remotepower when this unit stops/restarts, which other components
 # also use. See remotepower-wsgi.service.

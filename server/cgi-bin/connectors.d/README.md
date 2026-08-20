@@ -8,7 +8,7 @@ via the same `@_register` decorator the built-in connectors use.
 
 Files here are **executed as the web-server user**, exactly like the rest of
 `cgi-bin/`. Keep this directory **root-owned and operator-writable only** (same
-permissions as `cgi-bin/`). There is deliberately **no UI upload path** —
+permissions as `cgi-bin/`). There is **no UI upload path** —
 plugins are filesystem-only, installed by someone with shell access. A plugin
 that raises on import is logged to the server error log and skipped; it can't
 take the integrations feature down.

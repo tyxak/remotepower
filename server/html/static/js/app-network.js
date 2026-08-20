@@ -20,7 +20,7 @@ async function enterNetmap() {
 }
 
 // ── v6.1.2: internet (WAN) watch ─────────────────────────────────────────────
-// Public IP + reachability + the outage log. Deliberately a separate fetch from
+// Public IP + reachability + the outage log. A separate fetch from
 // the topology: it's a different question ("is the internet up?" vs "how are my
 // hosts wired?") and it must still render when the map is empty.
 async function loadWan() {
@@ -136,7 +136,7 @@ async function loadDeadman() {
     last.textContent = j.last_ping ? timeAgo(j.last_ping) : 'never';
     const state = document.createElement('td');
     const b = document.createElement('span');
-    // "waiting" (never pinged) is deliberately NOT "late" — the clock only starts
+    // "waiting" (never pinged) is NOT "late" — the clock only starts
     // on the first check-in, so a job you just created doesn't page you at once.
     const late = !!j.late, seen = !!j.last_ping;
     b.className = 'badge badge-sm ' + (late ? 'c-red' : seen ? 'c-green' : 'c-muted');
@@ -1206,7 +1206,7 @@ async function agentlessSave() {
 // network map (amber = "different, special, doesn't reach the internet").
 //
 // Edit mode is a UI toggle that surfaces edit/delete buttons on each card.
-// We deliberately keep the cards mouse-friendly when not in edit mode — a
+// We keep the cards mouse-friendly when not in edit mode — a
 // click anywhere on the card opens the link in a new tab. Adding edit
 // buttons to every card all the time clutters the dashboard for the 99%
 // of the time users want to click links, not edit them.

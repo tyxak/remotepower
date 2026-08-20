@@ -250,7 +250,7 @@ if [[ "$WITH_POSTGRES" -eq 1 ]]; then
   else
     # Reuse the password already sitting in an existing Postgres-backed marker
     # instead of always minting a new one. Found live: a re-run whose migration
-    # step didn't complete (killed mid-hang, or a genuine failure) still let
+    # step didn't complete (killed mid-hang, or a real failure) still let
     # postgres-setup.sh reset the role's password on its way in — leaving the
     # ROLE on the new password but the stale marker on the old one, so every
     # subsequent boot 500'd with "password authentication failed" until the

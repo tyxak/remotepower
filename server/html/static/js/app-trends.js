@@ -7,7 +7,7 @@
 // for an arbitrary window, or keep a question around to ask again next week.
 // This module adds that as a card on the Trends page.
 //
-// It is deliberately built ONLY on endpoints that already exist:
+// It is built ONLY on endpoints that already exist:
 //   GET /api/devices?slim=1
 //   GET /api/devices/<id>/metrics/rollup?tier=fivemin|hourly|daily
 //   GET /api/devices/<id>/thermal/rollup?tier=fivemin|hourly|daily
@@ -160,7 +160,7 @@ function _mxBuildSeries(rows, metrics, stat, fromTs, toTs, cap) {
 function _mxNormalizeQuery(q) {
   const src = (q && typeof q === 'object') ? q : {};
   const devices = [];
-  // Deliberately NOT capped at _MX_MAX_DEVICES here: the fetch cap belongs at
+  // NOT capped at _MX_MAX_DEVICES here: the fetch cap belongs at
   // the fetch (runMetricExplorer), where the operator can be TOLD that hosts
   // 9+ were left out. Capping twice made the overflow always compute as zero,
   // so the extra hosts disappeared with no note at all. The slice is only a
@@ -619,7 +619,7 @@ async function deleteMetricExplorerQuery() {
 
 // Reachability note: this module is mounted by showPage()'s explicit
 //   if (name === 'trends')   { loadTrends(); mountMetricExplorer(); }
-// with `trends: ['app-trends.js']` in _LAZY_PAGE_MODULES. It deliberately does
+// with `trends: ['app-trends.js']` in _LAZY_PAGE_MODULES. It does
 // NOT wrap/reassign loadTrends: a `loadTrends = function () {…}` wrapper here
 // is invisible to tests/test_lazy_page_modules.py (which skips any function
 // app.js also defines), so the one wiring shape no guard can verify — and it

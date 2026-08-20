@@ -1117,7 +1117,7 @@ function _routeFromHashOnBoot() {
     // page's bookmark silently dropped back to home.
     if (!page || (!document.getElementById('page-' + page)
                   && !document.querySelector('template[data-page-tpl="' + page + '"]'))) {
-      return;   // genuinely unknown -> stay home
+      return;   // unknown -> stay home
     }
     showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
     if (page === 'settings') {
@@ -1155,7 +1155,7 @@ async function checkServerVersion() {
           Back up your data directory first, then on the server:</div>
         <code>git pull &amp;&amp; sudo bash install-server.sh</code>
         <div class="isl-310">
-          RemotePower does not update itself — this is a deliberate manual step.</div>
+          RemotePower does not update itself — you run this step when you choose to.</div>
       </div>`;
     document.querySelector('header').insertAdjacentElement('afterend', banner);
   } catch(e) {}
@@ -1645,7 +1645,7 @@ async function api(method, path, body, extra) {
     r = await fetch('/api' + path, opts);
   } catch (e) {
     _rpLoad(-1);
-    // Deliberate aborts (AbortController) are not connectivity failures.
+    // Intentional aborts (AbortController) are not connectivity failures.
     if (!e || e.name !== 'AbortError') _setApiDown(true);
     throw e;   // preserve every caller's existing .catch() behaviour
   }
@@ -1796,7 +1796,7 @@ function _saveSidebarGroups(openSet) {
 }
 function _openSidebarGroup(name) {
   // Navigation reveals the active page's domain. ADDITIVE — it must not close
-  // a group the operator deliberately left open.
+  // a group the operator left open.
   const set = _openGroupSet();
   if (name) set.add(name);
   _saveSidebarGroups(set);
@@ -2434,7 +2434,7 @@ function exitKiosk() {
 }
 
 // Esc leaves kiosk mode. Without this a touch-only wall tablet with no keyboard
-// and no visible chrome would be genuinely stuck — hence the hover-reveal button
+// and no visible chrome would be stuck — hence the hover-reveal button
 // too. Two ways out, because one of them is unusable on the device this targets.
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.body.classList.contains('kiosk')) exitKiosk();
@@ -6100,7 +6100,7 @@ function _syncTabs(tabs, isActive) {
 //
 // MANUAL activation (focus moves; Enter/Space activates via the existing
 // data-action click dispatcher) rather than the APG's automatic activation.
-// That is deliberate and load-bearing: switchSettingsTab fires per-tab network
+// That is intentional and load-bearing: switchSettingsTab fires per-tab network
 // loads and several tabs carry data-action2 loaders, so automatic activation
 // would fire a handful of API calls just arrowing across the Settings strip.
 // The APG explicitly permits manual activation when panels are expensive.
@@ -6398,7 +6398,7 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 // & < > " ' as character references, so neither quote style can be broken out
 // of, and the parser decodes them back to the original text on the way in. It
 // is the only escaper this app needs — see escAttr() below.
-// (An older comment here claimed escHtml "deliberately does NOT escape '"; it
+// (An older comment here claimed escHtml " does NOT escape '"; it
 // has escaped ' since v2.1.0 — the code, not that comment, was right.)
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 // v5.8.0 (SECURITY, defence-in-depth): an operator-authored URL going into an
@@ -6439,7 +6439,7 @@ function _ensurePwFormA11y() {
 // That era is over: the CSP is `script-src 'self'` with zero inline on*=
 // handlers, so every surviving call site is a plain quoted HTML attribute
 // (data-arg / value / title / id / class). \xNN is a JS-string escape, not a
-// character reference, so the HTML parser hands it back verbatim — nothing on
+// character reference, so the HTML parser hands it back unchanged — nothing on
 // either side ever un-escaped it, and the mangling was permanent:
 //
 //   * Timesheet / ticket-hours stash a whole entry as
@@ -6702,7 +6702,7 @@ function _absTs(ts) { return ts ? _fmtAbsTs(parseInt(ts)) : ''; }
 //
 // The pref lives HERE rather than at 67 call sites because 59 of them render
 // through this one function (43 direct, 16 via two delegating wrappers). It
-// returns a plain STRING deliberately — callers put the result in both
+// returns a plain STRING — callers put the result in both
 // textContent and innerHTML, so wrapping it in a <span title=…> would render as
 // literal markup in about half of them. Eight sites reimplement this privately
 // and are unaffected; they are listed in the test.
@@ -6953,7 +6953,7 @@ window.addEventListener('hashchange', () => {
 // already-running tab used to change the URL and nothing else — page routing
 // from the hash only ran at boot (_routeFromHashOnBoot), and the only
 // hashchange listeners were the alert and device deep links above. Route bare
-// page hashes here too, deliberately through showPage(): it syncs the hash with
+// page hashes here too, through showPage(): it syncs the hash with
 // replaceState, never pushState, so the single-history-entry Back behaviour it
 // documents is preserved (this listener adds no entries of its own).
 function _routeBarePageHash() {
@@ -9050,7 +9050,7 @@ function _metricPts(samples, key) {
 // v6.1.2: chart annotations. A metric chart is nearly always being asked "why
 // did it change THERE?" — and the answer is usually something we already recorded
 // (a reboot, a command run, config drift). Drawing those on the time axis turns a
-// shape into a cause. Deliberately sparse: a tick per alert would bury the line,
+// shape into a cause. Sparse: a tick per alert would bury the line,
 // which is how annotated charts become unreadable.
 let _metricAnnotations = [];
 
@@ -9267,7 +9267,7 @@ function _riskLevel(s) {
   const c = _RISK_CUTS;
   return s >= c.critical ? 'critical' : s >= c.high ? 'high' : s >= c.medium ? 'medium' : 'low';
 }
-// Generic score→class ladders — cutoffs are ARGS because they genuinely differ
+// Generic score→class ladders — cutoffs are ARGS because they differ
 // per metric (compliance 80/50, uptime 90/70, hardening 75/50, …). Higher=better
 // for _scoreClass; higher=worse for _riskClass (temp, wear, restarts).
 function _scoreClass(v, hi, mid) { return v == null ? '' : v >= hi ? 'c-green' : v >= mid ? 'c-amber' : 'c-red'; }
@@ -9643,7 +9643,7 @@ async function clearDispatchLog() {
 // ── v6.1.1: ad-hoc fleet query engine ─────────────────────────────────────────
 // The UI builder only produces a flat AND list of conditions (by far the
 // common case); the API itself accepts full nested and/or/not for power
-// users or the AI advisor. Results are a genuinely dynamic-shaped table (the
+// users or the AI advisor. Results are a dynamic-shaped table (the
 // column set depends on which entity was picked at runtime), so this does
 // NOT go through the shared tableCtl sort/filter convention that assumes a
 // fixed known column set — sort is instead part of the query itself (the
@@ -9825,7 +9825,7 @@ async function qeDeleteTemplate(id) {
 // Read-only reporting on top of the same package inventory the Patches page
 // already reads -- freezing a named point-in-time reference, diffing two of
 // them, and reporting drift of a tag's devices away from a promoted one.
-// Deliberately does NOT claim to constrain what auto-patch installs (see the
+// does NOT claim to constrain what auto-patch installs (see the
 // module docstring in api.py for why enforcement is a separate follow-up).
 let _psSnapshots = [];
 
@@ -10710,7 +10710,7 @@ function _autopatchSetStaged(p) {
   onAutopatchStagedToggle();
 }
 // v6.0.1: human-readable target label — resolve a single-device target's id to
-// its name; other target types read type:value verbatim.
+// its name; other target types read type:value unchanged.
 function _autopatchTargetLabel(target) {
   const t = target?.type || 'all', v = target?.value || '';
   if (t === 'device') {
@@ -11522,7 +11522,7 @@ async function loadPatchCatalog() {
   tableCtl.wireSortOnly('patch-catalog-thead', 'patch_catalog', loadPatchCatalog);
 }
 
-// v6.4.2: per-package approve / decline. Deliberately explicit about what a
+// v6.4.2: per-package approve / decline. Explicit about what a
 // decline does NOT do — it is enforced on Linux only, and shipping a bare
 // success toast here would be the "success-toast-then-silence" class the rest
 // of this release is about.
@@ -11684,7 +11684,7 @@ async function _scanDeviceList() {
 
 
 // v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —
-// distinguishes a not-yet-loaded / errored feed from genuinely-zero KEV hits.
+// distinguishes a not-yet-loaded / errored feed from truly-zero KEV hits.
 // v2.4.11: CVE ignore used to use prompt() + confirm() — two native
 // dialogs. After a handful of ignores in a row (exactly what doing a
 // fleet-wide sweep looks like), browsers suppress repeated dialogs;
@@ -15693,7 +15693,7 @@ function _ctrLogsFallbackPoll(seq, queuedCmd, started, priorOutputs) {
     .find(o => String(o.cmd || '') === cmd) || null;
   const _match = out => _newest((out && out.outputs) || [], queuedCmd);
   // Taken BEFORE the command was queued (see _ctrLogsFetch), so anything newer
-  // is genuinely this request's output — including output that arrived while
+  // is this request's output — including output that arrived while
   // the run-and-wait window was closing.
   const _pre = _newest(priorOutputs, queuedCmd);
   const baselineTs = _pre ? (Number(_pre.ts) || 0) : 0;
@@ -17146,7 +17146,7 @@ function _renderSwViolations() {
 
 // v6.4.2: queue the remediation the rule implies. `banned` means remove it;
 // `required`/`min_version` mean install (the package manager upgrades to the
-// repo's latest). Deliberately promises only that the job was QUEUED — an
+// repo's latest). Promises only that the job was QUEUED — an
 // install cannot satisfy a min_version the distro repo does not carry, and a
 // toast claiming it fixed the violation would be the success-toast-then-silence
 // class this release keeps finding.
@@ -17880,7 +17880,7 @@ const statTiles = (() => {
       });
       obs.observe(document.body, { subtree: true, childList: true, characterData: true });
     } catch (_) {}
-    // Deliberately NOT sweeping the document here: stat values start as "0"
+    // NOT sweeping the document here: stat values start as "0"
     // placeholders, and seeding those would make the first real value look like a
     // change (spurious ▲ delta). The observer reveals each value when its real
     // number first lands; the home hero tiles reveal via loadHome's enhanceAll.
@@ -18336,7 +18336,7 @@ function _renderHomeWidgets(home) {
     { l: 'Unmonitored', r: String(unmon), cls: unmon ? 'c-muted' : '' },
     { l: 'Total devices', r: String(devs.length) },
   ]));
-  // Stale agents — only genuinely overdue check-ins (> 10 min), not just the
+  // Stale agents — only overdue check-ins (> 10 min), not just the
   // oldest of a healthy fleet. Otherwise this duplicates "Recent check-ins".
   const now = Date.now() / 1000;
   const STALE_AFTER = 600;   // seconds
@@ -19716,7 +19716,7 @@ async function deleteTag(tag) {
 }
 
 // ── v6.4.2: group rename / merge / delete ───────────────────────────────────
-// Deliberately NOT routed through _taxonomyBulkTags: groups have their own
+// NOT routed through _taxonomyBulkTags: groups have their own
 // atomic server endpoint, and the whole point of it is that there is no
 // client-side per-device loop to half-apply.
 
@@ -19889,7 +19889,7 @@ function clearHomeActivity() {
   _activityClearedAt = Math.floor(Date.now() / 1000);
   // v3.4.2: persist across reloads/restarts (was sessionStorage → cleared
   // items reappeared on the next refresh tick / browser restart). Only events
-  // newer than this watermark show; genuinely new activity still appears.
+  // newer than this watermark show; new activity still appears.
   localStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
   // v6.1.1 (OTHER-5): also persist PER-USER on the server so the feed clears
   // for this account across every browser/device, not just this one. The local
@@ -20414,7 +20414,7 @@ async function _renderHomeFleet(devs) {
   }
   // v2.4.10: the 7-day stripe is now real — derived server-side from
   // uptime.json transition events. Before this it was hardcoded to
-  // six 'unknown' cells plus today. Days RemotePower genuinely has no
+  // six 'unknown' cells plus today. Days RemotePower has no
   // record for still show 'unknown' (honest — history only builds up
   // from when uptime recording works; it cannot be known
   // retroactively), but real up/down now shows once data exists.
@@ -23001,7 +23001,7 @@ async function saveCanaryFiles() {
   // had received the config, let alone tried to plant anything. On a host with a
   // read-only /root the decoy never appeared; where a real file already sat at
   // the path the agent baselined it and left it alone, so the honeytoken was
-  // silently a change-watch on genuine data. Nothing anywhere contradicted the
+  // silently a change-watch on real data. Nothing anywhere contradicted the
   // toast. It now says what actually happened — saved — and points at the
   // per-host arm status that says whether they are in place.
   if (r && !r.error) {
@@ -23046,7 +23046,7 @@ async function startLiveView(id) {
 // retyping facts by hand. This builds a plain-text digest from data already on
 // screen — no new endpoint.
 //
-// Deliberately NOT included: IP addresses and the device id. A summary is
+// NOT included: IP addresses and the device id. A summary is
 // pasted in PUBLIC by definition, and neither is anyone's business; hostname,
 // OS and utilisation are what a helper actually needs.
 async function copyDeviceSummary(id) {
@@ -24029,7 +24029,7 @@ async function _loadAuditSection(key) {
           // v6.0.0 and reported only TRIPS — never whether the plant SUCCEEDED.
           // So a decoy blocked by a read-only filesystem, and a path that
           // already held a REAL file (baselined and left alone, which makes it
-          // a change-watch on genuine data rather than a honeytoken), both
+          // a change-watch on real data rather than a honeytoken), both
           // looked exactly like working coverage. Failures first: they are the
           // reason this row exists.
           ['Canary files', (si.canary_status && si.canary_status.length)
@@ -25348,7 +25348,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
         // v6.4.3: the agent no longer spins a sleeping disk up to read it, so
         // a standby drive reports no attributes at all. Say WHY the row is
         // empty — an all-dashes row with "UNKNOWN" health reads as a fault, and
-        // the operator who configured spindown deliberately deserves better
+        // the operator who configured spindown deserves better
         // than being told their working archive array is unreadable.
         const healthTxt = d.standby ? 'asleep' : (d.health || '?');
         const healthTitle = d.standby
@@ -27619,7 +27619,7 @@ function _renderForecastTable() {
 }
 
 // v6.4.2: resource headroom — memory / swap / CPU-load saturation, the non-disk
-// half of the same daily-sample projection. Deliberately its own table with its
+// half of the same daily-sample projection. Its own table with its
 // own sort-prefs name: the mount columns (GB, mount path, fill date) don't exist
 // on a resource row, so a shared prefs key would land this table on an
 // undefined getter for anyone who had sorted the mounts table by Mount.
@@ -28355,7 +28355,7 @@ async function _issueVersion() {
 }
 
 // Build a GitHub "new issue" URL prefilled with a template + auto diagnostics.
-// Deliberately carries NO fleet data and NO credentials — only the app version,
+// carries NO fleet data and NO credentials — only the app version,
 // the browser/environment, the current page, and recent (scrubbed) JS errors.
 async function reportIssue() {
   const ver = await _issueVersion();
@@ -29396,7 +29396,7 @@ function _btnInflight(el, ret) {
   el.classList.add('btn-inflight');
   el.setAttribute('aria-busy', 'true');
   const _restore = () => {
-    // A handler may deliberately LOCK its own button for good — a one-shot
+    // A handler may LOCK its own button for good — a one-shot
     // queued action whose control must not become clickable again. Restoring
     // it here silently undid that: fail2ban "Unban" ended up reading "queued"
     // while still firing a second unban on click. Opt out with
@@ -29522,7 +29522,7 @@ document.addEventListener('click', e => {
 // rather than re-implementing arg coercion, the lazy-module fallback and the
 // in-flight guard — one code path, so the two cannot drift.
 //
-// Native activatable elements are skipped deliberately: the browser already
+// Native activatable elements are skipped : the browser already
 // synthesizes a click from Enter/Space on them, and firing here as well would
 // invoke the handler twice. That is not hypothetical — a checkbox carrying its
 // own data-action sits inside a <tr> that carries another one.
@@ -29883,7 +29883,7 @@ function _renderPageRelated(page) {
 // was filed under AI settings as a diagnostic for a feature they may have
 // switched off.
 //
-// Two deliberate limits, both by design upstream: the endpoint 403s any
+// Two intentional limits, both by design upstream: the endpoint 403s any
 // role-scoped OR tenant-scoped caller (the corpus is fleet-wide and carries no
 // scope tags — refusing beats leaking), and 400s when RAG is disabled. This
 // section therefore DEGRADES SILENTLY rather than surfacing an error: for

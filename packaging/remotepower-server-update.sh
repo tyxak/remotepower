@@ -37,7 +37,7 @@
 #   RP_API_SERVICE   systemd unit to restart           (default remotepower-wsgi)
 #   RP_UPDATE_REF    git ref to update to    (default: latest release TAG, not a
 #                    branch tip — set e.g. RP_UPDATE_REF=v5.0.0, or a branch only
-#                    if you deliberately want unreleased code)
+#                    if you want unreleased code)
 #   RP_PKG_NAME      OS package name                   (default remotepower-server)
 #   RP_API_USER      sudoers user (docs only)          (default www-data)
 # ---------------------------------------------------------------------------

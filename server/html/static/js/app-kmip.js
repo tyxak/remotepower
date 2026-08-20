@@ -398,7 +398,7 @@ const _KMIP_SETUP_STEPS = {
     '<strong>Assign it — the step everyone misses.</strong> Control Panel → Security → Certificate → <strong>Settings</strong> → <strong>Configure</strong>, find the <strong>KMIP</strong> row, pick the certificate you just named <code>KMIP</code> from its dropdown, and Save. Importing alone does nothing: without this DSM keeps sending its own default certificate and this server refuses it.',
     `<strong>Connect.</strong> KMIP tab → <strong>Remote Key Client</strong>: Hostname <strong>${escHtml(a.host)}</strong>, Port <strong>${escHtml(String(a.port))}</strong>, Certificate Authority = <code>ca.crt</code> <em>again</em> (second use — here it is the trust anchor). Apply.`,
     '<strong>Move the vault.</strong> Control Panel → Shared Folder → Encryption → <strong>Key Manager</strong>. Keys should then appear here as <em>active</em>.',
-    '<strong>Then reboot the NAS to prove it.</strong> Encrypted shares must come back on their own — you have moved the unlock path onto this server, so test it deliberately now rather than during a power cut. Requires DSM 7.2-64570+.',
+    '<strong>Then reboot the NAS to prove it.</strong> Encrypted shares must come back on their own — you have moved the unlock path onto this server, so test it now, on your schedule, rather than during a power cut. Requires DSM 7.2-64570+.',
   ],
   truenas: (a) => [
     'Open TrueNAS → System Settings → Services and confirm outbound access to this server.',
@@ -446,7 +446,7 @@ function _kmipWatchFirstContact() {
     // backdrop click call closeModal directly. Without this self-guard the
     // poll kept running for five minutes, toasting over an unrelated page,
     // and _kmipWizCreds kept holding the client PRIVATE KEY that the server
-    // deliberately never stores.
+    // never stores.
     const open = document.getElementById('kmip-wizard-modal');
     if (!open || !open.classList.contains('active')) {
       clearInterval(_kmipWizPoll); _kmipWizPoll = null; _kmipWizCreds = null;

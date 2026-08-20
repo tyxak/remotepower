@@ -225,7 +225,7 @@ PYEOF
         # no admin session to reach it with anyway when Postgres has no users
         # yet. The real retry is `docker compose up -d` again -- this block
         # re-runs on every boot until PG_HAS_USERS sees real data. Starting
-        # the app now regardless (rather than exiting) is deliberate: it lets
+        # the app now regardless (rather than exiting) is intentional: it lets
         # you reach the container's logs/exec to diagnose Postgres without a
         # crash-loop, at the cost of serving an empty/partial DB until fixed.
         echo "[!] Postgres migration failed -- the server is about to start" >&2

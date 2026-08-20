@@ -9,7 +9,7 @@ Type=simple
 # Completely stateless: no DATA_DIR access at all — TLS material, the client
 # registry and every key operation go over loopback HTTP to the API, which
 # owns storage, at-rest encryption and the activity log. DynamicUser sandboxes
-# it fully (NO install-time User= rendering — this unit is deliberately
+# it fully (NO install-time User= rendering — this unit is
 # static, same as remotepower-syslogd; see the deploy-server.sh "rendered
 # unit" rule). The shared daemon secret is injected by systemd (read as root)
 # from the 0640 root-owned env file, so the sandboxed process never needs to

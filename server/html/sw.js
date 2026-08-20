@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v7.0.2-14';   // bump on every asset change
+const CACHE_NAME = 'remotepower-shell-v7.0.2-15';   // bump on every asset change
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
@@ -109,7 +109,7 @@ self.addEventListener('fetch', (event) => {
   //    fetch for the navigation -- two physical requests for one URL. That's
   //    merely wasteful for an idempotent GET, but for a single-use flow like
   //    the OIDC callback (state is popped/consumed on first hit,
-  //    api.py:handle_oidc_callback) it's a genuine race: whichever duplicate
+  //    api.py:handle_oidc_callback) it's a real race: whichever duplicate
   //    request the server sees second gets "invalid or expired state" even
   //    though the other one succeeded -- found live, intermittent SSO login
   //    failures traced to exactly this. Always consume the preload (or fetch

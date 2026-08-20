@@ -569,7 +569,7 @@ function _alertRowHtml(a, role) {
     actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
     // v6.3.1: for a log alert, muting the whole EVENT is too blunt — it blinds
     // the rule. Clearing the matched LINE silences this message only, and a
-    // genuinely different one still alerts. Offered only when evidence exists.
+    // different one still alerts. Offered only when evidence exists.
     if (a.event === 'log_alert') {
       const _logLine = _alertSampleLine(a);
       const _pat = (a.payload && a.payload.pattern) || '';
@@ -1077,7 +1077,7 @@ document.addEventListener('keydown', (e) => {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
             t.tagName === 'SELECT' || t.isContentEditable)) return;
   const key = e.key;
-  // NB 'Escape' deliberately FIRST: test_v3140's g-nav scanner regexes the JS
+  // NB 'Escape' FIRST: test_v3140's g-nav scanner regexes the JS
   // for arrays opening with a single lowercase letter followed by a word, and
   // an array starting with the j/k keys would false-match as a nav pair.
   if (!['Escape', 'j', 'k', 'a', 'r', 'm', 'x', '?'].includes(key)) return;
@@ -1286,7 +1286,7 @@ function _incidentMemMatches(ev, kind) {
 }
 
 // Row badge — shown only where a prior actually exists, so it is a signal
-// rather than decoration. Deliberately on the ROW and not on the AI verdict
+// rather than decoration. On the ROW and not on the AI verdict
 // badge: an alert nobody ever ran triage on is exactly the one whose history
 // is worth surfacing.
 function _priorIncidentBadge(a) {

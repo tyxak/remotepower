@@ -566,7 +566,7 @@ async function containersOpen(deviceId, name) {
     const runtime = (c.runtime || 'docker').toLowerCase();
     const actionable = (runtime === 'docker' || runtime === 'podman') && cid;
     const isRunning = statusLower.includes('running') || statusLower.includes('up ');
-    // v6.4.2: mute EVERYTHING about this one container. Deliberately outside the
+    // v6.4.2: mute EVERYTHING about this one container. Outside the
     // `actionable` gate — muting is a server-side decision about alerts and needs
     // no agent, so it works for kubectl pods too. data-action-btn (not data-arg)
     // because the dispatcher Number()-coerces data-arg, and a container called
@@ -849,7 +849,7 @@ async function containerAction(deviceId, runtime, containerId, action, displayNa
 // v1.11.4: clear stored container data for the currently-open device.
 // The agent will repopulate on its next heartbeat (~5 min by default), so
 // this is safe to use during decommissioning or just to force a refresh
-// after deliberately removing containers via `docker rm`.
+// after removing containers via `docker rm`.
 async function containersClearCurrent() {
   if (!_containersOpenDeviceId) return;
   if (!await uiConfirm('Clear stored container data for this device?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {

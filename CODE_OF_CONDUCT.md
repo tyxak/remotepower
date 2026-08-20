@@ -9,7 +9,7 @@
 ## Unacceptable behavior
 
 - Harassment, insults, or personal attacks
-- Trolling or deliberately disruptive behavior
+- Trolling or disruptive behavior
 
 ## Enforcement
 

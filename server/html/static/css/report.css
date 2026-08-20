@@ -1,5 +1,5 @@
 /* Standalone fleet posture report (report.html). Self-contained LIGHT theme —
-   deliberately independent of the app's dark styles.css so the report always
+   independent of the app's dark styles.css so the report always
    prints black-on-white. External file (no inline <style>) to satisfy the
    strict CSP (style-src 'self'). */
 :root { color-scheme: light; }

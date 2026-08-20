@@ -761,7 +761,7 @@ fi
 # ── Optional ingest receivers + KMIP key server (all opt-IN) ──────────────────
 # These listen for THIRD-PARTY devices, so none is installed unless asked for:
 # an install should never open a port the operator didn't request. Their units
-# are deliberately STATIC (DynamicUser=yes, no install-time User= rendering), so
+# are STATIC (DynamicUser=yes, no install-time User= rendering), so
 # deploy-server.sh can safely refresh them in place later.
 if [[ "$WITH_SYSLOGD" == "1" ]]; then
     info "Installing the agentless syslog receiver..."
@@ -815,7 +815,7 @@ if [[ "$WITH_KMIP" == "1" ]]; then
         # the write and the chmod. Anyone who read it in that window can drive
         # the loopback KMIP API.
         ( umask 077; printf 'RP_KMIP_SECRET=%s\n' "$_kmip_secret" > /etc/remotepower/kmipd.env )
-        # 0640 root:<web group> — NOT 0600, and deliberately different from the
+        # 0640 root:<web group> — NOT 0600, and different from the
         # in-app install snippet. There the API generates the secret and already
         # knows it, so the file can be root-only. HERE the installer invents it,
         # so the app must be able to read it ONCE to adopt it into its config;

@@ -7,7 +7,7 @@
 # template, a javascript: URI, etc. will fail here before it can
 # reach production.
 #
-# Kept deliberately small: one Python version, stdlib + pip deps the
+# Kept small: one Python version, stdlib + pip deps the
 # tests actually need, no separate lint job (the project's lint
 # scope is currently two files and would add noise without value).
 

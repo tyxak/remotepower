@@ -963,7 +963,7 @@ async function cmdbDocDelete(docId) {
 }
 
 // Tiny Markdown renderer — headings, bold, italic, code, links, lists.
-// Deliberately conservative: anything not matched stays as escaped text.
+// conservative: anything not matched stays as escaped text.
 function cmdbRenderMarkdown(src) {
   if (!src) return '<div class="c-muted">No content.</div>';
   // Escape quotes too: cmdbInlineMd splices a captured link URL into href="$2",
@@ -1085,7 +1085,7 @@ async function cmdbLoadCreds(deviceId) {
     // v1.10.0: per-credential SSH link. Builds ssh://user@host:port for the
     // anchor + plain `ssh user@host -p port` for the copy button. Host comes
     // from the current asset's hostname (preferred) falling back to its IP.
-    // The ssh:// URI deliberately omits the password — the password lives in
+    // The ssh:// URI omits the password — the password lives in
     // the reveal modal where it belongs, not in browser history.
     const sshHost = (_cmdbCurrent && (_cmdbCurrent.hostname || _cmdbCurrent.ip)) || '';
     const sshPort = (_cmdbCurrent && _cmdbCurrent.ssh_port) || 22;

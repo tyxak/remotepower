@@ -31,7 +31,7 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/remotepower/cgi-bin
-# NB: deliberately NO `RuntimeDirectory=remotepower`. gunicorn binds TCP
+# NB: NO `RuntimeDirectory=remotepower`. gunicorn binds TCP
 # (127.0.0.1:8090) and needs nothing in /run; declaring the shared
 # `remotepower` RuntimeDirectory here would make systemd delete /run/remotepower
 # on every stop/restart of this unit, which other components also use.

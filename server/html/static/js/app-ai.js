@@ -618,7 +618,7 @@ function aiInvestigateDevice(devId, deviceName) {
   // detail data is split across /sysinfo, /output, etc. The old call
   // silently returned null, leading to "No data provided" from the
   // model. Now we fetch the right endpoints, in parallel, and bail
-  // visibly if there's genuinely nothing to send.
+  // visibly if there's nothing to send.
   (async () => {
     const idEnc = encodeURIComponent(devId);
     const [sysData, outData, allDevs] = await Promise.all([
@@ -1100,7 +1100,7 @@ async function _aiRunDebug({ title, system, userMsg, context }) {
          <tr><td><strong>Context chunks retrieved</strong></td><td><strong>${resp.retrieved_count}</strong></td></tr>
        </table>
        ${srcs ? `<div class="ai-dbg-h">Retrieved sources</div><ul class="scroll-cap">${srcs}</ul>` : ''}
-       <div class="ai-dbg-h">Assembled system prompt (${resp.system_prompt_chars} chars) — verbatim, this is what the model receives</div>
+       <div class="ai-dbg-h">Assembled system prompt (${resp.system_prompt_chars} chars) — exactly as sent, this is what the model receives</div>
        <pre class="ai-dbg-pre scroll-cap-lg">${escHtml(resp.system_prompt || '')}</pre>
        <div class="ai-dbg-h">Your message</div>
        <pre class="ai-dbg-pre scroll-cap">${escHtml(resp.user_message || '')}</pre>
