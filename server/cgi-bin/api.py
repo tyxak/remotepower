@@ -50765,7 +50765,7 @@ def handle_home():
 
     # Fleet events (already small, server filters unmonitored + routing)
     try:
-        store = load(FLEET_EVENTS_FILE) or {}
+        store = _load_ro(FLEET_EVENTS_FILE) or {}
         events = (store.get('events') or [])
         unmonitored = {dev_id for dev_id, d in devices_raw.items()
                        if isinstance(d, dict) and d.get('monitored') is False}
@@ -50795,7 +50795,7 @@ def handle_home():
     # tile. handle_drift_overview already does it this way.
     drift_rows = []
     try:
-        drift_state = load(DRIFT_STATE_FILE) or {}
+        drift_state = _load_ro(DRIFT_STATE_FILE) or {}
         for ddev_id in devices_raw:
             if ddev_id not in _visible_ids:
                 continue
@@ -50819,8 +50819,8 @@ def handle_home():
     # already iterates devices.items().
     cve_devs = []
     try:
-        findings_all = load(CVE_FINDINGS_FILE) or {}
-        ignore_data  = load(CVE_IGNORE_FILE) or {}
+        findings_all = _load_ro(CVE_FINDINGS_FILE) or {}
+        ignore_data  = _load_ro(CVE_IGNORE_FILE) or {}
         for cdev_id in devices_raw:
             if cdev_id not in _visible_ids:
                 continue
@@ -50865,7 +50865,7 @@ def handle_home():
 
     # Config (full — Home only reads a handful of keys but cost is
     # negligible vs. shipping 7 parallel CGI requests)
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}
 
     # Links — operator-curated bookmarks.
     #
@@ -50904,7 +50904,7 @@ def handle_home():
         # OTHER-5: per-USER "hide activity up to now" watermark (server-side, so
         # clearing on one browser clears it for this user everywhere).
         'activity_cleared_at':
-            int(((load(USERS_FILE).get(_home_user) or {}).get('activity_cleared_at')) or 0),
+            int(((_load_ro(USERS_FILE).get(_home_user) or {}).get('activity_cleared_at')) or 0),
         'mailwatch':    mailwatch,
         'links':        links,
         'server_tz':    _server_tz_label(),
@@ -50919,7 +50919,7 @@ def handle_home():
         'tickets_enabled': _module_on('tickets'),
         'billing_enabled': _module_on('billing'),
         'ticket_devices': _open_ticket_device_ids(),
-        'tickets_open': sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+        'tickets_open': sum(1 for t in ((_load_ro(TICKETS_FILE) or {}).get('tickets') or [])
                             if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal')),
         'ticket_sla': {str(k): _ticket_sla_policy()[k] for k in (1, 2, 3, 4)},
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
