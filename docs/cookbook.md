@@ -14,6 +14,7 @@ Each recipe is self-contained and links to the reference guide for the detail.
 - [Watch a GitHub repo for new issues](#watch-a-github-repo-for-new-issues)
 - [Keep certificates from expiring](#keep-certificates-from-expiring)
 - [Roll out a patch or script safely](#roll-out-a-change-safely)
+- [Let RemotePower fix things by itself — safely](#let-remotepower-fix-things-by-itself)
 
 ---
 
@@ -81,7 +82,9 @@ Noise is the #1 reason people stop reading alerts. Tune it:
 3. **Set per-severity escalation.** **Settings → Notifications → Escalation** —
    only page after N minutes unacknowledged, per severity.
 4. **Suppress during known work.** Create a **maintenance window** (below) so
-   expected churn doesn't alert at all.
+   expected churn doesn't alert at all. A window can cover a device, a group, a
+   **site**, a **tag**, a smart group, or the whole fleet — so "all of this
+   customer's hosts on Saturday" is one window, not one per host.
 
 Reference: [alert-tuning.md](alert-tuning.md), [automations.md](automations.md).
 
@@ -164,3 +167,31 @@ whole fleet at once:
    reboot/upgrade/uninstall park for a second admin's approval (no self-approve).
 
 Reference: [provisioning.md](provisioning.md), [fleet-management.md](fleet-management.md).
+
+## Let RemotePower fix things by itself
+
+The loop only acts where your fleet has already fixed the same thing before, so
+the first weeks are about giving it something to learn from — not about turning
+it on.
+
+1. **Leave it off and let it watch.** Set the mode to **shadow** on one tenant
+   (Autonomy page → safety envelope). It records what it *would* have done and
+   changes nothing.
+2. **Fix things the normal way.** Press **Fix** on alerts, let automation rules
+   run their remediations. Each fix that clears its alert is recorded as
+   precedent — no AI provider needed. Two for the same signature is the
+   threshold.
+3. **Read the receipts.** They lead the page. For each one ask: would I have
+   done that? A receipt says which rule fired, what it decided, and why —
+   including a refusal.
+4. **Narrow the allow-list.** Tick only the actions you agreed with. Destructive
+   ones stay off until you tick them, and ones that need a proven backup stay
+   refused until there is one.
+5. **Set a blast radius** you are comfortable with, then switch that tenant to
+   **enabled**. Keep reading the receipts.
+
+If the page is full of `no_precedent`, that is step 2 not having happened yet —
+it is the loop declining to guess, not a fault. `Clear` empties the receipt list
+without touching what it learned.
+
+Reference: [autonomy.md](autonomy.md), [alert-tuning.md](alert-tuning.md).
