@@ -10868,17 +10868,26 @@ def handle_portal_ticket(number):
 
 
 def handle_portal_csp_report():
-    """POST /api/portal/csp-report — a SEPARATE CSP report bucket for the portal
-    page, kept apart from the operator app's /api/csp-report."""
-    try:
-        raw = sys.stdin.read(8192)
-        sys.stderr.write(f'[remotepower] portal-csp-report: {raw[:1000]}\n')
-    except Exception:
-        pass
-    respond(204, {})
+    """POST /api/portal/csp-report — the portal page's CSP reports.
 
+    v7.0.2: this used to `sys.stdin.read(8192)` and write the raw body straight
+    to stderr, i.e. the server journal. Unauthenticated, unthrottled, no size
+    accounting beyond the read, no operator toggle, and the text was
+    attacker-controlled — anyone who could reach the portal could write to the
+    journal as fast as they could POST, and shape what appeared there.
 
-# ── v5.6.0: Knowledge base (structured IT documentation) ────────────────────
+    Its sibling handle_csp_report had all of that solved since v3.0.6: a size
+    cap, the `csp_report_logging` toggle, a per-IP per-minute throttle, the
+    browser-extension noise filter, and a structured audit_log entry the
+    Settings -> Security counter can actually read. Two handlers for the same
+    W3C payload and only one was hardened.
+
+    Same path now, tagged so portal reports stay tellable apart in the detail
+    while still counting toward the existing `csp_report` action the diag panel
+    scans for.
+    """
+    handle_csp_report(source='portal')
+
 def _kb_enabled():
     # v6.0.0: always on (the opt-in toggle is gone; the config key is ignored).
     return True
@@ -13917,7 +13926,7 @@ def _csp_report_should_throttle(ip: str, per_minute: int) -> bool:
     return False
 
 
-def handle_csp_report():
+def handle_csp_report(source='app'):
     """
     POST /api/csp-report — no auth, no CSRF check. The browser sends
     these as fire-and-forget; we always ack 204 even if parsing fails
@@ -13996,7 +14005,7 @@ def handle_csp_report():
         audit_log(
             actor='browser',
             action='csp_report',
-            detail=(f'{violated} blocked={blocked} '
+            detail=(f'[{source}] {violated} blocked={blocked} '
                     f'src={source_file}:{line_no} ref={referer} '
                     f'sample={sample[:120]}'),
             source_ip=ip,

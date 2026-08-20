@@ -163,7 +163,10 @@ class TestCspReportEndpoint(unittest.TestCase):
         cls.api_py = _apisrc_combined()
 
     def test_handler_defined(self):
-        self.assertRegex(self.api_py, r'(?m)^def handle_csp_report\(\):',
+        # v7.0.2: the signature takes a `source` now — the portal endpoint
+        # routes through this same hardened handler instead of keeping its own
+        # unthrottled copy that wrote the raw body to the journal.
+        self.assertRegex(self.api_py, r'(?m)^def handle_csp_report\(source=',
             'handle_csp_report() must be defined')
 
     def test_route_registered(self):
@@ -193,7 +196,7 @@ class TestCspReportEndpoint(unittest.TestCase):
         # Captures the function all the way to the next top-level
         # `def ` so we don't miss the log call deep in the body.
         m = re.search(
-            r'(?ms)^def handle_csp_report\(\):.+?(?=^def )',
+            r'(?ms)^def handle_csp_report\(source=.+?(?=^def )',
             self.api_py)
         self.assertIsNotNone(m, 'handle_csp_report body not found')
         body = m.group(0)
