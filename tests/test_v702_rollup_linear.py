@@ -43,6 +43,15 @@ _spec.loader.exec_module(api)
 
 def _seed(n):
     d = pathlib.Path(tempfile.mkdtemp(prefix=f'rp-ru{n}-'))
+    # DATA_DIR too, not just the three paths.
+    #
+    # Under `make test-sqlite` the basename IS the storage key and the database
+    # lives under DATA_DIR — so rebinding the paths alone left this sharing one
+    # database with every other module in the run. run_metric_rollup_if_due
+    # reads a `_meta` row for its is-it-due check, another test had already
+    # stamped last_run there, and the sweep returned immediately having rolled
+    # up nothing. The failure read as "the roll-up skipped devices".
+    api.DATA_DIR = d
     for k in ('DEVICES_FILE', 'METRICS_FILE', 'METRICS_ROLLUP_FILE'):
         setattr(api, k, d / getattr(api, k).name)
     now = int(time.time())
@@ -62,6 +71,18 @@ def _run(n):
     return time.perf_counter() - start
 
 
+_DB_BACKEND = os.environ.get('RP_STORAGE_BACKEND') in ('sqlite', 'postgres')
+
+
+@unittest.skipIf(_DB_BACKEND,
+                 'the raw series lives in a dedicated metrics table on a DB '
+                 'backend, written by the heartbeat — save(METRICS_FILE, ...) '
+                 'seeds the entity store, which metric_range does not read. '
+                 'The behaviour under test (hoisting the whole-fleet read out '
+                 'of the per-device loop) is the JSON path by construction: on '
+                 'a DB backend _raw_metric_samples already answers per device '
+                 'and ignores the hoisted store, which the class below asserts '
+                 'directly.')
 class TestItStillRollsUp(unittest.TestCase):
     """First: a sweep that did nothing would be very fast."""
 
@@ -88,6 +109,7 @@ class TestItStillRollsUp(unittest.TestCase):
         self.assertEqual(first, second, 'the interval gate stopped working')
 
 
+@unittest.skipIf(_DB_BACKEND, 'see TestItStillRollsUp — JSON-path timing')
 class TestItIsLinearInFleetSize(unittest.TestCase):
 
     def test_quadrupling_the_fleet_does_not_square_the_cost(self):

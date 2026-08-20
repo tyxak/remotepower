@@ -47,6 +47,16 @@ class TestAStoreCreatedDuringMigrationSurvives(unittest.TestCase):
         self._saved = {k: getattr(api, k) for k in ('DATA_DIR', 'STORAGE_MARKER_FILE')}
         api.DATA_DIR = self.dir
         api.STORAGE_MARKER_FILE = self.dir / '.storage-backend'
+        # This migrates a JSON tree INTO SQLite, so the source has to be JSON.
+        # Under `make test-sqlite` the env pins every backend read to SQLite,
+        # including the source ones — so the seeded files were written to disk
+        # and read back out of an empty database, and all three cases failed on
+        # a fixture that had nothing to do with the code under test.
+        self._env = os.environ.pop('RP_STORAGE_BACKEND', None)
+        # _storage_backend() memoises in _BACKEND_CACHE, so popping the env is
+        # not enough on its own — the choice was already made at import.
+        self._cache = api._BACKEND_CACHE
+        api._BACKEND_CACHE = None
         import storage
         self.storage = storage
         api._invalidate_load_cache(self.dir / 'devices.json')
@@ -54,6 +64,13 @@ class TestAStoreCreatedDuringMigrationSurvives(unittest.TestCase):
     def tearDown(self):
         for k, v in self._saved.items():
             setattr(api, k, v)
+        # Restore it, or a sqlite run leaks a json backend into every later
+        # module in the same process.
+        if self._env is None:
+            os.environ.pop('RP_STORAGE_BACKEND', None)
+        else:
+            os.environ['RP_STORAGE_BACKEND'] = self._env
+        api._BACKEND_CACHE = self._cache
 
     def _seed(self):
         self.storage._write_json_atomic(self.dir / 'devices.json',

@@ -32,7 +32,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import srcpin
+# tests/ on sys.path BEFORE the sibling import: without it this module
+# loads only when another test module happened to put it there first, so
+# `python3 -m unittest tests.test_v643_verb_parity` cannot load it at all.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import srcpin                                                # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI = _ROOT / 'server' / 'cgi-bin'
