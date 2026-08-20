@@ -63,6 +63,14 @@ FLUSH_S = 2.0           # max seconds a line waits before its batch is POSTed
 MAX_BATCH = 200         # lines per source per POST (endpoint caps server-side)
 MAX_LINE = 8192         # bytes per datagram we accept
 UNKNOWN_LOG_EVERY_S = 600
+# v7.0.2: this listener takes UDP from the whole LAN, and a UDP source address
+# is a claim, not a fact — anything on the segment can forge one per packet.
+# Every per-source dict below therefore needs a ceiling, or a single spoofing
+# sender grows the daemon until the box OOMs. `unknown_logged` was the worst of
+# the three: it is only ever assigned, never popped, so it kept one entry per
+# distinct source address for the life of the process.
+MAX_TRACKED_SOURCES = 4096      # distinct src_ips buffered in one flush window
+MAX_UNKNOWN_TRACKED = 1024      # distinct unknown src_ips whose complaint we rate-limit
 
 
 def _find_cgi_bin():
@@ -229,6 +237,24 @@ def serve(bind=BIND, reader=None, once=False):
         if not tok:
             now = time.monotonic()
             if now - unknown_logged.get(src, 0) >= UNKNOWN_LOG_EVERY_S:
+                # Evict entries whose rate-limit window has already expired
+                # before adding another. Without this the dict only grows, and
+                # one spoofing sender adds an entry per forged address forever.
+                if len(unknown_logged) >= MAX_UNKNOWN_TRACKED:
+                    for _ip, _t in list(unknown_logged.items()):
+                        if now - _t >= UNKNOWN_LOG_EVERY_S:
+                            del unknown_logged[_ip]
+                    # Still full => every entry is inside its window, so this is
+                    # a flood. Complain about this one but do not remember it;
+                    # the cap holds and the log stays rate-limited by the
+                    # entries we did keep.
+                    if len(unknown_logged) >= MAX_UNKNOWN_TRACKED:
+                        log.info('dropping syslog from unknown source %s '
+                                 '(unknown-source table full — %d distinct '
+                                 'unknown sources; a UDP source address can be '
+                                 'forged, so this may be a flood)',
+                                 src, len(unknown_logged))
+                        return
                 unknown_logged[src] = now
                 if src in srcmap.enrolled_ips:
                     log.info('dropping syslog from %s: the device IS enrolled but '
@@ -252,6 +278,13 @@ def serve(bind=BIND, reader=None, once=False):
             text = data.decode('utf-8', errors='replace')
             lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
             if lines:
+                # Refuse a NEW source once the window is full; sources already
+                # buffered keep working. Dropping the newcomer is the right way
+                # round — a real appliance that loses one batch retries on its
+                # next line, whereas evicting an established source loses the
+                # burst that is already buffered.
+                if src not in pending and len(pending) >= MAX_TRACKED_SOURCES:
+                    continue
                 buf = pending.setdefault(src, [])
                 first_at.setdefault(src, time.monotonic())
                 buf.extend(lines)
