@@ -18682,10 +18682,38 @@ def _autopatch_sync(pol, remove=False):
         sys.stderr.write(f'[remotepower] autopatch calendar sync: {e}\n')
 
 
+def _autopatch_visible(pol):
+    """Whether the caller may see this auto-patch policy.
+
+    Policies carry `tenant_gate`, stamped from the creator at create time
+    because the sweep that fires them runs from cron with no request context.
+    Create and update set it; list, delete and run never read it.
+    """
+    gate = _tenant_gate()
+    return gate is None or (pol or {}).get('tenant_gate') == gate
+
+
+def _autopatch_block(pol):
+    """404 a policy belonging to another tenant.
+
+    v7.0.2. `run` queues a root package upgrade on the policy's targets and
+    `delete` removes it outright, and neither looked at the tenant — so a tenant
+    admin could fire or destroy another tenant's patch policy by id. `update`
+    was worse than ungated: it RE-STAMPED tenant_gate from the caller, so
+    editing another tenant's policy silently transferred ownership of it.
+
+    404 not 403, so the endpoint does not confirm which policy ids exist.
+    """
+    if not _autopatch_visible(pol):
+        respond(404, {'error': 'policy not found'})
+
+
 def handle_autopatch_list():
-    """GET /api/autopatch — list policies."""
+    """GET /api/autopatch — list policies (tenant-filtered)."""
     require_auth()
-    respond(200, {'ok': True, 'policies': _autopatch_load()['policies']})
+    respond(200, {'ok': True,
+                  'policies': [p for p in _autopatch_load()['policies']
+                               if _autopatch_visible(p)]})
 
 
 def handle_autopatch_create():
@@ -18747,6 +18775,8 @@ def handle_autopatch_update(pol_id):
     body = _read_valid(request_models.AutopatchUpdateRequest)
     data = _autopatch_load()
     pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
+    _autopatch_block(pol)     # v7.0.2 — BEFORE the tenant_gate re-stamp below,
+                              # which would otherwise transfer ownership
     if not pol:
         respond(404, {'error': 'policy not found'})
     if 'name' in body:
@@ -18796,6 +18826,8 @@ def handle_autopatch_delete(pol_id):
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     data = _autopatch_load()
+    _autopatch_block(next((p for p in data['policies']
+                           if p['id'] == pol_id), None))       # v7.0.2
     n = len(data['policies'])
     data['policies'] = [p for p in data['policies'] if p['id'] != pol_id]
     if len(data['policies']) == n:
@@ -18974,6 +19006,7 @@ def handle_autopatch_run(pol_id):
     pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
     if not pol:
         respond(404, {'error': 'policy not found'})
+    _autopatch_block(pol)                                      # v7.0.2
     n = _autopatch_queue(pol, actor)
     pol['last_run'] = int(time.time())
     save(AUTOPATCH_FILE, data)
@@ -23910,7 +23943,17 @@ def handle_device_ups_dependency(dev_id):
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         if source_id:
-            if source_id not in devices:
+            # v7.0.2: `dev_id` rides main()'s _enforce_device_scope because the
+            # route is under /api/devices/<id>/. `source_id` arrives in the
+            # BODY and got no such cover — so a tenant admin could point one of
+            # their hosts at another tenant's UPS device. That is not only an
+            # existence oracle: _ups_shutdown_dependents walks this link when
+            # the source UPS goes critical, so it wires a cross-tenant
+            # shutdown. Out of scope answers exactly like absent, or the 400
+            # itself confirms which device ids exist.
+            if source_id not in _scope_filter_devices(
+                    {source_id: devices.get(source_id)} if source_id in devices
+                    else {}):
                 respond(400, {'error': 'source device not found'})
             devices[dev_id]['ups_dependency'] = {'source_device_id': source_id, 'ups_name': ups_name}
         else:
