@@ -4607,7 +4607,18 @@ def _entity_read_one(store_file, dev_id, default=None):
             return _m.entity_get(store_file, dev_id, default)
         except Exception:
             pass
-    return (load(store_file) or {}).get(dev_id, default)
+    # v7.0.2 (perf): copy the ROW, not the whole store.
+    #
+    # The JSON fallback used load(), which deepcopies every device's entry to
+    # hand back one of them — the docstring's "O(1) on a DB backend" quietly
+    # became O(fleet) here, on the backend most installs run. Eight call sites
+    # take this path, several of them per-request.
+    #
+    # _load_ro skips that copy but returns the SHARED object, so the row is
+    # copied on its own: same mutation safety the caller had from load(), at
+    # the cost of one row instead of the fleet.
+    _row = (_load_ro(store_file) or {}).get(dev_id)
+    return copy.deepcopy(_row) if _row is not None else default
 
 
 def _entity_write_one(store_file, dev_id, value):
