@@ -307,6 +307,19 @@ nothing rather than everything: a deleted smart group, a malformed rule set, a
 blank target. A blank target is now rejected outright — it matched no device
 rather than all of them, which is a window that silently does nothing.
 
+### The alert inbox, full screen
+
+A **Full screen** button on the Alert inbox card gives the inbox the whole
+display and nothing else — no sidebar, no page title, larger type, and the list
+scrolling inside rather than off the bottom. For a spare monitor or a wall
+panel. Acknowledge, resolve, mute, the keyboard shortcuts and every dialog a row
+opens all still work. Esc leaves, or a button at the top-right.
+
+`?alertwall=1` opens straight into it, so a wall display needs nothing but a
+start URL. It is a display mode, not a lockdown: the API still enforces the
+signed-in token's role, so a wall left on a viewer token is read-only because
+the role says so.
+
 ### Things that looked like they worked
 
 - **No toast in the product was ever visible.** Every confirmation, warning and
