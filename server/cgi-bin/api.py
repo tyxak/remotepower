@@ -18735,7 +18735,9 @@ def _autopatch_visible(pol):
     Create and update set it; list, delete and run never read it.
     """
     gate = _tenant_gate()
-    return gate is None or (pol or {}).get('tenant_gate') == gate
+    if gate is None:
+        return True
+    return isinstance(pol, dict) and pol.get('tenant_gate') == gate
 
 
 def _autopatch_block(pol):
@@ -54129,7 +54131,11 @@ def _apikey_tenant_block(rec):
     gate = _tenant_gate()
     if gate is None:
         return                      # superadmin, or tenancy off
-    if ((rec or {}).get('tenant_id') or DEFAULT_TENANT) != gate:
+    # isinstance, not `or {}`: that only coerces a FALSY value, so a string
+    # row in a hand-edited store reaches .get() and raises. A gate that
+    # raises 500s the endpoint instead of answering.
+    _t = rec.get('tenant_id') if isinstance(rec, dict) else None
+    if (_t or DEFAULT_TENANT) != gate:
         respond(404, {'error': 'API key not found'})
 
 
