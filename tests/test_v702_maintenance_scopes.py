@@ -109,6 +109,67 @@ class TestItFailsClosed(_Base):
         self.assertFalse(self.applies('nonsense', 'x', _WEB))
 
 
+class TestHostileShapesCannotRaiseOrWiden(_Base):
+    """`_window_applies` runs from the heartbeat and the scheduler, and
+    `in_maintenance()` has no try around it — so an exception here breaks
+    alerting for the WHOLE fleet, not just for the malformed window.
+
+    Found by fuzzing this release's own new code an hour after writing it: a
+    smart-scoped window whose target was a dict raised TypeError, because a
+    dict is unhashable and went straight into `.get()`. The API validator
+    rejects a non-string target; a hand-edited store and a declarative import
+    do not go through it.
+
+    Two properties: nothing raises, and nothing MATCHES that should not — a
+    window suppresses alerting and gates commands, so widening is the direction
+    that hurts.
+    """
+
+    _DEVICES = [None, {}, {'tags': None}, {'tags': 'notalist'}, {'tags': [None]},
+                {'tags': [{'a': 1}]}, {'site': None}, {'site': 0},
+                {'site': {'x': 1}}, {'tenant': None}, {'group': 0}]
+    _TARGETS = [None, 0, {'a': 1}, [1], '', b'x', 'nomatch']
+    _SCOPES = ['tag', 'site', 'smart', 'group', 'device', None, 'TAG', 'nonsense']
+
+    def test_nothing_raises_and_nothing_matches(self):
+        raised, matched = [], []
+        n = 0
+        for scope in self._SCOPES:
+            for target in self._TARGETS:
+                for dev in self._DEVICES:
+                    n += 1
+                    w = {'scope': scope, 'target': target}
+                    try:
+                        r = api._window_applies(w, 'd1', dev=dev, dev_group=None)
+                    except Exception as e:
+                        raised.append((w, dev, type(e).__name__))
+                        continue
+                    if r:
+                        matched.append((w, dev))
+        self.assertGreater(n, 400, 'the matrix collapsed — nothing was tested')
+        self.assertEqual([], raised[:5], f'{len(raised)} raised, e.g. {raised[:3]}')
+        self.assertEqual([], matched[:5],
+                         f'{len(matched)} matched a device that matches nothing: '
+                         f'{matched[:3]}')
+
+    def test_the_matrix_can_still_produce_a_match(self):
+        """Positive control. If none of these inputs could ever match, the
+        assertion above would pass against a matcher that always returns
+        False — which is the other way to break it."""
+        self.assertTrue(api._window_applies(
+            {'scope': 'tag', 'target': 'nomatch'}, 'd1',
+            dev={'tags': ['nomatch']}, dev_group=None))
+
+    def test_an_empty_target_never_matches(self):
+        """`''` is the shape a blank form field produces, and it must not
+        become a wildcard."""
+        for scope in ('tag', 'site', 'smart', 'group'):
+            with self.subTest(scope=scope):
+                self.assertFalse(api._window_applies(
+                    {'scope': scope, 'target': ''}, 'd1',
+                    dev={'tags': [''], 'site': '', 'group': ''}, dev_group=''))
+
+
 class TestValidation(unittest.TestCase):
 
     def setUp(self):

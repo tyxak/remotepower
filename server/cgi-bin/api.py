@@ -65576,9 +65576,26 @@ def _window_applies(w, dev_id, dev=None, dev_group=None):
     if scope == 'site':
         return bool(w.get('target')) and str((dev or {}).get('site') or '') == w['target']
     if scope == 'tag':
-        return w.get('target') in [str(t) for t in ((dev or {}).get('tags') or [])]
+        # Require a non-empty string, like the site branch above. `'' in ['']`
+        # is True, so a blank target matched any device carrying an empty tag —
+        # a window that suppresses alerting on hosts nobody targeted. The
+        # validator rejects a blank target, but a hand-edited store and a
+        # declarative import do not go through it.
+        _t = w.get('target')
+        if not isinstance(_t, str) or not _t:
+            return False
+        return _t in [str(x) for x in ((dev or {}).get('tags') or [])]
     if scope == 'smart':
-        sg = (_load_ro(SMART_GROUPS_FILE) or {}).get(w.get('target'))
+        # The target must be a usable key BEFORE it reaches .get(): a dict or a
+        # list raises TypeError (unhashable), and this runs from the heartbeat
+        # and the scheduler, where in_maintenance() has no try around it — so
+        # one malformed window would break alerting for the whole fleet, not
+        # just for itself. The API validator rejects a non-string target, but a
+        # hand-edited store and a declarative import do not go through it.
+        _t = w.get('target')
+        if not isinstance(_t, str) or not _t:
+            return False
+        sg = (_load_ro(SMART_GROUPS_FILE) or {}).get(_t)
         if not isinstance(sg, dict):
             return False        # a deleted smart group covers nothing
         try:
