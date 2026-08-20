@@ -1588,8 +1588,19 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
     # tenant gate AND role scope (route is under /api/cmdb/, not covered by
     # _enforce_device_scope).
     A._scope_block_device(dev_id)
+    # v7.0.2 (SECURITY): the DEVICE is tenant-gated above; the CREDENTIALS were
+    # not. `_caller_scope_covers_credential` is an RBAC-scope check, and a tenant
+    # admin resolves to scope None, so it passes for everything — meaning a
+    # tenant admin looking at their OWN device saw the label, username and note
+    # of any other tenant's credential whose scope happened to match, and tag or
+    # group names collide across tenants routinely ("web", "prod").
+    #
+    # handle_scoped_credentials_list and _reveal have applied
+    # _scoped_cred_visible since v6.4.3; this reader was left out. Two of four
+    # consumers filtered, which is why the file reads as though it is enforced.
     out = [A._scoped_cred_meta(c) for c in A._scoped_creds_load()['creds']
            if isinstance(c, dict) and A._scoped_cred_applies(c, dev)
+           and _scoped_cred_visible(c)
            and A._caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value'))]
     A.respond(200, {'ok': True, 'credentials': out})
 
