@@ -67,11 +67,37 @@ class TestTheMinimumAsyncsshVersion(unittest.TestCase):
         self.assertNotIn("asyncssh>=2.10", self.src)
         self.assertIn("asyncssh>=2.14.2", self.src)
 
-    def test_it_refuses_to_start_on_a_vulnerable_version(self):
-        """Printing a floor is advice; the distro packages install whatever the
-        distro has, so it has to check what it actually imported."""
+    def test_it_warns_but_does_not_refuse_to_start(self):
+        """It DID refuse, and that took down a working web terminal on Debian
+        12, which packages python3-asyncssh 2.11. The condition was true on a
+        healthy, supported, fully-patched host — the guard tested "is the
+        library old" and treated it as "is this host broken".
+
+        Turning a vulnerability into an outage is not a security improvement,
+        and this one needs an attacker already positioned between the gateway
+        and a target host. An operator who cannot see the warning because the
+        service will not start is worse off than one running 2.11 and reading
+        it. CLAUDE.md's safety-guard-that-fires-on-a-healthy-host class,
+        committed by the fix for a different one."""
         self.assertIn('MIN_ASYNCSSH', self.src)
         self.assertIn('(2, 14, 2)', self.src)
+        i = self.src.index('ASYNCSSH_OUTDATED = ')
+        j = self.src.index('VERSION = ', i)
+        guard = self.src[i:j]
+        self.assertIn('WARNING:', guard)
+        # The only sys.exit in the guard must be behind the opt-in flag.
+        self.assertIn('RP_WEBTERM_REQUIRE_ASYNCSSH', guard)
+        before_flag = guard[:guard.index('RP_WEBTERM_REQUIRE_ASYNCSSH')]
+        self.assertNotIn('sys.exit', before_flag,
+                         'it exits before consulting the opt-in flag, so an '
+                         'old-but-working host still cannot start')
+
+    def test_the_strict_flag_is_opt_in_not_opt_out(self):
+        """Default must be warn. An env var that has to be SET to keep working
+        would break the same hosts on upgrade."""
+        i = self.src.index('ASYNCSSH_OUTDATED = ')
+        guard = self.src[i:self.src.index('VERSION = ', i)]
+        self.assertIn("RP_WEBTERM_REQUIRE_ASYNCSSH') == '1'", guard)
 
     def test_the_message_says_why(self):
         # Bounded by the guard's own end, not a character count.

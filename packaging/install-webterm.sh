@@ -89,6 +89,12 @@ die() {
   exit 1
 }
 
+# This script had no warn() — only die(). That is a small reason a check written
+# here reaches for die when it should not: refusing is the only verb available.
+warn() {
+  echo "⚠ $*" >&2
+}
+
 if [[ "$EUID" -ne 0 && "$DRY_RUN" -eq 0 ]]; then
   die "Run as root: sudo bash $0"
 fi
@@ -158,13 +164,28 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
   # asyncssh below 2.14.2 is an SSH CLIENT with known session-hijack and
   # algorithm-downgrade flaws (CVE-2023-46445, CVE-2023-46446 "Rogue Session",
   # and Terrapin prefix truncation). remotepower-webterm IS that client, and it
-  # is the operator's interactive gateway into every managed host — so an
-  # attacker positioned between the gateway and a target host is exactly the
-  # threat model those cover. The distro packages are current on supported
-  # releases; the printed pip fallback used to say >=2.10.
-  if ! python3 -c 'import asyncssh,sys; v=tuple(int(x) for x in asyncssh.__version__.split(".")[:3]); sys.exit(0 if v >= (2,14,2) else 1)' 2>/dev/null; then
+  # is the operator's interactive gateway into every managed host.
+  #
+  # TRY to upgrade, then WARN — do not die. Debian 12 packages 2.11, and the
+  # first version of this check refused to install (and its runtime twin
+  # refused to START) on a healthy, supported, fully-patched host. The daemon
+  # warns on every start too, so this is visible either way, and a gateway that
+  # runs and complains beats one that will not run at all.
+  _asyncssh_ok() {
+    python3 -c 'import asyncssh,sys; v=tuple(int(x) for x in asyncssh.__version__.split(".")[:3]); sys.exit(0 if v >= (2,14,2) else 1)' 2>/dev/null
+  }
+  if ! _asyncssh_ok; then
+    echo "── asyncssh is older than 2.14.2 — trying to upgrade…"
+    pip3 install --break-system-packages -U 'asyncssh>=2.14.2' 2>/dev/null \
+      || pip3 install -U 'asyncssh>=2.14.2' 2>/dev/null || true
+  fi
+  if ! _asyncssh_ok; then
     _av="$(python3 -c 'import asyncssh; print(asyncssh.__version__)' 2>/dev/null || echo unknown)"
-    die "asyncssh ${_av} is too old — 2.14.2 or newer is required (CVE-2023-46445/46446 affect the SSH client this gateway is). Upgrade with: pip install --break-system-packages -U 'asyncssh>=2.14.2'"
+    warn "asyncssh ${_av} is older than 2.14.2 (CVE-2023-46445/46446 affect the"
+    warn "  SSH client this gateway is — an attacker already on the network path"
+    warn "  to a target host can hijack or downgrade a session). Installing"
+    warn "  anyway; upgrade when your distro packages it, or with:"
+    warn "    pip install --break-system-packages -U 'asyncssh>=2.14.2'"
   fi
   echo "  → ok"
 fi

@@ -124,15 +124,35 @@ try:
     _av = tuple(int(x) for x in str(asyncssh.__version__).split('.')[:3])
 except Exception:
     _av = None
-if _av is not None and _av < MIN_ASYNCSSH:
-    print(f"ERROR: asyncssh {asyncssh.__version__} is too old — "
-          f"{'.'.join(str(n) for n in MIN_ASYNCSSH)} or newer is required.",
-          file=sys.stderr)
-    print("  CVE-2023-46445 / CVE-2023-46446 affect the SSH client this gateway "
-          "is; an attacker on the path to a target host can hijack the session.",
-          file=sys.stderr)
-    print("  pip install -U 'asyncssh>=2.14.2'", file=sys.stderr)
-    sys.exit(2)
+
+ASYNCSSH_OUTDATED = _av is not None and _av < MIN_ASYNCSSH
+
+if ASYNCSSH_OUTDATED:
+    # WARN — do not exit.
+    #
+    # This refused to start when it first shipped, and that took down a working
+    # web terminal on Debian 12, which packages python3-asyncssh 2.11. The
+    # condition was true on a healthy, supported, fully-patched host: the guard
+    # tested "is the library old" and treated it as "is this host broken".
+    #
+    # Turning a vulnerability into an outage is not a security improvement, and
+    # this one needs an attacker already positioned between the gateway and a
+    # target host. An operator who cannot see the warning because the service
+    # will not start is strictly worse off than one running 2.11 and reading it.
+    #
+    # Set RP_WEBTERM_REQUIRE_ASYNCSSH=1 to make it fatal where the newer
+    # package is available and the policy is worth the downtime.
+    _msg = (f"asyncssh {asyncssh.__version__} is older than "
+            f"{'.'.join(str(n) for n in MIN_ASYNCSSH)}. CVE-2023-46445 / "
+            f"CVE-2023-46446 affect the SSH client this gateway is: an attacker "
+            f"already on the network path to a target host can hijack or "
+            f"downgrade a session. Upgrade when you can — "
+            f"pip install -U 'asyncssh>=2.14.2', or a distro that packages it.")
+    if os.environ.get('RP_WEBTERM_REQUIRE_ASYNCSSH') == '1':
+        print(f"ERROR: {_msg}", file=sys.stderr)
+        print("  (RP_WEBTERM_REQUIRE_ASYNCSSH=1 makes this fatal.)", file=sys.stderr)
+        sys.exit(2)
+    print(f"WARNING: {_msg}", file=sys.stderr)
 
 VERSION = '2.4.13'
 
