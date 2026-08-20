@@ -24494,7 +24494,12 @@ def handle_upgrade_device():
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('patch', ids)   # v3.4.2 RBAC
 
+    # v7.0.2: `cmds` is a SNAPSHOT used to decide (queue depth, duplicate
+    # suppression); the queue itself is mutated once at the end, under the
+    # lock the heartbeat's drain also takes. Writing this snapshot back
+    # unlocked put commands the agent had already run back in the queue.
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}; dev_updates = {}
+    _queue_adds = {}          # device_id -> [command, ...] to append
     _gate = _needs_approval('upgrade')   # v3.14.0: 4-eyes — park upgrades for a second admin
     _up_why, _up_tkt = _approval_context(body)   # v6.4.3 — see handle_shutdown
     for dev_id in ids:
@@ -24519,7 +24524,8 @@ def handle_upgrade_device():
             results[dev_id] = {'ok': False, 'error':
                 f'Queue full ({MAX_QUEUED_PER_DEVICE}) — {dev.get("name", dev_id)} may be offline; clear its queue first'}; continue
         if queued_str not in cmds[dev_id]:
-            cmds[dev_id].append(queued_str)
+            cmds[dev_id].append(queued_str)          # snapshot, for the checks above
+            _queue_adds.setdefault(dev_id, []).append(queued_str)
         # v3.4.2: post-deploy verification — snapshot the pending count now and
         # force a package re-scan, so the patch report can confirm the upgrade
         # actually took (pending dropped) vs stalled.
@@ -24543,7 +24549,13 @@ def handle_upgrade_device():
             for _did, _upd in dev_updates.items():
                 if _did in devices:
                     devices[_did].update(_upd)
-    save(CMDS_FILE, cmds)
+    if _queue_adds:
+        with _LockedUpdate(CMDS_FILE) as _cq:
+            for _did, _adds in _queue_adds.items():
+                _slot = _cq.setdefault(_did, [])
+                for _c in _adds:
+                    if _c not in _slot:
+                        _slot.append(_c)
     if len(ids) == 1:
         r = results[ids[0]]
         if r.get('approval_required'):
@@ -24676,22 +24688,28 @@ def _handle_pkg_action(kind):
         cmd_body = _build_install_cmd(names)
     queued = f'exec:{cmd_body}'
     devices = load(DEVICES_FILE)
-    cmds = load(CMDS_FILE)
-    now = int(time.time())
-    per_device = {}
-    for dev_id in ids:
-        dev = devices.get(dev_id)
-        if not dev:
-            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}; continue
-        if _device_quarantined(dev):
-            per_device[dev_id] = {'queued': False, 'reason': 'quarantined',
-                                  'name': dev.get('name', dev_id)}; continue
-        cmds.setdefault(dev_id, [])
-        if queued not in cmds[dev_id]:
-            cmds[dev_id].append(queued)
-        log_command(actor, dev_id, dev.get('name', dev_id), f'{verb} {" ".join(names)[:60]}')
-        per_device[dev_id] = {'queued': True, 'name': dev.get('name', dev_id), 'queued_at': now}
-    save(CMDS_FILE, cmds)
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        now = int(time.time())
+        per_device = {}
+        for dev_id in ids:
+            dev = devices.get(dev_id)
+            if not dev:
+                per_device[dev_id] = {'queued': False, 'reason': 'not_found'}; continue
+            if _device_quarantined(dev):
+                per_device[dev_id] = {'queued': False, 'reason': 'quarantined',
+                                      'name': dev.get('name', dev_id)}; continue
+            cmds.setdefault(dev_id, [])
+            if queued not in cmds[dev_id]:
+                cmds[dev_id].append(queued)
+            log_command(actor, dev_id, dev.get('name', dev_id), f'{verb} {" ".join(names)[:60]}')
+            per_device[dev_id] = {'queued': True, 'name': dev.get('name', dev_id), 'queued_at': now}
     jobs_data = load(BATCH_JOBS_FILE)
     _purge_expired_batch_jobs(jobs_data)
     jobs = jobs_data.setdefault('jobs', {})
@@ -35804,6 +35822,12 @@ def process_schedule():
                             remaining.append(job)
                         changed = True
                         continue
+                    # v7.0.2: `cmds` is a snapshot used to decide (duplicate
+                    # suppression); the append happens under the lock at the
+                    # end of this branch. This sweep runs from every request,
+                    # so racing the heartbeat's drain was not a rare window —
+                    # and writing the stale snapshot back re-queued a command
+                    # the agent had already executed.
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
                     # Translate named commands to exec: strings.
@@ -35868,12 +35892,21 @@ def process_schedule():
                         queued = f'container:{_rt}:restart:{cname}'
                     else:
                         queued = command
-                    if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
+                    _sched_adds = []
+                    if queued not in cmds[dev_id]:
+                        cmds[dev_id].append(queued)
+                        _sched_adds.append(queued)
                     # v6.2.0: the Windows/macOS reboot half of upgrade_and_reboot,
                     # appended AFTER the upgrade so it runs in the right order.
                     if _queue_after and _queue_after not in cmds[dev_id]:
                         cmds[dev_id].append(_queue_after)
-                    save(CMDS_FILE, cmds)
+                        _sched_adds.append(_queue_after)
+                    if _sched_adds:
+                        with _LockedUpdate(CMDS_FILE) as _cq:
+                            _slot = _cq.setdefault(dev_id, [])
+                            for _c in _sched_adds:
+                                if _c not in _slot:
+                                    _slot.append(_c)
                     log_command(f"scheduler({job['actor']})", dev_id, job['device_name'], command)
             if job.get('recurring'):
                 job['last_fired_minute'] = current_minute
@@ -35932,30 +35965,36 @@ def handle_custom_cmd():
         respond(202, {'ok': False, 'approval_required': True,
                       'confirmation_ids': conf_ids,
                       'message': 'Change queued for approval by another admin.'})
-    cmds = load(CMDS_FILE)
-    results = {}
-    for dev_id in ids:
-        if not _validate_id(dev_id):
-            results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
-        if dev_id not in devices:
-            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
-        ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
-        if not ok:
-            results[dev_id] = {'ok': False, 'error': reason}; continue
-        if dev_id not in cmds: cmds[dev_id] = []
-        if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
-            results[dev_id] = {'ok': False, 'error':
-                f'Command queue full ({MAX_QUEUED_PER_DEVICE} already waiting) — '
-                f'{devices[dev_id].get("name", dev_id)} may be offline. Clear its queue first.'}; continue
-        cmds[dev_id].append(_queued)
-        log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec:{cmd_str[:40]}')
-        audit_log(actor, 'exec', f'{dev_id}: {cmd_str[:80]}')
-        fire_webhook('command_queued', {
-            'device_id': dev_id, 'name': devices[dev_id].get('name', dev_id),
-            'command': f'exec:{cmd_str[:40]}', 'actor': actor,
-        })
-        results[dev_id] = {'ok': True}
-    save(CMDS_FILE, cmds)
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        results = {}
+        for dev_id in ids:
+            if not _validate_id(dev_id):
+                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+            if dev_id not in devices:
+                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+            ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
+            if not ok:
+                results[dev_id] = {'ok': False, 'error': reason}; continue
+            if dev_id not in cmds: cmds[dev_id] = []
+            if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+                results[dev_id] = {'ok': False, 'error':
+                    f'Command queue full ({MAX_QUEUED_PER_DEVICE} already waiting) — '
+                    f'{devices[dev_id].get("name", dev_id)} may be offline. Clear its queue first.'}; continue
+            cmds[dev_id].append(_queued)
+            log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec:{cmd_str[:40]}')
+            audit_log(actor, 'exec', f'{dev_id}: {cmd_str[:80]}')
+            fire_webhook('command_queued', {
+                'device_id': dev_id, 'name': devices[dev_id].get('name', dev_id),
+                'command': f'exec:{cmd_str[:40]}', 'actor': actor,
+            })
+            results[dev_id] = {'ok': True}
     if len(ids) == 1:
         r = results.get(ids[0], {})
         if r.get('ok'): respond(200, {'ok': True})
@@ -38454,11 +38493,17 @@ def handle_device_compose_action(dev_id):
 
     # Queue the command. The agent re-validates everything when it dequeues.
     cmd_payload = f'compose:{action}:{project_dir}'
-    cmds = load(CMDS_FILE)
-    cmds.setdefault(dev_id, [])
-    if cmd_payload not in cmds[dev_id]:
-        cmds[dev_id].append(cmd_payload)
-    save(CMDS_FILE, cmds)
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if cmd_payload not in cmds[dev_id]:
+            cmds[dev_id].append(cmd_payload)
 
     log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
     audit_log(actor, 'compose_action',
@@ -38616,11 +38661,17 @@ def handle_device_container_action(dev_id):
                       'ts': int(time.time()), 'match': cmd_payload}
         save(LONGPOLL_FILE, lp)
 
-    cmds = load(CMDS_FILE)
-    cmds.setdefault(dev_id, [])
-    if cmd_payload not in cmds[dev_id]:
-        cmds[dev_id].append(cmd_payload)
-    save(CMDS_FILE, cmds)
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if cmd_payload not in cmds[dev_id]:
+            cmds[dev_id].append(cmd_payload)
 
     log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
     audit_log(actor, 'container_action',
@@ -41272,27 +41323,33 @@ def handle_exec_batch():
     actor = require_perm('command', targets)   # v3.4.2 RBAC: scoped batch exec
 
     devices = _load_ro(DEVICES_FILE)
-    cmds = load(CMDS_FILE)
-    now = int(time.time())
-    exec_payload = 'exec:' + script.get('body', '')
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        now = int(time.time())
+        exec_payload = 'exec:' + script.get('body', '')
 
-    per_device = {}
-    for dev_id in targets:
-        if dev_id not in devices:
-            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
-            continue
-        if devices[dev_id].get('agentless'):
-            per_device[dev_id] = {'queued': False, 'reason': 'agentless'}
-            continue
-        cmds.setdefault(dev_id, [])
-        if exec_payload not in cmds[dev_id]:
-            cmds[dev_id].append(exec_payload)
-        per_device[dev_id] = {
-            'queued': True,
-            'name':   devices[dev_id].get('name', dev_id),
-            'queued_at': now,
-        }
-    save(CMDS_FILE, cmds)
+        per_device = {}
+        for dev_id in targets:
+            if dev_id not in devices:
+                per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
+                continue
+            if devices[dev_id].get('agentless'):
+                per_device[dev_id] = {'queued': False, 'reason': 'agentless'}
+                continue
+            cmds.setdefault(dev_id, [])
+            if exec_payload not in cmds[dev_id]:
+                cmds[dev_id].append(exec_payload)
+            per_device[dev_id] = {
+                'queued': True,
+                'name':   devices[dev_id].get('name', dev_id),
+                'queued_at': now,
+            }
 
     # Persist the job record. Pruned on every access.
     jobs_data = load(BATCH_JOBS_FILE)
@@ -52334,34 +52391,40 @@ def handle_drift_fetch_content(dev_id):
 
     watched = set(get_watched_files_for(dev_id, devices))
     queued, denied, not_watched = [], [], []
-    cmds = load(CMDS_FILE)
-    if dev_id not in cmds:
-        cmds[dev_id] = []
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        if dev_id not in cmds:
+            cmds[dev_id] = []
 
-    for p in paths:
-        if not isinstance(p, str) or not p.startswith('/'):
-            continue
-        if p in DRIFT_CONTENT_DENYLIST:
-            denied.append(p)
-            continue
-        if p not in watched:
-            # Only allow content fetch for files we're actively
-            # watching — otherwise this endpoint is just an
-            # arbitrary file-read primitive.
-            not_watched.append(p)
-            continue
-        # v4.4.0 (SECURITY): shell-quote the path with shlex.quote — the old
-        # naive f"…'{p}'" broke out of the single quotes if a watched path
-        # contained a quote (watched_files ingestion has no metachar filter),
-        # turning this watch-only `cat` into agent RCE. shlex.quote is the
-        # correct POSIX-shell escaping the agent's exec dispatcher expects.
-        cmd = f"exec:cat {shlex.quote(p)}"
-        if cmd not in cmds[dev_id]:
-            cmds[dev_id].append(cmd)
-            queued.append(p)
-        log_command(actor, dev_id, devices[dev_id].get('name', dev_id), cmd)
+        for p in paths:
+            if not isinstance(p, str) or not p.startswith('/'):
+                continue
+            if p in DRIFT_CONTENT_DENYLIST:
+                denied.append(p)
+                continue
+            if p not in watched:
+                # Only allow content fetch for files we're actively
+                # watching — otherwise this endpoint is just an
+                # arbitrary file-read primitive.
+                not_watched.append(p)
+                continue
+            # v4.4.0 (SECURITY): shell-quote the path with shlex.quote — the old
+            # naive f"…'{p}'" broke out of the single quotes if a watched path
+            # contained a quote (watched_files ingestion has no metachar filter),
+            # turning this watch-only `cat` into agent RCE. shlex.quote is the
+            # correct POSIX-shell escaping the agent's exec dispatcher expects.
+            cmd = f"exec:cat {shlex.quote(p)}"
+            if cmd not in cmds[dev_id]:
+                cmds[dev_id].append(cmd)
+                queued.append(p)
+            log_command(actor, dev_id, devices[dev_id].get('name', dev_id), cmd)
 
-    save(CMDS_FILE, cmds)
     audit_log(actor, 'drift_fetch_content',
               detail=f"device={dev_id} queued={queued} denied={denied}")
     respond(200, {
@@ -54169,10 +54232,16 @@ def handle_longpoll_exec():
     lp[dev_id] = {'cmd': cmd_str, 'ready': False, 'output': None, 'ts': int(time.time())}
     save(LONGPOLL_FILE, lp)
 
-    cmds = load(CMDS_FILE)
-    if dev_id not in cmds: cmds[dev_id] = []
-    cmds[dev_id].append(_queued_cmd)
-    save(CMDS_FILE, cmds)
+    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
+    # command queue did load/mutate/save with nothing held across the pair,
+    # while the heartbeat's drain pops under this same lock — its comment
+    # already records that the unlocked form 'had a lost-update race ...
+    # (double execution)'. Racing a drain, a stale snapshot written back put
+    # a command the agent had ALREADY run back in the queue, to be handed
+    # out and executed again: a second reboot, a second upgrade.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        if dev_id not in cmds: cmds[dev_id] = []
+        cmds[dev_id].append(_queued_cmd)
     log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec(wait):{cmd_str[:40]}')
 
     # v5.0.0 (#R4): graceful shutdown. On SIGTERM (controller restart/upgrade)
