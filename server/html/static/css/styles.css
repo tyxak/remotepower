@@ -8207,10 +8207,24 @@ body.alertwall #rp-topbar,
 body.alertwall .refresh-bar { display: none !important; }
 body.alertwall .app-content { margin-left: 0 !important; }
 body.alertwall .container { padding: 0; max-width: none; }
+/* The wall covers the viewport, so the page behind it must not keep a live
+   scrollbar — it renders as a dead strip down the right edge and the card
+   measures 1910 instead of 1920 on a 1920 screen. `html` reserves that gutter
+   permanently via scrollbar-gutter: stable, so hiding body's overflow is not
+   enough on its own; the gutter has to be released as well. */
+body.alertwall { overflow: hidden; }
+html:has(body.alertwall) { scrollbar-gutter: auto; }
 
-/* Every page except alerts, and everything on the alerts page except the card
-   itself — the page title, the subtitle and its doc link are chrome here. */
+/* Every page except alerts, and everything on the alerts page except the inbox
+   card itself — the page title, the subtitle and its doc link are chrome here.
+
+   The alerts page has THREE sibling .dash-cards: the inbox, the MTTR timeline
+   and "What happened last time". Promoting `#page-alerts > .dash-card` made all
+   three position:fixed inset:0, stacked — and the LAST in DOM order paints on
+   top, so the wall opened on "What happened last time". Reported from the field
+   within the hour. The rendered test had one card in its fixture and passed. */
 body.alertwall .page:not(#page-alerts) { display: none !important; }
+body.alertwall #page-alerts > .dash-card:not(#alerts-inbox-card) { display: none !important; }
 
 /* The page-in animation (`rp-page-in`) puts a transform on .page.active, and a
    transformed ancestor becomes the CONTAINING BLOCK for its position:fixed
@@ -8227,7 +8241,7 @@ body.alertwall #page-alerts > .page-subtitle { display: none !important; }
 /* The card becomes the viewport. It is a flex column so the table takes the
    space the controls do not, and scrolls inside instead of running off the
    bottom of a screen nobody is sitting at. */
-body.alertwall #page-alerts > .dash-card {
+body.alertwall #alerts-inbox-card {
   position: fixed; inset: 0;
   margin: 0; border: 0; border-radius: 0;
   display: flex; flex-direction: column;
@@ -8242,14 +8256,14 @@ body.alertwall #page-alerts > .dash-card {
    overflow is not `visible`, which `overflow-y: auto` on this same rule already
    guarantees. Adding it changed nothing measurable — a declaration whose
    comment claims it is load-bearing and is not costs more than it saves. */
-body.alertwall #page-alerts > .dash-card > .table-card,
-body.alertwall #page-alerts > .dash-card > .scrollable-table-wrap {
+body.alertwall #alerts-inbox-card > .table-card,
+body.alertwall #alerts-inbox-card > .scrollable-table-wrap {
   flex: 1 1 auto; max-height: none; overflow-y: auto;
 }
 
 /* Readable from across a room. Only inside the wall — the document-wide 13.5px
    body size and the 13px .section-title stand everywhere else. */
-body.alertwall #page-alerts > .dash-card > .section-title { font-size: 19px; }
+body.alertwall #alerts-inbox-card > .section-title { font-size: 19px; }
 /* 16px, not 15: the canonical scale has no 15px stop and the gate says so.
    16 is the modal/empty-title size and reads better at distance anyway. */
 body.alertwall #page-alerts table { font-size: 16px; }
