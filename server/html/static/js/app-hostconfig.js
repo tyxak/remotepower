@@ -460,6 +460,9 @@ async function csGenerateWithAI() {
       context:    'custom_script_generate',
     });
     if (!resp) throw new Error('No response');
+    // A refusal RESOLVES with {error}, so this used to fall through to "Empty
+    // response from AI" — blaming the model for something the server declined.
+    if (resp.error) throw new Error(resp.error);
     const text = (resp.text || resp.content || '').trim();
     if (!text) throw new Error('Empty response from AI');
 

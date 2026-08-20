@@ -3407,7 +3407,22 @@ function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
 }function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
-async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
+async function generateNewPin() {
+  const el = document.getElementById('pin-code');
+  el.textContent = '……';
+  try {
+    const data = await api('POST', '/enroll/pin');
+    // api() resolves on a 4xx, so the catch never saw a refusal and this put
+    // `undefined` on screen where the PIN goes.
+    if (!data || data.error || !data.pin) {
+      el.textContent = 'ERROR';
+      toast('Could not mint a PIN: ' + ((data && data.error) || 'the server refused it'), 'error');
+      return;
+    }
+    el.textContent = data.pin;
+    startPinCountdown(600);
+  } catch (e) { el.textContent = 'ERROR'; }
+}
 // v4.7.0: one-click Docker-host enrollment. Mints a one-time enrollment token
 // and renders a ready-to-run compose file with this server's URL + the token
 // pre-filled. Built with createElement/textContent (never innerHTML string
@@ -13662,6 +13677,13 @@ async function reloadConnectors() {
   if (status) status.textContent = 'Reloading…';
   try {
     const r = await api('POST', '/connectors/reload');
+    // Same class: a refused reload resolved, so this said "Connectors reloaded"
+    // over an unchanged catalog.
+    if (!r || r.error) {
+      if (status) status.textContent = 'Reload failed';
+      toast('Reload failed: ' + ((r && r.error) || 'the server refused it'), 'error');
+      return;
+    }
     _integrationCatalog = (r && r.catalog) || _integrationCatalog;
     renderConnectorPlugins();
     const n = (r && r.new_types && r.new_types.length) || 0;
@@ -17204,10 +17226,19 @@ async function swPolAddRule() {
 async function _saveSwPolicy() {
   try {
     const res = await api('POST', '/software-policy', { rules: _swPolicy.rules || [] });
-    toast(`Policy saved — ${res.rules} rules, ${res.violations} violations`);
+    // v7.0.2: api() RESOLVES on 4xx — only 401 and a network failure reject —
+    // so the catch below never saw a refusal. A read-only role, a permission
+    // gate or a validation error produced "Policy saved — undefined rules,
+    // undefined violations" and the list reloaded unchanged.
+    if (!res || res.error) {
+      toast('Save failed: ' + ((res && res.error) || 'the server refused it'), 'error');
+      return;
+    }
+    toast(`Policy saved — ${res.rules} rules, ${res.violations} violations`, 'success');
     loadSoftwarePolicy();
   } catch (e) {
-    toast('Save failed: ' + String(e));
+    // Still right for a 5xx or a dropped connection, which DO reject.
+    toast('Save failed: ' + String(e), 'error');
   }
 }
 
