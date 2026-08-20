@@ -160,14 +160,29 @@ class TestNoLaterRuleReHidesThem(unittest.TestCase):
                 if 'display' not in body or 'none' not in body:
                     continue
                 # A hide scoped to a state (printing, a body class) is fine —
-                # only an unconditional one at top level is the bug.
+                # only an UNCONDITIONAL one is the bug. Two ways to be
+                # conditional, and the first version of this checked only one:
+                #   * nested in a media query (depth > 0), or
+                #   * qualified by something else in the selector, e.g.
+                #     `body.alertwall .refresh-bar` or
+                #     `body.printing-invoice #toast-container`.
+                # Checking depth alone flagged `body.alertwall .refresh-bar`,
+                # which is exactly the state-scoped shape this comment already
+                # called fine — the implementation did not match its own rule.
                 before = tail[:m.start()]
                 depth = before.count('{') - before.count('}')
-                self.assertGreater(
-                    depth, 0,
-                    f'{sel} is hidden again by a top-level rule after its '
-                    f'canonical declaration — this is the cascade bug that '
-                    f'made every toast invisible')
+                if depth > 0:
+                    continue
+                # The selector text immediately preceding the target.
+                line_start = before.rfind('}') + 1
+                selector = before[line_start:].strip().splitlines()[-1] \
+                    if before[line_start:].strip() else ''
+                qualified = bool(selector) and not selector.endswith(',')
+                self.assertTrue(
+                    qualified,
+                    f'{sel} is hidden again by an UNCONDITIONAL top-level rule '
+                    f'after its canonical declaration — this is the cascade bug '
+                    f'that made every toast invisible')
 
     def test_the_canonical_declarations_are_still_there(self):
         """Positive control for the scan above: deleting the display:flex rule

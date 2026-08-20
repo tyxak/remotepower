@@ -52,6 +52,26 @@ looking.
   for new alerts (off by default, with a severity floor and a daily cap). See
   [ai.md](ai.md).
 
+## Putting it on a wall *(v7.0.2)*
+
+**Full screen** on the Alert inbox card gives the inbox the whole display and
+nothing else — no sidebar, no page title, larger type, and the list scrolling
+inside instead of running off the bottom. For a spare monitor or a wall panel.
+
+Everything still works: acknowledge, resolve, mute, the keyboard shortcuts, and
+any dialog a row opens. Press **Esc**, or the button that appears at the
+top-right on hover, to come back.
+
+Add `?alertwall=1` to the URL to open straight into it, which is how you point
+a wall display at it — the browser's start URL does the whole job. The related
+`?kiosk=1` is the other shape of the same idea: it shows whole *pages* and can
+cycle several (`&cycle=30&pages=home,alerts,devices`).
+
+Both are **display** modes, not a lockdown. The API still enforces whatever the
+signed-in token's role allows, so a wall left on a `viewer` token is read-only
+because the role says so — never because the buttons are hidden. If that is the
+point, sign it in with a viewer token.
+
 ## Getting fewer of them
 
 Recurring noise is silenced at the source on the [Tuning](alert-tuning.md)

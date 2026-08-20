@@ -2425,6 +2425,54 @@ function enterKiosk(opts) {
   }
 }
 
+// ── v7.0.2: alert wall — the Alert inbox card, full screen ──────────────────
+//
+// A kiosk shows a whole PAGE and can cycle several. This shows ONE card and
+// nothing else: the alert inbox on a spare monitor, readable across a room.
+//
+// It fullscreens the DOCUMENT ROOT, not the card, which looks like the long way
+// round and is the only way that works. A fullscreen element paints above
+// everything outside it, and every .modal-overlay in this product is a
+// body-level sibling of #app (see CLAUDE.md) — so fullscreening the card puts
+// the ack-with-note dialog, the mute dialog, the AI-triage panel and every toast
+// BEHIND it. Measured, not assumed: with the card fullscreen,
+// elementFromPoint() at the open modal's centre returns the card.
+//
+// Same reason kiosk mode does it this way. The card is promoted with a body
+// class instead; modals, toasts and drawers stay inside the fullscreen root and
+// keep working.
+//
+// A DISPLAY mode, not a security boundary — identical to kiosk. The API still
+// enforces the token's role, so a wall left on a viewer token is read-only
+// because the ROLE says so, never because the chrome is hidden.
+function enterAlertWall() {
+  if (_moduleOffFor('alerts')) {
+    toast('The alerts module is switched off', 'warning', { transient: true });
+    return;
+  }
+  showPage('alerts');
+  document.body.classList.add('alertwall');
+  try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
+  catch (_) { /* needs a user gesture; the layout still applies without it */ }
+  // No explicit reload: showPage('alerts') already calls loadAlerts(), and
+  // calling it again here fetched the inbox twice on every open.
+}
+
+function exitAlertWall() {
+  document.body.classList.remove('alertwall');
+  try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }
+  catch (_) {}
+}
+
+// Leaving fullscreen by any route the browser offers (Esc, F11, the OS) must
+// also drop the layout class. Without this the chrome stays hidden and the page
+// looks broken with no way back — the same trap the kiosk exit button exists for.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('alertwall')) {
+    document.body.classList.remove('alertwall');
+  }
+});
+
 function exitKiosk() {
   document.body.classList.remove('kiosk');
   clearInterval(_kioskCycleTimer);
@@ -2438,6 +2486,7 @@ function exitKiosk() {
 // too. Two ways out, because one of them is unusable on the device this targets.
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.body.classList.contains('kiosk')) exitKiosk();
+  if (e.key === 'Escape' && document.body.classList.contains('alertwall')) exitAlertWall();
 });
 
 // ── v6.2.2: lazy page-module loading ─────────────────────────────────────────
@@ -31213,6 +31262,9 @@ setInterval(_perfHudTick, 2000);   // no-op while the HUD is off
 document.addEventListener('DOMContentLoaded', () => {
   try {
     const q = new URLSearchParams(location.search);
+    // ?alertwall=1 for the same reason as ?kiosk=1 — a wall display is
+    // configured by giving the browser a start URL, not by clicking a button.
+    if (q.get('alertwall') === '1') { enterAlertWall(); return; }
     if (q.get('kiosk') !== '1') return;
     enterKiosk({ cycle: q.get('cycle'), pages: q.get('pages') });
   } catch (_) {}
