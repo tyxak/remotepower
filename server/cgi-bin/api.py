@@ -18012,6 +18012,21 @@ def handle_files_archive_start(dev_id):
                          'error': None, 'requested_by': actor,
                          'spool': _file_archive_spool_path(job_id)}
     command = 'files:archive:' + job_id + ':' + _base64.urlsafe_b64encode(path.encode()).decode()
+    # v7.0.2: this appended straight to the queue, so _command_block_reason
+    # never ran and a macOS or Windows host accepted the job with a 200 and a
+    # progress bar. It then sat `pending` until _file_archive_gc marked it
+    # 'failed — no activity from the agent — timed out', naming a cause (an
+    # unresponsive agent) that the code cannot tell apart from the real one
+    # (this agent has no such verb). The device picker has no OS filter and the
+    # default path is /etc, which passes every server-side check on a Mac.
+    _blk = _command_block_reason(devices.get(dev_id) or {}, command)
+    if _blk:
+        _st, _msg = _blk
+        with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
+            if job_id in jobs:
+                jobs[job_id]['status'] = 'failed'
+                jobs[job_id]['error'] = _msg
+        respond(_st, {'error': _msg}); return
     with _LockedUpdate(CMDS_FILE) as cmds:
         cmds.setdefault(dev_id, [])
         if command not in cmds[dev_id]:
@@ -23606,7 +23621,20 @@ _VERB_OS_SUPPORT = {
     'cron:':           ('linux',),
     'svc:':            ('linux', 'windows'),
     'kill:':           ('linux', 'windows'),
-    'files:':          ('linux', 'windows'),
+    # v7.0.2: narrowed from ('linux', 'windows'). The Windows agent ships a
+    # full file-manager implementation with its own roots (C:\Users, ...), and
+    # the SERVER cannot construct a payload it will accept: _valid_abs_path
+    # requires a leading '/', handle_device_files filters configured roots to
+    # POSIX ones, and handle_config_save silently discards any root that does
+    # not start with '/'. So every Windows file-manager action returned 400 or
+    # 403 blaming the operator's path, with no configuration that could work.
+    # Declaring it unsupported at least says so. Per-family roots and an
+    # OS-aware _valid_abs_path are the real fix and a separate decision.
+    'files:':          ('linux',),
+    # A longer key so the prefix match resolves here before 'files:'. The
+    # archive verb exists only in the Linux agent; Windows falls through to
+    # 'unknown file op: archive' and macOS has no files: branch at all.
+    'files:archive:':  ('linux',),
     'uninstall':       ('linux', 'windows'),
     'winget:':         ('windows',),
     'ps:':             ('windows',),
@@ -44992,6 +45020,17 @@ def handle_mailwatch_set(dev_id):
             continue
         if p not in clean_paths:
             clean_paths.append(p)
+    # v7.0.2: both non-Linux agents declare `mailbox_paths` unhonoured
+    # (HEARTBEAT_KEYS_NOT_HONOURED), and nothing stopped an operator
+    # configuring it on those hosts: the paths saved, the Mailbox-watch widget
+    # was offered, a mailbox_threshold could be armed, and no count ever
+    # arrived so the threshold could never fire. The last unmitigated member of
+    # the class v6.4.3 closed for the other seventeen Linux-only flags.
+    _fam = _device_os_family(_load_ro(DEVICES_FILE).get(dev_id) or {})
+    if clean_paths and _fam != 'linux':
+        respond(400, {'error': 'Mailbox watching reads Unix mail spools — '
+                               'Linux hosts only.'})
+        return
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:

@@ -150,12 +150,31 @@ class TestVerbSupportTableMatchesTheAgents(unittest.TestCase):
     def setUpClass(cls):
         cls.src = {fam: p.read_text() for fam, p in AGENTS.items()}
 
+    # A verb the agent implements that the SERVER cannot address. The table is
+    # narrowed on purpose here, so the gate's "agent implements, table
+    # restricts" direction would fire on a correct state.
+    #
+    # An exemption is a claim with an expiry date, so each one carries the
+    # condition that makes it true and
+    # test_the_server_still_cannot_address_these asserts that condition. When
+    # the server grows OS-aware paths, the premise fails, this list has to be
+    # revisited, and the table gets re-widened — rather than the exemption
+    # quietly outliving its reason.
+    _SERVER_CANNOT_ADDRESS = {
+        ('files:', 'windows'):
+            'the Windows agent ships a full file manager, but _valid_abs_path '
+            'requires a leading "/" and handle_config_save discards any root '
+            'that lacks one, so no payload the server can build is accepted',
+    }
+
     def test_every_listed_verb_matches_what_the_agents_implement(self):
         mismatches = []
         for verb, families in sorted(api._VERB_OS_SUPPORT.items()):
             for fam, src in self.src.items():
                 claimed = fam in families
                 actual = _implements(src, verb)
+                if (verb, fam) in self._SERVER_CANNOT_ADDRESS:
+                    continue
                 if claimed != actual:
                     mismatches.append(
                         f'{verb!r} on {fam}: table says '
@@ -166,6 +185,30 @@ class TestVerbSupportTableMatchesTheAgents(unittest.TestCase):
             '', 'Update the table when an agent gains or loses a verb — a stale '
             'entry either re-opens the silent-failure bug or blocks a verb that '
             'now works.']))
+
+    def test_the_server_still_cannot_address_these(self):
+        """The premise behind every _SERVER_CANNOT_ADDRESS entry. If it stops
+        holding, the exemption is hiding a real gap instead of describing one."""
+        api_src = (_CGI / 'api.py').read_text()
+        body = srcpin.py_function(api_src, '_valid_abs_path')
+        self.assertIn("not p.startswith('/')", body,
+                      'the server accepts non-POSIX paths now — re-widen '
+                      "_VERB_OS_SUPPORT['files:'] and drop the exemption")
+        save = srcpin.py_function(api_src, 'handle_config_save')
+        self.assertIn("startswith('/')", save,
+                      'file-manager roots are no longer filtered to POSIX — '
+                      'the exemption below may no longer be true')
+
+    def test_the_exemptions_are_still_reachable(self):
+        """An exemption for a verb that no longer exists, or a family that no
+        longer implements it, is dead weight that reads like coverage."""
+        for (verb, fam), why in self._SERVER_CANNOT_ADDRESS.items():
+            with self.subTest(verb=verb, fam=fam):
+                self.assertIn(verb, api._VERB_OS_SUPPORT, verb)
+                self.assertTrue(_implements(self.src[fam], verb),
+                                f'{fam} no longer implements {verb} — the '
+                                f'exemption is stale')
+                self.assertGreater(len(why), 40, 'justify it or drop it')
 
     def test_the_derivation_can_actually_tell_the_two_apart(self):
         """A test that reports agreement is worthless if its detector answers

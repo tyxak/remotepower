@@ -31,6 +31,7 @@ widen the row. If the server should not SEND the key to a platform that cannot
 read it, gate it at the source too — `_verb_unsupported_on` and the several
 `_device_os_family` checks added in v6.4.3 are the precedent.
 """
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -98,11 +99,52 @@ DECLARED = {
     # mDNS discovery and the push-channel listener: Linux agent features.
     'mdns_enabled':         ('linux',),
     'push_enabled':         ('linux',),
+    # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
+    # were outside the extraction above, so none of them had a row here.
+    'poll_interval':        _ALL,
+    'services_watched':     _ALL,
+    'log_watch':            _ALL,
+    'watched_files':        _ALL,
+    'custom_scripts':       _ALL,
+    'canary_files':         _ALL,
+    'delta_ok':             _ALL,
+    # The real gap this omission hid: both non-Linux agents declare
+    # mailbox_paths unhonoured, and until v7.0.2 nothing stopped an operator
+    # configuring mailbox watching on those hosts.
+    'mailbox_paths':        ('linux',),
 }
 
 
 def _server_keys():
-    return set(re.findall(r"common_resp\[['\"]([a-z_0-9]+)['\"]\]", _API.read_text()))
+    """Every key handle_heartbeat puts in the response the agent reads.
+
+    This matched ONLY `common_resp['k'] = ...` bracket assignments — 28 keys —
+    and DECLARED had exactly those 28 rows, so both assertions below passed
+    while measuring a set that excluded the eight keys in the `common_resp = {
+    ... }` literal: poll_interval, services_watched, log_watch, watched_files,
+    mailbox_paths, custom_scripts, canary_files, delta_ok.
+
+    The consequence was that DECLARED — a file whose stated purpose is that
+    each gap is declared rather than accidental — had no row for
+    `mailbox_paths`, a real two-agent gap both agents declare. The literal is
+    also the natural home for a new unconditional key, so anything added there
+    got no row and no failure.
+
+    Parses both shapes now, the same way test_heartbeat_key_parity already
+    did. Two extractions of one fact is how they came to disagree, so this
+    reads the function body via AST rather than the whole file.
+    """
+    src = _API.read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == 'handle_heartbeat')
+    body = '\n'.join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
+    keys = set(re.findall(r"common_resp\[['\"]([a-z_0-9]+)['\"]\]\s*=", body))
+    m = re.search(r"common_resp\s*=\s*\{(.*?)\n\s{4}\}", body, re.S)
+    if m:
+        keys |= set(re.findall(r"['\"]([a-z_0-9]+)['\"]\s*:", m.group(1)))
+    # Transport/bookkeeping keys every agent handles structurally, not by name.
+    return keys - {'ok', 'command', 'command_sig'}
 
 
 def _reads(src, key):
@@ -122,8 +164,14 @@ class TestHeartbeatResponseParity(unittest.TestCase):
     def test_the_scan_finds_the_response_keys(self):
         """Without this, a changed idiom would empty `keys` and every
         assertion below would pass against nothing."""
-        self.assertGreater(len(self.keys), 20)
+        # Was `> 20`, which 28 satisfied — so the eight missing keys never
+        # tripped it. Raised past the narrow extraction's own count so the two
+        # cannot silently diverge again.
+        self.assertGreater(len(self.keys), 35)
         self.assertIn('agent_checks', self.keys)
+        # One key from each shape, named, so losing either parser is loud.
+        self.assertIn('poll_interval', self.keys)      # the literal
+        self.assertIn('mailbox_paths', self.keys)      # the literal
 
     def test_every_response_key_is_declared(self):
         undeclared = sorted(self.keys - set(DECLARED))
