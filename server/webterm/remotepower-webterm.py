@@ -103,13 +103,35 @@ try:
 except Exception:
     pass
 
+# v7.0.2: 2.14.2, not 2.10. Below it asyncssh is an SSH CLIENT with known
+# session-hijack and algorithm-downgrade flaws (CVE-2023-46445, CVE-2023-46446
+# "Rogue Session", Terrapin prefix truncation) — and this daemon IS that client,
+# the operator's interactive gateway into every managed host. The installer's
+# printed floor was raised; this message, which is what an operator installing
+# by hand actually reads, still said 2.10.
+MIN_ASYNCSSH = (2, 14, 2)
+
 try:
     import asyncssh
 except ImportError:
     print("ERROR: asyncssh library not installed.", file=sys.stderr)
     print("  Debian/Ubuntu: apt install python3-asyncssh", file=sys.stderr)
     print("  Fedora/RHEL:   dnf install python3-asyncssh", file=sys.stderr)
-    print("  pip:           pip install 'asyncssh>=2.10'", file=sys.stderr)
+    print("  pip:           pip install 'asyncssh>=2.14.2'", file=sys.stderr)
+    sys.exit(2)
+
+try:
+    _av = tuple(int(x) for x in str(asyncssh.__version__).split('.')[:3])
+except Exception:
+    _av = None
+if _av is not None and _av < MIN_ASYNCSSH:
+    print(f"ERROR: asyncssh {asyncssh.__version__} is too old — "
+          f"{'.'.join(str(n) for n in MIN_ASYNCSSH)} or newer is required.",
+          file=sys.stderr)
+    print("  CVE-2023-46445 / CVE-2023-46446 affect the SSH client this gateway "
+          "is; an attacker on the path to a target host can hijack the session.",
+          file=sys.stderr)
+    print("  pip install -U 'asyncssh>=2.14.2'", file=sys.stderr)
     sys.exit(2)
 
 VERSION = '2.4.13'
@@ -225,20 +247,61 @@ class TicketStore:
             log.warning("ticket_store: persist failed: %s", e)
 
     def consume(self, ticket: str):
-        """Validate-and-delete a ticket. Returns the metadata dict or None."""
+        """Validate-and-delete a ticket. Returns the metadata dict or None.
+
+        v7.0.2: the read and the delete are one locked operation.
+
+        They used to be a bare load / delete / save, and the CGI's
+        /api/webterm/auth wrote the same store from a DIFFERENT PROCESS with a
+        bare load / add / save of its own. So issuing one ticket while another
+        was being consumed wrote back a snapshot taken before the delete, and
+        the consumed single-use ticket was live again for the rest of its 60
+        second window. A one-time credential that can be used twice is not a
+        one-time credential, and opening two terminals at once is ordinary.
+
+        The lock is the storage backend's own, so it is the SAME lock the CGI
+        takes — a lock only one of two writers holds is not a lock.
+        """
         if not ticket or len(ticket) > 256:
             return None
-        tickets = self._load()
-        meta = tickets.get(ticket)
-        if not meta:
-            return None
         now = int(time.time())
-        if meta.get('expires', 0) < now or meta.get('used'):
+        lu = self._locked_update()
+        if lu is None:
+            # No backend module and no lock primitive: the flat-file fallback.
+            # Still better than nothing — the window shrinks to the delete.
+            tickets = self._load()
+            meta = tickets.get(ticket)
+            if not meta or meta.get('expires', 0) < now or meta.get('used'):
+                return None
+            del tickets[ticket]
+            self._save(tickets)
+            return meta
+        try:
+            with lu as tickets:
+                meta = tickets.get(ticket)
+                if not meta or meta.get('expires', 0) < now or meta.get('used'):
+                    # Nothing to publish; the context manager still commits an
+                    # unchanged store, which is harmless.
+                    return None
+                # Delete entirely (not just a used-flag) so it cannot grow
+                # forever, and so a replay finds nothing rather than a flag.
+                del tickets[ticket]
+                return meta
+        except Exception as e:
+            log.warning("ticket_store: locked consume failed (%s) — refusing "
+                        "the ticket rather than risking a double use", e)
             return None
-        # Delete entirely (not just a used-flag) so the store can't grow forever.
-        del tickets[ticket]
-        self._save(tickets)
-        return meta
+
+    def _locked_update(self):
+        """The backend's LockedUpdate for this store, or None on the flat-file
+        path. Same primitive api._LockedUpdate dispatches to, so the CGI and
+        this daemon serialise against each other."""
+        if self._mod is None:
+            return None
+        try:
+            return self._mod.LockedUpdate(self.data_dir / self.name)
+        except Exception:
+            return None
 
 
 # ─── Session recording (asciinema v2) ────────────────────────────────────────

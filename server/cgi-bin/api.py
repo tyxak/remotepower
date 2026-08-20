@@ -19951,17 +19951,23 @@ def handle_webterm_auth():
     # Issue ticket
     ticket = secrets.token_urlsafe(32)
     now = int(time.time())
-    tickets = load(WEBTERM_TICKETS_FILE)
-    _purge_expired_webterm_tickets(tickets, now)
-    tickets[ticket] = {
-        'actor':     actor,
-        'device_id': dev_id,
-        'created':   now,
-        'expires':   now + WEBTERM_TICKET_TTL,
-        'used':      False,
-        'source_ip': _get_client_ip(),
-    }
-    save(WEBTERM_TICKETS_FILE, tickets)
+    # v7.0.2: locked, and it has to be — the webterm DAEMON consumes from this
+    # same store in another process. Unlocked, issuing a ticket while one was
+    # being consumed wrote back a snapshot taken before the delete and brought
+    # the consumed single-use ticket back for the rest of its 60-second window.
+    # The daemon's consume() takes the storage backend's LockedUpdate, which is
+    # the same primitive this dispatches to; a lock only one of two writers
+    # holds is not a lock.
+    with _LockedUpdate(WEBTERM_TICKETS_FILE) as tickets:
+        _purge_expired_webterm_tickets(tickets, now)
+        tickets[ticket] = {
+            'actor':     actor,
+            'device_id': dev_id,
+            'created':   now,
+            'expires':   now + WEBTERM_TICKET_TTL,
+            'used':      False,
+            'source_ip': _get_client_ip(),
+        }
     audit_log(actor, 'webterm_ticket_issued',
               f'device={dev_id} expires_in={WEBTERM_TICKET_TTL}s')
 
