@@ -5955,6 +5955,46 @@ html { scrollbar-gutter: stable; }
    bounded so a huge article never grows the page unbounded, but readable. */
 .scroll-cap-lg { max-height: 62vh; overflow-y: auto; }
 
+/* v7.0.2: ACCUMULATOR panels — a container that appends one section, card or
+ * editor row per item. Each of these reads as capped because the thing INSIDE
+ * every section is capped (a 340px rule list, a 360px table wrap, a
+ * scroll-cap-sm evidence list); it is the outer stack that had nothing, so the
+ * height is (number of items) x (capped section), which grows without limit.
+ *
+ * Measured worst cases from the producers, not guessed:
+ *   #fail2ban-detail   the agent sends up to 50 jails x 200 banned IPs; an
+ *                      ordinary internet-facing box with 10 jails is ~3,700px
+ *   #firewall-detail   one section per present backend (nftables + iptables +
+ *                      ufw is ~1,200px)
+ *   #adv-findings      groups by finding id, and application findings use the
+ *                      SCANNER's rule id — a nuclei/nikto-scanned fleet yields
+ *                      50-200 distinct ids, 7,500-30,000px of stacked cards
+ *   #sla-targets-editor  one row per group + tag + DEVICE target; 100 per-device
+ *                      targets is ~4,000px of form controls with Save at the end
+ *   #wp-login-panels   one card per configured instance; 20 sites is ~9,000px
+ *   #dns-block-panels  same shape
+ *
+ * All six are behind a click or start hidden, which is why the rendered
+ * box-overflow gate never saw them: it walks pages and never presses a button. */
+#fail2ban-detail,
+#firewall-detail,
+#adv-findings,
+#sla-targets-editor,
+#wp-login-panels,
+#dns-block-panels { max-height: 70vh; overflow-y: auto; }
+
+/* Don't nest a 340px scroller inside the 70vh cap above — two scrollbars on one
+ * panel and the inner one swallows the wheel. Same reasoning as the
+ * #page-thermal .thermal-detail-row rule. */
+#fail2ban-detail .scroll-cap,
+#firewall-detail .scroll-cap { max-height: 132px; }
+
+/* A chip row grows one chip per distinct value. #timeline-kinds is one per
+ * event kind present in the window, so it is bounded by the registry rather
+ * than by fleet size — but it wraps, and on a busy fleet it wrapped to several
+ * rows and pushed the timeline itself below the fold. */
+#timeline-kinds { max-height: 132px; overflow-y: auto; }
+
 /* v5.6.x: inline status icon for the Server-status "Serving & runtime" table. */
 .rt-ico { display: inline-flex; vertical-align: -2px; margin-right: 2px; }
 
