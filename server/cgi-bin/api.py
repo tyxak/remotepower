@@ -29146,7 +29146,15 @@ def handle_config_save():
         ('dmarc_pct_min',             1,   100,    True),
         ('proxmox_backup_warn_days',  1,   3650,   True),
         ('metric_recovery_buffer',    0,   100,    True),
-        ('min_online_ttl',            1,   100000, True),
+        # v7.0.2: 7200, not 100000. This is the anti-flap FLOOR under
+        # online_ttl, and get_online_ttl() returns max(floor, ttl) — so a floor
+        # above the ceiling this same handler enforces on online_ttl (7200s,
+        # rejected with a 400 four hundred lines up) silently overrode it. An
+        # admin who typed 100000 got a 200 and offline detection stretched to
+        # 27.8 hours: a dead host stayed green past a full day, device_offline
+        # never fired, and nothing anywhere said why. A floor above the
+        # permitted maximum is not a setting, it is a contradiction.
+        ('min_online_ttl',            1,   7200,   True),
         ('unstable_host_returns_min', 1,   1000,   True),
         ('unstable_host_window_days', 1,   365,    True),
         ('reliability_reboot_churn_min', 1, 1000,  True),
@@ -56951,6 +56959,18 @@ def handle_audit_log_clear():
                                'My Account, or use an admin account that has one.'})
     if not verify_password(pw, stored):
         respond(403, {'error': 'Incorrect admin password.'})
+    # v7.0.2: the archive is a PRECONDITION of the wipe, not a best effort.
+    #
+    # This used to log the failure to the server log and fall straight through
+    # to the wipe below — so a full disk, a read-only volume or a stale path
+    # destroyed the audit log, returned 200, and left behind a single entry
+    # reading "audit log cleared (pre-wipe archived)". The one record an auditor
+    # would read asserted the existence of an archive that was never written.
+    # The comment four lines up says this exists "so a clear can never silently
+    # destroy evidence", which is the behaviour it now has.
+    #
+    # Refusing is the safe direction: the operator keeps their audit log and
+    # gets the reason, and can retry once the cause is fixed.
     try:
         import gzip
         cur = load(AUDIT_LOG_FILE) or {}
@@ -56958,11 +56978,19 @@ def handle_audit_log_clear():
         with gzip.open(str(arch), 'wt') as f:
             for e in cur.get('entries', []):
                 f.write(json.dumps(e) + '\n')
+        _n = len(cur.get('entries', []))
     except Exception as _aw:
         log_json('error', 'pre-wipe audit archive failed', error=str(_aw))
+        audit_log(actor, 'clear_audit_log_refused',
+                  f'pre-wipe archive failed, log NOT cleared: {str(_aw)[:160]}')
+        respond(500, {'error': 'The pre-wipe archive could not be written, so '
+                               'the audit log was NOT cleared — clearing without '
+                               'one would destroy the record with nothing to fall '
+                               f'back on. Reason: {str(_aw)[:200]}'})
     save(AUDIT_LOG_FILE, {'entries': []})
     # Log the clear itself as the first new (chained) entry
-    audit_log(actor, 'clear_audit_log', 'audit log cleared (pre-wipe archived)')
+    audit_log(actor, 'clear_audit_log',
+              f'audit log cleared ({_n} entries archived to {arch.name})')
     # v6.4.2: and announce it off-box. An audit-log wipe that is only recorded
     # IN the audit log is not a control at all.
     _fire_control_plane_change('audit_log_cleared', actor)

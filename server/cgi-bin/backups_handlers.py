@@ -1169,15 +1169,25 @@ def handle_backup_restore():
             A.respond(400, {'error': 'archive too large when decompressed — refused (possible zip bomb)'})
         safe_members.append(m)
     # 3) Extract.
+    #
+    # v7.0.2: a member that cannot be written is now REPORTED. This loop used to
+    # swallow every failure — an existing directory or mount point at the name,
+    # a read-only or immutable file, ENOSPC part-way through — and `restored`
+    # counted only the successes, against no baseline. So a restore that put
+    # back half the archive answered ok:true with a plausible-looking number,
+    # and the operator had a data dir that was half backup and half broken
+    # install, on the disaster-recovery path, with nothing anywhere saying so.
     restored = 0
+    failed = []
     for m in safe_members:
         try:
             tf.extract(m, path=base)
             if m.isfile():
                 restored += 1
-        except Exception:
-            pass
+        except Exception as _ex:
+            failed.append(f'{m.name}: {type(_ex).__name__}: {str(_ex)[:80]}')
     tf.close()
+    expected = sum(1 for m in safe_members if m.isfile())
     # Storage backend may cache file handles / mtimes — drop them.
     try:
         A._invalidate_backend_cache()
@@ -1196,10 +1206,23 @@ def handle_backup_restore():
                                  f'{A._storage_backend()} backend failed: {e} — the '
                                  f'pre-restore snapshot is {snap_name}'})
     A.audit_log(actor, 'backup_restore',
-              f'{restored} files restored, {len(imported)} stores imported '
-              f'(safety snapshot {snap_name})')
-    A.respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name,
-                    'stores_imported': len(imported)})
+              f'{restored}/{expected} files restored, {len(imported)} stores '
+              f'imported, {len(failed)} failed (safety snapshot {snap_name})')
+    # A partial restore is not a success. Say so in the flag the UI reads, keep
+    # the counts so the operator can see how partial, and name the first few
+    # failures — the snapshot is still there to roll back to.
+    if failed:
+        A.respond(200, {
+            'ok': False, 'partial': True, 'restored': restored,
+            'expected': expected, 'failed': len(failed),
+            'failures': failed[:10], 'snapshot': snap_name,
+            'stores_imported': len(imported),
+            'error': f'{len(failed)} of {expected} file(s) could not be '
+                     f'restored — the data directory is now part backup and '
+                     f'part what was there before. Roll back with snapshot '
+                     f'{snap_name}, fix the cause, and retry.'})
+    A.respond(200, {'ok': True, 'restored': restored, 'expected': expected,
+                    'snapshot': snap_name, 'stores_imported': len(imported)})
 
 
 def handle_backup_run():
