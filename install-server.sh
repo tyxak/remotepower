@@ -430,6 +430,40 @@ if [[ -f "$SCRIPT_DIR/packaging/remotepower-wg-apply" ]]; then
     rm -f "$_wg_sudoers"
 fi
 
+# ── Restart / self-update escalation (systemd path units) ─────────────────────
+# remotepower-wsgi.service sets NoNewPrivileges=true, which blocks sudo's setuid
+# transition no matter what a sudoers drop-in says. So the web process cannot run
+# the root-owned restart/update helpers itself. Instead it creates an EMPTY
+# request file in its own data directory and systemd, as root, does the work.
+#
+# These units shipped in packaging/ since v6.4.2 with install instructions in
+# their headers, and nothing installed them. The server checked only whether the
+# spool directory was writable — and the spool directory defaults to the data
+# dir, which the server always owns — so it reported the "spool" route as
+# available on every install, answered 200 "systemd is running it as root", and
+# nothing consumed the file. Restart and Update both looked like they worked.
+for _act in restart update; do
+    _sh="$SCRIPT_DIR/packaging/remotepower-server-$_act.sh"
+    _path_unit="$SCRIPT_DIR/packaging/remotepower-server-$_act.path"
+    _run_unit="$SCRIPT_DIR/packaging/remotepower-server-$_act-run.service"
+    [[ -f "$_sh" && -f "$_path_unit" && -f "$_run_unit" ]] || continue
+    install -d -m 755 -o root -g root /usr/local/sbin
+    install -m 755 -o root -g root "$_sh" "/usr/local/sbin/remotepower-server-$_act"
+    install -m 644 -o root -g root "$_path_unit" \
+        "/etc/systemd/system/remotepower-server-$_act.path"
+    install -m 644 -o root -g root "$_run_unit" \
+        "/etc/systemd/system/remotepower-server-$_act-run.service"
+done
+if [[ -f /etc/systemd/system/remotepower-server-restart.path ]]; then
+    systemctl daemon-reload
+    for _act in restart update; do
+        [[ -f "/etc/systemd/system/remotepower-server-$_act.path" ]] || continue
+        systemctl enable --now "remotepower-server-$_act.path" >/dev/null 2>&1 \
+            || warn "could not enable remotepower-server-$_act.path — the $_act button will report it is blocked"
+    done
+    success "Restart + self-update escalation installed (systemd path units)"
+fi
+
 # ── Agent binary for self-update ────────────────────────────────────────────────
 info "Publishing agent binary for self-update..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent

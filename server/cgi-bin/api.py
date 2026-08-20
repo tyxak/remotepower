@@ -34718,7 +34718,7 @@ def handle_server_self_update():
     # NoNewPrivileges=true blocks outright — so on a stock install this returned
     # a raw "sudo: effective uid is not 0" in a <pre> and told the operator to
     # check a sudoers drop-in that could not fix it. Preflight it.
-    _mode = _privileged_helper_mode(cmd)
+    _mode = _privileged_helper_mode(cmd, kind='update')
     if _mode == 'blocked':
         respond(400, {'error': f'the update script cannot escalate here: {_PRIV_BLOCKED_HELP}',
                       'no_new_privs': True}); return
@@ -34786,19 +34786,45 @@ def _no_new_privs():
     return False
 
 
-def _privileged_helper_mode(script=None):
+def _priv_path_unit_enabled(kind):
+    """Is systemd actually watching for the `kind` request file?
+
+    Writing the request file IS the whole protocol — nothing else happens. So
+    if the .path unit is not installed and enabled, the write lands in the data
+    directory and no one ever consumes it, while the handler answers 200 with
+    "systemd is running it as root". A success message for an action that will
+    never occur.
+
+    The old check was `PRIV_SPOOL_DIR.is_dir() and writable`, and PRIV_SPOOL_DIR
+    defaults to DATA_DIR — a directory the server owns and can always write. It
+    was true on every install, including every install where no unit exists.
+    """
+    unit = f'remotepower-server-{kind}.path'
+    dirs = [Path(d) for d in ('/etc/systemd/system', '/run/systemd/system',
+                              '/usr/lib/systemd/system', '/lib/systemd/system')]
+    if not any((d / unit).exists() for d in dirs):
+        return False
+    # `systemctl enable` on a WantedBy=multi-user.target unit creates this
+    # symlink. Installed-but-not-enabled means systemd is not watching either.
+    return any((d / 'multi-user.target.wants' / unit).exists() for d in dirs)
+
+
+def _privileged_helper_mode(script=None, kind=None):
     """How (or whether) this process can run a root-owned helper.
 
     Returns one of:
       'root'    — already uid 0; run it directly.
       'sudo'    — not root, but NoNewPrivileges is off, so `sudo -n` can work.
-      'spool'   — sudo is blocked, but the privileged path-unit is installed;
-                  drop a request file and let systemd run it as root.
+      'spool'   — sudo is blocked, but the privileged path-unit is installed
+                  AND enabled; drop a request file and let systemd run it.
       'blocked' — the script is there but nothing can run it. Say so plainly.
       'absent'  — the helper is not installed at all.
     """
     p = Path(script or RESTART_SCRIPT)
-    spool_ok = PRIV_SPOOL_DIR.is_dir() and os.access(str(PRIV_SPOOL_DIR), os.W_OK)
+    if kind is None:
+        kind = 'update' if 'update' in p.name else 'restart'
+    spool_ok = (PRIV_SPOOL_DIR.is_dir() and os.access(str(PRIV_SPOOL_DIR), os.W_OK)
+                and _priv_path_unit_enabled(kind))
     if not p.exists():
         # No helper on disk means no route works — the path unit's ExecStart
         # points at this same script, so a writable spool proves nothing.
@@ -34811,6 +34837,7 @@ def _privileged_helper_mode(script=None):
     if not _no_new_privs():
         return 'sudo'
     return 'spool' if spool_ok else 'blocked'
+
 
 
 _PRIV_BLOCKED_HELP = (

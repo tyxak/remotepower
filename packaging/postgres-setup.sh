@@ -151,6 +151,33 @@ fi
 DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:${RP_DB_PORT}/${RP_DB_NAME}"
 
 if [ -n "$WRITE_MARKER" ]; then
+  # The marker makes Postgres the ACTIVE backend for every request. Without
+  # psycopg the first storage call raises ImportError, so writing it before
+  # the driver exists turns a working install into a server that answers
+  # nothing — while the installer prints "PostgreSQL provisioned". Install the
+  # driver first, and if it still is not importable, do not write the marker.
+  if ! python3 -c "import psycopg" 2>/dev/null; then
+    log "Installing psycopg (the Postgres driver the server imports)."
+    if   command -v apt-get >/dev/null 2>&1; then
+      apt-get install -y python3-psycopg 2>/dev/null \
+        || pip3 install 'psycopg[binary]' --break-system-packages 2>/dev/null \
+        || pip3 install 'psycopg[binary]' || true
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf install -y -q python3-psycopg 2>/dev/null || pip3 install 'psycopg[binary]' || true
+    elif command -v pacman >/dev/null 2>&1; then
+      pacman -S --noconfirm --needed python-psycopg 2>/dev/null || pip install 'psycopg[binary]' || true
+    else
+      pip3 install 'psycopg[binary]' || true
+    fi
+  fi
+  if ! python3 -c "import psycopg" 2>/dev/null; then
+    echo "ERROR: psycopg is not importable, so the Postgres backend cannot run." >&2
+    echo "       NOT writing the storage marker — the install stays on its current" >&2
+    echo "       backend rather than pointing at a database it cannot reach." >&2
+    echo "       Install it, then re-run with --write-marker:" >&2
+    echo "         pip3 install 'psycopg[binary]'" >&2
+    exit 3
+  fi
   mkdir -p "$WRITE_MARKER"
   MARKER="${WRITE_MARKER%/}/storage_backend.json"
   log "Writing storage marker ${MARKER} (chmod 600)."

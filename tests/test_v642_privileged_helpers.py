@@ -42,7 +42,15 @@ class TestPreflight(unittest.TestCase):
         api._no_new_privs = self._nnp
         os.geteuid = self._geteuid
 
-    def _mode(self, *, nnp, script_exists, euid=1000, spool=None):
+    def _mode(self, *, nnp, script_exists, euid=1000, spool=None, unit=False):
+        """`unit` is whether the systemd path unit is installed AND enabled.
+
+        It used to be assumed from a writable spool directory, which defaults
+        to DATA_DIR — a directory the server always owns. So 'spool' was
+        reported on every install including those with no unit at all, and the
+        handler answered 200 "systemd is running it as root" while the request
+        file sat unread. It is a separate input now because it is a separate
+        fact."""
         api._no_new_privs = lambda: nnp
         os.geteuid = lambda: euid
         if script_exists:
@@ -50,12 +58,15 @@ class TestPreflight(unittest.TestCase):
         elif self.script.exists():
             self.script.unlink()
         orig = api.PRIV_SPOOL_DIR
+        orig_unit = api._priv_path_unit_enabled
         if spool is not None:
             api.PRIV_SPOOL_DIR = spool
+        api._priv_path_unit_enabled = lambda _kind: unit
         try:
             return api._privileged_helper_mode(str(self.script))
         finally:
             api.PRIV_SPOOL_DIR = orig
+            api._priv_path_unit_enabled = orig_unit
 
     def test_missing_helper_is_absent(self):
         self.assertEqual(
@@ -80,9 +91,18 @@ class TestPreflight(unittest.TestCase):
             self._mode(nnp=True, script_exists=True,
                        spool=Path("/nonexistent-rp-spool")), "blocked")
 
-    def test_no_new_privs_with_a_writable_spool_uses_systemd(self):
+    def test_no_new_privs_with_an_enabled_path_unit_uses_systemd(self):
         self.assertEqual(
-            self._mode(nnp=True, script_exists=True, spool=api.DATA_DIR), "spool")
+            self._mode(nnp=True, script_exists=True, spool=api.DATA_DIR,
+                       unit=True), "spool")
+
+    def test_a_writable_spool_without_the_unit_is_blocked(self):
+        """This used to assert "spool" — the shipped bug, pinned as intent.
+        PRIV_SPOOL_DIR defaults to DATA_DIR, so the old condition was true
+        everywhere and nothing installed the unit anywhere."""
+        self.assertEqual(
+            self._mode(nnp=True, script_exists=True, spool=api.DATA_DIR,
+                       unit=False), "blocked")
 
     def test_blocked_help_names_the_real_cause_not_sudoers(self):
         help_text = api._PRIV_BLOCKED_HELP
