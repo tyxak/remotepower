@@ -432,7 +432,7 @@ CMDB_ENVIRONMENTS = ('', 'test', 'dev', 'staging', 'prod')  # v3.12.0
 CMDB_CRITICALITIES = ('', 'low', 'normal', 'high', 'critical')
 _CMDB_CRIT_WEIGHT = {'critical': 3.0, 'high': 2.0, 'normal': 1.0, 'low': 0.5, '': 1.0}
 # v5.0.0: coarse operational ownership bucket (who runs the box, not what it
-# does). Fixed allowlist — values are stored verbatim (mixed-case labels).
+# does). Fixed allowlist — values are stored unchanged (mixed-case labels).
 CMDB_BUSINESS_FUNCTIONS = ('', 'Application Operation', 'OS Operation', 'Server Camp')
 CMDB_SSH_PORT_MIN     = 1
 CMDB_SSH_PORT_MAX     = 65535
@@ -453,7 +453,7 @@ FLOW_FILE        = DATA_DIR / 'flow.json'              # v6.3.1: latest NetFlow/
 FLOW_DEPS_FILE   = DATA_DIR / 'flow_deps.json'         # v6.3.1: per-edge observed state for the flow-derived dependency map
 # v6.4.3: how long an enrolled flow exporter may go silent before Server
 # status counts it as stopped. flowd flushes every 10s but skips empty
-# windows, so a genuinely idle link is indistinguishable from a dead one —
+# windows, so a idle link is indistinguishable from a dead one —
 # hence hours, not minutes. Anything tighter would flag quiet standby links.
 _FLOW_SILENT_S = 3 * 3600
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
@@ -500,7 +500,7 @@ AFTER_HOURS_FILE = DATA_DIR / 'after_hours_hits.json'
 # legitimately fans out one webhook per device, so the cap must comfortably
 # exceed a realistic fleet. 120/60s (2/s sustained) covers a ~100-host burst
 # without silently dropping the alerts you most want during an incident, while
-# still throttling a genuinely pathological loop.
+# still throttling a pathological loop.
 WEBHOOK_RATELIMIT_FILE = DATA_DIR / 'webhook_ratelimit.json'
 WEBHOOK_RATE_MAX    = 120   # max webhook sends ...
 WEBHOOK_RATE_WINDOW = 60    # ... per this many seconds, server-wide
@@ -1004,7 +1004,7 @@ del _pv_name
 # WG Access (WireGuard hub) tunnels + clients + helper bridge + stats cadence —
 # same private-instance loader as tickets_handlers above. VPN_FILE / WG_HELPER
 # stay defined in api.py (below); the module reads them through A. The
-# module-private _wg_last_err / _WG_BIN_DIRS are deliberately NOT re-exported.
+# module-private _wg_last_err / _WG_BIN_DIRS are NOT re-exported.
 _vp_spec = _tk_ilu.spec_from_file_location(
     'vpn_handlers', Path(__file__).parent / 'vpn_handlers.py')
 vpn_handlers_mod = _tk_ilu.module_from_spec(_vp_spec)
@@ -1795,7 +1795,7 @@ MCP_ACTION_ALLOWLIST = frozenset({
     # before the action runs. Non-destructive ones execute immediately.
     # v6.4.2: acknowledge_alert — the least destructive write here by some
     # margin. It changes who is expected to ACT and touches no fleet state, and
-    # it deliberately cannot RESOLVE: closing an alert stays an operator action
+    # it cannot RESOLVE: closing an alert stays an operator action
     # in the dashboard. Added because the MCP server exposed reboot_device and
     # could not read the Alerts inbox at all, which is the wrong way round.
     'acknowledge_alert',
@@ -1867,7 +1867,7 @@ _AUTOHEAL_GAPS = frozenset({
     # ecc_stable (24 quiet hours after a rise), secret_cleared (rescan finds
     # no unmuted findings). Every stateful alert now auto-resolves. A NEW
     # severity event with no resolver must add its observer, not this list —
-    # the list exists only for a detection that genuinely can't be built yet.
+    # the list exists only for a detection that can't be built yet.
 })
 
 EVENT_REGISTRY = {
@@ -2147,7 +2147,7 @@ EVENT_REGISTRY = {
         label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Device Unreachable',
         severity='high', symptom=True),
     'snmp_dead': dict(
-        label='SNMP poll failing for 6+ hours (genuinely dead)', kind='snmp',
+        label='SNMP poll failing for 6+ hours (not a transient blip)', kind='snmp',
         title='SNMP Device Dead', severity='critical', symptom=True),
     'snmp_recover': dict(
         label='SNMP polling recovered', kind='snmp', title='SNMP Device Recovered',
@@ -2466,7 +2466,7 @@ EVENT_REGISTRY = {
     # v6.2.0: someone gained sudo/wheel (Linux) or Administrators (Windows).
     # The classic post-compromise persistence step, and the classic
     # nobody-told-me change. Edge-triggered per user, like rogue_uid0.
-    # There is deliberately NO recover event: a privilege grant is an EVENT,
+    # There is NO recover event: a privilege grant is an EVENT,
     # not an ongoing condition — an auto-resolving alert would let a real
     # escalation vanish from the inbox the moment the attacker cleaned up.
     # Removals do not fire (they are not a security signal, and crying wolf
@@ -2483,7 +2483,7 @@ EVENT_REGISTRY = {
     # MFA enforcement / change approval / the audit log — the account that can
     # run root commands on the entire fleet. Fires from the handlers that change
     # who can do what; `change` names which one.
-    # kind='accounts' deliberately: it is the privileged-account channel, so an
+    # kind='accounts' : it is the privileged-account channel, so an
     # operator who routes account changes to a security destination gets these
     # on the same wire. Fleet-level (no device_id) — the subject is the server.
     # lifecycle='point' and NO recover event, exactly like priv_group_added: a
@@ -2759,7 +2759,7 @@ EVENT_REGISTRY = {
         label='System Integrity Protection is enabled again (recovered)',
         kind='mac_posture', resolves=('mac_sip_disabled',)),
     # v6.4.2: OPT-IN Security-hardening advisories (Settings → Security). Off by
-    # default because each flags a DELIBERATE configuration choice — password
+    # default because each flags a configuration an operator may have chosen on purpose — password
     # SSH auth, manual patching, an un-rotated service-account password — so
     # warning on them out of the box is noise. When the operator enables the
     # feature these fire edge-triggered (on entering the state, incl. first
@@ -2832,7 +2832,7 @@ WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
 # Derived: per-event delivery-adapter decoration (title / push priority /
 # ntfy tags). The 'test' event is the Settings "send a test" button — it is
-# deliberately not a registry row (not routable, not alertable).
+# not a registry row (not routable, not alertable).
 _WEBHOOK_TITLES = {ev: spec['title']
                    for ev, spec in EVENT_REGISTRY.items() if 'title' in spec}
 _WEBHOOK_TITLES['test'] = 'Webhook Test'
@@ -3650,7 +3650,7 @@ def backend_exists(path):
     there data for this file?" guard. Under SQLite the .json files never exist
     on disk — the data lives in the decomposed store — so a raw .exists() would
     make the guarded feature silently see no data. Use this for data-presence
-    guards only; keep Path.exists() for genuine filesystem paths (agent binary,
+    guards only; keep Path.exists() for real filesystem paths (agent binary,
     archive .gz files, debug.log, the storage marker)."""
     _m = _dbmod()
     if _m is not None:
@@ -3765,11 +3765,11 @@ def _audit_retention_days(cfg):
 
 def _litigation_hold_active(cfg=None):
     """docs/master-improvement-scoping-internal.md #21: True when a litigation
-    hold is in effect. Deliberately global/coarse (suspend ALL age-based
+    hold is in effect. Global/coarse (suspend ALL age-based
     retention purging), not a per-entity flag -- a per-entity hold risks a bug
     where something that SHOULD have been preserved wasn't, which defeats the
     whole point of a legally-defensible hold. Manual delete actions (a device,
-    a ticket, a user) are untouched -- those are deliberate operator actions,
+    a ticket, a user) are untouched -- those are intentional operator actions,
     not the automated purge sweep this gates."""
     if cfg is None:
         cfg = _config_ro()
@@ -4102,7 +4102,7 @@ def _config_install_salt():
 
 def _cfg_derived_key(master, salt):
     """One-shot HMAC-SHA256 KDF (HKDF-extract shape), cached per process.
-    Deliberately fast: the master key comes from the operator's environment
+    fast: the master key comes from the operator's environment
     and is expected to be high-entropy, so iteration hardening buys nothing
     and would cost ~80 ms × N values per CGI request."""
     ck = (master, salt)
@@ -4462,7 +4462,7 @@ def _external_scheduler_configured():
     flag alone, with no opinion about whether it is alive.
 
     v6.4.2: split out of _external_scheduler_active, which now also requires a
-    recent heartbeat. Server status needs both facts and they are genuinely
+    recent heartbeat. Server status needs both facts and they are
     different: "you told me a scheduler owns this" and "one actually does". The
     panel showing them as one number is how a dead scheduler stayed invisible.
     """
@@ -4500,7 +4500,7 @@ def _external_scheduler_active():
     # state and the fleet looked perfectly healthy.
     #
     # So: a scheduler that has not beaten in a long time no longer owns the
-    # cadence. The threshold is deliberately generous (well past
+    # cadence. The threshold is generous (well past
     # _runtime_serving_info's "alive" window) so a slow sweep or a restart never
     # causes both to run — the sweeps are idempotent and claim their slot, but
     # double-running them is still waste.
@@ -5546,7 +5546,7 @@ def _provision_or_promote_user(username, role, metadata, source):
        group membership is not something anyone wants by accident, and a viewer
        can be promoted by a real superadmin in one click — whereas the reverse
        mistake is invisible until it is a breach. Setting `sso_default_tenant`
-       (to `default` if that is genuinely what you want) restores the full role.
+       (to `default` if that is what you want) restores the full role.
     """
     # Audit AFTER the lock is released — audit_log takes its own
     # AUDIT_LOG_FILE lock, and nesting locks (or SQLite transactions)
@@ -5831,7 +5831,7 @@ def verify_token(token):
             # nested BEGIN is a silent no-op, so this block's own COMMIT on
             # exit ends the OUTER transaction early and releases its
             # pg_advisory_xact_lock before the outer handler finishes
-            # mutating its own store -- a genuine, silent lost-update race.
+            # mutating its own store -- a real, silent lost-update race.
             # Defer through the same _defer_after_locks mechanism
             # fire_webhook/audit_log/log_command already use when a lock is
             # held; run immediately as before otherwise (the common case --
@@ -6252,7 +6252,7 @@ def get_body():
 
 def get_json_body():
     # Returns the raw parsed JSON (which MAY be a non-dict — some handlers, e.g.
-    # handle_ui_prefs_set, deliberately validate `isinstance(body, dict)` and
+    # handle_ui_prefs_set, validate `isinstance(body, dict)` and
     # reject a top-level array with 400, so we must NOT coerce here).
     try:
         raw = get_body()
@@ -6403,7 +6403,7 @@ _HTTP_STATUS_REASONS = {
 
 
 # v4.3.0 perf: app-level gzip for the bulk read-only GET endpoints. nginx
-# deliberately does NOT gzip application/json (BREACH defence — see the
+# does NOT gzip application/json (BREACH defence — see the
 # shipped nginx config), which left the largest payloads on the
 # wire uncompressed (a fleet /api/home or /api/devices response is easily
 # hundreds of KB, ~5-10x smaller gzipped). BREACH needs a response that
@@ -6811,7 +6811,7 @@ def require_mcp_action(action_name):
       - Token has role != 'mcp'    → 403 (this endpoint is MCP-only)
       - Action not in allowlist    → 403 (action not in allowlist)
 
-    Admin tokens deliberately CANNOT call MCP write tools through this gate
+    Admin tokens CANNOT call MCP write tools through this gate
     — they have their own direct endpoints. The separation makes the audit
     log unambiguous: anything passing through require_mcp_action() was
     initiated by an AI host, not a human admin clicking a button.
@@ -7257,7 +7257,7 @@ def get_mcp_attribution():
       X-MCP-Client    →  ai_host    (e.g. "claude-desktop", "cursor")
       X-MCP-Prompt    →  ai_prompt  (the natural-language justification
                                      the LLM passed as a tool argument,
-                                     forwarded verbatim to the audit log)
+                                     forwarded unchanged to the audit log)
 
     Stage 1: helper exists, no caller yet. Stage 4 writes the MCP server
     half and the write tools call get_mcp_attribution() right before
@@ -7799,7 +7799,7 @@ def _fire_control_plane_change(change, actor, target_user='', extra=''):
 # once (not once per entry), and report the backlog where the operator looks.
 MAX_AUDIT_FORWARD_SPOOL = 1000
 # How long a forward has to stay broken before it is worth waking someone.
-# Deliberately generous: a collector restart should not page anyone, and the
+# generous: a collector restart should not page anyone, and the
 # entries are spooled either way.
 _AUDIT_FORWARD_ALERT_AFTER_S = 900
 # Retry cadence for the spool drain.
@@ -9160,7 +9160,7 @@ def _record_fleet_event(event, payload):
                     # renderer (app.js _homeActivityAttrs / detail line). Dropped
                     # here they rendered as blank/undefined detail text even though
                     # the fire sites send them. (Arrays like drift `sections` are
-                    # deliberately left out to keep the feed log compact; the
+                    # left out to keep the feed log compact; the
                     # renderer already falls back for those.)
                     # v6.3.1: log_alert's `sample` IS carried — dropping it left
                     # the Needs-Attention card showing only "matched pattern
@@ -9452,7 +9452,7 @@ EVENT_KIND_MAP = {
 # Alias map for the NA filter: _compute_attention emits some items
 # with kinds that don't match the routing kind. Without aliasing, the
 # matrix toggle for `service` wouldn't actually hide items with
-# kind=`service_down`. Kept narrow — only entries that genuinely
+# kind=`service_down`. Kept narrow — only entries that 
 # diverge; everything else maps identity in the lookup.
 NA_KIND_ALIAS = {
     'service_down':       'service',
@@ -10455,7 +10455,7 @@ def _portal_gate():
 _MODULES = {
     # name        config key             default  API prefixes gated
     # NOTE on the tickets key: the obvious name — `tickets_enabled` — is POISONED
-    # and deliberately NOT reused. Before v6.0.0 tickets were opt-IN and that key
+    # and NOT reused. Before v6.0.0 tickets were opt-IN and that key
     # defaulted to false, so any install whose admin ever saved the Settings page
     # without ticking the box still carries `tickets_enabled: false` today. v6.0.0
     # then made tickets always-on and IGNORED the key, so those installs have been
@@ -10502,7 +10502,7 @@ def _enforce_module_gate(pi):
     """404 every route belonging to a switched-off module.
 
     Called once per request from main(), before dispatch — so a module that's
-    off is genuinely unreachable, not just hidden. Cheap: _config_ro() is the
+    off is unreachable, not just hidden. Cheap: _config_ro() is the
     shared no-deepcopy config read, and the prefix scan is over 6 entries.
     """
     if not pi.startswith('/api/'):
@@ -11468,7 +11468,7 @@ def _record_alert(event, payload):
     # resolved_at is unset. Refresh its timestamp and bump an occurrence counter
     # so the inbox shows one live row, not N. Only coalesce when the alert is
     # identifiable (has a device_id or at least one identity field) — two
-    # anonymous same-event alerts may be genuinely distinct occurrences, so they
+    # anonymous same-event alerts may be distinct occurrences, so they
     # still append.
     ident = _alert_identity(event, summary, alert['device_id'])
     identifiable = bool(ident[1] or ident[2])
@@ -11677,7 +11677,7 @@ def _auto_resolve_alerts(event, payload):
         # edge-triggered per threshold, so one integration can hold several open
         # rows — matching on integration_id alone would clear a still-breaching
         # sibling, which then never re-fires (its flap flag stays set). `metric`
-        # is in _ALERT_IDENTITY_FIELDS, so the rows are genuinely separate; both
+        # is in _ALERT_IDENTITY_FIELDS, so the rows are separate; both
         # halves are needed (the v6.4.0 rule).
         sub_match['integration_id'] = p.get('integration_id')
         sub_match['metric'] = p.get('metric')
@@ -12919,7 +12919,7 @@ def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
     169.254.169.254), unspecified (0.0.0.0), and — when allow_loopback
     is False — loopback (127.0.0.0/8, ::1).
 
-    RFC1918 private networks are deliberately allowed since RemotePower
+    RFC1918 private networks are allowed since RemotePower
     targets the LAN by design.
 
     v3.3.0 C3: loopback used to be unconditionally blocked, which broke
@@ -13058,7 +13058,7 @@ def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
 
 
 # v6.4.2: custom-header validation for a generic webhook destination.
-# A header NAME goes onto the wire verbatim, so it is charset-restricted rather
+# A header NAME goes onto the wire unchanged, so it is charset-restricted rather
 # than sanitised — anything with a colon, CR or LF could split the request.
 _HEADER_NAME_RE = re.compile(r'^[A-Za-z0-9-]{1,64}$')
 # Names the operator must not be able to set: the ones the sender owns
@@ -13628,7 +13628,7 @@ def check_offline_webhooks(skip_dev_id=None):
                 continue
 
             # Debounce: a single sweep seeing delta>threshold isn't enough
-            # — a stale read or one genuinely-late beat would flap. Require
+            # — a stale read or one -late beat would flap. Require
             # the candidate to survive a second sweep at least `debounce`
             # later; a live device beats in between and clears it above.
             first = pending.get(dev_id)
@@ -13696,7 +13696,7 @@ def check_offline_webhooks(skip_dev_id=None):
         # covers causes the last_seen path can't see (a brief heartbeat gap, an
         # agent restart, a momentarily wedged CGI write) on top of the
         # lost-update clobber. Only runs for an already-confirmed-stale
-        # candidate, so the per-sweep ping cost is bounded to genuinely-quiet
+        # candidate, so the per-sweep ping cost is bounded to -quiet
         # devices. A non-reachable result is inconclusive (ICMP may be filtered)
         # and falls through to firing offline as before.
         if _icmp_reachable(ip):
@@ -13759,7 +13759,7 @@ def handle_public_info():
     """
     GET /api/public-info — no auth. Used by the login page to fetch the
     server's display name and remember-me default before the user logs in.
-    Deliberately exposes only non-sensitive values.
+    exposes only non-sensitive values.
     """
     cfg = load(CONFIG_FILE) or {}
     respond(200, {
@@ -13807,7 +13807,7 @@ def handle_health():
     Liveness is this endpoint's whole job; authenticated callers read the
     version on the Server-status page.
 
-    `/api/public-info` deliberately KEEPS its `server_version`: the
+    `/api/public-info` KEEPS its `server_version`: the
     peer-instance connector (integrations.py, the `remotepower` connector)
     reads it from a peer's no-auth endpoint to report that peer's version,
     so removing it there would break federation. That endpoint is the one
@@ -14879,7 +14879,7 @@ def handle_device_save_bulk(dev_id):
                     cfg[key] = d
 
     # Audit the bulk save with the field list (not values — keeps the
-    # audit log compact and avoids logging long allowlists verbatim)
+    # audit log compact and avoids logging long allowlists unchanged)
     audit_log(actor, 'device_save_bulk',
               f'dev={dev_id} fields={",".join(sorted(updates.keys()))}')
 
@@ -14936,7 +14936,7 @@ def handle_device_metric_thresholds(dev_id):
             # v6.4.2: sensors this device's operator has taken out of the
             # temperature picture (a dead/unconnected board pin). Kept OUT of
             # `overrides` so a DELETE — "reset my thresholds" — does not also
-            # silently un-ignore a sensor the operator deliberately muted.
+            # silently un-ignore a sensor the operator muted.
             'sensor_ignores': sorted(_sensor_ignores(dev)),
             'recovery_buffer_percent': int(_config_ro().get(
                 'metric_recovery_buffer', METRIC_RECOVERY_BUFFER)),
@@ -17017,7 +17017,7 @@ def handle_site_delete(site_id):
 
 # ── v3.14.0 (#24): multi-tenancy — P1 FOUNDATION ONLY ───────────────────────
 # A tenant registry + assignment of users to a tenant, plus surfacing the
-# caller's tenant. This is DELIBERATELY behaviour-neutral: NOTHING is filtered
+# caller's tenant. This is behaviour-neutral by design: NOTHING is filtered
 # or partitioned by tenant yet (all data stays shared, governed by the existing
 # RBAC scopes). The enforcing half — per-tenant storage isolation (schema-per-
 # tenant on Postgres / RLS) + threading tenant context through every handler — is
@@ -17069,7 +17069,7 @@ def _caller_tenant():
 # ── v3.14.0 (#24 P2): tenant isolation enforcement ───────────────────────────
 # OFF by default (tenancy_enforced). When off, every function below is a no-op
 # and the product behaves exactly as P1 (one shared 'default' tenant), so
-# enabling isolation is a deliberate, fully reversible flip. When on, a device
+# enabling isolation is an intentional, fully reversible flip. When on, a device
 # is visible only to its own tenant — EXCEPT to a "superadmin" (an admin in the
 # built-in default tenant = the platform operator), who sees everything. A
 # tenant's own admin is confined to that tenant. Enforced at the same chokepoints
@@ -17209,7 +17209,7 @@ def handle_tenancy_readiness():
     docs/feature-buildout-scoping-internal.md #1) — devices + everything keyed by a
     device id inherit the tenancy boundary (app layer always when enforced; also the
     database via RLS when tenancy_rls is on); tickets/CMDB/billing are single shared
-    stores with no tenant partitioning at any layer; audit/roles are deliberately
+    stores with no tenant partitioning at any layer; audit/roles are
     left as global control-plane, not an oversight."""
     require_superadmin_auth('view tenancy isolation coverage')
     enforced = _tenancy_enforced()
@@ -17237,10 +17237,10 @@ def handle_tenancy_readiness():
         {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': False,
          'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
         {'key': 'audit', 'label': 'Audit log', 'isolated': False, 'layer': 'none', 'deliberate': True,
-         'note': 'Deliberately global control-plane — a superadmin needs one complete '
+         'note': 'Global control-plane by design — a superadmin needs one complete '
                  'trail across tenants; not a gap to close.'},
         {'key': 'roles', 'label': 'Users & roles', 'isolated': False, 'layer': 'none', 'deliberate': True,
-         'note': 'Deliberately global control-plane — user/role management stays a '
+         'note': 'Global control-plane by design — user/role management stays a '
                  'superadmin concern; not a gap to close.'},
     ]
     respond(200, {'ok': True, 'tenancy_enforced': enforced, 'tenancy_rls': rls,
@@ -17334,7 +17334,7 @@ def handle_tenant_branding(tid):
     """GET/PUT /api/tenants/{id}/branding — docs/master-improvement-scoping-
     internal.md #17 (per-tenant config overrides) applied concretely to #15
     (per-tenant white-label). Every OTHER config field (SMTP, storage
-    backend, webhook URLs, …) stays deliberately instance-wide — a general
+    backend, webhook URLs, …) stays instance-wide — a general
     "override any config key per tenant" mechanism is a much larger surface
     (which keys are even safe to diverge per tenant needs its own review per
     field) than this item's effort; branding is the concrete, well-bounded
@@ -17412,7 +17412,7 @@ _SAFE_UNIX_USER = re.compile(r'^[a-z_][a-z0-9_-]{0,31}$')
 # must NEVER be permitted is a single quote; backslash and control characters are
 # excluded for the same reason. Options are allowed only WITHOUT spaces, which
 # covers no-pty,no-agent-forwarding,from="…" — a command="…" holding a space is
-# deliberately still refused rather than validated loosely, since that is the
+# still refused rather than validated loosely, since that is the
 # most dangerous construct to get wrong.
 _SSH_PUBKEY_RE = re.compile(
     r'^(?:[A-Za-z0-9_,\-=."/@:\[\]*]+\s+)?'
@@ -17456,7 +17456,7 @@ def handle_device_user_action(dev_id):
         # v6.4.2: revoke by FINGERPRINT. The SSH key audit page ranks weak and
         # reused keys first and then offered no action on any row — six
         # read-only columns and nowhere to go but Host config, per host, by
-        # hand. It knows the fingerprint, not the key line (deliberately: the
+        # hand. It knows the fingerprint, not the key line ( : the
         # audit response is require_auth, so every role reads it), so the line
         # is resolved HERE from the same baseline the audit is built from.
         # Resolving server-side also means the client can never name a key that
@@ -17610,7 +17610,7 @@ def _iptables_delete_args(ref, maxlen=400):
         return None
     # The first token is the chain name (iptables caps it at 28 chars and it
     # never leads with '-'); anything else means the ref is not a rule spec.
-    # Deliberately not a charset check — every token is shlex.quote()d below, so
+    # Not a charset check — every token is shlex.quote()d below, so
     # a narrower class here would only make chains the old gate accepted (`:`,
     # `@`, `%` are all in _FW_TOKEN_RE) undeletable again.
     if not toks or len(toks[0]) > 28 or toks[0].startswith('-'):
@@ -17742,7 +17742,7 @@ def handle_device_firewall_rule(dev_id):
             cmd = f'firewall-cmd --permanent {spec}; firewall-cmd --reload'
     else:  # delete
         ref = str(body.get('ref', '')).strip()
-        # An iptables ref is the verbatim `-S` spec and legitimately carries `"`
+        # An iptables ref is the unchanged `-S` spec and legitimately carries `"`
         # and `!`, so it is validated + shell-quoted by _iptables_delete_args
         # rather than by the shared no-metacharacter charset (see that helper).
         if backend != 'iptables' and not _valid_fw_token(ref):
@@ -18333,7 +18333,7 @@ def handle_device_storage_action(dev_id):
 # ── v6.1.1: guided storage provisioning (create, not just maintain) ─────────
 # _STORAGE_ACTIONS above only operates on pools/volumes that already exist.
 # This is the "create a RAID array / LVM volume / filesystem" counterpart,
-# deliberately narrower than a general partition-table editor
+# narrower than a general partition-table editor
 # (docs/feature-buildout-scoping-internal.md #7):
 #   - whole-disk block devices only (/dev/sdX, /dev/vdX, /dev/nvmeXnY) --
 #     no partitions, no arbitrary paths. An operator wanting partition-level
@@ -18986,7 +18986,7 @@ def _autopatch_queue(pol, actor):
     # or macOS host in an auto-patch scope was sent a shell script. Split by OS
     # family and queue each family its own command.
     #
-    # Two batches rather than _queue_command_map, deliberately: that helper
+    # Two batches rather than _queue_command_map, : that helper
     # derives the four-eyes approval KIND from the first command in the map, and
     # `exec:<bash>` (kind 'exec') and bare `upgrade` (kind 'upgrade') are
     # different kinds with different gating. A mixed map would gate every device
@@ -19289,7 +19289,7 @@ def handle_ansible_playbook_run(pb_id):
 # Ansible, iPXE) organised in a folder tree. RENDER-ONLY: an operator fills in
 # the declared variables, the server substitutes ${var} placeholders (plus a
 # few ${rp_*} macros) and returns the rendered text to copy / download. There
-# is deliberately NO server-side execution here (unlike the Ansible runner) —
+# is NO server-side execution here (unlike the Ansible runner) —
 # zero new exec attack surface. Admin-managed; the whole feature hides behind
 # the `show_provisioning` kill switch (default OFF).
 
@@ -20589,7 +20589,7 @@ def handle_heartbeat():
             # enrolment) left the old name showing on the drawer, in offline
             # and patch alert payloads, and in the LLDP/dependency topology
             # matching, which resolves neighbours BY hostname and so quietly
-            # stopped matching. `name` is deliberately untouched: that one is
+            # stopped matching. `name` is untouched: that one is
             # operator-editable and must not be overwritten by the host.
             _hn = si.get('hostname')
             if isinstance(_hn, str) and _hn:
@@ -20718,7 +20718,7 @@ def handle_heartbeat():
             # and no screen anywhere that could contradict it — on a host with a
             # read-only /root the honeytoken did not exist, and where a REAL
             # credentials file was already there the decoy silently became a
-            # change-watch on genuine data. Same whitelist rule as the two above:
+            # change-watch on real data. Same whitelist rule as the two above:
             # drop it here and the UI has nothing to show.
             # v7.0.2: UEFI Secure Boot from the Linux agent. Same whitelist
             # rule as everything around it — a field the sanitizer drops never
@@ -22726,7 +22726,7 @@ def handle_heartbeat():
         common_resp['image_scan_enabled'] = True
     # v6.1.2: mDNS LAN browse. Opt-in — browsing from every host in the fleet is
     # redundant (they all see the same advertisements on a segment), so this is a
-    # deliberate switch rather than something that just happens.
+    # intentional switch rather than something that just happens.
     if _sec_cfg.get('mdns_enabled'):
         common_resp['mdns_enabled'] = True
     # v6.1.1 (#1): opt-in agent push channel (see server/push/remotepower-
@@ -23677,7 +23677,7 @@ def _command_block_reason(dev, command):
     approved confirmation could fire a command at a host in the middle of a
     controller drain, or at an agent that would refuse it locally anyway.
 
-    This is deliberately ONE predicate with two callers, not a second chokepoint:
+    This is ONE predicate with two callers, not a second chokepoint:
     each caller renders it in its own idiom (respond() vs. an {'ok': False} dict).
     """
     # poll_interval only changes the agent's local timer — exempt from all three,
@@ -23902,7 +23902,7 @@ def _queue_command_batch(dev_ids, command, actor):
 def _queue_command_map(dev_cmds, actor):
     """Like _queue_command_batch but each device gets its OWN command
     (dev_cmds: {dev_id: command}) instead of one shared command -- used
-    where per-device drift means the payload genuinely differs (see
+    where per-device drift means the payload differs (see
     handle_patch_snapshot_enforce, #80). Mirrors _queue_command_batch's
     safety checks (quarantine/audit-mode/queue-full/4-eyes approval)
     exactly; _command_kind is the same ('exec') for every command here
@@ -24007,9 +24007,9 @@ def _ups_shutdown_dependents(source_dev_id, ups_name, source_dev_name):
     into 'critical' for source_dev_id. Opt-in on TWO axes — the global
     ups_auto_shutdown_enabled config flag AND each dependent device's own
     ups_dependency mapping — before anything is queued, so a stray per-device
-    mapping does nothing unless the feature is deliberately turned on fleet-
+    mapping does nothing unless the feature is turned on fleet-
     wide. Queues the SAME 'shutdown' command handle_shutdown() uses, but
-    deliberately bypasses the four-eyes approval gate: this is an unattended
+    bypasses the four-eyes approval gate: this is an unattended
     safety action (the UPS is dying right now), not an operator-initiated
     change, so parking it for a second admin to approve would defeat the
     point. Still respects quarantine/audit-mode/maintenance like every other
@@ -24050,7 +24050,7 @@ def _ups_shutdown_dependents(source_dev_id, ups_name, source_dev_name):
 
 def _humanize_queued_command(cmd):
     """Turn a raw queued command string into a short {kind, summary} for the
-    queue viewer. The agent receives these verbatim; this is display-only."""
+    queue viewer. The agent receives these unchanged; this is display-only."""
     s = str(cmd)
     if s.startswith('exec:'):
         body = s[5:]
@@ -24095,7 +24095,7 @@ def handle_command_queue():
             # v5.6.x: queued acme.sh commands embed DNS-provider secrets in
             # their `export X='…'` prefix — scrub BOTH the humanized summary
             # (first line of the exec body) and the raw echo. Display-only:
-            # the agent still receives the queue verbatim. Same never-echo-
+            # the agent still receives the queue unchanged. Same never-echo-
             # secrets rule as GET /api/config (admins included).
             'commands': [dict(_humanize_queued_command(safe), index=i,
                               raw=safe[:512])
@@ -25006,7 +25006,7 @@ def handle_metrics(dev_id):
 # something that already happened and was already recorded — a reboot, a patch
 # run, a config change. Overlaying them turns a shape into a cause.
 #
-# Kept deliberately SMALL: an annotation per alert would bury the line in ticks
+# Kept SMALL: an annotation per alert would bury the line in ticks
 # and the chart would become unreadable, which is the failure mode of every
 # annotated chart anyone has ever regretted building.
 # Every key here is checked against EVENT_REGISTRY by a guardrail test: an
@@ -25152,7 +25152,7 @@ def _run_one_monitor_check(mtype, target, label, m):
         except FileNotFoundError:
             # v5.8.0 (issue #20): no iputils-ping on the host/container. The
             # single up/down check works over the unprivileged ICMP socket;
-            # the latency/loss variant genuinely needs the binary.
+            # the latency/loss variant needs the binary.
             if mtype == 'ping':
                 ok = _icmp_socket_ping(target, 2) is True
                 detail = 'up' if ok else 'no reply'
@@ -25539,7 +25539,7 @@ def _persist_monitor_results(results):
             key = r['label']
             if key not in mh:
                 # Row-wise: pull just this label's history. Whole-store: it's
-                # already in the dict we loaded (or genuinely new).
+                # already in the dict we loaded (or new).
                 mh[key] = (list(_entity_read_one(MON_HIST_FILE, key, []) or [])
                            if _rowwise else [])
             _row = {'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']}
@@ -25934,7 +25934,7 @@ def run_integrations_if_due():
 # re-implementing the connector with their own bounds, or stand up a parallel
 # custom_probe duplicating the same HTTP call.
 #
-# Shape deliberately mirrors the device-side `custom_metric_thresholds`: a list
+# Shape mirrors the device-side `custom_metric_thresholds`: a list
 # on the integration instance, `{metric, op, value, severity}`. Edge-triggered
 # and flap-dampened by the same `integration_notified` map, keyed per
 # (instance, metric), so a metric parked over its bound alerts once.
@@ -27107,7 +27107,7 @@ _DECLARATIVE_SETTING_KEYS = frozenset({
     # them behind a fresh step-up re-auth so an admin cannot silently disable
     # four-eyes and act. A document import runs under a plain require_admin_auth
     # (and can be scheduler-driven, where there is no session to step up), so
-    # these are deliberately NOT declaratively settable — they must go through
+    # these are NOT declaratively settable — they must go through
     # the interactive, step-up-gated Settings save. _declarative_apply refuses
     # them explicitly (below) as belt-and-braces even if this list is widened.
     # module kill switches (_MODULES rows) are added below
@@ -27401,7 +27401,7 @@ def _declarative_apply(doc, actor, dry_run=True):
 
     # v6.4.2: the scalar settings block. MERGE, not whole-collection replace —
     # a config key absent from the document is left alone, because the document
-    # deliberately carries only operator TUNING and never the per-install
+    # carries only operator TUNING and never the per-install
     # infrastructure (storage, tokens, SSO, SMTP) that sits in the same file.
     # Keys outside the allowlist are refused rather than silently applied, so a
     # hand-edited document cannot use this path to write anything it likes into
@@ -28002,7 +28002,7 @@ def handle_config_get():
 # existed with two call sites (create-admin, promote-to-admin), both guarding
 # privilege escalation; this is the same class of target.
 #
-# Step-up, deliberately, and NOT a new permission: a full administrative
+# Step-up, , and NOT a new permission: a full administrative
 # permission namespace is a redesign across 284 `require_admin_auth()` sites.
 # This protects the governance switches from the people they govern, which is
 # the part that fails the audit, without pretending the rest is done.
@@ -28050,7 +28050,7 @@ def _governance_keys_touched(body, cfg):
 # convention the two threshold loops implement. Popped at the top of
 # handle_config_save so a cleared field on Settings -> Alert parameters behaves
 # the same everywhere instead of 400-ing the entire form.
-# patch_alert_threshold is absent deliberately — it already handles blank AND
+# patch_alert_threshold is absent — it already handles blank AND
 # clears a companion key (patch_alerted) that a generic pop would leave behind.
 _BLANKABLE_CONFIG_KEYS = (
     'snmp_failures_before_alert',
@@ -28284,7 +28284,7 @@ def handle_config_save():
                     # v6.4.2: operator-supplied request headers, so a generic
                     # destination can finally carry an Authorization / X-API-Key.
                     # The NAME is charset-restricted rather than sanitised — it
-                    # goes onto the wire verbatim, and a colon or CR/LF in it
+                    # goes onto the wire unchanged, and a colon or CR/LF in it
                     # would split the request. The VALUE is a credential, so it
                     # follows the hmac_secret pattern exactly: sent once, never
                     # echoed back (see _scrub_config_secrets), and an empty
@@ -28666,7 +28666,7 @@ def handle_config_save():
         # monitor. Adding an unrelated monitor became impossible with no obvious way
         # to find out why. Fix: only the entry the operator actually TOUCHED is a
         # hard failure; an untouched, already-stored entry is carried through
-        # verbatim and reported as a warning, so editing still works and nothing
+        # unchanged and reported as a warning, so editing still works and nothing
         # silently disappears. `_mon_stored` is the exact currently-saved list, so
         # "untouched" means byte-identical, not merely similar.
         import copy as _mon_copy      # api.py imports copy locally, not globally
@@ -30110,7 +30110,7 @@ def handle_config_save():
         cfg['secure_boot_checks'] = bool(body['secure_boot_checks'])
     # v6.4.3 (reported from use): rows on the Self page's readiness table the
     # operator has acknowledged and does not want counted as "needing a look"
-    # — an optional receiver that is deliberately not wired up, say. Stored as
+    # — an optional receiver that is not wired up, say. Stored as
     # row keys; an unknown key is inert, so a renamed row simply un-mutes
     # rather than silencing the wrong subsystem.
     if 'self_readiness_mutes' in body:
@@ -30449,7 +30449,7 @@ def handle_config_save():
         except (TypeError, ValueError):
             pass
     # v6.1.2: fold each host's DISCOVERED compose files into its drift watch list.
-    # Off by default — it appends to a list operators curate deliberately.
+    # Off by default — it appends to a list operators curate .
     if 'drift_watch_compose' in body:
         cfg['drift_watch_compose'] = bool(body['drift_watch_compose'])
     # v6.1.2: WAN public-IP watch (+ internet outage log) and mDNS LAN browse.
@@ -30618,7 +30618,7 @@ def _paginate_list(items):
 
 # ── v6.1.1: ad-hoc fleet query engine ────────────────────────────────────────
 # A small, WHITELISTED predicate-tree query surface (query_engine.py) over a
-# handful of registered entities -- deliberately not raw SQL (see that
+# handful of registered entities -- not raw SQL (see that
 # module's docstring for why: a raw-SQL surface would be a direct RLS-bypass
 # risk). v1 loads each entity's rows through the SAME load()-backed path
 # every other handler already uses (_scope_filter_devices etc.), so whatever
@@ -30637,7 +30637,7 @@ def _qe_device_posture(si):
     sshd still permits root, whether automatic updates are on: all collected,
     all rendered somewhere, none of it queryable or joinable.
 
-    Kept to SCALARS, deliberately. The predicate engine compares numbers,
+    Kept to SCALARS, . The predicate engine compares numbers,
     strings and booleans; handing it a nested dict would give every operator a
     field whose only useful operator is `exists`. Composite signals are reduced
     here to the question someone would actually ask — a list of quarantined
@@ -31635,7 +31635,7 @@ def handle_user_delete(username):
               detail=f'user={username} also_removed={",".join(leftovers) or "none"}')
     # What SURVIVES is reported rather than left for the operator to discover:
     # ticket authorship, time entries and the hash-chained audit trail are
-    # retained deliberately, and GET /api/privacy/subject enumerates them.
+    # retained , and GET /api/privacy/subject enumerates them.
     respond(200, {'ok': True, 'also_removed': leftovers,
                   'note': 'Ticket authorship, time entries and audit-log actor '
                           'fields naming this user are retained as business and '
@@ -31879,7 +31879,7 @@ def _sanitise_ui_prefs(raw):
     # SSH link so the operator doesn't retype their login each time.
     # Validated as an SSH-safe username (letters, digits, dot, dash,
     # underscore; max 32) — this value is interpolated into an ssh://
-    # URL, so the character set is deliberately strict.
+    # URL, so the character set is strict.
     ssh_user = raw.get('default_ssh_username')
     if isinstance(ssh_user, str) and ssh_user:
         if re.fullmatch(r'[A-Za-z0-9._-]{1,32}', ssh_user):
@@ -33333,7 +33333,7 @@ def _subsystems_status(now):
     except Exception:
         pass
     # v6.3.1: native agentless syslog receiver (remotepower-syslogd) — an
-    # INFORMATIONAL watcher, deliberately never a warning/health input: the
+    # INFORMATIONAL watcher, never a warning/health input: the
     # receiver is an optional sidecar, and it may legitimately run on a
     # different host and POST over the network (so "no local unit" is not a
     # fault). The opt-in ALERTING side is the `rp_syslogd_running`
@@ -33547,7 +33547,7 @@ def handle_self_status():
         out['subsystems'] = {'error': str(e)[:200]}
     # v6.4.3 (reported from use): readiness rows the operator has muted. The
     # page derives its "N needing a look" tally from these rows, so without a
-    # mute an optional receiver that is deliberately not wired up sits amber
+    # mute an optional receiver that is not wired up sits amber
     # forever and trains the operator to ignore the tally.
     out['readiness_mutes'] = list(_config_ro().get('self_readiness_mutes') or [])
     # DATA_DIR disk usage
@@ -34094,7 +34094,7 @@ def handle_self_test():
 def handle_diagnostics_bundle():
     """GET /api/diagnostics — v4.3.0: one downloadable JSON support bundle so an
     operator can attach "everything you'd ask for" in a single file instead of
-    a back-and-forth. Admin only; audited. Deliberately contains NO secrets —
+    a back-and-forth. Admin only; audited. Contains NO secrets —
     the config is deep-scrubbed with the same _scrub_config_secrets used by the
     /api/config GET view."""
     actor = require_admin_auth()
@@ -34476,7 +34476,7 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
         # can't cleanly stop mid-file). Sized off DATA_DIR's own current
         # on-disk footprint as a stand-in for migration volume -- exact for
         # a JSON/SQLite source, a reasonable proxy either way; never blocks
-        # on a measurement failure, only on a genuinely-confirmed shortfall.
+        # on a measurement failure, only on a -confirmed shortfall.
         try:
             data_bytes = sum(f.stat().st_size for f in DATA_DIR.rglob('*') if f.is_file())
             free_bytes = shutil.disk_usage(DATA_DIR).free
@@ -34854,7 +34854,7 @@ RESTART_SCRIPT = os.environ.get('RP_RESTART_SCRIPT', '/usr/local/sbin/remotepowe
 # is the escalation route that WORKS under the hardening we actually ship — see
 # _privileged_helper_mode().
 #
-# It deliberately lives in DATA_DIR rather than a /run spool: DATA_DIR is already
+# It lives in DATA_DIR rather than a /run spool: DATA_DIR is already
 # the app server's one `ReadWritePaths=` entry, so no new RuntimeDirectory (which
 # remotepower-wsgi.service documents that it must NOT declare — systemd would
 # delete the shared /run/remotepower on every restart) and no tmpfiles fragment
@@ -35388,7 +35388,7 @@ def _day_status_from_events(events, day_start, day_end):
       - 'up'      if the device had data covering the day and was
                   never offline in it;
       - 'unknown' if there is no event at or before the day's end —
-                  RemotePower genuinely has no record for that day.
+                  RemotePower has no record for that day.
     """
     state_at_start = None     # state as of day_start
     state_seen = None         # any state with ts < day_end
@@ -36017,7 +36017,7 @@ def process_schedule():
                             if job.get('recurring'): remaining.append(job)
                             changed = True; continue
                         queued = f'exec:{body}'
-                    # v6.1.2: nightly docker hygiene. Deliberately the SAFE scope
+                    # v6.1.2: nightly docker hygiene. The SAFE scope
                     # only — a recurring job that quietly deletes volumes every
                     # night is precisely the thing nobody wants, and an unattended
                     # cron can't be shown a "this destroys data" confirmation.
@@ -36828,7 +36828,7 @@ def handle_image_cves():
     out = sorted(by_image.values(), key=lambda g: (-g['critical'], -g['high']))
     # `scanned` lets the page distinguish "enabled but no host has reported yet"
     # (the state that used to look identical to "feature broken") from "enabled
-    # and genuinely nothing vulnerable".
+    # and nothing vulnerable".
     respond(200, {'images': out,
                   'enabled': bool(_config_ro().get('image_scan_enabled')),
                   'scanned': sum(1 for d in store if d in devices)})
@@ -37000,7 +37000,7 @@ def handle_secrets_scan_now():
 # The server re-enforces this on ingest rather than trusting the agent: even a
 # malicious/patched agent posting a `preview` cannot get a value into the store.
 #
-# Deliberately NOT an alert. PII sitting in /srv/data is the expected state of a
+# NOT an alert. PII sitting in /srv/data is the expected state of a
 # business, not an incident — an event per finding would be pure alert fatigue and
 # would train operators to mute the one category they must not mute. The
 # `secret_exposed` alert still covers the *incident* case (a leaked credential).
@@ -37577,7 +37577,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                       'last_rise': _last_rise, 'stable_fired': _stable_fired}
 
     # ── v6.1.2 (#40): SSH host-key change ──────────────────────────
-    # Baseline the fingerprints, then fire when one CHANGES. Deliberate choices:
+    # Baseline the fingerprints, then fire when one CHANGES. Intentional choices:
     #   * only a changed key fires. A key APPEARING (a new type was generated,
     #     e.g. ed25519 added to an old box) or DISAPPEARING (an admin removed
     #     DSA) is not a MITM signal and must not cry wolf — cry wolf once and
@@ -37614,7 +37614,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     # kernel's bus/port path would have — and an event that cries wolf gets muted).
     #
     # Only ADDITIONS fire. A removal is not a security signal, and there is
-    # deliberately no recover event: "a USB device was plugged in" is an EVENT,
+    # no recover event: "a USB device was plugged in" is an EVENT,
     # not a condition — an auto-resolving alert would let the exfil stick vanish
     # from the inbox the moment it was unplugged, which is precisely backwards.
     #
@@ -38135,7 +38135,7 @@ def _brute_src_ip(raw):
     from anywhere in a /16 of the address space shared a single counter — which
     then crossed the threshold on its own and fired a brute-force alert naming
     `2001` as the source, an address nobody can block or investigate. The real
-    per-source signal was simultaneously lost: one genuine attacker's attempts
+    per-source signal was simultaneously lost: one real attacker's attempts
     were diluted across whatever else happened to share its prefix.
     """
     s = str(raw or '').strip()
@@ -39733,7 +39733,7 @@ def handle_deadman_ping(token_str):
     syslog/webhook receivers: the caller is a `curl` line at the end of someone's
     backup script, which cannot carry a session or an API key. An attacker who
     guesses a token can only make a job look HEALTHY — never fire a false alarm,
-    never read anything. That's a deliberate trade, and it's why this endpoint
+    never read anything. That's an intentional trade, and it's why this endpoint
     can't do anything except record a timestamp.
     """
     tok = _sanitize_str(str(token_str or ''), 64)
@@ -40136,7 +40136,7 @@ def handle_reboot_plan():
         ids = _rollout_resolve_ring(scope, devices)
         ids = [i for i in ids if not (devices.get(i) or {}).get('agentless')]
     else:
-        # The pool-relative types (percent/count/remaining) are deliberately not
+        # The pool-relative types (percent/count/remaining) are not
         # offered here: they are defined relative to the OTHER rings, and this
         # endpoint takes a single scope which it then splits into dependency-
         # ordered waves itself.
@@ -40648,7 +40648,7 @@ def handle_network_map() -> None:
     # poll -- "graph persistence" was the gap, not a new discovery mechanism.
     # Per the unmonitored-data-visibility principle (CLAUDE.md), an
     # inventory/topology view should show what's unmonitored, flagged --
-    # not hide it. Deliberately excludes hosts already `managed` (they're
+    # not hide it. Excludes hosts already `managed` (they're
     # already a real node above) and, like the rest of this handler, only
     # surfaces discoveries FROM a scanning device already in the filtered
     # (scope + RBAC) `devices` set.
@@ -41548,7 +41548,7 @@ def _batch_match_record(dev_outputs, match_key, created, still_queued):
     identical command (`handle_install_packages` skips re-queuing a command that's
     still pending) — fall back to the newest matching record regardless of
     timestamp, so the job resolves instead of hanging 'pending' forever. Returns
-    the record dict, or None when nothing has run yet (genuinely still pending)."""
+    the record dict, or None when nothing has run yet ( still pending)."""
     if not match_key:
         return None
     newest_prior = None
@@ -41888,7 +41888,7 @@ _AI_DEFAULTS = {
         'embedding_model':    '',
         # v5.1.1 (issue #11): optionally run embeddings on a *different* service
         # than chat (e.g. a dedicated, less-contested GPU box). Empty = reuse the
-        # chat provider verbatim (back-compat). Resolved in ai_provider.embedding_cfg().
+        # chat provider unchanged (back-compat). Resolved in ai_provider.embedding_cfg().
         'embedding_provider': '',   # '' | openai | ollama | localai
         'embedding_base_url': '',
         'embedding_api_key':  '',   # cleartext-on-disk like the main key; masked on GET
@@ -43693,7 +43693,7 @@ def handle_discovery():
 # #8, v1) — the one-shot handle_device_netscan above becomes a living,
 # auto-refreshed list instead of a stale one-off snapshot. Reuses the SAME
 # `netscan:<subnet>` command an operator could already queue by hand; no
-# agent changes. Interval-based (not cron) — deliberately simpler than the
+# agent changes. Interval-based (not cron) — simpler than the
 # scan-schedule machinery above, since "rescan this subnet every N minutes"
 # doesn't need a calendar.
 MAX_NETSCAN_SCHEDULES = 100
@@ -44294,7 +44294,7 @@ def _compliance_facts(devices=None):
 
     # Recent security events (last 30 days) from the immutable fleet-event
     # log. These controls are edge-triggered, so "did this fire recently?"
-    # is the honest compliance signal — a clean 30-day window is a genuine
+    # is the honest compliance signal — a clean 30-day window is a real
     # pass, not a hardcoded one.
     facts['new_ports'] = []
     facts['ssh_key_changes'] = []
@@ -44814,7 +44814,7 @@ DRIFT_CONTENT_DENYLIST = frozenset({
 # Default watched files. Operators can override per-device via the UI.
 # Conservative list — config files that should rarely change without
 # the operator's knowledge, and where a change is operationally
-# significant. We deliberately don't watch /etc/passwd or /etc/shadow
+# significant. We don't watch /etc/passwd or /etc/shadow
 # directly because those legitimately change often (every user login
 # can update lastlog metadata adjacent to it on some distros). The
 # operator can add them via the watched-files override if they want.
@@ -44842,7 +44842,7 @@ DEFAULT_WATCHED_FILES = [
 # v2.2.6: how many consecutive heartbeats a watched file must report
 # `exists: false` before it's marked dormant. One missed sighting can
 # be a transient (file mid-rotation, agent race) — three in a row
-# means it's genuinely gone. A dormant file stops counting as drift
+# means it's gone. A dormant file stops counting as drift
 # and drops out of the "files with drift" total, but is NOT deleted —
 # it's kept with a `dormant` flag so the operator can still see it was
 # being watched, and it auto-revives if the file reappears.
@@ -45232,7 +45232,7 @@ def _smart_disk_failed(d):
 
 # v6.2.0: 'defender' joins the AV tools so a Windows host's AV posture rides the
 # SAME pipeline (ingest → av_status.json → attention items → av_infected /
-# av_warning / av_clean) as ClamAV/rkhunter. Deliberately a distinct tool key
+# av_warning / av_clean) as ClamAV/rkhunter. A distinct tool key
 # rather than masquerading as 'clamav': a webhook consumer or an operator
 # reading "clamav infected=1" on a Windows box would be actively misled.
 _AV_TOOLS = ('clamav', 'rkhunter', 'defender')
@@ -45387,7 +45387,7 @@ def _hw_temps(rec):
 # Left alone, one dead pin becomes the host's "hottest sensor" and from there
 # drives the Thermal page headline, the temp_high alert, the overheating risk
 # factor and reliability grade, and the thermal roll-up's max. Two defences,
-# deliberately of different strength:
+# of different strength:
 #
 #   * SENTINEL RAILS are dropped at ingest. Exactly 127.0 / -128.0, or a value
 #     outside any physically meaningful range, is not a measurement — it is the
@@ -45395,7 +45395,7 @@ def _hw_temps(rec):
 #   * EVERYTHING ELSE is only ever FLAGGED, never auto-dropped. A pin reading
 #     past its own critical limit is probably dead, but "probably" is the wrong
 #     confidence level at which to silently stop alerting on a host that might
-#     genuinely be cooking. The UI marks it implausible and offers one click to
+#     be cooking. The UI marks it implausible and offers one click to
 #     ignore it; the operator, who knows what the board actually has wired, is
 #     the one who decides. Never widen this into an auto-drop.
 _TEMP_RAIL_VALUES = (127.0, -128.0)
@@ -45497,7 +45497,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
                 'model':  _sanitize_str(str(d.get('model', '')), 64),
                 'serial': _sanitize_str(str(d.get('serial', '')), 64),
             }
-            # v6.4.3: the disk was asleep and deliberately NOT woken to read it
+            # v6.4.3: the disk was asleep and NOT woken to read it
             # (`smartctl -n standby`). Persisted so the UI can say "asleep"
             # rather than showing a blank row that reads like a fault, and so a
             # spun-down archive array is not mistaken for a disk that stopped
@@ -46453,7 +46453,7 @@ def _maybe_check_disk_predictions():
             continue  # predictive (has an ETA), not just reactive-critical
         # v4.6.0: don't alert on a disk that's years from failing. A 'medium'
         # disk is only "wearing out" on a slow trajectory; only fire when it's
-        # genuinely urgent — reactive high/critical, or a near-term ETA (≤180d
+        # urgent — reactive high/critical, or a near-term ETA (≤180d
         # by default; operator-configurable via disk_predict_medium_eta_days).
         # (e.g. 27% SSD wear with a ~700-day ETA should not raise an alert.)
         if r.get('risk') == 'medium' and (r.get('eta_days') or 0) > _medium_eta:
@@ -46724,7 +46724,7 @@ def _ingest_custom_check_results(dev_id, dev_name):
             # the reported value equals what the operator accepted; once the
             # agent reports a DIFFERENT value (a new change, or its own
             # re-baseline settling to 'ok'), the acceptance no longer applies —
-            # drop it so a genuine new change re-fires and the map stays bounded.
+            # drop it so a real new change re-fires and the map stays bounded.
             _acc_map = dev.get('custom_check_accepted')
             if isinstance(_acc_map, dict) and cid in _acc_map:
                 _raw = ((dev.get('sysinfo') or {}).get('custom_check_results') or {}).get(cid)
@@ -47357,7 +47357,7 @@ def _disk_fill_eta(devices, min_percent=60.0, horizon_days=60):
     Returns {device_id: days_to_full} only for devices that are (a) already
     past ``min_percent`` used and (b) trending up fast enough to fill within
     ``horizon_days`` — so the fleet checks view stays cheap (we only query the
-    DB time-series for near-full hosts) and only flags genuine risks. Reads the
+    DB time-series for near-full hosts) and only flags real risks. Reads the
     same store as _rag_metric_summaries (DB metric_range, else the JSON window).
     """
     out = {}
@@ -47427,13 +47427,13 @@ def _checks_threshold_kwargs(cfg):
         'cpu_pct_crit':              _i('cpu_pct_crit', 95),
         # v6.4.2: the security-HARDENING advisory checks (SSH daemon hardening,
         # auto-updates-off, stale account passwords) are OPT-IN — off by default,
-        # like protect baselines — because they flag deliberate configuration
+        # like protect baselines — because they flag intentional configuration
         # choices. Blank passwords and an inactive host firewall are real
         # exposure and stay always-on regardless of this flag.
         'security_hardening':        bool(cfg.get('security_hardening_checks', False)),
         # v6.4.3 (reported from use): the Linux LUKS row, opt-in for the reason
         # documented at its call site in checks.py — unencrypted root is the
-        # Linux norm, so warning by default flags a deliberate choice on every
+        # Linux norm, so warning by default flags an intentional choice on every
         # host at once. Separate from security_hardening on purpose.
         'disk_encryption':           bool(cfg.get('disk_encryption_checks', False)),
         # v7.0.2: UEFI Secure Boot, opt-in for the same reason and separate from
@@ -48609,7 +48609,7 @@ def _compute_attention():
         # class of tamper signal as a hash mismatch, but it only ever surfaced as a
         # table on the agent-signing settings page — so it never reached
         # Needs-Attention, never moved the health score, and could not page anyone.
-        # This is deliberately NOT gated on the canonical hash: the agent already
+        # This is NOT gated on the canonical hash: the agent already
         # made the judgement, and whether the server can hash its own copy of the
         # build has no bearing on whether that refusal is worth looking at.
         _rejected = dev.get('agent_update_rejected')
@@ -49058,7 +49058,7 @@ _NA_MUTE_EVENTS = {
     # the Needs-Attention item standing, so the host's health score (and the
     # fleet's, which is derived purely from NA items) never recovered. An
     # operator who muted a known-and-accepted CVE backlog, or a host that is
-    # deliberately pending a reboot, had no way to stop it depressing the score.
+    # pending a reboot, had no way to stop it depressing the score.
     ('cve',                'critical'): ('cve_found',),
     ('cve',                'warning'):  ('cve_found',),
     ('reboot',             'warning'):  ('reboot_required',),
@@ -49099,7 +49099,7 @@ def _attention_cache_file():
 def _attention_fingerprint():
     """Cheap fingerprint of the OPERATOR-CONTROLLED inputs to the NA digest.
 
-    Deliberately excludes device telemetry (DEVICES_FILE): see _attention_payload.
+    excludes device telemetry (DEVICES_FILE): see _attention_payload.
     Mirrors the `fp` the fleet-checks cache uses.
     """
     parts = []
@@ -49461,7 +49461,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     # v6.4.3: sshd hardening + automatic security updates.
     #
     # Gated on the SAME opt-in as their Checks rows (`security_hardening_checks`,
-    # default off). Root-login or password SSH is frequently a deliberate choice
+    # default off). Root-login or password SSH is frequently an intentional choice
     # on a homelab, which is exactly why those advisories are opt-in — scoring
     # them unconditionally would move every host's risk number on a policy the
     # operator never switched on.
@@ -49616,7 +49616,7 @@ def _fleet_risk_cache_file():
 
 # ── v6.2.0: device reliability prediction ────────────────────────────────────
 #
-# "How likely is this host to BREAK?" — deliberately a SEPARATE score from the
+# "How likely is this host to BREAK?" — a SEPARATE score from the
 # risk score above, which answers "how EXPOSED is this host?" (CVEs, open ports,
 # policy, EOL). Merging them would make both unreadable: a fully-patched server
 # with a dying disk is low-risk and low-reliability, and an operator needs to see
@@ -49657,7 +49657,7 @@ _RELIABILITY_WEIGHTS = {
 _RELIABILITY_CAPS = {
     'reboot_churn': 24, 'ecc_correctable': 24, 'oom_recent': 8,
 }
-# A host is only flagged once it is genuinely likely to fail — this feeds an
+# A host is only flagged once it is likely to fail — this feeds an
 # alert and a Needs-Attention item, so a low bar here becomes noise, and a noisy
 # predictor is one people learn to ignore (which is worse than not having it).
 _RELIABILITY_LEVELS = ((70, 'critical'), (45, 'high'), (20, 'medium'))
@@ -49868,7 +49868,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         _add('nic_errors', w['nic_errors'],
              'errors/drops rising on ' + ', '.join(str(i) for i in _bad_nics[:5] if i))
 
-    # DELIBERATELY NOT SCORED: unit flapping.
+    # NOT SCORED, on purpose: unit flapping.
     #
     # services.json stores `restarts` as systemd's CUMULATIVE NRestarts counter,
     # and only the *latest* value — the flap DELTA that `unit_flapping` fires on
@@ -49876,7 +49876,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     # there is nothing here to derive a flap rate from: a long-lived host that
     # restarted a unit once during a deploy two years ago carries restarts=1
     # forever, and scoring on `restarts > 0` would mark half a healthy fleet as
-    # failing while a genuinely crash-looping unit that reset its counter scores
+    # failing while a crash-looping unit that reset its counter scores
     # zero. Persisting a daily delta would make this a real factor — until then
     # an honest omission beats a confidently wrong number.
     # (`svc_rec` stays in the signature for exactly that follow-up.)
@@ -50006,7 +50006,7 @@ def _risk_fingerprint():
     """v6.2.0: fingerprint of the OPERATOR-CONTROLLED inputs to the risk score,
     plus the device SET (see _device_set_fingerprint).
 
-    Deliberately EXCLUDES devices.json / hardware.json MTIME — see
+    EXCLUDES devices.json / hardware.json MTIME — see
     _fleet_risk_cached. Mirrors _attention_fingerprint.
     """
     parts = [_device_set_fingerprint()]
@@ -50521,14 +50521,14 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     the devices/drift/cves payload and need nothing here.
 
     `want` (a set of enabled widget keys, or None for "all") gates the two
-    genuinely expensive widgets — disk-fill ETA and the fleet checks roll-up —
+    expensive widgets — disk-fill ETA and the fleet checks roll-up —
     so they're only computed when an operator actually displays them."""
     def _g(k):
         return want is None or k in want
     out = {}
     # v6.4.3: WireGuard clients connected / total.
     #
-    # GATED TO admin+auditor DELIBERATELY. /api/home is `require_auth()` — every
+    # GATED TO admin+auditor. /api/home is `require_auth()` — every
     # role reaches it, including viewer, mcp and finance — while the VPN
     # endpoints are `require_admin_or_auditor_auth()`. Emitting this
     # unconditionally would quietly widen VPN read access to every
@@ -50778,7 +50778,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     except Exception:
         out['bandwidth'] = []
     # Host-checks roll-up (OK/WARN/CRIT/UNKNOWN across the fleet). The one
-    # genuinely heavy widget — only run it when it's actually on a dashboard.
+    # heavy widget — only run it when it's actually on a dashboard.
     if _g('checksrollup'):
         try:
             # v4.3.0 perf: share _fleet_checks_rows' 15s cache with the
@@ -51234,7 +51234,7 @@ def _status_page_component_state(comp, devices, now, ttl, mon_last, maint_ids=No
     if total == 0:
         return 'operational', 0, 0
     if down == 0:
-        # Nothing genuinely down: say "maintenance" when that is why, so the
+        # Nothing down: say "maintenance" when that is why, so the
         # page explains itself rather than looking untouched.
         return ('maintenance' if maint else 'operational'), 0, total
     if down >= total:
@@ -51543,8 +51543,7 @@ def handle_incident_update(iid):
 
 def handle_public_status():
     """GET /api/public/status?token=<status_token> — read-only snapshot for a
-    public status page. No session. Gated by the status token. Deliberately
-    minimal: fleet health score + grade, device online/offline counts, and
+    public status page. No session. Gated by the status token. Minimal: fleet health score + grade, device online/offline counts, and
     monitor up/down — no device names, IPs, or any other detail."""
     cfg = load(CONFIG_FILE) or {}
     token = cfg.get('status_token') or ''
@@ -51685,7 +51684,7 @@ def handle_ha_bridge():
             json_attributes: [devices_online, devices_offline,
                               alerts_critical, alerts_warning, health_score]
 
-    Deliberately one-way: there is NO control surface here — operators act in
+    one-way: there is NO control surface here — operators act in
     the web UI. Reuses the status token (enable the status endpoint in
     Settings); without it, 403. Mirrors handle_status's computation."""
     cfg = load(CONFIG_FILE) or {}
@@ -51875,7 +51874,7 @@ def _with_compose_watch(dev_id, dev, drift_cfg, files):
     common "why did this stack change?" — silently drifted unwatched.
 
     Opt-in (`drift_watch_compose`, default off) because it adds files to a list
-    operators curate deliberately, and appended rather than replacing, so it can
+    operators curate , and appended rather than replacing, so it can
     never displace something they chose to watch.
     """
     if not _config_ro().get('drift_watch_compose') or not dev:
@@ -52212,8 +52211,7 @@ def _tar_add_logical_stores(tar, arc_prefix=''):
     re-added as a consistent `storage.snapshot()`, so SQLite archives do carry
     the state — but Postgres (the `install-server.sh` DEFAULT) has neither a
     walk-visible file nor a snapshot branch, so its archives carried no devices,
-    alerts, config, tickets, tokens or vault at all. `pg_dump` is deliberately
-    not used: it needs a client binary, credentials and a matching server
+    alerts, config, tickets, tokens or vault at all. `pg_dump` is not used: it needs a client binary, credentials and a matching server
     version on the restore host. Instead we export the same logical documents
     `load()` serves, under the JSON backend's own filenames — so the archive has
     ONE shape on every backend and restores onto any of them.
@@ -52653,7 +52651,7 @@ def handle_export():
     Secrets are redacted: apikeys.json key values, and (v2.3.1) the
     password / token fields in config.json — the Proxmox API token
     secret, the SMTP password, and the LDAP bind password. Before
-    v2.3.1 config.json went into the ZIP verbatim, so a backup file
+    v2.3.1 config.json went into the ZIP unchanged, so a backup file
     carried live credentials; that's the leak this closes.
 
     Also triggers _run_data_backup(triggered_by='export') so the
@@ -52844,7 +52842,7 @@ def handle_satellites_delete(sid):
 # only, one safe tool (nuclei passive), executed by a scanner-enabled relay
 # satellite that long-polls /api/scans/claim and posts normalised findings back.
 # The `scan_finding` webhook event + non-enrolled (domain-verified) targets are
-# P2 — deliberately NOT wired here.
+# P2 — NOT wired here.
 
 def _scan_target_for_device(dev):
     """The address a scan job will probe for an enrolled device. Derived
@@ -54264,7 +54262,7 @@ def handle_apikeys_rotate(kid):
     never persisted" contract as create). v6.1.1: closes gap C9
     (docs/feature-buildout-scoping-internal.md #3) — a guided one-click
     rotation instead of delete+recreate+reconfigure-every-consumer by hand.
-    Deliberately does NOT auto-deliver the new secret anywhere (no email/
+    does NOT auto-deliver the new secret anywhere (no email/
     webhook of a credential) — the admin doing the rotation sees it, exactly
     like at creation time; that's why this stays a human-triggered action
     (surfaced as an attention item) rather than a silent background job."""
@@ -54386,7 +54384,7 @@ def handle_longpoll_exec():
     # exec:). This handler used to wrap EVERY command in exec:, so
     # `ps:Get-Service` became `exec:ps:Get-Service` — run in PowerShell with a
     # literal `ps:` in front — and `exec:systemctl` became `exec:exec:systemctl`.
-    # Queue an already-prefixed command verbatim; a bare command still gets
+    # Queue an already-prefixed command unchanged; a bare command still gets
     # exec: so every existing caller is unaffected.
     _queued_cmd = (cmd_str if cmd_str.startswith(('exec:', 'ps:', 'cmd:'))
                    else f'exec:{cmd_str}')
@@ -54516,7 +54514,7 @@ def _cve_fixable_by_device():
 
     Powers the Patches↔CVE cross-link. The scanner already suppresses findings
     whose installed version is past the fix, so a remaining finding with a
-    fixed_version is genuinely 'patch this to clear it'. Honours CVE ignores."""
+    fixed_version is 'patch this to clear it'. Honours CVE ignores."""
     findings_all = load(CVE_FINDINGS_FILE) or {}
     ignore_data  = load(CVE_IGNORE_FILE) or {}
     out = {}
@@ -54547,7 +54545,7 @@ def _inventory_version_match(installed, op, target, eco):
         return True
 
     def _ge(a, b):
-        """a >= b, or None if genuinely uncomparable."""
+        """a >= b, or None if uncomparable."""
         try:
             is_deb = eco == 'Ubuntu' or (eco or '').startswith('Debian')
             if is_deb:
@@ -55868,7 +55866,7 @@ def handle_patch_report_xml():
 # WRONG: the agent's exec: channel (client/remotepower-agent.py) is fully
 # generic `subprocess.run(cmd, shell=True, ...)` with no whitelist — a
 # pinned-install command is just another exec: payload, no new agent
-# capability needed for apt/dnf/yum. pacman IS a genuine gap (no version-
+# capability needed for apt/dnf/yum. pacman IS a real gap (no version-
 # pinned install against sync repos, only from a cached local package file
 # the agent doesn't fetch) — handle_patch_snapshot_enforce refuses it with a
 # clear error rather than attempting something broken.
@@ -56075,7 +56073,7 @@ def handle_patch_snapshot_drift(sid):
 # generic `subprocess.run(cmd, shell=True, ...)` with NO whitelist ("shell=True
 # is intentional — operators paste shell"), so a pinned-install command is just
 # another exec: payload through the SAME channel every other command already
-# uses — no new agent capability at all for apt/dnf/yum. pacman IS a genuine
+# uses — no new agent capability at all for apt/dnf/yum. pacman IS a real
 # capability gap (no version-pinned install against sync repos, only from a
 # cached local package file the agent doesn't fetch) — refused with a clear
 # error, not silently attempted.
@@ -56126,7 +56124,7 @@ def handle_patch_snapshot_enforce(sid):
     per-device pinned-install command (exec:, same channel/gating as every
     other command) for every drifted device the snapshot's promoted tag
     covers, or just `device_id` if given. Admin-only, explicit and audited —
-    deliberately NOT automatic: unlike UPS auto-shutdown (an unattended
+    NOT automatic: unlike UPS auto-shutdown (an unattended
     safety response), enforcing a version pin is an operator-initiated
     change with real blast radius (a real apt/dnf downgrade), so it goes
     through the SAME 4-eyes approval gate any other exec: command does, not
@@ -56190,7 +56188,7 @@ def handle_patch_snapshot_enforce(sid):
 
 # v6.1.1 (#2): durable job queue for bursty/transient-failure-prone SERVER-side
 # background work — a real subset of the tracker's original "durable job
-# queue for heavy async work" ask, deliberately scoped down. What already
+# queue for heavy async work" ask, scoped down. What already
 # existed: periodic sweeps (run_*_if_due, correct for light recurring work),
 # a hand-rolled webhook dead-letter queue (WEBHOOK_DLQ_FILE — permanent
 # failures sit until an OPERATOR manually retries), and a per-feature ad-hoc
@@ -56400,7 +56398,7 @@ def _audit_chain_walk(entries):
             if seen_chained:
                 broken_at = i
                 break
-            prev = None   # genuine legacy head entry
+            prev = None   # real legacy head entry
             continue
         seen_chained = True
         if prev is not None:
@@ -56477,7 +56475,7 @@ def run_audit_hmac_rotation_if_due():
             last = max(last, int(v.get('created', 0) or 0))
     if not last:
         # No rotation has ever happened — generation 1's real file mtime
-        # (audit_hmac.key is a genuine on-disk file, not a KV storage key,
+        # (audit_hmac.key is a real on-disk file, not a KV storage key,
         # same exception class as STORAGE_MARKER_FILE / export_sign.key) is
         # the honest "last rotation" reference point.
         try:
@@ -57326,7 +57324,7 @@ def _annotate_alert_correlation(alerts):
     # saying 20 of them were consequences. `upstream_down` is stamped at
     # fire_webhook time (dependency suppression already computed it and threw it
     # away), so surface it as a distinct annotation: a downstream host's
-    # device_offline is genuinely the root cause on that host, and ALSO
+    # device_offline is the root cause on that host, and ALSO
     # collateral from the upstream. Both facts are true and the operator needs
     # the second one.
     for a in alerts:
@@ -57689,7 +57687,7 @@ def _check_alert_mutation_perm():
     Default behaviour (viewers_can_ack_alerts=True) is unchanged from
     prior versions — any logged-in user may mutate alert state, which
     matches how operators run noisy NA queues collaboratively. When
-    deployments want strict least-privilege (viewers genuinely read-
+    deployments want strict least-privilege (viewers read-
     only), they set viewers_can_ack_alerts=false and these mutations
     require admin.
     """
@@ -58532,7 +58530,7 @@ def handle_alert_mutes():
     device_name = _sanitize_str(body.get('device_name', ''), 128).strip()
     alert_id = _sanitize_str(body.get('alert_id', ''), 64).strip()
     # v6.4.2: a CONTAINER mute is "everything about this container on this host",
-    # so it is deliberately event-less — the two dimensions are mutually
+    # so it is event-less — the two dimensions are mutually
     # exclusive, which is what lets _alert_mute_set build two disjoint sets from
     # one store. A caller that sends both gets the container mute (the broader
     # of the two) rather than a half-applied hybrid nobody could reason about.
@@ -59148,7 +59146,7 @@ def handle_nav_counts():
     out = {'fleet': offline, 'monitoring': down, 'security': crit}
     # v5.6.0: RemotePower's OWN control-plane health for the top-bar pill —
     # storage reachable + config loads + disk headroom on the data dir. This is
-    # deliberately distinct from the fleet vitals above: the pill is green unless
+    # distinct from the fleet vitals above: the pill is green unless
     # the SERVER itself is unhealthy, not when a monitored device has an alert.
     # Cheap (one statvfs); returns only check names, no fleet or sensitive data.
     try:
@@ -59389,7 +59387,7 @@ def _resolve_inbound_device(token_cfg, body):
     """
     # v6.4.3: the two ID branches are single-key lookups on a hot ingest path
     # and were deepcopying the whole fleet to read one record. The NAME branch
-    # genuinely needs the whole store — it scans for a match — but it is
+    # needs the whole store — it scans for a match — but it is
     # read-only, so _load_ro serves it without the copy.
     pinned = token_cfg.get('scope_device_id')
     if pinned:
@@ -59440,7 +59438,7 @@ _AM_SEVERITY = {
 def _inbound_detect_format(body):
     """Sniff the sender when the token says `auto`.
 
-    Deliberately structural, not header-based: Alertmanager sends no
+    structural, not header-based: Alertmanager sends no
     distinguishing User-Agent worth trusting, and a token pasted into the wrong
     tool should still work rather than fail in a way that looks like an outage.
     """
@@ -59505,7 +59503,7 @@ def _inbound_normalize(body, fmt):
             'dedup':    f'grafana={rule}',
             'links':    ([{'url': b['ruleUrl'], 'label': 'Rule'}]
                          if b.get('ruleUrl') else []),
-            # `ok` means recovered. `no_data` deliberately does NOT resolve —
+            # `ok` means recovered. `no_data` does NOT resolve —
             # a rule that stopped receiving data is not a rule that cleared,
             # and treating it as one silently closes a real alert.
         }, state == 'ok'
@@ -59684,7 +59682,7 @@ def handle_inbound_webhook(token_str):
     # v6.4.2: coalesce a repeat firing into the existing OPEN row instead of
     # stacking a duplicate. Grafana re-notifies every 4h by default, so a single
     # unresolved rule produced six new rows a day, all needing to be closed by
-    # hand. This handler deliberately does NOT go through _record_alert (that
+    # hand. This handler does NOT go through _record_alert (that
     # would fan out to the outbound destinations the source has already
     # notified), so the coalescing is done here on the same principle.
     coalesced = False
@@ -60953,7 +60951,7 @@ def handle_confirmation_approve(conf_id):
         # v6.2.0 (bug hunt): a TRANSIENT block (host in maintenance/quarantine/
         # audit mode) must NOT burn the confirmation — revert it to 'pending' so
         # the same approval can be retried once the host drains, instead of forcing
-        # a brand-new maker-checker request. A genuine failure still lands 'failed'.
+        # a brand-new maker-checker request. A real failure still lands 'failed'.
         _transient = bool(result.get('transient'))
         with _LockedUpdate(CONFIRMATIONS_FILE) as store:
             for c in store.get('confirmations', []):
@@ -62266,7 +62264,7 @@ def _caller_can_read_audit():
     v6.4.2: the timeline merges audit rows for callers who could already read
     them at GET /api/audit-log, and for nobody else. Merging them unconditionally
     would have made the timeline a way around that gate — "the operator can't see
-    the audit log" is a deliberate boundary, not an oversight."""
+    the audit log" is an intentional boundary, not an oversight."""
     role = _caller_role()
     return bool(_resolve_role(role).get('admin') or role == 'auditor')
 
@@ -62403,7 +62401,7 @@ def _timeline_collect(include_ids, name_map):
             if high: parts.append(f'{high} high')
             items.append({
                 'ts':          int(rec.get('scanned_at') or rec.get('ts') or 0),
-                # kind='cve' (state) is deliberately distinct from the
+                # kind='cve' (state) is distinct from the
                 # event-sourced 'cve_found' rows: this synthetic row is the
                 # current outstanding-CVE STATE (survives a re-scan that fires
                 # no event), so the timeline's kind filter can separate "current
@@ -63437,7 +63435,7 @@ def _chargeback_breakdown(devices, hw_all):
     by_group, by_tag = {}, {}
     total_w, hosts = 0.0, 0
     for dev_id, d in (devices or {}).items():
-        # Cost ALLOCATION deliberately excludes unmonitored hosts (you don't bill
+        # Cost ALLOCATION excludes unmonitored hosts (you don't bill
         # devices you've opted out of managing) — distinct from data visibility:
         # the raw power telemetry is still shown on the Power page.
         if not isinstance(d, dict) or d.get('monitored') is False:
@@ -63877,7 +63875,7 @@ def _spawn_cve_scan(actor, target):
     from the web worker's session/process-group and shares none of its fds or DB
     connection — it cannot run inline (the fork-fallback failure mode that froze
     the UI) and cannot keep the client socket open. Falls back to the in-process
-    double-fork only if Popen genuinely can't start the child."""
+    double-fork only if Popen can't start the child."""
     runner = str(Path(__file__).resolve().parent / 'cve_scan_runner.py')
     try:
         subprocess.Popen(
@@ -64277,7 +64275,7 @@ def handle_export_monitors():
     new box) a retyping exercise. This emits the RemotePower-native shape the
     importer already accepts, so it round-trips: export here, paste into Import.
 
-    Deliberately narrow: only the operator-authored monitor DEFINITIONS. No
+    narrow: only the operator-authored monitor DEFINITIONS. No
     history, no last-result state, no per-monitor flags the destination will
     rebuild for itself. (Config-as-code covers the whole config; this is the
     focused, re-importable subset.)
@@ -66173,7 +66171,7 @@ def _metric_damp_hold(streaks, key, prev_level, new_level, need):
     """Return True if a FIRST breach (ok → warning/critical) should be HELD
     because it hasn't persisted for `need` consecutive heartbeats yet. Only the
     first breach off 'ok' is dampened — escalation (warning→critical),
-    de-escalation and recovery are never delayed, so a genuine critical is never
+    de-escalation and recovery are never delayed, so a real critical is never
     held back. Mutates the per-key streak map in place."""
     if need <= 1:
         return False
@@ -66258,7 +66256,7 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
     if not isinstance(safe_si, dict):
         return
 
-    # Note: we deliberately don't check the per-event 'enabled' flag here —
+    # Note: we don't check the per-event 'enabled' flag here —
     # fire_webhook() already does that. Suppressing earlier would skip the
     # state-tracking too, which means a transition during the disabled
     # window would be missed when re-enabled. Better to track always and
@@ -66906,7 +66904,7 @@ def check_container_webhooks():
         if dev_id not in devices:
             continue
         dev = devices[dev_id]
-        # Don't bother for devices the operator deliberately stopped monitoring.
+        # Don't bother for devices the operator stopped monitoring.
         if not dev.get('monitored', True):
             continue
         # And don't fire while the device itself is offline — there's already
@@ -67237,7 +67235,7 @@ def handle_log_submit():
         # every ignore pattern INSIDE the per-unit loop below despite the old
         # comment claiming "once per submission" — a device reporting N units
         # recompiled the whole ignore-pattern list N times per heartbeat. Hoisted
-        # out to genuinely run once per submission; _compiled_patterns_cached
+        # out to run once per submission; _compiled_patterns_cached
         # additionally memoizes across calls (keyed by the pattern tuple, so a
         # config change is its own cache-invalidation — no explicit bust needed).
         _cfg_ignore = load(CONFIG_FILE) or {}
@@ -68434,7 +68432,7 @@ def _trim_sysinfo(sysinfo) -> dict:
 # AUTHORIZATION grant: a time-boxed, reasoned, audited permission that the reveal
 # handler checks, while the browser still supplies the key.
 #
-# Deliberately distinct from break-glass, which stays exactly as it was:
+# distinct from break-glass, which stays exactly as it was:
 #   break-glass = TWO-PERSON, one-shot, 15 min, for creds flagged `break_glass`.
 #   checkout    = SELF-service, N-hour window, reusable within it, opt-in
 #                 fleet-wide via `vault_checkout_required`.
@@ -68792,7 +68790,7 @@ def _is_demo_read_only() -> bool:
     means normal operation. Anything else means read-only.
 
     The env var lives outside the dashboard's reach — there's no API to
-    toggle it. That's deliberate: a public sandbox shouldn't expose
+    toggle it. That's intentional: a public sandbox shouldn't expose
     "stop being a sandbox" as a button somebody could find.
     """
     val = os.environ.get('RP_READ_ONLY', '').strip().lower()
@@ -68924,7 +68922,7 @@ def _enforce_same_origin():
 
 
 # v3.0.3: F2 — endpoints reachable while must_change_password is set.
-# Kept deliberately tight:
+# Kept tight:
 #   - /api/users/passwd  : the only way to clear the flag
 #   - /api/public-info   : server version and login-screen metadata
 # Anything else returns 403 with `must_change_password: true` so the
@@ -69097,7 +69095,7 @@ _ANY_METHOD_ROUTES = {
         ('POST', '/api/devices/{device_id}/services/config')),
     # SCIM 2.0. POST /Groups answers 501 and DELETE on a group 405 by design —
     # roles are defined in RemotePower, not created by the IdP — so those verbs
-    # are deliberately absent here rather than missing.
+    # are absent here rather than missing.
     "pi == '/api/scim/v2/Users'": (
         ('GET', '/api/scim/v2/Users'),
         ('POST', '/api/scim/v2/Users')),
@@ -69771,7 +69769,7 @@ def _build_exact_routes():
 #   ('pat',  methods, prefix, suffix, handler_name, src)
 #            — handler(pi[len(prefix):-len(suffix)]), suffix '' = to the end
 #   ('code', None, None, None, fn_name, src)            — bespoke branch,
-#            verbatim in its _route_code_N function below (returns True when
+#            unchanged in its _route_code_N function below (returns True when
 #            it handled the request)
 # `methods` None = any method. Rows match IN ORDER — earlier rows win, exactly
 # like the old chain (all the "must precede" relationships are positional).
@@ -70212,7 +70210,7 @@ def _build_pattern_routes():
 
 
 
-# ── bespoke dispatch branches (verbatim from the old chain; each returns
+# ── bespoke dispatch branches (unchanged from the old chain; each returns
 # True when it handled the request) ─────────────────────────────────────────
 def _route_code_5(pi, m):
     if (pi.startswith('/api/devices/') and m == 'DELETE' and not any(
@@ -70665,7 +70663,7 @@ def _record_self_error(context, exc):
 # had already coalesced so nothing new pages, and nothing ever re-checked.
 #
 # This is the same loop, for the manual path, using the alert id now recorded on
-# the run. It deliberately does NOT auto-disable anything — there is no rule to
+# the run. It does NOT auto-disable anything — there is no rule to
 # disable, and a human who ran a fix that did not work needs to be told, not
 # governed.
 #
@@ -70798,7 +70796,7 @@ def run_sidecar_watch_if_due():
     """Alert when an ENABLED co-located sidecar has stopped.
 
     v6.4.2: `systemctl is-active` rows for remotepower-syslogd / -flowd /
-    -kmipd have been on Server status since v6.3.1 as deliberately
+    -kmipd have been on Server status since v6.3.1 as 
     INFORMATIONAL watchers — the reasoning being that a sidecar may legitimately
     run on a different host and POST over the network, so "no local unit" is not
     a fault. That reasoning is sound and is preserved exactly: this stays silent
@@ -70883,7 +70881,7 @@ def run_sidecar_watch_if_due():
     # catch is discarded — while the unit reports active and this sweep says
     # nothing. Edge-triggered per token, same as the unit marks above.
     #
-    # A DISABLED token is deliberately NOT reported: switching one off is an
+    # A DISABLED token is NOT reported: switching one off is an
     # operator decision, and alerting on decisions is how an event earns a mute.
     bad_marks = state.get('unmappable') if isinstance(state.get('unmappable'), dict) else {}
     try:
@@ -70950,7 +70948,7 @@ def run_sidecar_watch_if_due():
 # used, which is one of four ways this actually gets upgraded) recorded only
 # `cmd=/usr/local/sbin/remotepower-server-update`.
 #
-# Deliberately NOT `cfg['server_version']` — that idea was abandoned earlier as
+# NOT `cfg['server_version']` — that idea was abandoned earlier as
 # a stale-value trap. This compares the LIVE constant against the last value
 # observed and only writes on a CHANGE, so the store is a change log, never a
 # claim about what is running now.
@@ -71164,7 +71162,7 @@ def main():
     # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
     # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
     # v6.4.2: called DIRECTLY (like _record_satellite below), NOT via _safe(), and
-    # deliberately NOT in scheduler.CADENCE. Under RP_EXTERNAL_SCHEDULER=1 — the
+    # NOT in scheduler.CADENCE. Under RP_EXTERNAL_SCHEDULER=1 — the
     # install default — _safe() early-returns, so the only writer left was the
     # scheduler daemon, which ticks whether or not gunicorn is up: a total
     # app-server outage still reported 100% observed availability. The bucket's
@@ -71457,7 +71455,7 @@ def handle_device_host_config_put(dev_id):
         enforced = bool(hc.get('enforce'))
         # v6.4.2: desired-state APPLY is implemented in the Linux agent only —
         # the Windows and macOS agents document `host_config_desired` as a key
-        # they deliberately do not read. Saving it against such a host used to
+        # they do not read. Saving it against such a host used to
         # return a plain success, so the operator believed users/sudoers/motd
         # were being enforced on a machine that ignores the whole feature.
         # The desired state is still stored (it is a policy record, and the host
@@ -71609,7 +71607,7 @@ def _clean_client_ts(raw):
     Browsers send their own clock so the UI and server timelines can be read
     together, which means this value is attacker-controlled on any install where
     debug logging is on. Validating the SHAPE rather than escaping the string is
-    deliberate: it bounds the length, removes every newline by construction, and
+    intentional: it bounds the length, removes every newline by construction, and
     keeps the file parseable — an escaped-but-arbitrary timestamp would still
     make the log unreadable to anything that splits on the leading bracket.
     """

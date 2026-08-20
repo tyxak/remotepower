@@ -60,9 +60,13 @@ class TestTheBudgetExists(unittest.TestCase):
     def test_the_check_is_the_one_that_takes_a_pattern(self):
         """Premise: if file_contains stops compiling an operator regex, this
         whole file is about nothing."""
+        # Bounded by the NEXT check's branch, not a character count — the
+        # file_contains body grows and a fixed window silently stops covering
+        # the line it is asserting about.
         src = _AGENT.read_text()
         i = src.index("if ctype == 'file_contains':")
-        self.assertIn('re.compile(pat)', src[i:i + 1200])
+        j = src.index("if ctype == 'auth_new_source':", i)
+        self.assertIn('re.compile(pat)', src[i:j])
 
 
 class TestAPathologicalPatternDoesNotWedgeTheLoop(unittest.TestCase):

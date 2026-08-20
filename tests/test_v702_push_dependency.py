@@ -82,8 +82,11 @@ class TestEveryInstallPathProvidesIt(unittest.TestCase):
         gapped host. Enabling the unit anyway is what turned a missing package
         into a crash loop reported as success."""
         sh = _text('install-server.sh')
+        # From the first import probe to the end of the guard block that
+        # follows it — content-bounded, so adding a package manager arm cannot
+        # push WITH_PUSH=0 out of the window and turn this green.
         i = sh.index('import websockets')
-        seg = sh[i:i + 1400]
+        seg = sh[i:sh.index('\nif [[ "$WITH_PUSH" == "1" ]]; then', i)]
         self.assertIn('WITH_PUSH=0', seg,
                       'a failed dependency install must skip the daemon, not '
                       'enable it')

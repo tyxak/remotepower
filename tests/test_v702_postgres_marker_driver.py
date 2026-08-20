@@ -83,7 +83,8 @@ class TestTheCallerHandlesTheRefusal(unittest.TestCase):
         sh = _text('install.sh')
         # Anchor on the flags, not on a path that carries a shell quote.
         i = sh.index('--install --write-marker')
-        seg = sh[i:i + 700]
+        # End at the enclosing block's `fi`, not a character count.
+        seg = sh[i:sh.index('\n    fi\n', i)]
         self.assertIn('continuing on the default backend', seg,
                       'a non-zero exit must not be reported as provisioned')
         # The success note tells the operator to go and migrate. It must be on

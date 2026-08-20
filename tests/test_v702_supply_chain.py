@@ -69,8 +69,9 @@ class TestTheWebTerminalRefusesAVulnerableSshClient(unittest.TestCase):
             self.assertTrue(ok(good), good)
 
     def test_the_failure_message_says_why(self):
+        # From the version comparison to the end of its guard block.
         i = self.sh.index('(2,14,2)')
-        seg = self.sh[i:i + 700]
+        seg = self.sh[i:self.sh.index('\n  fi\n', i)]
         self.assertIn('CVE-2023-46445', seg)
 
 

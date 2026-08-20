@@ -76,8 +76,12 @@ class TestEveryDocSurfaceAgrees(unittest.TestCase):
         """The count and the list are separate claims. Fixing the number and
         leaving the list short is the state docs/mcp.md was already in."""
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+        # Bound by CONTENT, not a character count: the enumeration is one <p>,
+        # so end at its closing tag. A fixed window is a guess about how long
+        # the paragraph is and silently stops covering the tail when a tool is
+        # added — which is the failure this test exists to catch.
         i = html.index(' tools: ')
-        block = html[i:i + 3000]
+        block = html[i:html.index('</p>', i)]
         missing = [n for n in self.names if f'<code>{n}</code>' not in block]
         self.assertEqual([], missing,
                          f'named nowhere on the in-app page: {missing}')

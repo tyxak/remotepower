@@ -148,8 +148,11 @@ class TestTheLoopIsBounded(unittest.TestCase):
         """Evicting an established source loses the burst already buffered;
         a real appliance that loses one batch retries on its next line."""
         src = _SRC.read_text()
+        # The branch is one statement; end at the line after it rather than
+        # guessing a character count.
         i = src.index('MAX_TRACKED_SOURCES:')
-        self.assertIn('continue', src[i:i + 200],
+        j = src.index('buf = pending.setdefault', i)
+        self.assertIn('continue', src[i:j],
                       'the over-cap branch does something other than skip')
 
 
