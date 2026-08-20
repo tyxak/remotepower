@@ -290,6 +290,23 @@ encrypted volumes, memory and load — were seeded in a shape no agent produces,
 so those cards rendered empty in the demo and the fleet-knowledge index read
 fields that could never be there. Fixed on both sides.
 
+### Maintenance windows can target a site, a tag or a smart group
+
+Every other targeting surface in RemotePower takes this vocabulary — service
+baselines, auto-patch, rollouts, alert routing, reports, role scopes.
+Maintenance windows took a device, a group, or the whole fleet.
+
+So patching one customer's **site** on Saturday could not be expressed. Sites
+span groups, which left a window per device — hundreds of rows for one customer
+— or silencing everything. A smart-group window follows the group's rules, so a
+host that starts matching is covered from its next check-in without anyone
+editing the window.
+
+A window suppresses alerting and gates commands, so every uncertain case covers
+nothing rather than everything: a deleted smart group, a malformed rule set, a
+blank target. A blank target is now rejected outright — it matched no device
+rather than all of them, which is a window that silently does nothing.
+
 ### Things that looked like they worked
 
 - **No toast in the product was ever visible.** Every confirmation, warning and
@@ -356,6 +373,19 @@ fields that could never be there. Fixed on both sides.
 
 ### Fixes
 
+- **FileVault, Gatekeeper, SIP and firewall alerts could never fire on a Mac
+  without psutil.** The macOS agent collects its posture outside the block that
+  needs psutil, and the server only ingested posture when the report carried one
+  of a list of other keys — all of which are inside it. A Mac reporting
+  `psutil: false`, which is supported, sent its posture and was ignored.
+- **Two hardware signals scored zero on the Reliability page.** Under-voltage is
+  the one condition the Checks engine rates critical — a host browning out under
+  a failing PSU showed critical on Checks and 0 on Reliability. Battery wear did
+  the same. Both are weighted factors now, tunable alongside the others.
+- **The README advertised Python 3.8+** and the server has not started on it for
+  years.
+- The demo install showed the very refusals this release fixes, because its
+  seeded history could not reach the precedent threshold.
 - **Six panels grew without limit** — the fail2ban and firewall detail views,
   the advisory findings list, the per-device SLA editor, and the WordPress and
   DNS panels. Each capped its inner sections and let the outer stack grow, so a
