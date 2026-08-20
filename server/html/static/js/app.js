@@ -12221,8 +12221,14 @@ function onMaintScopeChange() {
   const txtGrp = document.getElementById('maint-target-group');
   if (scope === 'global') { row.style.display = 'none'; return; }
   row.style.display = 'block';
-  if (scope === 'device') { selDev.style.display = 'block'; txtGrp.style.display = 'none'; }
-  else                    { selDev.style.display = 'none'; txtGrp.style.display = 'block'; }
+  if (scope === 'device') { selDev.style.display = 'block'; txtGrp.style.display = 'none'; return; }
+  selDev.style.display = 'none';
+  txtGrp.style.display = 'block';
+  // v7.0.2: site / tag / smart-group scopes share this one text field, so the
+  // placeholder has to say which of them you are typing — it said "group name"
+  // for all of them.
+  txtGrp.placeholder = ({ group: 'group name', site: 'site name',
+                          tag: 'tag', smart: 'smart group id' })[scope] || 'target';
 }
 
 function onMaintTypeChange() {

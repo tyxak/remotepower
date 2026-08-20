@@ -65529,6 +65529,32 @@ def _window_applies(w, dev_id, dev=None, dev_group=None):
         return bool(dev_group) and w.get('target') == dev_group
     if scope == 'device':
         return bool(dev_id) and w.get('target') == dev_id
+    # v7.0.2: site / tag / smart-group targeting. Every other targeting surface
+    # in the product — service baselines, auto-patch, rollouts, alert routing,
+    # reports, RBAC scopes — takes this vocabulary, and maintenance windows were
+    # the one exception. An MSP patching a customer's SITE on Saturday could not
+    # say so: sites routinely span groups, so the choice was one window per
+    # device (hundreds of rows for one customer) or silencing the whole fleet.
+    #
+    # site and tag read fields already on the device record. smart-group costs a
+    # store read, but _smart_group_match is a pure predicate over the device
+    # record and its embedded sysinfo — written for membership tests — and the
+    # read goes through _load_ro, which is memoised per request and skips the
+    # deepcopy. This runs per device per heartbeat, so that mattered.
+    if scope == 'site':
+        return bool(w.get('target')) and str((dev or {}).get('site') or '') == w['target']
+    if scope == 'tag':
+        return w.get('target') in [str(t) for t in ((dev or {}).get('tags') or [])]
+    if scope == 'smart':
+        sg = (_load_ro(SMART_GROUPS_FILE) or {}).get(w.get('target'))
+        if not isinstance(sg, dict):
+            return False        # a deleted smart group covers nothing
+        try:
+            # `rules` is a DICT of facets ANDed together, not a list —
+            # _materialize_smart_group reads it as `g.get('rules') or {}`.
+            return bool(_smart_group_match(dev or {}, sg.get('rules') or {}))
+        except Exception:
+            return False        # a malformed rule set must not suppress alerting
     return False
 
 
@@ -65791,6 +65817,12 @@ def handle_maintenance_add():
     respond(200, {'ok': True, 'window': window})
 
 
+# v7.0.2: the targeting vocabulary a maintenance window accepts. It used to be
+# device/group/global while every other targeting surface in the product takes
+# site and tag as well.
+_MAINTENANCE_SCOPES = ('device', 'group', 'site', 'tag', 'smart', 'global')
+
+
 def _validate_maintenance_body(body):
     """Shared validation for maintenance add + update. Returns the
     clean fields dict or calls respond() with an error."""
@@ -65809,12 +65841,18 @@ def _validate_maintenance_body(body):
     if not isinstance(events, list):
         events = []
     events = [e for e in events if e in SUPPRESSIBLE_EVENTS][:10]
-    if scope not in ('device', 'group', 'global'):
-        respond(400, {'error': 'scope must be device, group, or global'})
+    if scope not in _MAINTENANCE_SCOPES:
+        respond(400, {'error': 'scope must be one of: '
+                               + ', '.join(_MAINTENANCE_SCOPES)})
     if scope == 'device' and not _validate_id(target):
         respond(400, {'error': 'device-scoped window requires a valid target device_id'})
-    if scope == 'group' and not target:
-        respond(400, {'error': 'group-scoped window requires a target group name'})
+    # v7.0.2: every non-global scope needs something to match on. A blank target
+    # on a tag- or site-scoped window would match no device rather than all of
+    # them, which is a window that silently does nothing.
+    if scope in ('group', 'site', 'tag', 'smart') and not target:
+        respond(400, {'error': f'{scope}-scoped window requires a target'})
+    if scope == 'smart' and not _validate_id(target):
+        respond(400, {'error': 'smart-group-scoped window requires a smart group id'})
     has_oneshot = bool(start and end)
     has_cron    = bool(cron and duration > 0)
     if has_oneshot == has_cron:

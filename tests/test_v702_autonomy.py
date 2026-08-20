@@ -1358,25 +1358,39 @@ class TestAWindowThatCoversNothingSaysSo(_Base):
         self.assertEqual(out['wd']['covers'], 1)
         self.assertEqual(out['wx']['covers'], 0)
         self.assertEqual(out['wg']['covers'], 3)
-        # A tag-scoped window covers ZERO, because the suppression path has
-        # never matched on tags — `_window_applies` knows device, group and
-        # global. The list used to count tagged hosts here, which read as "this
-        # window covers 1 host" for a window that suppresses nothing. The count
-        # now asks the same predicate suppression does, so it cannot claim a
-        # reach the product does not have. Nothing can create one through the
-        # API (the validator allows device/group/global, and auto-patch maps
-        # tag/site/all to global), so this is about a hand-edited store.
-        self.assertEqual(out['wt']['covers'], 0)
+        # A tag-scoped window covers the tagged host.
+        #
+        # This asserted ZERO when it was written, and said so at length: the
+        # suppression path knew device, group and global only, so a tag-scoped
+        # window suppressed nothing and a count that claimed otherwise was a
+        # lie. The lesson held; the limitation did not. `_window_applies`
+        # matches site, tag and smart-group now, so one is the honest number —
+        # and the count still asks the same predicate suppression asks, which
+        # is the property that mattered and the reason this keeps working.
+        self.assertEqual(out['wt']['covers'], 1)
 
     def test_an_unknown_scope_covers_nothing_and_says_so(self):
         """This started out reporting None — "a scope this build does not know
-        is not evidence of no coverage." That was the wrong way round. For THIS
-        build it is exactly that evidence: `_window_applies` matches device,
-        group and global, so a window with any other scope suppresses nothing
-        and holds nothing. Reporting None hid the very case the count exists to
-        surface, behind a shrug. Zero is the measurement."""
-        out = self._list({'id': 'w9', 'scope': 'smart', 'target': 'x'})
+        is not evidence of no coverage." That was the wrong way round: for a
+        given build it is exactly that evidence, because a window whose scope
+        `_window_applies` does not match suppresses nothing and holds nothing.
+        Reporting None hid the case the count exists to surface, behind a shrug.
+
+        The example used to be `smart`, which this build now matches — so the
+        case is made with a scope that is not in _MAINTENANCE_SCOPES at all, and
+        the test asserts that rather than assuming it."""
+        self.assertNotIn('nonsense', api._MAINTENANCE_SCOPES)
+        out = self._list({'id': 'w9', 'scope': 'nonsense', 'target': 'x'})
         self.assertEqual(out['w9']['covers'], 0)
+
+    def test_a_smart_group_window_counts_what_it_matches(self):
+        """The scope the case above used to borrow. It is real now, so it gets
+        its own assertion rather than being quietly dropped."""
+        api.save(api.SMART_GROUPS_FILE, {'sgx': {'name': 'edge',
+                                                 'rules': {'tag': 'edge'}}})
+        api._LOAD_CACHE.clear()
+        out = self._list({'id': 'ws', 'scope': 'smart', 'target': 'sgx'})
+        self.assertGreaterEqual(out['ws']['covers'], 1)
 
     def test_the_page_renders_the_warning(self):
         js = (_ROOT / 'server/html/static/js/app.js').read_text()
