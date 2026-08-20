@@ -1015,6 +1015,28 @@ function doLogout() {
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
   clearInterval(refreshTimer);
+  // v7.0.2: drop the whole JS heap, not a list of caches.
+  //
+  // 70 module-level caches across 20 files hold real fleet data — alerts, audit
+  // log rows, CMDB assets, scoped credentials, device rows — and NONE of them
+  // were reset here. On a shared workstation the next person to log in gets a
+  // page that renders from the previous user's cache before their own fetch
+  // lands. The ETag cache above was cleared for exactly this reason; the page
+  // caches were missed.
+  //
+  // Enumerating the 70 would work today and rot the moment someone adds the
+  // 71st, and they are script-scoped `let` bindings that nothing can reset from
+  // here anyway. A reload lands on the same login page and takes every one of
+  // them with it, including the ones added next year.
+  //
+  // Guarded so a 401 on the login page itself cannot loop: only reload if a
+  // session actually existed, and only once.
+  try {
+    if (!window.__rpLoggingOut) {
+      window.__rpLoggingOut = true;
+      setTimeout(() => { try { location.reload(); } catch (_) {} }, 50);
+    }
+  } catch (_) {}
 }
 function getToken() {
   // v1.8.5: check both — remember-me persists in localStorage, regular in sessionStorage
