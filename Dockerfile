@@ -16,7 +16,9 @@ LABEL org.opencontainers.image.source="https://github.com/tyxak/remotepower"
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         nginx procps xmlsec1 openssl iputils-ping && \
-    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn flask pydantic 'psycopg[binary]' && \
+    # websockets (v7.0.2): the push daemon docker/entrypoint.sh starts by
+    # default exits 2 without it — the image shipped without it entirely.
+    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn flask pydantic 'psycopg[binary]' websockets && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories

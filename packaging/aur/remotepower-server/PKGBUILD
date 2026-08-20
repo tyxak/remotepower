@@ -19,6 +19,7 @@ optdepends=(
   'wireguard-tools: WG Access — wg/wg-quick used by the VPN hub helper'
   'python-psycopg: PostgreSQL storage backend for large / multi-node fleets'
   'postgresql: PostgreSQL storage backend for large / multi-node fleets'
+  'python-websockets: agent push (wake-nudge) daemon — remotepower-push exits without it'
 )
 backup=('etc/nginx/snippets/remotepower-locations.conf')
 install="$pkgname.install"

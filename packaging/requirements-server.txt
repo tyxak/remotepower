@@ -24,3 +24,7 @@ psycopg         # Postgres storage backend (JSON/SQLite need nothing extra)
 pydantic        # request-body validation (request_models.py) -- full adoption in
                 # v6.1.2: 243 handlers. Absent, validate() short-circuits and the
                 # handlers' hand-rolled validation runs unchanged, nothing degrades
+websockets      # the agent push (wake-nudge) daemon, server/push/remotepower-push.py.
+                # Listed here from v7.0.2: the daemon is installed and enabled BY
+                # DEFAULT (RP_WITH_PUSH=1) and exits 2 without this, so it is only
+                # "optional" in the sense that you can install without the daemon

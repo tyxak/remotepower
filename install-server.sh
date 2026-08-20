@@ -685,6 +685,32 @@ fi
 # from the storage marker), so no extra secrets are needed. See docs/push.md.
 if [[ "$WITH_PUSH" == "1" ]]; then
     info "Installing the agent push (wake-nudge) daemon..."
+    # v7.0.2: install its ONE hard dependency. remotepower-push exits 2 in main()
+    # without `websockets`, and until now nothing installed it — not this script,
+    # not install.sh, deploy-server.sh, the Dockerfile, the entrypoint,
+    # requirements-server.txt or the AUR PKGBUILD. The only file in the tree that
+    # did was packaging/install-webterm.sh, which this script never calls. The
+    # unit is Type=simple, so `enable --now` still returns 0 and this printed
+    # "Agent push daemon installed" while the unit crash-looped into its start
+    # limit — on every host that did not happen to have the web terminal.
+    if python3 -c "import websockets" 2>/dev/null; then
+        success "websockets already available"
+    else
+        case $PKG_MGR in
+          apt)    pip3 install websockets --break-system-packages 2>/dev/null \
+                    || pip3 install websockets || warn "websockets install failed" ;;
+          dnf)    pip3 install websockets || warn "websockets install failed" ;;
+          pacman) pip install websockets  || warn "websockets install failed" ;;
+        esac
+    fi
+    if ! python3 -c "import websockets" 2>/dev/null; then
+        warn "websockets is unavailable — the push daemon cannot run. Install it"
+        warn "  with: pip3 install websockets   (then: systemctl restart remotepower-push)"
+        warn "  Skipping the push daemon rather than enabling a unit that will crash-loop."
+        WITH_PUSH=0
+    fi
+fi
+if [[ "$WITH_PUSH" == "1" ]]; then
     install -m 0755 "$SCRIPT_DIR/server/push/remotepower-push.py" /usr/local/bin/remotepower-push
     install -m 644 "$SCRIPT_DIR/server/conf/remotepower-push.service" \
         /etc/systemd/system/remotepower-push.service
