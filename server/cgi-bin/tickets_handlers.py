@@ -1147,12 +1147,26 @@ def _csat_enabled():
     return bool((A.load(A.CONFIG_FILE) or {}).get('ticket_csat_enabled'))
 
 
-def _csat_sig(tid, rating):
-    """HMAC tag binding a (ticket, rating) into an unguessable one-click link.
-    Namespaced with a 'csat:' prefix so a tag can never be replayed as another
-    signed artefact (export sig, etc.). Reuses the per-install export key."""
-    msg = f'csat:{tid}:{rating}'.encode()
+def _csat_sig(tid, rating, exp):
+    """HMAC tag binding a (ticket, rating, deadline) into an unguessable
+    one-click link. Namespaced with a 'csat:' prefix so a tag can never be
+    replayed as another signed artefact (export sig, etc.). Reuses the
+    per-install export key.
+
+    v7.0.2: `exp` joined the signed message. The tag was over (ticket, rating)
+    alone and never stopped working, and the failure page told the recipient a
+    link could "expire". Single use bounds the damage — the first valid click
+    wins and later ones only acknowledge — so this is smaller than the alert-act
+    twin, but a survey link that still records a rating three years later is not
+    what anyone means by a survey, and leaving one of two identical capability
+    links hardened is how the next one gets missed.
+    """
+    msg = f'csat:{tid}:{rating}:{int(exp)}'.encode()
     return A.hmac.new(A._export_signing_key(), msg, A.hashlib.sha256).hexdigest()[:32]
+
+
+# A satisfaction survey is about a ticket someone just had closed.
+CSAT_LINK_TTL = 30 * 86400
 
 
 def _send_ticket_csat(to_email, ticket, base_url):
@@ -1168,9 +1182,10 @@ def _send_ticket_csat(to_email, ticket, base_url):
     tid = ticket.get('id')
     number = ticket.get('number')
     links = []
+    _csat_exp = int(time.time()) + CSAT_LINK_TTL
     for r in ('good', 'ok', 'bad'):
         url = (f'{base_url}/api/tickets/csat?t={urllib.parse.quote(str(tid))}'
-               f'&r={r}&s={_csat_sig(tid, r)}')
+               f'&r={r}&e={_csat_exp}&s={_csat_sig(tid, r, _csat_exp)}')
         links.append(f'{_CSAT_LABELS[r]}: {url}')
     subject = f"#RP{int(number or 0):06d} How did we do?"[:200]
     body = ('Your ticket has been resolved. How was our support? '
@@ -1210,8 +1225,17 @@ def handle_ticket_csat():
     sig = (qs.get('s') or [''])[0]
     if rating not in _CSAT_SCORES or not tid:
         _csat_page('Invalid link', 'This survey link is not valid.')
-    if not A.hmac.compare_digest(sig, _csat_sig(tid, rating)):
+    try:
+        exp = int((qs.get('e') or ['0'])[0])
+    except (TypeError, ValueError):
+        exp = 0
+    # Signature first, then the clock — the other order answers differently for
+    # a well-formed expired link and a forged one.
+    if not A.hmac.compare_digest(sig, _csat_sig(tid, rating, exp)):
         _csat_page('Invalid link', 'This survey link is not valid or has expired.')
+    if exp <= int(time.time()):
+        _csat_page('Survey closed',
+                   'This survey link has expired. Thanks all the same.')
     now = int(time.time())
     already = False
     found = False

@@ -753,27 +753,57 @@ class TestTicketCsat(_HandlerBase):
         api.save(api.TICKETS_FILE, {'tickets': [t]})
 
     def test_sig_binds_ticket_and_rating(self):
-        s_good = api._csat_sig('tk_1', 'good')
-        s_bad = api._csat_sig('tk_1', 'bad')
+        s_good = api._csat_sig('tk_1', 'good', 1000)
+        s_bad = api._csat_sig('tk_1', 'bad', 1000)
         self.assertNotEqual(s_good, s_bad)
-        self.assertEqual(s_good, api._csat_sig('tk_1', 'good'))     # deterministic
-        self.assertNotEqual(s_good, api._csat_sig('tk_2', 'good'))  # per-ticket
+        self.assertEqual(s_good, api._csat_sig('tk_1', 'good', 1000))  # deterministic
+        self.assertNotEqual(s_good, api._csat_sig('tk_2', 'good', 1000))  # per-ticket
+        # v7.0.2: and the deadline, so editing `e` in the URL cannot extend it.
+        self.assertNotEqual(s_good, api._csat_sig('tk_1', 'good', 2000))
 
-    def _hit_csat(self, tid, rating, sig):
-        import os as _os
-        _os.environ['QUERY_STRING'] = f't={tid}&r={rating}&s={sig}'
+    def _hit_csat(self, tid, rating, sig, exp=None):
+        import os as _os, time as _t
+        exp = int(_t.time()) + 3600 if exp is None else exp
+        _os.environ['QUERY_STRING'] = f't={tid}&r={rating}&e={exp}&s={sig}'
         api.method = lambda: 'GET'
         self.call(api.handle_ticket_csat)
 
+    def _csig(self, tid, rating, exp=None):
+        import time as _t
+        return api._csat_sig(tid, rating, int(_t.time()) + 3600 if exp is None else exp)
+
+    def test_an_expired_survey_link_records_nothing(self):
+        """v7.0.2. The tag was over (ticket, rating) alone, so a survey link
+        still recorded a rating years later. Single use bounded it — the first
+        valid click wins — but the failure page already said a link could
+        "expire", which was true of none of them."""
+        import time as _t
+        self._ticket()
+        stale = int(_t.time()) - 10
+        self._hit_csat('tk_1', 'good', self._csig('tk_1', 'good', stale), exp=stale)
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertNotIn('csat', t)
+        self.assertIn('expired', self.pages[-1][1].lower())
+
+    def test_editing_the_deadline_does_not_extend_it(self):
+        import time as _t
+        self._ticket()
+        stale = int(_t.time()) - 10
+        self._hit_csat('tk_1', 'good', self._csig('tk_1', 'good', stale),
+                       exp=int(_t.time()) + 99999)
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertNotIn('csat', t)
+        self.assertIn('Invalid', self.pages[-1][0])
+
     def test_valid_click_stores_rating_once(self):
         self._ticket()
-        self._hit_csat('tk_1', 'good', api._csat_sig('tk_1', 'good'))
+        self._hit_csat('tk_1', 'good', self._csig('tk_1', 'good'))
         t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
         self.assertEqual(t['csat']['rating'], 'good')
         self.assertEqual(t['csat']['score'], 5)
         self.assertIn('Thank you', self.pages[-1][0])
         # second click → already recorded, rating unchanged
-        self._hit_csat('tk_1', 'bad', api._csat_sig('tk_1', 'bad'))
+        self._hit_csat('tk_1', 'bad', self._csig('tk_1', 'bad'))
         t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
         self.assertEqual(t['csat']['rating'], 'good')
         self.assertIn('Already', self.pages[-1][0])
@@ -802,7 +832,15 @@ class TestTicketCsat(_HandlerBase):
         body = sent[0][2]
         self.assertIn('r=good', body)
         self.assertIn('r=bad', body)
-        self.assertIn(api._csat_sig('tk_1', 'good'), body)
+        # v7.0.2: the tag covers a deadline the sender mints, so it cannot be
+        # recomputed from (ticket, rating). Read it back out of the link, which
+        # also proves the minting and verifying sides agree.
+        import re as _re, time as _t
+        m = _re.search(r'r=good&e=(\d+)&s=([0-9a-f]+)', body)
+        self.assertTrue(m, f'no deadline in the survey link: {body[:200]}')
+        self.assertEqual(api._csat_sig('tk_1', 'good', int(m.group(1))), m.group(2))
+        self.assertGreater(int(m.group(1)), int(_t.time()),
+                           'the survey link is minted already expired')
         t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
         self.assertTrue(t.get('csat_sent'))
 
