@@ -11,6 +11,18 @@ async function loadChecks() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/checks');
+    // v7.0.2: api() RESOLVES on a 4xx/5xx, so the catch below never sees a
+    // refusal or a server error. Without this the error body has no `hosts`,
+    // the flatten yields [], and the page paints 0 Critical / 0 Warning /
+    // 0 Unknown / 0 OK with "No checks match." — the whole fleet reading green
+    // at the moment the server stopped being able to answer.
+    if (!data || data.error) {
+      _errorState(tbody, loadChecks, {
+        msg: (data && data.error) ? `Could not load checks: ${data.error}`
+                                  : 'Could not load checks.',
+        colspan: 6});
+      return;
+    }
     // Flatten the host matrix into one row per (host, check).
     _checksRows = [];
     for (const h of ((data && data.hosts) || [])) {

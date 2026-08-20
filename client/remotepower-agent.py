@@ -11790,6 +11790,16 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # into extra_units directly so journalctl isn't queried for them.
         _file_paths = []
         for r in log_watch_rules:
+            # v7.0.2: a non-dict rule used to kill the process here. This loop
+            # is outside any try inside heartbeat(), and heartbeat() is called
+            # with no wrapper, so `'str' object has no attribute 'get'` ended
+            # the agent — on every poll, as a crash loop that still looked
+            # ONLINE because the POST lands first. The Windows and macOS twins
+            # have always guarded; only the majority platform did not. The
+            # server no longer sends bare strings either, but an older or
+            # hand-edited store still can.
+            if not isinstance(r, dict):
+                continue
             if r.get('path'):
                 _file_paths.append(r['path'])
             elif r.get('unit') and not str(r.get('unit', '')).startswith('file:'):

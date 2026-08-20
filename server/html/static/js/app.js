@@ -1699,11 +1699,36 @@ async function api(method, path, body, extra) {
   // truncated response, or an empty 204). Returning null lets callers fall
   // through their `if (!data) return` guards instead of throwing an unhandled
   // rejection that leaves skeleton rows / spinners stuck on screen.
+  let _body;
   try {
-    return await r.json();
+    _body = await r.json();
   } catch (_) {
-    return null;
+    _body = null;
   }
+  // v7.0.2: SAY SOMETHING when the request failed.
+  //
+  // This function RESOLVES on 4xx/5xx — only a 401 and a network failure
+  // return null — so every `try { await api(...) } catch` around a load is
+  // dead code for a refusal or a server error. 72 renderers then do
+  // `(data && data.rows) || []`, which turns an error body into an empty list,
+  // and paint their empty state: "No alerts in this view", "Nothing is waiting
+  // for approval", 0 Critical / 0 Warning / 0 OK. The operator is told the
+  // fleet is clear at the moment the server stopped being able to answer.
+  //
+  // Fixing 72 call sites individually is a bigger change than the bug; making
+  // the failure audible once, here, covers all of them. A page may still paint
+  // an empty table, but it can no longer do it in silence.
+  //
+  // Opt out with a 4th arg of {quiet: true} where a non-2xx is an expected
+  // answer rather than a failure (a probe, a poll for a thing not yet created).
+  if (!r.ok && r.status !== 401 && !(extra && extra.quiet)) {
+    const _why = (_body && (_body.error || _body.message)) || `HTTP ${r.status}`;
+    if (typeof toast === 'function') {
+      toast(`${method} ${path} failed — ${_why}`, 'error');
+    }
+    try { console.warn('[remotepower] api', method, path, r.status, _why); } catch (_) {}
+  }
+  return _body;
 }
 
 // ─── v2.0: sidebar group collapse state ─────────────────────────────────────
@@ -10081,7 +10106,14 @@ function _fillProfileForm(p) {
   set('dp-name', p.name || '');
   set('dp-poll', p.poll_interval || '');
   set('dp-units', (p.services_watched || []).join('\n'));
-  set('dp-logs', (p.log_watch || []).join('\n'));
+  // v7.0.2: rules are stored as objects ({path} or {unit,pattern}); joining
+  // them raw printed "[object Object]" into the textarea the moment the server
+  // started normalising what this modal posts.
+  set('dp-logs', (p.log_watch || [])
+    .map(r => (typeof r === 'string' ? r
+               : (r && r.path) ? r.path
+               : (r && r.unit) ? `${r.unit}:${r.pattern || ''}` : ''))
+    .filter(Boolean).join('\n'));
   set('dp-drift', (p.drift_files || []).join('\n'));
   const mt = p.metric_thresholds || {};
   set('dp-mem-warn', mt.mem_warn_percent ?? '');
@@ -13332,6 +13364,18 @@ let _confirmationsCache = [];
 async function loadConfirmations() {
   try {
     const data = await api('GET', '/confirmations');
+    // v7.0.2: this is the approval gate for privileged writes queued against
+    // devices that require a second pair of eyes. api() resolves on a 4xx/5xx,
+    // so the catch below never fired and an error body — which has no
+    // `confirmations` — rendered "Nothing is waiting for approval." An
+    // approver reading that walks away, and the request sits unapproved.
+    if (!data || data.error) {
+      _errorState('confirmations-tbody', loadConfirmations, {
+        colspan: 7,
+        msg: (data && data.error) ? `Could not load confirmations: ${data.error}`
+                                  : 'Could not load confirmations.'});
+      return;
+    }
     _confirmationsCache = (data && data.confirmations) || [];
     _renderConfirmations(_confirmationsCache);
     refreshConfirmationsBadge();

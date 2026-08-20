@@ -15072,13 +15072,45 @@ def _validate_device_profile(body):
         if not (30 <= pi <= 3600):
             respond(400, {'error': 'poll_interval must be 30–3600 seconds'})
         out['poll_interval'] = pi
-    for key in ('services_watched', 'log_watch'):
-        if key in body:
-            raw = body[key]
-            if not isinstance(raw, list):
-                respond(400, {'error': f'{key} must be a list'})
-            out[key] = [_sanitize_str(str(u), 128) for u in raw[:100]
-                        if isinstance(u, str) and u.strip()]
+    if 'services_watched' in body:
+        raw = body['services_watched']
+        if not isinstance(raw, list):
+            respond(400, {'error': 'services_watched must be a list'})
+        out['services_watched'] = [_sanitize_str(str(u), 128) for u in raw[:100]
+                                   if isinstance(u, str) and u.strip()]
+    # v7.0.2: log_watch is NOT a list of strings, and sharing this loop with
+    # services_watched (which is) shipped a crash.
+    #
+    # The profile modal's "Log watches (one per line)" textarea posts one PATH
+    # per line, this stored them as bare strings, _apply_profile_to_device
+    # stamped them onto the device, and the heartbeat handed them to the agent —
+    # which does `r.get('path')`. On Linux that is an AttributeError outside any
+    # try, so the process died on every poll: a crash loop that still looked
+    # ONLINE, because the heartbeat POST lands before the crash. The Windows and
+    # macOS agents both guard with isinstance and were unaffected.
+    #
+    # Normalised to the {'path': …} rule the agents tail, so the feature does
+    # the thing its placeholder (/var/log/nginx/error.log) advertises. A dict is
+    # passed through so a profile written by any other path keeps working.
+    if 'log_watch' in body:
+        raw = body['log_watch']
+        if not isinstance(raw, list):
+            respond(400, {'error': 'log_watch must be a list'})
+        rules = []
+        for entry in raw[:100]:
+            if isinstance(entry, dict):
+                path = _sanitize_str(str(entry.get('path') or ''), 512)
+                unit = _sanitize_str(str(entry.get('unit') or ''), 128)
+                pattern = _sanitize_str(str(entry.get('pattern') or ''), 256)
+                if path:
+                    rules.append({'path': path})
+                elif unit and pattern:
+                    rules.append({'unit': unit, 'pattern': pattern})
+            elif isinstance(entry, str) and entry.strip():
+                path = _sanitize_str(entry.strip(), 512)
+                if path.startswith('/'):
+                    rules.append({'path': path})
+        out['log_watch'] = rules
     if 'drift_files' in body:
         out['drift_files'] = _validate_drift_files(body['drift_files'])
     if 'metric_thresholds' in body:

@@ -47,6 +47,20 @@ async function loadAlerts() {
   if (_alertsDeviceId) path += `&device_id=${encodeURIComponent(_alertsDeviceId)}`;
   try {
     const data = await api('GET', path);
+    // v7.0.2: an error body has no `alerts`, so this used to render "No alerts
+    // in this view." on a 500 or a 403 — telling an operator there is nothing
+    // to act on because the server could not tell them what there is. api()
+    // resolves on both, so the catch arm below never fired.
+    if (!data || data.error) {
+      const _tb = document.getElementById('alerts-tbody');
+      if (_tb && typeof _errorState === 'function') {
+        _errorState(_tb, loadAlerts, {
+          msg: (data && data.error) ? `Could not load alerts: ${data.error}`
+                                    : 'Could not load alerts.',
+          colspan: 8});
+      }
+      return;
+    }
     _alertsCache = (data && data.alerts) || [];
     _alertsLoadedStatus = status;
     _alertsQuery = q;
