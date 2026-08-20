@@ -19758,22 +19758,23 @@ def handle_enroll_token_create():
     token = secrets.token_urlsafe(32)
     now = int(time.time())
 
-    tokens = load(ENROLL_TOKENS_FILE)
-    _purge_expired_enroll_tokens(tokens, now)
-    # v5.4.1: key by the SHA-256 HASH (not the plaintext token) so a datastore read
-    # yields no usable enrollment token. A short `prefix` is kept for the list /
-    # revoke-by-prefix UX (the key is no longer the token). (_hash_device_token is a
-    # generic sha256 of a urlsafe bearer token — reused here.)
-    tokens[_hash_device_token(token)] = {
-        'created':       now,
-        'expires':       now + ttl,
-        'actor':         actor,
-        'default_group': default_group,
-        'default_tags':  clean_tags,
-        'label':         label,
-        'prefix':        token[:8],
-    }
-    save(ENROLL_TOKENS_FILE, tokens)
+    # v7.0.2: locked. Unlocked, a create racing a revoke saved a snapshot
+    # taken before the delete and the revoked token came back live.
+    with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
+        _purge_expired_enroll_tokens(tokens, now)
+        # v5.4.1: key by the SHA-256 HASH (not the plaintext token) so a datastore read
+        # yields no usable enrollment token. A short `prefix` is kept for the list /
+        # revoke-by-prefix UX (the key is no longer the token). (_hash_device_token is a
+        # generic sha256 of a urlsafe bearer token — reused here.)
+        tokens[_hash_device_token(token)] = {
+            'created':       now,
+            'expires':       now + ttl,
+            'actor':         actor,
+            'default_group': default_group,
+            'default_tags':  clean_tags,
+            'label':         label,
+            'prefix':        token[:8],
+        }
     audit_log(actor, 'enrollment_token_created',
               f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}')
     respond(201, {
@@ -19793,10 +19794,21 @@ def handle_enroll_token_list():
     "list endpoint leaks active tokens to anyone with admin access" footgun.
     """
     require_admin_auth()
-    tokens = load(ENROLL_TOKENS_FILE)
     now = int(time.time())
-    _purge_expired_enroll_tokens(tokens, now)
-    save(ENROLL_TOKENS_FILE, tokens)
+    # v7.0.2: a GET that WRITES — it prunes expired tokens as a side effect —
+    # and it did so unlocked, so listing while another admin created or revoked
+    # one wrote back a snapshot that undid them. The prune is opportunistic, so
+    # it takes the lock non-blocking and simply lists what it read if the store
+    # is busy; a token that outlives its expiry by one request is filtered out
+    # of the response anyway.
+    try:
+        with _LockedUpdate(ENROLL_TOKENS_FILE, non_blocking=True) as tokens:
+            _purge_expired_enroll_tokens(tokens, now)
+            _snapshot = dict(tokens)
+    except LockBusy:
+        _snapshot = _load_ro(ENROLL_TOKENS_FILE) or {}
+    tokens = {k: v for k, v in _snapshot.items()
+              if int((v or {}).get('expires', 0) or 0) > now}
     out = []
     for token, meta in tokens.items():
         out.append({
@@ -19833,19 +19845,24 @@ def handle_enroll_token_revoke(token_prefix: str):
     prefix = _sanitize_str(token_prefix, 64).rstrip('…')
     if len(prefix) < 4:
         respond(400, {'error': 'Token prefix must be at least 4 characters'})
-    tokens = load(ENROLL_TOKENS_FILE)
-    # v5.4.1: match against the stored display `prefix` (the key is a hash now);
-    # legacy plaintext-keyed tokens fall back to matching the key itself.
-    matches = [k for k, m in tokens.items()
-               if (m.get('prefix') or k).startswith(prefix)]
-    if len(matches) == 0:
-        respond(404, {'error': 'No matching enrollment token'})
-    if len(matches) > 1:
-        respond(400, {'error': f'{len(matches)} tokens share that prefix — use a longer prefix'})
-    full = matches[0]
-    label = tokens[full].get('label', '')
-    del tokens[full]
-    save(ENROLL_TOKENS_FILE, tokens)
+    # v7.0.2: hold the lock across read and write. A bare load/mutate/save loses
+    # a concurrent write, and on THIS store that means a revoked enrolment token
+    # comes back: a create running alongside a revoke saves a snapshot taken
+    # before the delete, and the token an admin just killed is live again.
+    # respond() inside the block raises SystemExit, which aborts the save and
+    # releases the lock — the 12 existing sites rely on the same behaviour.
+    with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
+        # v5.4.1: match against the stored display `prefix` (the key is a hash
+        # now); legacy plaintext-keyed tokens fall back to matching the key.
+        matches = [k for k, m in tokens.items()
+                   if (m.get('prefix') or k).startswith(prefix)]
+        if len(matches) == 0:
+            respond(404, {'error': 'No matching enrollment token'})
+        if len(matches) > 1:
+            respond(400, {'error': f'{len(matches)} tokens share that prefix — use a longer prefix'})
+        full = matches[0]
+        label = tokens[full].get('label', '')
+        del tokens[full]
     audit_log(actor, 'enrollment_token_revoked', f'prefix={prefix} label="{label}"')
     respond(200, {'ok': True})
 
