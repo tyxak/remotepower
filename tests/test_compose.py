@@ -139,7 +139,12 @@ class TestComposeStacks(unittest.TestCase):
         _req("POST", f"/api/compose/stacks/{sid}/action", {"action": "up"}, self.token)
         st, _ = _call(api.handle_compose_stack_action, sid)
         self.assertEqual(st, 200)
-        self.assertIn(f"compose_deploy:up:{sid}", api.load(api.CMDS_FILE).get("dev1", []))
+        # v7.0.2: the queued command carries a hash of the compose file so
+        # require-signed-commands binds the PAYLOAD, not just the stack id.
+        queued = api.load(api.CMDS_FILE).get("dev1", [])
+        self.assertTrue(
+            any(c.startswith(f"compose_deploy:up:{sid}:") for c in queued),
+            f"no payload-bound compose_deploy queued: {queued}")
         self.assertEqual(api.load(api.COMPOSE_STACKS_FILE)[sid]["status"], "deploying")
 
     def test_fetch_requires_correct_device_token(self):

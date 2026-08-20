@@ -9696,10 +9696,29 @@ def _run_compose_deploy(cmd):
     via argv (no shell). Returns the exec-channel result dict so the server
     captures output + return code (and updates the stack status).
     """
-    try:
-        _, action, stack_id = cmd.split(':', 2)
-    except ValueError:
+    # v7.0.2: compose_deploy:<action>:<stack_id>[:<yaml_hash>]
+    #
+    # The signature that require-signed-commands checks covers the COMMAND
+    # STRING, and the yaml is fetched afterwards over a separate call — so
+    # signing the stack id left the only thing that actually executes unsigned.
+    # The server now binds a hash of the yaml into the command; we re-hash what
+    # we fetched and refuse a mismatch.
+    parts = cmd.split(':', 3)
+    if len(parts) < 3:
         return {'cmd': cmd, 'output': 'malformed compose_deploy command', 'rc': -1}
+    _, action, stack_id = parts[0], parts[1], parts[2]
+    want_hash = parts[3].strip() if len(parts) > 3 else ''
+    if not want_hash and _require_signed_commands():
+        # An older server omits it. With signing OFF that is fine — no guarantee
+        # is being claimed. With signing ON, accepting it would let anything that
+        # can reach the queue swap the payload behind a signed id, which is the
+        # exact case the setting exists for.
+        return {'cmd': cmd,
+                'output': ('refused: require-signed-commands is on but this '
+                           'compose_deploy carries no payload hash — the server '
+                           'is older than 7.0.2 and cannot bind the compose file '
+                           'to the signature'),
+                'rc': -1}
     action = action.strip().lower()
     if action not in COMPOSE_DEPLOY_ACTIONS:
         return {'cmd': cmd, 'output': f'action {action!r} not allowed', 'rc': -1}
@@ -9723,6 +9742,17 @@ def _run_compose_deploy(cmd):
         return {'cmd': cmd, 'output': f'invalid stack name {name!r}', 'rc': -1}
     if not isinstance(yaml_text, str) or not yaml_text.strip():
         return {'cmd': cmd, 'output': 'empty compose file', 'rc': -1}
+    if want_hash:
+        got = hashlib.sha256(yaml_text.encode('utf-8')).hexdigest()[:len(want_hash)]
+        # The agent's own constant-time helper; it imports hmac lazily. Not a
+        # strong threat here (the hash travels in the command) but a plain !=
+        # would be the only timing-naive compare in this file.
+        if not hmac_compare(got, want_hash):
+            return {'cmd': cmd,
+                    'output': ('refused: the fetched compose file does not match '
+                               'the hash in the signed command — it changed '
+                               'between being queued and being fetched'),
+                    'rc': -1}
 
     stack_dir = COMPOSE_STACKS_DIR / name
     try:

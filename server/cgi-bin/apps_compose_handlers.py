@@ -220,7 +220,14 @@ def handle_app_catalog_deploy():
                 'last_rc': None, 'last_output': '',
             }
     A.audit_log(actor, 'app_catalog_deploy', f'{app_id} dev={device_id} ({action})')
-    A._queue_command_batch([device_id], f'compose_deploy:{action}:{stack_id}', actor)
+    # v7.0.2: bind the PAYLOAD into the command, not just the stack id.
+    # require-signed-commands signs the command string, and the agent then
+    # FETCHES the yaml separately — so signing the id alone left the one
+    # thing that actually executes unsigned. The agent re-hashes what it
+    # fetched and refuses a mismatch.
+    _yh = A.hashlib.sha256((yaml or '').encode('utf-8')).hexdigest()[:32]
+    A._queue_command_batch([device_id],
+                           f'compose_deploy:{action}:{stack_id}:{_yh}', actor)
     A.respond(200, {'ok': True, 'id': stack_id, 'action': action})
 
 
@@ -347,7 +354,14 @@ def handle_compose_stack_action(stack_id):
     A.save(A.COMPOSE_STACKS_FILE, stacks)
     # _queue_command_batch queues without responding (unlike _queue_command);
     # the agent fetches the YAML itself via /api/compose/fetch.
-    A._queue_command_batch([device_id], f'compose_deploy:{action}:{stack_id}', actor)
+    # v7.0.2: bind the PAYLOAD into the command, not just the stack id.
+    # require-signed-commands signs the command string, and the agent then
+    # FETCHES the yaml separately — so signing the id alone left the one
+    # thing that actually executes unsigned. The agent re-hashes what it
+    # fetched and refuses a mismatch.
+    _yh = A.hashlib.sha256((s.get('yaml') or '').encode('utf-8')).hexdigest()[:32]
+    A._queue_command_batch([device_id],
+                           f'compose_deploy:{action}:{stack_id}:{_yh}', actor)
     A.audit_log(actor, 'compose_stack_action', f'{action} {s.get("name")} dev={device_id}')
     A.respond(200, {'ok': True, 'queued': action})
 

@@ -21925,7 +21925,10 @@ def handle_heartbeat():
         # mitigate — the agent echoes the full command, so we recognise
         # compose_deploy:<action>:<stack_id> and update the stack's status
         # from the return code. No separate status endpoint needed.
-        compose_match = re.match(r'^compose_deploy:(up|down|redeploy):(s-[a-f0-9]+)$', cmd_raw)
+        # The trailing segment is the v7.0.2 payload hash; optional so a
+        # pre-7.0.2 agent echoing the old form still updates its stack.
+        compose_match = re.match(r'^compose_deploy:(up|down|redeploy):(s-[a-f0-9]+)(?::[a-f0-9]{8,64})?$',
+                                  cmd_raw)
         if compose_match:
             c_action, c_stack = compose_match.group(1), compose_match.group(2)
             try:
