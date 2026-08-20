@@ -4805,12 +4805,26 @@ body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: b
 .mitigate-pane { font-size: 13px; }
 .mitigate-pane pre { font-family: var(--font-mono); }
 
-/* CSP migration (L1): rules moved from inline <style> in index.html */
+/* CSP migration (L1): rules moved from inline <style> in index.html.
+ *
+ * The <style> this came from lived in <head> BEFORE the stylesheet <link>, so
+ * it was an anti-FOUC hide the stylesheet then overrode on load. Moved into
+ * this file it landed 700 lines AFTER the canonical declarations at the top of
+ * this section, same specificity — so the hide won permanently and never
+ * lifted.
+ *
+ * `.toast-container { display: none }` therefore made every toast in the
+ * product invisible: they were built, appended and timed out inside a
+ * zero-height container. `.refresh-bar { display: none }` did the same to the
+ * auto-refresh progress strip, which app.js still drives with a scaleX
+ * transform once a second.
+ *
+ * Both are gone; `.toast-container { display: flex }` and
+ * `.refresh-bar { display: block }` above are the declarations that were always
+ * meant to apply. The sidebar rule below has no counterpart and is kept. */
 @media (max-width: 720px) {
   .sidebar { transform: translateX(-100%); }
 }
-.toast-container { display: none; }
-.refresh-bar { display: none; }
 
 /* CSP L1 fix: utility classes replacing inline style= attributes */
 /* Plain (NOT !important) on purpose: #login-page and #app carry `d-none` as a
