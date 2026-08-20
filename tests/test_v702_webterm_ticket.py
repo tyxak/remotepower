@@ -74,8 +74,10 @@ class TestTheMinimumAsyncsshVersion(unittest.TestCase):
         self.assertIn('(2, 14, 2)', self.src)
 
     def test_the_message_says_why(self):
+        # Bounded by the guard's own end, not a character count.
         i = self.src.index('MIN_ASYNCSSH')
-        self.assertIn('CVE-2023-46445', self.src[i:i + 2000])
+        j = self.src.index("VERSION = ", i)
+        self.assertIn('CVE-2023-46445', self.src[i:j])
 
     def test_it_agrees_with_the_installer(self):
         """Two places state this floor and they drifted once already."""
@@ -135,8 +137,14 @@ class TestATicketIsUsedOnce(unittest.TestCase):
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix='rp-wt-run-'))
         # The daemon picks its backend from the MARKER, not the env.
-        (self.dir / 'storage_backend.json').write_text(
-            json.dumps({'backend': 'sqlite'}))
+        # The MARKER is a real on-disk file read before any backend is chosen —
+        # one of the two documented exceptions to "never touch a storage key as
+        # a file". Written through storage's own atomic writer so the ratchet
+        # that counts raw store IO in tests does not have to make an exception
+        # for it.
+        import storage as _storage
+        _storage._write_json_atomic(self.dir / 'storage_backend.json',
+                                    {'backend': 'sqlite'})
         spec = importlib.util.spec_from_file_location(
             'api_wt_ticket', _CGI / 'api.py')
         self.api = importlib.util.module_from_spec(spec)
