@@ -173,10 +173,21 @@ def run_metric_rollup_if_due():
         if now - int(prev.get('last_run', 0) or 0) < A.METRIC_ROLLUP_INTERVAL:
             return                      # another worker claimed this slot
         state['_meta'] = {'last_run': now}
+        # v7.0.2 (perf): read the metrics store ONCE, not once per device.
+        #
+        # _raw_metric_samples' JSON path does load(METRICS_FILE) — the whole
+        # fleet's high-res series — and this loop called it per device, inside
+        # the rollup write lock. That is O(fleet squared): measured 727 ms at
+        # 100 devices, 18.6 s at 500 and 343 s at 2000, with the lock held
+        # throughout. The thermal twin below hoists its history read above its
+        # own loop and costs 52 ms / 305 ms / 1.0 s for the same shape.
+        #
+        # None on a DB backend, which answers per device already and ignores it.
+        _mstore = None if A._dbmod() is not None else (A.load(A.METRICS_FILE) or {})
         for dev_id in list(devices.keys()):
             rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
             last_ts = int(rec.get('last_ts', 0) or 0)
-            new = A._raw_metric_samples(dev_id, last_ts)
+            new = A._raw_metric_samples(dev_id, last_ts, _store=_mstore)
             if not new:
                 continue
             fivemin = A._rollup_merge(rec.get('fivemin') or [], new, A.ROLLUP_5MIN_SEC)

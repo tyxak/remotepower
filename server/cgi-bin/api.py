@@ -23072,9 +23072,14 @@ def _recent_metric_window(dev_id):
         return []
 
 
-def _raw_metric_samples(dev_id, since_ts):
+def _raw_metric_samples(dev_id, since_ts, _store=None):
     """Raw samples newer than since_ts for a device, from whichever backend holds
-    the high-res series. [{ts,cpu,mem,swap,disk}]."""
+    the high-res series. [{ts,cpu,mem,swap,disk}].
+
+    `_store` (v7.0.2) is a pre-loaded metrics store for the JSON backend, so a
+    caller iterating the whole fleet reads it ONCE instead of once per device.
+    The DB backends already answer per device and ignore it.
+    """
     _m = _dbmod()
     if _m is not None:
         try:
@@ -23082,7 +23087,8 @@ def _raw_metric_samples(dev_id, since_ts):
                     if int(s.get('ts') or 0) > since_ts]
         except Exception:
             return []
-    window = (load(METRICS_FILE) or {}).get(dev_id) or []
+    src = _store if _store is not None else (load(METRICS_FILE) or {})
+    window = src.get(dev_id) or []
     return [s for s in window if int(s.get('ts') or 0) > since_ts]
 
 
