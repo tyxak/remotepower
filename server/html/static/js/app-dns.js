@@ -761,6 +761,27 @@ function _acmeRenderTable() {
   tbody.innerHTML = html;
 }
 
+// Every ACME mutation (issue / force-renew / revoke) goes through one server
+// funnel, _acme_queue_command, which reserves a log file so the run shows up as
+// `pending` straight away. When that reservation fails the action still goes
+// ahead — better a renewal with no log than no renewal — and the server says so
+// with `log_error`.
+//
+// Only force-renew was reading it. Revoke toasted a plain success, and issue
+// promised "output appears in the Logs tab once the agent runs it", which is
+// exactly the sentence that is untrue in this case. One helper rather than a
+// third inline copy: three call sites disagreeing is how the first two came to
+// disagree.
+function _acmeQueuedToast(r, okMsg, whatRan) {
+  if (r.log_error) {
+    toast(`${okMsg.split(' —')[0]}, but its log could not be reserved: `
+          + `${r.log_error}. ${whatRan} The Logs tab will stay empty.`,
+          'warning', { duration: 9000 });
+  } else {
+    toast(okMsg, 'success');
+  }
+}
+
 async function acmeForceRenew(devId, domain) {
   if (!await uiConfirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/renew`);
@@ -770,13 +791,8 @@ async function acmeForceRenew(devId, domain) {
     // renewal with no log than no renewal — but promising output in a tab that
     // will stay empty is the "success toast for something that did not happen"
     // shape, so say which of the two happened.
-    if (r.log_error) {
-      toast(`Renew queued, but its log could not be reserved: ${r.log_error}. `
-            + 'The renewal will still run; the Logs tab will stay empty.',
-            'warning', { duration: 9000 });
-    } else {
-      toast(`Renew queued — output in detail view (Logs tab)`, 'success');
-    }
+    _acmeQueuedToast(r, 'Renew queued — output in detail view (Logs tab)',
+                     'The renewal will still run.');
     // Re-open detail so the user can follow along
     acmeOpenDetail(devId, domain);
   } else {
@@ -788,7 +804,8 @@ async function acmeRevoke(devId, domain) {
   if (!await uiConfirm(`Revoke and remove cert for ${domain}?\n\nThis tells Let's Encrypt the cert is no longer trusted, then deletes the local files. To issue a fresh one afterwards, use the "Issue new cert" wizard.`)) return;
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/revoke`);
   if (r?.ok) {
-    toast('Revoke + remove queued', 'success');
+    _acmeQueuedToast(r, 'Revoke + remove queued',
+                     'The revoke will still run.');
     setTimeout(loadAcme, 4000);
   } else {
     toast(r?.error || 'Failed to revoke', 'error');
@@ -1058,7 +1075,9 @@ async function acmeIssueSubmit() {
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/issue`, body);
   btn.disabled = false; btn.textContent = 'Queue issue command';
   if (r?.ok) {
-    toast(`Issue queued for ${domain} — output appears in the Logs tab once the agent runs it`, 'success');
+    _acmeQueuedToast(
+      r, `Issue queued for ${domain} — output appears in the Logs tab once the agent runs it`,
+      'The issuance will still run.');
     closeModal('acme-issue-modal');
     acmeOpenDetail(devId, domain);
     setTimeout(loadAcme, 5000);
