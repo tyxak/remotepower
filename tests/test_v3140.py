@@ -2890,14 +2890,41 @@ class TestApiKeyTenantIsolation(_HandlerBase):
         self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
 
     def test_rotate_by_apikey_caller_preserves_tenant_not_default(self):
+        """The tenant on the new key comes from the CALLER's effective tenant,
+        not from `default` and not from the free-text `user` field.
+
+        The original fixture had an acme key rotating an UNCLAIMED legacy key.
+        v7.0.2 refuses that: a key with no tenant_id resolves to the default
+        tenant, `handle_apikeys_list` has only ever shown it to that tenant, and
+        letting acme rotate it would let acme take over — and destroy — a key it
+        cannot see. So the scenario here is acme rotating its OWN key, which is
+        what the assertion was actually about.
+        """
         self._seed_key('acmekey2', 'rawacmekey2', user='api', tenant_id='acme')
-        self._seed_key('k6', 'rawkey6', user='api')   # legacy, no tenant_id -- rotated by an acme key
+        self._seed_key('k6', 'rawkey6', user='api', tenant_id='acme')
         self._as_real_admin_apikey_caller('rawacmekey2')
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {}
         res = self.call(api.handle_apikeys_rotate, 'k6')
         new_kid = res['id']
         self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
+
+    def test_rotate_refuses_a_key_the_caller_cannot_see(self):
+        """The half the fixture above used to exercise by accident. Rotation
+        mints a new secret and deactivates the old one, so an ungated rotate is
+        both a takeover and a denial of service against the other tenant."""
+        self._seed_key('acmekey3', 'rawacmekey3', user='api', tenant_id='acme')
+        self._seed_key('k7', 'rawkey7', user='api')   # legacy => default tenant
+        self._as_real_admin_apikey_caller('rawacmekey3')
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        # self.call() swallows HTTPError and returns the captured body, so the
+        # status has to come from the harness's own capture.
+        self.call(api.handle_apikeys_rotate, 'k7')
+        self.assertEqual(404, self.cap.get('s'),
+                         'an acme caller rotated an unclaimed key')
+        self.assertTrue(api.load(api.APIKEYS_FILE)['k7'].get('active'),
+                        'the other tenant\'s key was deactivated anyway')
 
     def test_list_is_tenant_scoped_when_enforced(self):
         api.save(api.APIKEYS_FILE, {

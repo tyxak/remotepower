@@ -53938,6 +53938,29 @@ def handle_client_error():
     respond(200, {'ok': True})
 
 
+def _apikey_tenant_block(rec):
+    """404 a key that belongs to another tenant.
+
+    v7.0.2. `handle_apikeys_list` has filtered the roster by tenant since
+    v6.1.1, and delete / update / rotate never checked at all — so a tenant
+    admin who could not SEE another tenant's key could still delete it, rename
+    it, change its role and scope, or rotate it out from under them, by id.
+    `require_admin_auth` does not help: a tenant admin IS an admin, which is the
+    recurring shape in this codebase.
+
+    404 rather than 403, matching the device handlers — a 403 confirms the id
+    exists and turns the endpoint into an enumeration oracle.
+
+    A key with no stored tenant_id predates v6.1.1 and is treated as
+    DEFAULT_TENANT, the same fallback the list filter and _user_tenant use.
+    """
+    gate = _tenant_gate()
+    if gate is None:
+        return                      # superadmin, or tenancy off
+    if ((rec or {}).get('tenant_id') or DEFAULT_TENANT) != gate:
+        respond(404, {'error': 'API key not found'})
+
+
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
@@ -54059,10 +54082,15 @@ def handle_apikeys_delete(kid):
     require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(kid): respond(404, {'error': 'API key not found'})
-    apikeys = load(APIKEYS_FILE)
-    if kid not in apikeys: respond(404, {'error': 'API key not found'})
-    del apikeys[kid]; save(APIKEYS_FILE, apikeys)
+    # v7.0.2: lock the read-modify-write. A bare load/mutate/save loses a
+    # concurrent create, which for this store means a key the operator just
+    # minted disappears — or a deleted one comes back.
+    with _LockedUpdate(APIKEYS_FILE) as apikeys:
+        if kid not in apikeys: respond(404, {'error': 'API key not found'})
+        _apikey_tenant_block(apikeys[kid])
+        del apikeys[kid]
     respond(200, {'ok': True})
+
 
 
 def handle_apikeys_update(kid):
@@ -54076,6 +54104,7 @@ def handle_apikeys_update(kid):
     if not _validate_id(kid): respond(404, {'error': 'API key not found'})
     apikeys = load(APIKEYS_FILE)
     if kid not in apikeys: respond(404, {'error': 'API key not found'})
+    _apikey_tenant_block(apikeys[kid])          # v7.0.2
     body = _read_valid(request_models.ApikeysUpdateRequest)
     rec = apikeys[kid]
     if 'name' in body:
@@ -54154,6 +54183,7 @@ def handle_apikeys_rotate(kid):
     key_value = secrets.token_urlsafe(40)
     with _LockedUpdate(APIKEYS_FILE) as apikeys:
         old = apikeys.get(kid)
+        _apikey_tenant_block(old)               # v7.0.2
         if not old:
             respond(404, {'error': 'API key not found'})
         new_rec = {'name': old.get('name', ''), 'key_hash': _apikey_hash(key_value),
