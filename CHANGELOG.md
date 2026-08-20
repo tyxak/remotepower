@@ -290,8 +290,89 @@ encrypted volumes, memory and load — were seeded in a shape no agent produces,
 so those cards rendered empty in the demo and the fleet-knowledge index read
 fields that could never be there. Fixed on both sides.
 
+### Things that looked like they worked
+
+- **No toast in the product was ever visible.** Every confirmation, warning and
+  error message the interface raises was built, animated and timed out inside a
+  container that had been hidden since a stylesheet migration. Nothing told you
+  a save had failed. The auto-refresh progress strip was hidden by the same
+  change.
+- **Restart and Self-update reported success for something nobody would do.**
+  The app server runs with a sandbox setting that blocks the usual way of
+  escalating, and the route that does work — a request file systemd watches —
+  was never installed by any installer. The server checked only that it could
+  write the request, which it always can, so it answered "systemd is running it
+  as root" and nothing read the file. Both are installed and enabled now, and
+  where they are not installed, the button says so instead.
+- **Crontab and timer edits silently did nothing on Windows and macOS.** Only
+  the Linux agent has ever implemented them, the host picker offered every
+  host, and the queue accepted the job. Refused now, with a message naming the
+  gap.
+- **The file manager and folder downloads accepted Windows and macOS hosts.**
+  The Windows agent has a full file manager, but no path the server considers
+  valid is one it will accept, so every action returned an error blaming your
+  path. Folder-download jobs on a Mac sat pending and then reported the agent
+  as unresponsive.
+- **Mailbox watching could be configured on hosts that cannot do it.** The paths
+  saved, the dashboard widget was offered and a threshold could be armed, and no
+  count ever arrived.
+- **Revoking or issuing a certificate said "queued" even when its log could not
+  be reserved** — the force-renew button already told you; the other two did not.
+
+### Security
+
+- A tenant administrator could delete, rename, re-scope and rotate **another
+  tenant's API keys** by id. Rotating one hands the caller a working key and
+  disables the original.
+- Auto-patch policies could be listed, deleted and **run** across tenants, and
+  editing another tenant's policy transferred ownership of it.
+- A host could be pointed at another tenant's UPS, which is a cross-tenant
+  shutdown, not just an information leak.
+- Credential labels, usernames and notes from other tenants appeared on your own
+  device's inherited-credentials list whenever a site, group or tag name
+  matched — and those names collide across tenants routinely.
+- The customer portal's browser-report endpoint wrote unauthenticated,
+  unthrottled text into the server log. It now shares the throttling, size cap
+  and filtering the operator app's equivalent has had for years.
+- The syslog listener grew without limit under forged source addresses.
+- A compose deployment was signed on its identifier rather than on the file it
+  runs, so require-signed-commands did not cover the payload.
+- The web terminal's manual install instructions named an SSH library version
+  with known session-hijack flaws.
+- The vulnerability scanner image ran a two-year-old engine, downloaded without
+  an integrity check.
+- One badly-written file-content check could stop an agent reporting for good.
+  Those checks now give up after twenty seconds and say which pattern was too
+  slow.
+
+### Faster
+
+- **The dashboard.** Loading it copied five whole stores it only reads —
+  measured at 121 ms on a 150-device fleet, now 50 ms.
+- **Log ingest.** Every log submission from every host read and rewrote the
+  entire fleet's log buffer: 2.0 seconds of work per submission on a
+  150-device fleet, now 5 milliseconds on the database backends. It also held
+  no lock, so two hosts submitting at once lost one of them.
+
 ### Fixes
 
+- **Six panels grew without limit** — the fail2ban and firewall detail views,
+  the advisory findings list, the per-device SLA editor, and the WordPress and
+  DNS panels. Each capped its inner sections and let the outer stack grow, so a
+  host with ten fail2ban jails pushed everything below it off the screen.
+- **A store created during a backend migration was lost.** Migrating to or from
+  PostgreSQL took the file list once at the start; anything written for the
+  first time while it ran was copied by no pass and checked by none.
+- **`install-server.sh` enabled the agent push daemon without installing what it
+  needs**, so it crash-looped on every fresh host while the installer reported
+  success. `install.sh --with-postgres` pointed the install at PostgreSQL
+  without installing the driver, which left the server unable to answer at all.
+- **The API reference published a wrong URL for 60 endpoints** — acknowledging
+  an alert, running a backup, issuing a certificate and more were documented one
+  path segment short, so a generated client called an address that does not
+  exist.
+- The MCP documentation undercounted the tools by three and never mentioned the
+  two that read the alert inbox and the needs-attention digest.
 - **Nineteen alerts opened the wrong page.** Clicking a temperature alert, a UPS
   on battery, a clock skew, an out-of-memory event, network-interface errors,
   battery health, an unreachable gateway or a predicted disk failure in the
