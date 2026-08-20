@@ -34430,7 +34430,25 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
         # a busy fleet) shrinks to a sub-second residual window rather than
         # blocking indefinitely on a fleet that never goes quiet.
         for _ in range(3):
-            changed = [n for n in files if backend_mtime(DATA_DIR / n) >= t0]
+            # Re-enumerate, don't reuse the opening snapshot. `files` was taken
+            # before the copy loop, and the source backend stays active until
+            # verification passes below — so a store written for the FIRST time
+            # during the migration (a first alert creating alerts.json, a first
+            # scan creating cve_findings.json) was in neither the copy pass nor
+            # the catch-up nor the verify. The marker then flipped and it was
+            # gone. Sibling of the memoised-read bug fixed below it: that one
+            # lost an UPDATE to a known file, this one lost the whole file.
+            try:
+                _now_files = backend_iter_files()
+            except Exception:
+                _now_files = files
+            _created = [n for n in _now_files if n not in files]
+            if _created:
+                files.extend(_created)
+                log(f"catch-up: {len(_created)} file(s) created during migration")
+            changed = _created + [n for n in files
+                                  if n not in _created
+                                  and backend_mtime(DATA_DIR / n) >= t0]
             if not changed:
                 break
             t0 = time.time()
