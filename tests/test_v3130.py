@@ -753,7 +753,13 @@ class TestSecurityAuditFixes(unittest.TestCase):
 
     def test_ai_chat_scope_filtered(self):
         # fleet snapshot scoped to caller; RAG only for full-access callers.
-        self.assertIn("raw = _scope_filter_devices(load(DEVICES_FILE) or {})", self.src)
+        # v7.0.2: the pin is that the roster goes through the SCOPE FILTER,
+        # not which loader supplies it — `load` became `_load_ro` when the
+        # read-only handlers stopped deepcopying the fleet, and this failed on a
+        # change that cannot affect what the filter does.
+        self.assertRegex(
+            self.src,
+            r"raw = _scope_filter_devices\((?:load|_load_ro)\(DEVICES_FILE\) or \{\}\)")
         self.assertIn("_ai_scope = _caller_scope()", self.src)
         self.assertIn("include_rag and _ai_scope is None", self.src)
 

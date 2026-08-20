@@ -4411,6 +4411,16 @@ def _config_ro():
     return load(CONFIG_FILE) or {}
 
 
+# v7.0.2 (perf): 71 read-only handlers were converted to _load_ro in one pass,
+# after an AST analysis that tracks ALIASES — `dev = devices[id]` then writing to
+# `dev` corrupts the shared object exactly as `devices[id] = x` does, and a
+# top-level-name-only check called 26 unsafe handlers safe. Anything the analysis
+# could not fully account for — a write through any alias, or the object escaping
+# to a call not known to be pure — was left on load(). The measured cost it
+# removes is ~36 ms per request on a 500-device fleet and ~147 ms at 2,000, paid
+# entirely in copying. Tool: tools/ (see the release notes); its controls cover
+# direct writes, alias writes, loop variables, comprehension and generator
+# targets, nested aliases, mutating methods, and escapes.
 def _load_ro(path):
     """v6.1.2 (perf #7): _config_ro(), generalised to any store.
 
@@ -16795,7 +16805,7 @@ def handle_sites_list():
     # true fleet size of every other tenant's site. No-op on a single-tenant,
     # unscoped install. (The site registry itself carries no tenant attribution
     # — it is a shared list of physical locations by design.)
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     counts = {}
     for d in devices.values():
         sid = d.get('site') or ''
@@ -17559,7 +17569,7 @@ def handle_firewall_overview():
     # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
     # caller's visibility can't return that host's per-backend rule lists (an
     # out-of-scope want_dev matches no visible row → empty). No-op for single-org.
-    devices = _scope_filter_devices(load(DEVICES_FILE))
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want_dev and dev_id != want_dev:
@@ -17601,7 +17611,7 @@ def handle_fail2ban_overview():
     # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
     # caller's visibility can't return that host's per-jail banned-IP lists.
     # No-op for a single-org admin (whole fleet stays visible).
-    devices = _scope_filter_devices(load(DEVICES_FILE))
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want_dev and dev_id != want_dev:
@@ -18103,7 +18113,7 @@ def handle_cron_overview():
     # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
     # caller's visibility can't return that host's full crontabs / cron.d /
     # timers. No-op for a single-org admin (whole fleet stays visible).
-    devices = _scope_filter_devices(load(DEVICES_FILE))
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want and dev_id != want:
@@ -19766,7 +19776,7 @@ def handle_webterm_auth():
 
     # Look up the device (just to confirm it exists; we don't pass any
     # device data to the daemon — the user supplies SSH host/user/pw).
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
@@ -23381,7 +23391,7 @@ def handle_device_power_control(dev_id):
     action = str(body.get('action', '')).strip().lower()
     if action not in ('on', 'off', 'cycle'):
         respond(400, {'error': 'action must be on, off or cycle'})
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = _load_ro(DEVICES_FILE).get(dev_id)
     if not dev:
         respond(404, {'error': 'Device not found'})
     pdu = dev.get('pdu') or {}
@@ -23919,7 +23929,7 @@ def handle_command_queue():
     (this is an Admin-page view of the whole fleet's queue)."""
     require_admin_auth()
     cmds = load(CMDS_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     now = int(time.time())
     ttl = get_online_ttl()
     out = []
@@ -24148,7 +24158,7 @@ def handle_update_device():
     # v5.0.0 (#F4): block an update that would be a cross-major downgrade (agent
     # newer than server) unless explicitly forced — prevents version mismatches.
     if not body.get('force'):
-        devs = load(DEVICES_FILE) or {}
+        devs = _load_ro(DEVICES_FILE) or {}
         for dev_id in ids:
             c = _agent_compat((devs.get(dev_id) or {}).get('version', ''))
             if not c['compatible']:
@@ -24738,7 +24748,7 @@ def handle_wol():
     body = _read_valid(request_models.WolRequest)
     dev_id = str(body.get('device_id', '')).strip()
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)   # body-supplied id, not under /api/devices/ — tenant/scope gate
     ok, info = _send_wol(devices[dev_id])
@@ -24784,7 +24794,7 @@ def handle_sysinfo_batch():
     # endpoint. Filter to the caller's visible set (role scope AND tenant) or a
     # scoped operator / tenant admin could read any host's sysinfo (ports,
     # processes, packages, mounts, kernel). No-op for an unscoped single-tenant admin.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     out = {}
     for dev_id in requested:
         if not _validate_id(dev_id):
@@ -26298,7 +26308,7 @@ def handle_edr_coverage():
     """
     require_auth()
     covered = _edr_covered_map()
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     configured = [i for i in _get_integrations()
                   if isinstance(i, dict) and i.get('type') in _EDR_TYPES
                   and i.get('enabled')]
@@ -33440,7 +33450,7 @@ def handle_self_status():
         out['data_dir'] = {'error': str(e)}
     # Device freshness
     try:
-        devs = load(DEVICES_FILE)
+        devs = _load_ro(DEVICES_FILE)
         ttl = get_online_ttl()
         offline_ct = 0; oldest_ts = None; freshest_ts = 0; monitored = 0
         for d in devs.values():
@@ -33862,7 +33872,7 @@ def handle_self_test():
         _add('Audit chain', False, str(e))
     # Agent reachability (informational — ok if at least one agent online, or none enrolled)
     try:
-        devs = load(DEVICES_FILE) or {}
+        devs = _load_ro(DEVICES_FILE) or {}
         ttl = get_online_ttl()
         agents = [d for d in devs.values() if isinstance(d, dict) and not d.get('agentless')]
         online = sum(1 for d in agents if d.get('last_seen', 0) and (now - d['last_seen']) < ttl)
@@ -33944,7 +33954,7 @@ def handle_diagnostics_bundle():
     }
     # Best-effort enrichments — each isolated so one failure can't blank the bundle.
     try:
-        devices = load(DEVICES_FILE) or {}
+        devices = _load_ro(DEVICES_FILE) or {}
         ttl = get_online_ttl()
         online = sum(1 for d in devices.values()
                      if isinstance(d, dict) and not d.get('agentless')
@@ -35135,7 +35145,7 @@ def handle_fleet_anomalies():
     # instead of a flat all-week baseline (falls back to flat until warmed up).
     seasonal = (qs.get('seasonal') or ['0'])[0] in ('1', 'true', 'yes')
     hist = load(METRICS_HIST_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
     _detect = anomaly_stats.detect_device_seasonal if seasonal else anomaly_stats.detect_device
@@ -35204,7 +35214,7 @@ def handle_fleet_uptime7d():
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     now = int(time.time())
     DAY = 86400
     # Midnight (local) of today, then the 7 day-windows ending with it.
@@ -35615,7 +35625,7 @@ def handle_schedule_add():
     cron    = _sanitize_str(body.get('cron', ''), 64)
 
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
@@ -35935,7 +35945,7 @@ def handle_device_update_logs(dev_id: str) -> None:
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     logs = load(UPDATE_LOGS_FILE)
@@ -35959,7 +35969,7 @@ def handle_device_containers(dev_id: str) -> None:
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     store = load(CONTAINERS_FILE)
@@ -36561,7 +36571,7 @@ def handle_image_cves():
     grouped by image across the fleet. Auth: require_auth (scope-filtered)."""
     require_auth()
     store = load(IMAGE_CVE_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     by_image = {}
     for dev_id, rec in store.items():
         if dev_id not in devices or not isinstance(rec, dict):
@@ -36807,7 +36817,7 @@ def handle_pii_list():
     fleet aggregates leaking the whole estate that way).
     """
     require_auth()
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     store = load(PII_FILE) or {}
     hosts, totals = [], {k: 0 for k in _PII_KINDS}
     for dev_id, rec in store.items():
@@ -36914,7 +36924,7 @@ def handle_mdns_services():
     """GET /api/mdns — LAN service advertisements, deduped across reporters."""
     require_auth()
     store = load(MDNS_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     by_key = {}
     for dev_id, rec in store.items():
         if dev_id not in devices or not isinstance(rec, dict):
@@ -37810,7 +37820,7 @@ def handle_ssh_keys_fleet():
     """GET /api/ssh-keys — every authorized_keys entry across the fleet for audit."""
     require_auth()
     baseline = load(SSH_KEY_BASELINE_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = []
     by_fp = {}
     for dev_id, users in baseline.items():
@@ -38025,7 +38035,7 @@ def handle_containers_overview() -> None:
     stale rows.
     """
     require_auth()
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     store = load(CONTAINERS_FILE)
     ttl = get_container_stale_ttl()
@@ -38151,7 +38161,7 @@ def handle_device_compose_list(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
         respond(404, {'error': 'Device not found'})
@@ -38376,7 +38386,7 @@ def handle_device_compose_action(dev_id):
     if not project_dir or len(project_dir) > MAX_COMPOSE_PATH_LEN:
         respond(400, {'error': 'dir required'})
 
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
         respond(404, {'error': 'Device not found'})
@@ -39959,7 +39969,7 @@ def handle_device_live_samples(dev_id):
     (admin; RBAC-scoped)."""
     require_auth()
     if _caller_scope() is not None:
-        devs = load(DEVICES_FILE) or {}
+        devs = _load_ro(DEVICES_FILE) or {}
         if dev_id not in _scope_filter_devices(devs):
             respond(403, {'error': 'out of scope'})
     ring = (load(LIVE_SAMPLES_FILE) or {}).get(dev_id) or []
@@ -39972,7 +39982,7 @@ def handle_device_custom_metrics(dev_id):
     for a device's operator-supplied custom metrics (any authed user)."""
     require_auth()
     if _caller_scope() is not None:
-        devs = load(DEVICES_FILE) or {}
+        devs = _load_ro(DEVICES_FILE) or {}
         if dev_id not in _scope_filter_devices(devs):
             respond(403, {'error': 'out of scope'})
     hist = (load(CUSTOM_METRICS_HIST_FILE) or {}).get(dev_id) or {}
@@ -39999,7 +40009,7 @@ def handle_device_sudo_log(dev_id):
     if not (rd.get('admin') or _role == 'auditor'):
         respond(403, {'error': 'admin or auditor role required'})
     if _caller_scope() is not None:
-        devs = load(DEVICES_FILE) or {}
+        devs = _load_ro(DEVICES_FILE) or {}
         if dev_id not in _scope_filter_devices(devs):
             respond(403, {'error': 'out of scope'})
     events = (load(SUDO_LOG_FILE) or {}).get(dev_id) or []
@@ -40024,7 +40034,7 @@ def handle_sudo_search():
     store = load(SUDO_LOG_FILE) or {}
     # _scope_filter_devices folds in tenant isolation (a tenant admin/auditor
     # has scope=None but must not read other tenants' privileged-command log).
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     scope = _caller_scope()
     rows = []
     for did, events in store.items():
@@ -40513,7 +40523,7 @@ def handle_tunnels_list() -> None:
     # listing discloses ids of hosts in other tenants. Filtering here also
     # keeps the existing "drop dangling endpoints" rule doing the right thing:
     # an endpoint the caller cannot see is, for them, not a device.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     raw = _tunnels_load()
     out = []
     for tid, t in raw.items():
@@ -40554,7 +40564,7 @@ def handle_tunnel_add() -> None:
     # Scope-filtered so a tenant admin cannot assert a relationship between
     # two hosts they do not own; "not found" is the same answer they get for
     # an id that does not exist, which is the right amount of information.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     for ep in (a, b):
         if ep not in devices:
             respond(400, {'error': f'device {ep} not found'})
@@ -41221,7 +41231,7 @@ def handle_exec_batch():
         respond(400, {'error': f'too many targets (max {MAX_BATCH_TARGETS})'})
     actor = require_perm('command', targets)   # v3.4.2 RBAC: scoped batch exec
 
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     cmds = load(CMDS_FILE)
     now = int(time.time())
     exec_payload = 'exec:' + script.get('body', '')
@@ -41335,8 +41345,8 @@ def handle_exec_batch_status(job_id):
     # v6.2.2: tenant admin (scope=None) must not see other tenants' per-device
     # output/return codes — confine to the tenant-and-role-filtered id set.
     _restrict = scope is not None or _tenant_gate() is not None
-    devices_roster = load(DEVICES_FILE) if scope is not None else None
-    _visible_ids = set(_scope_filter_devices(load(DEVICES_FILE) or {})) if _restrict else None
+    devices_roster = _load_ro(DEVICES_FILE) if scope is not None else None
+    _visible_ids = set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {})) if _restrict else None
     for dev_id, entry in job['per_device'].items():
         if scope is not None and not _device_in_scope(scope, (devices_roster or {}).get(dev_id) or {}):
             continue
@@ -43153,7 +43163,7 @@ def handle_ai_chat():
     fleet_devices = None
     if include_fleet:
         try:
-            raw = _scope_filter_devices(load(DEVICES_FILE) or {})
+            raw = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
             fleet_devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
         except Exception:
             # If devices.json can't be read, just skip fleet context —
@@ -43574,7 +43584,7 @@ def handle_forecast():
     require_auth()
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     mh_all = load(METRICS_HIST_FILE) or {}
     _min_r2 = _forecast_min_r2()
     rows = []
@@ -43703,7 +43713,7 @@ def handle_device_doc_draft(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:
         respond(404, {'error': 'Device not found'})
@@ -43758,7 +43768,7 @@ def handle_ai_anomaly():
     # v6.2.2 (SECURITY): only feed devices this caller may see into the AI prompt
     # (a tenant admin/scoped operator must not have other scopes'/tenants' host
     # telemetry summarised for them). No-op for a single-org admin.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     ttl = get_online_ttl()
     now = int(time.time())
     lines = []
@@ -44791,7 +44801,7 @@ def handle_mailwatch_overview():
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = []
     for dev_id, dev in (devices or {}).items():
         paths = dev.get('mailbox_paths') or []
@@ -46726,7 +46736,7 @@ def handle_custom_script_create():
     raw_devs = body.get('assigned_devices', [])
     if not isinstance(raw_devs, list):
         respond(400, {'error': 'assigned_devices must be a list'})
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     assigned = []
     for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
         d = str(d).strip()
@@ -46785,7 +46795,7 @@ def handle_custom_script_update(script_id):
             respond(400, {'error': 'assigned_devices must be a list'})
         # Scope-filtered for the same reason as create: this is the other door
         # into the same root-execution assignment, and it was equally open.
-        devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+        devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
         assigned = []
         for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
             d = str(d).strip()
@@ -49690,7 +49700,7 @@ def handle_reliability_overview():
         # _scope_filter_devices folds in BOTH role scope and tenant isolation —
         # a tenant admin resolves to scope=None but must not see another
         # tenant's hosts (the v6.1.1 fleet-aggregate leak class).
-        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+        devs = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
         rows = [r for r in rows if r['device_id'] in devs]
     counts = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
     for r in rows:
@@ -49863,7 +49873,7 @@ def handle_risk_overview():
     if scope is not None or _tgate is not None:
         # _scope_filter_devices folds in tenant isolation (a tenant admin has
         # scope=None but must not enumerate other tenants' risk posture).
-        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+        devs = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
         risks = [r for r in risks if r['device_id'] in devs]
     counts = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
     for r in risks:
@@ -49955,7 +49965,7 @@ def handle_fleet_health():
     if scope is not None or _tenant_gate() is not None:
         # _scope_filter_devices folds in tenant isolation (a tenant admin has
         # scope=None but must not see other tenants' per-device health).
-        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+        devs = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
         rows = [d for d in (h.get('devices') or [])
                 if d.get('device_id') in devs]
         scores = [d['score'] for d in rows if isinstance(d.get('score'), (int, float))]
@@ -51347,7 +51357,7 @@ def handle_status():
         respond(403, {'error': 'invalid or missing status token'})
         return
 
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -52035,7 +52045,7 @@ def handle_drift_overview():
     summary counts (total files watched, files with drift, files missing)."""
     require_auth()
     state = load(DRIFT_STATE_FILE)
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     rows = []
     for dev_id, dev_state in state.items():
@@ -52761,7 +52771,7 @@ def handle_scans_list():
     # scans are hidden from restricted callers, matching the prior scoped
     # behaviour; superadmins/unscoped admins still see everything.
     _restrict = scope is not None or _tenant_gate() is not None
-    _visible = _scope_filter_devices(load(DEVICES_FILE) or {}) if _restrict else None
+    _visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {}) if _restrict else None
     scans = load(SCANS_FILE) or {}
     out = []
     for s in scans.values():
@@ -52799,7 +52809,7 @@ def handle_scan_detail(scan_id):
     # has scope=None but must not read another tenant's scan findings (this
     # gated only on `scope is not None`, matching handle_scans_list's fix).
     if scope is not None or _tenant_gate() is not None:
-        _visible = _scope_filter_devices(load(DEVICES_FILE) or {})
+        _visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
         tdid = s.get('target_device_id') or ''
         if not tdid or tdid not in _visible:
             respond(404, {'error': 'scan not found'})
@@ -54176,7 +54186,7 @@ def handle_longpoll_exec():
 
 def handle_digest():
     require_auth()
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {}); now = int(time.time())  # SEC: per-tenant/scope
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {}); now = int(time.time())  # SEC: per-tenant/scope
     online  = sum(1 for d in devices.values() if (now - d.get('last_seen', 0)) < get_online_ttl())
     patches = sum(
         (d.get('sysinfo', {}).get('packages', {}).get('upgradable') or 0)
@@ -54291,7 +54301,7 @@ def handle_inventory_metering():
     require_auth()
     meters = (load(CONFIG_FILE) or {}).get('software_meters') or []
     store = load(PACKAGES_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
     for m in meters[:100]:
@@ -55090,7 +55100,7 @@ def handle_inventory_search():
     op = (qs.get('op') or ['any'])[0].strip().lower()
     target = (qs.get('version') or [''])[0].strip()
     store = load(PACKAGES_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     CAP = 2000
     results = []
@@ -55129,7 +55139,7 @@ def handle_inventory_catalog():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     q = (qs.get('q') or [''])[0].strip().lower()
     store = load(PACKAGES_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     # package -> {version -> set(device_id)}
     agg = {}
     for dev_id, entry in store.items():
@@ -55346,7 +55356,7 @@ def handle_patch_report_device(dev_id):
     require_auth()
     _scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
     dev = devices[dev_id]
     now = int(time.time())
@@ -58342,7 +58352,7 @@ def handle_alert_tuning():
     # device is in the caller's visible set. Without this a tenant admin (scope
     # None) or a scoped viewer saw every tenant's noisiest hosts/events + their
     # resolved hostnames.
-    _devs_raw = load(DEVICES_FILE) or {}
+    _devs_raw = _load_ro(DEVICES_FILE) or {}
     _visible_ids = set(_scope_filter_devices(_devs_raw).keys())
     pair_counts = {}     # (device_id, device_name, event) -> count
     src_counts = {}      # event -> count
@@ -58917,7 +58927,7 @@ def handle_setup_status():
     user = require_auth()
     cfg = load(CONFIG_FILE) or {}
     users = load(USERS_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
 
     pw_done = bool(users) and not any(u.get('must_change_password') for u in users.values())
     notif_configured = bool((cfg.get('webhook_url') or '').strip()
@@ -60462,7 +60472,7 @@ def handle_ai_exec_propose():
     if not _validate_id(dev_id):
         respond(400, {'error': 'valid device_id required'})
     # Cross-tenant/out-of-scope device → 404, never confirm the id exists.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
 
@@ -62188,7 +62198,7 @@ def handle_device_timeline(dev_id):
     — same rationale as the fleet event log (operationally useful to viewers; no
     delivery URLs or secrets exposed)."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not isinstance(dev, dict):
         respond(404, {'error': 'device not found'})
@@ -62698,7 +62708,7 @@ def handle_software_policy_violations():
     # reader (handle_ssh_keys_fleet) has always done this correctly;
     # _scope_filter_devices folds in BOTH role scope and the tenant gate, and is
     # a no-op for an unscoped admin on a single-org install.
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     out = []
     for dev_id, rec in (store or {}).items():
         if dev_id not in devices:
@@ -62723,7 +62733,7 @@ def handle_exposure_overview():
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = []
     counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
     for dev_id, d in (devices or {}).items():
@@ -62798,7 +62808,7 @@ def handle_storage_overview():
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = []
     degraded = 0
     _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
@@ -63146,7 +63156,7 @@ def handle_fleet_secrets():
     finding carries rule / path / masked preview / fingerprint. Auth: require_auth."""
     require_auth()
     store = load(SECRETS_FILE) or {}
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     cfg = load(CONFIG_FILE) or {}
     muted = set(cfg.get('secrets_mutes') or [])
     host_mutes = set(cfg.get('secrets_host_mutes') or [])   # v4.1.0 (#55)
@@ -64277,7 +64287,7 @@ def handle_schedule_ics(device_id=None):
         # renders its target id in the DESCRIPTION, so foreign device ids
         # leaked outright. The per-device route is already covered by
         # _enforce_device_scope; this is the unfiltered aggregate.
-        _ics_visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}))
+        _ics_visible = set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
     if not authed:
         print('Status: 401 Unauthorized')
         print('Content-Type: text/plain; charset=utf-8')
@@ -66650,7 +66660,7 @@ def handle_services_device(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
 
@@ -67051,7 +67061,7 @@ def handle_log_search():
     # loop already gates on `dev_id not in devices`, so filtering the device set
     # here makes an out-of-scope `?device=<id>` return an empty result set
     # (never other scopes'/tenants' log lines). No-op for a single-org admin.
-    devices = _scope_filter_devices(load(DEVICES_FILE))
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE))
     results = []
 
     target_devs = [device] if device else list(log_store.keys())
@@ -67087,7 +67097,7 @@ def handle_log_device(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     log_store = load(LOG_WATCH_FILE)
@@ -67330,7 +67340,7 @@ def handle_log_tail():
     # a scoped viewer or a tenant admin (require_auth admits both) could tail
     # every other scope's/tenant's log content, and an out-of-scope `?device=`
     # returned that device's lines. No-op for a single-org admin.
-    devices   = _scope_filter_devices(load(DEVICES_FILE))
+    devices   = _scope_filter_devices(_load_ro(DEVICES_FILE))
     out = []
     newest_ts = since
     devices_reporting = 0
@@ -67787,7 +67797,7 @@ def handle_tasks_list():
 
     # Enrich with device names for display (skip lookup if no tasks have devices)
     if any(t.get('device_id') for t in tasks):
-        devices = load(DEVICES_FILE)
+        devices = _load_ro(DEVICES_FILE)
         for t in tasks:
             did = t.get('device_id')
             if did and did in devices:
@@ -68147,7 +68157,7 @@ def handle_vault_checkouts_list() -> None:
     """
     require_admin_or_auditor_auth()
     now = int(time.time())
-    devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devs = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = [dict(r, expires_in=int(r.get('expires_at') or 0) - now)
             for r in _checkouts_load().values()
             if int(r.get('expires_at') or 0) > now and r.get('device_id') in devs]
@@ -71118,7 +71128,7 @@ def handle_host_config_collect_all():
     body = _read_valid(request_models.HostConfigCollectAllRequest)
     target = body.get('target') or {'type': 'all', 'value': ''}
     targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     # SECURITY: _autopatch_target_devices resolves all/group/tag/site across the
     # WHOLE fleet with no scope/tenant filter — intersect with the caller's visible
     # set or a tenant admin would queue this command onto other tenants' agents.
@@ -73029,7 +73039,7 @@ def handle_mitigate_ai(dev_id, action_id):
     pb = _MITIGATE_PLAYBOOKS.get(kind) or {}
     prompt_key = pb.get('ai_prompt_key', 'mitigate_service')
     system_prompt = _resolve_system_prompt(prompt_key)
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}
     dev_name = (devices.get(dev_id) or {}).get('name', dev_id)
     user_prompt = (
         f"Alert: {pb.get('label', kind)} on device {dev_name}\n"

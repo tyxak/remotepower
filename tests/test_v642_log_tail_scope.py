@@ -91,8 +91,10 @@ class TestLogTailRespectsScope(unittest.TestCase):
     def test_the_handler_uses_the_scope_filter(self):
         from srcpin import py_function
         src = (_CGI / "api.py").read_text()
-        self.assertIn("_scope_filter_devices(load(DEVICES_FILE))",
-                      py_function(src, "handle_log_tail"))
+        # The claim is that the roster is scope-filtered; which loader hands it
+        # over is not part of it (v7.0.2 moved read-only handlers to _load_ro).
+        self.assertRegex(py_function(src, "handle_log_tail"),
+                         r"_scope_filter_devices\((?:load|_load_ro)\(DEVICES_FILE\)\)")
 
 
 if __name__ == "__main__":
