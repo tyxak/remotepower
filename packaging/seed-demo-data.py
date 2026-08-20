@@ -5477,6 +5477,63 @@ def build_incident_memory() -> dict:
          'resolved_at': t - 86400 * 40 + 1800, 'rating': None,
          'captured_at': t - 86400 * 40 + 2100},
     ]
+    # v7.0.2: the three rows above are one per signature, and
+    # MIN_PRECEDENT_SAMPLES is 2 — so a demo install showed the Autonomy page
+    # refusing everything with `no_precedent`, which is the exact state this
+    # release exists to fix. A seeder that cannot reach the feature's threshold
+    # demonstrates the bug, not the fix.
+    #
+    # These four give ONE signature enough precedent to act on, and exercise
+    # both capture sources v7.0.2 added: `fix_command`, which is the only
+    # machine-checkable one and what `outcome_action` reads first, and
+    # `source: 'autonomy'` — the loop's own verified action coming back as a
+    # prior fix for the next one.
+    rows += [
+        {'source': 'operator', 'alert_id': _stable_hex('incmem', 4, nbytes=6),
+         'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
+         'tenant': 'default', 'device_id': 'web01', 'device_name': 'web01.lab',
+         'root_cause': 'nginx.service failed after a config edit left an '
+                       'unclosed block; systemd retried until the start limit.',
+         'recommended_action': '',
+         'fix_command': 'svc:nginx:restart',
+         'confidence': 'high',
+         'resolution': 'resolved by jakob',
+         'resolved_at': t - 86400 * 9 + 600, 'rating': 'up',
+         'captured_at': t - 86400 * 9 + 900},
+        {'source': 'automation', 'alert_id': _stable_hex('incmem', 5, nbytes=6),
+         'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
+         'tenant': 'default', 'device_id': 'app02', 'device_name': 'app02.lab',
+         'root_cause': 'redis.service failed on boot before its data volume '
+                       'had mounted.',
+         'recommended_action': '',
+         'fix_command': 'svc:redis:restart',
+         'confidence': 'high',
+         'resolution': 'automation rule "restart failed units" verified',
+         'resolved_at': t - 86400 * 5 + 300, 'rating': 'up',
+         'captured_at': t - 86400 * 5 + 480},
+        {'source': 'autonomy', 'alert_id': _stable_hex('incmem', 6, nbytes=6),
+         'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
+         'tenant': 'default', 'device_id': 'app03', 'device_name': 'app03.lab',
+         'root_cause': 'postfix.service failed after a certificate renewal '
+                       'replaced a file it reads at start.',
+         'recommended_action': '',
+         'fix_command': 'svc:postfix:restart',
+         'confidence': 'high',
+         'resolution': 'autonomy action approved and verified',
+         'resolved_at': t - 86400 * 2 + 240, 'rating': 'up',
+         'captured_at': t - 86400 * 2 + 420},
+        {'source': 'operator', 'alert_id': _stable_hex('incmem', 7, nbytes=6),
+         'event': 'metric_critical', 'kind': 'metric', 'severity': 'critical',
+         'tenant': 'default', 'device_id': 'bk01', 'device_name': 'backup.lab',
+         'root_cause': 'Borg cache under /root filled the root filesystem after '
+                       'a repository check was interrupted.',
+         'recommended_action': '',
+         'fix_command': 'exec:borg compact /srv/borg',
+         'confidence': 'medium',
+         'resolution': 'resolved by jakob',
+         'resolved_at': t - 86400 * 3 + 1500, 'rating': 'up',
+         'captured_at': t - 86400 * 3 + 1800},
+    ]
     return {'outcomes': rows,
             'seen': [r['alert_id'] for r in rows],
             'last_run': t - 3600}
