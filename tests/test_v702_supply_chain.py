@@ -69,10 +69,29 @@ class TestTheWebTerminalRefusesAVulnerableSshClient(unittest.TestCase):
             self.assertTrue(ok(good), good)
 
     def test_the_failure_message_says_why(self):
-        # From the version comparison to the end of its guard block.
+        # From the version comparison to the end of the dependency step.
         i = self.sh.index('(2,14,2)')
-        seg = self.sh[i:self.sh.index('\n  fi\n', i)]
+        seg = self.sh[i:self.sh.index('echo "  \u2192 ok"', i)]
         self.assertIn('CVE-2023-46445', seg)
+
+    def test_it_warns_rather_than_refusing_to_install(self):
+        """It used to `die`, and Debian 12 packages asyncssh 2.11 — so the
+        install failed outright on a healthy, supported host while its runtime
+        twin refused to START on one. A gateway that runs and complains beats
+        one that will not run."""
+        i = self.sh.index('_asyncssh_ok()')
+        seg = self.sh[i:self.sh.index('echo "  \u2192 ok"', i)]
+        self.assertIn('warn ', seg)
+        self.assertNotIn('die ', seg,
+                         'the version check still aborts the install')
+
+    def test_it_tries_to_upgrade_before_warning(self):
+        """Warning without attempting the fix leaves every host on the old
+        version forever."""
+        i = self.sh.index('_asyncssh_ok()')
+        seg = self.sh[i:self.sh.index('echo "  \u2192 ok"', i)]
+        self.assertIn('pip3 install', seg)
+        self.assertLess(seg.index('pip3 install'), seg.index('warn '))
 
 
 class TestTheScannerBinaryIsVerified(unittest.TestCase):
