@@ -2053,10 +2053,25 @@ def get_journal(lines=100):
 # journal (or /var/log/auth.log when journald is absent) and ship the NEW ones
 # since the last report. Cursor is an epoch so we never re-send the same line.
 _sudo_cursor = [0]
-_SUDO_LINE_RE = re.compile(
-    r'sudo(?:\[\d+\])?:\s*(?P<user>[\w.\-]+)\s*:.*?'
-    r'(?:TTY=(?P<tty>[\w/\-]+))?.*?(?:PWD=(?P<pwd>\S+))?.*?'
-    r'USER=(?P<target>[\w.\-]+)\s*;\s*COMMAND=(?P<cmd>.+)$')
+# v7.0.2: four small anchored patterns, not one with three lazy wildcards.
+#
+# The single expression this replaces had `.*?` three times, separated by
+# OPTIONAL groups. On a line that contains COMMAND= (the only pre-filter) but
+# does not satisfy the `USER=<word> ; COMMAND=` tail, the engine explores every
+# split of those wildcards — cubic in line length. Measured: 15 ms at 250
+# characters, 1.0 s at 850, 6.0 s at 1650, ~87 s on a 4 KB line. Only FAILURES
+# blow up; a matching line was always fast, which is why it never showed up in
+# testing.
+#
+# collect_sudo_events runs it over up to 400 journal lines, or up to 800 read
+# straight from /var/log/auth.log on a host without journalctl, on every sysinfo
+# heartbeat — and any local user can write a long line into auth.log by invoking
+# sudo with a long argument. Each part is now anchored and independent, so the
+# cost is linear and an absent TTY= or PWD= costs nothing.
+_SUDO_HEAD_RE = re.compile(r'sudo(?:\[\d+\])?:\s*(?P<user>[\w.\-]+)\s*:')
+_SUDO_TAIL_RE = re.compile(r'USER=(?P<target>[\w.\-]+)\s*;\s*COMMAND=(?P<cmd>.+)$')
+_SUDO_TTY_RE = re.compile(r'TTY=(?P<tty>[\w/\-]+)')
+_SUDO_PWD_RE = re.compile(r'PWD=(?P<pwd>\S+)')
 
 
 def collect_sudo_events(limit=100):
@@ -2084,20 +2099,25 @@ def collect_sudo_events(limit=100):
     for ln in lines:
         if 'COMMAND=' not in ln:
             continue
-        m = _SUDO_LINE_RE.search(ln)
-        if not m:
+        head = _SUDO_HEAD_RE.search(ln)
+        if not head:
+            continue
+        tail = _SUDO_TAIL_RE.search(ln)
+        if not tail:
             continue
         ts = parse_epoch(ln) or int(time.time())
         newest = max(newest, ts)
         if baseline or ts <= last:
             continue
+        _tty = _SUDO_TTY_RE.search(ln)
+        _pwd = _SUDO_PWD_RE.search(ln)
         events.append({
             'ts': ts,
-            'user': (m.group('user') or '')[:64],
-            'tty': (m.group('tty') or '')[:32],
-            'pwd': (m.group('pwd') or '')[:256],
-            'target': (m.group('target') or '')[:64],
-            'command': (m.group('cmd') or '').strip()[:512],
+            'user': (head.group('user') or '')[:64],
+            'tty': (_tty.group('tty') if _tty else '')[:32],
+            'pwd': (_pwd.group('pwd') if _pwd else '')[:256],
+            'target': (tail.group('target') or '')[:64],
+            'command': (tail.group('cmd') or '').strip()[:512],
         })
     if newest > _sudo_cursor[0]:
         _sudo_cursor[0] = newest
