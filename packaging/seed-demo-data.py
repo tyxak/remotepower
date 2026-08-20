@@ -486,7 +486,10 @@ def _demo_enrich_sysinfo(dev, rng, si):
                         '95.166.252.182', '172.19.0.1', '192.168.2.21'],
                        k=rng.randint(1, 4))
     si['auth'] = {
-        'recent_logins': [{'user': rng.choice(_users), 'source': rng.choice(_srcs)}
+        # v7.0.2: `ts` was missing, so every seeded login rendered with no time
+        # and the auth_new_source check had nothing to age.
+        'recent_logins': [{'user': rng.choice(_users), 'source': rng.choice(_srcs),
+                           'ts': now() - rng.randint(300, 86_400 * 3)}
                           for _ in range(rng.randint(2, 8))],
         'sources': _srcs,
     }

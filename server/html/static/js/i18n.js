@@ -1915,6 +1915,8 @@
     "Command history rows kept": { fr: "Lignes d'historique de commandes conservées", de: "Aufbewahrte Befehlsverlaufszeilen", zh: "保留的命令历史行数", hi: "रखी गई कमांड इतिहास पंक्तियाँ", es: "Filas de historial de comandos conservadas", ar: "صفوف سجل الأوامر المحتفظ بها" },
     "Disk encryption off": { fr: "Chiffrement du disque désactivé", de: "Festplattenverschlüsselung aus", zh: "磁盘加密已关闭", hi: "डिस्क एन्क्रिप्शन बंद", es: "Cifrado de disco desactivado", ar: "تشفير القرص معطل" },
     "NIC errors rising": { fr: "Erreurs de carte réseau en hausse", de: "NIC-Fehler steigen", zh: "网卡错误上升", hi: "NIC त्रुटियाँ बढ़ रही हैं", es: "Errores de NIC en aumento", ar: "أخطاء بطاقة الشبكة في ازدياد" },
+    "Power/thermal throttling now": { fr: "Bridage électrique/thermique en cours", de: "Strom-/Temperaturdrosselung aktiv", zh: "当前电源/温度降频", hi: "अभी पावर/तापीय थ्रॉटलिंग", es: "Limitación por energía/temperatura ahora", ar: "خفض الأداء بسبب الطاقة/الحرارة الآن" },
+    "Battery worn below threshold": { fr: "Batterie usée sous le seuil", de: "Akku unter Verschleißschwelle", zh: "电池损耗低于阈值", hi: "बैटरी घिसाव सीमा से नीचे", es: "Batería desgastada por debajo del umbral", ar: "تآكل البطارية دون الحد" },
     "Offline > days": { fr: "Hors ligne > jours", de: "Offline > Tage", zh: "离线 > 天", hi: "ऑफ़लाइन > दिन", es: "Sin conexión > días", ar: "غير متصل > أيام" },
     "Only this device (optional)": { fr: "Uniquement cet appareil (facultatif)", de: "Nur dieses Gerät (optional)", zh: "仅此设备（可选）", hi: "केवल यह डिवाइस (वैकल्पिक)", es: "Solo este dispositivo (opcional)", ar: "هذا الجهاز فقط (اختياري)" },
     "Scope:": { fr: "Portée :", de: "Bereich:", zh: "范围：", hi: "दायरा:", es: "Alcance:", ar: "النطاق:" },

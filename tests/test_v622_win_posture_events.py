@@ -107,9 +107,17 @@ class TestWiring(unittest.TestCase):
             self.assertIn(fire, api.EVENT_REGISTRY[rec]["resolves"])
 
     def test_win_posture_in_gate(self):
+        """v7.0.2: the gate is `_POSTURE_INGEST_KEYS`, derived from and
+        checked against what `_ingest_posture_v3110` actually reads
+        (tests/test_v702_posture_gate.py). This used to grep a fixed
+        900-character window before the call site for the literal — a
+        window that stops covering its target the moment the region
+        moves, which is what happened here."""
         src = (_CGI / "api.py").read_text()
-        i = src.index("_ingest_posture_v3110(dev_id, saved_dev.get('name'")
-        self.assertIn("'win_posture'", src[max(0, i - 900):i])
+        i = src.index("_POSTURE_INGEST_KEYS = (")
+        tup = src[i:src.index(")", i)]
+        self.assertIn("'win_posture'", tup)
+        self.assertIn("for k in _POSTURE_INGEST_KEYS", src)
 
     def test_frontend_both_spots(self):
         js = (_ROOT / "server/html/static/js/app.js").read_text()

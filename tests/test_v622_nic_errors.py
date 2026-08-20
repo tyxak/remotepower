@@ -130,10 +130,17 @@ class TestWiring(unittest.TestCase):
         self.assertIn("nic_errors", api.EVENT_REGISTRY["nic_errors_cleared"]["resolves"])
 
     def test_network_io_in_posture_gate(self):
+        """v7.0.2: the gate is `_POSTURE_INGEST_KEYS`, derived from and
+        checked against what `_ingest_posture_v3110` actually reads
+        (tests/test_v702_posture_gate.py). This used to grep a fixed
+        900-character window before the call site for the literal — a
+        window that stops covering its target the moment the region
+        moves, which is what happened here."""
         src = (_CGI / "api.py").read_text()
-        i = src.index("_ingest_posture_v3110(dev_id, saved_dev.get('name'")
-        gate = src[max(0, i - 900):i]
-        self.assertIn("'network_io'", gate)
+        i = src.index("_POSTURE_INGEST_KEYS = (")
+        tup = src[i:src.index(")", i)]
+        self.assertIn("'network_io'", tup)
+        self.assertIn("for k in _POSTURE_INGEST_KEYS", src)
 
     def test_iface_whitelisted_in_record_alert(self):
         src = (_CGI / "api.py").read_text()

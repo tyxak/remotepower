@@ -113,14 +113,17 @@ class TestWiring(unittest.TestCase):
         self.assertTrue(slot["alerts"], "must still be visible in the inbox")
 
     def test_usb_is_in_the_posture_ingest_gate(self):
-        """THE trap. _ingest_posture_v3110 is called behind a key-presence gate;
-        a host reporting no storage/firewall/timers/auth would never reach the
-        compare block and the tripwire could never fire. Same class as the
-        v6.0.1 mounts/mailq fix and the v6.1.2 'feature that can never fire'."""
+        """v7.0.2: the gate is `_POSTURE_INGEST_KEYS`, derived from and
+        checked against what `_ingest_posture_v3110` actually reads
+        (tests/test_v702_posture_gate.py). This used to grep a fixed
+        900-character window before the call site for the literal — a
+        window that stops covering its target the moment the region
+        moves, which is what happened here."""
         src = (_CGI / "api.py").read_text()
-        i = src.index("_ingest_posture_v3110(dev_id, saved_dev.get('name'")
-        gate = src[max(0, i - 700):i]
-        self.assertIn("'usb'", gate)
+        i = src.index("_POSTURE_INGEST_KEYS = (")
+        tup = src[i:src.index(")", i)]
+        self.assertIn("'usb'", tup)
+        self.assertIn("for k in _POSTURE_INGEST_KEYS", src)
 
     def test_safe_si_whitelists_usb(self):
         """safe_si is a whitelist — a field it drops never reaches the check."""

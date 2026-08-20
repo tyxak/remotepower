@@ -567,16 +567,21 @@ def build_live_state_corpus(devices, facets=None, now=0):
         # asks about ("how much memory/disk/cpu does X have", "how long has
         # X been up"). Totals are stable; we keep current free/percent out of
         # the embedded text (volatile, see the summary note).
-        # Stable specs only. Note: uptime_seconds is intentionally NOT here —
-        # it increments every heartbeat, so it would change the chunk hash
-        # constantly and re-embed it each rebuild. boot_time is the stable
-        # anchor (uptime = now - boot_time, which the model can compute).
+        # Stable specs only. uptime_seconds is NOT here: it increments every
+        # heartbeat, so it would change the chunk hash constantly and re-embed
+        # on each rebuild. `last_boot` is the stable anchor (uptime = now -
+        # last_boot, which the model can compute).
+        #
+        # v7.0.2: `cores` and `boot_time` used to be in this tuple and neither
+        # is a key safe_si stores — it writes cpu_count and last_boot. They read
+        # as coverage while contributing nothing, and the comment above named
+        # boot_time as the anchor, which is not the key that lands. Harmless
+        # only because the right key happened to follow in the same tuple.
         res = []
-        for label, key in (('cpu', 'cpu'), ('cpu cores', 'cores'),
+        for label, key in (('cpu', 'cpu'),
                            ('cpu cores', 'cpu_count'),
                            ('total memory (MB)', 'mem_total_mb'),
                            ('total disk (GB)', 'disk_total_gb'),
-                           ('boot time', 'boot_time'),
                            ('last boot', 'last_boot')):
             v = si.get(key)
             if v not in (None, '', 0):

@@ -22485,9 +22485,8 @@ def handle_heartbeat():
     # v6.2.2: 'modules_visible' can NOT ride the any()-truthy gate below — the
     # value that matters is False (modules hidden), which is falsy and would be
     # skipped by exactly the check meant to let it in. Presence-test it instead.
-    if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
-                                'mounts', 'mailq', 'mount_issues', 'usb', 'network_io',
-                                'win_posture')) \
+    # v7.0.2: _POSTURE_INGEST_KEYS, checked against what the function reads.
+    if any(_si.get(k) for k in _POSTURE_INGEST_KEYS) \
             or _si.get('modules_visible') is not None:
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
@@ -37437,6 +37436,30 @@ def _geo_anomaly(prev, country, now, hours):
     return (now - pts) <= hours * 3600
 
 
+# Every sysinfo key `_ingest_posture_v3110` reads. The heartbeat runs it only
+# if at least one of these is present.
+#
+# v7.0.2: this was a hand-written tuple at the call site and five keys were
+# missing from it. The macOS agent collects mac_posture OUTSIDE its psutil
+# block while mounts, network_io and listening_ports are inside it, so a Mac
+# reporting psutil:False -- a supported state that safe_si whitelists -- sent
+# mac_posture and not one gate key. FileVault off on that host was silent
+# forever. The Windows twin escaped only because win_posture happened to be
+# listed, and the comment at the call site already admitted ssh_hostkeys rode
+# in on luck.
+#
+# `modules_visible` is NOT here on purpose: the value that matters is False,
+# which a truthiness gate skips, so the call site presence-tests it separately.
+#
+# tests/test_v702_posture_gate.py parses the function and fails if these
+# disagree, in either direction.
+_POSTURE_INGEST_KEYS = (
+    'auth', 'autoupdate', 'ecc', 'firewall_fp', 'mac_posture', 'mailq',
+    'mount_issues', 'mounts', 'network_io', 'ssh_config', 'ssh_hostkeys',
+    'storage_health', 'timers', 'usb', 'win_posture',
+)
+
+
 def _ingest_posture_v3110(dev_id, dev_name, si):
     """v3.11.0: edge-triggered detections over the heartbeat's posture
     fields. State per device is kept in POSTURE_STATE_FILE so each
@@ -49653,6 +49676,14 @@ _RELIABILITY_WEIGHTS = {
     # (safe_si's own comment calls it "a dying cable/port/SFP"). It fires the
     # nic_errors alert but was weightless in the "how likely to fail" score.
     'nic_errors':         10,
+    # v7.0.2 (audit): the two hardware signals the fleet collects and this model
+    # ignored. `undervolt_now` is the one condition the Checks engine itself
+    # rates CRITICAL — its own comment calls under-voltage "the commonest cause
+    # of randomly unstable" — and a host browning out under a failing PSU scored
+    # 0 here while showing critical on its Checks page. Battery wear fires
+    # battery_health_low and likewise counted for nothing.
+    'power_throttled':    22,
+    'battery_worn':        8,
 }
 _RELIABILITY_CAPS = {
     'reboot_churn': 24, 'ecc_correctable': 24, 'oom_recent': 8,
@@ -49867,6 +49898,34 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     if _bad_nics:
         _add('nic_errors', w['nic_errors'],
              'errors/drops rising on ' + ', '.join(str(i) for i in _bad_nics[:5] if i))
+
+    # v7.0.2: power/thermal throttling. `throttle` is eight booleans; the _now
+    # ones are the live condition and the _since_boot ones are history, so only
+    # the live ones score. Under-voltage is called out separately because it is
+    # the failing-PSU signal rather than a hot-day signal.
+    _th = ((si.get('platform_health') or {}).get('throttle')
+           if isinstance(si.get('platform_health'), dict) else None)
+    if isinstance(_th, dict):
+        _live = [k for k in ('undervolt_now', 'throttled_now', 'freq_capped_now',
+                             'soft_temp_now') if _th.get(k) is True]
+        if _live:
+            _why = ('under-voltage right now — usually the PSU or the cable'
+                    if 'undervolt_now' in _live
+                    else 'the SoC is throttling right now')
+            _add('power_throttled', w['power_throttled'], _why)
+
+    # v7.0.2: battery wear, at the same floor the battery_health_low alert uses.
+    _bs = si.get('battery')
+    if isinstance(_bs, list):
+        # Same default the alert uses (api.py:20633 / the config default);
+        # 0 disables the alert, so it disables this factor too.
+        _floor = _rel_int('battery_health_low_pct', 50)
+        _worn = min((b['health_pct'] for b in _bs
+                     if isinstance(b, dict) and isinstance(b.get('health_pct'), int)),
+                    default=None)
+        if _floor and _worn is not None and _worn < _floor:
+            _add('battery_worn', w['battery_worn'],
+                 f'battery health {_worn}% (below {_floor}%)')
 
     # NOT SCORED, on purpose: unit flapping.
     #

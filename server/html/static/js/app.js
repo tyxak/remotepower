@@ -22040,6 +22040,7 @@ const _SCORE_WEIGHT_DEFAULTS = [
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,
     spare_low: 20, ecc_uncorrectable: 30, ecc_correctable: 8, reboot_churn: 12,
     health_declining: 10, overheating: 12, oom_recent: 8, nic_errors: 10,
+    power_throttled: 22, battery_worn: 8,
   }],
 ];
 for (const [idPfx, keyPfx, weights] of _SCORE_WEIGHT_DEFAULTS) {
