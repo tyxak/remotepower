@@ -84,7 +84,17 @@ class TestEveryDispatcherRouteIsDocumented(unittest.TestCase):
         cls.shapes = {re.sub(r"\{[^}]+\}", "{}", p) for p in cls.spec["paths"]}
 
     def _wanted(self):
-        """Every concrete path the dispatcher table names, as a shape."""
+        """Every concrete path the dispatcher table names, as a shape.
+
+        This used to build a prefix branch's shape as `prefix + "/{}"` and stop
+        there — the SAME truncation `_dispatcher_routes` had. So a branch like
+        `pi.startswith('/api/alerts/') and pi.endswith('/ack')` entered the
+        wanted-set as `/alerts/{}`, matched the (wrong) published path, and the
+        real one was never in the population. 60 branches were affected: not
+        failing, invisible. The sub-resource comes from the condition text, the
+        same place the spec builder reads it, so the two cannot drift apart
+        again without this going red.
+        """
         out = set()
         for row in self.api._PATTERN_ROUTE_DEFS:
             kind, _methods, prefix = row[0], row[1], row[2]
@@ -93,8 +103,42 @@ class TestEveryDispatcherRouteIsDocumented(unittest.TestCase):
             if str(prefix).startswith("/api/devices/"):
                 continue  # device sub-resources are templated separately
             p = str(prefix)[4:]
-            out.add(p if kind == "eq" else p.rstrip("/") + "/{}")
+            if kind == "eq":
+                out.add(p)
+                continue
+            # A negated endswith carves a sub-path OUT of the branch
+            # (`not pi.endswith('/passwd')`), so it names /users/{}, not
+            # /users/{}/passwd.
+            subs = [
+                m.group(2)
+                for m in re.finditer(
+                    r"(not\s+)?pi\.endswith\('(/[^']+)'\)", str(row[5])
+                )
+                if not m.group(1)
+            ]
+            base = p.rstrip("/") + "/{}"
+            out.update(base + s for s in subs) if subs else out.add(base)
         return out
+
+    def test_the_population_includes_sub_resources(self):
+        """Positive control for the fix above. Without it every assertion about
+        a sub-resource below is vacuous — the path is simply not asked about."""
+        wanted = self._wanted()
+        for p in ("/alerts/{}/ack", "/virt/{}/vms", "/scripts/{}/dry-run"):
+            self.assertIn(p, wanted, "the sub-resource dimension is missing "
+                                     "from the enumeration again")
+        self.assertGreater(len(wanted), 100)
+
+    def test_a_negated_endswith_is_not_read_as_a_sub_resource(self):
+        """`pi.startswith('/api/users/') and not pi.endswith('/passwd')` carves
+        the sub-path OUT. Read as a sub-resource it publishes DELETE
+        /users/{id}/passwd — a route that deletes nothing, next to the real one
+        it would have replaced. Asserted on the SPEC, because those two rows
+        declare no prefix and so never enter _wanted() above."""
+        self.assertNotIn("/users/{id}/passwd", self.spec["paths"])
+        got = self.spec["paths"].get("/users/{id}") or {}
+        self.assertEqual({"delete", "patch"}, {m for m in got if m in
+                                               ("get", "post", "put", "patch", "delete")})
 
     def test_the_enumeration_is_not_empty(self):
         """Positive control: this reads a live table through a private name."""

@@ -68949,9 +68949,23 @@ def _dispatcher_routes():
                     for me in methods:
                         out.append((me, '/api/devices/{device_id}' + e))
             else:
+                # A non-devices prefix branch may ALSO name a sub-resource:
+                # `pi.startswith('/api/alerts/') and pi.endswith('/ack')`.
+                # Emitting just `/api/alerts/{id}` published a path that does
+                # not exist and omitted the one that does — a client generated
+                # from the spec POSTed to the wrong URL. 60 branches were
+                # affected. A NEGATED endswith is the opposite: it carves a
+                # sub-path OUT, so `not pi.endswith('/passwd')` still means
+                # `/api/users/{id}`.
+                _subs = [m.group(2) for m in _re.finditer(
+                    r"(not\s+)?pi\.endswith\('(/[^']+)'\)", l) if not m.group(1)]
                 for pfx in _re.findall(r"pi\.startswith\('(/api/[a-z0-9/_-]+)/'\)", l):
                     for me in methods:
-                        out.append((me, pfx + '/{id}'))
+                        if _subs:
+                            for _sub in _subs:
+                                out.append((me, pfx + '/{id}' + _sub))
+                        else:
+                            out.append((me, pfx + '/{id}'))
     except Exception:
         pass
     # dedupe, keep order

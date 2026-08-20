@@ -146,9 +146,18 @@ class TestModuleBinding(unittest.TestCase):
         self.assertIn(("POST", "/api/devices/{device_id}/log-sweep/run"), routes)
         self.assertIn(("POST", "/api/devices/{device_id}/log-sweep/diagnose"), routes)
         self.assertIn(("GET", "/api/devices/{device_id}/log-sweep"), routes)
-        # Non-devices prefix routes are templated as /api/alerts/{id} (the
-        # same collapsed form ack/resolve/unack document under).
-        self.assertIn(("POST", "/api/alerts/{id}"), routes)
+        # This used to assert the collapsed form /api/alerts/{id}, pinning a
+        # LIMITATION as if it were intent: every non-devices prefix branch that
+        # also named a sub-resource published a path that does not exist and
+        # omitted the one that does. 60 branches. Now that the builder keeps
+        # the segment, the pin says what the routes actually are.
+        for m, p in (("POST", "/api/alerts/{id}/ack"),
+                     ("POST", "/api/alerts/{id}/resolve"),
+                     ("POST", "/api/alerts/{id}/unack"),
+                     ("POST", "/api/alerts/{id}/ai-triage")):
+            self.assertIn((m, p), routes)
+        self.assertNotIn(("POST", "/api/alerts/{id}"), routes,
+                         "the collapsed form is not a route")
 
     def test_prompts_registered(self):
         import ai_provider
