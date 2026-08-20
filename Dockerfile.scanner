@@ -16,18 +16,30 @@
 ARG BASE_IMAGE=ghcr.io/tyxak/remotepower:latest
 FROM ${BASE_IMAGE}
 
-ARG NUCLEI_VERSION=3.3.5
+# A vulnerability scanner running a stale engine reports clean and means
+# nothing, which is the worst failure this image can have: current template
+# packs assume a newer engine and their detections are skipped in silence.
+ARG NUCLEI_VERSION=3.11.1
 
 USER root
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends curl ca-certificates unzip && \
     ARCH="$(dpkg --print-architecture)" && \
     case "$ARCH" in amd64) NARCH=amd64 ;; arm64) NARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac && \
-    curl -fsSL -o /tmp/nuclei.zip \
+    cd /tmp && \
+    curl -fsSL -o "nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip" \
         "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip" && \
-    unzip -q /tmp/nuclei.zip -d /usr/local/bin nuclei && \
+    curl -fsSL -o nuclei_checksums.txt \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt" && \
+    # Verify before unzipping. Everywhere else in this repo a downloaded
+    # artifact is checked — the agent one-liner pins a sha256, both PKGBUILDs
+    # PGP-verify the tarball — and this one became a root-owned binary in the
+    # image on the strength of an HTTPS fetch alone.
+    grep " nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip\$" nuclei_checksums.txt > nuclei.sha256 && \
+    sha256sum -c nuclei.sha256 && \
+    unzip -q "nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip" -d /usr/local/bin nuclei && \
     chmod 755 /usr/local/bin/nuclei && \
-    rm -f /tmp/nuclei.zip && \
+    rm -f "nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip" nuclei_checksums.txt nuclei.sha256 && \
     apt-get purge -y curl unzip && apt-get autoremove -y && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 

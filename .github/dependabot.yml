@@ -15,9 +15,16 @@ updates:
     commit-message:
       prefix: "ci(deps)"
 
-  # Python runtime deps (flask, gunicorn, pydantic, bcrypt, cryptography, …)
+  # Python runtime deps (flask, gunicorn, pydantic, bcrypt, cryptography, …).
+  #
+  # `directory` must point at the directory CONTAINING a manifest, and the only
+  # one in this repo is packaging/requirements-server.txt. Pointed at "/" this
+  # watcher resolved nothing and opened zero PRs for its whole life — the one
+  # mechanism meant to surface a drifting dependency was itself the drift, and
+  # it failed silently because a watcher with nothing to watch looks exactly
+  # like a watcher with nothing to report.
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/packaging"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

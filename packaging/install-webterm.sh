@@ -145,7 +145,7 @@ elif command -v zypper &>/dev/null; then
   run zypper -n install python3-websockets python3-asyncssh
 else
   echo "  ⚠  Unknown package manager. Install python3-websockets and python3-asyncssh manually."
-  echo "      pip install --break-system-packages 'websockets>=10' 'asyncssh>=2.10'"
+  echo "      pip install --break-system-packages 'websockets>=10' 'asyncssh>=2.14.2'"
 fi
 
 # Sanity check the imports (skip in dry-run since the deps haven't actually
@@ -154,6 +154,17 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
   echo "── Verifying Python deps…"
   if ! python3 -c 'import websockets, asyncssh' 2>/dev/null; then
     die "Couldn't import websockets/asyncssh. Install manually then re-run this script."
+  fi
+  # asyncssh below 2.14.2 is an SSH CLIENT with known session-hijack and
+  # algorithm-downgrade flaws (CVE-2023-46445, CVE-2023-46446 "Rogue Session",
+  # and Terrapin prefix truncation). remotepower-webterm IS that client, and it
+  # is the operator's interactive gateway into every managed host — so an
+  # attacker positioned between the gateway and a target host is exactly the
+  # threat model those cover. The distro packages are current on supported
+  # releases; the printed pip fallback used to say >=2.10.
+  if ! python3 -c 'import asyncssh,sys; v=tuple(int(x) for x in asyncssh.__version__.split(".")[:3]); sys.exit(0 if v >= (2,14,2) else 1)' 2>/dev/null; then
+    _av="$(python3 -c 'import asyncssh; print(asyncssh.__version__)' 2>/dev/null || echo unknown)"
+    die "asyncssh ${_av} is too old — 2.14.2 or newer is required (CVE-2023-46445/46446 affect the SSH client this gateway is). Upgrade with: pip install --break-system-packages -U 'asyncssh>=2.14.2'"
   fi
   echo "  → ok"
 fi
