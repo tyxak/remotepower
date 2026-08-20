@@ -15,6 +15,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -832,25 +833,36 @@ class TestAlertEmailAckLinks(_HandlerBase):
     def _alert(self):
         return (api.load(api.ALERTS_FILE) or {}).get('alerts')[0]
 
-    def _hit(self, a, op, sig):
-        import os as _os
-        _os.environ['QUERY_STRING'] = f'a={a}&op={op}&s={sig}'
+    def _hit(self, a, op, sig, exp=None):
+        # v7.0.2: links carry a SIGNED deadline. Without one the tag does not
+        # verify, which is the point — every link sent before this release was
+        # permanent, and an archived mailbox was a standing capability over the
+        # alert inbox.
+        import os as _os, time as _t
+        exp = int(_t.time()) + 3600 if exp is None else exp
+        _os.environ['QUERY_STRING'] = f'a={a}&op={op}&e={exp}&s={sig}'
         api.method = lambda: 'GET'
         self.call(api.handle_alert_act)
 
+    def _sig(self, a, op, exp=None):
+        import time as _t
+        return api._alert_act_sig(a, op, int(_t.time()) + 3600 if exp is None else exp)
+
     def test_sig_binds_id_and_op(self):
-        s_ack = api._alert_act_sig('a-1', 'ack')
-        self.assertNotEqual(s_ack, api._alert_act_sig('a-1', 'resolve'))
-        self.assertNotEqual(s_ack, api._alert_act_sig('a-2', 'ack'))
-        self.assertEqual(s_ack, api._alert_act_sig('a-1', 'ack'))
+        s_ack = api._alert_act_sig('a-1', 'ack', 1000)
+        self.assertNotEqual(s_ack, api._alert_act_sig('a-1', 'resolve', 1000))
+        self.assertNotEqual(s_ack, api._alert_act_sig('a-2', 'ack', 1000))
+        self.assertEqual(s_ack, api._alert_act_sig('a-1', 'ack', 1000))
+        # v7.0.2: and the deadline.
+        self.assertNotEqual(s_ack, api._alert_act_sig('a-1', 'ack', 2000))
 
     def test_ack_via_link(self):
-        self._hit('a-1', 'ack', api._alert_act_sig('a-1', 'ack'))
+        self._hit('a-1', 'ack', self._sig('a-1', 'ack'))
         self.assertEqual(self._alert()['acknowledged_by'], 'email-link')
         self.assertIn('acknowledged', self.pages[-1][1].lower())
 
     def test_resolve_via_link_implies_ack(self):
-        self._hit('a-1', 'resolve', api._alert_act_sig('a-1', 'resolve'))
+        self._hit('a-1', 'resolve', self._sig('a-1', 'resolve'))
         a = self._alert()
         self.assertTrue(a['resolved_at'])
         self.assertTrue(a['acknowledged_at'])   # resolve implies ack
@@ -861,7 +873,7 @@ class TestAlertEmailAckLinks(_HandlerBase):
         self.assertIn('Invalid', self.pages[-1][0])
 
     def test_bad_op_rejected(self):
-        self._hit('a-1', 'delete', api._alert_act_sig('a-1', 'delete'))
+        self._hit('a-1', 'delete', self._sig('a-1', 'delete'))
         self.assertIn('Invalid', self.pages[-1][0])
 
     def test_ack_block_appended_only_when_enabled(self):
@@ -877,7 +889,16 @@ class TestAlertEmailAckLinks(_HandlerBase):
             {'alert_email_ack_links': True})
         self.assertIn('op=ack', block)
         self.assertIn('op=resolve', block)
-        self.assertIn(api._alert_act_sig('a-1', 'ack'), block)
+        # v7.0.2: the tag now covers a deadline the block mints, so it cannot be
+        # recomputed from (id, op) alone. Read the deadline back out of the link
+        # and verify the tag against it — which also proves the two agree.
+        import re as _re
+        m = _re.search(r'op=ack&e=(\d+)&s=([0-9a-f]+)', block)
+        self.assertTrue(m, f'no deadline in the minted link: {block[:200]}')
+        self.assertEqual(api._alert_act_sig('a-1', 'ack', int(m.group(1))),
+                         m.group(2))
+        self.assertGreater(int(m.group(1)), int(time.time()),
+                           'the link is minted already expired')
 
     def test_exempt_from_ip_allowlist(self):
         self.assertIn('/api/alerts/act', api._IP_ALLOWLIST_EXEMPT_PATHS)

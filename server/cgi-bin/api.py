@@ -9000,12 +9000,30 @@ def _event_email_routes(cfg, payload):
     return out
 
 
-def _alert_act_sig(alert_id, op):
+def _alert_act_sig(alert_id, op, exp):
     """W1-21: HMAC tag authorizing a one-click alert action from an email link.
     Namespaced 'alertact:' so it can't be replayed as another signed artefact.
-    Reuses the per-install export key."""
-    msg = f'alertact:{alert_id}:{op}'.encode()
+    Reuses the per-install export key.
+
+    v7.0.2: `exp` (a unix timestamp) is INSIDE the signed message. It had no
+    expiry at all — the tag was over (id, op) alone — so every acknowledge and
+    resolve link RemotePower has ever emailed is a permanent capability sitting
+    in a mailbox. Anyone who later reads that mailbox, an archive, a shared
+    inbox or a forwarded thread can resolve that alert, which is how an ongoing
+    incident gets hidden. The failure page already told operators a link could
+    "expire", which was not true of any link the product had ever sent.
+
+    Signing the deadline rather than storing it keeps the endpoint stateless:
+    a tampered `e` produces a tag that does not verify.
+    """
+    msg = f'alertact:{alert_id}:{op}:{int(exp)}'.encode()
     return hmac.new(_export_signing_key(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+# How long a one-click link stays usable. Long enough that an alert mail read on
+# Monday morning still works, short enough that an archived mailbox is not a
+# standing capability over the alert inbox.
+ALERT_ACT_LINK_TTL = 7 * 86400
 
 
 def _find_open_alert_id(event, payload):
@@ -9045,8 +9063,11 @@ def _alert_email_ack_block(event, payload, cfg):
     if not aid:
         return ''
     q = urllib.parse.quote
-    ack = f'{base}/api/alerts/act?a={q(aid)}&op=ack&s={_alert_act_sig(aid, "ack")}'
-    res = f'{base}/api/alerts/act?a={q(aid)}&op=resolve&s={_alert_act_sig(aid, "resolve")}'
+    _exp = int(time.time()) + ALERT_ACT_LINK_TTL
+    ack = (f'{base}/api/alerts/act?a={q(aid)}&op=ack&e={_exp}'
+           f'&s={_alert_act_sig(aid, "ack", _exp)}')
+    res = (f'{base}/api/alerts/act?a={q(aid)}&op=resolve&e={_exp}'
+           f'&s={_alert_act_sig(aid, "resolve", _exp)}')
     return f'\n\nAcknowledge: {ack}\nResolve: {res}'
 
 
@@ -58293,8 +58314,19 @@ def handle_alert_act():
     sig = (qs.get('s') or [''])[0]
     if op not in ('ack', 'resolve') or not aid:
         _public_action_page('Invalid link', 'This action link is not valid.')
-    if not hmac.compare_digest(sig, _alert_act_sig(aid, op)):
+    try:
+        exp = int((qs.get('e') or ['0'])[0])
+    except (TypeError, ValueError):
+        exp = 0
+    # Verify the SIGNATURE first, then the deadline. Checking the clock first
+    # would answer differently for a well-formed expired link and a forged one,
+    # which tells an attacker when they have the key right.
+    if not hmac.compare_digest(sig, _alert_act_sig(aid, op, exp)):
         _public_action_page('Invalid link', 'This action link is not valid or has expired.')
+    if exp <= int(time.time()):
+        _public_action_page('Link expired',
+                            'This action link has expired. Open the alert in '
+                            'RemotePower to acknowledge or resolve it.')
     now = int(time.time())
     found = False
     state = ''
