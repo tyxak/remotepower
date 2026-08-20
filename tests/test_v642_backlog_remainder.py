@@ -244,23 +244,46 @@ class TestWindowsDiskScanIsHonest(unittest.TestCase):
 
 
 class TestHostFactsComeFromAProducer(unittest.TestCase):
-    """"Copy host summary" and the AI/RAG resource chunk read four sysinfo keys
-    no producer ever writes, so CPU model, core count, RAM and load average were
-    permanently blank in both — the dead-signal class."""
+    """The dead-signal fix this class was written for has held, and the surface
+    it watched is gone.
 
-    def test_every_key_the_summary_reads_is_written_somewhere(self):
-        app = (_JS / "app.js").read_text()
+    The v6.4.2 bug: "Copy host summary" and the AI/RAG resource chunk read four
+    sysinfo keys no producer ever wrote, so CPU model, core count, RAM and load
+    average were permanently blank in both.
+
+    copyHostSummary no longer exists anywhere in the client — no function, no
+    data-action, no markup — so the guard had stopped running. It did not fail
+    and it did not pass: it called skipTest("copyHostSummary renamed") on every
+    run, which reads in the output exactly like a backend-specific skip.
+
+    What it protected is now true at the producer: cpu_model, mem_total and
+    loadavg are all written by the agents. Rather than leave an inert guard
+    that names a function nobody can find, the assertion that keeps its value
+    is that the keys have producers at all.
+    """
+
+    KEYS = ('cpu_model', 'mem_total', 'loadavg')
+
+    def test_the_keys_that_bug_left_blank_still_have_producers(self):
         agents = "\n".join((ROOT / "client" / n).read_text() for n in
-                           ("remotepower-agent.py", "remotepower-agent-win.py",
-                            "remotepower-agent-mac.py"))
+                            ("remotepower-agent.py", "remotepower-agent-win.py",
+                             "remotepower-agent-mac.py"))
         api_src = (_CGI / "api.py").read_text()
-        m = re.search(r"function copyHostSummary.*?\n\}", app, re.S)
-        if not m:
-            self.skipTest("copyHostSummary renamed")
-        for key in set(re.findall(r"si\.([a-z_]{4,})", m.group(0))):
+        for key in self.KEYS:
             with self.subTest(key=key):
                 self.assertTrue(key in agents or key in api_src,
-                                f"summary reads sysinfo.{key}, which nothing produces")
+                                f"sysinfo.{key} has no producer again")
+
+    def test_the_removed_consumer_has_not_come_back_unguarded(self):
+        """If a host-summary copy button returns, this guard has to be pointed
+        at it rather than skipping itself into silence again."""
+        # assertNotIn would print the whole client bundle as the haystack —
+        # megabytes of JS for a one-line finding. Name the files instead.
+        hits = [p.name for p in sorted(_JS.glob("app*.js"))
+                if "copyHostSummary" in p.read_text()]
+        self.assertEqual([], hits,
+                         "copyHostSummary is back in %s — re-point the key check "
+                         "above at it instead of asserting its absence" % hits)
 
 
 class TestAuditRetentionIsArmed(unittest.TestCase):
