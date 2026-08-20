@@ -45,7 +45,7 @@ line from both units and lose nothing else.
 reading SMART data is what the agent is *for*: `dpkg` / `pacman` / `systemctl` /
 `smartctl` cannot be driven usefully without privilege. An unprivileged agent
 would be a monitoring product that cannot remediate, which is a different
-product. The trade is deliberate, and constrained:
+product. The trade is made on purpose, and constrained:
 
 - Every subprocess uses the **argv-list form** — no shell interpolation, so
   there is no injection surface — with one exception: the `exec:` command
@@ -61,7 +61,7 @@ product. The trade is deliberate, and constrained:
   `/etc/remotepower/require-signed-updates` makes the agent fail **closed**: it
   will refuse any update that is not signed by a pinned release key.
 - The systemd unit adds `PrivateTmp`, `ProtectKernelTunables` and
-  `ProtectControlGroups`. It deliberately does **not** set
+  `ProtectControlGroups`. It does **not** set
   `ProtectKernelModules` — that directive hides `/lib/modules` and produced
   module-less initramfs images on managed hosts (fixed in v6.2.1).
 

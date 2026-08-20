@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.2-11">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.2-12">
 
 </head>
 <body>
@@ -1962,7 +1962,7 @@
           <!-- v6.1.1: connector plugin discoverability + reload -->
           <div class="settings-section">
             <div class="section-title">Connector plugins</div>
-            <p class="hint">Every connector type above, built-in or third-party. A third-party connector is a <code>*.py</code> file dropped into <code>connectors.d/</code> on the server (root-owned, filesystem-only — there's deliberately no upload-from-browser path). After adding or updating a file there, reload to pick it up without restarting the service. <a href="docs/writing-a-connector.md" class="c-accent">Documentation</a></p>
+            <p class="hint">Every connector type above, built-in or third-party. A third-party connector is a <code>*.py</code> file dropped into <code>connectors.d/</code> on the server (root-owned, filesystem-only — there is no upload-from-browser path, so a compromised session cannot add one). After adding or updating a file there, reload to pick it up without restarting the service. <a href="docs/writing-a-connector.md" class="c-accent">Documentation</a></p>
             <div id="connector-plugins-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row">
               <button class="btn-secondary" data-action="reloadConnectors">Reload connectors</button>
@@ -2433,7 +2433,7 @@
           <!-- v6.4.2: opt-in Security hardening advisories -->
           <div class="settings-section">
             <div class="section-title">Security hardening</div>
-            <p class="hint">Off by default. When enabled, RemotePower adds advisory <em>hardening</em> checks and alerts for configuration that is often a deliberate choice: <em>SSH daemon hardening</em> (root login / password authentication / empty passwords permitted), <em>automatic security updates off</em>, and <em>a local account password over a year old</em>. Each appears on the <a href="#" data-action-btn="_showPageBtn" data-page="checks" data-prevent-default class="c-accent">Checks</a> page and raises an alert that auto-resolves when fixed. A <strong>blank</strong> password and an <strong>inactive host firewall</strong> are real exposure and are always checked regardless of this setting. <a href="docs/checks.md" class="c-accent">Documentation</a></p>
+            <p class="hint">Off by default. When enabled, RemotePower adds advisory <em>hardening</em> checks and alerts for configuration that is often chosen on purpose: <em>SSH daemon hardening</em> (root login / password authentication / empty passwords permitted), <em>automatic security updates off</em>, and <em>a local account password over a year old</em>. Each appears on the <a href="#" data-action-btn="_showPageBtn" data-page="checks" data-prevent-default class="c-accent">Checks</a> page and raises an alert that auto-resolves when fixed. A <strong>blank</strong> password and an <strong>inactive host firewall</strong> are real exposure and are always checked regardless of this setting. <a href="docs/checks.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-security-hardening"> Enable Security hardening advisories &amp; alerts</label></div>
           </div>
 
@@ -2450,7 +2450,7 @@
                for the same reason each of those is separate. -->
           <div class="settings-section">
             <div class="section-title">Secure Boot checks</div>
-            <p class="hint">Off by default. When enabled, hosts that report their firmware state get a <em>Secure Boot</em> check. Turning Secure Boot off is a routine decision on Linux — out-of-tree kernel modules such as ZFS, NVIDIA or VirtualBox will not load under it unless you enroll their signing key — so reporting it by default would flag a deliberate choice on much of a fleet at once. A host with no EFI variable to read (BIOS/CSM boot, a container, a VM without UEFI firmware) stays silent either way rather than being reported as off. The state is always shown on the device drawer as a fact; this setting only controls the check and the advisory finding. <a href="docs/checks.md" class="c-accent">Documentation</a></p>
+            <p class="hint">Off by default. When enabled, hosts that report their firmware state get a <em>Secure Boot</em> check. Turning Secure Boot off is a routine decision on Linux — out-of-tree kernel modules such as ZFS, NVIDIA or VirtualBox will not load under it unless you enroll their signing key — so reporting it by default would flag a supported setup on much of a fleet at once. A host with no EFI variable to read (BIOS/CSM boot, a container, a VM without UEFI firmware) stays silent either way rather than being reported as off. The state is always shown on the device drawer as a fact; this setting only controls the check and the advisory finding. <a href="docs/checks.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secure-boot-checks"> Check hosts for UEFI Secure Boot</label></div>
           </div>
 
@@ -2574,7 +2574,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-sso-only"> SSO-only — refuse local-password logins when an IdP (OIDC/SAML) is configured. Flag an emergency admin with break-glass <code>local_login</code> first, or you can lock yourself out.</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-sso-default-tenant">Tenant for SSO-provisioned users (blank = the default tenant)</label>
               <input type="text" id="cfg-sso-default-tenant" class="form-input mw-160" placeholder="default">
-              <p class="hint">Which tenant a user created by OIDC / SAML / SCIM / LDAP belongs to. Only meaningful with multi-tenancy enforced. While this is blank, an IdP group that maps to <strong>admin</strong> would produce an admin in the default tenant — a platform operator who can see every tenant — so RemotePower creates that user as a viewer instead and records why. Set this (to <code>default</code> if that is genuinely what you want) to get the mapped role. <a href="docs/sso.md" class="c-accent">Documentation</a></p></div>
+              <p class="hint">Which tenant a user created by OIDC / SAML / SCIM / LDAP belongs to. Only meaningful with multi-tenancy enforced. While this is blank, an IdP group that maps to <strong>admin</strong> would produce an admin in the default tenant — a platform operator who can see every tenant — so RemotePower creates that user as a viewer instead and records why. Set this (to <code>default</code> if that is what you want) to get the mapped role. <a href="docs/sso.md" class="c-accent">Documentation</a></p></div>
             <div class="section-title mt-16">Password policy</div>
             <p class="hint">Applied to new users and password changes (existing passwords are never invalidated). Opt-in — leave length at 0 to keep the current behaviour.</p>
             <div class="settings-row"><label class="form-label" for="cfg-pw-min-length">Minimum length (0 = off; 12+ recommended)</label>
@@ -2639,7 +2639,7 @@
           <!-- v3.14.0 #24 P2: tenant isolation -->
           <div class="settings-section">
             <div class="section-title">Multi-tenancy</div>
-            <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants and user assignment are managed in <strong>Tenants</strong> below; a device's tenant is set on the device (<code>tenant</code>), and everything here is also available over the API (<code>/api/tenants</code>). <a href="docs/scaling.md" class="c-accent">Documentation</a></p>
+            <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it once you know how you want the fleet split. Tenants and user assignment are managed in <strong>Tenants</strong> below; a device's tenant is set on the device (<code>tenant</code>), and everything here is also available over the API (<code>/api/tenants</code>). <a href="docs/scaling.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-rls"> Also enforce at the database (Postgres row-level security)</label>
               <span class="hint">Defense-in-depth: partitions the <code>devices</code> roster at the database via RLS, so a tenant's rows are unreachable cross-tenant even if an application scope check is missed. <strong>Postgres backend only</strong>; requires "Enforce tenant isolation" above. Applied on next start.</span></div>
@@ -4744,9 +4744,9 @@
             <div class="doc-body">
               <p><strong>Autonomous remediation, and it starts switched still.</strong> RemotePower can now fix recurring problems on its own. Every tenant starts at <em>off</em>, recording nothing; you move one to <em>shadow</em>, where the loop reaches a real verdict and writes a <strong>receipt</strong> without touching anything, and you read those for a few weeks before granting it a thing. It acts on <strong>precedent from your own incident memory</strong> — what actually closed this exact signature on this fleet before, with a human-confirmed outcome counting double an AI-authored one — never on a model's improvisation. Before acting it works out <strong>what goes dark</strong>: monitors bound to the host, containers it runs, watched services, network neighbours, discounted when the host has healthy siblings. That preview stands on its own whether or not autonomy is ever switched on, because <em>what breaks if I reboot this host</em> is worth answering for a human about to do it by hand. There are <strong>24 action classes</strong> and an event maps to an ordered <strong>ladder</strong> of them, so which remedy runs is your decision rather than a hard-coded one, and commands go out in the same grammar an operator's own actions use — inheriting maintenance mode, quarantine, audit mode and the approval queue rather than growing private copies. Destructive actions require a backup that is <strong>proven recoverable</strong>: a restore drill that actually restored and verified, not a backup that merely ran. The rest of the release is about the checks rather than the code they check.</p>
               <p><strong>Checks that now check something.</strong> Postgres runs in CI against a real throwaway database, configured so an unreachable server fails the build instead of quietly skipping — three backend parity bugs had already reached releases, one recorded in the source as impossible to catch locally. Undefined-name detection works on the server again, over all shipped server, agent and sidecar code plus the test suite, where a typo in a rarely-taken branch hides best. Accessibility is audited with data on the page, which is the only way to see the 60 critical violations it found: the per-row select checkboxes in Devices and Alerts had no accessible name, so a screen-reader user could not tell which row they were selecting.</p>
-              <p><strong>Things that were telling you something untrue.</strong> Eleven places toasted success on an action the server had refused. Enrollment PINs are genuinely single-use now. Push notification titles are transliterated so they stay readable (&ldquo;recovered - 12&rdquo;, &ldquo;agent -&gt; server&rdquo;) instead of losing characters to a <code>?</code>. Two pages destroyed their own Documentation link a moment after you opened them. A refused delete no longer stays deleted in memory, coming back on reload and vanishing again on the next save.</p>
+              <p><strong>Things that were telling you something untrue.</strong> Eleven places toasted success on an action the server had refused. An enrollment PIN is now consumed the first time it is used. Push notification titles are transliterated so they stay readable (&ldquo;recovered - 12&rdquo;, &ldquo;agent -&gt; server&rdquo;) instead of losing characters to a <code>?</code>. Two pages destroyed their own Documentation link a moment after you opened them. A refused delete no longer stays deleted in memory, coming back on reload and vanishing again on the next save.</p>
               <p><strong>Interface corrections.</strong> The rule meant to space a button&rsquo;s icon from its label matched none of the ~195 buttons that have both. The four sign-in buttons stacked at three different heights. The CMDB asset Tickets panel rendered 110px of content inside a 38px sliver. Every card on this page had its summary shattered into narrow columns. Keyboard focus is visible in text fields again. The Devices page no longer paints a blank body while it loads.</p>
-              <p><strong>More of the interface speaks your language.</strong> The translation gate only ever checked the app chrome, so dropdown options, column headers and field labels had drifted out of it. 72 strings were translated into all six languages; the rest — brand names, protocol tokens, enum values — are now recorded as deliberately English instead of being indistinguishable from ones nobody got to. Three entries had been dead since the day they landed, because they were written with HTML entities that the lookup never sees.</p>
+              <p><strong>More of the interface speaks your language.</strong> The translation gate only ever checked the app chrome, so dropdown options, column headers and field labels had drifted out of it. 72 strings were translated into all six languages; the rest — brand names, protocol tokens, enum values — are now recorded as English on purpose, instead of being indistinguishable from ones nobody got to. Three entries had been dead since the day they landed, because they were written with HTML entities that the lookup never sees.</p>
               <p><strong>Patching worked again on Arch, CachyOS and Manjaro.</strong> A safety check that stops an upgrade when the running kernel&rsquo;s modules are not visible &mdash; it prevents an unbootable host &mdash; was also true on a healthy Arch-family machine, because a kernel upgrade there deletes the previous kernel&rsquo;s modules until you reboot. Every package upgrade was refused, blaming the agent&rsquo;s sandboxing, which was not involved. The two situations are now told apart; scheduled and automatic patching are fixed by the same change.</p>
               <p><strong>Tenants can be managed from Settings.</strong> Creating, renaming, suspending and deleting a tenant, and assigning users to one, were API-only &mdash; you could switch multi-tenancy on from the interface but not administer it there. <strong>Settings &rarr; Security &rarr; Tenants</strong> now does all of it, for platform superadmins.</p>
               <p><strong>The API reference and the web terminal.</strong> Fifteen routes were missing from the reference, including every SCIM endpoint &mdash; they all worked, they were just undocumented, and a list of 860 read as complete. It publishes 891 now. The web terminal moved to xterm.js 6, with a test that boots it, types into it and resizes it rather than trusting the version number.</p>
@@ -4846,7 +4846,7 @@
             <div class="doc-body">
               <p>Each Proxmox guest — QEMU on the Virtualization page, LXC on the Containers page — has a <strong>Snapshots</strong> button. It opens a panel listing the guest's snapshots and lets you create, roll back, and delete them.</p>
               <p><strong>Create</strong> — give the snapshot a name (a letter followed by letters, digits, underscores or hyphens, up to 40 characters) and an optional description. Snapshots are disk-only — the VM's RAM state is not captured. A typical workflow: take a snapshot named <code>before_upgrade</code> immediately before a risky change.</p>
-              <p><strong>Rollback</strong> — returns the guest to a snapshot's state. This is <em>destructive</em>: every change made since the snapshot was taken is discarded. Because of that, RemotePower asks you to type the guest's name to confirm — a deliberate speed bump, not just an OK button. After a rollback the guest is at a crash-consistent disk state (no live memory, since snapshots are disk-only).</p>
+              <p><strong>Rollback</strong> — returns the guest to a snapshot's state. This is <em>destructive</em>: every change made since the snapshot was taken is discarded. Because of that, RemotePower asks you to type the guest's name to confirm, rather than offering an OK button you can hit by reflex. After a rollback the guest is at a crash-consistent disk state (no live memory, since snapshots are disk-only).</p>
               <p><strong>Delete</strong> — removes a snapshot. Irreversible, but it does not affect the running guest — only the saved point-in-time state is gone.</p>
               <p>Snapshot operations run asynchronously on Proxmox. RemotePower sends the request and refreshes the list shortly after; a slow operation may not show on the first refresh — reopen the panel. Every snapshot action is recorded in the fleet event log.</p>
             </div>
@@ -5325,7 +5325,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" class="c-accent">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for mail01 from the last hour"</em> in plain English.</p>
               <p><strong>Architecture:</strong> the MCP server runs on the <strong>operator's laptop</strong>, not on the RemotePower server. The AI host (Claude Desktop, Cursor, etc.) spawns it as a stdio subprocess. The MCP server makes HTTPS calls to RemotePower's REST API on behalf of the AI using an API token you provision. Credentials live in the host's config file and never reach the AI provider.</p>
-              <p><strong>18 tools: 14 read + 4 guarded write.</strong> Read: <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>get_snmp_data</code>, <code>search_devices</code>, <code>search_fleet</code>. Write — each gated behind a server-side allow-list, per-MCP-token role, and an explicit confirmation flag: <code>reboot_device</code>, <code>run_saved_script</code> (saved, vetted scripts only — no free-form commands), <code>force_package_scan</code>, <code>force_acme_rescan</code>. Every write is audit-logged with the AI host and the prompt that triggered it.</p>
+              <p><strong>21 tools: 16 read + 5 guarded write.</strong> Read: <code>list_alerts</code>, <code>get_attention</code>, <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>get_snmp_data</code>, <code>search_devices</code>, <code>search_fleet</code>. Write — each gated behind a server-side allow-list, per-MCP-token role, and an explicit confirmation flag: <code>acknowledge_alert</code>, <code>reboot_device</code>, <code>run_saved_script</code> (saved, vetted scripts only — no free-form commands), <code>force_package_scan</code>, <code>force_acme_rescan</code>. Every write is audit-logged with the AI host and the prompt that triggered it.</p>
               <p><strong>Setup</strong> (Claude Desktop):</p>
               <ol>
                 <li>Settings → API keys → Generate a viewer token; copy the <code>rpk_...</code> value.</li>
@@ -5532,7 +5532,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Tabs:</strong></p>
               <ul>
                 <li><strong>Packages / Sysctl / Units / Modules</strong> — structured fields. Each reconciled by the agent on every poll.</li>
-                <li><strong>Logrotate</strong> — free-text content for <code>/etc/logrotate.d/remotepower</code>. The agent writes this file verbatim; useful for adding custom log rotation without SSH.</li>
+                <li><strong>Logrotate</strong> — free-text content for <code>/etc/logrotate.d/remotepower</code>. The agent writes this file exactly as entered; useful for adding custom log rotation without SSH.</li>
                 <li><strong>Cron (root)</strong> — free-text content for root's crontab (<code>crontab -u root</code>). The agent applies via a temp file on each poll; useful for device-specific jobs you want managed centrally.</li>
               </ul>
               <p><strong>Reconciliation:</strong> agent reports the <em>current</em> state alongside the desired state. A diff is visible in the UI. Drift events are surfaced under the device's Drift tab.</p>
@@ -5881,7 +5881,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
 
-        <!-- v6.2.0: regulated-data (PII) inventory. Deliberately a REPORT, not an
+        <!-- v6.2.0: regulated-data (PII) inventory. A REPORT, not an
              alert: PII sitting in /srv/data is the expected state of a business,
              and an event per finding would be pure alert fatigue. The matched
              values are never sent, stored, or hashed — see _ingest_pii_findings. -->
@@ -7034,7 +7034,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card mt-16" id="logs-acks-card">
           <div class="section-title">Cleared lines</div>
-          <p class="hint">A rule matches a class of lines, so one routine message re-fires forever. Clearing a line stops it counting toward the rule's threshold — a genuinely different message still alerts. Un-clear one to hear about it again. <a href="docs/log-watch.md" class="c-accent">Documentation</a></p>
+          <p class="hint">A rule matches a class of lines, so one routine message re-fires forever. Clearing a line stops it counting toward the rule's threshold — a different message still alerts. Un-clear one to hear about it again. <a href="docs/log-watch.md" class="c-accent">Documentation</a></p>
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead id="logs-acks-thead"><tr><th scope="col" data-col="line">Line</th><th scope="col" data-col="device">Scope</th><th scope="col" data-col="unit">Unit</th><th scope="col" data-col="hits" class="ta-center">Caught since</th><th scope="col" data-col="ts">Cleared</th><th scope="col"></th></tr></thead>
@@ -8009,7 +8009,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="dash-card">
             <div class="section-title">Recovery</div>
-            <p class="hint">The master key and every stored key travel ONLY in a passphrase-encrypted recovery bundle — scheduled backups deliberately hold ciphertext without the master key. Export a bundle after setup and whenever keys change, and keep it away from the appliances that depend on this server.</p>
+            <p class="hint">The master key and every stored key travel ONLY in a passphrase-encrypted recovery bundle — scheduled backups hold ciphertext without the master key, so a stolen backup cannot decrypt anything. Export a bundle after setup and whenever keys change, and keep it away from the appliances that depend on this server.</p>
             <div class="toolbar">
               <button class="btn-icon" data-action="kmipOpenExport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Export bundle</button>
               <button class="btn-icon" data-action="kmipOpenImport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Restore bundle</button>
@@ -8946,7 +8946,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      (.container is a z-index:1 stacking context — see CLAUDE.md). ── -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="log-ack-title" id="log-ack-modal"><div class="modal">
   <div class="modal-title" id="log-ack-title">Clear this log line</div>
-  <div class="modal-subtitle">This stops the line counting toward its rule's threshold. A genuinely different message still alerts, and you can un-clear it any time from Logs &rarr; Cleared lines.</div>
+  <div class="modal-subtitle">This stops the line counting toward its rule's threshold. A different message still alerts, and you can un-clear it any time from Logs &rarr; Cleared lines.</div>
   <div class="form-group"><label class="form-label" for="log-ack-line">The line</label><pre id="log-ack-line" class="mono-12 scroll-cap-sm code-block"></pre></div>
   <div class="form-group"><label class="form-label" for="log-ack-norm">What will be matched</label><pre id="log-ack-norm" class="mono-12 scroll-cap-sm code-block"></pre><div class="hint">Timestamps, process ids, addresses and numbers are folded out, so the same message tomorrow still matches.</div></div>
   <div class="form-group d-none" id="log-ack-rule-warn"><div class="hint c-amber">This silences the whole rule here, so messages you have <strong>not</strong> seen yet are hidden too. Prefer clearing a specific line when the alert carries one.</div></div>
@@ -11726,37 +11726,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.2-11"></script>
+<script defer src="static/js/app.js?v=7.0.2-12"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-containers.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-network.js?v=7.0.2-11"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-containers.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-network.js?v=7.0.2-12"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.2-11"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.2-12"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-dns.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-drift.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-cve.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-backups.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-iac.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-virt.js?v=7.0.2-11"></script>
+<script defer src="static/js/app-ai.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-dns.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-drift.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-cve.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-backups.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-iac.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-virt.js?v=7.0.2-12"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-remote.js?v=7.0.2-11"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.2-11"></script>
+<script defer src="static/js/app-logs.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-remote.js?v=7.0.2-12"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.2-12"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.2-11"></script>
-<!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
+<script defer src="static/js/app-self.js?v=7.0.2-12"></script>
+<!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
      buttons): app-checks, app-dmarc, app-gpu, app-kb, app-power, wg-access,
@@ -11765,6 +11765,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.2-11"></script>
+<script defer src="static/js/sw-register.js?v=7.0.2-12"></script>
 </body>
 </html>

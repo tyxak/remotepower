@@ -150,7 +150,7 @@ holds long-form docs that don't fit there.
  the only server since v6.1.0, installed and enabled by default. Tuning workers,
  threads and the scheduler.
 - **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config, the
- 14 read + 4 guarded write tools, security model, troubleshooting.
+ 16 read + 5 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on device cards.

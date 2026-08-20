@@ -101,7 +101,7 @@ class TestTheHandlerTouchesOneRow(unittest.TestCase):
         i_ctx = self.code.index('_device_log_buffer()')
         i_bf = self.code.index('_detect_brute_force(')
         self.assertGreater(i_bf, i_ctx)
-        # ...and it is genuinely outside the with-block, not merely later in it.
+        # ...and it is outside the with-block, not merely later in it.
         line = next(l for l in self.body.splitlines()
                     if '_detect_brute_force(' in l and 'def ' not in l)
         self.assertLessEqual(len(line) - len(line.lstrip()), 12, line)

@@ -123,6 +123,8 @@ created with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
+| `list_alerts` | The Alerts inbox — open, acknowledged or resolved alerts, newest first, with severity, device, when it first fired, who acked it, and the correlation flags (root cause, collateral, declared incident). The right first call for "what is wrong right now?" — `list_devices` only shows up or down. |
+| `get_attention` | The needs-attention digest — everything the fleet wants looked at, ranked, including things that never became an alert: stale backups, expiring certificates, drifted config, posture gaps. Broader than `list_alerts`, and the better call for "what should I work on?" |
 | `list_devices` | Every device with status, OS, group, tags, IP |
 | `get_device` | Full detail for one device (name match) |
 | `get_journal` | Recent systemd journal entries |
@@ -206,7 +208,7 @@ key with role `viewer`; all five write tools then refuse it permanently.
 | Concern | Mitigation |
 |---|---|
 | Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and device scope; generate one per laptop and revoke any time. |
-| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the four compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
+| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the five compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
 | Self-signed TLS | Set `REMOTEPOWER_VERIFY_SSL=0` in the MCP env if you must, but prefer to install your CA's root cert in the laptop's trust store. |
 | Data sensitivity | Same as the AI privacy redaction toggles in Settings → AI assistant: when in doubt, run a local model (Ollama) as the AI host. |
 
