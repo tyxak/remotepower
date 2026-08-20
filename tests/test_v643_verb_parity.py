@@ -32,6 +32,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import srcpin
+
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI = _ROOT / 'server' / 'cgi-bin'
 _CLIENT = _ROOT / 'client'
@@ -65,6 +67,82 @@ def _implements(src, verb):
         r"""startswith\(\s*\([^)]*['"]%s['"]""" % v,     # startswith(('a:', 'b:'))
     ]
     return any(re.search(p, src) for p in pats)
+
+
+# The command-dispatch functions in each agent. Deriving verbs from the WHOLE
+# file picks up every `startswith('x:')` in the module — URL schemes, IPv6
+# prefixes, output parsers — and reports eight verbs that do not exist. Scoped
+# to the dispatchers, the same derivation returns exactly the real set.
+DISPATCHERS = {
+    'linux':   ('execute_command',),
+    'windows': ('handle_command', 'command_argv'),
+    'darwin':  ('handle_command', 'command_argv'),
+}
+
+
+def _dispatch_body(fam):
+    src = AGENTS[fam].read_text()
+    return '\n'.join(srcpin.py_function(src, fn) for fn in DISPATCHERS[fam])
+
+
+def _verbs_implemented(body):
+    """Every verb this dispatcher branches on."""
+    out = set()
+    for pat in (r"""(?:cmd|command|c)\s*==\s*['"]([a-z_][a-z_0-9]*)['"]""",
+                r"""startswith\(\s*['"]([a-z_][a-z_0-9]*:)['"]"""):
+        out.update(m.group(1) for m in re.finditer(pat, body))
+    for m in re.finditer(r"""startswith\(\s*\(([^)]*)\)""", body):
+        out.update(q.group(1) for q in
+                   re.finditer(r"""['"]([a-z_][a-z_0-9]*:)['"]""", m.group(1)))
+    return out
+
+
+class TestTheTablesPopulationIsEveryPlatformSpecificVerb(unittest.TestCase):
+    """The gate below iterates api._VERB_OS_SUPPORT, so a verb that is missing
+    from the table is not failing it — it is invisible to it. That is how
+    `cron:` shipped: implemented only on Linux, absent from the table, and the
+    table's own comment says an absent verb is treated as universally
+    supported. The Cron page's host picker has no OS filter, so a Windows host
+    was selectable, the queue accepted it, and the operator got "Crontab for
+    root queued" for a command that answered rc 1.
+
+    So measure the POPULATION, not just the rule: any verb some dispatchers
+    implement and others do not must be described by the table."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.impl = {fam: _verbs_implemented(_dispatch_body(fam))
+                    for fam in AGENTS}
+
+    def test_the_derivation_found_a_plausible_dispatcher(self):
+        """Positive control. An empty or tiny set would make the assertion
+        below pass while measuring nothing — which is the failure this class
+        exists to catch, so it must not commit it itself."""
+        self.assertGreaterEqual(len(self.impl['linux']), 12, self.impl['linux'])
+        for fam in ('windows', 'darwin'):
+            self.assertGreaterEqual(len(self.impl[fam]), 4, self.impl[fam])
+        # And it must not be picking up the whole module: a scan of the entire
+        # linux agent finds these, the dispatcher does not.
+        for noise in ('fe80:', 'sha256:', 'pool:'):
+            self.assertNotIn(noise, self.impl['linux'],
+                             'the derivation escaped the dispatcher body')
+
+    def test_every_platform_specific_verb_is_in_the_table(self):
+        missing = []
+        for verb in sorted(set().union(*self.impl.values())):
+            fams = [f for f in AGENTS if verb in self.impl[f]]
+            if len(fams) == len(AGENTS):
+                continue                       # universal — the table skips it
+            if verb in api._VERB_OS_SUPPORT:
+                continue
+            if verb.rstrip(':') in api._VERB_OS_SUPPORT:
+                continue                       # 'upgrade:pkg' resolves via 'upgrade'
+            missing.append(f'{verb!r} implemented on {fams} only')
+        self.assertEqual(missing, [], '\n'.join([
+            'verbs the agents disagree about that api._VERB_OS_SUPPORT does '
+            'not describe. An absent verb is treated as universally supported, '
+            'so each of these queues on a platform that cannot run it and '
+            'reports success:', *missing]))
 
 
 class TestVerbSupportTableMatchesTheAgents(unittest.TestCase):

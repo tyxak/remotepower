@@ -23546,6 +23546,11 @@ _VERB_OS_SUPPORT = {
     'container:':      ('linux', 'windows'),
     'compose:':        ('linux',),
     'compose_deploy:': ('linux',),
+    # v7.0.2: only the Linux dispatcher has a cron: branch. The Cron page's
+    # host picker has no OS filter, so a Windows host was selectable, the
+    # queue accepted it, the operator got "Crontab for root queued", and the
+    # agent answered rc 1 into a result row nobody reads.
+    'cron:':           ('linux',),
     'svc:':            ('linux', 'windows'),
     'kill:':           ('linux', 'windows'),
     'files:':          ('linux', 'windows'),
