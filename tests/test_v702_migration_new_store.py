@@ -107,28 +107,26 @@ class TestAStoreCreatedDuringMigrationSurvives(unittest.TestCase):
 
     def test_the_created_store_is_also_verified(self):
         """Copying it is half the fix. If it is not in the verify loop, a
-        partial write during the migration still flips the marker."""
+        partial write during the migration still flips the marker.
+
+        Asserted on the returned file COUNT, which is the same list the verify
+        loop walks. An earlier version of this counted calls to a shared
+        `storage._norm` spy and passed or failed depending on what else in the
+        run had touched it — a count over shared state, which is exactly the
+        order-dependent class CLAUDE.md warns about."""
         self._seed()
-        seen = {}
+        before = self._migrate()
+        self.assertTrue(before.get('ok'), before)
+        n_before = before['files']
 
-        def _create():
-            self.storage._write_json_atomic(self.dir / 'alerts.json', {'alerts': []})
-
-        real_norm = self.storage._norm
-
-        def _spy(v):
-            seen['n'] = seen.get('n', 0) + 1
-            return real_norm(v)
-
-        self.storage._norm = _spy
-        try:
-            res = self._migrate(during=_create)
-        finally:
-            self.storage._norm = real_norm
-        self.assertTrue(res.get('ok'), res)
-        # 2 comparisons per file: source and target.
-        self.assertGreaterEqual(seen.get('n', 0), 6,
-                                'alerts.json was not in the verify loop')
+        self.setUp()                       # fresh dir, same seed
+        self._seed()
+        after = self._migrate(during=lambda: self.storage._write_json_atomic(
+            self.dir / 'alerts.json', {'alerts': []}))
+        self.assertTrue(after.get('ok'), after)
+        self.assertEqual(n_before + 1, after['files'],
+                         'the store created mid-migration is not in the file '
+                         'list the verify loop walks')
 
 
 if __name__ == '__main__':

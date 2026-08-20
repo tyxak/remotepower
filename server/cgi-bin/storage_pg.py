@@ -44,7 +44,8 @@ from storage import (
     json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
 )
 
-SCHEMA_VERSION = 9  # v6.4.3: the four per-device history blobs -> entity rows (storage._COLD_TO_ENTITY_V8);
+SCHEMA_VERSION = 10  # v7.0.2: log_watch.json cold-blob -> entity rows (storage._COLD_TO_ENTITY_V9);
+#                      v6.4.3: the four per-device history blobs -> entity rows (storage._COLD_TO_ENTITY_V8);
 #                      v6.1.2: metrics_rollup.json cold-blob -> entity rows (storage._COLD_TO_ENTITY_V7);
 #                      v5.8.0: audit_log cold-blob -> wrapped-list rows;
 #                      v5.6.0: posture_state/port_baseline/av_status/ssh_key_baseline -> entity
@@ -526,6 +527,8 @@ def _ensure_schema_ddl(conn):
         _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V7)     # v6.1.2
     if _dbv is None or _dbv < 9:
         _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V8)     # v6.4.3
+    if _dbv is None or _dbv < 10:
+        _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V9)     # v7.0.2
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

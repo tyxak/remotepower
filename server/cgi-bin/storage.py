@@ -50,7 +50,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 10  # v6.4.3: the four per-device history blobs -> entity rows (see _COLD_TO_ENTITY_V8)
+SCHEMA_VERSION = 11  # v7.0.2: log_watch.json -> entity rows (see _COLD_TO_ENTITY_V9)
 
 
 def configure(data_dir):
@@ -121,6 +121,13 @@ ENTITY_FILES = {
     'secret_findings.json',
     'speedtest.json',
     'acme_state.json',
+    # v7.0.2 (perf): log_watch.json — the per-device rolling ring of raw log
+    # lines, written by handle_log_submit on every agent log POST. It was a
+    # cold blob, so one device's submission read and re-serialised EVERY
+    # device's 6-hour buffer: measured at 1.39 s to load and 0.73 s to save on
+    # a 150-device fleet (12 units x 300 lines each, 54 MB). It is the largest
+    # blob in the product and it was on an ingest hot path.
+    'log_watch.json',
     # v6.1.2 (perf #5): metrics_rollup.json. It's keyed by device_id and holds
     # hourly (30d) + daily (~2y) aggregates for EVERY device in one blob, so it
     # grows O(devices x 2 years) — the worst possible shape for a cold blob. The
@@ -204,6 +211,10 @@ _COLD_TO_ENTITY_V7 = ('metrics_rollup.json',)
 # be moved rather than just reclassified.
 _COLD_TO_ENTITY_V8 = ('thermal_history.json', 'smart_history.json',
                       'gpu_history.json', 'custom_metrics_hist.json')
+# v7.0.2 (perf): log_watch.json — split its kv blob once at db_ver < 11. Every
+# install that has ever watched a log has this data, so it is moved, not just
+# reclassified.
+_COLD_TO_ENTITY_V9 = ('log_watch.json',)
 
 # wrapped-list files: basename -> the single top-level list key.
 # v5.8.0: fleet_events.json joined this set. It was previously kept COLD because
@@ -470,6 +481,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V7)     # v6.1.2
     if db_ver is None or db_ver < 10:
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V8)     # v6.4.3
+    if db_ver is None or db_ver < 11:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V9)     # v7.0.2
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

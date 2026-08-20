@@ -5,6 +5,7 @@ Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
 
+import contextlib
 import copy
 import os
 import re
@@ -4621,12 +4622,17 @@ def _entity_read_one(store_file, dev_id, default=None):
     return copy.deepcopy(_row) if _row is not None else default
 
 
-def _entity_write_one(store_file, dev_id, value):
+def _entity_write_one(store_file, dev_id, value, non_blocking=True):
     """v5.0.0 (perf): O(1) per-device write for an ENTITY-promoted store on a DB
     backend (entity_set touches one row); JSON backend does load-modify-save.
-    Best-effort & non-blocking — these are secondary heartbeat blobs (containers,
-    update_logs, uptime), so a write skipped under lock contention is simply
-    re-reported on the next beat rather than failing the heartbeat."""
+    Best-effort & non-blocking by DEFAULT — these are secondary heartbeat blobs
+    (containers, update_logs, uptime), so a write skipped under lock contention
+    is simply re-reported on the next beat rather than failing the heartbeat.
+
+    v7.0.2: `non_blocking=False` for a store where that reasoning does not hold.
+    Log lines are submitted once and never re-sent, so a dropped write loses the
+    lines AND every alert derived from them — silently, since the caller cannot
+    tell a skipped write from a completed one."""
     _m = _dbmod()
     if _m is not None and _is_entity_store(store_file):
         try:
@@ -4644,9 +4650,11 @@ def _entity_write_one(store_file, dev_id, value):
         # meanwhile was erased, silently (the whole body is best-effort). Worst
         # on PORT_BASELINE/SSH_KEY_BASELINE, where losing the row re-baselines
         # the host and the new-port / new-key detections never fire.
-        with _LockedUpdate(store_file, non_blocking=True) as store:
+        with _LockedUpdate(store_file, non_blocking=non_blocking) as store:
             store[dev_id] = value
     except LockBusy:
+        if not non_blocking:
+            raise     # the caller asked to block; a drop here would lose data
         pass          # secondary blob — re-reported on the next beat, by design
     except Exception:
         pass
@@ -67039,196 +67047,240 @@ def handle_log_submit():
         respond(400, {'error': 'units must be an object'})
 
     now = int(time.time())
-    log_store = load(LOG_WATCH_FILE)
-    dev_buf = log_store.get(dev_id) or {'units': {}, 'updated_at': now}
-    units_buf = dev_buf.get('units') or {}
 
-    alerts_fired = []
-    per_device_rules = dev.get('log_watch') or []
-    global_rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
+    # v7.0.2 (perf + correctness): one read and one write of THIS device's
+    # buffer, whichever backend is active.
+    #
+    # log_watch.json is the largest blob in the product — a 6-hour ring of raw
+    # log lines for every unit on every device — and this handler read and
+    # re-serialised the whole fleet's on every agent log POST. Measured on 150
+    # devices x 12 units x 300 lines (54 MB): 1.39 s to load, 0.73 s to save.
+    # It is an ENTITY store now, so the DB backends touch one row: 2029 ms ->
+    # 6 ms end to end.
+    #
+    # The old code was also a bare load/mutate/save holding NO lock, so two
+    # agents posting logs at the same time lost one submission outright.
+    #
+    # The JSON backend has no per-row store, so it takes the lock once and
+    # reads THROUGH it. Reading the row first and locking afterwards would be
+    # simpler, but _JsonLockedUpdate re-reads inside the critical section by
+    # design (v6.4.2), so that shape parses the whole blob twice — measured at
+    # +31% on a 40-device fleet. One lock, one parse.
+    _row_backend = _dbmod() is not None and _is_entity_store(LOG_WATCH_FILE)
+    # _detect_brute_force takes its own lock, so it cannot run inside the one
+    # below. Collected here and fired after the block, the same collect-then-
+    # fire rule every other locked handler follows. (fire_webhook needs no such
+    # treatment — it auto-defers when a lock scope is open.)
+    _bf_pending = []
 
-    # v2.8.1: virtual log units (apt.history, nginx.access, kernel, etc.)
-    # are new sources added for brute-force detection and log history.
-    # They should NOT fire on wildcard unit='*' global rules that users
-    # set up for service journal logs — the patterns don't apply and
-    # produce noise. Only fire if the rule explicitly names the unit.
-    _VIRTUAL_UNITS = {'apt.history', 'nginx.access', 'apache2.access', 'kernel'}
+    @contextlib.contextmanager
+    def _device_log_buffer():
+        _blank = {'units': {}, 'updated_at': now}
+        if _row_backend:
+            _buf = _entity_read_one(LOG_WATCH_FILE, dev_id) or _blank
+            yield _buf
+            # Blocking on purpose. Unlike the heartbeat blobs _entity_write_one
+            # was written for, log lines are submitted once and never re-sent,
+            # so a write skipped under contention loses the lines and every
+            # alert derived from them.
+            _entity_write_one(LOG_WATCH_FILE, dev_id, _buf, non_blocking=False)
+        else:
+            with _LockedUpdate(LOG_WATCH_FILE) as _store:
+                _buf = _store.get(dev_id) or _blank
+                yield _buf
+                _store[dev_id] = _buf
 
-    # Track which (unit, pattern) pairs have already fired this submission — a
-    # line matching both a per-device and a global rule with the same pattern
-    # should produce one alert, not two.
-    fired_keys = set()
+    with _device_log_buffer() as dev_buf:
+        units_buf = dev_buf.get('units') or {}
 
-    # master-improvement-scoping #9: this used to load config + recompile
-    # every ignore pattern INSIDE the per-unit loop below despite the old
-    # comment claiming "once per submission" — a device reporting N units
-    # recompiled the whole ignore-pattern list N times per heartbeat. Hoisted
-    # out to genuinely run once per submission; _compiled_patterns_cached
-    # additionally memoizes across calls (keyed by the pattern tuple, so a
-    # config change is its own cache-invalidation — no explicit bust needed).
-    _cfg_ignore = load(CONFIG_FILE) or {}
-    _ignore_pats = tuple(_cfg_ignore.get('log_ignore_patterns') or [])
-    _ignore_res = _compiled_patterns_cached(_ignore_pats, re.IGNORECASE)
-    # v6.4.2: the ring's retention is operator-tunable now. Same hoisting rule
-    # as the ignore patterns above — one read per submission, never per unit.
-    _ttl = _log_buffer_ttl()
-    _unit_cap = _log_buffer_unit_cap()
+        alerts_fired = []
+        per_device_rules = dev.get('log_watch') or []
+        global_rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
 
-    for unit_raw, lines in units_in.items():
-        # v6.4.1: _sanitize_log_unit, NOT _sanitize_unit_name — the strict
-        # systemd regex silently dropped every 'file:<path>' unit here, which
-        # killed file-path log rules end-to-end on all platforms.
-        unit = _sanitize_log_unit(unit_raw)
-        if not isinstance(unit, str) or unit is None:
-            continue
-        if not isinstance(lines, list):
-            continue
+        # v2.8.1: virtual log units (apt.history, nginx.access, kernel, etc.)
+        # are new sources added for brute-force detection and log history.
+        # They should NOT fire on wildcard unit='*' global rules that users
+        # set up for service journal logs — the patterns don't apply and
+        # produce noise. Only fire if the rule explicitly names the unit.
+        _VIRTUAL_UNITS = {'apt.history', 'nginx.access', 'apache2.access', 'kernel'}
 
-        clean_lines = []
-        # v3.0.1: build a signature set of lines already in the buffer for
-        # this unit. New lines whose signature matches are skipped, fixing
-        # the apt.history re-submission bloat.
-        existing_lines = units_buf.get(unit) or []
-        existing_sigs = {e.get('sig') for e in existing_lines if isinstance(e, dict) and e.get('sig')}
+        # Track which (unit, pattern) pairs have already fired this submission — a
+        # line matching both a per-device and a global rule with the same pattern
+        # should produce one alert, not two.
+        fired_keys = set()
 
-        for line in lines[:MAX_LOG_LINES_PER_UNIT]:
-            # v2.9.1: dmesg/kernel entries are submitted as dicts —
-            # extract the 'message' field rather than rendering as Python repr
-            ts_hint = now
-            if isinstance(line, dict):
-                s = str(line.get('message') or line.get('line') or '').strip()[:1024]
-                # v6.4.2: a dict entry carries the agent's own event time, and
-                # for kernel lines it is the ONLY timestamp left — the agent
-                # strips the dmesg stamp out of the message. Used as the
-                # FALLBACK, not an override, so apt.history (ts=now, but the
-                # Start-Date is still in the text) keeps its v3.0.1 dating.
-                ts_hint = _agent_line_ts(line.get('ts'), now)
-            else:
-                s = str(line)[:1024]
-            if not s:
+        # master-improvement-scoping #9: this used to load config + recompile
+        # every ignore pattern INSIDE the per-unit loop below despite the old
+        # comment claiming "once per submission" — a device reporting N units
+        # recompiled the whole ignore-pattern list N times per heartbeat. Hoisted
+        # out to genuinely run once per submission; _compiled_patterns_cached
+        # additionally memoizes across calls (keyed by the pattern tuple, so a
+        # config change is its own cache-invalidation — no explicit bust needed).
+        _cfg_ignore = load(CONFIG_FILE) or {}
+        _ignore_pats = tuple(_cfg_ignore.get('log_ignore_patterns') or [])
+        _ignore_res = _compiled_patterns_cached(_ignore_pats, re.IGNORECASE)
+        # v6.4.2: the ring's retention is operator-tunable now. Same hoisting rule
+        # as the ignore patterns above — one read per submission, never per unit.
+        _ttl = _log_buffer_ttl()
+        _unit_cap = _log_buffer_unit_cap()
+
+        for unit_raw, lines in units_in.items():
+            # v6.4.1: _sanitize_log_unit, NOT _sanitize_unit_name — the strict
+            # systemd regex silently dropped every 'file:<path>' unit here, which
+            # killed file-path log rules end-to-end on all platforms.
+            unit = _sanitize_log_unit(unit_raw)
+            if not isinstance(unit, str) or unit is None:
                 continue
-            # Apply global ignore patterns — skip matching lines entirely
-            if _ignore_res and any(r.search(s) for r in _ignore_res):
+            if not isinstance(lines, list):
                 continue
-            # v3.0.1: skip lines we've already ingested (content dedupe)
-            sig = _line_signature(s)
-            if sig in existing_sigs:
-                continue
-            existing_sigs.add(sig)
-            # v3.0.1: use the line's own timestamp if it has one. Lines from
-            # apt.history etc. carry an absolute date — without this, every
-            # re-submission stamped them with `now` so they always looked new.
-            line_ts = _extract_log_timestamp(s, unit, ts_hint)
-            clean_lines.append({'ts': line_ts, 'line': s, 'sig': sig})
 
-        combined = existing_lines + clean_lines
-        # Trim by age — embedded timestamps mean old lines now get evicted
-        # naturally rather than perpetually re-stamped to `now`.
-        cutoff = now - _ttl
-        combined = [e for e in combined if e.get('ts', 0) >= cutoff]
-        # v3.0.1: byte cap removed — was silently dropping nginx.access and
-        # brute-force lines whenever apt.history bloat filled the buffer.
-        # With content dedupe + embedded timestamps + TTL the buffer no
-        # longer grows unboundedly on idle units.
-        # v6.4.2: an OPT-IN cap is back, but PER UNIT (the v3.0.1 bug was a
-        # per-DEVICE cap letting one bloated unit starve the others) and
-        # keeping the NEWEST lines. Default 0 = off, so this is a no-op unless
-        # an operator sets log_buffer_max_bytes_per_unit.
-        combined = _trim_unit_buffer(combined, _unit_cap)
-        # v1.8.2: always keep the unit key, even if empty — so the device
-        # appears on the Logs page as "watched, quiet in this window"
-        units_buf[unit] = combined
+            clean_lines = []
+            # v3.0.1: build a signature set of lines already in the buffer for
+            # this unit. New lines whose signature matches are skipped, fixing
+            # the apt.history re-submission bloat.
+            existing_lines = units_buf.get(unit) or []
+            existing_sigs = {e.get('sig') for e in existing_lines if isinstance(e, dict) and e.get('sig')}
 
-        # Evaluate per-device rules first, then global
-        def _eval_rules(rules, scope):
-            for rule in rules:
-                rule_unit = rule.get('unit', '')
-                # Wildcard '*' matches any unit; otherwise exact match.
-                # v2.8.1: wildcard rules skip virtual units (apt.history,
-                # nginx.access, kernel) — users configure those rules for
-                # systemd service journals, not file-based log sources.
-                if rule_unit == '*':
-                    if unit in _VIRTUAL_UNITS:
+            for line in lines[:MAX_LOG_LINES_PER_UNIT]:
+                # v2.9.1: dmesg/kernel entries are submitted as dicts —
+                # extract the 'message' field rather than rendering as Python repr
+                ts_hint = now
+                if isinstance(line, dict):
+                    s = str(line.get('message') or line.get('line') or '').strip()[:1024]
+                    # v6.4.2: a dict entry carries the agent's own event time, and
+                    # for kernel lines it is the ONLY timestamp left — the agent
+                    # strips the dmesg stamp out of the message. Used as the
+                    # FALLBACK, not an override, so apt.history (ts=now, but the
+                    # Start-Date is still in the text) keeps its v3.0.1 dating.
+                    ts_hint = _agent_line_ts(line.get('ts'), now)
+                else:
+                    s = str(line)[:1024]
+                if not s:
+                    continue
+                # Apply global ignore patterns — skip matching lines entirely
+                if _ignore_res and any(r.search(s) for r in _ignore_res):
+                    continue
+                # v3.0.1: skip lines we've already ingested (content dedupe)
+                sig = _line_signature(s)
+                if sig in existing_sigs:
+                    continue
+                existing_sigs.add(sig)
+                # v3.0.1: use the line's own timestamp if it has one. Lines from
+                # apt.history etc. carry an absolute date — without this, every
+                # re-submission stamped them with `now` so they always looked new.
+                line_ts = _extract_log_timestamp(s, unit, ts_hint)
+                clean_lines.append({'ts': line_ts, 'line': s, 'sig': sig})
+
+            combined = existing_lines + clean_lines
+            # Trim by age — embedded timestamps mean old lines now get evicted
+            # naturally rather than perpetually re-stamped to `now`.
+            cutoff = now - _ttl
+            combined = [e for e in combined if e.get('ts', 0) >= cutoff]
+            # v3.0.1: byte cap removed — was silently dropping nginx.access and
+            # brute-force lines whenever apt.history bloat filled the buffer.
+            # With content dedupe + embedded timestamps + TTL the buffer no
+            # longer grows unboundedly on idle units.
+            # v6.4.2: an OPT-IN cap is back, but PER UNIT (the v3.0.1 bug was a
+            # per-DEVICE cap letting one bloated unit starve the others) and
+            # keeping the NEWEST lines. Default 0 = off, so this is a no-op unless
+            # an operator sets log_buffer_max_bytes_per_unit.
+            combined = _trim_unit_buffer(combined, _unit_cap)
+            # v1.8.2: always keep the unit key, even if empty — so the device
+            # appears on the Logs page as "watched, quiet in this window"
+            units_buf[unit] = combined
+
+            # Evaluate per-device rules first, then global
+            def _eval_rules(rules, scope):
+                for rule in rules:
+                    rule_unit = rule.get('unit', '')
+                    # Wildcard '*' matches any unit; otherwise exact match.
+                    # v2.8.1: wildcard rules skip virtual units (apt.history,
+                    # nginx.access, kernel) — users configure those rules for
+                    # systemd service journals, not file-based log sources.
+                    if rule_unit == '*':
+                        if unit in _VIRTUAL_UNITS:
+                            continue
+                    elif rule_unit != unit:
                         continue
-                elif rule_unit != unit:
-                    continue
-                pattern = rule.get('pattern', '')
-                key = (scope, unit, pattern)
-                if key in fired_keys:
-                    continue
-                if rule_acked(dev_id, unit, pattern):
-                    continue      # operator silenced this whole rule here
-                try:
-                    rx = re.compile(pattern)
-                except re.error:
-                    continue
-                ex_pat = rule.get('exclude_pattern', '')
-                ex_rx = None
-                if ex_pat:
+                    pattern = rule.get('pattern', '')
+                    key = (scope, unit, pattern)
+                    if key in fired_keys:
+                        continue
+                    if rule_acked(dev_id, unit, pattern):
+                        continue      # operator silenced this whole rule here
                     try:
-                        ex_rx = re.compile(ex_pat)
+                        rx = re.compile(pattern)
                     except re.error:
-                        pass
-                matches = [e['line'] for e in clean_lines
-                           if rx.search(e['line']) and (not ex_rx or not ex_rx.search(e['line']))]
-                # v6.3.1: lines the operator has already cleared stop counting
-                # toward the threshold — that is what makes an acknowledgement
-                # different from a snooze. A NEW line still fires normally.
-                matches, _acked = filter_acked_lines(dev_id, unit, matches)
-                threshold = rule.get('threshold', 1)
-                try:
-                    threshold = int(threshold)
-                except (TypeError, ValueError):
-                    threshold = 1
-                # v3.0.1: severity classification (OK/WARN/CRIT)
-                severity = str(rule.get('severity', 'WARN')).upper()
-                if severity not in ('OK', 'WARN', 'CRIT'):
-                    severity = 'WARN'
-                if len(matches) >= threshold:
-                    fired_keys.add(key)
-                    alerts_fired.append({
-                        'unit': unit, 'pattern': pattern,
-                        'count': len(matches), 'scope': scope,
-                        'severity': severity,
-                    })
-                    # OK rules don't fire webhooks — they're noise suppressors
-                    # that confirm "this expected pattern is still present".
-                    if severity != 'OK':
-                        wb_payload = {
-                            'device_id': dev_id,
-                            'name':      dev.get('name', dev_id),
-                            'unit':      unit,
-                            'pattern':   pattern,
-                            'count':     len(matches),
-                            'sample':    matches[:3],
-                            'acked':     _acked,
-                            'scope':     scope,  # v1.8.2: 'device' | 'global'
-                            'severity':  severity,  # v3.0.1
-                        }
-                        # v3.2.3 (#3): pass the rule's display_template
-                        # along so renderers downstream (NA card, alert
-                        # title, webhook subject) can format the event
-                        # the way the operator wrote.
-                        tmpl = rule.get('display_template')
-                        if tmpl:
-                            wb_payload['display_template'] = tmpl
-                        fire_webhook('log_alert', wb_payload)
+                        continue
+                    ex_pat = rule.get('exclude_pattern', '')
+                    ex_rx = None
+                    if ex_pat:
+                        try:
+                            ex_rx = re.compile(ex_pat)
+                        except re.error:
+                            pass
+                    matches = [e['line'] for e in clean_lines
+                               if rx.search(e['line']) and (not ex_rx or not ex_rx.search(e['line']))]
+                    # v6.3.1: lines the operator has already cleared stop counting
+                    # toward the threshold — that is what makes an acknowledgement
+                    # different from a snooze. A NEW line still fires normally.
+                    matches, _acked = filter_acked_lines(dev_id, unit, matches)
+                    threshold = rule.get('threshold', 1)
+                    try:
+                        threshold = int(threshold)
+                    except (TypeError, ValueError):
+                        threshold = 1
+                    # v3.0.1: severity classification (OK/WARN/CRIT)
+                    severity = str(rule.get('severity', 'WARN')).upper()
+                    if severity not in ('OK', 'WARN', 'CRIT'):
+                        severity = 'WARN'
+                    if len(matches) >= threshold:
+                        fired_keys.add(key)
+                        alerts_fired.append({
+                            'unit': unit, 'pattern': pattern,
+                            'count': len(matches), 'scope': scope,
+                            'severity': severity,
+                        })
+                        # OK rules don't fire webhooks — they're noise suppressors
+                        # that confirm "this expected pattern is still present".
+                        if severity != 'OK':
+                            wb_payload = {
+                                'device_id': dev_id,
+                                'name':      dev.get('name', dev_id),
+                                'unit':      unit,
+                                'pattern':   pattern,
+                                'count':     len(matches),
+                                'sample':    matches[:3],
+                                'acked':     _acked,
+                                'scope':     scope,  # v1.8.2: 'device' | 'global'
+                                'severity':  severity,  # v3.0.1
+                            }
+                            # v3.2.3 (#3): pass the rule's display_template
+                            # along so renderers downstream (NA card, alert
+                            # title, webhook subject) can format the event
+                            # the way the operator wrote.
+                            tmpl = rule.get('display_template')
+                            if tmpl:
+                                wb_payload['display_template'] = tmpl
+                            fire_webhook('log_alert', wb_payload)
 
-        _eval_rules(per_device_rules, 'device')
-        _eval_rules(global_rules,     'global')
+            _eval_rules(per_device_rules, 'device')
+            _eval_rules(global_rules,     'global')
 
-        # v2.8.0: brute-force detection on SSH and web access units
-        if unit in (_SSH_UNITS | _WEB_UNITS) and clean_lines:
-            try:
-                _detect_brute_force(dev_id, dev.get('name', dev_id),
-                                    unit, clean_lines)
-            except Exception:
-                pass
+            # v2.8.0: brute-force detection on SSH and web access units
+            if unit in (_SSH_UNITS | _WEB_UNITS) and clean_lines:
+                _bf_pending.append((unit, clean_lines))
 
-    dev_buf['units'] = units_buf
-    dev_buf['updated_at'] = now
-    log_store[dev_id] = dev_buf
-    save(LOG_WATCH_FILE, log_store)
+        dev_buf['units'] = units_buf
+        dev_buf['updated_at'] = now
+
+
+    for _bf_unit, _bf_lines in _bf_pending:
+        try:
+            _detect_brute_force(dev_id, dev.get('name', dev_id),
+                                _bf_unit, _bf_lines)
+        except Exception:
+            pass
 
     respond(200, {'ok': True, 'alerts_fired': len(alerts_fired)})
 
