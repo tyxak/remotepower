@@ -15,6 +15,12 @@ name: "RemotePower CodeQL config"
 #   - tests/: exercise edge cases (e.g. allow TLSv1 to verify the
 #     monitor handles legacy servers, use example hostnames) — not prod code.
 #   - .codeql-cache/, site/, design/: tooling / marketing / scratch.
+#   - dist/: `make dist` leaves an EXTRACTED copy of the release tarball under
+#     dist/.verify/. It is the same source again, so every finding is counted
+#     twice — and the copy's tests/ does not match the `tests` entry above, so
+#     the seven results a local run reported after a dist build were all
+#     dist/.verify/.../tests/. Same reason packaging/aur is excluded. Prod CI
+#     builds from a fresh checkout and never had them.
 paths-ignore:
   - packaging/aur
   - tests
@@ -22,6 +28,7 @@ paths-ignore:
   - site
   - design
   - docs
+  - dist
 
 # Reviewed false-positive RULE classes that are inherent to this app's design.
 # Each was triaged against the source (see docs/security-review-5.0.1.md); none is
