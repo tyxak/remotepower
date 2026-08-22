@@ -82,21 +82,38 @@ def _empty(o, path):
     return cur == [] or cur == {} or cur is None
 
 
+_SEEDED = {}
+
+
+def _seeded_devices():
+    """Seed once per process and hand back devices.json.
+
+    Module-level rather than a classmethod so each class can be run on its own
+    (`pytest -k <class>`): the first version read another class's setUpClass
+    attribute and errored out the moment it was selected alone, which is a test
+    that only works when its neighbour happens to run first.
+    """
+    if 'devices' not in _SEEDED:
+        seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
+        if not seeder.exists():
+            raise unittest.SkipTest('seeder excluded from dist tree')
+        d = tempfile.mkdtemp(prefix='rp-v702-seeded-')
+        r = subprocess.run([sys.executable, str(seeder), '--data-dir', d,
+                            '--apply', '--quiet'],
+                           capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            raise AssertionError(f'seeder failed: {r.stderr[-800:]}')
+        _SEEDED['dir'] = d
+        _SEEDED['devices'] = json.loads((Path(d) / 'devices.json').read_text())
+    return _SEEDED['devices']
+
+
 class TestEverySeededSignalSurvivesTheHeartbeat(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.seed_dir = tempfile.mkdtemp(prefix='rp-v702-seeded-')
-        seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
-        if not seeder.exists():
-            raise unittest.SkipTest('seeder excluded from dist tree')
-        r = subprocess.run([sys.executable, str(seeder), '--data-dir',
-                            cls.seed_dir, '--apply', '--quiet'],
-                           capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            raise AssertionError(f'seeder failed: {r.stderr[-800:]}')
-        cls.devices = json.loads(
-            (Path(cls.seed_dir) / 'devices.json').read_text())
+        cls.devices = _seeded_devices()
+        cls.seed_dir = _SEEDED['dir']
 
     def setUp(self):
         self.d = Path(tempfile.mkdtemp(prefix='rp-v702-hb-'))
@@ -204,6 +221,56 @@ class TestEverySeededSignalSurvivesTheHeartbeat(unittest.TestCase):
                          'the sanitizer changed these seeded types:\n  '
                          + '\n  '.join(f'{c}x {k}'
                                        for k, c in retyped.most_common()))
+
+
+class TestSafeSiCoverageDoesNotRegress(unittest.TestCase):
+    """How MANY of the server's persisted signals the demo actually carries.
+
+    The round-trip above proves nothing is dropped; it cannot see a signal that
+    was never seeded, because an absent key is absent from its population too.
+    23 of safe_si's 56 keys were in that blind spot — including top_processes
+    and mount_issues, the two boxes CLAUDE.md's box-overflow rule names by hand,
+    so the rendered overflow gate had never measured either.
+
+    The population is DERIVED from safe_si's own assignment sites rather than
+    listed here, so a signal the server starts persisting next release joins
+    the denominator on its own.
+    """
+
+    # Raise this when coverage goes up; never lower it. 56/56 as of v7.0.2.
+    FLOOR = 56
+
+    @classmethod
+    def setUpClass(cls):
+        cls.devices = _seeded_devices()
+
+    @staticmethod
+    def _safe_si_keys():
+        import re
+        src = (_CGI / 'api.py').read_text()
+        return sorted(set(re.findall(
+            r"safe_si\[\s*'([A-Za-z0-9_]+)'\s*\]\s*=", src)))
+
+    def test_the_population_is_real(self):
+        """A control: a regex that matched nothing would make the coverage
+        assertion below trivially true."""
+        keys = self._safe_si_keys()
+        self.assertGreaterEqual(
+            len(keys), 50,
+            f'only {len(keys)} safe_si assignment sites parsed')
+        for known in ('mounts', 'listening_ports', 'top_processes'):
+            self.assertIn(known, keys)
+
+    def test_the_seeded_fleet_covers_every_persisted_signal(self):
+        keys = self._safe_si_keys()
+        seen = set()
+        for dev in self.devices.values():
+            seen |= set(((dev or {}).get('sysinfo') or {})) & set(keys)
+        missing = [k for k in keys if k not in seen]
+        self.assertGreaterEqual(
+            len(seen), self.FLOOR,
+            f'safe_si coverage fell to {len(seen)}/{len(keys)} (floor '
+            f'{self.FLOOR}). Unseeded: {missing}')
 
 
 if __name__ == '__main__':

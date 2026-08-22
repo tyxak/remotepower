@@ -21,10 +21,14 @@ plus a few agentless network devices. Every metric, package list, and
 service status is fabricated. Hostnames use the ``.lab`` TLD which is
 unallocated and won't collide with anything real.
 
-Schedule a cron entry to re-run this every 30 minutes if you want
-``last_seen`` timestamps to keep looking fresh:
+RE-RUN IT ON A TIMER. The seed is a snapshot: ``last_seen``, the per-target
+``checked_at`` values and the cadence markers are all stamped at "now", and
+left alone the fleet ages past its own offline window (~30 minutes — see
+``offline_missed_polls`` in build_config) and the demo becomes a wall of dead
+hosts. install-demo.sh installs ``remotepower-demo-seed.timer`` for this, which
+fires every 2 minutes. A cron entry works too:
 
-    */30 * * * * www-data python3 /opt/remotepower/packaging/seed-demo-data.py --apply --quiet
+    */5 * * * * www-data python3 /opt/remotepower/packaging/seed-demo-data.py --apply --quiet
 """
 
 import math as _math
@@ -97,6 +101,63 @@ def _older(version, minors_back):
         else:
             break        # a 0.x line has nothing left to borrow from
     return f'{maj}.{mnr}.0'
+
+
+_CGI_DIR = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
+
+
+def _cadence_markers():
+    """The config keys that say "this maintenance sweep already ran".
+
+    A fresh seed left every one of them at 0, so the FIRST page load a visitor
+    triggered found all ~73 sweeps overdue and ran them inline. They then
+    probed the fabricated fleet: the 18 curated integration tiles (13 ok, 4
+    warning, 1 critical) came back 18 critical / "Name or service not known"
+    because .lab does not resolve, the monitor history got a row of errors on
+    top of the curated series, and the SNMP poller reached the box the demo is
+    installed on. ``RP_READ_ONLY=1`` does not stop this — the read-only gate
+    returns early for GET, and the cadence runs on GETs.
+
+    Stamping them at seed time makes the sweeps not-due, so what a visitor sees
+    is what the seeder wrote.
+
+    DERIVED, not listed. scheduler.py's CADENCE tuple is the registry of sweeps
+    (a guardrail test already pins it equal to main()'s _safe block), and a
+    sweep's marker is whatever key it writes back into CONFIG_FILE — either via
+    ``_claim_cadence_slot('x', now)`` or a ``c['x'] = now`` inside its own
+    ``_LockedUpdate(CONFIG_FILE)``. Reading those two idioms out of the source
+    means a sweep added next release brings its marker along with it instead of
+    waiting for somebody to notice the demo re-polling again.
+    """
+    import re as _re
+    try:
+        sched = (_CGI_DIR / 'scheduler.py').read_text()
+        m = _re.search(r'^CADENCE = \(\n(.*?)^\)', sched, _re.S | _re.M)
+        names = _re.findall(r"^\s*'([A-Za-z_][A-Za-z0-9_]*)',", m.group(1), _re.M)
+        srcs = [p.read_text() for p in sorted(_CGI_DIR.glob('*_handlers.py'))]
+        srcs.append((_CGI_DIR / 'api.py').read_text())
+    except Exception:
+        return []
+    out = set()
+    for name in names:
+        body = None
+        for src in srcs:
+            hit = _re.search(r'^def %s\(.*?\n(.*?)(?=\n(?:@|def |class )|\Z)'
+                             % _re.escape(name), src, _re.S | _re.M)
+            if hit:
+                body = hit.group(0)
+                break
+        if not body:
+            continue
+        out |= set(_re.findall(r"_claim_cadence_slot\(\s*'(last_[a-z0-9_]+)'", body))
+        # `with _LockedUpdate(CONFIG_FILE) as c:` … `c['last_x'] = now`. Both
+        # spellings of the helper are in use (_LockedUpdate / _locked_update).
+        for var in set(_re.findall(
+                r"_[Ll]ocked_?[Uu]pdate\(\s*(?:A\.)?CONFIG_FILE\s*\)\s*as\s+(\w+)", body)):
+            out |= set(_re.findall(r"\b%s\[\s*'(last_[a-z0-9_]+)'\s*\]\s*="
+                                   % _re.escape(var), body))
+    return sorted(out)
+
 
 # The dir actually being seeded this run. main() updates this from --data-dir
 # before calling the builders, so path-bearing config (backup_path) points into
@@ -596,6 +657,206 @@ def _demo_enrich_sysinfo(dev, rng, si):
         'rx_total': _rx * rng.randint(50_000, 500_000),
         'tx_total': _tx * rng.randint(50_000, 500_000),
     }]
+    _demo_unseeded_signals(dev, rng, si)
+
+
+# v7.0.2: agent-side custom checks. The ids are what a device's
+# sysinfo.custom_check_results is keyed by, so both come from here and can
+# never disagree. Types are from checks.AGENT_CHECK_TYPES (evaluated on-host and
+# reported back) plus one SERVER_CHECK_TYPES row, which the server evaluates and
+# so has no agent result. Field names are what handle_custom_checks_save stores.
+_DEMO_CUSTOM_CHECKS = [
+    {'id': 'ck_00001', 'name': 'sshd_config present', 'type': 'file_present',
+     'param': '/etc/ssh/sshd_config', 'target_kind': 'all', 'target': ''},
+    {'id': 'ck_00002', 'name': 'Nightly backup stamp is fresh', 'type': 'job_fresh',
+     'param': '/var/lib/restic/last-run.stamp', 'target_kind': 'tag',
+     'target': 'backup', 'max_age_hours': 26},
+    {'id': 'ck_00003', 'name': 'nginx error rate', 'type': 'log_errors',
+     'param': 'error|Fatal', 'target_kind': 'host', 'target': 'ng01',
+     'unit': 'nginx.service', 'window_min': 15, 'warn': 1, 'crit': 10},
+    {'id': 'ck_00004', 'name': 'sshd is running', 'type': 'process',
+     'param': 'sshd', 'target_kind': 'all', 'target': ''},
+]
+
+# Which seeded hosts report a result for each AGENT-evaluated check, and what.
+# A check whose target_kind is 'all' is reported by every agented host; the
+# scoped ones only by the hosts they target.
+_DEMO_AGENT_CHECK_RESULTS = {
+    'ck_00001': ('ok', '/etc/ssh/sshd_config present (mode 0644)'),
+    'ck_00002': ('critical', 'last run 39h ago (limit 26h)'),
+    'ck_00003': ('warning', '3 matching lines in the last 15 min (warn 1, crit 10)'),
+}
+
+
+def _demo_unseeded_signals(dev, rng, si):
+    """The safe_si signals no seeded host carried.
+
+    safe_si is the server's whitelist of agent telemetry — 56 keys — and the
+    demo populated 33 of them. The other 23 are read by the drawer, the Checks
+    engine, the Cron page, the Firewall page and the Data Explorer, so those
+    surfaces rendered blank on every demo, and two of them — top_processes and
+    mount_issues — are boxes the box-overflow rule explicitly caps, which means
+    the rendered box-overflow gate had never once measured either.
+
+    Every shape here is taken from the sanitizer block that persists it
+    (api.py handle_heartbeat) and from the agent collector that produces it, not
+    from what a consumer looks like it wants. Fields the sanitizer computes
+    rather than copies (fail2ban's banned_count, packages' pkg_scan_ts) are left
+    for it to compute.
+    """
+    dev_id = dev['id']
+    tags = dev.get('tags') or []
+    _osl = (dev.get('os') or '').lower()
+    _is_win = 'windows' in _osl
+    _is_mac = 'macos' in _osl
+    _linux = not (_is_win or _is_mac)
+
+    # ── signals every agent platform reports ────────────────────────────────
+    # `uptime` is the human `uptime -p` string; uptime_seconds (already seeded)
+    # is the sortable one. Keep the two consistent.
+    _up_s = si.get('uptime_seconds') or rng.randint(3600, 86400 * 40)
+    _d, _h = _up_s // 86400, (_up_s % 86400) // 3600
+    si['uptime'] = ('up %d day%s, %d hour%s' % (_d, '' if _d == 1 else 's',
+                                                _h, '' if _h == 1 else 's')
+                    if _d else 'up %d hours' % _h)
+    si['last_boot'] = now() - _up_s
+    # platform.platform() — the full identifying string, not the OS label.
+    if _is_win:
+        si['platform'] = 'Windows-11-10.0.26100-SP0'
+    elif _is_mac:
+        si['platform'] = 'macOS-15.2-arm64-arm-64bit'
+    else:
+        si['platform'] = ('Linux-%s-x86_64-with-glibc2.39'
+                          % (si.get('kernel') or '6.8.0-31-generic'))
+    # Windows and macOS report psutil:False as an honest "my metrics are
+    # limited"; the Linux agent ships with it.
+    si['psutil'] = _linux
+    # Observe-only agent. bk01 is the host the demo already marks as
+    # mid-decommission, so it is the one that reads the fleet without acting.
+    si['audit_mode'] = (dev_id == 'bk01')
+    si['top_processes'] = _demo_top_processes(dev_id, rng)
+    si['proc_names'] = sorted({p['name'] for p in si['top_processes']}
+                              | {'systemd', 'sshd', 'cron', 'dbus-daemon',
+                                 'rsyslogd', 'agetty', 'remotepower-agent'})
+    # Two hosts want a reboot. reboot_reason is only persisted alongside it.
+    _reboot = {'pmx01': 'kernel upgrade (6.1.0-21 -> 6.1.0-23)',
+               'nc01':  'libc6 upgrade'}
+    si['reboot_required'] = dev_id in _reboot
+    if dev_id in _reboot:
+        si['reboot_reason'] = _reboot[dev_id]
+    if 'laptop' in tags:
+        # Server-derived edge-trigger state, mirrored so the demo does not
+        # report a battery_health_low transition on its first heartbeat. All
+        # the seeded health_pct values sit above the 50% default threshold.
+        si['_batt_low'] = False
+    # Operator textfile-collector metrics. Names must match
+    # ^[a-z][a-z0-9_]{0,63}$ or the sanitizer drops them.
+    if dev_id in ('ng01', 'nc01', 'gt01'):
+        si['custom_metrics'] = {
+            'queue_depth': rng.randint(0, 40),
+            'sync_lag_seconds': round(rng.uniform(0.2, 12.5), 2),
+        }
+    # Agent-evaluated custom checks. Keyed by the _DEMO_CUSTOM_CHECKS ids so a
+    # result can never name a check the config does not define.
+    _ccr = {}
+    for c in _DEMO_CUSTOM_CHECKS:
+        res = _DEMO_AGENT_CHECK_RESULTS.get(c['id'])
+        if not res:
+            continue                      # server-evaluated: no agent result
+        if c['target_kind'] == 'tag' and c['target'] not in tags:
+            continue
+        if c['target_kind'] == 'host' and c['target'] != dev_id:
+            continue
+        _ccr[c['id']] = {'status': res[0], 'output': res[1]}
+    if _ccr:
+        si['custom_check_results'] = _ccr
+
+    if not _linux:
+        return
+
+    # ── Linux-only host signals ─────────────────────────────────────────────
+    si['cron'] = {
+        'crontabs': [
+            {'user': 'root', 'lines': ['17 * * * * /usr/sbin/logrotate /etc/logrotate.conf',
+                                       '@daily /usr/local/sbin/rp-housekeeping.sh']},
+            {'user': 'deploy', 'lines': ['*/5 * * * * /opt/deploy/bin/sync.sh --quiet']},
+        ],
+        'cron_d': [
+            {'file': '/etc/crontab',
+             'lines': ['25 6 * * * root test -x /usr/sbin/anacron || '
+                       'cd / && run-parts --report /etc/cron.daily']},
+        ],
+    }
+    # Default-gateway reachability + the RTT the ping already measured. No
+    # `history` key: the sanitizer only carries one forward from the PREVIOUS
+    # heartbeat, so a seeded one would be dropped on the first beat.
+    si['gateway'] = {'ip': '10.0.0.254', 'reachable': dev_id != 'ha01',
+                     'latency_ms': round(rng.uniform(0.4, 4.2), 2)}
+    # ECC counters come from EDAC, which only the server-class boards expose.
+    if dev_id in ('pmx01', 'tnas', 'pr01'):
+        si['ecc'] = {'ce': (18 if dev_id == 'tnas' else 0), 'ue': 0,
+                     'controllers': 2}
+    # SSH host-key fingerprints — the MITM/reimage tripwire's baseline.
+    si['ssh_hostkeys'] = {
+        kt: 'SHA256:' + base64.b64encode(
+            hashlib.sha256(f'{dev_id}|{kt}'.encode()).digest()
+        ).decode('ascii').rstrip('=')
+        for kt in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
+    }
+    # USB inventory, keyed VID:PID. Only the boxes somebody physically touches.
+    if dev_id in ('pmx01', 'tnas', 'pi1'):
+        si['usb'] = {'0424:2514': 'Standard Microsystems USB 2.0 Hub',
+                     '0781:5583': 'SanDisk Ultra Fit',
+                     '1d6b:0003': 'Linux Foundation xHCI Host Controller'}
+    # Mail queue depth — only the hosts that run an MTA.
+    if dev_id in ('ng01', 'nc01'):
+        si['mailq'] = 0 if dev_id == 'ng01' else 41
+    # A stale NFS share and an fstab entry that never mounted. The sanitizer
+    # keeps path/issue/fstype and drops the agent's `device`, so don't seed it.
+    if dev_id == 'nc01':
+        si['mount_issues'] = [
+            {'path': '/mnt/share', 'issue': 'stalled', 'fstype': 'cifs'},
+            {'path': '/mnt/scratch', 'issue': 'missing', 'fstype': 'ext4'},
+        ]
+    # The OOM kill that took jellyfin down — the same event log_watch records
+    # in jf01's kernel buffer, so the two surfaces agree.
+    if dev_id == 'jf01':
+        si['last_oom_ts'] = now() - 5395
+        si['last_oom_proc'] = 'ffmpeg'
+    # fail2ban posture. Most Linux hosts do not run it; the two internet-facing
+    # ones do, and the sanitizer computes banned_count itself.
+    if dev_id in ('ng01', 'fw01'):
+        si['fail2ban'] = {'available': True, 'jails': [
+            {'name': 'sshd', 'banned': ['198.51.100.9', '203.0.113.201'],
+             'total_banned': 47, 'total_failed': 1382},
+            {'name': 'nginx-botsearch', 'banned': [],
+             'total_banned': 6, 'total_failed': 118},
+        ]}
+    else:
+        si['fail2ban'] = {'available': False}
+
+
+def _demo_top_processes(dev_id, rng):
+    """The agent's CPU+memory leaders — [{pid, name, cpu, mem}].
+
+    This is one of the two boxes CLAUDE.md's box-overflow rule names by hand
+    (top processes, mount issues), and with no host reporting it the rendered
+    overflow gate had nothing to measure. 20 rows so the cap is exercised
+    rather than merely present.
+    """
+    pool = ['systemd', 'sshd', 'nginx', 'php-fpm', 'postgres', 'mariadbd',
+            'python3', 'node', 'dockerd', 'containerd', 'qemu-system-x86_64',
+            'zfs', 'smbd', 'jellyfin', 'ffmpeg', 'gitea', 'prometheus',
+            'grafana', 'restic', 'rsync', 'journald', 'chronyd', 'unbound',
+            'redis-server']
+    picks = rng.sample(pool, 20)
+    out = []
+    for i, name in enumerate(picks):
+        out.append({'pid': 400 + rng.randint(1, 30000),
+                    'name': name,
+                    'cpu': round(max(0.0, rng.gauss(28 - i * 1.3, 4)), 1),
+                    'mem': round(max(0.0, rng.gauss(18 - i * 0.8, 3)), 2)})
+    return out
 
 
 # v2.6.0/v3.13.0: sample desired host configs for the Host Configuration modal
@@ -641,7 +902,11 @@ def build_devices() -> dict:
             # This is also what makes the dashboard tile counts diverge
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
-            'poll_interval': 60,
+            # 300s, not 60s: the offline threshold is
+            # max(online_ttl, poll_interval * offline_missed_polls) + grace, and
+            # at 60s the seeded fleet went dark five minutes after every seed.
+            # See the offline_missed_polls note in build_config().
+            'poll_interval': 300,
             # Most of the fleet runs the current agent; a minority lag one/two
             # minors so the "upgrade available" affordance has something to show.
             'version':     (None if dev['agentless']
@@ -776,6 +1041,11 @@ def build_devices() -> dict:
                 # from _demo_package_inventory so this count can never disagree
                 # with packages.json's list for the same host.
                 'packages':     _demo_sysinfo_packages(dev['id']),
+                # The server stamps this on every packages report; seeded so the
+                # Packages drawer card's "Last scan" pill has a time before the
+                # demo ever sees a heartbeat (it never does — heartbeats are
+                # blocked here).
+                'pkg_scan_ts':  now() - rng.randint(600, 6 * 3600),
                 # v6.2.2: kernel modules visible from the agent context (healthy)
                 # so the demo shows the forced module-visibility Check passing.
                 'modules_visible': True,
@@ -853,6 +1123,25 @@ def build_devices() -> dict:
                 {'iface': 'em1', 'ip': '10.0.0.254',   'mac': '52:54:00:11:00:ff'},
                 {'iface': 'em2', 'ip': '10.0.99.1',    'mac': '52:54:00:11:00:fd'},
             ]
+
+        # v7.0.2: per-device log rules. /api/logs/rules is built purely from
+        # each DEVICE record's `log_watch` list, so with none seeded the Logs
+        # page's per-device rule table was empty however many global rules
+        # log_rules_global.json carried. Shape is what handle_device_update
+        # stores: {unit, pattern} and nothing else.
+        _DEMO_LOG_RULES = {
+            'ng01': [{'unit': 'nginx.service',
+                      'pattern': r'upstream timed out|connect\(\) failed'},
+                     {'unit': 'sshd.service',
+                      'pattern': 'Failed password|Invalid user'}],
+            'nc01': [{'unit': 'backup-nightly.service',
+                      'pattern': 'Fatal|FAILURE'}],
+        }
+        if dev['id'] in _DEMO_LOG_RULES:
+            rec['log_watch'] = _DEMO_LOG_RULES[dev['id']]
+
+        if dev['id'] in _DEMO_DEPENDS_ON:
+            rec['depends_on'] = _DEMO_DEPENDS_ON[dev['id']]
 
         # v6.1.0 coverage fill: guided CIS remediation is a per-host opt-in
         # (default off) — a couple of package-manager hosts have it on so the
@@ -1038,18 +1327,25 @@ def _demo_monitors():
     build_monitor_history so a monitor's history can never be keyed on a label
     the config does not define."""
     return [
+            # slo_ids attach a monitor to a config.slo_objects entry.
+            # _compute_slo_objects aggregates purely off these, so an object
+            # with no monitor naming it renders a row with zero checks.
             {'label': 'Public site — nginx.lab', 'type': 'http',
              'target': 'https://nginx.lab/', 'target_kind': 'host',
-             'expect_status': 200, 'max_latency_ms': 800},
+             'expect_status': 200, 'max_latency_ms': 800,
+             'slo_ids': ['slo-public-web']},
             {'label': 'Nextcloud status endpoint', 'type': 'http',
              'target': 'https://nextcloud.lab/status.php', 'target_kind': 'host',
-             'body_match': {'mode': 'contains', 'value': 'installed'}},
+             'body_match': {'mode': 'contains', 'value': 'installed'},
+             'slo_ids': ['slo-public-web']},
             {'label': 'Gitea Postgres', 'type': 'db',
-             'target': 'gitea.lab:5432', 'target_kind': 'host', 'db_kind': 'postgres'},
+             'target': 'gitea.lab:5432', 'target_kind': 'host', 'db_kind': 'postgres',
+             'slo_ids': ['slo-internal']},
             {'label': 'Vaultwarden cache', 'type': 'db',
              'target': 'vaultwarden.lab:6379', 'target_kind': 'host', 'db_kind': 'redis'},
             {'label': 'Pi-hole resolves itself', 'type': 'dns',
-             'target': 'pihole.lab', 'target_kind': 'host', 'expect': '10.0.2.10'},
+             'target': 'pihole.lab', 'target_kind': 'host', 'expect': '10.0.2.10',
+             'slo_ids': ['slo-internal']},
             {'label': 'Core switch reachability', 'type': 'icmp',
              'target': 'switch-core', 'target_kind': 'host',
              'max_latency_ms': 20, 'max_loss_pct': 5},
@@ -1707,14 +2003,17 @@ def build_batch_jobs() -> dict:
                 'script_name': 'cert-renew-dry-run',
                 'actor':       'demo',
                 'created':     job_ts,
-                'targets':     ['dev-web01', 'dev-cloud01', 'dev-proxy01'],
+                # v7.0.2: the targets were dev-web01 / dev-cloud01 /
+                # dev-proxy01, none of which is in the fleet, so the batch
+                # panel named three hosts the Devices page does not have.
+                'targets':     ['ng01', 'nc01', 'gt01'],
                 'per_device':  {
-                    'dev-web01':   {'queued': True, 'name': 'web01.lab',
-                                    'queued_at': job_ts},
-                    'dev-cloud01': {'queued': True, 'name': 'cloud01.lab',
-                                    'queued_at': job_ts},
-                    'dev-proxy01': {'queued': True, 'name': 'proxy01.lab',
-                                    'queued_at': job_ts},
+                    'ng01': {'queued': True, 'name': 'nginx.lab',
+                             'queued_at': job_ts},
+                    'nc01': {'queued': True, 'name': 'nextcloud.lab',
+                             'queued_at': job_ts},
+                    'gt01': {'queued': True, 'name': 'gitea.lab',
+                             'queued_at': job_ts},
                 },
                 'dangerous':   [],
             },
@@ -1723,41 +2022,95 @@ def build_batch_jobs() -> dict:
 
 
 def build_log_watch() -> dict:
-    """Minimal log-watch state so the demo's log_alert webhook example
-    has something to render. One global rule, one fired alert from
-    20 minutes ago — enough for the Notifications panel to show the
-    new 'matched line' format we added in 2.1.1."""
-    base_ts = now() - 1200
-    return {
-        'rules': [
-            {
-                'id':        'demo-mail-errors',
-                'scope':     'global',
-                'unit':      'postfix.service',
-                'pattern':   'warning|error|critical|FATAL',
-                'threshold': 1,
-            },
-            {
-                'id':        'demo-ssh-failed',
-                'scope':     'global',
-                'unit':      'sshd.service',
-                'pattern':   'Failed password|Invalid user',
-                'threshold': 5,
-            },
-        ],
-        'recent_alerts': [
-            {
-                'ts':       base_ts,
-                'device':   'pmg01.lab',
-                'unit':     'postfix.service',
-                'pattern':  'warning|error|critical|FATAL',
-                'count':    1,
-                'sample':   ['Nov 13 12:00:01 pmg01 postfix/smtpd[1234]: '
-                             'warning: unknown[10.0.0.5]: SASL LOGIN '
-                             'authentication failed: authentication failure'],
-            },
-        ],
+    """The captured per-device log buffer → log_watch.json.
+
+    v7.0.2: this returned ``{'rules': [...], 'recent_alerts': [...]}`` — two keys
+    no reader knows. The store is DEVICE-KEYED,
+    ``{device_id: {'units': {unit: [line...]}, 'updated_at': ts}}``: that is what
+    handle_logs_submit writes under _LockedUpdate(LOG_WATCH_FILE), what the
+    Services drawer reads as ``store[dev_id]['units'][unit]``, and what the Logs
+    page, the AI triage bundle and the fleet log search all walk. So the Logs
+    page said "No devices are submitting logs yet" on every demo ever built, and
+    on the SQLite/Postgres backends the two keys became device rows named
+    'rules' and 'recent_alerts'.
+
+    Two line shapes, because there are two producers and both are real: the
+    agent's log submit stores ``{ts, line, sig}`` (sig is the dedupe hash) and
+    the inbound syslog receiver stores ``{ts, line, sev, source}`` under the
+    reserved unit name 'syslog'.
+    """
+    def _sig(line):
+        return hashlib.sha1(line.encode('utf-8', errors='replace'),
+                            usedforsecurity=False).hexdigest()[:16]
+
+    def _unit(dev_id, unit, lines):
+        """`lines` is [(seconds_ago, text)] — newest last, like the real buffer."""
+        return [{'ts': now() - ago, 'line': text, 'sig': _sig(text)}
+                for ago, text in lines]
+
+    out = {
+        'ng01': {'units': {
+            'nginx.service': _unit('ng01', 'nginx.service', [
+                (3480, 'nginx: [warn] conflicting server name "nginx.lab" on 0.0.0.0:443, ignored'),
+                (2400, '2026/01/12 09:14:22 [error] 1041#1041: *8812 upstream timed out '
+                       '(110: Connection timed out) while reading response header from upstream, '
+                       'client: 203.0.113.44, server: nextcloud.lab, request: "GET /status.php HTTP/1.1"'),
+                (900,  '2026/01/12 09:29:03 [error] 1041#1041: *8843 connect() failed '
+                       '(111: Connection refused) while connecting to upstream, client: 198.51.100.9'),
+                (240,  'nginx: reload succeeded, 4 worker processes'),
+            ]),
+            'nginx.access': _unit('ng01', 'nginx.access', [
+                (600, '203.0.113.44 - - [12/Jan/2026:09:19:41 +0000] "GET / HTTP/2.0" 200 8123'),
+                (420, '198.51.100.9 - - [12/Jan/2026:09:22:02 +0000] "POST /login HTTP/2.0" 401 231'),
+                (60,  '203.0.113.44 - - [12/Jan/2026:09:33:10 +0000] "GET /health HTTP/2.0" 200 2'),
+            ]),
+            'sshd.service': _unit('ng01', 'sshd.service', [
+                (2700, 'Failed password for invalid user admin from 198.51.100.9 port 51422 ssh2'),
+                (2698, 'Failed password for invalid user oracle from 198.51.100.9 port 51436 ssh2'),
+                (2695, 'Failed password for root from 198.51.100.9 port 51450 ssh2'),
+                (1200, 'Accepted publickey for alice from 10.0.0.12 port 40122 ssh2: ED25519 SHA256:0xdemo'),
+            ]),
+        }, 'updated_at': now() - 60},
+        'nc01': {'units': {
+            'backup-nightly.service': _unit('nc01', 'backup-nightly.service', [
+                (7200, 'Starting nightly Nextcloud backup…'),
+                (7020, 'restic: Fatal: unable to open repository at /mnt/share/restic: '
+                       'stat /mnt/share/restic: stale file handle'),
+                (7019, 'backup-nightly.service: Main process exited, code=exited, status=1/FAILURE'),
+            ]),
+            'apt.history': _unit('nc01', 'apt.history', [
+                (86400 * 2, 'Start-Date: 2026-01-10  03:12:41'),
+                (86400 * 2, 'Upgrade: libssl3:amd64 (3.0.13-0ubuntu3.1, 3.0.13-0ubuntu3.4)'),
+                (86400 * 2, 'End-Date: 2026-01-10  03:13:08'),
+            ]),
+        }, 'updated_at': now() - 120},
+        'jf01': {'units': {
+            'jellyfin.service': _unit('jf01', 'jellyfin.service', [
+                (5400, '[ERR] Error processing request. URL GET /Items. '
+                       'System.IO.IOException: No space left on device'),
+                (5390, 'jellyfin.service: Failed with result "exit-code".'),
+                (1800, 'jellyfin.service: Scheduled restart job, restart counter is at 3.'),
+            ]),
+            'kernel': _unit('jf01', 'kernel', [
+                (5395, 'Out of memory: Killed process 21514 (ffmpeg) '
+                       'total-vm:3120044kB, anon-rss:1902188kB'),
+            ]),
+        }, 'updated_at': now() - 90},
+        # The inbound syslog receiver writes its own line shape under a
+        # reserved unit name — a second producer, so a second shape.
+        'fw01': {'units': {
+            'syslog': [
+                {'ts': now() - 1500, 'sev': 'warning', 'source': 'syslog',
+                 'line': 'filterlog: 4,,,1000000103,em0,match,block,in,4,0x0,,63,'
+                         'tcp,60,198.51.100.9,203.0.113.7,52344,22,S'},
+                {'ts': now() - 780, 'sev': 'notice', 'source': 'syslog',
+                 'line': 'dhcpd: DHCPACK on 10.0.3.20 to 52:54:00:11:03:20 via em1'},
+                {'ts': now() - 150, 'sev': 'err', 'source': 'syslog',
+                 'line': 'openvpn: TLS Error: TLS handshake failed'},
+            ],
+        }, 'updated_at': now() - 150},
     }
+    return out
 
 
 def build_self_backup_state() -> dict:
@@ -1949,7 +2302,7 @@ def build_config() -> dict:
     plus the v3.0.2 reliability config: audit log retention, scheduled
     backup, session TTLs.
     """
-    return {
+    cfg = {
         'server_name':       'RemotePower Demo',
         'server_version':    CURRENT_VERSION,
         'agent_version':     CURRENT_VERSION,
@@ -1998,7 +2351,16 @@ def build_config() -> dict:
         'health_grade_good':        92,
         'health_grade_fair':        72,
         'temp_alert_threshold_c':   80,
-        'offline_missed_polls':     4,
+        # v7.0.2: was 4, which with the seeded 60s poll_interval put the whole
+        # fleet OFFLINE ~5 minutes after a seed — max(online_ttl 300, 60*4) + 10
+        # grace = 310s, against last_seen values 5-90s old. A public demo spent
+        # every minute but the first showing 15 of 18 hosts dead, and patch %,
+        # fleet health, SLA and Needs-Attention are all computed over the ONLINE
+        # set, so they were computed over two hosts. 6 missed polls against the
+        # 300s poll_interval build_devices now writes gives a 1810s window, which
+        # outlives both the 2-minute re-seed timer install-demo.sh installs and
+        # the 30-minute cron this file's docstring describes.
+        'offline_missed_polls':     6,
 
         # v3.0.2 — audit log age-based retention
         'audit_log_retention_days': 90,
@@ -2032,13 +2394,71 @@ def build_config() -> dict:
         'audit_forward_port':    514,
         'audit_forward_tcp':     False,
 
-        # v3.11.0 — software policy rules (Software policy page).
-        'software_policy': {'rules': [
-            {'type': 'required',    'package': 'fail2ban'},
-            {'type': 'banned',      'package': 'telnetd'},
-            {'type': 'min_version', 'package': 'openssl', 'version': '3.0.2'},
-            {'type': 'required',    'package': 'unattended-upgrades', 'tags': ['prod']},
-        ]},
+        # v7.0.2 — the units every host in scope should be watching. Read by
+        # handle_service_baselines straight off config; with none set, the
+        # Services page's Baselines panel said "No baselines yet".
+        # `scope` is _validate_key_scope's shape: {'type': groups|tags|sites,
+        # 'values': [...]} or {'type': 'all'}.
+        'service_baselines': [
+            {'id': _stable_hex('svcbase', 'fleet', nbytes=6),
+             'name': 'Fleet minimum',
+             'units': ['remotepower-agent.service', 'sshd.service'],
+             'scope': {'type': 'all'}},
+            {'id': _stable_hex('svcbase', 'web', nbytes=6),
+             'name': 'Web tier',
+             'units': ['nginx.service', 'fail2ban.service'],
+             'scope': {'type': 'tags', 'values': ['web', 'proxy']}},
+            {'id': _stable_hex('svcbase', 'storage', nbytes=6),
+             'name': 'Storage tier',
+             'units': ['smbd.service', 'zfs-zed.service', 'restic-backup.timer'],
+             'scope': {'type': 'groups', 'values': ['storage']}},
+        ],
+
+        # v7.0.2 — availability objects for the SLO page. Each aggregates the
+        # monitors that name its id in their `slo_ids`, so the two must agree;
+        # _demo_monitors() attaches them. Field names + the 'slo-' id prefix
+        # come from handle_config_save's slo_objects validator (the prefix
+        # keeps the id non-numeric, since it travels through data-arg).
+        'slo_objects': [
+            {'id': 'slo-public-web', 'name': 'Public web availability',
+             'target_pct': 99.9, 'window_days': 30,
+             'description': 'Everything a visitor touches: the reverse proxy '
+                            'and the Nextcloud endpoint behind it.'},
+            {'id': 'slo-internal', 'name': 'Internal services',
+             'target_pct': 99.0, 'window_days': 30,
+             'description': 'Git, DNS and the databases the lab runs on.'},
+        ],
+
+        # v7.0.2 — custom check definitions. /api/checks/custom read straight
+        # off this key and returned zero, so the Checks page's custom section
+        # was empty and no host could report a custom_check_results row that
+        # matched anything. See _DEMO_CUSTOM_CHECKS for the shape.
+        'custom_checks': _DEMO_CUSTOM_CHECKS,
+
+        # v7.0.2 — saved report definitions. Read off config by
+        # handle_report_defs_list; with none the Reports page offered only the
+        # ad-hoc button. Sections are from reports_handlers._REPORT_SECTIONS;
+        # `enabled` stays False so the demo never tries to email anybody.
+        'report_definitions': [
+            {'id': _stable_hex('reportdef', 'monthly', nbytes=6),
+             'name': 'Monthly posture — board pack',
+             'sections': ['devices', 'sla', 'patches', 'cve', 'health',
+                          'compliance', 'period'],
+             'format': 'json', 'cron': '0 7 1 * *', 'enabled': False,
+             'recipients': ['ops@example.invalid'], 'destinations': [],
+             'site': ''},
+            {'id': _stable_hex('reportdef', 'weekly-edge', nbytes=6),
+             'name': 'Weekly — London edge site',
+             'sections': ['devices', 'attention', 'posture'],
+             'format': 'csv', 'cron': '0 8 * * 1', 'enabled': False,
+             'recipients': ['edge-oncall@example.invalid'], 'destinations': [],
+             'site': SITE_EDGE},
+        ],
+
+        # v3.11.0 software policy: the RULES live in software_policy.json, not
+        # here — see build_software_policy(). This config key was read by
+        # nothing, which is why the Software policy page showed "0 rules ·
+        # 4 violations": findings with no rule that could have produced them.
 
         # v3.13.0 — drift config: global default + named profiles + assignments.
         'drift': {
@@ -2083,6 +2503,13 @@ def build_config() -> dict:
         'show_homelab':          True,
         'integrations_interval': 300,
         'integrations':          _DEMO_INTEGRATIONS,
+        # Belt and braces beside the stamped cadence markers: a demo left
+        # running without the re-seed timer would otherwise poll all 19 .lab
+        # instances 5 minutes after the seed and replace 13 ok / 4 warning /
+        # 1 critical with 19 critical "Name or service not known". An hour
+        # matches how often these curated results actually change: never.
+        'integrations_interval': 3600,
+        'monitor_interval':      3600,
         'integration_notified':  {i['id']: True for i in _DEMO_INTEGRATIONS
                                   if _DEMO_INTEG_RESULTS[i['id']][0] != 'ok'},
 
@@ -2241,6 +2668,13 @@ def build_config() -> dict:
         'proxmox_token_secret':       '',
         'proxmox_verify_tls':         True,
     }
+    # Every maintenance sweep is "already run" as of this seed — see
+    # _cadence_markers() for why an unstamped demo repaints itself the moment
+    # somebody loads a page.
+    _t = now()
+    for _marker in _cadence_markers():
+        cfg[_marker] = _t
+    return cfg
 
 
 def build_links() -> dict:
@@ -2768,6 +3202,34 @@ def build_fleet_events() -> dict:
 
 # ─── v2.2.0: Config drift state ─────────────────────────────────────────────
 
+def build_software_policy() -> dict:
+    """The fleet software policy → software_policy.json.
+
+    v7.0.2: the rules were written into config.json under a `software_policy`
+    key that no reader looks at. `_software_policy()` loads SOFTWARE_POLICY_FILE
+    and `handle_software_policy` POSTs `{'rules': [...], 'updated_at': ts}` back
+    into it — so the page reported "0 rules · 4 violations", showing findings
+    with nothing on the page that could have produced them.
+
+    Rule shape is what handle_software_policy stores after validation: id, type
+    (banned | required | min_version), package, note, plus `version` for
+    min_version and an optional `tags` scope. Kept in step with
+    build_software_violations() — every seeded violation names a rule here.
+    """
+    return {'rules': [
+        {'id': 'required:fail2ban', 'type': 'required', 'package': 'fail2ban',
+         'note': 'Brute-force protection is mandatory on anything internet-facing.'},
+        {'id': 'banned:telnetd', 'type': 'banned', 'package': 'telnetd',
+         'note': 'Cleartext remote shell — never on this fleet.'},
+        {'id': 'min_version:openssl', 'type': 'min_version', 'package': 'openssl',
+         'version': '3.0.2',
+         'note': 'Below 3.0.2 misses the CVE-2022-0778 fix.'},
+        {'id': 'required:unattended-upgrades', 'type': 'required',
+         'package': 'unattended-upgrades', 'tags': ['prod'],
+         'note': 'Production hosts patch themselves between maintenance windows.'},
+    ], 'updated_at': now() - 86400 * 12}
+
+
 def build_software_violations() -> dict:
     """v3.11.0 — evaluated software-policy violations (Software policy page table),
     matching the rules seeded in build_config()."""
@@ -2934,6 +3396,14 @@ def build_confirmations() -> dict:
 # format_stats() renders the rich-tile chips. A few are warning/critical so the
 # dashboard roll-up, worst-first ordering, and integration_down alerts populate.
 _DEMO_INTEG_DEFS = [
+    # v7.0.2: a lifecycle-capable platform. handle_virt_platforms lists the
+    # integrations whose type is in hypervisor.LIFECYCLE (vcenter / vcloud /
+    # openshift) and NOTHING else, so with none configured the Virtualization
+    # page rendered its header over an empty table. The metric keys are the
+    # ones integrations._vcenter returns.
+    ('vcenter', 'vCenter — lab cluster', 'https://vcenter.lab', 'ok',
+     '3 hosts · 11/14 VMs on', '8.0.3',
+     {'hosts': 3, 'hosts_down': 0, 'vms': 14, 'vms_on': 11}),
     ('pihole', 'Pi-hole', 'https://pihole.lab/admin', 'ok',
      'blocking 132,418 domains', '6.0.4',
      {'queries_today': 84213, 'blocked_pct': 18.7, 'domains_blocked': 132418}),
@@ -3725,6 +4195,31 @@ def build_maintenance() -> dict:
          'target': 'fw01', 'start': '', 'end': '', 'cron': '0 3 * * 0',
          'duration': 3600, 'events': [], 'gate_exec': True,
          'created_by': 'alice', 'created_at': base + 86400 * 11},
+        # v7.0.2 shipped site-, tag- and smart-group-scoped windows and the
+        # demo used only 'device' and 'group', so the release's own headline
+        # had nothing behind it. _MAINTENANCE_SCOPES is
+        # (device, group, site, tag, smart, global); the targets are a site id,
+        # a tag the fleet actually carries, and a smart_groups.json key.
+        {'id': _stable_hex('maint', 'edge-site', nbytes=8),
+         'reason': 'London edge — quarterly power work at the DC',
+         'scope': 'site', 'target': SITE_EDGE,
+         'start': _iso_in_days(9) + 'T22:00:00Z',
+         'end': _iso_in_days(10) + 'T04:00:00Z', 'cron': '', 'duration': 0,
+         'events': ['device_offline', 'device_online', 'monitor_down', 'monitor_up'],
+         'gate_exec': False, 'created_by': 'alice', 'created_at': base + 86400 * 14},
+        {'id': _stable_hex('maint', 'laptop-patch', nbytes=8),
+         'reason': 'Laptops patch and reboot on Wednesday mornings',
+         'scope': 'tag', 'target': 'laptop', 'start': '', 'end': '',
+         'cron': '0 8 * * 3', 'duration': 5400,
+         'events': ['device_offline', 'device_online', 'reboot_required',
+                    'patch_alert'],
+         'gate_exec': False, 'created_by': 'bob', 'created_at': base + 86400 * 15},
+        {'id': _stable_hex('maint', 'critical-infra', nbytes=8),
+         'reason': 'Critical infra — smart group, monthly firmware window',
+         'scope': 'smart', 'target': 'critical-infra', 'start': '', 'end': '',
+         'cron': '0 1 1 * *', 'duration': 10800,
+         'events': ['device_offline', 'device_online', 'service_down', 'service_up'],
+         'gate_exec': True, 'created_by': 'alice', 'created_at': base + 86400 * 16},
     ]}
 
 
@@ -4143,11 +4638,24 @@ def build_dmarc_results() -> dict:
 
 # RFC-5737 documentation IPs — valid-looking public addresses that can never be
 # real, so the demo never implies a real host is blacklisted.
+# v7.0.2: listed_on entries were bare zone STRINGS. The only producer,
+# ip_reputation.check_ip, appends {name, zone, codes, reason} dicts, and the
+# Reputation table renders escHtml(z.name) — so the one listed IP's BLOCKLISTS
+# cell read "undefined, undefined". `name`/`zone` are the pairs from
+# ip_reputation.DEFAULT_DNSBLS; the codes are the 127.0.0.x return codes those
+# zones actually answer with.
 _REP_IPS = [
     # (ip, label, listed_on)
     ('203.0.113.10',  'Mail relay (prod)', []),
     ('198.51.100.25', 'Web edge',          []),
-    ('192.0.2.50',    'Old VPS (retired)', ['zen.spamhaus.org', 'bl.spamcop.net']),
+    ('192.0.2.50',    'Old VPS (retired)', [
+        {'name': 'Spamhaus ZEN', 'zone': 'zen.spamhaus.org',
+         'codes': ['127.0.0.4'],
+         'reason': 'https://check.spamhaus.org/query/ip/192.0.2.50'},
+        {'name': 'SpamCop', 'zone': 'bl.spamcop.net',
+         'codes': ['127.0.0.2'],
+         'reason': 'Blocked - see https://www.spamcop.net/bl.shtml?192.0.2.50'},
+    ]),
 ]
 
 
@@ -4160,8 +4668,11 @@ def build_ip_reputation_targets() -> dict:
 
 
 def build_ip_reputation_results() -> dict:
-    return {_rep_id(ip): {'listed_count': len(listed), 'listed_on': listed,
-                          'errors': {}, 'error': '', 'checked_at': now() - 1800}
+    # `ok` is part of check_ip's return and means "every zone answered", which
+    # is how a partial check is kept distinct from a clean one. It was missing.
+    return {_rep_id(ip): {'ip': ip, 'listed_count': len(listed),
+                          'listed_on': listed, 'errors': {}, 'ok': True,
+                          'error': '', 'checked_at': now() - 1800}
             for ip, _lbl, listed in _REP_IPS}
 
 
@@ -4206,7 +4717,12 @@ def build_resolver_health_results() -> dict:
             'fail_count': 0 if healthy else total,
             'latency_ms': round(sum(lat) / len(lat)) if lat else 0,
             'max_latency_ms': max(lat) if lat else 0,
-            'per_resolver': per, 'checked_at': now() - 900}
+            # RESOLVER_HEALTH_INTERVAL is 15 minutes and the sweep re-checks
+            # anything older, so a 900s-old check is due the instant the demo
+            # boots — it re-resolved the .lab names for real and replaced these
+            # curated verdicts. Unlike integrations/monitors there is no config
+            # marker to stamp here: the cadence is per-target `checked_at`.
+            'per_resolver': per, 'checked_at': now() - 120}
     return out
 
 
@@ -5591,27 +6107,40 @@ def build_flow() -> dict:
     against _ingest_flow (flow_handlers.py:66): {dev_id: {latest: {ts,
     total_bytes, total_packets, flows, talkers:[{ip,bytes,pkts}],
     conversations:[{src,dst,dport,proto,bytes,pkts}], protos:{}}}}.
-    The router is the exporter; conversations mirror the demo's real service
-    topology so the dependency-verification card has something to verify."""
+
+    v7.0.2: the exporter was keyed 'rtr01' and the addresses were 10.20.0.x —
+    neither a device nor an IP this fleet has. `_dep_ip_index` maps a
+    conversation endpoint to a device by its `ip`/`hostname`, so not one
+    conversation resolved to a pair and the dependency-verification card had
+    nothing to verify however many edges were declared. The exporter is now the
+    firewall (which is what exports flow in this topology) and every endpoint is
+    a seeded device address, matched to the depends_on edges build_devices
+    declares.
+    """
     t = now()
-    return {'rtr01': {'latest': {
+    return {'fw01': {'latest': {
         'ts': t - 120,
         'total_bytes': 41_884_233_100, 'total_packets': 38_221_904,
         'flows': 18_442,
         'talkers': [
-            {'ip': '10.20.0.11', 'bytes': 12_884_233_100, 'pkts': 9_221_904},
-            {'ip': '10.20.0.31', 'bytes': 9_112_004_882, 'pkts': 7_004_113},
-            {'ip': '10.20.0.12', 'bytes': 6_774_991_003, 'pkts': 5_882_441},
-            {'ip': '10.20.0.21', 'bytes': 3_004_112_887, 'pkts': 2_774_003},
+            {'ip': '10.0.2.20', 'bytes': 12_884_233_100, 'pkts': 9_221_904},   # ng01
+            {'ip': '10.0.2.60', 'bytes': 9_112_004_882, 'pkts': 7_004_113},    # nc01
+            {'ip': '10.0.1.20', 'bytes': 6_774_991_003, 'pkts': 5_882_441},    # tnas
+            {'ip': '10.0.2.30', 'bytes': 3_004_112_887, 'pkts': 2_774_003},    # jf01
         ],
         'conversations': [
-            {'src': '10.20.0.11', 'dst': '10.20.0.12', 'dport': 5432,
+            # ng01 → nc01 (the reverse proxy in front of Nextcloud)
+            {'src': '10.0.2.20', 'dst': '10.0.2.60', 'dport': 443,
              'proto': 6, 'bytes': 4_882_113_004, 'pkts': 3_774_112},
-            {'src': '10.20.0.11', 'dst': '10.20.0.31', 'dport': 2049,
+            # nc01 → tnas (the CIFS share its data lives on)
+            {'src': '10.0.2.60', 'dst': '10.0.1.20', 'dport': 445,
              'proto': 6, 'bytes': 3_112_884_002, 'pkts': 2_884_003},
-            {'src': '10.20.0.21', 'dst': '10.20.0.11', 'dport': 443,
+            # jf01 → tnas (the media library, over NFS)
+            {'src': '10.0.2.30', 'dst': '10.0.1.20', 'dport': 2049,
              'proto': 6, 'bytes': 1_774_003_118, 'pkts': 1_442_887},
-            {'src': '10.20.0.12', 'dst': '10.20.0.31', 'dport': 445,
+            # gt01 → pmx01 is DECLARED but absent here on purpose, so the
+            # dependency card has one edge in each state.
+            {'src': '10.0.2.80', 'dst': '10.0.2.20', 'dport': 9100,
              'proto': 6, 'bytes': 884_112_003, 'pkts': 774_112},
         ],
         'protos': {'tcp': 36_112_884, 'udp': 2_004_882, 'icmp': 104_138},
@@ -5624,6 +6153,101 @@ def build_flow() -> dict:
         'history': [{'ts': t - 10 * m,
                      'total_bytes': 4_200_000 - m * 90_000,
                      'flows': 900 - m * 12} for m in range(24, 0, -1)]}}
+
+
+# v7.0.2: declared service dependencies. `depends_on` on the DEVICE record is
+# what /api/dependency-health and run_flow_dep_check_if_due enumerate — with
+# none declared the network map reported 0 dependency edges and the health
+# endpoint 0 rows, whatever flow.json held. Each edge below is confirmed by a
+# conversation in build_flow(), except gt01 -> pmx01, which is left unobserved
+# so the card shows a link in each state.
+_DEMO_DEPENDS_ON = {
+    'ng01': ['nc01'],
+    'nc01': ['tnas'],
+    'jf01': ['tnas'],
+    'gt01': ['pmx01'],
+}
+
+
+def build_report_archive() -> dict:
+    """Delivered reports kept for audit → report_archive.json.
+
+    v7.0.2: nothing seeded this, so Reports → Archive said "No reports delivered
+    yet" — on the one page whose whole point is that a past-dated posture report
+    is otherwise unreconstructable. Entry shape is _archive_report's
+    (reports_handlers.py): {id, ts, kind, name, site, site_name, sections,
+    health, report}, and the body carries the section keys
+    reports_handlers._REPORT_SECTIONS names, because the archive viewer renders
+    the stored body rather than recomputing anything.
+    """
+    def _body(ts, total, online, score, grade, pending, crit):
+        return {
+            'generated_ts':   ts,
+            'server_version': CURRENT_VERSION,
+            'server_name':    'RemotePower Demo',
+            'brand':          {'name': '', 'accent': ''},
+            'sections':       ['attention', 'cve', 'devices', 'health',
+                               'patches', 'posture', 'sla'],
+            'devices':        {'total': total, 'online': online,
+                               'offline': total - online},
+            'sla':            {'days': 30, 'fleet_uptime_pct': 99.62},
+            'patches':        {'devices_with_patches': 8,
+                               'total_pending': pending, 'sla_violations': 1},
+            'cve':            {'critical': crit, 'high': 6, 'medium': 14,
+                               'devices_scanned': 14},
+            'health':         {'score': score, 'grade': grade, 'worst': []},
+            'attention':      {'critical': 2, 'warning': 5},
+            'posture':        {'firewall_off': ['jellyfin.lab'],
+                               'firewall_off_count': 1,
+                               'ssh_weak': [], 'ssh_weak_count': 0,
+                               'autoupdate_off': ['backup.lab'],
+                               'autoupdate_off_count': 1,
+                               'encryption_off': ['backup.lab'],
+                               'encryption_off_count': 1},
+        }
+
+    rows = [
+        ('monthly', 'Monthly posture — board pack', 60, 88, 'B', 41, 3),
+        ('monthly', 'Monthly posture — board pack', 30, 91, 'A', 33, 2),
+        ('scheduled', 'Weekly — London edge site', 7, 94, 'A', 12, 1),
+    ]
+    entries = []
+    for kind, name, days_ago, score, grade, pending, crit in rows:
+        ts = now() - 86400 * days_ago
+        body = _body(ts, 18, 18, score, grade, pending, crit)
+        entries.append({
+            'id':        'rpt-' + _stable_hex('report', name, days_ago),
+            'ts':        ts,
+            'kind':      kind,
+            'name':      name,
+            'site':      SITE_EDGE if 'London' in name else '',
+            'site_name': 'Edge — London' if 'London' in name else '',
+            'sections':  body['sections'],
+            'health':    score,
+            'report':    body,
+        })
+    return {'entries': entries, 'trimmed': 0}
+
+
+def build_flow_deps() -> dict:
+    """Per-edge observed state for the flow-derived dependency map.
+
+    Shape from run_flow_dep_check_if_due (flow_handlers.py): {'edges':
+    {'<device>:<upstream>': {last_observed, ever_observed, alerted}},
+    'last_run': ts}. The sweep PRUNES any key not currently declared, so these
+    must be exactly the _DEMO_DEPENDS_ON edges.
+    """
+    t = now()
+    edges = {}
+    for did, ups in _DEMO_DEPENDS_ON.items():
+        for up in ups:
+            observed = did != 'gt01'      # the one edge nothing has confirmed
+            edges[f'{did}:{up}'] = {
+                'last_observed': t - 150 if observed else 0,
+                'ever_observed': observed,
+                'alerted': False,
+            }
+    return {'edges': edges, 'last_run': t}
 
 
 def build_incident_memory() -> dict:
@@ -5694,7 +6318,7 @@ def build_incident_memory() -> dict:
     rows += [
         {'source': 'operator', 'alert_id': _stable_hex('incmem', 4, nbytes=6),
          'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
-         'tenant': 'default', 'device_id': 'web01', 'device_name': 'web01.lab',
+         'tenant': 'default', 'device_id': 'ng01', 'device_name': 'nginx.lab',
          'root_cause': 'nginx.service failed after a config edit left an '
                        'unclosed block; systemd retried until the start limit.',
          'recommended_action': '',
@@ -5705,7 +6329,7 @@ def build_incident_memory() -> dict:
          'captured_at': t - 86400 * 9 + 900},
         {'source': 'automation', 'alert_id': _stable_hex('incmem', 5, nbytes=6),
          'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
-         'tenant': 'default', 'device_id': 'app02', 'device_name': 'app02.lab',
+         'tenant': 'default', 'device_id': 'jf01', 'device_name': 'jellyfin.lab',
          'root_cause': 'redis.service failed on boot before its data volume '
                        'had mounted.',
          'recommended_action': '',
@@ -5716,7 +6340,7 @@ def build_incident_memory() -> dict:
          'captured_at': t - 86400 * 5 + 480},
         {'source': 'autonomy', 'alert_id': _stable_hex('incmem', 6, nbytes=6),
          'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
-         'tenant': 'default', 'device_id': 'app03', 'device_name': 'app03.lab',
+         'tenant': 'default', 'device_id': 'gt01', 'device_name': 'gitea.lab',
          'root_cause': 'postfix.service failed after a certificate renewal '
                        'replaced a file it reads at start.',
          'recommended_action': '',
@@ -5820,12 +6444,12 @@ def build_autonomy_receipts() -> dict:
               'precedent': {'confidence': 1.0, 'samples': 4,
                             'action': 'systemctl restart nginx'},
               'dry_run': 'not-run', 'outcome': None, 'verified': None})
-    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 5400, 'tenant': 'default', 'device_id': 'db01',
-              'device_name': 'postgres.lab', 'trigger': 'server_disk_low',
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 5400, 'tenant': 'default', 'device_id': 'nc01',
+              'device_name': 'nextcloud.lab', 'trigger': 'server_disk_low',
               'action': 'clear_journal',
               'command': 'exec:journalctl --vacuum-time=3d',
               'verdict': 'refuse', 'reason': 'blast_radius',
-              'blast_radius': {'device_id': 'db01', 'score': 9, 'raw': 9,
+              'blast_radius': {'device_id': 'nc01', 'score': 9, 'raw': 9,
                                'monitors': 3, 'containers': 4,
                                'status_services': 2, 'peers': 0,
                                'redundant': False, 'group_size': 1},
@@ -5866,11 +6490,11 @@ def build_autonomy_receipts() -> dict:
               'precedent': {'confidence': 0.9, 'samples': 5,
                             'action': 'vacuum the journal'},
               'dry_run': 'not-run', 'outcome': None, 'verified': None})
-    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 26000, 'tenant': 'default', 'device_id': 'mac01',
-              'device_name': 'studio.lab', 'trigger': 'failed_unit',
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 26000, 'tenant': 'default', 'device_id': 'mbp01',
+              'device_name': 'mette-macbook', 'trigger': 'failed_unit',
               'action': 'restart_service', 'command': '',
               'verdict': 'refuse', 'reason': 'unsupported_platform',
-              'blast_radius': {'device_id': 'mac01', 'score': 0, 'raw': 0,
+              'blast_radius': {'device_id': 'mbp01', 'score': 0, 'raw': 0,
                                'monitors': 0, 'containers': 0,
                                'status_services': 0, 'peers': 0,
                                'redundant': False, 'group_size': 1},
@@ -5889,11 +6513,11 @@ def build_autonomy_receipts() -> dict:
               'precedent': {'confidence': 1.0, 'samples': 3,
                             'action': 'exec:resolvectl flush-caches'},
               'dry_run': 'not-run', 'outcome': None, 'verified': None})
-    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 30000, 'tenant': 'default', 'device_id': 'db01',
-              'device_name': 'postgres.lab', 'trigger': 'service_down',
+    R.append({'id': 'rcpt_demo%06x' % next(_rid), 'ts': t0 - 30000, 'tenant': 'default', 'device_id': 'nc01',
+              'device_name': 'nextcloud.lab', 'trigger': 'service_down',
               'action': 'restart_service', 'command': '',
               'verdict': 'refuse', 'reason': 'missing_parameter',
-              'blast_radius': {'device_id': 'db01', 'score': 9, 'raw': 9,
+              'blast_radius': {'device_id': 'nc01', 'score': 9, 'raw': 9,
                                'monitors': 3, 'containers': 4,
                                'status_services': 2, 'peers': 0,
                                'redundant': False, 'group_size': 1},
@@ -5934,21 +6558,53 @@ def build_tenants() -> dict:
 
 
 def build_query_templates() -> dict:
-    """Saved fleet-query templates — the Data Explorer's "No saved queries yet"."""
-    now = int(time.time())
+    """Saved fleet-query templates — the Data Explorer's "No saved queries yet".
+
+    v7.0.2: these carried {id, name, description, created_by, created_at} and
+    the store's only real producer, handle_query_template_create, writes
+    {id, name, kind, entity, where, params, sort, sort_desc, visibility, owner,
+    created, tenant}. No user action can create the old shape — that handler
+    REFUSES a predicate template whose entity is not in _QE_ENTITIES. So the
+    Data Explorer printed the literal "(undefined)" beside all four names, and
+    every Run button 400'd with "unknown entity: ''" because the record had no
+    entity to put in the request.
+
+    `entity` must be one of _QE_ENTITIES (devices / cves / drift) and every
+    field named in a `where` predicate must be in that entity's field
+    allowlist — _QE_DEVICE_FIELDS / _QE_CVE_FIELDS / _QE_DRIFT_FIELDS —
+    or query_engine.validate_predicate rejects it. The ops are the
+    query_engine._OPS set: eq/ne/gt/gte/lt/lte/contains/in/exists.
+    """
     rows = [
-        ('qt1', 'Unencrypted disks',
-         'Hosts whose root volume reports no LUKS/BitLocker/FileVault'),
-        ('qt2', 'Reboot pending over 7 days',
-         'Hosts that have wanted a reboot for more than a week'),
-        ('qt3', 'Critical CVEs with a fix available',
-         'Where patching would actually help right now'),
-        ('qt4', 'Agents older than the server',
-         'Version drift across the fleet'),
+        ('qt1', 'devices', 'Unencrypted disks',
+         'Hosts whose root volume reports no LUKS/BitLocker/FileVault',
+         {'field': 'disk_encrypted', 'op': 'eq', 'value': False},
+         'name', False),
+        ('qt2', 'devices', 'Reboot pending',
+         'Hosts that have asked for a reboot and are still up',
+         {'and': [{'field': 'reboot_required', 'op': 'eq', 'value': True},
+                  {'field': 'online', 'op': 'eq', 'value': True}]},
+         'name', False),
+        ('qt3', 'cves', 'Critical CVEs with a fix available',
+         'Where patching would actually help right now',
+         {'and': [{'field': 'severity', 'op': 'eq', 'value': 'critical'},
+                  {'field': 'fixed_version', 'op': 'exists'},
+                  {'field': 'ignored', 'op': 'ne', 'value': True}]},
+         'device_name', False),
+        ('qt4', 'drift', 'Config files that have drifted',
+         'Watched files whose current hash no longer matches the baseline',
+         {'field': 'drifted', 'op': 'eq', 'value': True},
+         'device_name', False),
     ]
-    return {qid: {'id': qid, 'name': name, 'description': desc,
-                  'created_by': 'alice', 'created_at': now - 86400 * (i + 2)}
-            for i, (qid, name, desc) in enumerate(rows)}
+    return {qid: {'id': qid, 'name': name, 'kind': 'predicate',
+                  'entity': entity, 'where': where, 'params': {},
+                  'sort': sort, 'sort_desc': sort_desc,
+                  'description': desc,
+                  'visibility': 'shared', 'owner': 'alice',
+                  'created': now() - 86400 * (i + 2),
+                  'tenant': 'default'}
+            for i, (qid, entity, name, desc, where, sort, sort_desc)
+            in enumerate(rows)}
 
 
 def build_log_rules_global() -> dict:
@@ -6086,6 +6742,7 @@ BUILDERS = {
     'drift_state.json':            build_drift,
     'health_history.json':         build_health_history,
     # v3.11.0 / v3.13.0 demo content
+    'software_policy.json':        build_software_policy,
     'software_violations.json':    build_software_violations,
     # ── coverage fill: previously-unseeded subsystems (v3.x → v4.7.0) ──
     # v4.7.0 homelab software integrations
@@ -6179,6 +6836,8 @@ BUILDERS = {
     'kmip_objects.json':           build_kmip_objects,
     'kmip_log.json':               build_kmip_log,
     'flow.json':                   build_flow,
+    'flow_deps.json':              build_flow_deps,
+    'report_archive.json':         build_report_archive,
     'incident_memory.json':        build_incident_memory,
 }
 
