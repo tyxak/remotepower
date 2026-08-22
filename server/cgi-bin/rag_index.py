@@ -471,7 +471,7 @@ def _format_mounts(mounts):
     return '\n'.join(lines)
 
 
-def build_live_state_corpus(devices, facets=None, now=0):
+def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
     """Build per-(device, facet) chunks of current fleet state.
 
     devices : iterable of device dicts (from devices.json values).
@@ -479,9 +479,14 @@ def build_live_state_corpus(devices, facets=None, now=0):
               that lives outside the device record (cves, patches,
               containers, tls, snmp). Whatever the caller supplies gets
               its own chunk; missing facets are simply skipped.
+    drift_by_dev : optional dict device_id -> [drifted file paths]. Drift
+              lives in drift_state.json, not on the device record — this
+              used to read a `drift_state` map off the record that no
+              producer writes, so the drift chunk was never emitted.
     """
     docs = []
     facets = facets or {}
+    drift_by_dev = drift_by_dev or {}
     # Fleet-wide aggregates, collected during the per-device pass and emitted
     # as rollup chunks afterwards so cross-fleet questions ("which hosts need
     # a reboot / have pending updates / have drifted?") have a single chunk to
@@ -908,10 +913,14 @@ def build_live_state_corpus(devices, facets=None, now=0):
                     f"{name} running process names:\n" + ', '.join(pnames),
                     title=f"{name} — processes", device=dev_id, ts=ts))
 
-        # Patch / reboot status. `upgradable` is a pending-update count on the
-        # device record; reboot_required comes from sysinfo. Both answer
-        # high-value operational questions and feed the fleet rollups below.
-        upgradable = dev.get('upgradable')
+        # Patch / reboot status. The pending-update count is
+        # sysinfo.packages.upgradable — what safe_si stores. This used to read
+        # a top-level dev['upgradable'], which nothing writes, so every patch
+        # chunk lost its count and the fleet patch-backlog rollup below was
+        # empty on every install. reboot_required comes from sysinfo.
+        _pkg = si.get('packages')
+        _pkg = _pkg if isinstance(_pkg, dict) else {}
+        upgradable = _pkg.get('upgradable')
         reboot_required = bool(si.get('reboot_required'))
         patch_lines = []
         if isinstance(upgradable, int):
@@ -921,13 +930,9 @@ def build_live_state_corpus(devices, facets=None, now=0):
         # v6.2.2: vendor-flagged SECURITY update count (apt -security / dnf
         # --security / arch-audit), stored under sysinfo.packages.security_updates
         # — a higher-priority signal than the raw upgradable total.
-        _pkg = si.get('packages')
-        _pkg = _pkg if isinstance(_pkg, dict) else {}
         sec_updates = _pkg.get('security_updates')
         if isinstance(sec_updates, int) and sec_updates >= 0:
             patch_lines.append(f"vendor security updates pending: {sec_updates}")
-        if dev.get('patch_status'):
-            patch_lines.append(f"patch status: {dev['patch_status']}")
         if _pkg.get('manager'):
             patch_lines.append(f"package manager: {_pkg['manager']}")
         if reboot_required:
@@ -941,11 +946,9 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 f"{name} patch & reboot status:\n" + '\n'.join(patch_lines),
                 title=f"{name} — patches", device=dev_id, ts=ts))
 
-        # Configuration drift — files that differ from their captured baseline.
-        drift = dev.get('drift_state') or {}
-        drifted = [f for f, st in drift.items()
-                   if isinstance(st, dict) and st.get('status') == 'drifted'
-                   and not st.get('ignored')]
+        # Configuration drift — files that differ from their captured
+        # baseline, from drift_state.json (threaded in by the caller).
+        drifted = list(drift_by_dev.get(dev_id) or [])
         if drifted:
             drift_hosts.append((name, len(drifted)))
             docs.append(make_doc(
@@ -956,8 +959,11 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 title=f"{name} — config drift", device=dev_id, ts=ts))
 
         # Inline device facets that live on the record itself.
+        # `services_watched_state` has no writer anywhere and dev['services']
+        # is the CONFIGURED unit-name list, so this told the model which units
+        # are watched and never that one had failed. Live unit state comes from
+        # services.json and arrives as a caller-supplied facet.
         inline = {
-            'services': dev.get('services_watched_state') or dev.get('services'),
             'journal':  (dev.get('journal') or [])[-30:] or None,
         }
         # Caller-supplied external facets win / extend.
@@ -1097,15 +1103,20 @@ def build_history_corpus(commands=None, alerts=None, events=None,
     return docs
 
 
-def build_drift_corpus(devices, now=0):
+def build_drift_corpus(devices, now=0, drift_by_dev=None):
     """v4.1.0: per-device config-drift detail + a fleet rollup.
 
-    `devices` is a list of device records; each may carry a `drift_state` map
-    (file_path -> {status, ignored, ...}) as stored on the device. Only files
-    currently `drifted` (and not ignored) are emitted — answers "what config has
-    drifted on host X?" and "which hosts have drift?".
+    `devices` is a list of device records; `drift_by_dev` maps the same device
+    key the corpus uses (`record['id'] or record['name']`) to that host's
+    drifted file paths, read from drift_state.json by the caller. Answers "what
+    config has drifted on host X?" and "which hosts have drift?".
+
+    This used to read a `drift_state` map off the device record. No producer
+    has ever written one, so the corpus was empty on every install and the AI
+    could not answer either question.
     """
     docs = []
+    drift_by_dev = drift_by_dev or {}
     drifted_hosts = []
     for d in (devices or []):
         if not isinstance(d, dict):
@@ -1114,10 +1125,7 @@ def build_drift_corpus(devices, now=0):
         if not dev_id:
             continue
         name = d.get('name') or dev_id
-        drift = d.get('drift_state') or {}
-        files = sorted(f for f, st in drift.items()
-                       if isinstance(st, dict) and st.get('status') == 'drifted'
-                       and not st.get('ignored'))
+        files = sorted(drift_by_dev.get(dev_id) or [])
         if not files:
             continue
         drifted_hosts.append(name)

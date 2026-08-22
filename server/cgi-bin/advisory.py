@@ -470,7 +470,8 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
     return out
 
 
-def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
+def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
+                        drifted=None):
     """Has anything on this host changed that should not have?"""
     out = []
     si = dev.get('sysinfo') or {}
@@ -525,9 +526,10 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
     # holds the captured file CONTENT, and a config file's contents are exactly
     # the kind of thing that carries a credential. The Drift page already shows
     # the diff behind its own view; the advisory does not need to carry it.
-    drifted = [f for f, st in (dev.get('drift_state') or {}).items()
-               if isinstance(st, dict) and st.get('status') == 'drifted'
-               and not st.get('ignored')]
+    # `drifted` is the caller's list of paths off baseline, read from
+    # drift_state.json. This used to read a `drift_state` map off the device
+    # record; nothing writes one, so the finding could never fire.
+    drifted = list(drifted or [])
     if drifted:
         out.append(_finding(
             'int.drift', 'integrity', 'medium',
@@ -691,7 +693,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
-          now=None):
+          drift_by_dev=None, now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -713,6 +715,9 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     agent_tamper_by_dev = agent_tamper_by_dev or {}
     weak_keys_by_dev = weak_keys_by_dev or {}
     accounts_by_dev = accounts_by_dev or {}
+    # device_id -> [drifted file paths]; drift lives in drift_state.json, not
+    # on the device record.
+    drift_by_dev = drift_by_dev or {}
 
     findings = []
     for dev_id, dev in (devices or {}).items():
@@ -728,7 +733,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                        accounts_by_dev.get(dev_id))
         findings += _integrity_findings(dev_id, name, dev,
                                         failed_checks_by_dev.get(dev_id),
-                                        agent_tamper_by_dev.get(dev_id))
+                                        agent_tamper_by_dev.get(dev_id),
+                                        drift_by_dev.get(dev_id))
         findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
                                    backups_by_dev.get(dev_id))
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))

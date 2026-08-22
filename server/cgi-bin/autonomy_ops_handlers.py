@@ -227,8 +227,10 @@ def _blast_radius_for(dev_id, dev, devices):
     caller records the failure rather than acting on a comfortable number.
 
     Monitors live in CONFIG_FILE under `monitors` (each carrying `device_id`),
-    not in a store of their own. Containers come from the device's own sysinfo.
-    Redundancy keys off group+function siblings.
+    not in a store of their own. Containers live in CONTAINERS_FILE and watched
+    units in SERVICES_FILE — neither is on the device record, and reading them
+    off it made both components zero on every host, which is the fail-open this
+    docstring rules out. Redundancy keys off group+function siblings.
     """
     cfg = A._config_ro() or {}
     monitors = [m.get('id') or m.get('label') or m.get('path')
@@ -236,16 +238,20 @@ def _blast_radius_for(dev_id, dev, devices):
                 if isinstance(m, dict) and m.get('device_id') == dev_id
                 and not m.get('paused')]
 
-    si = dev.get('sysinfo') or {}
-    containers = [c.get('name') for c in (si.get('containers') or [])
-                  if isinstance(c, dict)]
+    # `containers` is not in the safe_si whitelist — the ingest writes
+    # CONTAINERS_FILE as {ts, items:[…]}. Same lookup as _build_runbook_snapshot.
+    ctr = (A.load(A.CONTAINERS_FILE) or {}).get(dev_id) or {}
+    containers = [c.get('name') for c in (ctr.get('items') or [])
+                  if isinstance(c, dict) and c.get('name')]
 
     # Services the host runs that something else is watching. `services.json`
-    # is per-device current state; a failing-relevant count is enough here.
+    # is per-device current state — {updated_at, services:[…], flapping:[…]}.
+    # The key `watched` is written nowhere.
     services = []
     svc = (A.load(A.SERVICES_FILE) or {}).get(dev_id) or {}
     if isinstance(svc, dict):
-        services = [k for k in (svc.get('watched') or [])]
+        services = [s.get('unit') for s in (svc.get('services') or [])
+                    if isinstance(s, dict) and s.get('unit')]
 
     # LLDP neighbours: who is physically adjacent and would notice.
     peers = []
@@ -940,6 +946,7 @@ def _check_summary_for(dev_id, dev):
         custom_defs=cfg.get('custom_checks') or [],
         scripts=A._load_custom_scripts(),
         exposure_mutes=cfg.get('exposure_mutes') or [],
+        drift_rec=A._drift_state_ro().get(dev_id) or {},
         **A._checks_threshold_kwargs(cfg))
     sm = A._host_check_summary(checks) or {}
     # NORMALISE to the key the pure comparison reads. `_host_check_summary`

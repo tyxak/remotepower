@@ -1606,7 +1606,7 @@ del _rp_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
-    CHECK_BASELINE_CATALOG, PROTECT_CATEGORIES, baseline_kind,
+    CHECK_BASELINE_CATALOG, PROTECT_CATEGORIES, baseline_kind, drifted_files,
 )
 # Back-compat namespace binding — call sites and the test suite reference
 # these through the api module; the implementations live in notify.py.
@@ -6903,14 +6903,19 @@ def _resolve_role(role_name):
     return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
 
 
-def _smart_group_match(dev, rules):
+def _smart_group_match(dev, rules, dev_id=None, drift_ids=None):
     """W5-6: pure predicate — does device `dev` satisfy a smart-group rule set?
     Rules are ANDed. Operates over the device record + its embedded sysinfo only
     (no external stores) so it can drive BOTH cadence materialization AND scope
     membership tests cheaply. Supported facets:
       group / group_in, tag / tags_any / tags_all, site, os_contains,
       agent_version_contains, monitored, agentless, reboot_required, drift,
-      mem_gt, disk_gt, cpu_gt, swap_gt (percent, from sysinfo)."""
+      mem_gt, disk_gt, cpu_gt, swap_gt (percent, from sysinfo).
+
+    Drift state lives in DRIFT_STATE_FILE, not on the device record, so the
+    `drift` facet needs the device's id. A fleet sweep passes `dev_id` and the
+    pre-computed `drift_ids` set; a caller that has neither falls back to a
+    cached self-read, and only when a rule actually asks for drift."""
     r = rules or {}
     si = dev.get('sysinfo') or {}
     if r.get('group') and (dev.get('group') or '') != r['group']:
@@ -6937,8 +6942,15 @@ def _smart_group_match(dev, rules):
         return False
     if r.get('reboot_required') and not si.get('reboot_required'):
         return False
-    if r.get('drift') and not (dev.get('drift_state') or dev.get('drift_files')):
-        return False
+    if r.get('drift'):
+        # The old test was `dev['drift_state'] or dev['drift_files']`:
+        # drift_state is never on the record, and drift_files is the
+        # CONFIGURED watch list, so the facet matched every host that merely
+        # had drift monitoring set up.
+        if drift_ids is None:
+            drift_ids = _drifted_device_ids()
+        if (dev_id or _device_id_for_record(dev)) not in drift_ids:
+            return False
     for facet, key in (('mem_gt', 'mem_percent'), ('swap_gt', 'swap_percent'),
                        ('cpu_gt', 'cpu_percent')):
         if r.get(facet) is not None:
@@ -6977,8 +6989,10 @@ def _smart_group_device_ids(name, devices):
     rules = _smart_group_rules(str(name or '').lstrip())
     if not rules:
         return []
+    _drift_ids = _drifted_device_ids() if rules.get('drift') else None
     return sorted(did for did, dev in (devices or {}).items()
-                  if isinstance(dev, dict) and _smart_group_match(dev, rules))
+                  if isinstance(dev, dict)
+                  and _smart_group_match(dev, rules, did, _drift_ids))
 
 
 def _device_in_scope(scope, dev):
@@ -7148,19 +7162,22 @@ def require_perm(perm, device_ids=None):
     # admin-role key (scoped service account). None unless a scoped API key authed.
     _ks0 = getattr(_RCTX, 'key_scope', None)
     ks = _ks0 if (isinstance(_ks0, dict) and _ks0.get('type', 'all') != 'all') else None
+    # device_get(did), not load(DEVICES_FILE): both branches below only look
+    # up a handful of ids, and load() deep-copies the whole fleet on every call
+    # (43 ms at 400 devices vs 0.27 ms for three per-id reads). Same fix
+    # device_get() itself got in v6.4.3; this gate was not swept with it, and it
+    # is on the write path of every scoped role.
     if rd['admin']:
         if device_ids and ks:
-            devices = load(DEVICES_FILE)
             for did in device_ids:
-                if not _device_in_scope(ks, devices.get(did) or {}):
+                if not _device_in_scope(ks, device_get(did) or {}):
                     respond(403, {'error': 'One or more targets are outside this API key scope'})
         return username
     if perm not in rd['permissions']:
         respond(403, {'error': f"Your role lacks the '{perm}' permission"})
     if device_ids:
-        devices = load(DEVICES_FILE)
         for did in device_ids:
-            dev = devices.get(did) or {}
+            dev = device_get(did) or {}
             if rd['scope'].get('type') != 'all' and not _device_in_scope(rd['scope'], dev):
                 respond(403, {'error': 'One or more targets are outside your role scope'})
             if ks and not _device_in_scope(ks, dev):
@@ -10499,8 +10516,11 @@ _MODULES = {
     # dispatcher — an enterprise that wants zero AI-initiated actions must be able
     # to make that structurally true, not merely a UI preference.
     'ai_exec':    ('ai_exec_enabled',        False, ('/api/ai-exec',)),
-    # v7.0.0: autonomous remediation. OFF by default and gated at the
-    # dispatcher, so an install that never opts in has no reachable surface.
+    # v7.0.0: autonomous remediation. The MODULE is on by default so the page
+    # and its receipts are findable (v7.0.2 — default-off had hidden both). The
+    # safety boundary is not this switch: autonomy.default_policy()['mode'] is
+    # 'off', so nothing acts until an operator sets a mode. Turning the module
+    # off still 404s the whole /api/autonomy prefix at the dispatcher.
     'autonomy':   ('autonomy_enabled',       True,  ('/api/autonomy',)),
 }
 
@@ -11446,6 +11466,13 @@ def _record_alert(event, payload):
                     # pool's alert + scrub_overdue on the host). paths lists the
                     # read-only mounts for the new readonly_fs alert.
                     'pool', 'paths', 'threshold',
+                    # v7.0.2: `kind` (zfs|btrfs) is the DISCRIMINATOR autonomy's
+                    # _EVENT_ACTIONS_BY reads off the STORED snapshot_stale row
+                    # to pick a ladder. Without it the lookup keyed on '' and
+                    # every snapshot_stale alert was dropped before the decision
+                    # core, so create_zfs_snapshot could never fire — a tickable
+                    # action that did nothing, with no receipt and no refusal.
+                    'kind',
                     # v6.1.2 network events: mac_conflict (mac), wan_ip_changed
                     # (old_ip/new_ip). detail already carries the human text, but
                     # store the structured keys too so the inbox can render them.
@@ -14783,6 +14810,34 @@ def handle_device_save_bulk(dev_id):
                 _ad = 0
             updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
 
+        # v7.0.2: the two device pins that had a READER and no writer.
+        #
+        # `proxmox_guest` is the operator's explicit device→guest link for the
+        # autonomy backup gate (_proxmox_guest_for). Its docstring and
+        # docs/autonomy.md both present it as settable, but no write path
+        # existed, so the first-DNS-label heuristic was the only behaviour —
+        # a heuristic standing in for a safety precondition, with its
+        # documented override unreachable.
+        if 'proxmox_guest' in body:
+            updates['proxmox_guest'] = _sanitize_str(
+                str(body.get('proxmox_guest') or ''), 128).strip().lower()
+
+        # `mtls_fingerprint` binds a client cert to one device, so a
+        # valid-but-wrong cert signed by the same CA cannot impersonate
+        # another host (_agent_mtls_ok). Unreachable the same way, which also
+        # pinned the RAG posture line at "0 of N" for good. Normalised the way
+        # _client_cert_identity normalises what nginx forwards — lowercase hex,
+        # no `sha1:` prefix, no separators — so the compare cannot fail on
+        # formatting. Blank clears the pin.
+        if 'mtls_fingerprint' in body:
+            _fp = (_sanitize_str(str(body.get('mtls_fingerprint') or ''), 200)
+                   .strip().lower().replace('sha1:', '').replace(':', '')
+                   .replace(' ', ''))
+            if _fp and not re.fullmatch(r'[0-9a-f]{32,128}', _fp):
+                respond(400, {'error': 'mtls_fingerprint must be a hex certificate '
+                                       'fingerprint (optionally colon-separated)'})
+            updates['mtls_fingerprint'] = _fp
+
         # v3.14.0 #31: per-host opt-in for one-click CIS remediation. Default off —
         # remediation queues mutating commands (reboot, package upgrade), so it only
         # works on a host the operator has explicitly opted in.
@@ -15383,8 +15438,10 @@ def _materialize_smart_group(rules, devices, tenant=None):
     if tenant is not None and _tenancy_enforced():
         pool = {k: v for k, v in pool.items()
                if isinstance(v, dict) and _device_tenant(v) == tenant}
+    _drift_ids = _drifted_device_ids() if (rules or {}).get('drift') else None
     return sorted(did for did, dev in pool.items()
-                  if isinstance(dev, dict) and _smart_group_match(dev, rules))
+                  if isinstance(dev, dict)
+                  and _smart_group_match(dev, rules, did, _drift_ids))
 
 
 def run_smart_groups_if_due():
@@ -15799,7 +15856,12 @@ def handle_time_entries():
         respond(200, {'ok': True, 'entries': out[:5000], 'can_view_all': see_all})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    actor = require_auth()
+    # Same gate as the ticket time-log path (tickets_handlers.handle_ticket_time,
+    # v5.8.0): appending to the ledger feeds invoices, so it needs a
+    # write-capable role. This entry point kept a bare require_auth(), so the
+    # four pure read-only roles (viewer/mcp/auditor/finance) each got a 200 and a
+    # row in the shared ledger — and could fill the MAX_TIME_ENTRIES cap.
+    actor = require_write_role('log time')
     stored = _te_store(_te_validate_and_build(actor, get_json_obj()))
     audit_log(actor, 'time_entry_add',
               f"{stored['hours']}h {'billable' if stored['billable'] else 'internal'} "
@@ -34662,11 +34724,16 @@ def handle_storage_backend_migrate():
     dsn = _sanitize_str(str(body.get('dsn', '')).strip(), 1024)
     dsn_read = _sanitize_str(str(body.get('dsn_read', '')).strip(), 1024)
     lines = []
+    # Pre-flight OUTSIDE the try: respond() raises HTTPError, an Exception, so a
+    # 409 raised inside was caught by the arm below and re-emitted as
+    # `500 {'error': 'migration failed: HTTP 409'}` — the documented
+    # anti-pattern. Nothing here is fallible, so it belongs before the try.
+    _pg = target == 'postgres' or _storage_backend() == 'postgres'
+    if _pg and not storage_pg_available():
+        respond(409, {'error': 'the Postgres backend is unavailable on '
+                      'this server (psycopg is not installed)'}); return
     try:
-        if target == 'postgres' or _storage_backend() == 'postgres':
-            if not storage_pg_available():
-                respond(409, {'error': 'the Postgres backend is unavailable on '
-                              'this server (psycopg is not installed)'}); return
+        if _pg:
             result = _migrate_storage_pg(target, dsn, dry_run=dry_run,
                                          verify_only=verify_only, log=lines.append,
                                          dsn_read=dsn_read)
@@ -42286,15 +42353,20 @@ def _rag_source_files(sources):
         files += [DEVICES_FILE, CVE_FINDINGS_FILE, CONTAINERS_FILE,
                   SNMP_DATA_FILE, TLS_TARGETS_FILE, TLS_RESULTS_FILE,
                   # v4.1.0: fleet rollups also read hardware (SMART/UPS) + brute-force
-                  HARDWARE_FILE, BRUTE_FORCE_FILE]
+                  HARDWARE_FILE, BRUTE_FORCE_FILE,
+                  # drift + watched-unit state are their own stores, not the
+                  # device record — without these a new drift or a failed unit
+                  # never triggers a rebuild.
+                  DRIFT_STATE_FILE, SERVICES_FILE]
     if sources.get('cmdb'):
         files.append(CMDB_FILE)
     if sources.get('history'):
         files += [CMD_OUTPUT_FILE, ALERTS_FILE, FLEET_EVENTS_FILE]
-    # v4.1.0: drift detail lives on the device record (DEVICES_FILE); compliance
-    # is derived from device + event state; metrics from the time-series window.
+    # Compliance is derived from device + event state; metrics from the
+    # time-series window. Drift detail is in drift_state.json (the device list
+    # still matters — a deleted host drops its chunk).
     if sources.get('drift'):
-        files.append(DEVICES_FILE)
+        files += [DEVICES_FILE, DRIFT_STATE_FILE]
     if sources.get('compliance'):
         files += [DEVICES_FILE, FLEET_EVENTS_FILE]
     if sources.get('metrics'):
@@ -42458,6 +42530,17 @@ def _rag_build_corpus(cfg):
             # never has it, so `cert_expiry` was never populated and the AI never
             # saw local cert expiry despite the comment below promising it.
             hardware = load(HARDWARE_FILE) or {}
+            services_live = load(SERVICES_FILE) or {}
+            # Drift lives in its own store keyed by the devices-store key; the
+            # corpus keys on `record['id'] or record['name']`, so map across.
+            _drift_all = _drift_state_ro()
+            drift_by_dev = {}
+            for _did, _drec in ((raw or {}).items() if isinstance(raw, dict) else []):
+                if not isinstance(_drec, dict):
+                    continue
+                _paths = _drifted_for(_did, _drift_all)
+                if _paths:
+                    drift_by_dev[_drec.get('id') or _drec.get('name') or _did] = _paths
             # v4.3.0: index the live OPERATIONAL state the AI most needs to answer
             # "what's wrong with the fleet" — open alerts (grouped per device +
             # a fleet rollup), watched-service up/down, and local cert expiry.
@@ -42491,8 +42574,14 @@ def _rag_build_corpus(cfg):
                     f['snmp'] = snmp[dev_id]
                 if open_alerts_by_dev.get(dev_id):
                     f['open_alerts'] = open_alerts_by_dev[dev_id]
-                # (watched-service up/down is already indexed inline by the
-                # corpus builder from dev['services'] — don't duplicate it.)
+                # Watched-service up/down. The corpus used to index this
+                # "inline" from dev['services_watched_state'] — a key with no
+                # writer, falling back to the CONFIGURED unit-name list, so the
+                # model was told which units are watched and never that one was
+                # down. Live state is in SERVICES_FILE.
+                _sv = services_live.get(dev_id) if isinstance(services_live, dict) else None
+                if isinstance(_sv, dict) and _sv.get('services'):
+                    f['services'] = _sv['services']
                 # Local TLS cert files + expiry (from the agent's cert inventory,
                 # which _ingest_hardware stores in HARDWARE_FILE — not in sysinfo).
                 hw_rec = hardware.get(dev_id) if isinstance(hardware, dict) else None
@@ -42501,7 +42590,8 @@ def _rag_build_corpus(cfg):
                     f['cert_expiry'] = certs
                 if f:
                     facets[dev_id] = f
-            docs += rag_index.build_live_state_corpus(devices, facets=facets, now=now)
+            docs += rag_index.build_live_state_corpus(
+                devices, facets=facets, now=now, drift_by_dev=drift_by_dev)
             # Fleet-wide open-alert rollup — one chunk so "what is alerting across
             # the fleet" retrieves authoritative data instead of fanning out.
             if fleet_open:
@@ -42585,7 +42675,16 @@ def _rag_build_corpus(cfg):
         try:
             raw = load(DEVICES_FILE)
             devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
-            docs += rag_index.build_drift_corpus(devices, now=now)
+            _drift_all = _drift_state_ro()
+            drift_by_dev = {}
+            for _did, _drec in ((raw or {}).items() if isinstance(raw, dict) else []):
+                if not isinstance(_drec, dict):
+                    continue
+                _paths = _drifted_for(_did, _drift_all)
+                if _paths:
+                    drift_by_dev[_drec.get('id') or _drec.get('name') or _did] = _paths
+            docs += rag_index.build_drift_corpus(devices, now=now,
+                                                 drift_by_dev=drift_by_dev)
         except Exception as e:
             sys.stderr.write(f'rag: drift source failed: {e}\n')
 
@@ -42837,6 +42936,7 @@ def _rag_fleet_rollups():
     monitored = {did: d for did, d in devices.items()
                  if isinstance(d, dict) and not d.get('agentless')
                  and d.get('monitored', True)}
+    _drift_all = _drift_state_ro()      # drift lives in its own store, not on `d`
     dims = {}
 
     def add(label, did, detail=''):
@@ -42861,8 +42961,7 @@ def _rag_fleet_rollups():
         if si.get('reboot_required'): add('reboot required', did)
         up = (si.get('packages') or {}).get('upgradable')
         if isinstance(up, int) and up > 0: add('pending package updates', did, str(up))
-        if any(isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')
-               for s in (d.get('drift_state') or {}).values()): add('config drift', did)
+        if _drifted_for(did, _drift_all): add('config drift', did)
         if si.get('mount_issues'): add('mount issues', did)
         if any((p or {}).get('scope') == 'world' for p in (si.get('listening_ports') or [])):
             add('a world-exposed listening port', did)
@@ -44634,11 +44733,17 @@ def _build_runbook_snapshot(dev_id, devices):
 
     # Journal: 20 most recent lines (was 40)
     journal = (dev.get('journal') or [])[-20:]
-    # Watched services — agent reports state under services_watched_state,
-    # but if it hasn't reported yet, fall back to the configured list.
-    services = (dev.get('services_watched_state')
-                or dev.get('services')
-                or [{'name': s} for s in (dev.get('services_watched') or [])])
+    # Watched units and their CURRENT state. `services_watched_state` has no
+    # writer anywhere and dev['services'] is the configured name list, so the
+    # model used to be told which units are watched and never that one had
+    # failed. Live state is SERVICES_FILE, same shape the Services page reads;
+    # the configured names stay as the fallback for a host that has not
+    # reported yet.
+    try:
+        services = ((load(SERVICES_FILE) or {}).get(dev_id) or {}).get('services') or []
+    except Exception:
+        services = []
+    services = services or [{'name': s} for s in (dev.get('services_watched') or [])]
     # Containers live in CONTAINERS_FILE (the /devices/:id/containers endpoint),
     # not in the device record. Without this lookup the runbook would always
     # say "No containers reported".
@@ -44680,17 +44785,23 @@ def _build_runbook_snapshot(dev_id, devices):
         'summary':  (f.get('summary') or '')[:100],
     } for f in cve_findings if not f.get('ignored')]
 
-    # Patch status — inline in the device dict.
+    # Patch status. `patch_status`, `upgradable` and `last_patch_check` have
+    # no writer on the device record — the counts safe_si persists live under
+    # sysinfo.packages, so all three arrived as null on every host.
+    _pkgs = si_full.get('packages')
+    _pkgs = _pkgs if isinstance(_pkgs, dict) else {}
     patches = {
-        'patch_status': dev.get('patch_status'),
-        'upgradable':   dev.get('upgradable'),
-        'last_check':   dev.get('last_patch_check'),
+        'upgradable':        _pkgs.get('upgradable'),
+        'security_updates':  _pkgs.get('security_updates'),
+        # safe_si stamps pkg_scan_ts when a package report lands; the old
+        # `last_patch_check` key has no writer.
+        'last_check':        si_full.get('pkg_scan_ts'),
     }
 
     return {
         'name':           dev.get('name'),
         'os':             dev.get('os'),
-        'pkg_manager':    dev.get('pkg_manager'),
+        'pkg_manager':    _pkgs.get('manager'),
         'agent_version':  dev.get('version'),
         'last_seen':      last_seen,
         'group':          dev.get('group'),
@@ -44870,6 +44981,56 @@ def handle_runbook_delete(dev_id):
 # }
 
 DRIFT_STATE_FILE = DATA_DIR / 'drift_state.json'
+
+
+def _drift_state_ro():
+    """The whole drift store, read-only and per-request cached (no deepcopy)."""
+    try:
+        return _load_ro(DRIFT_STATE_FILE) or {}
+    except Exception:
+        return {}
+
+
+def _drifted_for(dev_id, drift_state=None):
+    """Drifted file paths for one device, from DRIFT_STATE_FILE.
+
+    Ten consumers used to read a `drift_state` map off the DEVICE record —
+    nothing has ever written one, so config drift was invisible everywhere
+    except the Drift page itself. Pass `drift_state` when sweeping the fleet so
+    the store is read once; the self-read is `_load_ro`-backed for one-offs.
+    """
+    if drift_state is None:
+        drift_state = _drift_state_ro()
+    return drifted_files((drift_state or {}).get(dev_id) or {})
+
+
+def _device_id_for_record(dev):
+    """Best-effort store key for a device RECORD.
+
+    Device records carry no `id` field, so a predicate handed only the record
+    (`_device_in_scope`) cannot look anything up by device id. Matches on the
+    name/hostname the enrollment writes. Only called when a rule set asks for a
+    store-backed facet, so the scan is off the hot path.
+    """
+    if not isinstance(dev, dict):
+        return None
+    name, host = dev.get('name'), dev.get('hostname')
+    if not (name or host):
+        return None
+    for did, rec in (_load_ro(DEVICES_FILE) or {}).items():
+        if not isinstance(rec, dict):
+            continue
+        if (name and rec.get('name') == name) or (host and rec.get('hostname') == host):
+            return did
+    return None
+
+
+def _drifted_device_ids(drift_state=None):
+    """Ids of devices with at least one drifted file (set, for membership tests)."""
+    if drift_state is None:
+        drift_state = _drift_state_ro()
+    return {did for did in (drift_state or {})
+            if drifted_files((drift_state or {}).get(did) or {})}
 
 # v2.2.1: drift content fetch — operator-triggered retrieval of the
 # actual file contents on a drifted host, for the diff viewer. By
@@ -47554,6 +47715,7 @@ def handle_device_checks(dev_id):
     checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
                           cve_high=cve, disk_eta=eta, custom_defs=custom_defs,
                           scripts=scripts, exposure_mutes=exposure_mutes,
+                          drift_rec=_drift_state_ro().get(dev_id) or {},
                           **_checks_threshold_kwargs(cfg))
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
@@ -47583,7 +47745,12 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
     """Return the full (unscoped) computed host rows, from cache if fresh."""
     cache_file = _fleet_checks_cache_file()
     try:
-        cached = load(cache_file)
+        # _load_ro, not load: this blob is the whole unscoped check matrix
+        # (2.9 MB at 400 hosts / 14,000 checks) and load() deep-copies it on
+        # every read. Both callers are pure readers — handle_fleet_checks
+        # filters into a NEW list and sorts that, _dashboard_extra_widgets only
+        # sums summary counts — so the shared object is never written through.
+        cached = _load_ro(cache_file)
         # v4.4.0 (PERF): honor the cache for its full 15s TTL. The old code also
         # busted it whenever DEVICES_FILE/CVE/HARDWARE mtime advanced — but on any
         # fleet larger than ~15 hosts a heartbeat rewrites DEVICES_FILE more often
@@ -47607,6 +47774,7 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
     now = int(time.time())
     ttl = get_online_ttl()
     _ck_thresh = _checks_threshold_kwargs(cfg)   # hoisted: read config once per sweep
+    _drift_all = _drift_state_ro()               # ditto for the drift store
     hosts = []
     for did, dev in devices_all.items():
         if not isinstance(dev, dict):
@@ -47615,7 +47783,8 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
                               disabled_all.get(did) or [], now, ttl,
                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
                               custom_defs=custom_defs, scripts=scripts,
-                              exposure_mutes=exposure_mutes, **_ck_thresh)
+                              exposure_mutes=exposure_mutes,
+                              drift_rec=_drift_all.get(did) or {}, **_ck_thresh)
         summ = _host_check_summary(checks)
         hosts.append({'device_id': did, 'name': dev.get('name', did),
                       'group': dev.get('group', ''),
@@ -47635,7 +47804,9 @@ def handle_fleet_checks():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want = (qs.get('status', [''])[0] or '').strip().lower()
-    devices_all = load(DEVICES_FILE) or {}
+    # Read-only: used for the scope key set and handed to _fleet_checks_rows,
+    # which only reads each record (and on a cache hit never looks at it).
+    devices_all = _load_ro(DEVICES_FILE) or {}
     allowed = set(_scope_filter_devices(devices_all).keys())
     cfg = load(CONFIG_FILE) or {}
     scripts = _load_custom_scripts()
@@ -48162,12 +48333,11 @@ def _compute_attention():
             items.append({'severity': 'warning', 'kind': 'cve',
                            'device': name, 'summary': summary})
 
-    # Configuration drift.
+    # Configuration drift. Read from DRIFT_STATE_FILE once for the sweep —
+    # nothing writes a drift map onto the device record.
+    _drift_all = _drift_state_ro()
     for dev_id, dev in monitored.items():
-        drift = dev.get('drift_state') or {}
-        drifted = [f for f, st in drift.items()
-                   if isinstance(st, dict) and st.get('status') == 'drifted'
-                   and not st.get('ignored')]
+        drifted = _drifted_for(dev_id, _drift_all)
         if drifted:
             items.append({
                 'severity': 'warning', 'kind': 'drift',
@@ -49191,8 +49361,13 @@ def _attention_fingerprint():
 
     excludes device telemetry (DEVICES_FILE): see _attention_payload.
     Mirrors the `fp` the fleet-checks cache uses.
+
+    The device KEY SET is folded in, matching _reliability_fingerprint and
+    _risk_fingerprint. Without it, enrolling or deleting a host was invisible to
+    the digest for the full TTL — and because _fleet_health() is derived purely
+    from these items, the fleet score did not move either.
     """
-    parts = []
+    parts = [_device_set_fingerprint()]
     for src in (IGNORED_ITEMS_FILE, ALERT_MUTES_FILE, CONFIG_FILE):
         try:
             parts.append(str(backend_mtime(src)))
@@ -49408,7 +49583,7 @@ def _risk_level(score):
 def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
-                 patch_sla_breach=None):
+                 patch_sla_breach=None, drift_rec=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -49631,9 +49806,11 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('overheating',
              w['overheating'] if _crit_t else w['overheating'] // 2,
              f"hottest sensor at {round(hottest_c, 1)} °C ({'critical' if _crit_t else 'hot'})")
-    # Config drift from the tracked baseline.
-    drifted = [f for f, s in (dev.get('drift_state') or {}).items()
-               if isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')]
+    # Config drift from the tracked baseline. `drift_rec` is this device's
+    # DRIFT_STATE_FILE record, threaded in by the caller the same way hw_rec is
+    # — the device record has never carried drift state, so the config_drift
+    # factor could not fire.
+    drifted = drifted_files(drift_rec)
     if drifted:
         _dnames = ', '.join(drifted[:4]) + ('…' if len(drifted) > 4 else '')
         _add('config_drift',
@@ -50213,6 +50390,9 @@ def _compute_fleet_risk():
     except Exception:
         ttl = 180
     weights = _risk_weights()   # hoist the config read out of the per-device loop
+    # Drift state is its own store (never on the device record), so the
+    # config_drift factor needs it threaded in like hw_rec. Read once.
+    _drift_all = _drift_state_ro()
     # Backup state is keyed `<device>:<path>`; fold it into per-device counts
     # once rather than re-scanning the store for every host.
     _bs_file = DATA_DIR / 'backup_state.json'
@@ -50250,7 +50430,8 @@ def _compute_fleet_risk():
                                 img_rec=imgs.get(dev_id) or {},
                                 backup_stale=stale_backups.get(dev_id) or [],
                                 secrets_rec=secrets.get(dev_id) or {},
-                                patch_sla_breach=sla_detail.get(dev_id)))
+                                patch_sla_breach=sla_detail.get(dev_id),
+                                drift_rec=_drift_all.get(dev_id) or {}))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -54889,6 +55070,9 @@ def handle_fleet_query():
     # it lives in the hardware record as kernel.reboot_for_kernel. Load the
     # store once (only when the filter is active) so the lookup stays O(1).
     _kernel_hw = (load(HARDWARE_FILE) or {}) if kernel_q else {}
+    # Same shape for drift: the state is in DRIFT_STATE_FILE, never on the
+    # device record, so ?drift=1 matched nothing. Read once, only when asked.
+    _drift_ids = _drifted_device_ids() if drift_q else set()
     rows = []
     for did, d in devices.items():
         if not isinstance(d, dict):
@@ -54979,11 +55163,8 @@ def handle_fleet_query():
         if platform_sub and platform_sub not in (si.get('platform') or '').lower():
             continue
         # v4.1.0: posture flags.
-        if drift_q:
-            ds = d.get('drift_state') or {}
-            if not any(isinstance(s, dict) and s.get('status') == 'drifted'
-                       and not s.get('ignored') for s in ds.values()):
-                continue
+        if drift_q and did not in _drift_ids:
+            continue
         if mount_q and not (si.get('mount_issues') or []):
             continue
         if clock_q and not (si.get('clock') or {}).get('skewed'):
@@ -55489,15 +55670,32 @@ def _maybe_sample_compliance(now=None):
     # _maybe_sample_health) — avoids a cold-blob rewrite on every request.
     _ch = _load_ro(COMPLIANCE_HIST_FILE) or {}   # v6.3.0 perf: read-only gate
     _cf = _ch.get('fleet') or []
-    if _cf and _cf[-1].get('date') == day:
+    if (_cf and _cf[-1].get('date') == day) or _ch.get('last_attempt') == day:
         return
     try:
+        # Claim the day BEFORE doing the work. _compute_compliance() returns a
+        # None score whenever no device yields a single applicable check — an
+        # all-agentless or SNMP-only fleet, agents that have not reported yet,
+        # or an operator who turned every CIS check off. The old code returned
+        # on that path without writing anything, so the gate above stayed open
+        # and this O(fleet) evaluation re-ran on EVERY request (42 ms measured
+        # at 400 devices) with a write lock held for its whole duration.
+        # `last_attempt` rate-limits the None case the way an appended sample
+        # rate-limits the success case; the readers only ever take ['fleet'].
+        with _LockedUpdate(COMPLIANCE_HIST_FILE) as store:
+            fleet = store.setdefault('fleet', [])
+            if ((fleet and fleet[-1].get('date') == day)
+                    or store.get('last_attempt') == day):
+                return                       # another worker claimed this slot
+            store['last_attempt'] = day
+        # Computed with NO lock held: on SQLite/Postgres the write lock is a
+        # BEGIN IMMEDIATE that blocks every heartbeat while it is open.
+        score = _compute_compliance().get('score')
+        if score is None:
+            return                           # the claim above stops the re-run
         with _LockedUpdate(COMPLIANCE_HIST_FILE) as store:
             fleet = store.setdefault('fleet', [])
             if fleet and fleet[-1].get('date') == day:
-                return
-            score = _compute_compliance().get('score')
-            if score is None:
                 return
             fleet.append({'date': day, 'ts': now, 'score': score})
             store['fleet'] = fleet[-180:]
@@ -59249,7 +59447,9 @@ def handle_nav_counts():
                     except Exception:
                         pass
                 if _fresh:
-                    _c = load(_nc_cache)
+                    # Read-only: the cache blob is re-projected into a new dict
+                    # below and then serialised, never written through.
+                    _c = _load_ro(_nc_cache)
                     if isinstance(_c, dict) and _c.get('_dsfp') == _device_set_fingerprint():
                         _c = {k: v for k, v in _c.items() if k != '_dsfp'}
                         _respond_with_etag(_c, _c)   # content-based
@@ -60014,6 +60214,19 @@ def handle_inbound_webhook_toggle(token_id):
     body = _read_valid(request_models.InboundWebhookToggleRequest)
     found = False
     changes = []
+    # Validate + tenant-gate the new pin BEFORE the lock. Both refusals used to
+    # sit inside the try, and respond() raises HTTPError (an Exception), so the
+    # `except Exception` arm below rewrote them to 500 — a cross-tenant pin
+    # answered "500 HTTP 403" instead of being refused legibly. Checking here
+    # also means a refused pin never reaches the store.
+    if 'scope_device_id' in body:
+        _sd = str(body['scope_device_id'] or '').strip()
+        if _sd and not _validate_id(_sd):
+            respond(400, {'error': 'invalid scope_device_id'})
+        if _sd:
+            # Same attribution target as create — re-pinning an existing token
+            # is the same cross-tenant write.
+            _scope_block_device(_sd)
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
@@ -60025,15 +60238,8 @@ def handle_inbound_webhook_toggle(token_id):
                         t['label'] = _sanitize_str(str(body.get('label', '')), 64)
                         changes.append(f'label={t["label"][:40]}')
                     if 'scope_device_id' in body:
-                        sd = str(body['scope_device_id'] or '').strip()
-                        if sd and not _validate_id(sd):
-                            respond(400, {'error': 'invalid scope_device_id'})
-                        # Same attribution target as create — re-pinning an
-                        # existing token is the same cross-tenant write.
-                        if sd:
-                            _scope_block_device(sd)
-                        t['scope_device_id'] = sd
-                        changes.append(f'scope_device_id={sd}')
+                        t['scope_device_id'] = _sd
+                        changes.append(f'scope_device_id={_sd}')
                     if 'scope_tag' in body:
                         st = _sanitize_str(str(body.get('scope_tag', '')), 64)
                         t['scope_tag'] = st
@@ -65669,7 +65875,8 @@ def _window_applies(w, dev_id, dev=None, dev_group=None):
         try:
             # `rules` is a DICT of facets ANDed together, not a list —
             # _materialize_smart_group reads it as `g.get('rules') or {}`.
-            return bool(_smart_group_match(dev or {}, sg.get('rules') or {}))
+            return bool(_smart_group_match(dev or {}, sg.get('rules') or {},
+                                           dev_id))
         except Exception:
             return False        # a malformed rule set must not suppress alerting
     return False

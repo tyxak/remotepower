@@ -29,6 +29,33 @@ import time
 _SECONDS_PER_DAY = 86400
 
 
+def drifted_files(drift_rec):
+    """Paths in a DRIFT_STATE_FILE per-device record that differ from baseline.
+
+    The record shape is `{'files': {path: {baseline_hash, current_hash,
+    ignored, dormant, exists, ...}}}` — what `_ingest_drift_report` writes.
+    Every consumer used to read a `drift_state` map off the DEVICE record and
+    look for `status == 'drifted'`; no producer has ever written either, so
+    drift was invisible to Checks, risk, Needs-Attention, search and the RAG
+    while the Drift page (which reads the store) worked. One helper so the
+    definition cannot drift apart again — it mirrors the count
+    handle_drift_overview and the Home drift tile already compute: a file the
+    operator has not ignored, not dormant, still present, whose current hash
+    differs from the baseline.
+    """
+    out = []
+    for path, f in ((drift_rec or {}).get("files") or {}).items():
+        if not isinstance(f, dict):
+            continue
+        if f.get("ignored") or f.get("dormant"):
+            continue
+        if not f.get("exists", True):
+            continue
+        if f.get("current_hash") != f.get("baseline_hash"):
+            out.append(str(path))
+    return sorted(out)
+
+
 def _exposure_muted(process, proto, port, mutes, device_id=None):
     """True if a (process, proto, port) socket matches any exposure-mute rule.
     A rule is a dict with any subset of {device_id, process, proto, port}; a
@@ -78,6 +105,7 @@ def _host_checks(
     security_hardening=False,
     disk_encryption=False,
     secure_boot=False,
+    drift_rec=None,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -192,12 +220,11 @@ def _host_checks(
             "warning" if ti else "ok",
             f"{len(ti)} failed" if ti else "all ok",
         )
-    drifted = [
-        f
-        for f, s in (dev.get("drift_state") or {}).items()
-        if isinstance(s, dict) and s.get("status") == "drifted" and not s.get("ignored")
-    ]
-    if dev.get("drift_state"):
+    # Drift comes from DRIFT_STATE_FILE (threaded in as `drift_rec`), never
+    # from the device record — see drifted_files().
+    drift_rec = drift_rec or {}
+    drifted = drifted_files(drift_rec)
+    if drift_rec.get("files"):
         add(
             "drift",
             "Config drift",
