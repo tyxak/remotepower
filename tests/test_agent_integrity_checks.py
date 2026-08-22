@@ -287,14 +287,13 @@ class TestAgentEval(unittest.TestCase):
         confirm it fires once and then remembers it."""
         c = {'id': 'eb2', 'type': 'egress_baseline', 'param': self.ALL}
         agent._eval_one_agent_check(c)                       # seed (empty)
-        key = 'checkegress-eb2'
-        import json as _j
-        agent._safe_state_write(key, _j.dumps([]))           # known = {}
+        # Seed through the same writer the check uses: the stored record binds
+        # the scope it came from, so a raw write of the bare payload now reads
+        # as a pre-v7.0.2 baseline and re-seeds instead of being diffed.
+        agent._check_baseline_save('checkegress-', 'eb2', self.ALL, [])
         # simulate the agent having observed a new external network
         seen = ['198.51.100.0/24']
-        agent._safe_state_write(key, _j.dumps([]))
-        # feed it through the same remember-then-quiet contract
-        agent._safe_state_write(key, _j.dumps(seen))
+        agent._check_baseline_save('checkegress-', 'eb2', self.ALL, seen)
         st, out = agent._eval_one_agent_check(c)
         self.assertEqual(st, 'ok')                           # already known -> quiet
         self.assertIn('known destination', out)

@@ -1404,17 +1404,35 @@ _FILE_LOG_STATE_FILE = 'file_log_state.json'
 _log_watch_paths = []             # server-pushed log_watch rules with a `path`
 _file_log_state = {}              # path → {inode, pos}; persisted across restarts
 
-# Deny list, same rationale as the Linux agent's: NOT a hard security boundary
-# (a server admin can already run commands), just a sanity barrier against the
-# obvious silently-exfiltrate-credentials configurations. realpath() first so
-# a symlink/junction can't dodge it; compared case-insensitively, as NTFS is.
+# Deny list for server-pushed log_watch paths, matching the Linux agent's.
+#
+# The old rationale here was that this is not a hard boundary because "a server
+# admin can already run commands". require-signed-commands ended that: it closes
+# the command channel against a server an attacker controls and leaves this read
+# open, so on the host whose operator chose the strongest setting a pushed rule
+# is the one remaining way to pull a file off the box — continuously, not once.
+#
+# It stays a deny list because operators watch application logs anywhere, but it
+# now names the classes worth exfiltrating: credential and key material by
+# basename or extension, the secret directories by path component, and this
+# agent's own data dir, which holds the device bearer token.
+#
+# realpath() first so a symlink/junction can't dodge it; compared
+# case-insensitively, as NTFS is.
 _FILE_LOG_DENY_SUBSTR = (
     '\\.ssh\\',                              # private keys
+    '\\.aws\\', '\\.kube\\', '\\.docker\\', '\\.gnupg\\',
     '\\system32\\config\\',                  # registry hives incl. SAM/SECURITY
     '\\microsoft\\protect\\',                # DPAPI master keys
     '\\microsoft\\credentials\\',            # credential vault blobs
 )
-_FILE_LOG_DENY_SUFFIX = ('ntds.dit',)
+_FILE_LOG_DENY_SUFFIX = (
+    'ntds.dit', '.pem', '.key', '.pfx', '.p12', '.jks', '.kdbx',
+)
+_FILE_LOG_DENY_BASENAME = frozenset({
+    '.env', '_netrc', '.netrc', 'id_rsa', 'id_ecdsa', 'id_ed25519', 'id_dsa',
+    'credentials', 'authorized_keys', 'agent.json',
+})
 
 
 def _file_log_path_allowed(path_str):
@@ -1424,7 +1442,17 @@ def _file_log_path_allowed(path_str):
         return False
     if any(s in real for s in _FILE_LOG_DENY_SUBSTR):
         return False
-    return not real.endswith(_FILE_LOG_DENY_SUFFIX)
+    if real.endswith(_FILE_LOG_DENY_SUFFIX):
+        return False
+    if os.path.basename(real) in _FILE_LOG_DENY_BASENAME:
+        return False
+    # This agent's own data dir holds agent.json — the device bearer token.
+    try:
+        base = os.path.realpath(_data_dir()).lower().rstrip('\\/')
+    except (OSError, ValueError):
+        return True
+    return not (real == base or real.startswith(base + os.sep.lower())
+                or real.startswith(base + '/'))
 
 
 def collect_file_log(path_str, state):

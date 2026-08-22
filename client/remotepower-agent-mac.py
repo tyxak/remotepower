@@ -1597,11 +1597,21 @@ _FILE_LOG_STATE_FILE = 'file_log_state.json'
 _log_watch_paths = []             # server-pushed log_watch rules with a `path`
 _file_log_state = {}              # path → {inode, pos}; persisted across restarts
 
-# Deny list, same rationale as the Linux agent's: NOT a hard security boundary
-# (a server admin can already run commands), just a sanity barrier against the
-# obvious silently-exfiltrate-credentials configurations. realpath() first so a
-# symlink can't dodge it. macOS spellings: master.passwd + the dslocal user DB,
-# and /etc resolves to /private/etc.
+# Deny list for server-pushed log_watch paths, matching the Linux agent's.
+#
+# The old rationale here was that this is not a hard boundary because "a server
+# admin can already run commands". require-signed-commands ended that: it closes
+# the command channel against a server an attacker controls and leaves this read
+# open, so on the host whose operator chose the strongest setting a pushed rule
+# is the one remaining way to pull a file off the box — continuously, not once.
+#
+# It stays a deny list because operators watch application logs anywhere, but it
+# now names the classes worth exfiltrating: credential and key material by
+# basename or extension, the secret directories by path component wherever they
+# sit, and this agent's own data dir, which holds the device bearer token.
+#
+# realpath() first so a symlink can't dodge it. macOS spellings: master.passwd +
+# the dslocal user DB, and /etc resolves to /private/etc.
 _FILE_LOG_DENY_EXACT = frozenset({
     '/etc/sudoers', '/etc/master.passwd',
     '/private/etc/sudoers', '/private/etc/master.passwd',
@@ -1609,9 +1619,19 @@ _FILE_LOG_DENY_EXACT = frozenset({
 _FILE_LOG_DENY_PREFIX = (
     '/etc/sudoers.d/', '/private/etc/sudoers.d/',
     '/var/db/dslocal/', '/private/var/db/dslocal/',
+    '/Library/Keychains/', '/private/var/db/KeychainSync/',
     '/dev/',
 )
-_FILE_LOG_DENY_RE = re.compile(r'^/(?:Users/[^/]+|var/root|private/var/root)/\.ssh/')
+_FILE_LOG_DENY_SEGMENT = frozenset({
+    '.ssh', '.gnupg', '.aws', '.kube', '.docker',
+})
+_FILE_LOG_DENY_SUFFIX = (
+    '.pem', '.key', '.p12', '.pfx', '.jks', '.keychain', '.keychain-db',
+)
+_FILE_LOG_DENY_BASENAME = frozenset({
+    '.env', '.netrc', '.pgpass', 'id_rsa', 'id_ecdsa', 'id_ed25519', 'id_dsa',
+    'credentials', 'credentials.json', 'authorized_keys',
+})
 
 
 def _file_log_path_allowed(path_str):
@@ -1619,9 +1639,22 @@ def _file_log_path_allowed(path_str):
         real = os.path.realpath(path_str)
     except (OSError, ValueError):
         return False
-    if real in _FILE_LOG_DENY_EXACT or _FILE_LOG_DENY_RE.match(real):
+    if real in _FILE_LOG_DENY_EXACT:
         return False
-    return not any(real.startswith(p) for p in _FILE_LOG_DENY_PREFIX)
+    if any(real.startswith(p) for p in _FILE_LOG_DENY_PREFIX):
+        return False
+    parts = real.split('/')
+    if any(seg in _FILE_LOG_DENY_SEGMENT for seg in parts):
+        return False
+    leaf = parts[-1] if parts else ''
+    if leaf in _FILE_LOG_DENY_BASENAME or leaf.endswith(_FILE_LOG_DENY_SUFFIX):
+        return False
+    # This agent's own data dir holds credentials.json — the device bearer token.
+    try:
+        base = os.path.realpath(_data_dir()).rstrip('/')
+    except (OSError, ValueError):
+        return True
+    return not (real == base or real.startswith(base + '/'))
 
 
 def collect_file_log(path_str, state):

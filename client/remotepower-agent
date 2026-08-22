@@ -154,12 +154,27 @@ def _require_signed_updates():
 
 # v4.11.0: audit / read-only mode. Touch /etc/remotepower/audit-mode and the
 # agent becomes OBSERVE-ONLY: it keeps collecting and reporting, and read-only
-# assessments (lynis / OpenSCAP / CVE — run on their own path) still run, but it
-# REFUSES every server command (exec/scripts, reboot/shutdown/suspend, compose/
-# container, netscan/speedtest, poll-interval, uninstall), host-config apply, and
-# self-update. The flag is a LOCAL file the operator owns, so a compromised or
-# hostile server can never clear it — the host cannot be modified through the
-# agent, by design.
+# assessments (lynis / OpenSCAP / CVE — run on their own path) still run.
+#
+# The flag is a LOCAL file the operator owns, so a compromised or hostile server
+# cannot clear it. What it covers is a LIST, not a guarantee — this comment used
+# to end "the host cannot be modified through the agent, by design", and at
+# v7.0.2 three of the nine channels that mutate host state were not checking it
+# at all. Enumerated, so the next channel added has somewhere to be counted:
+#
+#   1. server command          execute_command()          refused
+#   2. files: write/mkdir/delete   _handle_file_op()      refused
+#   3. files: upload           _handle_file_op()          refused (v7.0.2)
+#   4. custom scripts          run_custom_scripts()       refused
+#   5. host config apply       apply_host_config()        refused
+#   6. agent self-update       check_for_update()         refused
+#   7. canary planting         _plant_canaries()          refused
+#   8. check protect=quarantine  _eval_one_agent_check()  refused (v7.0.2)
+#   9. guard restore/delete    _apply_guard_actions()     refused (v7.0.2)
+#
+# A new channel that writes to the host, spawns a process, or moves a file
+# belongs on this list with its own _audit_mode() check — the flag is only worth
+# what the enumeration is.
 AUDIT_MODE_FILE = CONF_DIR / 'audit-mode'
 
 
@@ -914,6 +929,58 @@ def _safe_state_read_big(name: str, cap: int = 1_000_000) -> str | None:
     return None
 
 
+# ── Custom-check baselines: the stored record carries the SCOPE it came from ──
+#
+# Every baselining check type persists its state under a key derived from the
+# CHECK ID alone. An operator editing a live check's path or widening its glob
+# keeps that id — the server swaps `param` and nothing else — so the agent used
+# to diff the new scope against a baseline seeded somewhere else entirely. Every
+# file under the new path is then absent from the old map and reads as `added`.
+# For a dir_baseline with protect='quarantine' that means the agent moves the
+# operator's live tree into the vault as root, and the 25-file mass-change rail
+# does not fire on a small directory. Recording the scope alongside the payload
+# turns a scope edit into a re-seed, which is what the operator meant.
+
+
+def _check_state_key(prefix, cid):
+    return prefix + re.sub(r'[^A-Za-z0-9_.\-]', '', str(cid))[:64]
+
+
+def _check_baseline_load(prefix, cid, scope):
+    """(payload, reason) for a check's stored baseline.
+
+    `payload` is None when there is nothing usable and the caller must re-seed;
+    `reason` then says why, so the check can report the reset rather than a
+    fabricated diff. A record written before scopes were bound carries no scope
+    at all and cannot be told apart from one seeded elsewhere, so it re-seeds
+    once and carries its scope from then on.
+    """
+    raw = _safe_state_read_big(_check_state_key(prefix, cid))
+    if raw is None:
+        return None, 'no baseline'
+    try:
+        rec = json.loads(raw.strip())
+    except ValueError:
+        rec = None
+    if isinstance(rec, dict) and '_scope' in rec:
+        if str(rec.get('_scope')) != str(scope):
+            return None, 'scope changed'
+        return rec.get('v'), None
+    return None, 'baseline predates scope binding'
+
+
+def _check_baseline_save(prefix, cid, scope, payload):
+    _safe_state_write(_check_state_key(prefix, cid),
+                      json.dumps({'_scope': str(scope), 'v': payload}))
+
+
+def _baseline_note(why, detail=''):
+    """Status text for a (re)seed — name the reset instead of reporting 'ok'
+    as though the baseline had simply never existed."""
+    head = 'baseline set' if why == 'no baseline' else f'{why} — baseline reset'
+    return f'{head} ({detail})' if detail else head
+
+
 def _pids_for_sockets(inodes):
     """{socket inode: 'name(pid)'} for the sockets named — the process that owns
     each connection.
@@ -998,6 +1065,50 @@ _CHECKDIR_CHURN = (
 )
 
 
+def _strip_unsigned_protect(checks):
+    """Remove the ACTION half of every agent check, keeping detection.
+
+    Returns (checks, stripped_count). Called when require-signed-commands is set
+    and the agent_checks payload — which rides every heartbeat and is therefore
+    unsigned — carries protect='quarantine', a verb that moves files as root.
+    """
+    kept, stripped = [], 0
+    for c in checks or []:
+        if isinstance(c, dict) and c.get('protect'):
+            c = {k: v for k, v in c.items() if k != 'protect'}
+            stripped += 1
+        kept.append(c)
+    return kept, stripped
+
+
+def _guard_protected_path(p):
+    """Why `p` must never be relocated into the quarantine vault, or ''.
+
+    Unconditional rail, independent of who asked. The vault must not be able to
+    eat the agent's own trust anchors: a dir_baseline repointed at CONF_DIR
+    would move require-signed-commands, audit-mode, release.pub and the device
+    credentials into the vault as root — every gate the operator set, removed by
+    the mechanism those gates exist to bound, after which the next unsigned
+    command runs. STATE_DIR holds the vault itself plus the check baselines, and
+    the agent binary's directory holds the running binary. Files here are still
+    REPORTED when they change; they are only never moved.
+    """
+    try:
+        real = Path(os.path.realpath(str(p)))
+    except (OSError, ValueError):
+        return 'unresolvable path'
+    for root, label in ((CONF_DIR, 'agent config dir'),
+                        (STATE_DIR, 'agent state dir'),
+                        (AGENT_BINARY.parent, 'agent binary dir')):
+        try:
+            rroot = Path(os.path.realpath(str(root)))
+        except (OSError, ValueError):
+            continue
+        if real == rroot or rroot in real.parents:
+            return label
+    return ''
+
+
 def _guard_quarantine(paths, check_id):
     """Integrity Guard: move flagged files into the on-host quarantine vault
     (STATE_DIR/guard-quarantine, 0700). Files are PRESERVED (0600, forensics +
@@ -1012,6 +1123,12 @@ def _guard_quarantine(paths, check_id):
         return 0
     moved, ledger = 0, []
     for p in paths:
+        _why = _guard_protected_path(p)
+        if _why:
+            log.error('guard quarantine REFUSED %s: it is inside the %s, and '
+                      'the vault must never be able to remove the agent\'s own '
+                      'trust anchors, credentials or binary', p, _why)
+            continue
         try:
             if not Path(p).is_file():
                 continue
@@ -1072,6 +1189,29 @@ def _guard_sha(path, cap=1048576):
         return ''
 
 
+def _guard_note_error(qid, why):
+    """Record on the vault sidecar why the last action on this item did not
+    happen, so the refusal reaches the operator instead of only the journal.
+
+    The server hands out restore/delete as one-shot directives and clears them
+    on delivery, so a refusal that stays local is indistinguishable from the
+    button doing nothing.
+    """
+    meta = STATE_DIR / 'guard-quarantine' / (str(qid) + '.meta')
+    try:
+        with open(str(meta)) as mf:
+            e = json.load(mf)
+        if not isinstance(e, dict):
+            return
+        e['err'] = str(why)[:160]
+        e['err_ts'] = int(time.time())
+        with open(str(meta), 'w') as mf:
+            json.dump(e, mf)
+        os.chmod(str(meta), 0o600)
+    except (OSError, ValueError):
+        pass
+
+
 def _guard_ledger(limit=50):
     """What is actually IN the vault right now, newest first — this drives the
     server's Protect view and therefore what can be restored.
@@ -1093,8 +1233,11 @@ def _guard_ledger(limit=50):
         e = _guard_vault_entry(qid)
         if not e:
             continue
-        out.append({'id': str(e.get('id', qid))[:64], 'orig': str(e.get('orig', ''))[:512],
-                    'check': str(e.get('check', ''))[:64], 'ts': int(e.get('ts', 0) or 0)})
+        row = {'id': str(e.get('id', qid))[:64], 'orig': str(e.get('orig', ''))[:512],
+               'check': str(e.get('check', ''))[:64], 'ts': int(e.get('ts', 0) or 0)}
+        if e.get('err'):
+            row['err'] = str(e['err'])[:160]
+        out.append(row)
     out.sort(key=lambda x: x['ts'], reverse=True)
     return out[:limit]
 
@@ -1113,6 +1256,32 @@ def _apply_guard_actions(actions):
     the ledger. Read-only over anything but the vault + the origin path."""
     global _FORCE_CHECK_EVAL
     import shutil
+    # Audit (read-only) mode: restore writes a file back onto the host and
+    # delete removes one. Both are host mutations arriving over a
+    # server-controlled channel, so they belong with the other channels the flag
+    # refuses. 'rebaseline' only clears the agent's own stored baseline and is
+    # left alone — it changes nothing outside STATE_DIR.
+    if _audit_mode():
+        actions = [a for a in (actions or [])
+                   if isinstance(a, dict) and a.get('op') == 'rebaseline']
+        if not actions:
+            log.warning('Audit mode (read-only): refusing guard restore/delete')
+            return 0
+    # v7.0.2 (SECURITY): restore puts a file the agent judged hostile back onto
+    # the host. It is bounded to paths the agent itself vaulted, but it is still
+    # an unsigned server telling a root process to write, so it goes with the
+    # other mutating channels behind require-signed-commands. 'rebaseline' stays
+    # available — it touches only STATE_DIR, and refusing it would break the
+    # operator's only way to accept a legitimate change.
+    if _require_signed_commands():
+        _mutating = [a for a in (actions or [])
+                     if isinstance(a, dict) and a.get('op') in ('restore', 'delete')]
+        if _mutating:
+            log.error('REFUSED %d guard restore/delete action(s): '
+                      'require-signed-commands is set and guard actions are '
+                      'not signed.', len(_mutating))
+        actions = [a for a in (actions or [])
+                   if isinstance(a, dict) and a.get('op') not in ('restore', 'delete')]
     vault = STATE_DIR / 'guard-quarantine'
     handled = set()
     for a in actions:
@@ -1166,7 +1335,14 @@ def _apply_guard_actions(actions):
                     log.warning(f'guard restore {qid}: vault payload missing')
                 elif Path(orig).exists():
                     # Never clobber whatever now occupies the path — the operator
-                    # must clear it first. Say so instead of failing silently.
+                    # must clear it first. The server clears its one-shot
+                    # directive on delivery, so a log line the operator never
+                    # reads is the same as nothing happening at all: stamp the
+                    # reason onto the sidecar so it rides the next heartbeat's
+                    # vault ledger and the Protect view can show why the file is
+                    # still in the vault.
+                    _guard_note_error(qid, f'{orig} is occupied — clear it, '
+                                            'then restore again')
                     log.warning(f'guard restore {qid}: {orig} is occupied, refusing')
                 else:
                     Path(orig).parent.mkdir(parents=True, exist_ok=True)
@@ -1178,6 +1354,7 @@ def _apply_guard_actions(actions):
                     log.info(f'guard restore {qid}: put back at {orig}')
                     handled.add(qid)
         except OSError as ex:
+            _guard_note_error(qid, f'{op} failed: {ex.strerror or ex}')
             log.warning(f'guard action {op} {qid} failed: {ex}')
     # The .log stays APPEND-ONLY: it is the audit trail of what was ever taken,
     # not the restore index (the sidecars are). Removing the sidecar above is
@@ -4390,36 +4567,66 @@ def collect_apt_history(state_file):
 FILE_LOG_MAX_LINES = 200          # per poll, per file
 FILE_LOG_MAX_BYTES = 256 * 1024   # safety: don't read more than 256 KB per poll
 
-# v3.0.2: defense-in-depth deny list for server-pushed log_watch file
-# paths. By the threat model, an admin who pushes a malicious log_watch
-# rule could already run `exec: cat /etc/shadow` and get the contents
-# back the obvious way — so this is not a hard security boundary, just
-# a sanity barrier that catches obviously-wrong configurations and
-# (more usefully) raises the bar for a compromised-server-pivots-to-
-# silently-exfiltrate-creds attack. realpath() resolution defeats
-# symlink-bypass: a server-pushed rule with path=/tmp/innocent that's
-# a symlink to /etc/shadow gets rejected.
+# Deny list for server-pushed log_watch file paths.
+#
+# v3.0.2 argued this need not be strong, because "an admin who pushes a
+# malicious log_watch rule could already run `exec: cat /etc/shadow`". That
+# equivalence stopped holding in v6.3.1. require-signed-commands closes the
+# command channel against a server an attacker controls and leaves log_watch
+# wide open, so on exactly the host whose operator asked for the strongest
+# setting, a pushed rule became the ONE remaining way to read a file off the box
+# — and it exfiltrates continuously rather than once. Audit mode has the same
+# shape: it refuses every mutating channel and does not touch this read.
+#
+# It stays a deny list rather than becoming an allowlist because operators
+# legitimately watch application logs anywhere — /opt, /srv, /var/lib, a home
+# directory, a container bind mount — and an allowlist would have to be so wide
+# that it stopped meaning anything, while breaking working configurations. What
+# changed is the coverage: the classes that make exfiltration worth doing
+# (credentials, private keys, the agent's own trust anchors) are named, and the
+# match is on path SEGMENTS and basenames rather than a handful of prefixes, so
+# a .ssh directory anywhere is blocked, not only under /home and /root.
+#
+# realpath() first, so a rule pointing at /tmp/innocent that symlinks to
+# /etc/shadow is still refused.
 _FILE_LOG_DENY_EXACT = frozenset({
     '/etc/shadow', '/etc/gshadow', '/etc/sudoers',
     '/etc/shadow-', '/etc/gshadow-',
+    '/etc/krb5.keytab',
 })
 _FILE_LOG_DENY_PREFIX = (
     '/etc/sudoers.d/',
-    '/root/.ssh/',
-    '/home/',           # too broad on its own — refined below to only block .ssh
+    '/etc/ssl/private/',
+    '/etc/pki/',
     '/proc/',
     '/sys/',
     '/dev/',
 )
+# A path component anywhere in the resolved path. `.ssh` under any user's home,
+# any container root, any bind mount.
+_FILE_LOG_DENY_SEGMENT = frozenset({
+    '.ssh', '.gnupg', '.aws', '.kube', '.docker',
+})
+# Basenames that are credential material, never a log. Suffix match on the
+# resolved leaf; log files do not end in .pem or .key.
+_FILE_LOG_DENY_SUFFIX = (
+    '.pem', '.key', '.p12', '.pfx', '.jks', '.keytab', '.kdbx',
+)
+_FILE_LOG_DENY_BASENAME = frozenset({
+    '.env', '.netrc', '.pgpass', '.my.cnf', 'id_rsa', 'id_ecdsa',
+    'id_ed25519', 'id_dsa', 'credentials', 'authorized_keys',
+})
 
 
 def _file_log_path_allowed(path_str: str) -> bool:
     """Return True if the path is safe for log_watch to read.
 
-    Resolves symlinks so a benign-looking path that resolves to /etc/shadow
-    is still rejected. Blocks shadow/sudoers/SSH private keys + kernel/dev
-    interfaces. Allows the common log locations (/var/log, /opt/*, /srv/*,
-    /var/lib/*, ~/.local/share/, etc.).
+    Resolves symlinks so a benign-looking path that resolves to /etc/shadow is
+    still rejected. Blocks shadow/sudoers/keytabs, private-key and secret-file
+    shapes anywhere on disk, the agent's own config and state (device token,
+    release.pub, the require-signed-commands and audit-mode flags), and the
+    kernel/dev interfaces. Everything else — /var/log, /opt/*, /srv/*,
+    /var/lib/*, a home directory's app logs — is allowed.
     """
     try:
         # realpath dereferences symlinks. If the file doesn't exist yet,
@@ -4430,15 +4637,26 @@ def _file_log_path_allowed(path_str: str) -> bool:
         return False
     if real in _FILE_LOG_DENY_EXACT:
         return False
-    for pref in _FILE_LOG_DENY_PREFIX:
-        if pref == '/home/':
-            # Allow most of /home/, deny /home/*/.ssh/.
-            import re as _re
-            if _re.match(r'^/home/[^/]+/\.ssh/', real):
-                return False
-            continue
-        if real.startswith(pref):
+    if any(real.startswith(pref) for pref in _FILE_LOG_DENY_PREFIX):
+        return False
+    # The agent's own directories. CONF_DIR holds the device token and every
+    # local trust anchor; STATE_DIR holds the quarantine vault and the check
+    # baselines. A server that can make the agent tail its own credentials has
+    # been handed the device identity.
+    for root in (CONF_DIR, STATE_DIR):
+        rroot = str(root).rstrip('/') + '/'
+        if real == str(root).rstrip('/') or real.startswith(rroot):
             return False
+    parts = real.split('/')
+    if any(seg in _FILE_LOG_DENY_SEGMENT for seg in parts):
+        return False
+    leaf = parts[-1] if parts else ''
+    if leaf in _FILE_LOG_DENY_BASENAME or leaf.endswith(_FILE_LOG_DENY_SUFFIX):
+        return False
+    # SSH host private keys sit next to their .pub siblings in /etc/ssh.
+    if real.startswith('/etc/ssh/') and leaf.startswith('ssh_host_') \
+            and not leaf.endswith('.pub'):
+        return False
     return True
 
 
@@ -7436,11 +7654,11 @@ def _eval_one_agent_check(c):
                                 'it has been deleted or moved')
         except OSError:
             return 'unknown', 'read failed'
-        key = 'checkhash-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
-        prev = (_safe_state_read(key) or '').strip()
+        _stored, _why = _check_baseline_load('checkhash-', c.get('id', ''), param)
+        prev = str(_stored or '').strip()
         if not prev:
-            _safe_state_write(key, cur)
-            return 'ok', 'baseline set'
+            _check_baseline_save('checkhash-', c.get('id', ''), param, cur)
+            return 'ok', _baseline_note(_why)
         if prev == cur:
             return 'ok', f'unchanged ({cur[:12]})'
         return 'critical', (f'{param} changed since baseline (sha256 {prev[:8]}… '
@@ -7477,16 +7695,13 @@ def _eval_one_agent_check(c):
                     break
         except OSError:
             return 'unknown', 'scan failed'
-        key = 'checkdir-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
-        prevraw = _safe_state_read_big(key)
-        if prevraw is None:
+        _cid = c.get('id', '')
+        prev, _why = _check_baseline_load('checkdir-', _cid, param)
+        if not isinstance(prev, dict):
             seed = {k: f'{v}:{_guard_sha(k)}' for k, v in cur.items()}
-            _safe_state_write(key, json.dumps(seed))
-            return 'ok', f'baseline set ({n} files)'
-        try:
-            prev = json.loads(prevraw)
-        except ValueError:
-            prev = {}
+            _check_baseline_save('checkdir-', _cid, param, seed)
+            return 'ok', _baseline_note(_why or 'unreadable baseline',
+                                        f'{n} files')
         added = [k for k in cur if k not in prev]
         removed = [k for k in prev if k not in cur]
         # size:mtime is only a HINT. A rewrite with identical bytes (an installer
@@ -7515,10 +7730,15 @@ def _eval_one_agent_check(c):
         if refreshed:
             # Persist only the refreshed HINTS — a real content change never
             # rewrites the baseline, so the tripwire still latches.
-            _safe_state_write(key, json.dumps(prev))
-        quarantined, mass_change = 0, False
+            _check_baseline_save('checkdir-', _cid, param, prev)
+        quarantined, mass_change, protect_off = 0, False, ''
         if c.get('protect') == 'quarantine' and added:
-            if len(added) > _GUARD_MASS_CHANGE:
+            if _audit_mode():
+                # Audit (read-only) mode: moving a file off the host is a write,
+                # which is the whole class the flag exists to stop. Detection
+                # still runs and still reports; only the action is dropped.
+                protect_off = 'audit mode (read-only)'
+            elif len(added) > _GUARD_MASS_CHANGE:
                 # Rail: a burst of new files is a deploy/restore, not a dropped
                 # shell. Refuse to quarantine (never nuke a legitimate rollout)
                 # and report it loudly instead — a human decides.
@@ -7527,8 +7747,18 @@ def _eval_one_agent_check(c):
                 # Neutralise NEW files (never changed/removed ones). They move to
                 # the vault, so the baseline stays clean and the check recovers to
                 # OK next run — the threat is gone, not just logged.
-                quarantined = _guard_quarantine(added, c.get('id', ''))
-                added = []
+                #
+                # Anything inside the agent's own config/state/binary dirs is
+                # partitioned out here as well as refused inside
+                # _guard_quarantine, so it still appears in the report as a new
+                # file rather than vanishing from the count.
+                movable, protected = [], []
+                for _p in added:
+                    (protected if _guard_protected_path(_p) else movable).append(_p)
+                quarantined = _guard_quarantine(movable, c.get('id', ''))
+                added = protected
+                if protected:
+                    protect_off = 'agent-owned path, NOT quarantined'
         if not (added or removed or changed or quarantined):
             return 'ok', f'{n} files, unchanged'
 
@@ -7554,8 +7784,12 @@ def _eval_one_agent_check(c):
         if quarantined:
             counts.append(f'{quarantined} quarantined')
         if added:
-            counts.append(f'{len(added)} new ({_nm(added)})'
-                          + (' — mass change, NOT quarantined' if mass_change else ''))
+            _sfx = ''
+            if mass_change:
+                _sfx = ' — mass change, NOT quarantined'
+            elif protect_off:
+                _sfx = f' — {protect_off}'
+            counts.append(f'{len(added)} new ({_nm(added)}){_sfx}')
         if changed:
             counts.append(f'{len(changed)} changed ({_nm(changed)})')
         if removed:
@@ -7683,18 +7917,17 @@ def _eval_one_agent_check(c):
             net = str(ipaddress.ip_network(f'{ip}/{pfx}', strict=False))
             nets.add(net)
             who.setdefault(net, user)
-        key = 'checkauthsrc-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
-        prevraw = _safe_state_read_big(key)
-        if prevraw is None:
-            _safe_state_write(key, json.dumps(sorted(nets)))
-            return 'ok', f'baseline set ({len(nets)} source network(s))'
-        try:
-            known = set(json.loads(prevraw))
-        except ValueError:
-            known = set()
+        _cid = c.get('id', '')
+        _stored, _why = _check_baseline_load('checkauthsrc-', _cid, param)
+        if not isinstance(_stored, list):
+            _check_baseline_save('checkauthsrc-', _cid, param, sorted(nets))
+            return 'ok', _baseline_note(_why or 'unreadable baseline',
+                                        f'{len(nets)} source network(s)')
+        known = set(_stored)
         new = sorted(nets - known)
         if new:
-            _safe_state_write(key, json.dumps(sorted(known | nets)[:2000]))
+            _check_baseline_save('checkauthsrc-', _cid, param,
+                                 sorted(known | nets)[:2000])
             detail = ', '.join(f'{who.get(n, "?")}@{n}' for n in new[:3])
             return 'critical', f'{len(new)} new SSH source network(s): {detail}'[:200]
         return 'ok', f'{len(nets)} known source network(s) in {window}min'
@@ -7758,20 +7991,19 @@ def _eval_one_agent_check(c):
                 continue
             pfx = 24 if ipo.version == 4 else 64
             nets.add(str(ipaddress.ip_network(f'{ip}/{pfx}', strict=False)))
-        key = 'checkegress-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
-        prevraw = _safe_state_read_big(key)
-        if prevraw is None:
-            _safe_state_write(key, json.dumps(sorted(nets)))
-            return 'ok', f'baseline set ({len(nets)} network(s))'
-        try:
-            known = set(json.loads(prevraw))
-        except ValueError:
-            known = set()
+        _cid = c.get('id', '')
+        _stored, _why = _check_baseline_load('checkegress-', _cid, param)
+        if not isinstance(_stored, list):
+            _check_baseline_save('checkegress-', _cid, param, sorted(nets))
+            return 'ok', _baseline_note(_why or 'unreadable baseline',
+                                        f'{len(nets)} network(s)')
+        known = set(_stored)
         new = sorted(nets - known)
         if new:
             # Remember them, so each destination alerts exactly ONCE instead of
             # re-firing every poll for the rest of its life.
-            _safe_state_write(key, json.dumps(sorted(known | nets)[:2000]))
+            _check_baseline_save('checkegress-', _cid, param,
+                                 sorted(known | nets)[:2000])
             return 'critical', (f'{len(new)} new outbound destination(s): '
                                 + ', '.join(new[:3]))[:200]
         return 'ok', f'{len(nets)} known destination(s)'
@@ -9262,7 +9494,12 @@ def _handle_file_op(cmd):
         if not logical.startswith('/') or not _file_mgr_allowed(logical):
             return {'cmd': cmd, 'rc': 1,
                     'output': _json.dumps({'error': 'path is outside the allowlisted roots'})}
-        if op in ('write', 'mkdir', 'delete') and _audit_mode():
+        # `upload` writes a file exactly as `write` does; it was missing from
+        # this tuple while the Windows agent's twin already listed it, so an
+        # audit-mode host still accepted uploads. The `files:` ops are checked
+        # here because execute_command dispatches them BEFORE its own
+        # audit-mode refusal (reads must keep working in observe-only mode).
+        if op in ('write', 'mkdir', 'delete', 'upload') and _audit_mode():
             return {'cmd': cmd, 'rc': 126,
                     'output': _json.dumps({'error': 'agent is in audit (read-only) mode'})}
         fs = Path(host_path(logical))       # where it is actually readable
@@ -10774,6 +11011,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # journal and train the operator to ignore it.
     _warned_unsigned_scripts = False
     _warned_unsigned_hostcfg = False
+    _warned_unsigned_protect = False
     custom_scripts = []
     # v2.6.0: desired host config pushed by server; current state collected locally
     host_config_desired = None
@@ -11802,6 +12040,30 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if 'agent_checks' in resp:
                 new_ac = resp.get('agent_checks') or []
                 if isinstance(new_ac, list):
+                    # v7.0.2 (SECURITY): the fourth root-mutating channel, and
+                    # the one require-signed-commands never covered. Evaluation
+                    # is read-only, but a dir_baseline carrying
+                    # protect='quarantine' relocates absolute paths as root —
+                    # the same power as the command channel, arriving unsigned
+                    # on every poll.
+                    #
+                    # These payloads ride every heartbeat, so signing them has
+                    # the same cost problem as custom_scripts and is follow-up
+                    # work. Until then, strip the ACTION and keep the DETECTION:
+                    # the check still reports what appeared, it just cannot move
+                    # anything on an unsigned push. That is strictly better than
+                    # dropping the checks, which would blind the host.
+                    if _require_signed_commands():
+                        new_ac, _stripped = _strip_unsigned_protect(new_ac)
+                        if _stripped and not _warned_unsigned_protect:
+                            log.error(
+                                'STRIPPED protect=quarantine from %d agent '
+                                'check(s): require-signed-commands is set and '
+                                'check payloads are not signed. Quarantine '
+                                'moves files as root, so it is refused with the '
+                                'command channel rather than trusted alongside '
+                                'it; detection still runs.', _stripped)
+                            _warned_unsigned_protect = True
                     if [c.get('id') for c in new_ac] != [c.get('id') for c in agent_checks]:
                         log.info(f'Config updated: agent_checks = {len(new_ac)} check(s)')
                     agent_checks = new_ac
