@@ -330,8 +330,15 @@ format:
 # name to hide, because a typo'd helper in a branch that rarely runs never gets
 # executed. This very change introduced one (a py_function call with no import)
 # and F821 named it instantly.
+# ruff only picks up *.py when handed a DIRECTORY, so the extensionless Python
+# programs are named one by one -- ruff lints a file it is given by name
+# whatever its extension. client/remotepower-agent is left out on purpose: it is
+# byte-identical to client/remotepower-agent.py (test_agent_extensionless_
+# matches_py enforces that), so linting it twice only costs time.
 RUFF_F821_SRC := server/cgi-bin client server/flow server/syslog server/push \
-                 server/kmip tools mcp tests
+                 server/kmip tools mcp tests packaging server/webterm \
+                 packaging/remotepower-wg-apply server/remotepower-passwd \
+                 server/cgi-bin/remotepower-tls-check
 
 lint:
 	$(PY) -m isort --check-only $(LINT_SRC)

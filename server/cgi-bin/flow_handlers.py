@@ -454,7 +454,20 @@ def run_flow_export_check_if_due():
     every = _num('flow_export_check_seconds', 900)
     silence_s = _num('flow_export_silence_seconds', A._FLOW_SILENT_S)
     pending = []
+    # cheap cadence gate on a read-only copy (like the other run_*_if_due
+    # sweeps). Returning from inside the `with` still calls __exit__(None,
+    # None, None), which SAVES — so gating inside the lock rewrote the whole
+    # store on every request that was not due, i.e. ~all of them at a 900s
+    # interval, and on the DB backends took a write transaction that
+    # serialises against every heartbeat.
+    try:
+        if now - int((A._load_ro(A.FLOW_DEPS_FILE) or {}).get('export_last_run') or 0) < every:
+            return
+    except (TypeError, ValueError):
+        pass                              # unreadable timestamp: fall through and re-stamp
     with A._LockedUpdate(A.FLOW_DEPS_FILE) as store:
+        # re-check under the lock: a concurrent worker may have claimed the tick
+        # between the read above and here.
         if now - int(store.get('export_last_run') or 0) < every:
             return
         toks = [t for t in ((A.load(A.INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])

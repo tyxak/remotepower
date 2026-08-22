@@ -410,7 +410,9 @@ def post_audit(api_base: str, secret: str, payload: dict):
         req = urllib.request.Request(url, data=body, method='POST')
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Webterm-Secret', secret)
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        # nosec B310 — api_base's http(s) scheme is enforced in main() before
+        # the daemon starts; the path appended here is a literal.
+        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at start; fixed loopback base from the unit
             resp.read()
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
         # Audit log delivery isn't critical-path. Log and move on.
@@ -1001,6 +1003,16 @@ def main():
                    help='Path to webterm_tickets.json (default: <data-dir>/webterm_tickets.json)')
     p.add_argument('--verbose', '-v', action='count', default=0)
     args = p.parse_args()
+
+    # The three sibling sidecars (flowd, kmipd, syslogd) each enforce the scheme
+    # of their systemd-supplied base URL; this one did not. urllib honours
+    # file://, so a base set to one would turn the audit POST into a local file
+    # read. A comment is not a control.
+    if not str(args.api_base).startswith(('http://', 'https://')):
+        raise SystemExit(
+            f'--api-base / WEBTERM_API_BASE must be an http(s) URL, got '
+            f'{args.api_base!r} — refusing to start rather than hand a '
+            'non-HTTP scheme to urlopen()')
 
     level = logging.WARNING
     if args.verbose >= 1:

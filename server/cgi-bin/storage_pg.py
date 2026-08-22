@@ -41,7 +41,7 @@ import storage
 from storage import (
     WRAPPED_LIST_FILES, DEVICES_FILE_NAME, _NON_STATE,
     _classify, _name, _dir, _dumps,
-    json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
+    json_inventory, _read_json, _write_json_atomic,
 )
 
 SCHEMA_VERSION = 10  # v7.0.2: log_watch.json cold-blob -> entity rows (storage._COLD_TO_ENTITY_V9);

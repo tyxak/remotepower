@@ -922,6 +922,42 @@ def _subject_matches(value, who, email):
     return v == who or (bool(email) and v == email)
 
 
+def _subject_avatar_files(who):
+    """The avatar files belonging to `who`, and only those.
+
+    `who` arrives from the query string / request body, and `_sanitize_str`
+    only trims and truncates — separators, dots and glob metacharacters all
+    survive. Handed straight to `Path.glob(f'{who}.*')` it was read as a
+    PATTERN, not a name, and both endpoints acted on the result:
+
+      * `who=*` matched every avatar in the directory, and the erase handler
+        unlinked all of them while reporting ["avatar", "avatar", "avatar"] —
+        one erasure request wiping the whole fleet's profile pictures;
+      * `who=../keep-me` matched a file one directory up and unlinked that;
+      * `who=/etc/passwd` raised NotImplementedError ("Non-relative patterns
+        are unsupported") out of the read-only Article 15 report, which the
+        caller's `except OSError` does not catch — a 500 an auditor could
+        trigger.
+
+    The writer already had the rule: `_avatar_path()` folds a username through
+    `[^A-Za-z0-9._-] -> _` before storing. The readers now use the same rule,
+    so they look exactly where the writer wrote and nowhere else.
+
+    Returns (files, error) — never raises, because a listing failure must be
+    reported in the subject-access report rather than sink it.
+    """
+    who = str(who or '').strip()
+    if not who or not A.AVATARS_DIR:
+        return [], ''
+    stem = A.re.sub(r'[^A-Za-z0-9._-]', '_', who)[:64]
+    if not stem or stem.strip('.') == '':
+        return [], ''            # '.', '..' and friends name no account
+    try:
+        return [f for f in A.AVATARS_DIR.glob(f'{stem}.*') if f.is_file()], ''
+    except OSError as e:
+        return [], str(e)[:80]
+
+
 def _subject_scan(who, email=''):
     """Every place this instance names a person. Read-only.
 
@@ -941,19 +977,18 @@ def _subject_scan(who, email=''):
     for u, rec in users.items():
         if u.lower() == who or (email and str((rec or {}).get('email', '')).lower() == email):
             add('users.json', 'account', u, f"role={rec.get('role', '?')}", True)
-    if A.AVATARS_DIR and who:
-        try:
-            for f in A.AVATARS_DIR.glob(f'{who}.*'):
-                add('avatars/', 'avatar', f.name, 'profile image', True)
-        except OSError as e:
-            # An unreadable avatar directory must not sink the whole report —
-            # but it must not be silent either. A subject-access report that
-            # under-reports because a directory listing failed is exactly the
-            # kind of quiet incompleteness this endpoint exists to prevent, so
-            # say so in the report rather than only in the log.
-            A.sys.stderr.write(f'[remotepower] avatar scan failed: {e}\n')
-            add('avatars/', 'avatar', '(unreadable)',
-                f'could not list the avatar directory: {str(e)[:80]}', False)
+    avatars, avatar_err = _subject_avatar_files(who)
+    for f in avatars:
+        add('avatars/', 'avatar', f.name, 'profile image', True)
+    if avatar_err:
+        # An unreadable avatar directory must not sink the whole report —
+        # but it must not be silent either. A subject-access report that
+        # under-reports because a directory listing failed is exactly the
+        # kind of quiet incompleteness this endpoint exists to prevent, so
+        # say so in the report rather than only in the log.
+        A.sys.stderr.write(f'[remotepower] avatar scan failed: {avatar_err}\n')
+        add('avatars/', 'avatar', '(unreadable)',
+            f'could not list the avatar directory: {avatar_err}', False)
     toks = A.load(A.TOKENS_FILE) or {}
     n_tok = sum(1 for t in (toks.values() if isinstance(toks, dict) else [])
                 if isinstance(t, dict) and str(t.get('user', '')).lower() == who)
@@ -1067,12 +1102,22 @@ def handle_privacy_erase():
             store.pop(target, None)
         erased.append('account')
 
-    try:
-        for f in (A.AVATARS_DIR.glob(f'{low}.*') if A.AVATARS_DIR else []):
+    avatars, avatar_err = _subject_avatar_files(low)
+    if avatar_err:                                          # pragma: no cover
+        A.sys.stderr.write(f'[remotepower] avatar scan failed: {avatar_err}\n')
+    n_avatars = 0
+    for f in avatars:
+        try:
             f.unlink()
-            erased.append('avatar')
-    except Exception as e:                                  # pragma: no cover
-        A.sys.stderr.write(f'[remotepower] avatar unlink failed: {e}\n')
+        except OSError as e:                                # pragma: no cover
+            A.sys.stderr.write(f'[remotepower] avatar unlink failed: {e}\n')
+        else:
+            n_avatars += 1
+    if n_avatars:
+        # One line, not one per file: the old loop appended 'avatar' per unlink,
+        # so a pattern that matched three files reported ['avatar','avatar',
+        # 'avatar'] — a count reads as what it is.
+        erased.append('avatar' if n_avatars == 1 else f'{n_avatars} avatars')
 
     try:
         with A._LockedUpdate(A.TOKENS_FILE) as store:
