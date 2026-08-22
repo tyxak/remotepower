@@ -384,3 +384,124 @@ async function runOneTimeInstall() {
   } else toast(r?.error || 'Failed to queue install', 'error');
 }
 
+
+// ── v7.0.2: GDPR Article 15 / 17 — the operator surface ─────────────────────
+//
+// GET /api/privacy/subject and POST /api/privacy/erase have been implemented,
+// scoped and audited since v6.4.x with no UI of any kind, while features.md
+// sells subject-access and erasure as a headline capability. The compliance
+// officer who actually receives a DSAR had no way to run either.
+//
+// Two things this card does that a thinner one would not:
+//   * it shows the RETAINED rows as prominently as the erasable ones. The
+//     hash-chained audit log is retained on purpose — rewriting an entry would
+//     destroy the tamper-evidence that makes it evidence — and a report that
+//     listed only deletions would misdescribe what the instance holds.
+//   * it echoes the server's own notes rather than paraphrasing them, so the
+//     wording an operator forwards to a data subject is the wording the
+//     endpoint stands behind.
+//
+// api() RESOLVES on 400/403/404, so every outcome is read off the resolved
+// body. A .catch would only ever see a network failure.
+
+let _privacyReport = null;
+
+function _privacyDisposition(r) {
+  return r.erasable
+    ? `<span class="chk-pill chk-warning">${escHtml('Erasable')}</span>`
+    : `<span class="chk-pill chk-ok" title="${escAttr(
+        'Retained as an evidential or business record — see the notes above')
+      }">${escHtml('Retained')}</span>`;
+}
+
+function _renderPrivacySubject() {
+  const body = document.getElementById('privacy-subject-body');
+  const wrap = document.getElementById('privacy-result-wrap');
+  const sum = document.getElementById('privacy-summary');
+  const notes = document.getElementById('privacy-notes');
+  if (!body || !wrap) return;
+  const r = _privacyReport;
+  if (!r) { wrap.classList.add('d-none'); return; }
+  wrap.classList.remove('d-none');
+  const rows = r.records || [];
+  if (sum) sum.textContent = `${rows.length} record(s) · ${r.erasable || 0} erasable · ${r.retained || 0} retained`;
+  if (notes) {
+    // The server's notes, not a paraphrase — this is the text an operator will
+    // forward, and it is the endpoint that has to stand behind it.
+    notes.innerHTML = (r.notes || []).map(n => `<div class="hint">• ${escHtml(String(n))}</div>`).join('');
+  }
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="5" class="hint">${escHtml(
+      'No record on this instance names that person.')}</td></tr>`;
+    return;
+  }
+  const sorted = tableCtl.sortRows('privacySubject', rows, x => ({
+    kind: x.kind || '', store: x.store || '', ref: x.ref || '',
+    detail: x.detail || '', disposition: x.erasable ? 0 : 1,
+  }));
+  body.innerHTML = sorted.map(x => `<tr>
+    <td>${escHtml(x.kind || '')}</td>
+    <td><code>${escHtml(x.store || '')}</code></td>
+    <td>${escHtml(x.ref || '')}</td>
+    <td class="fs-12">${escHtml(x.detail || '')}</td>
+    <td>${_privacyDisposition(x)}</td>
+  </tr>`).join('');
+}
+
+async function runPrivacySubjectReport() {
+  const who = (document.getElementById('privacy-who')?.value || '').trim();
+  const email = (document.getElementById('privacy-email')?.value || '').trim();
+  if (!who && !email) {
+    toast('Enter a username, display name or email', 'error', { transient: true });
+    return;
+  }
+  // Wired before the fetch so the ↕ indicators are there from the first render,
+  // per the eager-wire-up rule.
+  tableCtl.wireSortOnly('privacy-subject-head', 'privacySubject', _renderPrivacySubject);
+  const qs = `?who=${encodeURIComponent(who)}&email=${encodeURIComponent(email)}`;
+  const r = await api('GET', `/privacy/subject${qs}`);
+  if (!r || !r.records) {
+    toast((r && r.error) || 'Could not run the report', 'error');
+    return;
+  }
+  _privacyReport = r;
+  _renderPrivacySubject();
+}
+
+async function erasePrivacySubject() {
+  const r = _privacyReport;
+  if (!r) { toast('Run the report first', 'info', { transient: true }); return; }
+  const who = (r.subject || {}).who || '';
+  if (!who) {
+    // The endpoint erases by username. An email-only report identifies records
+    // but gives it nothing to key the erasure on, so say that instead of
+    // sending a request that will 400.
+    toast('Erasure needs the username — run the report with it filled in', 'error');
+    return;
+  }
+  const typed = await uiPrompt({
+    title: 'Erase subject data',
+    message: `This removes the account, its avatar, its sessions and its contact record. `
+           + `${r.retained || 0} record(s) are retained as evidence and are not touched. `
+           + `Type "${who}" to confirm.`,
+    placeholder: who, confirmText: 'Erase', danger: true,
+  });
+  if (typed == null) return;
+  if (typed !== who) { toast('That did not match the subject', 'error'); return; }
+  // The server takes the typed confirmation itself — this is not a client-side
+  // gate dressed up as one. withStepUp is here because erasure is exactly the
+  // shape of action step-up exists for; it is a no-op until the handler asks.
+  const res = await withStepUp(() => api('POST', '/privacy/erase',
+    { who, confirm: typed, email: (r.subject || {}).email || '' }));
+  if (!res || !res.ok) {
+    if (res && res.code === 'step_up_required') return;
+    toast((res && res.error) || 'Erasure failed', 'error');
+    return;
+  }
+  const did = (res.erased || []).join(', ') || 'nothing';
+  toast(`Erased: ${did}`, 'success');
+  // Re-run the report so what remains is on screen. An operator closing the
+  // card on the pre-erasure list would be reading a stale answer to the one
+  // question a DSAR reply has to get right.
+  runPrivacySubjectReport();
+}

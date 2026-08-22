@@ -2304,6 +2304,11 @@ if (document.readyState === 'loading') {
 // intentionally left alone here.)
 function _stopPagePollers() {
   try { if (typeof logsState !== 'undefined' && logsState && logsState.timer) { clearInterval(logsState.timer); logsState.timer = null; } } catch (_) {}
+  // The alert wall's 1 Hz age stamp is page-scoped too. enterAlertWall calls
+  // showPage BEFORE starting it, so clearing it here cannot cancel the one we
+  // are about to start — and any other route out of the wall leaves nothing
+  // running.
+  try { _stopAlertWallStamp(); } catch (_) {}
 }
 
 // v6.0.0 "ClarityMatters": topbar breadcrumb — "Group › Page" from the active
@@ -2456,10 +2461,47 @@ function enterAlertWall() {
   catch (_) { /* needs a user gesture; the layout still applies without it */ }
   // No explicit reload: showPage('alerts') already calls loadAlerts(), and
   // calling it again here fetched the inbox twice on every open.
+  //
+  // The inbox itself is kept current by PAGE_REFRESHERS on the ordinary refresh
+  // tick, which is why there is no reload timer here. What the wall needs on top
+  // of that is a visible age: the wall hides the countdown bar, so a display
+  // whose session has expired or whose tab has been suspended looks exactly like
+  // a fleet with nothing wrong. The stamp is the difference.
+  _startAlertWallStamp();
+}
+
+// A wall stamp reading "Updated 4s ago", turning red once the inbox is more than
+// three refresh periods old. 1 Hz because it counts seconds; it does no I/O.
+let _alertWallStampTimer = null;
+
+function _paintAlertWallStamp() {
+  const el = document.getElementById('alertwall-stamp');
+  if (!el) return;
+  const last = _lastPageRefresh['alerts'] || 0;
+  if (!last) { el.textContent = ''; el.classList.remove('stale'); return; }
+  const age = Math.max(0, Math.round((Date.now() - last) / 1000));
+  el.textContent = `Updated ${age}s ago`;
+  const every = (PAGE_REFRESHERS.alerts || {}).every || 60;
+  el.classList.toggle('stale', age > every * 3);
+}
+
+function _startAlertWallStamp() {
+  clearInterval(_alertWallStampTimer);
+  // showPage → loadAlerts happened outside the refresher, so seed the clock or
+  // the stamp reads blank until the first tick lands a minute later.
+  _lastPageRefresh['alerts'] = Date.now();
+  _paintAlertWallStamp();
+  _alertWallStampTimer = setInterval(_paintAlertWallStamp, 1000);
+}
+
+function _stopAlertWallStamp() {
+  clearInterval(_alertWallStampTimer);
+  _alertWallStampTimer = null;
 }
 
 function exitAlertWall() {
   document.body.classList.remove('alertwall');
+  _stopAlertWallStamp();
   try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }
   catch (_) {}
 }
@@ -2470,6 +2512,7 @@ function exitAlertWall() {
 document.addEventListener('fullscreenchange', () => {
   if (!document.fullscreenElement && document.body.classList.contains('alertwall')) {
     document.body.classList.remove('alertwall');
+    _stopAlertWallStamp();
   }
 });
 
@@ -6073,6 +6116,62 @@ function _refreshShouldPause() {
   if (document.querySelector('.device-dropdown.active')) return true;
   return false;
 }
+// v7.0.2: the periodic tick used to refresh exactly two pages — the device
+// grid (always, whether visible or not) and the dashboard. Every other page was
+// a snapshot frozen at the moment it was opened, while the topbar countdown bar
+// kept ticking beside it and implied otherwise. On the alerting and health
+// surfaces that is a correctness problem, not a cosmetic one: an operator
+// watching the Alerts page never sees a new alert arrive.
+//
+// So the tick now also refreshes whichever page is showing, for the handful of
+// pages where staleness misleads. NOT all 83 — a Settings pane or a form redrawn
+// under the operator's hand is a worse bug than a stale one, so configuration,
+// editor and wizard pages are left alone on purpose.
+//
+// `fn` is a NAME, not a reference: most of these loaders live in lazily-fetched
+// page modules that are not defined at boot. The page cannot be active until
+// showPage has awaited its module, so by the time a refresher is due the global
+// exists — and the typeof guard means a renamed or missing loader skips quietly
+// rather than throwing inside the interval and killing the countdown.
+//
+// `every` is a floor in seconds, so a page can poll slower than the 60s tick
+// without needing a timer of its own. Nothing needs to poll faster: the tick IS
+// the product's refresh cadence and a second mechanism would be a second thing
+// to leak.
+const PAGE_REFRESHERS = {
+  alerts:    { fn: 'loadAlerts',        every: 60 },
+  checks:    { fn: 'loadChecks',        every: 60 },
+  attention: { fn: 'loadAttentionPage', every: 60 },
+  board:     { fn: 'loadBoard',         every: 60 },
+  // The CVE and exposure reports read a stored scan result rather than
+  // re-scanning, but they are fleet-wide aggregates — five minutes is well
+  // inside the useful life of a scan that runs daily.
+  cve:       { fn: 'loadCVEReport',     every: 300 },
+  exposure:  { fn: 'loadExposure',      every: 300 },
+};
+const _lastPageRefresh = {};
+
+// Refresh the page the operator is actually looking at. Keyed off the DOM's
+// .page.active rather than a variable, for the same reason the kiosk rotation
+// is — that element is the one authority on which page is showing.
+//
+// There is no per-page timer to tear down: leaving the page stops its refresher
+// because the lookup simply stops matching. That is the point of hanging this
+// off the one existing tick instead of starting an interval per page.
+function _refreshActivePage() {
+  const active = document.querySelector('.page.active');
+  if (!active) return;
+  const name = String(active.id || '').replace(/^page-/, '');
+  const spec = PAGE_REFRESHERS[name];
+  if (!spec) return;
+  const now = Date.now();
+  if (now - (_lastPageRefresh[name] || 0) < spec.every * 1000) return;
+  const fn = window[spec.fn];
+  if (typeof fn !== 'function') return;
+  _lastPageRefresh[name] = now;
+  try { fn(); } catch (_) { /* a broken loader must not kill the countdown */ }
+}
+
 function startRefreshCycle() {
   clearInterval(refreshTimer);
   const bar   = document.getElementById('refresh-progress');
@@ -6103,6 +6202,7 @@ function startRefreshCycle() {
         if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
       } catch (e) {}
       try { _refreshTopBadges(); } catch (e) {}
+      try { _refreshActivePage(); } catch (e) {}
     }
     paint();
   }, 1000);
@@ -6126,6 +6226,10 @@ if (typeof document !== 'undefined' && !window.__rpVisibilityWired) {
     try {
       if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
     } catch (e) {}
+    // Coming back to the foreground: freshen the visible page too, or a wall
+    // display that was behind a screensaver shows the fleet as it was an hour
+    // ago until the next tick lands.
+    try { _refreshActivePage(); } catch (e) {}
   });
 }
 // v2.2.6: opening a modal also closes the mobile nav drawer (two
@@ -10994,7 +11098,7 @@ async function loadTotpStatus() { const data = await api('GET', '/totp/status');
 function _showRecoveryCodes(codes) {
   const setupEl = document.getElementById('totp-setup-area');
   const grid = codes.map(c => `<code class="recovery-code">${escHtml(c)}</code>`).join(' ');
-  setupEl.innerHTML = `<div class="dash-card"><div class="fw-600 mb-6">Recovery codes</div><div class="hint mb-12">Each code works once if you lose your authenticator. Store them somewhere safe — they will not be shown again.</div><div class="row-6 flex-wrap mb-12">${grid}</div><button class="btn-secondary" data-action="loadTotpStatus">Done</button></div>`;
+  setupEl.innerHTML = `<div class="dash-card"><div class="section-title mb-6">Recovery codes</div><div class="hint mb-12">Each code works once if you lose your authenticator. Store them somewhere safe — they will not be shown again.</div><div class="row-6 flex-wrap mb-12">${grid}</div><button class="btn-secondary" data-action="loadTotpStatus">Done</button></div>`;
 }
 async function regenerateRecoveryCodes() {
   const pw = await uiPrompt({title: 'Regenerate recovery codes', message: 'Enter your password. This invalidates your existing codes.', type: 'password', confirmText: 'Regenerate'});
@@ -13060,7 +13164,7 @@ async function genSelfSignedCert() {
   const fp = escHtml(r.fingerprint || '');
   box.innerHTML = `
     <div class="table-card card-padded">
-      <div class="form-label mb-6">CA SHA-256 fingerprint — pin this on agents</div>
+      <div class="section-title mb-6">CA SHA-256 fingerprint — pin this on agents</div>
       <code class="ff-mono">${fp}</code>
       <div class="form-label mb-6 mt-12">Files written</div>
       <div class="ff-mono fs-12">${escHtml(r.ca_crt)}<br>${escHtml(r.server_crt)}<br>${escHtml(r.server_key)}</div>
@@ -14291,6 +14395,29 @@ function _dnsControlRow(item, dnsCtl) {
     } catch (e) { paint(null); }
   };
 
+  // v7.0.2: this probe is a live outbound call to the operator's DNS appliance,
+  // issued once per configured blocker while the Integrations page renders. An
+  // unreachable or mis-credentialed appliance maps to a 502, so the page logged
+  // a browser-level resource error on every visit and the operator learned
+  // nothing they did not already know — the tile beside it already says
+  // critical, from the background poll.
+  //
+  // So: when the last poll marked the instance down, do not probe on render.
+  // Say what the poll found and offer the probe as a click. The state is the
+  // same either way; what changes is that looking at the page no longer costs
+  // an outbound request per blocker.
+  const lastPollDown = String(item.status || '') === 'critical';
+  const checkNow = document.createElement('button');
+  checkNow.className = 'btn-icon';
+  checkNow.textContent = 'Check now';
+  checkNow.title = 'Ask the blocker directly. Skipped on load because the last '
+                 + 'poll could not reach it.';
+  checkNow.addEventListener('click', () => {
+    state.textContent = '…';
+    checkNow.classList.add('hidden');
+    refresh();
+  });
+
   const set = async (enabled) => {
     const seconds = Number(sel.value) || 300;
     if (!enabled && typeof uiConfirm === 'function') {
@@ -14317,7 +14444,15 @@ function _dnsControlRow(item, dnsCtl) {
   off.addEventListener('click', () => set(false));
   on.addEventListener('click', () => set(true));
   row.appendChild(sel); row.appendChild(off); row.appendChild(on);
-  refresh();
+  row.appendChild(checkNow);
+  if (lastPollDown) {
+    state.className = 'patch-badge warn';
+    state.textContent = 'Unreachable at the last poll';
+    off.classList.add('hidden'); on.classList.add('hidden'); sel.classList.add('hidden');
+  } else {
+    checkNow.classList.add('hidden');
+    refresh();
+  }
   return row;
 }
 
@@ -27975,7 +28110,7 @@ async function loadPii() {
        </tr>`).join('');
     return `<div class="settings-section mb-12">
       <div class="row-8-center mb-8">
-        <div class="fw-600">${escHtml(h.name)}</div>
+        <div class="section-title">${escHtml(h.name)}</div>
         <span class="fs-11 c-muted">${Number(h.files || 0).toLocaleString(_localeTag())} file(s)</span>
         ${chips}
       </div>

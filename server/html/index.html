@@ -1168,6 +1168,7 @@
         <!-- v2.6.0: Custom monitoring scripts section -->
         <div id="section-scripts" class="section-header">
           <div class="row-8-center">
+            <div class="section-title">Custom Scripts</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
               <input type="text" id="cs-filter" class="form-input isl-15" placeholder="Filter…" data-input="renderCustomScriptsPage" data-input-debounce="180" aria-label="Filter">
@@ -2606,7 +2607,7 @@
               <input type="file" id="declarative-import-file" accept="application/json,.json" class="form-input" aria-label="Config-as-code JSON file to import">
               <button class="btn-icon" data-action="previewDeclarativeImport" type="button">Preview changes</button>
             </div>
-            <div id="declarative-import-result" class="hint mt-6" role="status" aria-live="polite"></div>
+            <div id="declarative-import-result" class="hint mt-6 scroll-cap" role="status" aria-live="polite"></div>
             <p class="hint">Import previews the changes first (a per-collection add/change/remove count) — nothing is written until you confirm Apply. Redacted secrets are kept from the current config by id; webhook destinations are re-entered manually.</p>
           </div>
 
@@ -5206,7 +5207,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p>Every command run via RemotePower, with actor (which user), target device, command, exit code, output preview, timestamp.</p>
               <p>Used together with the Audit log (which covers admin actions like creating users, changing settings) to reconstruct what happened during an incident.</p>
-              <p>Rolling buffer of last 200 commands. For longer-term retention, configure log forwarding to your central logging system.</p>
+              <p>Rolling buffer, 200 commands by default. Raise it up to 20,000 under <strong>Settings &rarr; Alert parameters</strong> (<code>command_history_max</code>); rows past the cap are archived rather than dropped. <a href="docs/data-retention.md" class="c-accent">Documentation</a></p>
             </div>
           </details>
 
@@ -5810,7 +5811,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="ai-insights-wrap" class="dash-card mt-16 d-none">
           <div class="section-title">AI Insights</div>
           <div class="page-subtitle">One-click AI reports and advisors over your fleet state — each runs against the configured provider with RAG context attached. <a href="docs/ai.md" class="c-accent">Documentation</a>.</div>
-          <div id="ai-insights-grid"></div>
+          <div id="ai-insights-grid" class="scroll-cap-lg"></div>
         </div>
 
         <!-- Chat — v5.0.0: boxed as its own card. -->
@@ -5902,6 +5903,52 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="hint">Where your regulated data actually lives. Agents report which files contain emails, card numbers (Luhn-checked), national IDs, IBANs or phone numbers — <strong>by kind and count only</strong>. The values themselves are never sent, stored, or hashed: hashing does not anonymise a national ID, since there are few enough possible values to reverse one. Enable it under Settings → Security.</div>
           <div id="pii-body" class="scroll-cap"></div>
+        </div>
+
+        <!-- v7.0.2: GDPR Article 15 / 17. Both endpoints have existed and been
+             audited since v6.4.x with no surface at all — GET /api/privacy/subject
+             (admin or auditor) enumerates every record naming a person and marks
+             each erasable or retained, and POST /api/privacy/erase (admin) takes
+             the account, avatar, sessions and contact record behind a typed
+             confirmation. features.md sells this as a headline capability, so the
+             person who actually handles a DSAR had no way to run it.
+
+             The RETAINED column is the half that protects the operator: the
+             hash-chained audit log, ticket authorship and time entries are kept
+             as evidential and business records, and a report that only listed
+             what was deleted would misdescribe what happened. -->
+        <div class="settings-section mt-16" id="privacy-card">
+          <div class="row-8-center mb-8">
+            <div class="section-title">Data subject requests</div>
+            <span id="privacy-summary" class="ro-badge"></span>
+          </div>
+          <div class="hint">GDPR Article 15 (access) and Article 17 (erasure). Enter the person's username, display name or email and run the report: it lists every record on this instance that names them, and says which can be erased and which are retained as evidence. Erasure is admin-only, audited, and takes the account, its avatar, its sessions and its contact record — nothing else. <a href="docs/compliance.md" class="c-accent">Documentation</a></div>
+          <div class="row-8-center mt-8 mb-8">
+            <label class="form-label" for="privacy-who">Subject</label>
+            <input type="text" id="privacy-who" class="form-input input-auto" placeholder="Username or display name" aria-label="Username or display name" autocomplete="off">
+            <label class="form-label" for="privacy-email">Email</label>
+            <input type="text" id="privacy-email" class="form-input input-auto" placeholder="optional, matched as well" aria-label="Email address" autocomplete="off">
+            <button class="btn-primary" data-action="runPrivacySubjectReport">Run subject-access report</button>
+          </div>
+          <div id="privacy-notes" class="mb-8"></div>
+          <div id="privacy-result-wrap" class="d-none">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="privacy-subject-head"><tr>
+                  <th scope="col" data-col="kind">Record</th>
+                  <th scope="col" data-col="store">Store</th>
+                  <th scope="col" data-col="ref">Reference</th>
+                  <th scope="col" data-col="detail">Detail</th>
+                  <th scope="col" data-col="disposition">Disposition</th>
+                </tr></thead>
+                <tbody id="privacy-subject-body"></tbody>
+              </table>
+            </div>
+            <div class="row-8-center mt-8">
+              <button class="btn-secondary c-danger-outline" data-action="erasePrivacySubject">Erase what can be erased</button>
+              <span class="hint">Admin only. You will be asked to type the subject exactly, which is the server's own contract — it refuses the request otherwise.</span>
+            </div>
+          </div>
         </div>
 
         <!-- v3.4.2: CIS-style configuration baseline -->
@@ -6443,7 +6490,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <select id="qe-sort" class="form-input mw-160" aria-label="Sort by"></select>
             <select id="qe-sort-dir" class="form-input mw-100" aria-label="Sort direction"><option value="">asc</option><option value="1">desc</option></select>
           </div>
-          <div id="qe-conditions"></div>
+          <div id="qe-conditions" class="scroll-cap"></div>
           <div class="settings-row mt-8">
             <button class="btn-primary" data-action="qeRun">Run query</button>
             <input type="text" id="qe-template-name" class="form-input mw-220" placeholder="Template name (optional)" aria-label="Template name">
@@ -7651,6 +7698,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-autonomy" class="page">
         <div class="page-title">Autonomy</div>
         <div class="page-subtitle">Every decision the remediation loop reached, and why. In <strong>shadow</strong> it changes nothing — the receipts are there so you can grade it before granting it anything. <a href="docs/autonomy.md" class="c-accent">Documentation</a></div>
+
+        <!-- v7.0.2: the blast-radius pre-flight. POST /api/autonomy/preview has
+             existed since v7.0.0 and had no surface at all, though its own
+             docstring names the human use case: "what breaks if I reboot this
+             host?" is worth answering before a person does it by hand, whether
+             or not the loop is ever switched on. Reads only — it computes the
+             radius and compares it with the tenant's policy limit; it queues
+             nothing. -->
+        <div class="dash-card">
+          <div class="section-title">Blast radius pre-flight</div>
+          <p class="hint">What goes dark if this host is acted on — monitors, containers, watched services and network neighbours, discounted where the host is one of several doing the same job. Nothing is queued or changed. <a href="docs/autonomy.md" class="c-accent">Documentation</a></p>
+          <div class="settings-row">
+            <label class="form-label" for="autonomy-preview-device">Host</label>
+            <select id="autonomy-preview-device" class="form-input device-combo mw-200" aria-label="Host to preview"></select>
+            <label class="form-label" for="autonomy-preview-action">Action</label>
+            <select id="autonomy-preview-action" class="form-input mw-200" aria-label="Action to preview"></select>
+            <button class="btn-secondary" data-action="previewAutonomyBlastRadius">Preview blast radius</button>
+          </div>
+          <div id="autonomy-preview-result" class="mt-8 scroll-cap" role="status" aria-live="polite"></div>
+        </div>
 
         <div class="dash-card">
           <div class="section-title">Why it decided that</div>
@@ -8958,6 +9025,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="alertwall-exit">
   <button class="btn-secondary" data-action="exitAlertWall" title="Leave full screen (Esc)">Exit full screen</button>
 </div>
+
+<!-- v7.0.2: how old the wall's data is. Wall mode hides the refresh countdown,
+     so without this a display whose session has expired is indistinguishable
+     from a fleet with nothing wrong. Filled by _paintAlertWallStamp; empty in
+     markup so there is no untranslated static string here. -->
+<div class="alertwall-stamp" id="alertwall-stamp" aria-live="polite"></div>
 
 <!-- ── v6.3.1: clear a matched log line. Body level, with the other overlays
      (.container is a z-index:1 stacking context — see CLAUDE.md). ── -->

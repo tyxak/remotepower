@@ -8190,7 +8190,13 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
 .site-map-dot:hover { stroke: var(--accent, #58a6ff); stroke-width: 1; }
 
 /* W5-3: rack elevation view */
-.rack-elev { display: flex; gap: 16px; flex-wrap: wrap; }
+/* One 18px row per rack unit, so a 42U rack is 756px and a 48U rack 864px —
+   measured at 758px here. That is a variable-row panel by the project's rule,
+   and the cap goes on the row of columns rather than on #rack-elevation-wrap so
+   the rack name and the overlap warning stay put while the units scroll.
+   340px is .scroll-cap's value; the column is column-reverse, so it opens
+   showing U1 at the bottom, which is where an operator looks first. */
+.rack-elev { display: flex; gap: 16px; flex-wrap: wrap; max-height: 340px; overflow-y: auto; }
 .rack-elev-col { display: flex; flex-direction: column-reverse; width: 220px;
   border: 1px solid var(--border, #2b3543); border-radius: 6px; overflow: hidden; }
 .rack-u { position: relative; height: 18px; border-top: 1px solid var(--border, #2b3543);
@@ -8307,6 +8313,17 @@ body.alertwall #alerts-inbox-card > .section-title { font-size: 19px; }
 body.alertwall #page-alerts table { font-size: 16px; }
 body.alertwall #page-alerts th { font-size: 13px; }
 body.alertwall #page-alerts td { padding-top: 9px; padding-bottom: 9px; }
+
+/* Age of the inbox on screen. Left corner, opposite the exit button, and
+   always visible — unlike the exit control it is information, not chrome, so it
+   does not fade until hover. */
+.alertwall-stamp { display: none; }
+body.alertwall .alertwall-stamp {
+  display: block;
+  position: fixed; top: 12px; left: 16px; z-index: 200;
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+}
+body.alertwall .alertwall-stamp.stale { color: var(--red); }
 
 .alertwall-exit { display: none; }
 body.alertwall .alertwall-exit {

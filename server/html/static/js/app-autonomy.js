@@ -105,6 +105,11 @@ async function loadAutonomy() {
     pill.innerHTML = `<span class="chk-pill ${cls}">${escHtml(m)}</span>`;
   }
 
+  // The preview picker below is built from the same catalog, so the two cannot
+  // offer different action names.
+  window._autonomyActionClasses = pol.action_classes || {};
+  _fillAutonomyPreviewPickers();
+
   const acts = document.getElementById('autonomy-actions');
   if (acts) {
     const allowed = p.allowed_actions || [];
@@ -270,4 +275,79 @@ async function saveAutonomyPolicy() {
   const r = await api('PUT', '/autonomy/policy', { policy });
   if (r && r.ok) { toast('Safety envelope saved', 'success'); loadAutonomy(); }
   else { toast('Save failed: ' + ((r && r.error) || ''), 'error'); }
+}
+
+// ── v7.0.2: the blast-radius pre-flight ──────────────────────────────────────
+//
+// POST /api/autonomy/preview shipped in v7.0.0 with no surface of any kind —
+// no page, no doc, no MCP tool — although the handler's own docstring names the
+// human use case: "what breaks if I reboot this host?" is worth answering for a
+// person about to do it by hand, before any autonomy is switched on.
+//
+// It is a READ. The endpoint computes the radius, compares it with the tenant's
+// policy limit and returns both; it queues nothing and changes nothing, which
+// is why the button is btn-secondary and there is no confirmation.
+
+async function _fillAutonomyPreviewPickers() {
+  const dsel = document.getElementById('autonomy-preview-device');
+  const asel = document.getElementById('autonomy-preview-action');
+  if (asel) {
+    const classes = window._autonomyActionClasses || {};
+    const keep = asel.value;
+    // Built here rather than in markup: these labels come from the server's
+    // ACTION_CLASSES, so a hardcoded <option> list would be a second taxonomy
+    // to keep in step with the catalog.
+    asel.innerHTML = Object.entries(classes).sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, spec]) => `<option value="${escAttr(name)}">${
+        escHtml(name)}${spec && spec.label ? ' — ' + escHtml(spec.label) : ''}</option>`).join('');
+    if (keep) asel.value = keep;
+  }
+  if (dsel && !dsel.options.length) {
+    const devs = await _scanDeviceList();
+    const keep = dsel.value;
+    dsel.innerHTML = (devs || []).map(d =>
+      `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
+    if (keep) dsel.value = keep;
+    // The searchable combobox only wraps selects that already have options.
+    try { if (typeof enhanceDeviceCombos === 'function') enhanceDeviceCombos(dsel.parentElement || document); } catch (_) {}
+  }
+}
+
+function _autonomyRadiusRow(label, n) {
+  return `<div class="row-8-center"><span class="flex-1">${escHtml(label)}</span>`
+       + `<code>${escHtml(String(n))}</code></div>`;
+}
+
+async function previewAutonomyBlastRadius() {
+  const out = document.getElementById('autonomy-preview-result');
+  const dev = document.getElementById('autonomy-preview-device');
+  const act = document.getElementById('autonomy-preview-action');
+  if (!out) return;
+  const device_id = dev ? dev.value : '';
+  const action = act ? act.value : '';
+  if (!device_id) { out.textContent = 'Pick a host first.'; return; }
+  out.textContent = 'Computing…';
+  // api() RESOLVES on 403/404 — the documented trap. Detect the outcome on the
+  // resolved body; a .catch here would only ever see a network failure.
+  const r = await api('POST', '/autonomy/preview', { device_id, action });
+  if (!r || !r.ok) { out.textContent = (r && r.error) || 'Preview failed'; return; }
+  const b = r.blast_radius || {};
+  const over = !!r.exceeds_policy;
+  const limit = Number(r.policy_limit) || 0;
+  // The verdict is the point of the card, so it leads. "Within the limit" is
+  // said explicitly rather than implied by the absence of a warning.
+  const verdict = over
+    ? `<div class="chk-pill chk-warning">${escHtml(`Over the limit — ${b.score} vs ${limit}`)}</div>`
+    : `<div class="chk-pill chk-ok">${escHtml(`Within the limit — ${b.score} of ${limit}`)}</div>`;
+  const red = b.redundant
+    ? `<p class="hint">${escHtml(`Discounted: this host is one of ${b.group_size} doing the same job, so the raw impact of ${b.raw} scores ${b.score}.`)}</p>`
+    : '';
+  out.innerHTML = verdict + red
+    + _autonomyRadiusRow('Monitors', b.monitors || 0)
+    + _autonomyRadiusRow('Containers', b.containers || 0)
+    + _autonomyRadiusRow('Watched services', b.status_services || 0)
+    + _autonomyRadiusRow('Network neighbours', b.peers || 0)
+    + `<p class="hint">${escHtml(over
+        ? 'The loop would refuse this action on this host at the current limit. A human can still do it — this is the number, not a lock.'
+        : 'Nothing was queued. This is what the loop would weigh, not a decision.')}</p>`;
 }
