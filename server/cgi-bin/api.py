@@ -19207,10 +19207,16 @@ def handle_ansible_playbook_run(pb_id):
                            else ({target.get('type', 'all'): target.get('value', '')}
                                  if target.get('type') in ('group', 'tag') else {}))
     devices = load(DEVICES_FILE)
+    # v7.0.2 (SECURITY): 'all' and 'site' resolved straight off the device store,
+    # skipping the _resolve_targets chokepoint every other command path uses — so
+    # neither role scope nor tenancy applied and a tenant admin's playbook ran
+    # over every tenant's hosts over SSH. _scope_filter_devices folds in both and
+    # is a no-op for an unscoped admin on a single-org install.
+    _visible = _scope_filter_devices(devices)
     if target.get('type') == 'all' and not ids:
-        ids = list(devices.keys())
+        ids = list(_visible.keys())
     elif target.get('type') == 'site':
-        ids = [d for d, dev in devices.items() if dev.get('site', '') == target.get('value')]
+        ids = [d for d, dev in _visible.items() if dev.get('site', '') == target.get('value')]
     # v3.8.0: honour device quarantine — the runner reaches hosts over SSH
     # directly (not the agent queue), so the quarantine gate must be applied here.
     ids = [i for i in ids if i in devices and devices[i].get('ip')
@@ -43780,11 +43786,18 @@ def handle_netscan_schedules():
         require_auth()
         scheds = load(NETSCAN_SCHEDULES_FILE) or {}
         devices = load(DEVICES_FILE) or {}
+        # v7.0.2 (SECURITY): this is a device-keyed store on a route outside
+        # /api/devices/, so nothing had scoped it — the list handed every caller
+        # each tenant's device names, internal CIDRs and schedule ids (the ids
+        # the DELETE below takes). The POST sibling already gates on the body's
+        # device_id; the read did not.
+        _visible = _scope_filter_devices(devices)
         out = [{'id': sid, 'device_id': s.get('device_id', ''),
                 'device_name': devices.get(s.get('device_id'), {}).get('name', s.get('device_id')),
                 'subnet': s.get('subnet', ''), 'interval_minutes': s.get('interval_minutes', 60),
                 'enabled': bool(s.get('enabled', True)), 'last_run': s.get('last_run', 0),
-                'created_by': s.get('created_by', '')} for sid, s in scheds.items()]
+                'created_by': s.get('created_by', '')} for sid, s in scheds.items()
+               if not s.get('device_id') or s.get('device_id') in _visible]
         out.sort(key=lambda s: (s['device_name'] or '').lower())
         respond(200, {'ok': True, 'schedules': out})
         return
@@ -43823,6 +43836,14 @@ def handle_netscan_schedule_delete(sid):
     with _LockedUpdate(NETSCAN_SCHEDULES_FILE) as scheds:
         if sid not in scheds:
             respond(404, {'error': 'Schedule not found'})
+        # v7.0.2 (SECURITY): a schedule belongs to its device, so deleting one
+        # for a device the caller cannot see is a cross-tenant write. 404 rather
+        # than 403 so the answer is the same as for an id that does not exist.
+        _sdev = str((scheds[sid] or {}).get('device_id') or '')
+        if _sdev:
+            _d = device_get(_sdev)
+            if not _d or _sdev not in _scope_filter_devices({_sdev: _d}):
+                respond(404, {'error': 'Schedule not found'})
         del scheds[sid]
     audit_log(actor, 'netscan_schedule_delete', detail=sid)
     respond(200, {'ok': True})
@@ -58250,14 +58271,18 @@ def handle_alert_ack(alert_id):
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     acked_alert = None
+    denied = None   # v7.0.2: respond() raises HTTPError, an Exception — so the
+                    # 404/409 guards below, raised INSIDE the try, were caught by
+                    # the `except Exception` arm and rewritten to a 500. Same
+                    # documented anti-pattern already fixed in handle_alert_unresolve.
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
                     if not _alert_mutable_by_caller(a):
-                        respond(404, {'error': 'alert not found'})
+                        denied = (404, 'alert not found'); break
                     if a.get('resolved_at'):
-                        respond(409, {'error': 'alert already resolved'})
+                        denied = (409, 'alert already resolved'); break
                     a['acknowledged_by'] = user
                     a['acknowledged_at'] = int(time.time())
                     if note:
@@ -58267,6 +58292,8 @@ def handle_alert_ack(alert_id):
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
+    if denied:
+        respond(denied[0], {'error': denied[1]})
     if not found:
         respond(404, {'error': 'alert not found'})
     audit_log(user, 'alert_ack', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
@@ -58280,14 +58307,18 @@ def handle_alert_unack(alert_id):
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     found = False
+    denied = None   # v7.0.2: respond() raises HTTPError, an Exception — so the
+                    # 404/409 guards below, raised INSIDE the try, were caught by
+                    # the `except Exception` arm and rewritten to a 500. Same
+                    # documented anti-pattern already fixed in handle_alert_unresolve.
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
                     if not _alert_mutable_by_caller(a):
-                        respond(404, {'error': 'alert not found'})
+                        denied = (404, 'alert not found'); break
                     if a.get('resolved_at'):
-                        respond(409, {'error': 'alert already resolved'})
+                        denied = (409, 'alert already resolved'); break
                     a['acknowledged_by'] = None
                     a['acknowledged_at'] = None
                     a.pop('ack_note', None)
@@ -58295,6 +58326,8 @@ def handle_alert_unack(alert_id):
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
+    if denied:
+        respond(denied[0], {'error': denied[1]})
     if not found:
         respond(404, {'error': 'alert not found'})
     audit_log(user, 'alert_unack', f'id={alert_id}')
@@ -58538,14 +58571,18 @@ def handle_alert_resolve(alert_id):
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     _snap = None
+    denied = None   # v7.0.2: respond() raises HTTPError, an Exception — so the
+                    # 404/409 guards below, raised INSIDE the try, were caught by
+                    # the `except Exception` arm and rewritten to a 500. Same
+                    # documented anti-pattern already fixed in handle_alert_unresolve.
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
                     if not _alert_mutable_by_caller(a):
-                        respond(404, {'error': 'alert not found'})
+                        denied = (404, 'alert not found'); break
                     if a.get('resolved_at'):
-                        respond(409, {'error': 'alert already resolved'})
+                        denied = (409, 'alert already resolved'); break
                     now = int(time.time())
                     a['resolved_by'] = user
                     a['resolved_at'] = now
@@ -58561,6 +58598,8 @@ def handle_alert_resolve(alert_id):
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
+    if denied:
+        respond(denied[0], {'error': denied[1]})
     if not found:
         respond(404, {'error': 'alert not found'})
     # v6.4.2: tell the external ticket. AFTER the lock — this makes an outbound
@@ -68374,6 +68413,14 @@ def handle_tasks_add():
     if len(tasks) >= MAX_TASKS:
         respond(400, {'error': f'max {MAX_TASKS} tasks — close some first'})
 
+    # v7.0.2 (SECURITY): the same guard handle_tasks_update carries on a
+    # retarget. Creating a task pinned to another tenant's device plants a row
+    # on their board and confirms a device id the creator cannot otherwise see;
+    # the two handlers share _sanitize_task, so only one of them enforced it.
+    if clean.get('device_id') and not _tenant_visible(
+            device_get(clean['device_id']) or {}):
+        respond(404, {'error': 'device not found'})
+
     now = int(time.time())
     task = {
         'id':          secrets.token_hex(8),
@@ -73413,6 +73460,14 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
     devices = load(DEVICES_FILE) or {}
     if dev_id not in devices:
         respond(404, {'error': 'device not found'}); return None
+    # v7.0.2 (SECURITY): the /api/mitigate/<id>/... routes are NOT under
+    # /api/devices/, so main()'s pre-dispatch _enforce_device_scope never sees
+    # them, and require_perm() — the only gate the two write entry points had —
+    # returns immediately for any admin role without consulting tenancy. A
+    # tenant admin could therefore run a root command on another tenant's host.
+    # The read sibling handle_mitigate_status already gates this way; the gate
+    # goes in the shared funnel so both writes are covered at once.
+    _scope_block_device(dev_id)
     action_id = secrets.token_hex(6)
     tagged = f'exec:#mitigate:{action_id}#{cmd_str}'
     actor = current_username() or 'unknown'
@@ -73438,11 +73493,37 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
     except Exception as e:
         sys.stderr.write(f"[remotepower] mitigate queue: log dir prep failed dev={dev_id}: {e}\n")
         respond(500, {'error': 'log dir error'}); return None
-    # Queue via existing CMDS_FILE
-    with _LockedUpdate(CMDS_FILE) as cmds:
-        cmds.setdefault(dev_id, []).append(tagged)
+    # v7.0.2 (SECURITY): queue through the shared batch path instead of appending
+    # to CMDS_FILE directly. The bare append skipped every gate the rest of the
+    # product applies to an exec — maintenance drain, four-eyes approval for
+    # kind 'exec', quarantine, audit (read-only) mode, MAX_QUEUED_PER_DEVICE and
+    # the OS-support check — on a channel that runs an operator-supplied command
+    # as root. The mitigate tag rides inside the queued string, so the result
+    # capture still routes the output to this action's log.
+    def _discard_placeholder():
+        # A refused run must leave no 'queued' placeholder behind, or the status
+        # endpoint shows a phantom action for a command that never went out.
+        for _p in (log_path, meta_path):
+            try:
+                _p.unlink()
+            except OSError:
+                pass
+    try:
+        res = _queue_command_batch([dev_id], tagged, actor).get(dev_id) or {}
+    except HTTPError:
+        _discard_placeholder()          # maintenance drain responds 503 from inside
+        raise
+    if not res.get('ok'):
+        _discard_placeholder()
+        respond(400, {'error': res.get('error') or 'command refused'}); return None
     audit_log(actor, f'mitigate_{phase}', f'kind={kind} target={target!r} action={action_id}')
-    return {'ok': True, 'action_id': action_id}
+    out = {'ok': True, 'action_id': action_id}
+    if res.get('approval_required'):
+        # Parked for a second admin: report it rather than letting the caller
+        # read {'ok': True} as "the command is on its way to the host".
+        out['approval_required'] = True
+        out['confirmation_id'] = res.get('confirmation_id')
+    return out
 
 
 def handle_mitigate_investigate(dev_id):
@@ -73501,6 +73582,17 @@ def handle_mitigate_fix(dev_id):
             'reason': 'destructive_or_unverified',
             'hint': 'Pass {"confirmation": "RUN"} to acknowledge.',
         }); return
+    # v7.0.2 (SECURITY): the per-device allowlist/denylist. Every other path that
+    # queues an operator-supplied exec runs this check; this one — which takes an
+    # arbitrary `command` from the body — did not, so a device pinned to a fixed
+    # allowed_commands list could still be handed anything the denylist above
+    # happens not to name. Matched against the bare command: the '#mitigate:<id>#'
+    # tag is added at queue time and is not part of what an operator allowlists.
+    _devs = load(DEVICES_FILE) or {}
+    if dev_id in _devs:
+        _allowed, _why = _check_exec_allowlist(dev_id, cmd, _devs)
+        if not _allowed:
+            respond(400, {'error': _why}); return
     result = _mitigate_queue_command(dev_id, kind, target, 'fix', cmd,
                                      destructive=is_sensitive,
                                      alert_id=body.get('alert_id'))
