@@ -576,5 +576,204 @@ class TestCSPMigrationFidelity(unittest.TestCase):
                 f'{f} contains duplicate IDs: {dups}')
 
 
+
+# ── A named font family must be shipped by a sheet the client loads ─────────
+
+
+def _served_stylesheets():
+    """Every stylesheet a browser ends up with, derived from the sources.
+
+    Two ways a sheet arrives: a `<link rel=stylesheet>` in a served page, or a
+    `link.href = '/static/….css'` a client module creates at runtime (the
+    lazy-loaded ones — xterm's sheet and the terminal font sheet come in that
+    way). Both are read from the source rather than listed here, so a new sheet
+    joins the set on its own.
+    """
+    import re
+    root = _ROOT / 'server' / 'html'
+    found = set()
+    for page in sorted(root.glob('*.html')):
+        for m in re.finditer(
+                r'<link[^>]+rel="stylesheet"[^>]+href="([^"?]+)', page.read_text()):
+            found.add(m.group(1))
+    js = client_js()
+    for m in re.finditer(r"""\.href\s*=\s*['"]([^'"?]+\.css)['"]""", js):
+        found.add(m.group(1))
+    out = set()
+    for href in found:
+        f = root / href.lstrip('/')
+        if f.is_file():
+            out.add(f)
+    return out
+
+
+def _declared_families(sheets):
+    """Families any of those sheets declares an @font-face for."""
+    import re
+    fams = set()
+    for f in sheets:
+        for block in re.findall(r'@font-face\s*\{(.*?)\}', f.read_text(), re.S):
+            for m in re.finditer(r"""font-family\s*:\s*['"]?([^;'"}]+)""", block):
+                fams.add(m.group(1).strip())
+    return fams
+
+
+def _named_first_families():
+    """Every `fontFamily: '<stack>'` the client JS hands a library, reduced to
+    the family each stack puts FIRST — the one the code is asking everyone to
+    get."""
+    import re
+    js = client_js()
+    out = []
+    # The stack itself contains quotes ("JetBrains Mono"), so match to the
+    # matching outer quote with a backreference rather than a character class.
+    for m in re.finditer(r"""fontFamily\s*[:=]\s*(['"`])(.*?)\1""", js):
+        stack = m.group(2)
+        first = stack.split(',')[0].strip().strip('\'"')
+        out.append((stack, first))
+    return out
+
+
+# The CSS spec's generic families. Leading with one of these is a statement
+# that the OS picks the font, so nothing has to be shipped for it. This is a
+# syntactic category, not an allowlist of font names that would need tending.
+_CSS_GENERIC = {
+    'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+    'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math',
+    'emoji', 'fangsong', 'inherit', 'initial', 'unset',
+}
+
+
+class TestNamedFontFamiliesAreActuallyShipped(unittest.TestCase):
+    """v7.0.2. The web terminal named "JetBrains Mono" first and no loaded sheet
+    declared it, so it silently rendered in the per-OS fallback — the exact
+    thing the family was put first to prevent.
+
+    It broke without anyone touching the terminal. v6.0.0 dropped the font
+    `<link>`s from index.html because the ClarityMatters design moved to system
+    stacks, which also removed the only @font-face for the family a different
+    file was asking for. Nothing failed: the stack has fallbacks, so it renders
+    either way, and rendering-in-the-wrong-font has no error to report.
+
+    Putting a family FIRST is a promise that every operator gets it. This
+    checks the promise is backed by bytes we serve.
+    """
+
+    def test_the_population_is_not_empty(self):
+        """Positive control. The whole class passes over an empty list if the
+        `fontFamily` regex stops matching, and an empty list is exactly what a
+        broken derivation and a clean codebase look like from here."""
+        self.assertTrue(_named_first_families(),
+                        'no fontFamily declarations found in the client JS — '
+                        'the derivation is broken, not the codebase clean')
+        self.assertTrue(_served_stylesheets(),
+                        'no served stylesheets found — derivation broken')
+
+    def test_each_first_family_is_shipped_or_generic(self):
+        declared = _declared_families(_served_stylesheets())
+        missing = [
+            (stack, first) for stack, first in _named_first_families()
+            if first.lower() not in _CSS_GENERIC and first not in declared
+        ]
+        self.assertEqual(missing, [], '\n'.join([
+            'These stacks lead with a family no loaded stylesheet declares, so '
+            'the browser skips straight to the fallback:',
+            *(f'  {first!r}  (in {stack!r})' for stack, first in missing),
+            f'declared by loaded sheets: {sorted(declared)}',
+            'Either ship an @font-face for it in a sheet the client loads, or '
+            'lead the stack with a generic family and mean it.']))
+
+    def test_the_check_would_catch_the_regression_it_was_written_for(self):
+        """Built-in fail demo. The v6.0.0 breakage was a sheet leaving the load
+        path, so re-derive with the runtime-created sheets dropped and require
+        the assertion above to go red. Without this, a derivation that quietly
+        collects every .css on disk would pass this file forever."""
+        import re
+        root = _ROOT / 'server' / 'html'
+        html_only = set()
+        for page in sorted(root.glob('*.html')):
+            for m in re.finditer(
+                    r'<link[^>]+rel="stylesheet"[^>]+href="([^"?]+)',
+                    page.read_text()):
+                f = root / m.group(1).lstrip('/')
+                if f.is_file():
+                    html_only.add(f)
+        self.assertNotEqual(
+            html_only, _served_stylesheets(),
+            'the runtime-created sheets are not being derived at all, so '
+            'dropping them changes nothing and this demo proves nothing')
+        declared = _declared_families(html_only)
+        missing = [
+            first for _stack, first in _named_first_families()
+            if first.lower() not in _CSS_GENERIC and first not in declared
+        ]
+        self.assertTrue(missing,
+                        'with the runtime-loaded sheets removed the check still '
+                        'passes — it is not measuring what it claims to')
+
+
+class TestRuntimeVendorLoadsCarrySri(unittest.TestCase):
+    """Every vendored file the client fetches at runtime, and its SRI status.
+
+    Derived from the source rather than listed, because a maintained list of
+    vendor loads is the thing that goes stale — a new load simply would not be
+    in it, and absence reads as a pass.
+
+    ONE vendored asset cannot be pinned and it is recorded here rather than
+    left as a silent gap: noVNC is loaded with a native `import()` of an ES
+    module, and dynamic import has no integrity mechanism at all. It is
+    same-origin under `script-src 'self'`, which is why that is acceptable — but
+    it means a noVNC update gets none of the tripwire that caught the blank
+    Swagger page. Verifying a noVNC bump has to be a browser smoke of a real
+    session. See `server/html/static/vendor/novnc/VENDORED.md`.
+    """
+
+    def _loads(self):
+        import re
+        js = client_js()
+        out = []
+        for m in re.finditer(
+                r"""\.(?:src|href)\s*=\s*['"](/static/vendor/[^'"?]+)['"]""", js):
+            tail = js[m.end():m.end() + 400]
+            sri = re.search(r"""\.integrity\s*=\s*['"]([^'"]+)['"]""", tail)
+            out.append((m.group(1), sri.group(1) if sri else None))
+        return out
+
+    def test_there_are_loads_to_check(self):
+        self.assertGreaterEqual(len(self._loads()), 4,
+                                'no runtime vendor loads found — the '
+                                'derivation is broken')
+
+    def test_every_runtime_vendor_load_is_pinned_and_matches(self):
+        import base64
+        import hashlib as _hl
+        bad = []
+        for path, pin in self._loads():
+            f = _ROOT / 'server' / 'html' / path.lstrip('/')
+            if not f.is_file():
+                bad.append(f'{path}: not in the tree')
+                continue
+            if not pin:
+                bad.append(f'{path}: loaded with no integrity attribute')
+                continue
+            alg, _, digest = pin.partition('-')
+            want = base64.b64encode(_hl.new(alg, f.read_bytes()).digest()).decode()
+            if want != digest:
+                bad.append(f'{path}: pinned {pin}, file is {alg}-{want}')
+        self.assertEqual(bad, [], '\n'.join([
+            'Runtime vendor loads with a missing or stale SRI pin. A stale pin '
+            'makes the browser REFUSE the file, with the only evidence a '
+            'console message:', *('  ' + b for b in bad),
+            'Recompute:  openssl dgst -sha384 -binary <file> | openssl base64 -A']))
+
+    def test_the_unpinnable_novnc_path_is_still_the_only_one(self):
+        """If a second import() of a vendored module appears, the reasoning in
+        this class's docstring has to be revisited rather than assumed."""
+        import re
+        mods = sorted(set(re.findall(
+            r"""import\(\s*['"](/static/vendor/[^'"]+)['"]""", client_js())))
+        self.assertEqual(mods, ['/static/vendor/novnc/core/rfb.js'], mods)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

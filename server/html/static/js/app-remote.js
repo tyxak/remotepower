@@ -45,6 +45,24 @@ function _loadXtermOnce() {
       s.onerror = reject;
       document.head.appendChild(s);
     }),
+    // The terminal's font sheet. v6.0.0 dropped the self-hosted font <link>s
+    // from index.html because the ClarityMatters design uses system stacks —
+    // which also took away the only declaration of the family the Terminal
+    // constructor below asks for, so it silently rendered in the per-OS
+    // fallback from then until v7.0.2. Loading it here keeps it off the
+    // first-paint path: the sheet is fetched when an operator opens the
+    // terminal, and no font file is fetched at all until a face is used, so
+    // the Inter faces the same sheet declares cost nothing.
+    // onerror RESOLVES: a missing font must not stop the terminal opening.
+    new Promise((resolve) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/static/vendor/fonts/inter-jetbrains.css';
+      link.integrity = 'sha384-AANn2hmBjiqTrW5k7G9bYbxlMul6LZjIAGv7ISkqekz6WGOqRbxa1uhBMBHYsWny';
+      link.onload = resolve;
+      link.onerror = resolve;
+      document.head.appendChild(link);
+    }),
   ]).then(() => new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = '/static/vendor/xterm-addon-fit/addon-fit.min.js';
@@ -316,11 +334,13 @@ async function webtermConnect() {
   const Term = window.Terminal;
   const FitAddon = window.FitAddon?.FitAddon;
   const term = new Term({
-    // JetBrains Mono ships under /static/vendor/fonts/ — the strict-CSP
-    // migration self-hosted it. Putting it at the front of the chain
-    // gives a consistent monospace across Linux / macOS / Windows
-    // instead of the per-OS fallback that operators reported as
-    // "the font changed after the migration".
+    // JetBrains Mono is self-hosted under /static/vendor/fonts/ and loaded by
+    // _loadXtermOnce above. Naming it first gives every operator the same
+    // monospace metrics on Linux / macOS / Windows, which is what keeps
+    // box-drawing output (top, htop, tables) aligned in the same session
+    // opened from two different desktops. The rest of the UI is on the v6
+    // system stack (--font-mono) on purpose; the terminal is the one surface
+    // where the per-OS cell width is visible to the operator.
     fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
     fontSize: 13,
     theme: { background: '#000000', foreground: '#dddddd' },

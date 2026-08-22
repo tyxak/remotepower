@@ -87,19 +87,39 @@ class TestIndustrialTheme(unittest.TestCase):
         self.assertNotIn('IBMPlexMono', css)
 
     def test_fonts_are_self_hosted_not_external(self):
-        # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict
-        # CSP blocks Google Fonts); no external font references anywhere.
-        face = (_ROOT / 'server/html/static/vendor/fonts/industrial.css').read_text()
-        self.assertIn("font-family:'Space Grotesk'", face)
-        self.assertIn("font-family:'IBM Plex Mono'", face)
-        self.assertIn('.woff2', face)
-        for txt in (_CSS, face):
+        # Fonts ship as same-origin @font-face because the strict CSP blocks
+        # Google Fonts. No external font origin may appear in a served sheet.
+        fdir = _ROOT / 'server/html/static/vendor/fonts'
+        served = (fdir / 'inter-jetbrains.css').read_text()
+        for txt in (_CSS, served):
             self.assertNotIn('fonts.googleapis.com', txt)
             self.assertNotIn('fonts.gstatic.com', txt)
-        # the woff2 files actually exist
-        fdir = _ROOT / 'server/html/static/vendor/fonts/files'
-        self.assertTrue((fdir / 'space-grotesk-latin-500-normal.woff2').exists())
-        self.assertTrue((fdir / 'ibm-plex-mono-latin-400-normal.woff2').exists())
+
+    def test_industrial_font_assets_are_gone(self):
+        # v7.0.2 cleanup. industrial.css was the Space Grotesk + IBM Plex Mono
+        # sheet for the Industrial skin, and that skin was removed whole at
+        # v6.0.0 — nothing has been able to ask for these faces since. They kept
+        # shipping in every tarball, AUR package and Docker image regardless,
+        # because a file nobody links is invisible to every gate that reads a
+        # link. ~97 KB across one sheet and seven woff2 files.
+        fdir = _ROOT / 'server/html/static/vendor/fonts'
+        self.assertFalse((fdir / 'industrial.css').exists(),
+                         'the Industrial skin font sheet is back')
+        stragglers = sorted(
+            f.name for f in (fdir / 'files').glob('*')
+            if f.name.startswith(('space-grotesk-', 'ibm-plex-mono-')))
+        self.assertEqual(stragglers, [], f'Industrial-skin font files: {stragglers}')
+
+        # Positive control for the two assertions above. They are both "this is
+        # absent", which is also true if the whole directory went away — then
+        # the terminal has no font either and this test would applaud. So prove
+        # the font tree is still there and still populated.
+        self.assertTrue((fdir / 'inter-jetbrains.css').is_file(),
+                        'the fonts directory itself is gone — the assertions '
+                        'above passed for the wrong reason')
+        self.assertTrue(
+            (fdir / 'files' / 'jetbrains-mono-latin-400-normal.woff2').is_file(),
+            'the terminal font file is gone')
 
 
 class TestIndustrialLayoutRegressions(unittest.TestCase):
