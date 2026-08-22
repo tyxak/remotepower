@@ -349,6 +349,87 @@ the role says so.
 - **Revoking or issuing a certificate said "queued" even when its log could not
   be reserved** — the force-renew button already told you; the other two did not.
 
+### The tests had been overstating what they proved
+
+Two gates were reporting success while measuring nothing, and one of them was
+hiding a live bug.
+
+**The SQLite gate stopped testing SQLite about a quarter of the way in.** One
+test clears the storage-backend environment variable to check the default and
+never put it back. The suite runs as a single process in filename order, so
+from that test onward every later module fell back to the JSON backend —
+9,324 of 12,836 results, across 517 modules, ran on JSON inside the run that
+exists to exercise SQLite. There was already a guard for this variable, but it
+only applies under pytest, and the release gates and CI use a different runner.
+
+**The JavaScript undefined-global check had never parsed a byte.** It wrote the
+bundle to a temporary directory and pointed the linter at it from the wrong
+working directory; the linter skipped the file as out of scope and returned a
+single "ignored" notice. The check filtered that out, saw an empty list, and
+passed — 5 MB in a tenth of a second, faster than reading the file takes.
+
+Sighted, it immediately found a real one: a Proxmox snapshot rollback that
+**succeeded** reported "Failed" to the operator, because both the rollback and
+delete functions dropped the variable binding on their API call and then read
+it on the next line. On a destructive action, that is the wrong thing to be
+unsure about.
+
+Both now carry a control that fails when they measure nothing, and a check
+holds the environment-variable class at zero.
+
+A related class ran through 28 test modules: a test that repoints a storage
+key at a file whose name it made up. On JSON a path is just a path, so those
+passed. On SQLite and Postgres the backend picks its **table** from the
+filename, so the data landed nowhere and every lookup came back empty. One of
+those modules exists to prove a tenant cannot approve another tenant's
+break-glass request — and under SQLite its "sees nothing" assertions were
+satisfied by a fixture that returned nothing to anyone.
+
+### Config drift was collected, stored, and shown nowhere
+
+Drift has its own store and its own working page. Ten other places read it off
+the device record instead, where nothing has ever written it — and expected a
+shape no part of the product produces. So a drifted file did not raise the
+Checks row, did not score on risk, did not reach Needs Attention or the fleet
+rollup, did not match the drift filter or the smart-group rule, and was
+invisible to the assistant, which could not answer "what has drifted?".
+
+The Checks page in particular showed no drift row at all, which reads as "this
+host is not being watched" rather than "this host is clean".
+
+Four tests kept it green by building the missing shape by hand. They now drive
+real check-ins instead, against a drifted host and a clean one.
+
+### Two safety inputs that counted zero
+
+Autonomy weighs a **blast radius** before it acts, and refuses when the number
+is over your limit. Two of its four components read the wrong place: containers
+from the device record, where they are not kept, and watched services under a
+key nothing writes. A host running thirty containers and ten watched units
+scored the same as an empty one. The pre-flight you can open before a reboot —
+what breaks if I restart this host — reported zero containers as fact.
+
+One autonomy action, taking a ZFS snapshot, could never run at all: the field
+that tells the two apart was not on the list of fields alerts keep.
+
+### The demo went dark five minutes after every seed
+
+Seeded hosts were stamped as last seen up to ninety seconds ago, against an
+offline threshold of about five minutes, and the demo installer set up nothing
+to re-seed. A public demo showed fifteen or sixteen of eighteen hosts dead
+within minutes, and fleet health, patch percentage and SLA were computed over
+the two survivors.
+
+The first page load also re-ran every scheduled sweep, because none of the
+timing markers were stamped — so the curated results were immediately replaced
+by connection failures against hostnames that do not resolve.
+
+Beyond that, four stores were written in shapes no reader knows, so the ACME,
+TLS, software-inventory and monitor-history pages rendered empty; and 23 of
+the 56 signals an agent reports were seeded on no host at all. Two of those,
+top processes and mount issues, are panels with a scroll cap — so the check
+that measures scroll caps had never seen either of them.
+
 ### Security
 
 - A tenant administrator could delete, rename, re-scope and rotate **another
@@ -374,6 +455,42 @@ the role says so.
 - One badly-written file-content check could stop an agent reporting for good.
   Those checks now give up after twenty seconds and say which pattern was too
   slow.
+- **One command channel skipped every gate.** The fix button on an alert
+  queued its command straight into the queue file instead of going through the
+  function that applies the rules, so it ran on a quarantined host, on a host
+  in read-only audit mode, during a maintenance freeze, past the per-device
+  limit, past a command allow-list that forbade it, and without ever parking
+  for four-eyes approval. Both of its routes also sat outside the path prefix
+  the tenant check covers, and the permission check returns early for an
+  administrator — which a tenant administrator is — so a tenant could run root
+  commands on another tenant's host. Its own read-only sibling had the check,
+  with a comment saying why.
+- **Editing a file-integrity check could delete files.** The baseline an agent
+  keeps on the host was filed under the check's id without recording the path
+  it was taken from. Change that path, or widen the pattern, and every file
+  under the new one looked new — and if the check was set to quarantine, they
+  were moved out as root. The only limit was a mass-change cap that a small
+  directory never reaches.
+- **A hostile server could switch off command signing.** Signing is the control
+  meant to survive exactly that, and it covered three of the six channels that
+  change a host. The one it missed can move files as root, so it could move the
+  signing marker itself, along with the release key and the audit-mode flag.
+  Quarantine now refuses anything inside the agent's own directories whoever
+  asks, and read-only audit mode covers every channel its comment claimed.
+- **An erasure request for `*` deleted every avatar on the instance.** The
+  subject name from a data-protection request went into a filename pattern
+  rather than being treated as a name, so it matched everything, and `..`
+  reached outside the directory.
+- **A read-only account could write the billing ledger.** Creating a time entry
+  checked only that you were signed in, because the lock sits one frame further
+  down than the check that looks for it. Viewers could also fill an
+  instance-wide cap.
+- **Three more cross-tenant reads and writes**: network-scan schedules listed
+  and deleted across tenants, a task could be pinned to any device in the
+  fleet, and an Ansible playbook aimed at "everything" or "a site" resolved
+  across the whole fleet rather than what the caller can see.
+- The web terminal's helper did not check the scheme of its own base URL, while
+  its three siblings all do. It refuses to start on anything but http(s) now.
 
 ### Faster
 
@@ -383,9 +500,42 @@ the role says so.
   entire fleet's log buffer: 2.0 seconds of work per submission on a
   150-device fleet, now 5 milliseconds on the database backends. It also held
   no lock, so two hosts submitting at once lost one of them.
+- **The compliance score.** It is sampled once a day, but the daily slot was
+  only claimed when a score came out — so any fleet where no host yields an
+  applicable check re-ran the whole evaluation on every single request, with a
+  write lock held for the duration. That is every agentless fleet, and any
+  fleet where an operator turned the checks off. Measured at 42.7 ms per
+  request, now 0.02 ms, and the dashboard as a whole went from 115.8 ms to
+  66.2 ms at 400 devices.
+- **The Checks page and its dashboard tile** copied a 2.9 MB cache and the
+  whole fleet on every poll, to read them. Permission checks copied the entire
+  fleet to look up a handful of devices.
+- One sweep took a write lock before deciding whether it was due, so every
+  read-only request rewrote the whole store — a full serialise and sync on
+  files, a write transaction competing with check-ins on a database.
 
 ### Fixes
 
+- **The alert wall never refreshed.** It exists to be left on a screen in an
+  ops room, and it showed one frozen snapshot, with the countdown hidden so
+  nothing gave it away. Alerts, Checks, Needs Attention, CVE and Exposure were
+  snapshots too — 2 of 83 pages actually refreshed.
+- **Two finished features had no screen.** Subject-access and erasure under
+  GDPR Articles 15 and 17 were implemented, permission-scoped and audited, and
+  reachable only by hand-written request — while the feature list sells them as
+  a capability. The blast-radius pre-flight was in the same state. Both now
+  have one.
+- The rack elevation grew to 758 px without a scroll cap, and the query builder
+  stacked condition rows without one.
+- **25 toolbar rows had a select 2 px taller than everything beside it.** The
+  height rule matches a direct child, and the page wraps every select in a span
+  at load, so it stopped matching — 102 of 110 selects on screen. Every rule
+  involved was correct; the element was not where the stylesheet said it was.
+- The terminal asked for a font that nothing had loaded since v6.0.0, so it had
+  been falling back per platform — the complaint the pin was added to fix.
+  1.5 MB of fonts for a skin removed in v6.0.0 stopped shipping in the tarball.
+- Four documentation counts were wrong: 683 paths (728), 89 pages (77), 24
+  action classes (26), 43 connectors (48).
 - **FileVault, Gatekeeper, SIP and firewall alerts could never fire on a Mac
   without psutil.** The macOS agent collects its posture outside the block that
   needs psutil, and the server only ingested posture when the report carried one
