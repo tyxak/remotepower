@@ -198,7 +198,8 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   knew when a fix had worked and threw the answer away; "only inside a
   maintenance window" called a function that does not exist; and
   `no_verified_backup` was refusing actions a backup has nothing to do with.
-  Plus six more actions it can take, and receipts you can clear.
+  Plus two more actions it can take, five it no longer pretends to, and
+  receipts you can clear.
 - **v7.0.1 "C0llapseMatters"** — the sidebar collapses when you ask it to.
   Open alerts were holding it open in every mode, including a manual collapse
   with auto-hide switched off, so the page content slid to the rail margin
@@ -214,7 +215,7 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   before — never on a model's improvisation, and before acting it works out
   **what goes dark**: monitors, containers, watched services, network
   neighbours, discounted when the host has healthy siblings. That preview stands
-  on its own whether or not autonomy is switched on. **24 action classes**, and
+  on its own whether or not autonomy is switched on. **26 action classes**, and
   an event maps to an ordered *ladder* of them, so which remedy runs is your
   decision; commands go out in the same grammar an operator's own actions use,
   inheriting maintenance mode, quarantine, audit mode and the approval queue.

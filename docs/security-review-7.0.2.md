@@ -264,7 +264,7 @@ Two of those guards were found to be blind and were repaired:
 - The accessibility sweep had been reporting success while running nothing,
   because an optional dependency was absent and the class-level skip fired before
   the flag designed to prevent exactly that could be consulted. It now audits
-  74 pages and every dialog, with no violations.
+  81 pages and every dialog, with no violations.
 - The demo instance — which the rendered checks measure — was seeded with eight
   signals in shapes no agent produces, so those checks were measuring something
   the product never emits. A new check pushes every seeded signal through the

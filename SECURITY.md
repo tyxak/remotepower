@@ -59,11 +59,16 @@ product. The trade is made on purpose, and constrained:
   never be replayable to another host.
 - Self-updates are SHA-256 verified and applied atomically. Setting
   `/etc/remotepower/require-signed-updates` makes the agent fail **closed**: it
-  will refuse any update that is not signed by a pinned release key.
+  will refuse any update that is not signed by a pinned release key. Release
+  tarballs carry a detached GPG signature, and the container images are signed
+  with cosign keyless signing — verify with both `--certificate-identity-regexp`
+  and `--certificate-oidc-issuer`, since a bare `cosign verify` proves only that
+  something signed the image, not who.
 - The systemd unit adds `PrivateTmp`, `ProtectKernelTunables` and
   `ProtectControlGroups`. It does **not** set
-  `ProtectKernelModules` — that directive hides `/lib/modules` and produced
-  module-less initramfs images on managed hosts (fixed in v6.2.1).
+  `ProtectKernelModules` — that directive hides `/usr/lib/modules` from the
+  unit, so a package upgrade that rebuilds the initramfs produced an image with
+  no kernel modules in it and left the host unbootable (fixed in v6.2.1).
 
 **`sudo` in the install scripts is installation-time only.** Creating a service
 user, writing unit files and installing packages need it; the running services

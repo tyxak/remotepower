@@ -1,6 +1,6 @@
 # Finding your way around
 
-RemotePower has a lot of pages — 89 of them, across twelve domains. This page is
+RemotePower has a lot of pages — 77 of them, across twelve domains. This page is
 about the four ways to get to one, and when each is the right one.
 
 ## All pages — the map

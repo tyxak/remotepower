@@ -125,10 +125,12 @@ reboot this host?** is worth answering for a human about to do it by hand.
 
 ## What it can do
 
-Twenty-six action classes, each with a fixed command and a declared list of the
-platforms whose agent can actually carry it out. The allow-list on the page is
-grouped the same way and has a filter, because twenty-six machine names in one
-column is a wall:
+Twenty-six action classes. Twenty-five carry a fixed command and a declared
+list of the platforms whose agent can actually carry it out; the twenty-sixth,
+rotating a credential, is recognised by the policy but has no command in this
+build, so asking for it refuses instead of doing nothing quietly. The allow-list
+on the page is grouped the same way and has a filter, because twenty-six machine
+names in one column is a wall:
 
 | Group | Actions |
 |---|---|

@@ -1,7 +1,7 @@
 # API reference
 
 > **This page is a curated tour of the most-used endpoints, not the full surface.**
-> RemotePower exposes **683 paths**. The complete, always-current reference is
+> RemotePower exposes **728 paths**. The complete, always-current reference is
 > generated from the live route table — browse it interactively at
 > **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
 > **`/api/openapi.json`**. Anything shipped is in there; this page is hand-written
