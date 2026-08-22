@@ -1356,7 +1356,12 @@
      glyphs drifted (13px on 12 buttons, 15px on one, 14px on the rest),
      visibly mismatched where they sit side by side in one row. Pinning it
      here fixes every existing site and stops the markup drifting again. */
-  .btn-primary svg, .btn-secondary svg { width: 14px; height: 14px; }
+  /* v7.0.2: `flex: 0 0 auto`, the same reason .btn-icon svg carries it — these
+     two became `display: inline-flex` below, so their <svg> is a flex ITEM at
+     the default `flex-shrink: 1`. Width is a basis the algorithm may shrink
+     below, not a floor: measured on a crowded row, these icons rendered 8.2px
+     and 9.2px against the 14px declared right here. */
+  .btn-primary svg, .btn-secondary svg { width: 14px; height: 14px; flex: 0 0 auto; }
   /* v6.4.3: the icon/label gap, done the way .btn-icon just above already
      does it — one idiom, not two.
      What this replaces: `.btn-primary svg:not(:only-child) { margin-right: 5px }`,
@@ -5195,7 +5200,12 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-137 { color:var(--orange) }
 .isl-138 { display:none; font-size:12px; color:var(--amber); margin-left:12px }
 .isl-139 { grid-template-columns:repeat(4,1fr); margin-bottom:24px }
-.isl-140 { flex:1; min-width:300px; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family: var(--font-mono); font-size:13px }
+/* v7.0.2: layout only. This carried a full field skin of its own, which made
+   #logs-search-input the only visible text input in the product not on
+   .form-input — so it missed the toolbar height contract and rendered 36px
+   next to 34px buttons, in its own surface2/6px-radius box. The markup now
+   says `form-input isl-140`, matching every other filter input. */
+.isl-140 { flex:1; min-width:300px }
 .isl-141 { max-width:100px }
 .isl-142 { grid-template-columns:repeat(4,1fr); margin-bottom:16px }
 /* v4.10.0: the patch/CVE/summary stat rows are defined after the .stats-row
@@ -7070,6 +7080,34 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
   > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, .btn-update,
         .btn-upgrade, .btn-shutdown, .btn-reboot, input.form-input, select.form-input,
         select.select-sm) {
+  height: 34px;
+  min-height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+/* v7.0.2: the same height, for a select that app.js has WRAPPED.
+   `_wrapSelects()` inserts a <span class="rp-ddwrap"> between every <select>
+   and its parent at runtime, so the select stops being a direct child and the
+   `>` above stops matching it — measured on the seeded instance, 102 of 110
+   visible selects are wrapped, which made the two `select.*` clauses in that
+   list unreachable. The select then fell back to .input-auto / .select-sm and
+   rendered 35-36px (and .isl-16 31px) beside buttons and text inputs pinned at
+   34px: 25 toolbar rows across 20 pages, each visibly out of line.
+   Mirrors the .dev-combo arm further down, which pierces its own wrapper the
+   same way. The wrapper is the flex item now, so it takes the height too —
+   otherwise a `display:block` wrapper stretches to the row's tallest control
+   and the select sits at its top edge. */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
+    .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
+    .settings-row, .modal-actions)
+  > .rp-ddwrap {
+  align-self: center;
+}
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
+    .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
+    .settings-row, .modal-actions)
+  > .rp-ddwrap > :is(select.form-input, select.select-sm) {
   height: 34px;
   min-height: 34px;
   padding-top: 0;

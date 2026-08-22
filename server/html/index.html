@@ -4998,7 +4998,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
             <div class="doc-body">
               <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
-              <p><strong>43 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues (raises a <code>github_new_issue</code> alert when a new issue is opened on a watched repo), Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, WordPress, the EDR platforms (Wazuh, CrowdStrike Falcon, SentinelOne), RemotePower (peer instance), the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
+              <p><strong>48 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues (raises a <code>github_new_issue</code> alert when a new issue is opened on a watched repo), Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, WordPress, the EDR platforms (Wazuh, CrowdStrike Falcon, SentinelOne), RemotePower (peer instance), the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (Sonarr, Radarr, Prowlarr, Lidarr, Readarr, plus a generic Servarr connector) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
               <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
               <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
             </div>
@@ -6062,7 +6062,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.1: SLA / uptime -->
         <div class="dash-card mb-16">
-          <div class="row-8-center mb-12"><div class="section-header mb-8"><div class="section-title">Uptime (SLA)</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="sla" title="Download this table as CSV" aria-label="Download Uptime (SLA) as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
+          <div class="row-8-center mb-12"><div class="section-title">Uptime (SLA)</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="sla" title="Download this table as CSV" aria-label="Download Uptime (SLA) as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
             <select id="sla-days" class="form-input input-auto" data-change="loadReportsSla" aria-label="Days">
               <option value="7">7 days</option>
               <option value="30" selected>30 days</option>
@@ -6977,7 +6977,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- Search bar + stats -->
         <div class="toolbar">
-          <input type="text" id="logs-search-input" placeholder="regex (e.g. error|critical)  — blank shows live tail" class="isl-140" aria-label="regex (e.g. error|critical)  — blank shows live tail">
+          <input type="text" id="logs-search-input" placeholder="regex (e.g. error|critical)  — blank shows live tail" class="form-input isl-140" aria-label="regex (e.g. error|critical)  — blank shows live tail">
           <select id="logs-device-filter" aria-label="Filter logs by device" data-change="onLogFilterChange" class="select-sm device-combo">
             <option value="">All devices</option>
           </select>
@@ -10449,7 +10449,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <button class="btn-secondary" data-action="pollCmdbSnmp">Poll now</button>
     </div>
     <hr class="mt-12">
-    <h4 class="mt-12">Latest poll</h4>
+    <div class="section-title mt-12">Latest poll</div>
     <div id="cmdb-snmp-data" class="hint">No data yet — save the config and click "Poll now".</div>
   </div>
 
