@@ -269,6 +269,10 @@ class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
     SECTION_SKIP = frozenset({
         'fail2ban',     # proper noun — product name, never translated
         'Findings —',   # dynamic: a JS-injected count follows the em dash
+        # Same shape as 'Findings —': app-self.js renders
+        # `Disk — <code>/var/lib/remotepower</code>`, so the static head is a
+        # fragment and the path that completes it is a value, not prose.
+        'Disk —',
     })
     BUTTON_SKIP = frozenset({
         'fail2ban',          # proper noun
@@ -278,6 +282,15 @@ class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
         # v6.4.0 KMIP wizard: literal FILENAMES the operator saves to disk and
         # types into the appliance — translating them would be wrong.
         'ca.crt', 'client.crt', 'client.key',
+        # v7.0.2, from widening this extraction to the app bundles:
+        'JSON',   # format token — already in _DELIBERATE_ENGLISH for the
+                  # option/th/label gate; a download button offering the JSON
+                  # form of a report names the format, not an action.
+        'debug',  # the AI-insight debug affordance. Also a log-LEVEL enum an
+                  # operator matches against config and API payloads, and DICT
+                  # is keyed on the rendered text, so one entry would translate
+                  # both. Same reason the enum values in _DELIBERATE_ENGLISH
+                  # stay English.
     })
 
     def setUp(self):
@@ -495,11 +508,17 @@ def _extract(pattern, source):
 # ZERO) nor recorded in the attribute backlog — a third state the docstrings did
 # not acknowledge: not translated, not exempted, not recorded. 8 markup literals
 # lived there, among them the ITSM-callback option and four backup/RPO/RTO field
-# labels. 200 matches the engine's own text-node window; it has no 60-char rule.
+# labels.
+#
+# 400 tracks the engine: translateTextNode skips a text node longer than its own
+# cap, so a literal past it cannot be translated even with a DICT entry, and the
+# cap moved to 400 when nine baseline-check descriptions turned out to sit above
+# 200. Extracting past what the engine can act on would demand translations that
+# do nothing; stopping short of it hides strings that would work.
 _UNGUARDED_PATTERNS = (
-    ('option',  r'<option[^>]*>([^<]{2,200})</option>'),
-    ('th',      r'<th[^>]*>([^<]{2,200})</th>'),
-    ('label',   r'<label[^>]*>([^<]{2,200})</label>'),
+    ('option',  r'<option[^>]*>([^<]{2,400})</option>'),
+    ('th',      r'<th[^>]*>([^<]{2,400})</th>'),
+    ('label',   r'<label[^>]*>([^<]{2,400})</label>'),
 )
 
 
