@@ -8,10 +8,9 @@ Unit tests for v1.8.3 additions:
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 _CGI_BIN = Path(__file__).parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI_BIN))

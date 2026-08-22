@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Unit tests for the IP-reputation (DNSBL) checker — fake resolver, no real DNS."""
-import os
 import sys
 import unittest
 from pathlib import Path

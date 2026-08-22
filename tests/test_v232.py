@@ -162,7 +162,6 @@ class TestSecurityAssets(unittest.TestCase):
 
     def test_csp_no_unsafe_inline(self):
         # L1 security fix: 'unsafe-inline' must not appear in the CSP directive.
-        import re
         for name, conf in (('docker', self.docker_nginx),
                            ('bare-metal', self.bare_nginx)):
             csp_line = next(
@@ -257,7 +256,6 @@ class TestSecurityAssets(unittest.TestCase):
     def test_no_inline_event_handlers_in_appjs(self):
         appjs_path = _ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
         appjs = client_js()
-        import re
         # Only flag occurrences not on comment lines
         code_lines = [l for l in appjs.splitlines() if not l.strip().startswith('//')]
         code = '\n'.join(code_lines)

@@ -6,7 +6,6 @@ Driven through the real handle_fleet_query.
 """
 
 import importlib.util
-import json
 import os
 import pathlib
 import sys

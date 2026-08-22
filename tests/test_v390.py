@@ -17,7 +17,6 @@ file's pins loosen to a regex (see test_v380.py for the loosened form).
 import io
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile

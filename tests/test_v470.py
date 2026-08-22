@@ -8,7 +8,6 @@ the next bump (see tests/test_v461.py for the pattern).
 """
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import unittest

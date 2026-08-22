@@ -55,6 +55,15 @@ _DEVICE_BODY_KEYS = (
     'affected_devices',     # tickets -- resolved to HOSTNAMES on read
     'linked_devices',       # KB articles
     'target_devices',       # not currently used; here so it cannot be missed
+    # v7.0.2: the UPS-dependency link. `handle_device_ups_dependency` reads the
+    # SOURCE device from the body while only its own `dev_id` rides main()'s
+    # _enforce_device_scope, and _ups_shutdown_dependents walks the link when the
+    # source UPS goes critical -- so an ungated source id wires a cross-tenant
+    # SHUTDOWN. It was gated before this key existed, which means the guard would
+    # have watched that gate be deleted without a word.
+    'source_device_id',
+    'target_device_id',     # not currently used; here so it cannot be missed
+    'src_device_id',        # not currently used; here so it cannot be missed
 )
 _READ = re.compile(
     r"""body\s*(\.get\(\s*['"](?:%s)['"]|\[\s*['"](?:%s)['"]\s*\])"""
@@ -94,13 +103,13 @@ EXEMPT = {
     # the frontend, so a caller learns only what they themselves typed.
     'handle_kb':             'metadata (KB article device links; stored verbatim, never resolved or read back)',
     'handle_kb_article':     'metadata (KB article device links; stored verbatim, never resolved or read back)',
-    'handle_tickets':        'metadata (ticket affected-host label; now scope-filtered on write AND read)',
-    # The reason here used to read "never reads/commands the device".
-    # That stopped being true: handle_ticket_get resolves affected_devices
-    # to HOSTNAMES, which was a working cross-tenant name oracle. Both the
-    # write and the read are scope-filtered now; the exemption stands only
-    # because the filtering is inline rather than via a canonical helper.
-    'handle_ticket_update':  'metadata (ticket affected-host label; now scope-filtered on write AND read)',
+    # handle_tickets / handle_ticket_update were listed here for the same
+    # affected-host reason. They now route the body ids through a canonical
+    # helper, so the exemption was never consulted -- and a dead exemption is
+    # worse than none: if the helper were ever removed, the entry would keep the
+    # guard green over a handler that resolves affected_devices to HOSTNAMES
+    # (a working cross-tenant name oracle before v6.4.2). Removed on purpose;
+    # test_exempt_entries_are_not_redundant keeps the class from coming back.
     'handle_ignored_add':    'metadata (UI hide-list key; never reads/mutates/commands the device)',
     'handle_ignored_remove': 'metadata (UI hide-list key; never reads/mutates/commands the device)',
     # ---- gated by a custom mechanism (not the three canonical helpers): a
@@ -124,14 +133,25 @@ def _iter_handlers():
 class TestBodyDeviceHandlersAreScopeGated(unittest.TestCase):
     def test_every_body_device_handler_is_gated_or_exempt(self):
         offenders = []
+        population = []
         for name, fn, seg in _iter_handlers():
             if not _READ.search(seg):
                 continue
+            population.append(name)
             if _GATE.search(seg):
                 continue
             if name in EXEMPT:
                 continue
             offenders.append(f'{name} [{fn}]')
+        # Non-emptiness control. `_READ` requires the body variable to be
+        # literally named `body`; a refactor that renamed it, or a change in how
+        # handlers read the request, would empty the population and this test
+        # would pass having inspected nothing. Assert the set actually inspected.
+        self.assertGreater(
+            len(population), 50,
+            'the body-device population collapsed to %d handlers -- the guard is '
+            'measuring almost nothing. Check `_READ` still matches how handlers '
+            'read the request body.' % len(population))
         self.assertEqual(
             sorted(offenders), [],
             "Handler(s) read a device id from the body but neither route it "
@@ -146,6 +166,20 @@ class TestBodyDeviceHandlersAreScopeGated(unittest.TestCase):
         names = {n for n, _, _ in _iter_handlers()}
         stale = sorted(h for h in EXEMPT if h not in names)
         self.assertEqual(stale, [], f'EXEMPT names handlers that no longer exist: {stale}')
+
+    def test_exempt_entries_are_not_redundant(self):
+        """An EXEMPT entry for a handler that already routes its body ids through
+        a canonical helper is dead weight -- it is never consulted, so it silently
+        becomes a standing waiver the day the helper is removed. Two entries
+        (handle_tickets / handle_ticket_update) had reached exactly that state."""
+        redundant = sorted(
+            name for name, _fn, seg in _iter_handlers()
+            if name in EXEMPT and _READ.search(seg) and _GATE.search(seg))
+        self.assertEqual(
+            redundant, [],
+            'EXEMPT entries whose handler is already canonically gated -- delete '
+            'them, or the exemption will keep this guard green if the gate goes: '
+            + ', '.join(redundant))
 
     def test_exempt_entries_have_a_reason(self):
         for h, reason in EXEMPT.items():

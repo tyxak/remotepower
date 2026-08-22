@@ -8,7 +8,6 @@ Server-status page and adds an admin DELETE to clear it after a fix ships.
 """
 
 import importlib.util
-import json
 import os
 import sys
 import tempfile
@@ -21,7 +20,7 @@ import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 # there — but `python3 -m unittest tests.<this>` does not, and the module
 # then fails to import at all. Make it runnable on its own.
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
-from clientjs import client_js
+from clientjs import client_js   # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
@@ -117,7 +116,6 @@ class TestUiConsumesTheRing(unittest.TestCase):
     """The gap this release closes: the list endpoint must have a UI consumer."""
 
     def test_self_page_renders_and_clears(self):
-        from clientjs import client_js
         js = client_js()   # split-proof: the self page moved to app-self.js
         html = (ROOT / "server" / "html" / "index.html").read_text()
         self.assertIn('id="client-errors-card"', html)

@@ -3,6 +3,7 @@
 #!/bin/bash # Your check here systemctl is-active --quiet nginx
 #!/usr/bin/env bash set -euo pipefail  # your script here…
 (uid={u})
+- hosts: targets  become: true  tasks:  - name: install nginx  package: { name: nginx, state: present }
 -----BEGIN CERTIFICATE----- MIID… -----END CERTIFICATE-----
 -----BEGIN OPENSSH PRIVATE KEY----- …
 /backup/db-latest.tar.gz
@@ -37,6 +38,7 @@
 10.0.0.0/8 192.168.1.42 fd00::/8
 127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
 192.168.1.1 / host:22 / https://…
+<strong>Jane Doe</strong><br>Acme Support<br><a href="mailto:support@acme.com">support@acme.com</a>
 ASSET-12345
 CHG-1042
 CVE-2026-1234 CVE-2026-5678
@@ -82,6 +84,7 @@ dmarc@example.com
 docker compose down
 docker compose pull + up -d
 docker compose up -d
+e.g. Use Terraform 1.5+ syntax · Mark all variables sensitive=true · Include comments explaining each resource · Wrap in a module
 e.g. before_upgrade
 e.g. debian / arm64
 e.g. hq, dc1
@@ -157,6 +160,7 @@ rotate-nginx-logs.sh
 search agent device
 sec-ops=auditor finance-team=finance sre=admin
 services:  app:  image: nginx:latest  ports:  - 8080:80
+services:  myapp:  image: org/myapp:latest  restart: unless-stopped  ports:  - "8080:80"
 smtp.example.com
 source_net (e.g. any or 192.168.1.0/24)
 src-address (e.g. 192.168.2.50)

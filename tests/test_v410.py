@@ -876,7 +876,6 @@ class TestMonitorChecks(unittest.TestCase):
 
     def test_icmp_loss_threshold_fields(self):
         # Drive the parser with a fake ping subprocess (high loss → down).
-        import subprocess as _sp
         orig = api.subprocess.run
         class _R:  # noqa
             returncode = 1
@@ -2083,11 +2082,9 @@ class TestVersionBumps(unittest.TestCase):
     _ROOT = _CGI_BIN.parent.parent
 
     def test_server_version(self):
-        import re
         self.assertRegex(api.SERVER_VERSION, r'^\d+\.\d+\.\d+$')
 
     def test_agent_versions(self):
-        import re
         self.assertRegex((self._ROOT / 'client/remotepower-agent.py').read_text(),
                          r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
         for rel in ('client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
@@ -2099,7 +2096,6 @@ class TestVersionBumps(unittest.TestCase):
                          (self._ROOT / 'client/remotepower-agent').read_bytes())
 
     def test_sw_and_cachebust(self):
-        import re
         self.assertRegex((self._ROOT / 'server/html/sw.js').read_text(),
                          r'remotepower-shell-v\d+\.\d+\.\d+')
         self.assertRegex((self._ROOT / 'server/html/index.html').read_text(),

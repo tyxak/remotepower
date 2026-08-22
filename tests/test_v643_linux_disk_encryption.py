@@ -43,7 +43,6 @@ api = importlib.util.module_from_spec(_spec)
 sys.modules.setdefault('api', api)
 _spec.loader.exec_module(api)
 
-import checks as checks_mod          # noqa: E402
 import compliance                    # noqa: E402
 
 

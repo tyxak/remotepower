@@ -77,7 +77,7 @@ def _nav_labels():
         body = re.sub(r'<span [^>]+>.*?</span>', '', body, flags=re.S)
         body = re.sub(r'<[^>]+>', '', body)
         text = _html.unescape(re.sub(r'\s+', ' ', body)).strip()
-        if text:
+        if _fixed_text(text):
             labels.add(text)
     return labels
 
@@ -99,17 +99,57 @@ def _page_titles():
     return titles
 
 
+def _fixed_text(text):
+    """True when `text` is a fixed string worth translating.
+
+    Mirrors _extract()'s filter. A heading or button label built from a
+    template expression (`${escHtml(name)}`) has no fixed string to translate,
+    and the engine works on rendered text nodes anyway — without this the
+    widened extraction reports the expression source as an untranslated
+    string, which is an instrument error wearing a finding's clothes.
+    """
+    if not text:
+        return False
+    if '${' in text or "' +" in text or "+ '" in text or '`' in text:
+        return False
+    # A `<button ${cond ? 'disabled' : ''}>` puts a `>` inside the template
+    # expression, so `<button\b[^>]*>` closes early and the leftover
+    # expression tail reads as label text. A rendered label never carries a
+    # brace.
+    if '{' in text or '}' in text:
+        return False
+    return bool(re.search(r'[A-Za-z]{2}', text))
+
+
+def _MARKUP():
+    """index.html + every app*.js, the same pair the option/th/label gate uses.
+
+    A function rather than a constant: `_SCAN_SOURCES` is assembled further down
+    this module, and the extractors above it are only ever called from a test.
+    """
+    return '\n'.join(src for _where, src in _SCAN_SOURCES)
+
+
 def _section_titles():
-    """Visible text of every `.section-title` element in index.html.
+    """Visible text of every `.section-title` element, in index.html AND the
+    app bundles.
 
     Mirrors the runtime text-node lookup: strip nested markup, collapse
     whitespace. Titles with a trailing dynamic suffix (e.g. `Findings —`
     followed by a JS-injected count) are normalized to their static head and
-    fall to the skip-list."""
+    fall to the skip-list.
+
+    v7.0.2: this read `INDEX` alone while `_SCAN_SOURCES` — used by the
+    option/th/label gate below — pairs index.html WITH app*.js. So the two
+    ceiling-ZERO categories in this class were enforced over static markup only
+    and their JS-rendered twins were unmeasured. The extraction needed no
+    change to work on template literals; that is how option/th/label already
+    read the bundles.
+    """
     titles = set()
     for sm in re.finditer(
             r'<(\w+)[^>]*class="[^"]*\bsection-title\b[^"]*"[^>]*>(.*?)</\1>',
-            INDEX, re.S):
+            _MARKUP(), re.S):
         body = re.sub(r'<svg\b.*?</svg>', '', sm.group(2), flags=re.S)
         # The runtime translates the FIRST text node (the leading heading);
         # a trailing `.hint`/`<span>` description is a separate node. Mirror
@@ -119,21 +159,22 @@ def _section_titles():
         if not text:
             stripped = re.sub(r'<[^>]+>', '', body)
             text = _html.unescape(re.sub(r'\s+', ' ', stripped)).strip()
-        if text:
+        if _fixed_text(text):
             titles.add(text)
     return titles
 
 
 def _button_labels():
-    """Bare visible text node of every `<button>` in index.html (icons and
-    attributed/nested spans dropped — same extraction as nav labels)."""
+    """Bare visible text node of every `<button>` in index.html and the app
+    bundles (icons and attributed/nested spans dropped — same extraction as nav
+    labels). See _section_titles for why this is not INDEX-only any more."""
     labels = set()
-    for bm in re.finditer(r'<button\b[^>]*>(.*?)</button>', INDEX, re.S):
+    for bm in re.finditer(r'<button\b[^>]*>(.*?)</button>', _MARKUP(), re.S):
         body = re.sub(r'<svg\b.*?</svg>', '', bm.group(1), flags=re.S)
         body = re.sub(r'<span [^>]+>.*?</span>', '', body, flags=re.S)
         body = re.sub(r'<[^>]+>', '', body)
         text = _html.unescape(re.sub(r'\s+', ' ', body)).strip()
-        if text:
+        if _fixed_text(text):
             labels.add(text)
     return labels
 
@@ -449,10 +490,16 @@ def _extract(pattern, source):
     return out
 
 
+# THE CAPS ARE PART OF THE POPULATION. At {2,60} a longer literal was never
+# extracted, so it was neither required to be in DICT (these three are ceiling
+# ZERO) nor recorded in the attribute backlog — a third state the docstrings did
+# not acknowledge: not translated, not exempted, not recorded. 8 markup literals
+# lived there, among them the ITSM-callback option and four backup/RPO/RTO field
+# labels. 200 matches the engine's own text-node window; it has no 60-char rule.
 _UNGUARDED_PATTERNS = (
-    ('option',  r'<option[^>]*>([^<]{2,60})</option>'),
-    ('th',      r'<th[^>]*>([^<]{2,60})</th>'),
-    ('label',   r'<label[^>]*>([^<]{2,60})</label>'),
+    ('option',  r'<option[^>]*>([^<]{2,200})</option>'),
+    ('th',      r'<th[^>]*>([^<]{2,200})</th>'),
+    ('label',   r'<label[^>]*>([^<]{2,200})</label>'),
 )
 
 
@@ -539,10 +586,16 @@ class TestUnguardedCategoriesAreTranslated(unittest.TestCase):
 # unchanged while the UI got worse. Pinning the set means a NEW untranslated
 # attribute fails by name, and clearing one shows up as a deletion in the diff.
 _ATTR_BACKLOG_FILE = _ROOT / 'tests' / 'data' / 'i18n_attr_backlog.txt'
+# Same population hole as _UNGUARDED_PATTERNS, and worse here because the
+# backlog is the recording mechanism: an attribute past the cap was not on the
+# frozen list either, so it could never be counted, cleared or shrunk. 26 sat
+# there, including both sidebar nav descriptions. translateAttrs has no length
+# cap at all, so every one of them would translate the moment a DICT entry
+# existed.
 _ATTR_PATTERNS = (
-    ('placeholder', r'placeholder="([^"]{2,120})"'),
-    ('title',       r'\btitle="([^"]{2,120})"'),
-    ('aria-label',  r'aria-label="([^"]{2,120})"'),
+    ('placeholder', r'placeholder="([^"]{2,400})"'),
+    ('title',       r'\btitle="([^"]{2,400})"'),
+    ('aria-label',  r'aria-label="([^"]{2,400})"'),
 )
 
 
@@ -726,7 +779,16 @@ class TestAttributeTranslationRatchet(unittest.TestCase):
     def test_the_recorded_debt_is_shrinking_not_invented(self):
         """Guard the guard. A baseline that silently grew to cover everything
         would make the test above pass forever while measuring nothing."""
-        self.assertLessEqual(len(self.backlog), 178,
+        # 178 -> 182 (v7.0.2), and this is the ONE reason a ceiling here may
+        # rise: the extraction cap went from 120 to 400 characters, so strings
+        # that were always in the markup — and were invisible to both the DICT
+        # requirement AND this recording mechanism — entered the population for
+        # the first time. Four of them are example DATA an operator copies (an
+        # Ansible play, a compose file, an HTML mail signature, a prompt-style
+        # hint), where a translation would be wrong. Recording pre-existing,
+        # newly-measurable debt is not the same event as adding debt; a raise
+        # for any other reason is the failure this test exists to catch.
+        self.assertLessEqual(len(self.backlog), 182,
                              'the attribute backlog may only shrink; it was '
                              '1,081 before the v6.4.3 batch and 984 after')
         self.assertGreater(len(self.backlog), 0)

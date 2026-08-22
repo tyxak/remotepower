@@ -11,7 +11,6 @@ real loopback socket, and the packaging fixes (iputils shipped everywhere).
 import importlib.util
 import os
 import socket
-import subprocess
 import sys
 import tempfile
 import unittest

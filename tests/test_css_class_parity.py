@@ -73,38 +73,70 @@ def _css_without_comments():
     return re.sub(r"/\*.*?\*/", "", _CSS.read_text(), flags=re.S)
 
 
+def _js_sources():
+    return {p.name: re.sub(r"^\s*//.*$", "", p.read_text(), flags=re.M)
+            for p in _JS.glob("*.js")}
+
+
+def _js_hooks(all_js):
+    hooks = set()
+    for t in all_js.values():
+        hooks |= set(re.findall(
+            r"querySelector(?:All)?\(\s*[`'\"][^`'\"]*\.([A-Za-z][\w-]*)", t))
+        hooks |= set(re.findall(r"closest\(\s*'[^']*\.([A-Za-z][\w-]*)", t))
+        hooks |= set(re.findall(r"getElementsByClassName\('([\w-]+)'", t))
+        hooks |= set(re.findall(r"classList\.contains\('([\w-]+)'", t))
+    return hooks
+
+
+# Every way the app puts a class on an element. The first three were the whole
+# population until v7.0.2; the last two were invisible, and 61 classes are set
+# ONLY that way. `noprint` is one of them — it looked like a stale exemption in
+# LEGACY_UNSTYLED precisely because nothing in the scanned set referenced it.
+_CLASS_SINKS = (
+    r'class="([^"$`{]+)"',
+    r"class='([^'$`{]+)'",
+    r"classList\.(?:add|toggle)\('([\w-]+)'",
+    r"""\.className\s*=\s*['"]([^'"$`{]+)['"]""",
+    r"""setAttribute\(\s*['"]class['"]\s*,\s*['"]([^'"$`{]+)['"]""",
+)
+
+
+def _referenced_classes(all_js):
+    """class token -> the files that reference it."""
+    used = {}
+
+    def add(tok, src):
+        for t in tok.split():
+            if _class_token(t):
+                used.setdefault(t, set()).add(src)
+
+    for m in re.findall(r'class="([^"$]+)"', (_HTML / "index.html").read_text()):
+        add(m, "index.html")
+    for name, t in all_js.items():
+        # The standalone pages (portal.js, status.js, swagger-init.js) ship
+        # their own stylesheets, so their classes cannot be resolved here.
+        if not name.startswith("app"):
+            continue
+        for pat in _CLASS_SINKS:
+            for m in re.findall(pat, t):
+                add(m, name)
+    return used
+
+
 class TestClassParity(unittest.TestCase):
     def test_every_referenced_class_resolves(self):
         defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _css_without_comments()))
-        all_js = {p.name: re.sub(r"^\s*//.*$", "", p.read_text(), flags=re.M)
-                  for p in _JS.glob("*.js")}
-        hooks = set()
-        for t in all_js.values():
-            hooks |= set(re.findall(
-                r"querySelector(?:All)?\(\s*[`'\"][^`'\"]*\.([A-Za-z][\w-]*)", t))
-            hooks |= set(re.findall(r"closest\(\s*'[^']*\.([A-Za-z][\w-]*)", t))
-            hooks |= set(re.findall(r"getElementsByClassName\('([\w-]+)'", t))
-            hooks |= set(re.findall(r"classList\.contains\('([\w-]+)'", t))
-
-        used = {}
-
-        def add(tok, src):
-            for t in tok.split():
-                if _class_token(t):
-                    used.setdefault(t, set()).add(src)
-
-        add_html = (_HTML / "index.html").read_text()
-        for m in re.findall(r'class="([^"$]+)"', add_html):
-            add(m, "index.html")
-        for name, t in all_js.items():
-            if not name.startswith("app"):
-                continue
-            for m in re.findall(r'class="([^"$`{]+)"', t):
-                add(m, name)
-            for m in re.findall(r"class='([^'$`{]+)'", t):
-                add(m, name)
-            for m in re.findall(r"classList\.(?:add|toggle)\('([\w-]+)'", t):
-                add(m, name)
+        all_js = _js_sources()
+        hooks = _js_hooks(all_js)
+        used = _referenced_classes(all_js)
+        # Non-emptiness control: every extraction here is a regex over source,
+        # and a markup change that broke one would empty the population while
+        # the assertion below still passed.
+        self.assertGreater(len(used), 1200,
+                           "the referenced-class population collapsed to %d — "
+                           "the extractor is broken, not the markup"
+                           % len(used))
 
         unresolved = sorted(
             f'{c} ({", ".join(sorted(srcs)[:3])})'
@@ -118,12 +150,24 @@ class TestClassParity(unittest.TestCase):
                          + "\n  ".join(unresolved))
 
     def test_legacy_set_stays_pruned(self):
-        """An entry that gained styles/hooks (or vanished) must leave the set."""
+        """An entry that gained styles/hooks must leave the set."""
         defined = set(re.findall(r"\.([A-Za-z][\w-]*)", _css_without_comments()))
         stale = sorted(c for c in LEGACY_UNSTYLED if c in defined)
         self.assertEqual(stale, [],
                          "LEGACY_UNSTYLED entries now defined in CSS — remove "
                          "them from the set:\n  " + "\n  ".join(stale))
+
+    def test_legacy_entries_are_still_referenced(self):
+        """The docstring above promised "or vanished" and the code never
+        checked it. An exemption for a class nothing references any more is a
+        standing waiver: a future class of the same name inherits it and never
+        has to resolve. Free ratchet — the list is clean today."""
+        used = _referenced_classes(_js_sources())
+        gone = sorted(c for c in LEGACY_UNSTYLED if c not in used)
+        self.assertEqual(gone, [],
+                         "LEGACY_UNSTYLED entries nothing references any more — "
+                         "delete them, or a future class of the same name is "
+                         "exempt before it is written:\n  " + "\n  ".join(gone))
 
 
 if __name__ == "__main__":

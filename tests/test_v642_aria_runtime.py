@@ -17,7 +17,6 @@ a missing browser into an ERROR instead of a skip.
 Run: python3 -m pytest tests/test_v642_aria_runtime.py -q
 """
 
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -27,26 +26,36 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from e2e_harness import browser_available, start_stack  # noqa: E402
+import browser_required                                 # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all. The probe launches a browser, so cache it.
+_REASON = 'playwright + chromium + gunicorn not available'
+_OK = browser_available()
+_GATE = _OK or browser_required.required()
 
 
-@unittest.skipUnless(browser_available(),
-                     'playwright + chromium + gunicorn not available')
+@unittest.skipUnless(_GATE, _REASON)
 class _Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not _OK:
+            browser_required.skip_or_fail(_REASON)
         from playwright.sync_api import sync_playwright
         cls._pw = sync_playwright().start()
         try:
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:                       # pragma: no cover
             cls._pw.stop()
-            raise unittest.SkipTest(f'chromium not available: {exc}')
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
         try:
             cls.base, cls._shutdown = start_stack()
         except Exception as exc:                       # pragma: no cover
             cls.browser.close()
             cls._pw.stop()
-            raise unittest.SkipTest(f'app stack not available: {exc}')
+            browser_required.skip_or_fail(f'app stack not available: {exc}')
 
     @classmethod
     def tearDownClass(cls):

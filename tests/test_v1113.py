@@ -12,7 +12,6 @@ Covers:
 """
 
 import datetime
-import os
 import socket
 import ssl
 import sys

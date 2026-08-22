@@ -8,9 +8,7 @@ expiry. Lock the parse against representative fixtures.
 """
 import importlib.machinery
 import importlib.util
-import os
 import sys
-import time
 import unittest
 from pathlib import Path
 

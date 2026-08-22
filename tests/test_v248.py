@@ -16,7 +16,6 @@ from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
 from srcpin import js_function
-import re
 import unittest
 from pathlib import Path
 

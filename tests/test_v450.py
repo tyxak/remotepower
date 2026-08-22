@@ -11,7 +11,6 @@ tests/test_v441.py for the pattern).
 """
 import importlib.util
 import os
-import re
 import shutil
 import subprocess
 import sys

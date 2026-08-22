@@ -5,9 +5,7 @@ Run: python3 -m pytest tests/test_api.py -v
 """
 
 import hashlib
-import json
 import os
-import sys
 import tempfile
 import time
 import unittest
@@ -17,7 +15,7 @@ _skip_sqlite = unittest.skipIf(
     'SQLite; covered by tests/test_storage_backend.py')
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # ── Bootstrap: mock CGI environment before importing api ──────────────────────
 os.environ.setdefault('REQUEST_METHOD', 'GET')

@@ -858,7 +858,6 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         return json.loads(api.CONFIG_FILE.read_text())
 
     def test_default_off_is_plaintext(self):
-        import json
         import os
         os.environ.pop('RP_CONFIG_KEY', None)
         api._LOAD_CACHE.clear()
@@ -868,7 +867,6 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
 
     @unittest.skipUnless(__import__('backup_crypto').available(), 'cryptography not installed')
     def test_roundtrip_with_key(self):
-        import json
         import os
         os.environ['RP_CONFIG_KEY'] = 'master-key-xyz'
         api._LOAD_CACHE.clear()

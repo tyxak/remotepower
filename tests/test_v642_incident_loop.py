@@ -30,7 +30,6 @@ the Timeline a way around that gate. That is driven from both sides.
 
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import time

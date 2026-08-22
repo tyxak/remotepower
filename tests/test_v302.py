@@ -13,7 +13,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
-import json, os, sys, tempfile, time, unittest, importlib, shutil
+import json, os, sys, tempfile, time, unittest, shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -646,7 +646,7 @@ class TestCssVarsDefined(unittest.TestCase):
     with default browser colours in dark mode."""
 
     def test_no_undefined_vars_anywhere(self):
-        import glob, re
+        import re
         css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
         defined = set(re.findall(r'--([a-z0-9-]+):', css))
         bad = {}
@@ -918,7 +918,7 @@ class TestAgentSecurity(unittest.TestCase):
 
     def test_safe_state_write_round_trip(self):
         """Marker writes survive a round trip and don't leak through symlinks."""
-        import tempfile, os, unittest.mock
+        import tempfile, unittest.mock
         with tempfile.TemporaryDirectory() as td:
             with unittest.mock.patch.object(self.agent, 'STATE_DIR',
                                             self.agent.Path(td)):
@@ -952,7 +952,7 @@ class TestAgentSecurity(unittest.TestCase):
     def test_save_credentials_creates_mode_600_atomically(self):
         """Credentials must be 0o600 from creation, never world-readable
         in a window between write and chmod."""
-        import tempfile, os, unittest.mock, stat
+        import tempfile, unittest.mock, stat
         with tempfile.TemporaryDirectory() as td:
             confdir = self.agent.Path(td) / 'rp-creds-test'
             credsfile = confdir / 'credentials'

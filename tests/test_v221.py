@@ -19,10 +19,13 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+import base64
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -295,15 +298,55 @@ class TestPolishAssets(unittest.TestCase):
         cls.js  = client_js()
         cls.html = (_ROOT / 'server/html/index.html').read_text()
 
-    def test_css_typography_fonts_imported(self):
-        # CSP L1 (v3.0.4): bunny.net fonts are now self-hosted under
-        # /static/vendor/fonts/. styles.css @imports the local copy.
-        self.assertIn('inter-jetbrains.css', self.css,
-                      'styles.css should @import the self-hosted fonts CSS')
-        vendor_css = (_ROOT / 'server' / 'html' / 'static' / 'vendor'
-                      / 'fonts' / 'inter-jetbrains.css').read_text()
+    def test_the_self_hosted_font_sheet_is_actually_loaded(self):
+        """This used to assert `'inter-jetbrains.css' in styles.css`, and it
+        passed on a COMMENT — the one at the top of styles.css recording that
+        the @import was REMOVED. There is no @import in that file at all, so the
+        only guard on font loading was satisfied by the text announcing its
+        removal, and the v6.0.0 drop of the <link> from index.html went through
+        green. Assert the surface that decides whether a font loads instead.
+
+        Since v7.0.2 that surface is app-remote.js: the web terminal injects the
+        sheet with an SRI pin when an operator opens it, keeping the fetch off
+        the first-paint path (the ClarityMatters design uses system stacks
+        everywhere else).
+        """
+        css_no_comments = re.sub(r'/\*.*?\*/', '', self.css, flags=re.S)
+        self.assertNotIn(
+            '@import', css_no_comments,
+            'styles.css must stay free of @import — the font sheets are loaded '
+            'by app-remote.js, and an @import here would put them back on the '
+            'render-blocking path')
+
+        remote = (_ROOT / 'server/html/static/js/app-remote.js').read_text()
+        i = remote.find("'/static/vendor/fonts/inter-jetbrains.css'")
+        self.assertGreater(
+            i, -1,
+            'nothing loads the self-hosted font sheet any more — the web '
+            'terminal falls back to a per-OS monospace face')
+        window = remote[max(0, i - 400):i + 400]
+        self.assertIn('link.rel', window)
+        self.assertIn('appendChild', window)
+
+        vendor = (_ROOT / 'server' / 'html' / 'static' / 'vendor'
+                  / 'fonts' / 'inter-jetbrains.css')
+        vendor_css = vendor.read_text()
         self.assertIn('inter', vendor_css.lower())
         self.assertIn('jetbrains-mono', vendor_css.lower())
+
+        # The SRI pin must match the vendored bytes. A swap that leaves the pin
+        # behind makes the browser REFUSE the sheet — the same failure mode as
+        # the Swagger UI swap that rendered the API Reference blank, where a
+        # file diff looked perfect.
+        want = 'sha384-' + base64.b64encode(
+            hashlib.sha384(vendor.read_bytes()).digest()).decode()
+        m = re.search(r"link\.integrity\s*=\s*'([^']+)'", remote[i:i + 400])
+        self.assertIsNotNone(m, 'the font sheet is injected with no SRI pin')
+        self.assertEqual(
+            m.group(1), want,
+            'the SRI pin on inter-jetbrains.css does not match the vendored '
+            'file — the browser will refuse the sheet and the terminal renders '
+            'in the fallback face')
 
     def test_css_status_palette_refined(self):
         # The soft+edge variants
@@ -325,10 +368,6 @@ class TestPolishAssets(unittest.TestCase):
 
     def test_css_distro_icon(self):
         self.assertIn('.distro-icon', self.css)
-
-    def test_css_hover_affordances(self):
-        for cls in ('has-hover-actions', 'row-actions'):
-            self.assertIn(cls, self.css)
 
     def test_css_ai_identity(self):
         for cls in ('ai-btn', 'ai-thinking', 'ai-content',

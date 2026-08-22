@@ -6,12 +6,10 @@ and log ingestion helpers.
 
 import os
 import sys
-import json
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 # Make the cgi-bin dir importable
 _CGI_BIN = Path(__file__).parent.parent / 'server' / 'cgi-bin'

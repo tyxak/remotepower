@@ -30,7 +30,11 @@ it to one page load is what makes that acceptable.
 """
 import pathlib
 import re
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import browser_required                                  # noqa: E402
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _CSS = _ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css'
@@ -99,11 +103,21 @@ _VIEWPORT_H = 900
 _CEILING = int(_VIEWPORT_H * 0.70) + 4
 
 
-@unittest.skipUnless(_browser_available(), 'no Chromium available')
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all. The probe launches a browser, so cache it.
+_OK = _browser_available()
+
+
+@unittest.skipUnless(_OK or browser_required.required(),
+                     'no Chromium available')
 class TestEveryAccumulatorCapsAndScrolls(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if not _OK:
+            browser_required.skip_or_fail('no Chromium available')
         body = ''.join(f'<div id="{k}">{v[0]}</div>' for k, v in PANELS.items())
         page = ('<!doctype html><html><head><style>__CSS__</style></head>'
                 '<body><div id="app"><div class="container">'

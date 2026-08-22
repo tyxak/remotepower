@@ -31,7 +31,6 @@ Pure stdlib ``unittest`` so it runs under ``python -m unittest discover`` (what
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 

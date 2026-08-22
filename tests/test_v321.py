@@ -4,9 +4,7 @@ Loosened to regex — v3.2.2 now holds the strict pin (test_v322.py).
 Feature regression tests for v3.2.1 remain here; only the version-pin
 assertions relax to pattern-only so future bumps don't break them.
 """
-import os
 import re
-import sys
 import unittest
 from pathlib import Path
 

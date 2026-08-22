@@ -30,6 +30,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import browser_required
+
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -89,9 +91,21 @@ class TestItIsNotEagerAnyMore(unittest.TestCase):
             )
 
 
-@unittest.skipUnless(_browser_ok(), "no usable chromium")
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all. The probe launches a browser, so cache it.
+_OK = _browser_ok()
+
+
+@unittest.skipUnless(_OK or browser_required.required(), "no usable chromium")
 class TestItActuallyLoadsOnDemand(unittest.TestCase):
     """The part source analysis cannot answer."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _OK:
+            browser_required.skip_or_fail("no usable chromium")
 
     def _page(self, pw):
         browser = pw.chromium.launch()

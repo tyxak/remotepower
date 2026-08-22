@@ -20,7 +20,6 @@ never reports again.
 """
 import importlib.util
 import re
-import sys
 import tempfile
 import time
 import unittest

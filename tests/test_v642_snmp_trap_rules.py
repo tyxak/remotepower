@@ -19,7 +19,6 @@ something at 3am, was the one place it was not used.
 
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import unittest

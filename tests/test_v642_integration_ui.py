@@ -23,7 +23,6 @@ Run: python3 -m pytest tests/test_v642_integration_ui.py -q
 
 import re
 import unittest
-from pathlib import Path
 
 # Reuse the real save-handler harness (tmp CONFIG_FILE, drives the REAL
 # handle_config_save, captures respond()).
@@ -33,7 +32,7 @@ import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 # there — but `python3 -m unittest tests.<this>` does not, and the module
 # then fails to import at all. Make it runnable on its own.
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
-from test_v622_alert_params import _SaveBase, api, ROOT, _CGI
+from test_v622_alert_params import _SaveBase, ROOT, _CGI
 
 _APP = ROOT / "server/html/static/js/app.js"
 

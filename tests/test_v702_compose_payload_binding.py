@@ -18,7 +18,6 @@ REFUSED, because tolerating it would let an attacker simply omit it.
 import hashlib
 import importlib.util
 import re
-import sys
 import unittest
 from pathlib import Path
 

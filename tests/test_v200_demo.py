@@ -14,8 +14,6 @@ import api, then poke the helpers directly with respond capture.
 """
 
 import importlib.util
-import io
-import json
 import os
 import sys
 import tempfile

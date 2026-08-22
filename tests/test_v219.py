@@ -14,7 +14,6 @@ models from inventing service names and firewall rules:
 """
 
 import importlib.util
-import io
 import json
 import os
 import sys

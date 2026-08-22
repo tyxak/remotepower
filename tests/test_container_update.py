@@ -7,7 +7,6 @@ the argv reconstruction from inspect data, and the recreate happy path.
 
 import importlib.util
 import json
-import os
 import sys
 import unittest
 from pathlib import Path

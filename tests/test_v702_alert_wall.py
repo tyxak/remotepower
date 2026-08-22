@@ -24,8 +24,11 @@ wall left on a viewer token is read-only because the ROLE says so.
 """
 import pathlib
 import re
-import re
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import browser_required                                  # noqa: E402
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _CSS = _ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css'
@@ -131,7 +134,15 @@ class TestItFullscreensTheRootNotTheCard(unittest.TestCase):
                          'the exit affordance is no longer at body level')
 
 
-@unittest.skipUnless(_browser(), 'no Chromium available')
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all. The probe launches a browser, so cache it.
+_OK = _browser()
+
+
+@unittest.skipUnless(_OK or browser_required.required(),
+                     'no Chromium available')
 class TestItRenders(unittest.TestCase):
     """Every CSS rule here is individually correct; only the rendered result
     shows whether the card actually fills the screen and the table still
@@ -154,6 +165,8 @@ class TestItRenders(unittest.TestCase):
         confirm it. Two details the fixture also got wrong, both load-bearing:
         the alerts page ships as an inert <template> stamped on first visit,
         and #app carries d-none until login."""
+        if not _OK:
+            browser_required.skip_or_fail('no Chromium available')
         html = (_ROOT / 'server/html/index.html').read_text()
         html = re.sub(r'<script\b.*?</script>', '', html, flags=re.S)
         # Strip the stylesheet links: the real sheet loading beside the injected

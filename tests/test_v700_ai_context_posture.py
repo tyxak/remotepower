@@ -32,7 +32,6 @@ WHAT THIS PINS
   close.
 """
 import importlib.util
-import time
 import unittest
 from pathlib import Path
 

@@ -8,7 +8,6 @@ Holds the STRICT version-surface pins for this release. On the next bump these
 become regex (see how tests/test_v3140.py was loosened to TestVersionBumpsLoosened).
 """
 import os
-import re
 import sys
 import tempfile
 import unittest

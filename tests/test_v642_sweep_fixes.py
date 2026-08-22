@@ -604,7 +604,6 @@ class TestLockedUpdateReadsFreshInsideTheLock(unittest.TestCase):
     lock to prevent, except located in the lock itself."""
 
     def test_a_concurrent_write_is_visible_inside_the_lock(self):
-        import json as _json
         p = api.DEVICES_FILE
         api.save(p, {"a": {"name": "a"}})
         api.load(p)                       # warm the per-request memoiser

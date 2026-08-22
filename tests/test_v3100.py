@@ -17,10 +17,8 @@ pins loosen to a regex (see test_v380.py / test_v390.py for the loosened form).
 """
 import os
 import re
-import shutil
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 

@@ -6,13 +6,9 @@ Run: python3 -m pytest tests/test_cve_scanner.py -v
 These tests cover the pure-logic modules without hitting the network.
 """
 
-import json
 import sys
-import tempfile
-import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'server' / 'cgi-bin'))
 

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Turn "no browser here" from a silent pass into a decision.
 
-Four gates need a real Chromium — the rendered box-overflow walk, the dialog
-walk, the icon-to-label gap measurement, and the accessibility sweep. Each of
-them self-skips when playwright or the browser is missing, which is correct on a
-contributor's laptop and is the whole problem everywhere else: the production CI
-dep list installs no playwright and no axe-core, so all four skip there, every
-time. They run only on a dev box that happens to have Chromium.
+Eighteen suites need a real Chromium — the rendered box-overflow walk, the
+dialog walk, the icon-to-label gap measurement, the accessibility sweep, the
+click sweep, the page smokes and the rest. Each self-skips when playwright or
+the browser is missing, which is correct on a contributor's laptop and is the
+whole problem everywhere else: the production CI dep list installs no playwright
+and no axe-core, so they all skip there, every time. They run only on a dev box
+that happens to have Chromium. (Four honoured this flag until v7.0.2; the other
+ten could vanish without a word. tests/test_v643_browser_gates_are_required.py
+now DERIVES the population instead of listing it.)
 
 That is the same shape as the Postgres gate before `RP_PG_REQUIRE`: a suite
 whose absence looked identical to its success. This is the same remedy, and
@@ -55,7 +58,7 @@ def skip_or_fail(reason):
         raise AssertionError(
             f'RP_BROWSER_REQUIRE is set and the browser gate cannot run: '
             f'{reason}. This suite measures what no source check can see, so a '
-            f'skip here is a release cut with four gates switched off. Install '
-            f'playwright and `playwright install chromium`, or unset the flag '
-            f'deliberately.')
+            f'skip here is a release cut with a browser gate switched off. '
+            f'Install playwright and `playwright install chromium`, or unset '
+            f'the flag on purpose.')
     raise unittest.SkipTest(reason)

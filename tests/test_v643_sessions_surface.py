@@ -18,7 +18,6 @@ DOM ids, and the two properties that make the control honest rather than merely
 present (revocation is per-user because that is all the server offers, and a
 numeric-looking username survives the dispatcher's Number() coercion).
 """
-import json
 import re
 import subprocess
 import unittest

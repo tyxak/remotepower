@@ -14,7 +14,6 @@ import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 import ast
 import importlib.util
-import json
 import os
 import re
 import subprocess

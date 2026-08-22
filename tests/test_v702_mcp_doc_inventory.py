@@ -20,7 +20,6 @@ new tool fails this until the docs name it.
 """
 import ast
 import pathlib
-import re
 import unittest
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent

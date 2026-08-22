@@ -190,7 +190,6 @@ class TestSudoSearchIsScoped(unittest.TestCase):
     caller can see."""
 
     def setUp(self):
-        import tempfile as _tf
         self.api = api
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in ('respond', 'verify_token', '_env')}

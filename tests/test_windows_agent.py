@@ -553,7 +553,6 @@ class TestFileManager(unittest.TestCase):
         self.assertIn('allowlisted', _json.loads(r['output'])['error'])
 
     def test_denied_prefix_beats_an_allowed_root(self):
-        import json as _json
         # Even if C:\ were allowed, C:\Windows is always denied.
         r = agent._handle_file_op_win('files:list:' + self._b(r'C:\Windows'))
         self.assertEqual(r['rc'], 1)

@@ -22,7 +22,6 @@ whole bug was an assumption about what the filesystem does.
 
 import ast
 import importlib.util
-import json
 import os
 import stat
 import sys

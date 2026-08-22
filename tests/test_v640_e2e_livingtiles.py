@@ -21,15 +21,24 @@ import os as _os
 import sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from e2e_harness import browser_available, SKIP_REASON   # noqa: E402
+import browser_required                                  # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all.
+_GATE = browser_available() or browser_required.required()
 
 if browser_available():                                  # noqa: E402
     from playwright.sync_api import sync_playwright
 
 
-@unittest.skipUnless(browser_available(), SKIP_REASON)
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestLivingTilesRender(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not browser_available():
+            browser_required.skip_or_fail(SKIP_REASON)
         from e2e_harness import start_stack
         cls.base, cls._shutdown = start_stack()
         cls._pw = sync_playwright().start()

@@ -21,7 +21,6 @@ import multiprocessing
 import os
 import sys
 import tempfile
-import time
 import unittest
 _skip_sqlite = unittest.skipIf(
     os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',

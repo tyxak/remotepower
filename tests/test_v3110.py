@@ -44,7 +44,6 @@ class TestVersionBumps(unittest.TestCase):
     # v3.12.0: loosened from the exact 3.11.0 pins (the live strict pin moved to
     # tests/test_v3120.py) so a later bump doesn't fail this file.
     def test_server_version(self):
-        import re as _re
         self.assertRegex(api.SERVER_VERSION, r'^\d+\.\d+\.\d+$')
 
     def test_agent_version(self):

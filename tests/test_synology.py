@@ -92,8 +92,6 @@ class TestPollSynology(unittest.TestCase):
 
 # ── v3.4.0: Synology DSM update status flows into the Patches report ────────
 import importlib.util as _ilu  # noqa: E402
-import io as _io               # noqa: E402
-import json as _json          # noqa: E402
 import os as _os              # noqa: E402
 import tempfile as _tf        # noqa: E402
 

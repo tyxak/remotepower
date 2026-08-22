@@ -22,6 +22,12 @@ Each check below encodes a rule that previously lived only in CLAUDE.md as
    mutation, a cache/watermark write, or the documented handle_monitor_run
    borderline. A NEW name failing this test needs require_write_role — or a
    review that concludes it belongs on this list, with the reason.
+   v7.0.2: the detector now follows ONE level of call depth. It used to
+   require a literal save/_LockedUpdate in the handler BODY, which
+   inspected 31 of 273 candidates — POST /api/time-entries let a
+   read-only viewer write the shared billing ledger because its lock
+   sits one frame down in `_te_store`, while its own sibling
+   handle_time_entry_update had been on the reviewed list all along.
 """
 
 import ast
@@ -112,6 +118,73 @@ class TestNoPathExistsOnStorageKeys(unittest.TestCase):
                          + "\n  ".join(offenders))
 
 
+_MUTATORS = {"save", "_LockedUpdate", "_DeviceUpdate", "_locked_update"}
+_STRONGER_GATES = {"require_admin_auth", "require_write_role",
+                   "require_perm", "require_admin"}
+
+
+def _called_names(fn):
+    out = set()
+    for c in ast.walk(fn):
+        if isinstance(c, ast.Call):
+            nm = getattr(c.func, "id", None) or getattr(c.func, "attr", None)
+            if nm:
+                out.add(nm)
+    return out
+
+
+def _callee_map():
+    """name -> the set of names IT calls, over api.py + every bound module.
+
+    Handlers reach the storage layer through helpers as often as they touch it
+    directly, so a detector that only sees a literal `save(...)`/`_LockedUpdate`
+    in the handler body inspects the wrong population.
+    """
+    out = {}
+    for p in _py_files():
+        for fn in [n for n in ast.walk(ast.parse(p.read_text()))
+                   if isinstance(n, ast.FunctionDef)]:
+            out.setdefault(fn.name, set()).update(_called_names(fn))
+    return out
+
+
+def _bare_auth_mutating_handlers():
+    """Every handle_* gated ONLY by bare require_auth() that mutates state —
+    directly, or through a helper ONE frame down.
+
+    WHY THE DEPTH. The first version of this guard looked for a literal
+    save/_LockedUpdate/_DeviceUpdate/_locked_update call inside the handler
+    body. 273 handlers call bare require_auth(); only 31 mutate where that
+    detector could see it, so the rule was enforced over 11% of its own
+    candidates. `handle_time_entries` escaped review purely because the lock
+    sits one frame down in `_te_store` — its own sibling
+    `handle_time_entry_update` was on the reviewed list the whole time.
+    One level of call depth yields 54. Two levels would pull in the whole
+    transitive closure (`require_auth` itself reaches storage), which is why
+    the walk stops here.
+    """
+    callees = _callee_map()
+    found = set()
+    for p in _py_files():
+        for fn in [n for n in ast.walk(ast.parse(p.read_text()))
+                   if isinstance(n, ast.FunctionDef)
+                   and n.name.startswith("handle_")]:
+            names = _called_names(fn)
+            if "require_auth" not in names:
+                continue
+            if names & _STRONGER_GATES:
+                continue
+            wide = set(names)
+            for nm in names:
+                # Don't follow handler->handler calls: a delegating handler
+                # would inherit its target's classification instead of its own.
+                if nm in callees and not nm.startswith("handle_"):
+                    wide |= callees[nm]
+            if wide & _MUTATORS:
+                found.add((p.name, fn.name))
+    return found
+
+
 class TestBareRequireAuthMutations(unittest.TestCase):
     """Pinned review set — see the module docstring. Adding a handler here
     requires the same review; the default answer is require_write_role."""
@@ -140,32 +213,46 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         "handle_ticket_get",
         # documented LOW borderline (forces a bounded synchronous run)
         "handle_monitor_run",
+
+        # ---- v7.0.2: newly VISIBLE when the detector grew one level of call
+        # depth. Each mutates through a helper rather than in the handler body,
+        # which is why none of them had ever been reviewed. Reasons, by what the
+        # helper actually writes:
+        #
+        # session watermark inside verify_token() — the write is the auth
+        # mechanism itself, not authority the handler is exercising.
+        "handle_me", "handle_me_sessions", "handle_config_get",
+        "handle_integrations_list", "handle_query_templates",
+        "handle_device_sudo_log", "handle_sudo_search", "handle_gitops_get",
+        # audit_log() only — recording that a read happened is not a
+        # state-mutating action by the caller.
+        "handle_cmdb_vault_unlock", "handle_ticket_attachment",
+        "handle_scoped_credentials_reveal",
+        # read-through caches / derived rollups recomputed on read
+        "handle_fleet_checks", "handle_reliability_overview",
+        "handle_risk_overview", "handle_ai_rag_search",
+        "handle_proxmox_list", "handle_proxmox_backups_get",
+        # self-scoped or rate-limit bookkeeping keyed to the caller
+        "handle_webauthn_register_begin", "handle_ai_chat",
+        # one-time VAPID keypair generated on first read (_webpush_cfg)
+        "handle_push_vapid", "handle_push_test",
+        # documented LOW borderline, same shape as handle_monitor_run: the GET
+        # advances the rollout sweep that main()'s cadence runs anyway
+        # (_rollout_tick_if_due), and the caller supplies no input to it.
+        "handle_rollouts_list",
     }
 
     def test_new_bare_auth_mutating_handlers_get_reviewed(self):
-        offenders = []
-        for p in _py_files():
-            tree = ast.parse(p.read_text())
-            for fn in [n for n in ast.walk(tree)
-                       if isinstance(n, ast.FunctionDef)
-                       and n.name.startswith("handle_")]:
-                names = set()
-                for c in ast.walk(fn):
-                    if isinstance(c, ast.Call):
-                        nm = getattr(c.func, "id", None) \
-                            or getattr(c.func, "attr", None)
-                        if nm:
-                            names.add(nm)
-                if "require_auth" not in names:
-                    continue
-                if names & {"require_admin_auth", "require_write_role",
-                            "require_perm", "require_admin"}:
-                    continue
-                if not names & {"save", "_LockedUpdate", "_DeviceUpdate",
-                                "_locked_update"}:
-                    continue
-                if fn.name not in self.REVIEWED:
-                    offenders.append(f"{p.name}: {fn.name}")
+        population = _bare_auth_mutating_handlers()
+        # Non-emptiness control. The detector is a name match over an AST; a
+        # rename of require_auth or of the storage helpers would empty it and
+        # this test would pass having inspected nothing.
+        self.assertGreater(
+            len(population), 40,
+            "the bare-require_auth mutating population collapsed to %d — the "
+            "detector is measuring almost nothing." % len(population))
+        offenders = sorted(f"{fname}: {name}" for fname, name in population
+                           if name not in self.REVIEWED)
         self.assertEqual(offenders, [],
                          "state-mutating handler gated by bare require_auth() "
                          "— read-only roles (viewer/mcp/auditor/finance) can "
@@ -176,26 +263,7 @@ class TestBareRequireAuthMutations(unittest.TestCase):
     def test_reviewed_set_stays_pruned(self):
         """A handler that no longer trips the detector must leave the list —
         a stale entry would mask a future regression of the same name."""
-        current = set()
-        for p in _py_files():
-            tree = ast.parse(p.read_text())
-            for fn in [n for n in ast.walk(tree)
-                       if isinstance(n, ast.FunctionDef)
-                       and n.name.startswith("handle_")]:
-                names = set()
-                for c in ast.walk(fn):
-                    if isinstance(c, ast.Call):
-                        nm = getattr(c.func, "id", None) \
-                            or getattr(c.func, "attr", None)
-                        if nm:
-                            names.add(nm)
-                if "require_auth" in names \
-                        and not names & {"require_admin_auth",
-                                         "require_write_role",
-                                         "require_perm", "require_admin"} \
-                        and names & {"save", "_LockedUpdate", "_DeviceUpdate",
-                                     "_locked_update"}:
-                    current.add(fn.name)
+        current = {name for _fname, name in _bare_auth_mutating_handlers()}
         stale = sorted(self.REVIEWED - current)
         self.assertEqual(stale, [],
                          "REVIEWED entries that no longer trip the detector — "

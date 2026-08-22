@@ -5,10 +5,8 @@ assertions, which is false-green class #1 in CLAUDE.md. These drive the real
 code instead.
 """
 
-import base64
 import importlib.machinery
 import importlib.util
-import io
 import os
 import re
 import struct

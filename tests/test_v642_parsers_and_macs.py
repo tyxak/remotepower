@@ -9,7 +9,6 @@ stored, and read by nobody — or read wrongly".
 """
 
 import importlib.util
-import json
 import os
 import sys
 import tempfile

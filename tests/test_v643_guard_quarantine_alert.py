@@ -29,7 +29,6 @@ coalescing identity — the documented way this class of test goes falsely green
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 

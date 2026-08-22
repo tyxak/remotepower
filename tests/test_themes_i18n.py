@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """v4.1 — full theme system + expanded i18n catalog (static-UI strings, 5 langs)."""
-import json
 import re
 import unittest
 from pathlib import Path

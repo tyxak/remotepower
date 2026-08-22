@@ -18,8 +18,6 @@ from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
 import importlib.util
-import io
-import json
 import os
 import sys
 import tempfile
@@ -133,17 +131,12 @@ class TestPolishHotfixes(unittest.TestCase):
         self.assertIn("'/webhook/log'", self.js,
                       "loadHome should use the slashed path")
 
-    def test_row_actions_has_breathing_room(self):
-        # v2.2.2: row-actions positioned with `right: 24px` for a focus
-        # ring that wasn't clipped on narrow cells.
-        # v2.2.5: hover affordance removed entirely (was persistently
-        # fiddly). This test is now a historical record: the row-actions
-        # CSS rule still exists as a no-op `display: none`. See
-        # TestHoverActionsRemoved in test_v225.py for the v2.2.5
-        # invariant. We keep the test name and just assert the no-op.
-        self.assertIn('tr.has-hover-actions .row-actions { display: none; }',
-                      self.css,
-                      "v2.2.5 turns the hover-actions rule into a no-op")
+    # v7.0.2: test_row_actions_has_breathing_room removed. It required the
+    # no-op `tr.has-hover-actions .row-actions { display: none; }` rule to STAY
+    # in styles.css, which blocked the cleanup CHANGELOG.md already announced
+    # ("Dead CSS removed"). Nothing emits either class; test_v225's
+    # test_no_hover_actions_in_minimal_row is the assertion that still
+    # describes intended behaviour, and it points the other way.
 
     def test_row_actions_focus_outline_suppressed(self):
         # v2.2.2: focus outline replaced with softer accent border.

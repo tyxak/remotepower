@@ -194,7 +194,6 @@ if __name__ == '__main__':
 
 
 # ── extra fuzz batch: crypto round-trip, dns guards, notify detect/message ──
-import os
 import tempfile
 try:
     backup_crypto = importlib.import_module('backup_crypto')

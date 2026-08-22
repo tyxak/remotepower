@@ -205,14 +205,12 @@ class TestHoverActionsRemoved(_AssetTests):
         self.assertNotIn('has-hover-actions', chunk,
                          "row should no longer carry the has-hover-actions class")
 
-    def test_hover_action_css_neutered(self):
-        # CSS rule still exists for back-compat with any HTML still
-        # tagged has-hover-actions, but renders as display:none
-        idx = self.css.find('tr.has-hover-actions .row-actions')
-        # Find the first one (the v2.2.5 no-op)
-        block = self.css[idx:idx + 200]
-        self.assertIn('display: none', block,
-                      "hover action strip must be invisible in v2.2.5")
+    # v7.0.2: test_hover_action_css_neutered removed, for the same reason as
+    # its two siblings in test_v221/test_v222 — it pinned a dead rule in place.
+    # Three tests required the CSS to stay while this file's own
+    # test_no_hover_actions_in_minimal_row forbids the markup from using it and
+    # CHANGELOG.md records the block as removed. The negative assertion above
+    # is the one that still describes intent.
 
 
 if __name__ == '__main__':

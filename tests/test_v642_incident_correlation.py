@@ -22,7 +22,6 @@ Two findings, both about an answer the server already had and threw away:
 
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import time

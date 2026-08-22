@@ -119,7 +119,6 @@ class TestCmdbDocumentationIsIndexed(unittest.TestCase):
         # The default rag config must enable the cmdb source.
         defaults = inspect.getsource(api)
         # the default block sets 'cmdb': True
-        import re
         self.assertRegex(defaults, r"'cmdb':\s*True")
 
 

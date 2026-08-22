@@ -8,12 +8,9 @@ device_offline / device_online on the edge, with a 2-fail debounce; a
 _ping_host is mocked so these tests never touch the network.
 """
 import importlib.util
-import io
-import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch

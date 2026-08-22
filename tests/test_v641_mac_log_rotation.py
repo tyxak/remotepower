@@ -22,7 +22,6 @@ import importlib.util
 import logging
 import os
 import stat
-import sys
 import tempfile
 import unittest
 from pathlib import Path

@@ -10,7 +10,6 @@ transform, and backdrop-filter must never come back (Firefox re-blurs the
 backdrop every frame on the sticky header it used to sit on).
 """
 import importlib.util
-import json
 import os
 import re
 import tempfile

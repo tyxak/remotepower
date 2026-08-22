@@ -340,7 +340,6 @@ class TestQuickWinsHandlers(_HandlerBase):
         self.assertEqual(out[0]['expires_at'], exp)
 
     def test_monitor_body_match_validated(self):
-        import os
         api.require_admin_auth = lambda: 'admin'
         api.require_auth = lambda require_admin=False: 'admin'
         # drive the config-save monitor validation path

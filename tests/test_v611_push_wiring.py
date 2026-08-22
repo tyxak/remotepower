@@ -17,7 +17,6 @@ secrets_scan_enabled/image_scan_enabled.
 import os as _rp_os, tempfile as _rp_tempfile
 _rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import importlib.util
-import json
 import os
 import sys
 import tempfile

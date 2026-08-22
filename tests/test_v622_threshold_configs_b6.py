@@ -15,7 +15,6 @@ save → load → UI round-trip WITHOUT being truncated to an int anywhere.
 
 import re
 import unittest
-from pathlib import Path
 
 import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 # This module imports a sibling from tests/. `unittest discover -s tests`

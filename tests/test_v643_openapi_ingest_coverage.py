@@ -20,7 +20,6 @@ and finally the fact that spec paths are relative to the `/api` server base, so
 comparing them to the full path reported 313 phantom gaps).
 """
 import os
-import re
 import sys
 import tempfile
 import unittest

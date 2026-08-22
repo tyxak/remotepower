@@ -28,9 +28,7 @@ evidence without fixing it would have made the tick unreachable.
 """
 
 import importlib.util
-import json
 import os
-import re
 import sys
 import tempfile
 import unittest

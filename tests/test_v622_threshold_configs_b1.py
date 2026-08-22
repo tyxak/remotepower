@@ -11,7 +11,6 @@ greps the two frontend surfaces so a missing layer fails here.
 
 import re
 import unittest
-from pathlib import Path
 
 # Reuse the real save-handler harness (stubs require_admin_auth/get_json_obj/
 # respond, points *_FILE at a tmp dir, drives handle_config_save for real).
@@ -21,7 +20,7 @@ import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 # there — but `python3 -m unittest tests.<this>` does not, and the module
 # then fails to import at all. Make it runnable on its own.
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
-from test_v622_alert_params import _SaveBase, api, ROOT, _CGI
+from test_v622_alert_params import _SaveBase, ROOT, _CGI
 
 # key -> (non-default value to persist, ap-<slug> input id)
 _KEYS = {

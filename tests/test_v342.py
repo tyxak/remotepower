@@ -110,10 +110,9 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn('require_admin_auth()', m.group(1))
 
     def test_engine_behaviour(self):
-        import importlib, sys as _s, tempfile, json, time as _t
+        import importlib, sys as _s, tempfile
         _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
         api = importlib.import_module('api')
-        import os
         d = tempfile.mkdtemp()
         # Point the module's data files at a temp dir for this check.
         from pathlib import Path as _P
@@ -234,7 +233,7 @@ class TestV342Deployment(unittest.TestCase):
 
     # ── behaviour: staged rollout ring lifecycle ─────────────────────────────
     def _fresh_api(self):
-        import importlib, tempfile, json, os
+        import importlib, tempfile
         from pathlib import Path as _P
         api = importlib.import_module('api')
         d = tempfile.mkdtemp()
@@ -252,7 +251,7 @@ class TestV342Deployment(unittest.TestCase):
         return api, _P(d)
 
     def test_rollout_ring_advance_and_verify(self):
-        import json, time
+        import time
         api, d = self._fresh_api()
         devs = {'d1': {'name': 'web1', 'group': 'prod', 'monitored': True,
                        'sysinfo': {'packages': {'upgradable': 5}}}}
@@ -283,7 +282,7 @@ class TestV342Deployment(unittest.TestCase):
         self.assertEqual(roll['state'], 'paused')
 
     def test_rollout_ring_failure_halts(self):
-        import json, time
+        import time
         api, d = self._fresh_api()
         api.save(api.DEVICES_FILE, 
             {'d1': {'name': 'x', 'group': 'prod', 'monitored': True, 'sysinfo': {'packages': {'upgradable': 3}}}})
@@ -301,7 +300,7 @@ class TestV342Deployment(unittest.TestCase):
 
     # ── behaviour: maintenance change-window gating ──────────────────────────
     def test_exec_gated(self):
-        import json, time
+        import time
         api, d = self._fresh_api()
         now = int(time.time())
         # Pin the window to an hour that is NOT the current hour, so it is
@@ -440,7 +439,7 @@ class TestV342RBAC(unittest.TestCase):
 
     # ── behaviour ────────────────────────────────────────────────────────────
     def _fresh_api(self):
-        import importlib, tempfile, json
+        import importlib, tempfile
         from pathlib import Path as _P
         api = importlib.import_module('api')
         d = tempfile.mkdtemp()
@@ -452,7 +451,6 @@ class TestV342RBAC(unittest.TestCase):
         return api, _P(d)
 
     def test_resolve_role(self):
-        import json
         api, d = self._fresh_api()
         api.save(api.ROLES_FILE, {'roles': [
             {'name': 'ops', 'permissions': ['exec', 'reboot', 'bogus'],
@@ -492,7 +490,6 @@ class TestV342RBAC(unittest.TestCase):
         self.assertEqual(clean['permissions'], ['exec'])
 
     def test_require_perm_scope(self):
-        import json
         api, d = self._fresh_api()
         api.save(api.ROLES_FILE, {'roles': [
             {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]})
@@ -516,7 +513,6 @@ class TestV342RBAC(unittest.TestCase):
         self.assertEqual(api.require_perm('patch', ['d2']), 'root')
 
     def test_assignable_role(self):
-        import json
         api, d = self._fresh_api()
         api.save(api.ROLES_FILE, {'roles': [{'name': 'ops', 'permissions': [], 'scope': {'type': 'all'}}]})
         api._LOAD_CACHE.clear()
@@ -544,7 +540,7 @@ class TestV342RBACv2(unittest.TestCase):
     API = _apisrc_combined()
 
     def _api(self):
-        import importlib, tempfile, json
+        import importlib, tempfile
         from pathlib import Path as _P
         api = importlib.import_module('api')
         d = tempfile.mkdtemp()
@@ -566,7 +562,6 @@ class TestV342RBACv2(unittest.TestCase):
         self.assertIn('_enforce_device_scope()', self.API[i:j])
 
     def test_scope_filter(self):
-        import json
         api, d = self._api()
         api.verify_token = lambda t: ('bob', 'ops')
         filt = api._scope_filter_devices((api.load(api.DEVICES_FILE) or {}))
@@ -668,7 +663,7 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('function gotoSetupStep(', self.APP)
 
     def test_setup_status_behaviour(self):
-        import importlib, tempfile, json
+        import importlib, tempfile
         from pathlib import Path as _P
         api = importlib.import_module('api')
         d = tempfile.mkdtemp(); api.DATA_DIR = _P(d)
@@ -926,7 +921,7 @@ class TestV342NinjaParity(unittest.TestCase):
     CSS = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
 
     def _api(self):
-        import importlib, tempfile, json
+        import importlib, tempfile
         from pathlib import Path as _P
         api = importlib.import_module('api')
         d = tempfile.mkdtemp()
@@ -1006,7 +1001,7 @@ class TestV342NinjaParity(unittest.TestCase):
         self.assertEqual(api._oncall_now({'oncall': {'enabled': False, 'contacts': ['x']}}), '')
 
     def test_escalation_tick(self):
-        import json, time
+        import time
         api, d = self._api()
         sent = []
         api._send_webhook_to_url = lambda ev, pl, msg, cfg, only_dest_ids=None: sent.append((ev, msg))
@@ -1069,7 +1064,7 @@ class TestV342ReviewFixes(unittest.TestCase):
         self.assertIn('_snmp_threshold_warn_crit(d,', body)   # resolves from fresh `d`
 
     def test_snmp_threshold_behaviour(self):
-        import importlib, sys as _s, tempfile, json, os as _os
+        import importlib, sys as _s, tempfile
         from pathlib import Path as _P
         _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
         api = importlib.import_module('api')
@@ -1163,7 +1158,7 @@ class TestV342BakeSign(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('gpg'), 'gpg not installed')
     def test_generate_sign_roundtrip(self):
-        import importlib, tempfile, json, os as _os, sys as _s
+        import importlib, tempfile, os as _os, sys as _s
         from pathlib import Path as _P
         _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
         api = importlib.import_module('api')

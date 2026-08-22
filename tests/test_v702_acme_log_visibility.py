@@ -20,7 +20,6 @@ None of them should fail the ACTION: a renewal without a log beats no renewal.
 They just have to be visible.
 """
 import importlib.util
-import json
 import os
 import sys
 import tempfile

@@ -1,6 +1,5 @@
 """v5.8.0 (B5.1): connectors.d plugin loader — third-party connector files
 self-register via @_register when imported from the plugins directory."""
-import os
 import sys
 import tempfile
 import textwrap

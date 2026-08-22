@@ -87,6 +87,58 @@ _MEASURE = """() => {
 }""" % (_TALL_PX, _MANY_CHILDREN)
 
 
+# ── panels that do not exist until an operator interacts ────────────────────
+#
+# _MEASURE returns early on `display: none`, and the walk drives each page with
+# showPage() and nothing else. So a panel revealed only by a click — the class
+# removed by a handler — was outside the measurement for its whole life. That is
+# the modal blind spot test_v643_box_overflow_modals was written to close, one
+# level down: not a dialog, an in-page panel.
+#
+# DERIVED, like the dialog walk's target set, rather than hand-listed: a new
+# reveal-and-fill panel is picked up the moment it exists, and a deleted one
+# stops being clicked. A maintained list would rot in exactly the direction that
+# makes a gate look clean.
+_REVEALS = re.compile(r"classList\.remove\(\s*'(?:hidden|d-none)'|\.hidden\s*=\s*false")
+
+# Clicking runs the real handler against a live seeded stack, so the set is
+# narrowed to READ verbs. This is a safety constraint, not a measurement one:
+# `runSelfUpdate`, `dockerPruneRun`, `storageRunAction`, `saveScim` and
+# `sendExecCmd` all reveal a panel and all of them DO something first.
+_SAFE_VERB = re.compile(r'^(view|open|pick|select|toggle|load)|Preview$')
+
+
+def _reveal_actions():
+    """`data-action` names whose handler un-hides a panel, read verbs only."""
+    html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+    js_dir = _ROOT / 'server' / 'html' / 'static' / 'js'
+    js = ''.join(p.read_text() for p in sorted(js_dir.glob('app*.js')))
+    names = set(re.findall(r'data-action="([A-Za-z_][\w]*)"', html))
+    names |= set(re.findall(r"data-action=[\\]?['\"]([A-Za-z_][\w]*)[\\]?['\"]", js))
+    out = set()
+    for name in sorted(names):
+        if not _SAFE_VERB.search(name):
+            continue
+        m = re.search(rf'(?:async\s+)?function {re.escape(name)}\s*\(', js)
+        if not m:
+            continue
+        body = js[m.start():]
+        nxt = re.search(r'\n(?:async )?function ', body[10:])
+        body = body[:nxt.start() + 10] if nxt else body[:4000]
+        if _REVEALS.search(body):
+            out.add(name)
+    return out
+
+
+_REVEAL_ACTIONS = _reveal_actions()
+
+# Total clicks across the whole walk. This file has no 'e2e' in its name, so it
+# runs in make test-fast AND the serial gate — its wall clock is charged to
+# every gate run, forever. The derived set is small (about a dozen actions) and
+# this bounds the tail if a page ever renders many rows of one.
+_MAX_REVEAL_CLICKS = 40
+
+
 class TestNoBoxGrowsUnbounded(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -144,7 +196,8 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         self.assertGreaterEqual(len(pages), 80, 'page enumeration lost pages')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
-        findings, measured = {}, 0
+        findings, measured, clicked = {}, 0, 0
+        self._reveal_budget = _MAX_REVEAL_CLICKS
         try:
             page.goto(self.base + '/index.html')
             # The seeder builds its own operator accounts; there is no 'admin'.
@@ -160,13 +213,71 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
                 bad = [b for b in page.evaluate(_MEASURE) if b['id'] not in EXEMPT]
                 if bad:
                     findings[name] = bad
+                clicked += self._reveal_and_remeasure(page, name, findings)
         finally:
             page.close(); ctx.close()
 
         self.assertGreaterEqual(measured, 80, 'the walk visited fewer pages than exist')
+        # Control on the reveal pass. If nothing was ever clicked, the pass
+        # measured nothing and its absence of findings means nothing — the same
+        # shape as a filter that empties the population it was meant to widen.
+        self.assertGreater(
+            clicked, 0,
+            'the reveal pass clicked no control on any of the %d pages — either '
+            'the derived action set (%s) no longer matches the markup, or the '
+            'seeded fleet renders none of them'
+            % (measured, sorted(_REVEAL_ACTIONS)))
         self.assertEqual(findings, {}, 'These boxes render past the ~15-line cap '
                          'and neither they nor any ancestor scroll:\n' +
                          json.dumps(findings, indent=2))
+
+    def _reveal_and_remeasure(self, page, name, findings):
+        """Click the page's reveal controls, then measure again.
+
+        Returns how many controls were clicked, because the caller has to be
+        able to tell 'nothing was hidden' from 'nothing was tried'.
+        """
+        if not _REVEAL_ACTIONS:
+            return 0
+        # Scoped to the ACTIVE page: a trigger sitting in some other page's
+        # markup reveals a panel that is still display:none, which _MEASURE
+        # skips — clicking it costs time and measures nothing.
+        sel = ', '.join('.page.active [data-action="%s"]' % a
+                        for a in sorted(_REVEAL_ACTIONS))
+        clicked = 0
+        seen = set()
+        for handle in page.query_selector_all(sel):
+            if self._reveal_budget <= 0:
+                break
+            try:
+                act = handle.get_attribute('data-action')
+                if act in seen:
+                    continue    # one per panel per page is enough to reveal it
+                seen.add(act)
+                # el.click(), not Playwright's click(): actionability is the
+                # wrong question here. A control that is off-screen, covered or
+                # zero-box is exactly the population this pass exists for — an
+                # is_visible() filter left it empty, and the actionability
+                # timeout then swallowed the five controls that did pass it.
+                # The dispatcher is delegated on document, so a programmatic
+                # click runs the real handler with the element's data-arg.
+                handle.evaluate('el => el.click()')
+            except Exception:
+                continue        # a control that refuses to click is not a finding
+            self._reveal_budget -= 1
+            clicked += 1
+            page.wait_for_timeout(500)
+            bad = [b for b in page.evaluate(_MEASURE) if b['id'] not in EXEMPT]
+            if bad:
+                findings.setdefault(name + ' (after reveal)', []).extend(bad)
+            # A reveal control can also open a dialog; leave the page as we
+            # found it so the next click is not measured through an overlay.
+            try:
+                page.keyboard.press('Escape')
+                page.wait_for_timeout(150)
+            except Exception:
+                pass
+        return clicked
 
     def test_the_measurement_can_actually_see_a_violation(self):
         """Positive control. Every assertion above is 'nothing was found', which
@@ -216,6 +327,33 @@ class TestTheExemptionsAreHonest(unittest.TestCase):
             with self.subTest(box=eid):
                 self.assertIn(f'id="{eid}"', html,
                               f'{eid} is exempt but no longer in the markup')
+
+    def test_the_reveal_derivation_is_not_empty(self):
+        """A derived target set can break silently: the regex stops matching,
+        the set is empty, the reveal pass clicks nothing and the walk still
+        reports a clean sweep. Assert the derivation, not just its result."""
+        self.assertGreaterEqual(
+            len(_REVEAL_ACTIONS), 8,
+            'only %d reveal actions derived (%s) — the extraction is broken, '
+            'or every reveal-and-fill panel left the product at once'
+            % (len(_REVEAL_ACTIONS), sorted(_REVEAL_ACTIONS)))
+
+    def test_the_reveal_set_excludes_the_destructive_openers(self):
+        """Negative control on the safety filter. These five un-hide a panel
+        AND act first — a self-update, a docker prune, a storage action, a SCIM
+        save, a command exec — so the walk must never click them."""
+        for name in ('runSelfUpdate', 'dockerPruneRun', 'storageRunAction',
+                     'saveScim', 'sendExecCmd'):
+            with self.subTest(action=name):
+                self.assertNotIn(name, _REVEAL_ACTIONS)
+
+    def test_every_reveal_action_still_exists_in_the_sources(self):
+        js = ''.join(
+            q.read_text() for q in
+            sorted((_ROOT / 'server' / 'html' / 'static' / 'js').glob('app*.js')))
+        for name in sorted(_REVEAL_ACTIONS):
+            with self.subTest(action=name):
+                self.assertRegex(js, rf'function {re.escape(name)}\s*\(')
 
     def test_the_row_threshold_matches_the_documented_rule(self):
         """The bug this file was written for: three copies of the threshold,

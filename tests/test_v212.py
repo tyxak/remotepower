@@ -28,7 +28,6 @@ Also covers:
     different files
 """
 import importlib.util
-import io
 import json
 import os
 import sys

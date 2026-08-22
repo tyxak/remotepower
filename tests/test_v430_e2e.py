@@ -19,12 +19,19 @@ import os as _os
 import sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from e2e_harness import browser_available, SKIP_REASON   # noqa: E402
+import browser_required                                  # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a
+# failure. It has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone could not see
+# a missing browser at all.
+_GATE = browser_available() or browser_required.required()
 
 if browser_available():                                  # noqa: E402
     from playwright.sync_api import sync_playwright
 
 
-@unittest.skipUnless(browser_available(), SKIP_REASON)
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestSmoke(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -39,6 +46,8 @@ class TestSmoke(unittest.TestCase):
         if _os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest(
                 'e2e UI flow is backend-agnostic — run once under the default backend')
+        if not browser_available():
+            browser_required.skip_or_fail(SKIP_REASON)
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)
@@ -48,13 +57,13 @@ class TestSmoke(unittest.TestCase):
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:               # browser binary missing
             cls._pw.stop()
-            raise unittest.SkipTest(f'chromium not available: {exc}')
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
         try:
             cls.base, cls._shutdown = start_stack()
         except Exception as exc:               # gunicorn (or the app) failed to start
             cls.browser.close()
             cls._pw.stop()
-            raise unittest.SkipTest(f'app stack not available: {exc}')
+            browser_required.skip_or_fail(f'app stack not available: {exc}')
 
     @classmethod
     def tearDownClass(cls):

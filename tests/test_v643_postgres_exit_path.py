@@ -16,7 +16,6 @@ works.
 So this test does not check that the helpers are gone. It checks the thing that
 made deleting them safe, and would fail if that ever stopped being true.
 """
-import ast
 import re
 import unittest
 from pathlib import Path

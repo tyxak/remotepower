@@ -1,6 +1,5 @@
 """W6-41: pure-python MMDB reader — validated against a hand-built minimal DB."""
 import importlib.util
-import struct
 import tempfile
 import unittest
 from pathlib import Path

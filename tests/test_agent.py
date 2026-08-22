@@ -4,15 +4,12 @@ Unit tests for remotepower-agent
 Run: python3 -m pytest tests/test_agent.py -v
 """
 
-import hashlib
 import json
-import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # ── Load agent module ──────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent / 'client'))

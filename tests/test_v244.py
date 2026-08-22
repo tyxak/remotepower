@@ -23,7 +23,6 @@ from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
 import importlib.util
-import json
 import os
 import sys
 import tempfile

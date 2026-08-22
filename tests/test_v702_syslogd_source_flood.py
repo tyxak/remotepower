@@ -17,10 +17,6 @@ with forged sources rather than calling the helpers, because the growth happens
 in the loop body and a unit test of `flush()` would not see it.
 """
 import importlib.util
-import socket
-import sys
-import threading
-import time
 import unittest
 from pathlib import Path
 

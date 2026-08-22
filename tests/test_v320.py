@@ -817,7 +817,7 @@ class TestOidcStart(_ApiTestBase):
         # redirect — patch sys.exit + print capture
         os.environ['HTTP_HOST'] = 'remote.example.com'
         os.environ['HTTP_X_FORWARDED_PROTO'] = 'https'
-        import io, contextlib
+        import contextlib
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.api.handle_oidc_start()
@@ -1247,7 +1247,7 @@ class TestSnmpValidation(_ApiTestBase):
 
 class TestSyslogParser(unittest.TestCase):
     def setUp(self):
-        import sys, importlib
+        import sys
         sys.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
         if 'api' in sys.modules:
             del sys.modules['api']
