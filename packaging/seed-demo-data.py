@@ -75,13 +75,28 @@ CURRENT_VERSION = _current_version()
 
 def _older(version, minors_back):
     """A version `minors_back` minor releases behind, for the slice of the demo
-    fleet that is out of date (so 'upgrade available' has
-    something to point at). Clamps at .0 rather than going negative."""
+    fleet that is out of date (so 'upgrade available' has something to point at).
+
+    On a fresh major the minor is 0, so clamping at 0 collapsed every distance
+    onto the same string: at 7.0.2 both _older(v, 0) and _older(v, 1) returned
+    7.0.0 and the demo had one out-of-date cohort where it means to have two.
+    Borrow from the major instead — 7.0.x minus one minor is 6.9.0, which is a
+    version that reads as older to a viewer and to the version comparison the
+    "upgrade available" affordance runs. Only a 0.x line has nothing to borrow
+    from, and that clamps as before."""
     try:
         maj, mnr, _pat = (int(x) for x in version.split('.'))
     except Exception:
         return version
-    return f'{maj}.{max(0, mnr - minors_back)}.0'
+    for _ in range(max(0, int(minors_back))):
+        if mnr > 0:
+            mnr -= 1
+        elif maj > 0:
+            maj -= 1
+            mnr = 9      # the highest minor a borrowed major plausibly reached
+        else:
+            break        # a 0.x line has nothing left to borrow from
+    return f'{maj}.{mnr}.0'
 
 # The dir actually being seeded this run. main() updates this from --data-dir
 # before calling the builders, so path-bearing config (backup_path) points into
@@ -752,7 +767,15 @@ def build_devices() -> dict:
                 # configurable warn/crit thresholds and both rendered blank.
                 'fd_percent':   round(rng.uniform(2, 28), 1),
                 'conntrack_percent': round(rng.uniform(1, 22), 1),
-                'packages':     (lambda u: {'upgradable': u, 'security_updates': rng.randint(0, u) if u else 0})(rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]),
+                # v7.0.2: the summary the Patches drawer + the fleet patch
+                # catalog read. `upgradable` alone left handle_patch_catalog
+                # with nothing to aggregate — it groups BY PACKAGE off
+                # upgradable_names, so the whole page rendered empty and every
+                # host landed in "devices without detail". third_party is the
+                # same story for the flatpak/snap/pip rollup. Both names come
+                # from _demo_package_inventory so this count can never disagree
+                # with packages.json's list for the same host.
+                'packages':     _demo_sysinfo_packages(dev['id']),
                 # v6.2.2: kernel modules visible from the agent context (healthy)
                 # so the demo shows the forced module-visibility Check passing.
                 'modules_visible': True,
@@ -1010,27 +1033,75 @@ def build_containers() -> dict:
     return out
 
 
-def build_monitor_history() -> dict:
-    """A few external probes — DNS, status pages, gateway."""
-    targets = [
-        {'id': 'gw',     'label': 'Gateway',       'type': 'ping', 'target': '10.0.0.1'},
-        {'id': 'g8',     'label': 'Google DNS',    'type': 'ping', 'target': '8.8.8.8'},
-        {'id': 'cf',     'label': 'Cloudflare',    'type': 'ping', 'target': '1.1.1.1'},
-        {'id': 'gh-api', 'label': 'GitHub API',    'type': 'http', 'target': 'https://api.github.com'},
-        {'id': 'isp',    'label': 'ISP status',    'type': 'http', 'target': 'https://www.cloudflarestatus.com'},
-        {'id': 'ssh',    'label': 'External SSH',  'type': 'tcp',  'target': '203.0.113.5:22'},
+def _demo_monitors():
+    """The synthetic-monitor list, shared by build_config and
+    build_monitor_history so a monitor's history can never be keyed on a label
+    the config does not define."""
+    return [
+            {'label': 'Public site — nginx.lab', 'type': 'http',
+             'target': 'https://nginx.lab/', 'target_kind': 'host',
+             'expect_status': 200, 'max_latency_ms': 800},
+            {'label': 'Nextcloud status endpoint', 'type': 'http',
+             'target': 'https://nextcloud.lab/status.php', 'target_kind': 'host',
+             'body_match': {'mode': 'contains', 'value': 'installed'}},
+            {'label': 'Gitea Postgres', 'type': 'db',
+             'target': 'gitea.lab:5432', 'target_kind': 'host', 'db_kind': 'postgres'},
+            {'label': 'Vaultwarden cache', 'type': 'db',
+             'target': 'vaultwarden.lab:6379', 'target_kind': 'host', 'db_kind': 'redis'},
+            {'label': 'Pi-hole resolves itself', 'type': 'dns',
+             'target': 'pihole.lab', 'target_kind': 'host', 'expect': '10.0.2.10'},
+            {'label': 'Core switch reachability', 'type': 'icmp',
+             'target': 'switch-core', 'target_kind': 'host',
+             'max_latency_ms': 20, 'max_loss_pct': 5},
+            {'label': 'Critical hosts — tag ping sweep', 'type': 'ping',
+             'target': 'critical', 'target_kind': 'tag'},
+            {'label': 'Route to Frankfurt DC', 'type': 'path',
+             'target': 'truenas.lab', 'target_kind': 'host'},
+            {'label': 'Nextcloud login flow', 'type': 'http_flow', 'steps': [
+                {'url': 'https://nextcloud.lab/login', 'method': 'GET', 'expect_status': 200},
+                {'url': 'https://nextcloud.lab/status.php', 'method': 'GET',
+                 'expect_contains': 'installed'},
+            ]},
+            {'label': 'Edge site — probed from the HQ relay', 'type': 'ping',
+             'target': 'nginx.lab', 'target_kind': 'host',
+             'via_satellite': _stable_hex('satellite', 'hq-relay', nbytes=8)},
     ]
-    out = {'targets': targets, 'history': {}}
-    for t in targets:
-        rng = _seeded_random(t['id'], 'monitor')
-        # Most checks succeeded; sprinkle a few failures
-        history = []
+
+
+def build_monitor_history() -> dict:
+    """Check history per monitor → monitor_history.json.
+
+    The store is ``{monitor LABEL: [{ts, ok, detail, ms}]}`` — run_monitors_if_due
+    writes ``mh[r['label']]`` — and _prune_orphan_monitor_history deletes any key
+    that is not a live monitor label.
+
+    v7.0.2: this wrote ``{'targets': [...], 'history': {...}}`` with six invented
+    probe ids. No consumer could reach a single one of the 300 samples: the
+    latency percentiles, the uptime column, the SLO computation and the
+    "monitors down" badge all index by label. The two wrapper keys were
+    themselves orphan history rows (and, on the DB backends, two junk entity
+    rows). Keying off _demo_monitors() means a renamed monitor takes its history
+    with it.
+    """
+    out = {}
+    for m in _demo_monitors():
+        label = m['label']
+        rng = _seeded_random(label, 'monitor')
+        # Most checks succeeded; one monitor is flakier so the uptime column,
+        # the error budget and the SLO burn-down all have a row worth reading.
+        flaky = label == 'Nextcloud login flow'
+        hist = []
         for i in range(50):
             ts = now() - (49 - i) * 300
-            ok = rng.random() > (0.04 if t['id'] != 'isp' else 0.18)
-            history.append({'ts': ts, 'ok': ok,
-                            'detail': 'ok' if ok else rng.choice(['timeout', 'unreachable', 'connection refused'])})
-        out['history'][t['id']] = history
+            ok = rng.random() > (0.18 if flaky else 0.04)
+            row = {'ts': ts, 'ok': ok,
+                   'detail': 'ok' if ok else rng.choice(
+                       ['timeout', 'unreachable', 'connection refused'])}
+            # ms feeds the latency percentiles; only a successful check has one.
+            if ok:
+                row['ms'] = rng.randint(8, 420)
+            hist.append(row)
+        out[label] = hist
     return out
 
 
@@ -1094,34 +1165,119 @@ def build_kev_epss() -> dict:
     }
 
 
+# The installed-package inventory the demo hosts report. Names/versions are
+# real Debian-ish strings so the CVE scanner's ecosystem detection and the
+# software-policy version comparison have something plausible to chew on.
+_DEMO_INSTALLED_PACKAGES = [
+    ('libssl3', '3.0.2-0ubuntu1.16'),
+    ('curl', '7.81.0-1ubuntu1.16'),
+    ('python3.10', '3.10.12-1~22.04.7'),
+    ('linux-image-generic', '5.15.0.119.119'),
+    ('systemd', '249.11-0ubuntu3.12'),
+    ('openssh-server', '8.9p1-3ubuntu0.10'),
+    ('nginx-core', '1.18.0-6ubuntu14.4'),
+    ('docker.io', '24.0.5-0ubuntu1~22.04.1'),
+    ('bash', '5.1-6ubuntu1.1'),
+    ('coreutils', '8.32-4.1ubuntu1.2'),
+    ('libc6', '2.35-0ubuntu3.8'),
+    ('sudo', '1.9.9-1ubuntu2.4'),
+    ('git', '2.34.1-1ubuntu1.11'),
+    ('rsync', '3.2.7-0ubuntu0.22.04.2'),
+    ('postgresql-14', '14.13-0ubuntu0.22.04.1'),
+    ('redis-server', '5:6.0.16-1ubuntu1'),
+    ('vim', '2:8.2.3995-1ubuntu2.19'),
+    ('ca-certificates', '20240203~22.04.1'),
+    ('telnet', '0.17-44build1'),          # a banned-software policy hit
+    ('tcpdump', '4.99.1-3ubuntu0.2'),
+]
+
+# Third-party managers the agent reports alongside the distro list. These feed
+# the patch catalog's third-party rollup, which is manager-agnostic downstream
+# but gated at ingest on this exact set of names.
+_DEMO_THIRD_PARTY = {
+    'flatpak': ['org.mozilla.firefox', 'com.spotify.Client'],
+    'snap':    ['core22', 'lxd'],
+    'pip':     ['requests', 'urllib3'],
+}
+
+
+def _demo_package_inventory(dev_id):
+    """(installed, upgradable_names) for one device — one derivation, so the
+    fleet-wide packages.json and the per-device sysinfo.packages summary can
+    never disagree about how many updates a host has pending."""
+    rng = _seeded_random(dev_id, 'packages')
+    total = rng.randint(160, 420)
+    installed = [{'name': n, 'version': v, 'arch': 'amd64'}
+                 for n, v in _DEMO_INSTALLED_PACKAGES]
+    # Pad the list out to `total` with generated library names so the software
+    # centre's per-package host counts look like a real fleet rather than 20
+    # rows every host shares.
+    for i in range(total - len(installed)):
+        installed.append({'name': f'libdemo{i:03d}-0',
+                          'version': f'1.{i % 12}.{i % 7}-1ubuntu2',
+                          'arch': 'amd64'})
+    n_up = rng.choices([0, 0, 1, 3, 7, 12, 23], k=1)[0]
+    upgradable_names = [p['name'] for p in
+                        rng.sample(installed[:len(_DEMO_INSTALLED_PACKAGES)],
+                                   min(n_up, len(_DEMO_INSTALLED_PACKAGES)))]
+    # More pending than the curated list has room for — top up from the padding.
+    while len(upgradable_names) < n_up:
+        upgradable_names.append(rng.choice(installed)['name'])
+    return installed, sorted(set(upgradable_names))
+
+
+def _demo_sysinfo_packages(dev_id):
+    """The per-device `sysinfo.packages` summary the heartbeat carries.
+
+    Shape mirrors what safe_si persists: upgradable (int), security_updates
+    (int), upgradable_names (list) and third_party ({manager: {count, names}}).
+    """
+    rng = _seeded_random(dev_id, 'packages-summary')
+    _installed, names = _demo_package_inventory(dev_id)
+    tp = {}
+    for mgr, pool in _DEMO_THIRD_PARTY.items():
+        k = rng.randint(0, len(pool))
+        if k:
+            picked = rng.sample(pool, k)
+            tp[mgr] = {'count': len(picked), 'names': picked}
+    return {
+        'upgradable':       len(names),
+        'security_updates': rng.randint(0, len(names)) if names else 0,
+        'upgradable_names': names,
+        'third_party':      tp,
+    }
+
+
 def build_packages() -> dict:
-    """Per-device pending updates list."""
+    """Per-device installed-package inventory → packages.json.
+
+    v7.0.2: this wrote ``{last_updated, ecosystem, count, upgradable:[3-tuples]}``
+    and the store's own writer (``handle_packages_submit``) writes
+    ``{hash, collected_at, ecosystem, pkg_manager, count, packages:[{name,version,
+    arch}], os_id, version_id}``. Every consumer reaches for
+    ``(entry or {}).get('packages') or []`` — the software centre, inventory
+    search, software metering, the patch-snapshot diff/enforce pass, EOL
+    detection and the software-policy evaluation — so all six read an empty list
+    off a store that looked populated. Nothing anywhere read ``upgradable``.
+    """
     out = {}
-    sample_packages = [
-        ('libssl3', '3.0.2-0ubuntu1.16', '3.0.2-0ubuntu1.18'),
-        ('curl', '7.81.0-1ubuntu1.16', '7.81.0-1ubuntu1.20'),
-        ('python3.10', '3.10.12-1~22.04.7', '3.10.12-1~22.04.10'),
-        ('linux-image-generic', '5.15.0.119.119', '5.15.0.122.122'),
-        ('systemd', '249.11-0ubuntu3.12', '249.11-0ubuntu3.16'),
-        ('openssh-server', '8.9p1-3ubuntu0.10', '8.9p1-3ubuntu0.13'),
-        ('nginx-core', '1.18.0-6ubuntu14.4', '1.18.0-6ubuntu14.5'),
-        ('docker.io', '24.0.5-0ubuntu1~22.04.1', '24.0.7-0ubuntu1~22.04.1'),
-    ]
     for dev in FAKE_DEVICES:
         if dev['agentless']:
             continue
-        rng = _seeded_random(dev['id'], 'packages')
-        n = rng.choices([0, 0, 1, 3, 7, 12, 23], k=1)[0]
-        if n == 0:
-            continue
+        installed, _up = _demo_package_inventory(dev['id'])
+        rng = _seeded_random(dev['id'], 'packages-meta')
+        blob = '\n'.join(f"{p['name']}={p['version']}" for p in installed)
         out[dev['id']] = {
-            'last_updated': now() - rng.randint(60, 3600),
+            'hash':         hashlib.sha256(blob.encode()).hexdigest(),
+            'collected_at': now() - rng.randint(60, 3600),
             # ecosystem + count let the CVE report mark the host "scanned"
             # (without an ecosystem it reads as "unsupported").
             'ecosystem':    'deb',
-            'count':        rng.randint(420, 1180),
-            'upgradable':   rng.sample(sample_packages, min(n, len(sample_packages))) if n <= len(sample_packages)
-                            else rng.choices(sample_packages, k=n),
+            'pkg_manager':  'apt',
+            'count':        len(installed),
+            'packages':     installed,
+            'os_id':        'ubuntu',
+            'version_id':   '22.04',
         }
     return out
 
@@ -1389,22 +1545,61 @@ def build_audit_log() -> dict:
     return {'entries': entries}
 
 
+# (target_id, label, host, port, days until the cert expires). days_left is
+# DERIVED from expires_at by the handler, so the seed states the expiry and lets
+# it do the arithmetic — a stored days_left would freeze the moment it is read.
+_TLS_WATCH = [
+    ('tls_lab', 'lab cert', 'remote.lab',   443, 47),
+    ('tls_wld', 'wildcard', 'apps.lab',     443, 12),   # inside the warn window
+    ('tls_mail', 'SMTP submission', 'mail.lab', 587, 63),
+]
+
+
 def build_tls_targets() -> dict:
-    return {
-        'targets': [
-            {'id': 'lab', 'label': 'lab cert',     'host': 'remote.lab',   'port': 443, 'type': 'tls'},
-            {'id': 'wld', 'label': 'wildcard',     'host': 'apps.lab',     'port': 443, 'type': 'tls'},
-            {'id': 'mx',  'label': 'MX record',    'host': 'lab',          'port': 0,   'type': 'dns'},
-        ],
-    }
+    """TLS watchlist → tls_targets.json.
+
+    v7.0.2: this returned a ``{'targets': [...]}`` wrapper. The store is a FLAT
+    ``{target_id: target}`` map (``handle_tls_add`` writes
+    ``targets[new_id] = parsed``), and ``handle_tls_list`` skips any value that
+    is not a dict — so the one 'targets' key was discarded and the page showed
+    an empty watchlist. The per-target fields are what ``tls_monitor.parse_target``
+    normalises to; a ``type`` key was never one of them.
+    """
+    return {tid: {'host': host, 'port': port, 'label': label,
+                  'warn_days': 14, 'crit_days': 3,
+                  'connect_address': '', 'dane_check': False,
+                  'starttls': 'smtp' if port == 587 else 'none'}
+            for tid, label, host, port, _days in _TLS_WATCH}
 
 
 def build_tls_results() -> dict:
-    return {
-        'lab': {'ts': now() - 1800, 'days_left': 47, 'issuer': "Let's Encrypt", 'sans': ['remote.lab', '*.remote.lab']},
-        'wld': {'ts': now() - 1800, 'days_left': 12, 'issuer': "Let's Encrypt", 'sans': ['*.apps.lab']},
-        'mx':  {'ts': now() - 1800, 'days_left': 99, 'min_ttl': 3600},
-    }
+    """Last probe result per target → tls_results.json.
+
+    Keys mirror ``tls_monitor._probe_tls``'s result dict: ``checked_at`` (not
+    ``ts``), ``expires_at`` (``days_left`` is derived from it, and a stored
+    ``days_left`` was ignored), ``san`` (not ``sans``). With the old names the
+    handler saw no expiry at all and ``status_for`` reported every watched cert
+    as an ERROR.
+    """
+    out = {}
+    for tid, _label, host, port, days in _TLS_WATCH:
+        out[tid] = {
+            'host': host, 'port': port, 'connect_address': '',
+            'starttls': 'smtp' if port == 587 else 'none',
+            'checked_at': now() - 1800,
+            'addresses': ['10.0.0.10'],
+            'dns_error': '', 'tls_error': '', 'verify_error': '',
+            'expires_at': now() + 86400 * days,
+            'issuer': "CN=R11,O=Let's Encrypt,C=US",
+            'subject': f'CN={host}',
+            'san': [host, f'*.{host}'],
+            'chain': [{'subject': "CN=R11,O=Let's Encrypt,C=US",
+                       'issuer': 'CN=ISRG Root X1,O=Internet Security Research Group,C=US',
+                       'expires_at': now() + 86400 * 400}],
+            'hostname_match': True,
+            'dane_status': 'not_checked', 'dane_records': [], 'dane_error': '',
+        }
+    return out
 
 
 def build_scripts() -> dict:
@@ -1591,40 +1786,73 @@ def build_acme_state() -> dict:
     """v3.0.2 — per-device acme.sh state. One demo device has acme.sh
     installed with two certs; the rest are skipped from the table (the
     'acme.sh not installed' rows are filtered in v3.0.2).
+
+    v7.0.2: the records were nested under a 'devices' key. This is an ENTITY
+    store — the writer is `_entity_write_one(ACME_STATE_FILE, dev_id, record)`
+    and every reader does `store.get(dev_id)` — so all 18 devices resolved to
+    None and GET /api/acme returned an empty list. On the SQLite/Postgres demo
+    backend the wrapper was worse than useless: it created one entity row whose
+    id is the literal string 'devices'.
     """
+    # Cert fields are the ones _ingest_acme's safe_certs writes — created_ts /
+    # next_renew_ts / dns_provider / is_wildcard, not created_at / next_renewal
+    # / provider / status. Only `domain` and `challenge` of the old set were
+    # names the store ever holds, so the drawer's dates and provider column
+    # rendered blank even once the record was reachable.
     return {
-        'devices': {
-            'ng01': {
-                'available': True,
-                'version':   '3.4.0',
-                'home':      '/root/.acme.sh',
-                'last_scan': now() - 3600,
-                'certs': [
-                    {
-                        'domain':       'demo.lab',
-                        'challenge':    'dns_cf',
-                        'provider':     'cloudflare',
-                        'created_at':   now() - 86400 * 60,
-                        'next_renewal': now() + 86400 * 30,
-                        'status':       'ok',
-                    },
-                    {
-                        'domain':       'wiki.demo.lab',
-                        'challenge':    'http',
-                        'provider':     'letsencrypt',
-                        'created_at':   now() - 86400 * 75,
-                        'next_renewal': now() + 86400 * 15,
-                        'status':       'ok',
-                    },
-                ],
-            },
-            # Other devices: not available (acme.sh not installed) — these
-            # used to render as noise rows in the table; v3.0.2 hides them
-            # and surfaces a count above the table. Including a couple
-            # here exercises that path.
-            'pmx01': {'available': False, 'last_scan': now() - 3600},
-            'tnas':  {'available': False, 'last_scan': now() - 3600},
+        'ng01': {
+            'available': True,
+            'version':   '3.4.0',
+            'home':      '/root/.acme.sh',
+            # The writer (_ingest_acme / _entity_write_one) stamps
+            # `updated_at`, and handle_acme_list reads it for the "stale"
+            # badge — `last_scan` was never read by anything.
+            'updated_at': now() - 3600,
+            'certs': [
+                {
+                    'domain':             'demo.lab',
+                    'alt_names':          ['*.demo.lab'],
+                    'is_wildcard':        True,
+                    'challenge':          'dns_cf',
+                    'is_dns_challenge':   True,
+                    'dns_provider':       'dns_cf',
+                    'dns_provider_label': 'Cloudflare',
+                    'key_length':         'ec-256',
+                    'created_ts':         now() - 86400 * 60,
+                    'next_renew_ts':      now() + 86400 * 30,
+                    'created_str':        _iso_in_days(-60),
+                    'next_renew_str':     _iso_in_days(30),
+                    'reload_cmd':         'systemctl reload nginx',
+                    'cert_path':          '/root/.acme.sh/demo.lab_ecc/demo.lab.cer',
+                    'key_path':           '/root/.acme.sh/demo.lab_ecc/demo.lab.key',
+                    'fullchain_path':     '/root/.acme.sh/demo.lab_ecc/fullchain.cer',
+                },
+                {
+                    'domain':             'wiki.demo.lab',
+                    'alt_names':          [],
+                    'is_wildcard':        False,
+                    'challenge':          'webroot',
+                    'is_dns_challenge':   False,
+                    'dns_provider':       '',
+                    'dns_provider_label': '',
+                    'key_length':         '2048',
+                    'created_ts':         now() - 86400 * 75,
+                    'next_renew_ts':      now() + 86400 * 15,
+                    'created_str':        _iso_in_days(-75),
+                    'next_renew_str':     _iso_in_days(15),
+                    'reload_cmd':         'systemctl reload nginx',
+                    'cert_path':          '/root/.acme.sh/wiki.demo.lab/wiki.demo.lab.cer',
+                    'key_path':           '/root/.acme.sh/wiki.demo.lab/wiki.demo.lab.key',
+                    'fullchain_path':     '/root/.acme.sh/wiki.demo.lab/fullchain.cer',
+                },
+            ],
         },
+        # Other devices: not available (acme.sh not installed) — these
+        # used to render as noise rows in the table; v3.0.2 hides them
+        # and surfaces a count above the table. Including a couple
+        # here exercises that path.
+        'pmx01': {'available': False, 'updated_at': now() - 3600, 'certs': []},
+        'tnas':  {'available': False, 'updated_at': now() - 3600, 'certs': []},
     }
 
 
@@ -1919,35 +2147,7 @@ def build_config() -> dict:
         # are two separate keys, not one).
 
         # Active monitors (Monitor page + satellite-probed checks).
-        'monitors': [
-            {'label': 'Public site — nginx.lab', 'type': 'http',
-             'target': 'https://nginx.lab/', 'target_kind': 'host',
-             'expect_status': 200, 'max_latency_ms': 800},
-            {'label': 'Nextcloud status endpoint', 'type': 'http',
-             'target': 'https://nextcloud.lab/status.php', 'target_kind': 'host',
-             'body_match': {'mode': 'contains', 'value': 'installed'}},
-            {'label': 'Gitea Postgres', 'type': 'db',
-             'target': 'gitea.lab:5432', 'target_kind': 'host', 'db_kind': 'postgres'},
-            {'label': 'Vaultwarden cache', 'type': 'db',
-             'target': 'vaultwarden.lab:6379', 'target_kind': 'host', 'db_kind': 'redis'},
-            {'label': 'Pi-hole resolves itself', 'type': 'dns',
-             'target': 'pihole.lab', 'target_kind': 'host', 'expect': '10.0.2.10'},
-            {'label': 'Core switch reachability', 'type': 'icmp',
-             'target': 'switch-core', 'target_kind': 'host',
-             'max_latency_ms': 20, 'max_loss_pct': 5},
-            {'label': 'Critical hosts — tag ping sweep', 'type': 'ping',
-             'target': 'critical', 'target_kind': 'tag'},
-            {'label': 'Route to Frankfurt DC', 'type': 'path',
-             'target': 'truenas.lab', 'target_kind': 'host'},
-            {'label': 'Nextcloud login flow', 'type': 'http_flow', 'steps': [
-                {'url': 'https://nextcloud.lab/login', 'method': 'GET', 'expect_status': 200},
-                {'url': 'https://nextcloud.lab/status.php', 'method': 'GET',
-                 'expect_contains': 'installed'},
-            ]},
-            {'label': 'Edge site — probed from the HQ relay', 'type': 'ping',
-             'target': 'nginx.lab', 'target_kind': 'host',
-             'via_satellite': _stable_hex('satellite', 'hq-relay', nbytes=8)},
-        ],
+        'monitors': _demo_monitors(),
 
         # Backup freshness watch (device-drawer Backups card + 3-2-1 score).
         # State lives in backup_state.json, keyed "<device_id>:<path>".
