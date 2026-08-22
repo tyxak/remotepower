@@ -1297,10 +1297,11 @@
       <div id="page-account" class="page">
         <div class="page-title">My Account</div>
         <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
+        <p class="hint"><a href="docs/my-account.md" class="c-accent">Documentation</a></p>
 
         <div class="settings-section">
           <div class="section-title">My timesheet</div>
-          <p class="hint">Your weekly time log — record billable (debtable) and internal hours by day. Hours you log on a ticket land here too.</p>
+          <p class="hint">Your weekly time log — record billable (debtable) and internal hours by day. Hours you log on a ticket land here too. <a href="docs/time-billing.md" class="c-accent">Documentation</a></p>
           <button class="btn-primary mt-8" data-action="showPage" data-arg="timesheet">Open my timesheet</button>
         </div>
 
@@ -1425,7 +1426,7 @@
 
         <div class="settings-section">
           <div class="section-title">Two-Factor Authentication (2FA)</div>
-          <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
+          <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.). <a href="docs/security.md" class="c-accent">Documentation</a></p>
           <div id="totp-status" class="mb-12"></div>
           <div id="totp-setup-area"></div>
         </div>
@@ -3324,7 +3325,7 @@
 
           <div class="settings-section">
             <div class="section-title">Context awareness <span class="isl-74">(v2.1.7)</span></div>
-            <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on).</p>
+            <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on). <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-project" checked> Include project context (what RemotePower is)</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
             <label class="click-row"><input type="checkbox" id="ai-ctx-rag" checked> Retrieve relevant infrastructure context per question (RAG)</label>
@@ -3338,7 +3339,7 @@
               </svg>
               Knowledge index (RAG) <span class="isl-74">(v3.4.0)</span>
             </div>
-            <p class="hint">Indexes your own infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; docs, runbooks, recent commands and alerts, plus the product docs — so the assistant answers from <i>your</i> fleet instead of generic knowledge. Lexical (keyword) search works with every provider, including Anthropic. Optional embeddings add semantic search when you run an embedding-capable provider. <strong>The credentials vault is never indexed.</strong></p>
+            <p class="hint">Indexes your own infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; docs, runbooks, recent commands and alerts, plus the product docs — so the assistant answers from <i>your</i> fleet instead of generic knowledge. Lexical (keyword) search works with every provider, including Anthropic. Optional embeddings add semantic search when you run an embedding-capable provider. <strong>The credentials vault is never indexed.</strong> <a href="docs/rag.md" class="c-accent">Documentation</a></p>
 
             <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
 
@@ -3442,7 +3443,7 @@
                 </svg>
                 Knowledge search
               </div>
-              <p class="hint">Search the whole knowledge corpus — tickets, KB articles, CMDB assets, contacts, runbooks, drift, provisioning and the documentation — in one query. No model call, no tokens spent. <strong>Every result opens what it found</strong>; click a row. The same search runs inside the command palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-<kbd>K</kbd>), so you rarely need this pane except to check coverage before trusting the assistant's answers. Full-access roles only, since the corpus is not scoped per role or tenant.</p>
+              <p class="hint">Search the whole knowledge corpus — tickets, KB articles, CMDB assets, contacts, runbooks, drift, provisioning and the documentation — in one query. No model call, no tokens spent. <strong>Every result opens what it found</strong>; click a row. The same search runs inside the command palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-<kbd>K</kbd>), so you rarely need this pane except to check coverage before trusting the assistant's answers. Full-access roles only, since the corpus is not scoped per role or tenant. <a href="docs/rag.md" class="c-accent">Documentation</a></p>
               <div class="settings-row isl-72 isl-779">
                 <div class="form-group flex-1">
                   <input type="text" id="ai-rag-query" class="form-input" placeholder="e.g. which hosts have a critical CVE?" aria-label="e.g. which hosts have a critical CVE?">
@@ -6441,6 +6442,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── About page ───────────────────────────────────────────────────── -->
       <div id="page-about" class="page">
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted device management</div>
+        <p class="hint">Every page links to its own guide. The full index lives in <a href="docs/README.md" class="c-accent">Documentation</a>.</p>
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
         <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-a89f0a79"/></svg> Report an issue</button></td></tr></table>
         <p class="isl-131">A self-hosted fleet manager for Linux, Windows and macOS — far more than remote control. Real-time monitoring, metrics and forecasting; security posture (CVE/KEV scanning, patch management, config-drift, CIS/compliance, firewall &amp; fail2ban, AV/rootkit, IP-reputation/DMARC); an AI assistant grounded in your own fleet (RAG) with per-subject advisors and a searchable knowledge base; a built-in helpdesk (tickets, SLAs, email threading) plus time-tracking &amp; billing; DNS management, homelab integrations and a WireGuard access VPN; virtualization control across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift; infrastructure provisioning with server-side Terraform, Ansible and cloud-init; staged rollouts, alerting with escalation and per-host tuning, audit &amp; governance, optional hard multi-tenancy — and of course full remote control: shutdown, reboot, Wake-on-LAN, scheduled commands, custom scripts and agent self-update.<br><br>No inbound firewall rules on clients — agents poll the server over HTTPS. Runs on Nginx + Python (gunicorn + Flask); a single install provisions PostgreSQL, an out-of-band scheduler and a scanner satellite by default, with a lighter flat-JSON/SQLite backend available for constrained or dev installs. Deploy from source or the official multi-arch Docker image. No Node.js, no build step.</p></div>

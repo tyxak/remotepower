@@ -271,6 +271,9 @@ holds long-form docs that don't fit there.
 - **[settings.md](settings.md)** — The complete Settings guide: every tab
  (Setup / Monitoring / Connections / System), the key knobs, and links to the
  deeper per-topic docs.
+- **[my-account.md](my-account.md)** — Your own account page: profile, team,
+ email signature, password, 2FA and passkeys, personal notification routing,
+ theme and display units, active sessions.
 - **[cli.md](cli.md)** — The `rp` node-control command (omd/checkmk style):
  `rp status`, `rp start/stop/restart`, `rp logs`, and a `rp doctor` health check.
 - **[sla.md](sla.md)** — Uptime SLA targets and reporting.

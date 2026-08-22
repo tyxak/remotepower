@@ -26,6 +26,17 @@ opencode.md
 # Cursor rules imported from CLAUDE.md — same internal-only treatment
 .cursor/
 
+# Claude Code session state (local settings, worktrees, checkpoints). It rode
+# into the published v5.2.0–v5.7.0 tarballs before the Makefile dist exclude
+# list named it; a machine-local global gitignore is not enough, because a
+# fresh clone on another box has no such net and one `git add -A` tracks it.
+.claude/
+
+# Local test-runner caches. Both are already in the Makefile dist exclude list
+# and belong here too, so the two lists cannot drift apart.
+.hypothesis/
+.ruff_cache/
+
 # Marketing landing page for remotepower.tvipper.com — a standalone deployable
 # kept on disk but untracked, so it never reaches the production repo. Deploy it
 # by copying site/ to that host's web root.

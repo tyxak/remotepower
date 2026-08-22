@@ -584,7 +584,7 @@ dist: clean
 	  --exclude='*.key' \
 	  --exclude='*.enc' \
 	  --exclude='.ssh' \
-	  --exclude='scan-*' \
+	  --exclude='./scan-*' \
 	  --exclude='./.pre-release-ok' \
 	  --exclude='./.promote-state' \
 	  .
