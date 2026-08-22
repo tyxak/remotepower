@@ -58,7 +58,7 @@ class _Base(unittest.TestCase):
                   'INCIDENT_MEMORY_FILE', 'TENANTS_FILE', 'USERS_FILE'):
             if hasattr(api, n):
                 self._saved[n] = getattr(api, n)
-                setattr(api, n, self.d / f'{n.lower()}.json')
+                setattr(api, n, self.d / self._saved[n].name)
         api._LOAD_CACHE.clear()
         api.save(api.CONFIG_FILE, {'autonomy_enabled': True})
         api.save(api.DEVICES_FILE, {'d1': {'name': 'web01', 'group': 'prod'}})

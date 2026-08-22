@@ -41,7 +41,7 @@ class TestHealthPendingUpdates(unittest.TestCase):
         self._saved = {a: getattr(api, a, None) for a in self._FILES}
         for a in self._FILES:
             if hasattr(api, a):
-                setattr(api, a, self.tmp / (a.lower().replace("_file", "") + ".json"))
+                setattr(api, a, self.tmp / self._saved[a].name)
         # Isolate the 10s NA cache file so a stale cache can't mask the compute.
         self._saved_acf = api._attention_cache_file
         api._attention_cache_file = lambda: self.tmp / "attn_cache.json"

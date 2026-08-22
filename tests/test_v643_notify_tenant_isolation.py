@@ -51,7 +51,7 @@ class _Base(unittest.TestCase):
         for name in ('USERS_FILE', 'DEVICES_FILE', 'TENANTS_FILE',
                      'USER_NOTIFY_FILE', 'CONFIG_FILE'):
             self._saved[name] = getattr(api, name)
-            setattr(api, name, self.d / f'{name.lower()}.json')
+            setattr(api, name, self.d / self._saved[name].name)
 
         api.save(api.TENANTS_FILE, {
             'default': {'name': 'Default', 'status': 'active', 'builtin': True},

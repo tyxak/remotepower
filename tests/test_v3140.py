@@ -778,7 +778,7 @@ class TestMetricsPush(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
     def test_push_posts_to_pushgateway_then_gates(self):
-        api.METRICS_PUSH_STATE_FILE = self.d / 'mps.json'
+        api.METRICS_PUSH_STATE_FILE = self.d / 'metrics_push_state.json'
         api.save(api.CONFIG_FILE, {'metrics_push': {'enabled': True, 'url': 'http://pg:9091',
                                                     'interval': 60, 'job': 'rp'}})
         cap = {}
@@ -3626,7 +3626,7 @@ class TestPackageHold(_HandlerBase):
         self.assertIn('versionlock delete nginx', u)
 
     def test_hold_queues_exec_command(self):
-        api.BATCH_JOBS_FILE = self.d / 'batch.json'
+        api.BATCH_JOBS_FILE = self.d / 'batch_jobs.json'
         api.log_command = lambda *a, **k: None
         api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
         api.method = lambda: 'POST'
@@ -3647,8 +3647,8 @@ class TestEvidencePack(_HandlerBase):
 
     def test_pack_structure_and_period_filter(self):
         import time as _t
-        api.AUDIT_LOG_FILE = self.d / 'audit.json'
-        api.COMPLIANCE_HIST_FILE = self.d / 'comp.json'
+        api.AUDIT_LOG_FILE = self.d / 'audit_log.json'
+        api.COMPLIANCE_HIST_FILE = self.d / 'compliance_history.json'
         now = int(_t.time())
         api.save(api.AUDIT_LOG_FILE, {'entries': [
             {'ts': now - 3600, 'actor': 'a', 'action': 'login'},

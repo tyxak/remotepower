@@ -2034,7 +2034,7 @@ class TestSysinfoBinding(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp())
         api.DATA_DIR = self._tmp
         api.DEVICES_FILE = self._tmp / 'devices.json'
-        api.CMDS_FILE = self._tmp / 'cmds.json'
+        api.CMDS_FILE = self._tmp / 'commands.json'
         api.CONFIG_FILE = self._tmp / 'config.json'
         api.TOKENS_FILE = self._tmp / 'tokens.json'
         api.save(api.CMDS_FILE, {})

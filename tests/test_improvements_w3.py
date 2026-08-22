@@ -422,7 +422,7 @@ class TestCustomMetrics(_HandlerBase):
     def setUp(self):
         super().setUp()
         self._hf = api.CUSTOM_METRICS_HIST_FILE
-        api.CUSTOM_METRICS_HIST_FILE = self.d / 'cm_hist.json'
+        api.CUSTOM_METRICS_HIST_FILE = self.d / 'custom_metrics_hist.json'
         self.fired = []
         api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
 

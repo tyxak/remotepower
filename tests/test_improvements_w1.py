@@ -631,7 +631,7 @@ class TestInvoiceEmail(_HandlerBase):
         api.INVOICES_FILE = self.d / 'invoices.json'
         api.BILLING_FILE = self.d / 'billing.json'
         api.SITES_FILE = self.d / 'sites.json'
-        api.INVOICE_REMINDER_STATE_FILE = self.d / 'inv_rem.json'
+        api.INVOICE_REMINDER_STATE_FILE = self.d / 'invoice_reminder_state.json'
         api.save(api.CONFIG_FILE, {'billing_enabled': True, 'smtp_host': 'smtp.test'})
         api._invalidate_load_cache(api.CONFIG_FILE)
         api.save(api.SITES_FILE, {'site1': {'name': 'ACME Inc'}})

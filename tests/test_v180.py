@@ -77,7 +77,7 @@ class TestMaintenanceWindows(unittest.TestCase):
         self._orig_files = {}
         for attr in ('MAINT_FILE', 'MAINT_SUPPRESS_LOG', 'DEVICES_FILE'):
             self._orig_files[attr] = getattr(api_module, attr)
-            setattr(api_module, attr, self.tmp / f'{attr.lower()}.json')
+            setattr(api_module, attr, self.tmp / self._orig_files[attr].name)
         # A single device for targeting
         api_module.save(api_module.DEVICES_FILE, {
             'dev-aaaaaaaaaaaaaa': {'name': 'web-1', 'group': 'prod'},
@@ -203,7 +203,7 @@ class TestServiceProcessing(unittest.TestCase):
         for attr in ('SERVICES_FILE', 'SERVICE_HIST_FILE', 'DEVICES_FILE',
                      'CONFIG_FILE', 'WEBHOOK_LOG_FILE'):
             self._orig_files[attr] = getattr(api_module, attr)
-            setattr(api_module, attr, self.tmp / f'{attr.lower()}.json')
+            setattr(api_module, attr, self.tmp / self._orig_files[attr].name)
         api_module.save(api_module.DEVICES_FILE, {
             'dev-aaaaaaaaaaaaaa': {'name': 'web-1', 'group': ''},
         })

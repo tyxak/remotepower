@@ -96,7 +96,7 @@ class TestItFiresOnTheRealPath(unittest.TestCase):
                   'FLEET_EVENTS_FILE'):
             if hasattr(api, n):
                 self._saved[n] = getattr(api, n)
-                setattr(api, n, self.d / f'{n.lower()}.json')
+                setattr(api, n, self.d / self._saved[n].name)
         self.fired = []
         self._real = api.fire_webhook
         api.fire_webhook = lambda ev, payload=None, **kw: self.fired.append((ev, payload or {}))

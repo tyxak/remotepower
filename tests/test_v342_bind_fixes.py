@@ -86,7 +86,7 @@ class _ApiBase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self._saved = {a: getattr(api, a, None) for a in self._FILES}
         for a in self._FILES:
-            setattr(api, a, self.tmp / (a.lower().replace("_file", "") + ".json"))
+            setattr(api, a, self.tmp / self._saved[a].name)
         self._dd = api.DATA_DIR
         api.DATA_DIR = self.tmp
         self._fns = {f: getattr(api, f, None)

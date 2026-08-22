@@ -53,7 +53,7 @@ class _Base(unittest.TestCase):
                      'CONFIG_FILE', 'BREAKGLASS_FILE', 'TASKS_FILE',
                      'AUDIT_LOG_FILE'):
             self._saved[name] = getattr(api, name)
-            setattr(api, name, self.d / f'{name.lower()}.json')
+            setattr(api, name, self.d / self._saved[name].name)
 
         api.save(api.TENANTS_FILE, {
             'default': {'name': 'Default', 'status': 'active', 'builtin': True},

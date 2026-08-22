@@ -125,7 +125,7 @@ class TestAgentConsoleCommandsRun(unittest.TestCase):
         """Return what handle_longpoll_exec queues for the agent (it blocks
         waiting for output, so read the queued command from the store and stop)."""
         api.get_json_body = lambda: {"device_id": "d1", "cmd": cmd, "timeout": 1}
-        api.LONGPOLL_FILE = self.d / "lp.json"
+        api.LONGPOLL_FILE = self.d / "longpoll.json"
         import threading
         t = threading.Thread(target=lambda: self._run())
         t.start(); t.join(timeout=3)
@@ -331,7 +331,7 @@ class TestSweepFailingCountsConsecutive(unittest.TestCase):
     def setUp(self):
         self.d = pathlib.Path(tempfile.mkdtemp())
         self._so = api.SELF_OBS_FILE
-        api.SELF_OBS_FILE = self.d / "so.json"
+        api.SELF_OBS_FILE = self.d / "self_observability.json"
         api._SELF_OBS = None
         self.fired = []
         self._fw = api.fire_webhook

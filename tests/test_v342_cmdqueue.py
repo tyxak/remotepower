@@ -59,7 +59,7 @@ class _Base(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self._saved = {a: getattr(api, a, None) for a in self._FILES}
         for a in self._FILES:
-            setattr(api, a, self.tmp / (a.lower().replace("_file", "") + ".json"))
+            setattr(api, a, self.tmp / self._saved[a].name)
         self._fns = {f: getattr(api, f) for f in self._FUNCS}
         api.respond = lambda s, b=None: (_ for _ in ()).throw(api.HTTPError(s, b))
         api.audit_log = lambda *a, **k: None

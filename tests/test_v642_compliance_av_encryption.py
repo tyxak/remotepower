@@ -63,7 +63,7 @@ class TestFactsAndWiring(unittest.TestCase):
         self.d = pathlib.Path(tempfile.mkdtemp())
         self._df, self._af = api.DEVICES_FILE, api.AV_FILE
         api.DEVICES_FILE = self.d / "devices.json"
-        api.AV_FILE = self.d / "av.json"
+        api.AV_FILE = self.d / "av_status.json"
         api.save(api.DEVICES_FILE, {
             "w1": {"name": "w1", "monitored": True,
                    "sysinfo": {"win_posture": {"bitlocker": [{"status": "Off"}]}}},

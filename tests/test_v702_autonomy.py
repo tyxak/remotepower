@@ -1406,7 +1406,7 @@ class TestAnAutonomousCommandGoesStale(_Base):
     def setUp(self):
         super().setUp()
         self._saved_ttl = api.AUTONOMY_CMD_TTL_FILE
-        api.AUTONOMY_CMD_TTL_FILE = self.d / 'ttl.json'
+        api.AUTONOMY_CMD_TTL_FILE = self.d / 'autonomy_cmd_ttl.json'
         api._LOAD_CACHE.clear()
 
     def tearDown(self):
@@ -1527,8 +1527,8 @@ class TestAProxmoxBackupCountsAsRecoverable(_Base):
     def setUp(self):
         super().setUp()
         self._saved_px = (api.PROXMOX_BACKUP_CACHE, api.PROXMOX_SNAPSHOT_CACHE)
-        api.PROXMOX_BACKUP_CACHE = self.d / 'pbk.json'
-        api.PROXMOX_SNAPSHOT_CACHE = self.d / 'psn.json'
+        api.PROXMOX_BACKUP_CACHE = self.d / 'proxmox_backup_cache.json'
+        api.PROXMOX_SNAPSHOT_CACHE = self.d / 'proxmox_snapshot_cache.json'
         api._LOAD_CACHE.clear()
 
     def tearDown(self):

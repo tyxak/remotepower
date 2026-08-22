@@ -189,7 +189,7 @@ class TestWebAuthn(_Base):
     def setUp(self):
         super().setUp()
         self._wf = api.WEBAUTHN_CHALLENGES_FILE
-        api.WEBAUTHN_CHALLENGES_FILE = self.d / 'wa_chal.json'
+        api.WEBAUTHN_CHALLENGES_FILE = self.d / 'webauthn_challenges.json'
         self._ra = api.require_auth
         api.require_auth = lambda require_admin=False: 'alice'
         os.environ['HTTP_HOST'] = 'rp.example.com'
@@ -258,7 +258,7 @@ class TestSamlSso(_Base):
     def setUp(self):
         super().setUp()
         self._sr = api.SAML_REQUESTS_FILE
-        api.SAML_REQUESTS_FILE = self.d / 'saml_req.json'
+        api.SAML_REQUESTS_FILE = self.d / 'saml_requests.json'
         self._ra = api.require_auth
         api.require_auth = lambda require_admin=False: 'alice'
         os.environ['HTTP_HOST'] = 'rp.example.com'

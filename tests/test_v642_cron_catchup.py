@@ -61,7 +61,7 @@ class TestCronSweepsCatchUp(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp(prefix="rp-v642-cron-run-"))
         self._af = api.AUTOPATCH_FILE
-        api.AUTOPATCH_FILE = self.d / "autopatch.json"
+        api.AUTOPATCH_FILE = self.d / "autopatch_policies.json"
         self._time = api.time
         self.clock = _FakeClock(_rt)
         api.time = self.clock

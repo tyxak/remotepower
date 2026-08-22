@@ -88,7 +88,7 @@ class _DriftContentBase(unittest.TestCase):
         api.CONFIG_FILE          = self._tmp / 'config.json'
         api.DRIFT_STATE_FILE     = self._tmp / 'drift_state.json'
         api.DRIFT_CONTENTS_FILE  = self._tmp / 'drift_contents.json'
-        api.CMDS_FILE            = self._tmp / 'cmds.json'
+        api.CMDS_FILE            = self._tmp / 'commands.json'
         api.AUDIT_LOG_FILE       = self._tmp / 'audit_log.json'
         api.WEBHOOK_LOG_FILE     = self._tmp / 'webhook_log.json'
         _capture_respond()

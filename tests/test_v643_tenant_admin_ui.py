@@ -190,7 +190,7 @@ class TestTheServerReallyRefusesNonSuperadmins(unittest.TestCase):
         real_rctx_tenant = getattr(api._RCTX, 'apikey_tenant', None)
         try:
             for n in saved:
-                setattr(api, n, d / f'{n.lower()}.json')
+                setattr(api, n, d / saved[n].name)
             api._RCTX.apikey_tenant = None
             api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
             api.save(api.TENANTS_FILE, {

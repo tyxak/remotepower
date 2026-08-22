@@ -44,9 +44,9 @@ class TestLiveStateCertExpiry(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         api.DEVICES_FILE = tmp / 'devices.json'
         api.HARDWARE_FILE = tmp / 'hardware.json'
-        api.CVE_FINDINGS_FILE = tmp / 'cve.json'
+        api.CVE_FINDINGS_FILE = tmp / 'cve_findings.json'
         api.CONTAINERS_FILE = tmp / 'containers.json'
-        api.SNMP_DATA_FILE = tmp / 'snmp.json'
+        api.SNMP_DATA_FILE = tmp / 'snmp_data.json'
         api.ALERTS_FILE = tmp / 'alerts.json'
         for f in (api.CVE_FINDINGS_FILE, api.CONTAINERS_FILE,
                   api.SNMP_DATA_FILE, api.ALERTS_FILE):

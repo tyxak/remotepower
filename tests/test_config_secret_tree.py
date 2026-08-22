@@ -61,7 +61,7 @@ class _Base(unittest.TestCase):
     def setUp(self):
         self._k = os.environ.pop('RP_CONFIG_KEY', None)
         self._orig = api.CONFIG_FILE
-        api.CONFIG_FILE = api.DATA_DIR / 'config_tree_test.json'
+        api.CONFIG_FILE = api.DATA_DIR / 'config.json'
         api._LOAD_CACHE.clear()
         api._CFG_DK_CACHE.clear()
 

@@ -92,7 +92,7 @@ class TestLogSubmitEmptyArrays(unittest.TestCase):
             ('LOG_WATCH_FILE', 'DEVICES_FILE', 'LOG_RULES_GLOBAL_FILE', 'CONFIG_FILE')
         }
         for attr in self._orig:
-            setattr(api_module, attr, self.tmp / f'{attr.lower()}.json')
+            setattr(api_module, attr, self.tmp / self._orig[attr].name)
         api_module.save(api_module.DEVICES_FILE, {
             'dev-aaaaaaaaaaaaaa': {
                 'name': 'web-1', 'group': '',
@@ -204,7 +204,7 @@ class TestLogSubmitIgnorePatternsRealHandler(unittest.TestCase):
             ('LOG_WATCH_FILE', 'DEVICES_FILE', 'LOG_RULES_GLOBAL_FILE', 'CONFIG_FILE')
         }
         for attr in self._orig:
-            setattr(api_module, attr, self.tmp / f'{attr.lower()}.json')
+            setattr(api_module, attr, self.tmp / self._orig[attr].name)
         api_module.save(api_module.DEVICES_FILE, {
             'dev-bbbbbbbbbbbbbb': {'name': 'web-2', 'group': '', 'token': 'tok456', 'log_watch': []},
         })

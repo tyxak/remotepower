@@ -50,11 +50,11 @@ class TestAttentionExcludesIgnoredCVEs(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp())
         api = self.api
         api.DEVICES_FILE = self._tmp / 'devices.json'
-        api.CVE_FINDINGS_FILE = self._tmp / 'cve.json'
+        api.CVE_FINDINGS_FILE = self._tmp / 'cve_findings.json'
         api.CVE_IGNORE_FILE = self._tmp / 'cve_ignore.json'
         # _compute_attention also touches these — keep them empty.
         for f in ('UPTIME_FILE',):
-            setattr(api, f, self._tmp / (f.lower() + '.json'))
+            setattr(api, f, self._tmp / getattr(api, f).name)
         import time
         now = int(time.time())
         api.save(api.DEVICES_FILE, {'d1': {'id': 'd1', 'name': 'web01',
