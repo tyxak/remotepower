@@ -17,6 +17,7 @@ Event
 FileReader
 Image
 IntersectionObserver
+MouseEvent
 MutationObserver
 NodeFilter
 Notification

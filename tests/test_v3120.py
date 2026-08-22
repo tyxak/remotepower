@@ -85,7 +85,13 @@ class TestStorageBackendWiring(unittest.TestCase):
     def test_default_backend_is_json(self):
         # With no marker and no env override, the default must be flat JSON so
         # existing installs are unaffected until an operator opts in.
-        os.environ.pop('RP_STORAGE_BACKEND', None)
+        # unittest discover runs the whole suite in ONE process in filename
+        # order, so an unrestored pop here would silently switch every later
+        # module back to JSON — `make test-sqlite` would stop testing SQLite
+        # from this point on. Restore it in the same finally that restores the
+        # marker. (tests/conftest.py guards this variable, but it is
+        # pytest-only; the gates all use unittest discover.)
+        saved_env = os.environ.pop('RP_STORAGE_BACKEND', None)
         api._invalidate_backend_cache()
         # A throwaway marker path that doesn't exist -> default json.
         old = api.STORAGE_MARKER_FILE
@@ -94,6 +100,10 @@ class TestStorageBackendWiring(unittest.TestCase):
             self.assertEqual(api._storage_backend(), 'json')
         finally:
             api.STORAGE_MARKER_FILE = old
+            if saved_env is None:
+                os.environ.pop('RP_STORAGE_BACKEND', None)
+            else:
+                os.environ['RP_STORAGE_BACKEND'] = saved_env
             api._invalidate_backend_cache()
 
     def test_migrate_storage_module_importable(self):

@@ -21106,7 +21106,7 @@ async function snapshotRollback(name) {
     return;
   }
   try {
-    await api('POST', '/proxmox/snapshot', {
+    const r = await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'rollback', name: name,
       confirm: typed.trim(),
     });
@@ -21123,7 +21123,7 @@ async function snapshotDelete(name) {
   if (!await uiConfirm({ message: `Delete snapshot "${name}"?\n\nThis is irreversible, but it `
                + `does not affect the running guest.`, confirmText: 'Delete', danger: true })) return;
   try {
-    await api('POST', '/proxmox/snapshot', {
+    const r = await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'delete', name: name,
     });
     if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }

@@ -16,6 +16,16 @@ predeclared. Any other undefined identifier is a failure.
 Skips when eslint isn't installed (same pattern as the py_mini_racer skip in
 test_jsload) — dev boxes with eslint get the check; CI's backstop is the
 V8 load test plus this running on the dev box before every push.
+
+The bundle is linted with the subprocess CWD set to the temp dir and both
+paths passed as bare filenames. eslint resolves a target against the config's
+base path, so an absolute path into /tmp with cwd at the repo root comes back
+as one message — ruleId None, "File ignored because outside of base path" —
+and a filter for ruleId == 'no-undef' then finds nothing to report. This gate
+passed that way for its whole life: 5 MB of JS in 0.10s, which is less time
+than reading the file takes. Two things now stop that recurring: an ignored
+file is a hard failure, and the test lints a copy of its own bundle with a
+call to a name that does not exist and requires eslint to catch it.
 """
 
 import json
@@ -44,35 +54,71 @@ def _bundle_without_stub():
 
 
 class TestNoUndefinedGlobals(unittest.TestCase):
+    def _run_eslint(self, workdir, target):
+        """eslint --format json over `target`, run FROM `workdir`.
+
+        cwd and a bare filename are load-bearing: an absolute path outside the
+        config's base path is silently ignored rather than linted.
+        """
+        r = subprocess.run(
+            [_ESLINT, "--no-config-lookup", "--config", "eslint.config.mjs",
+             target, "--format", "json"],
+            capture_output=True, text=True, timeout=300, cwd=str(workdir))
+        try:
+            results = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            self.fail(f"eslint did not produce JSON (rc={r.returncode}):\n"
+                      f"{r.stdout[:1000]}\n{r.stderr[:1000]}")
+        messages = [m for f in results for m in f.get("messages", [])]
+        skipped = [m for m in messages
+                   if m.get("ruleId") is None and "ignored" in m.get("message", "").lower()]
+        self.assertEqual(
+            skipped, [],
+            "eslint LINTED NOTHING — it reported the bundle as ignored, so a "
+            "no-undef filter over its output is empty for the wrong reason:\n"
+            + "\n".join(m.get("message", "") for m in skipped))
+        return messages
+
+    @staticmethod
+    def _undef_names(messages):
+        offenders = {}
+        for m in messages:
+            if m.get("ruleId") == "no-undef":
+                offenders.setdefault(m["message"].split("'")[1], m["line"])
+        return offenders
+
     @unittest.skipUnless(_ESLINT, "eslint not installed")
     def test_no_undefined_global_references(self):
         globals_ = [ln.strip() for ln in _ALLOWLIST.read_text().splitlines()
                     if ln.strip() and not ln.startswith("#")]
         with tempfile.TemporaryDirectory(prefix="rp-noundef-") as d:
             d = Path(d)
-            bundle = d / "bundle.js"
-            bundle.write_text(_bundle_without_stub())
-            cfg = d / "eslint.config.mjs"
-            cfg.write_text(
+            src = _bundle_without_stub()
+            (d / "bundle.js").write_text(src)
+            (d / "eslint.config.mjs").write_text(
                 "export default [{ files: ['**/*.js'], languageOptions: "
                 "{ ecmaVersion: 'latest', sourceType: 'script', globals: "
                 + json.dumps({g: "readonly" for g in globals_})
                 + " }, rules: { 'no-undef': 'error' } }];\n")
-            r = subprocess.run(
-                [_ESLINT, "--no-config-lookup", "--config", str(cfg),
-                 str(bundle), "--format", "json"],
-                capture_output=True, text=True, timeout=300)
-            try:
-                results = json.loads(r.stdout)
-            except json.JSONDecodeError:
-                self.fail(f"eslint did not produce JSON (rc={r.returncode}):\n"
-                          f"{r.stdout[:1000]}\n{r.stderr[:1000]}")
-        offenders = {}
-        for f in results:
-            for m in f.get("messages", []):
-                if m.get("ruleId") == "no-undef":
-                    name = m["message"].split("'")[1]
-                    offenders.setdefault(name, m["line"])
+
+            # Positive control, run first so a blind eslint fails here rather
+            # than reporting a clean bundle. A name this improbable cannot
+            # already be defined, and the check that it landed in the file
+            # keeps a control that silently did not apply from looking like a
+            # working one.
+            canary = "__rp_noundef_canary_should_be_flagged__"
+            probe = d / "control.js"
+            probe.write_text(src + f"\n{canary}();\n")
+            self.assertIn(canary, probe.read_text(), "control mutation did not apply")
+            control = self._undef_names(self._run_eslint(d, "control.js"))
+            self.assertIn(
+                canary, control,
+                "eslint did not flag a call to an undefined function in the "
+                "bundle — this gate is not reading the JS, so its verdict on "
+                f"the real bundle means nothing. Saw: {sorted(control)}")
+
+            offenders = self._undef_names(self._run_eslint(d, "bundle.js"))
+
         listing = sorted(f"{n} (first at bundle line {ln})"
                          for n, ln in offenders.items())
         self.assertEqual(listing, [],
