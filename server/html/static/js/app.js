@@ -1852,7 +1852,7 @@ if (document.readyState === 'loading') {
 // ── v6.4.2: in-app documentation viewer ─────────────────────────────────────
 //
 // The doc-pointer program put 126 `<a href="docs/<topic>.md">Documentation</a>`
-// links across the app — 77 of 78 pages have one — and exactly ONE carried
+// links across the app — 82 of 82 pages have one — and exactly ONE carried
 // target="_blank". The other 125 unloaded the SPA and handed the browser a raw
 // markdown file served as a static asset with no renderer. An operator mid-way
 // through configuring TLS monitoring clicks Documentation, the whole app
@@ -29976,7 +29976,7 @@ const PALETTE_PAGE_ALIASES = [
 // group (which collapses the one they were in), and lose their filter state on
 // the way.
 //
-// The chips render into the `.page-subtitle` line, which 77 of 78 pages already
+// The chips render into the `.page-subtitle` line, which 82 of 82 pages already
 // use for their Documentation link — the pattern and the styling exist. The
 // LABEL is read from the page's own nav button rather than hardcoded here, so a
 // renamed page cannot leave a stale chip behind, and a page whose module is

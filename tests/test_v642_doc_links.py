@@ -1,7 +1,7 @@
 """v6.4.2 — a Documentation link stops unloading the app, and none of them 404.
 
 The doc-pointer program put 126 `<a href="docs/<topic>.md">Documentation</a>`
-links across the app — 77 of 78 pages have one — and exactly ONE carried
+links across the app — 82 of 82 pages have one — and exactly ONE carried
 target="_blank". The other 125 unloaded the SPA and handed the browser a raw
 markdown file served as a static asset with no renderer, even though
 `renderMarkdown()` already shipped for the KB and the AI chat.

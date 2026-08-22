@@ -179,7 +179,7 @@ class TestTheRenderer(unittest.TestCase):
         self.assertNotIn('style="', self.body)
 
     def test_it_renders_into_the_subtitle_line_not_a_new_row(self):
-        """77 of 78 pages already put their Documentation link there — a new
+        """82 of 82 pages already put their Documentation link there — a new
         block would add vertical chrome to every page in the product."""
         self.assertIn(".page-subtitle", self.body)
 

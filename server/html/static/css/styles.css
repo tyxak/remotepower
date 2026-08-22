@@ -5049,7 +5049,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-29 { padding:9px 12px }
 .isl-30 { font-size:12px; color:var(--green); margin-top:4px; display:none }
 .isl-31 { font-size:12px; color:var(--muted); margin-top:6px; font-family: var(--font-mono); word-break:break-all; display:none }
-.isl-32 { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px 16px }
 .isl-33 { display:flex; align-items:center; gap:8px; margin-bottom:14px; cursor:pointer }
 .isl-34 { width:18px; height:18px; accent-color:var(--accent) }
 .isl-35 { flex:2 }
@@ -5069,7 +5068,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-49 { max-width:280px }
 .isl-50 { margin-top:6px }
 .isl-51 { display:flex; align-items:center; gap:6px; cursor:pointer; padding:9px 4px }
-.isl-52 { flex:0 0 90px }
 /* LDAP "Verify TLS cert + Timeout" row: top-align and let both fields size to
    content (the generic `.settings-row .form-group{flex:1}` would otherwise stretch
    each to a half-width column and `align-items:flex-end` would drop the shorter one
@@ -5152,7 +5150,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-89 { font-size:12px; margin-top:12px }
 .isl-90 { display:flex; gap:10px; flex-wrap:wrap; margin-top:24px; padding-top:20px; border-top:1px solid var(--border) }
 .isl-91 { font-size: 16px; padding:4px 8px }
-.isl-92 { font-size: 16px; line-height:1 }
 .isl-93 { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px }
 .isl-94 { font-size:11px; padding:3px 8px }
 .isl-95 { color:var(--muted); font-weight:400; text-transform:none; letter-spacing:0 }
@@ -5486,7 +5483,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-315 { font-size: 10px; color: var(--muted); background: var(--surface2); padding: 1px 5px; border-radius: 4px }
 .isl-316 { font-size: 10px; padding: 1px 5px }
 .isl-317 { text-align: center; padding: 0 6px }
-.isl-318 { padding: 1px 8px; font-size: 10px }
 .isl-319 { color: var(--text); text-decoration: none; font-weight: 500 }
 .isl-320 { font-size: 10px; color: var(--muted); background: var(--surface2); padding: 1px 4px; border-radius: 3px }
 .isl-321 { width: 36px; text-align: center }
@@ -5494,9 +5490,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-323 { width: 160px }
 .isl-324 { width: 130px }
 .isl-325 { width: 50px }
-.isl-326 { font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; min-width: 44px; text-align: center }
 /* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP; now CSS. */
-.isl-326:hover { border-color: var(--accent); }
 .isl-327 { font-family: var(--font-mono); font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
 .isl-328 { font-family: var(--font-mono); font-size: 12px; color: var(--muted) }
 .isl-329 { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 2px; background: var(--muted) }
@@ -5506,7 +5500,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-333 { margin-top: 16px; max-height: 240px; overflow-y: auto }
 .isl-334 { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; font-weight: 500 }
 .isl-335 { text-align: center; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; font-weight: 500; width: 70px }
-.isl-336 { width: 100px; padding: 4px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px }
 .isl-337 { font-size: 12px; color: var(--muted); margin-bottom: 4px }
 .isl-338 { display: flex; gap: 10px; flex-wrap: wrap }
 .isl-339 { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px }
@@ -5523,7 +5516,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-350 { color: var(--text); text-decoration: none }
 .isl-351 { font-size: 11px; padding: 4px 8px; margin-right: 4px }
 .isl-352 { font-size: 11px; padding: 4px 8px }
-.isl-353 { font-weight: 600 }
 .isl-354 { display: grid; gap: 16px }
 .isl-355 { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px }
 .isl-356 { font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px }
@@ -5682,7 +5674,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-486 { display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px }
 .isl-487 { color: var(--muted); text-align: center; padding: 60px }
 .isl-488 { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
-.isl-489 { margin: 0 }   /* v6.4.1: typography now comes from .section-title */
 .isl-490 { font-size: 11px; color: var(--muted); opacity: 0.7 }
 .isl-491 { flex: 1; height: 1px; background: var(--border) }
 .isl-492 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px }
@@ -5787,9 +5778,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-527 { max-width: 820px; width: 94vw; max-height: 88vh; display: flex; flex-direction: column }
 .isl-528 { flex: 1; overflow: auto; padding: 16px 20px; font-size: 13px; line-height: 1.55 }
 .isl-529 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
-.isl-530 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 16px }
-.isl-531 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px }
-.isl-532 { max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.55; padding: 8px 16px }
 /* v6.4.3: one named class for 'this table failed to load'. It replaces
    .isl-533 / .isl-597 / .isl-670, three anonymous classes with identical
    intent and three different paddings (30 / 20 / 24px), so the same message
@@ -5827,13 +5815,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-562 { font-family: var(--font-mono); font-size: 11px; color: var(--muted) }
 .isl-563 { font-size: 12px; color: var(--muted); margin-bottom: 10px }
 .isl-564 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 10px }
-.isl-565 { background: var(--amber-soft); border: 1px solid var(--amber-edge); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: var(--amber) }
-.isl-566 { background: var(--red-soft); border: 1px solid var(--red-edge); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px }
-.isl-567 { color: var(--red); font-weight: 600; margin-bottom: 4px }
-.isl-568 { font-family: var(--font-mono); font-size: 11px }
-.isl-569 { font-family: var(--font-mono); font-size: 11px; font-weight: 600 }
-.isl-570 { cursor: pointer; font-size: 13px; font-weight: 620; color: var(--muted); padding: 4px 0 }
-.isl-571 { margin-top: 8px; max-height: 220px; overflow-y: auto }
 .isl-572 { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono) }
 .isl-573 { font-size: 11px; padding: 3px 10px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
 .isl-574 { color: var(--muted); font-family: var(--font-mono); font-size: 12px }
@@ -5883,7 +5864,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-612 { font-size: 12px; flex: 1 }
 .isl-613 { font-size: 12px; width: 90px }
 .isl-614 { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px }
-.isl-615 { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer }
 .isl-616 { color: var(--muted); font-size: 13px; padding: 8px 0 }
 .isl-617 { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border) }
 .isl-618 { flex: 1; font-size: 13px }
@@ -6130,7 +6110,6 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .isl-687 { font-size: 11px; padding: 6px 10px; color: var(--red) }
 .isl-688 { font-size: 11px; padding: 6px 10px; color: var(--muted) }
 .isl-689 { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px }
-.isl-690 { color: var(--muted); padding: 14px }
 .isl-691 { color: var(--red); padding: 14px }
 .isl-692 { font-size: 11px; color: var(--muted); margin-bottom: 4px }
 .isl-693 { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 11px; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all }
