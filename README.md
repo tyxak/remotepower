@@ -12,9 +12,18 @@ listens on the managed host.
 
 [![CI](https://github.com/tyxak/remotepower/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tyxak/remotepower/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/tyxak/remotepower/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/tyxak/remotepower/actions/workflows/codeql.yml)
-[![Version](https://img.shields.io/badge/version-7.0.2-blue.svg)](https://github.com/tyxak/remotepower/releases/latest)
-[![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
+[![Downloads](https://img.shields.io/github/downloads/tyxak/remotepower/total.svg?label=downloads)](https://github.com/tyxak/remotepower/releases)
+[![Latest release](https://img.shields.io/github/v/release/tyxak/remotepower?label=release)](https://github.com/tyxak/remotepower/releases/latest)
+[![AUR](https://img.shields.io/aur/version/remotepower-agent?label=AUR)](https://aur.archlinux.org/packages/remotepower-agent)
+[![Stars](https://img.shields.io/github/stars/tyxak/remotepower?style=flat)](https://github.com/tyxak/remotepower/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://kernel.org)
+[![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
+[![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
+[![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
+[![Version](https://img.shields.io/badge/version-7.0.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
+[![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Wiki](https://github.com/tyxak/remotepower/wiki) · [Changelog](CHANGELOG.md) · [Discussions](https://github.com/tyxak/remotepower/discussions) · [The story](HISTORY.md)
 
