@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v7.0.2 — "Prec3dentMatters" — unreleased (test)
+## v7.0.2 — "Prec3dentMatters" — 2026-08-23
 
 ### The autonomy loop refused everything, and here is why
 
