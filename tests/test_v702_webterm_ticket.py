@@ -93,10 +93,26 @@ class TestTheMinimumAsyncsshVersion(unittest.TestCase):
 
     def test_the_strict_flag_is_opt_in_not_opt_out(self):
         """Default must be warn. An env var that has to be SET to keep working
-        would break the same hosts on upgrade."""
+        would break the same hosts on upgrade.
+
+        v7.0.2 moved the fatal branch into main(), because a sys.exit at module
+        scope takes down anything that merely IMPORTS this file — under
+        `unittest discover` that ends the run with no verdict at all. So the two
+        halves now live apart: the module-scope guard warns, and main() carries
+        the opt-in escalation. Assert both, rather than a window around one.
+        """
         i = self.src.index('ASYNCSSH_OUTDATED = ')
         guard = self.src[i:self.src.index('VERSION = ', i)]
-        self.assertIn("RP_WEBTERM_REQUIRE_ASYNCSSH') == '1'", guard)
+        self.assertIn('WARNING:', guard)
+        self.assertNotIn('sys.exit', guard,
+                         'the module-scope guard must never exit — importing '
+                         'this file has to stay safe')
+        # The escalation is opt-in: it fires only when the flag is SET to 1.
+        self.assertIn("RP_WEBTERM_REQUIRE_ASYNCSSH') == '1'", self.src,
+                      'the fatal path must be gated on the flag being set')
+        main = self.src[self.src.index('def main():'):]
+        self.assertIn('RP_WEBTERM_REQUIRE_ASYNCSSH', main,
+                      'the fatal check belongs in main(), not at import')
 
     def test_the_message_says_why(self):
         # Bounded by the guard's own end, not a character count.

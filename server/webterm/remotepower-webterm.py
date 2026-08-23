@@ -83,12 +83,17 @@ from pathlib import Path
 try:
     import websockets
     from websockets.exceptions import ConnectionClosed
+    _WS_AVAILABLE = True
 except ImportError:
-    print("ERROR: websockets library not installed.", file=sys.stderr)
-    print("  Debian/Ubuntu: apt install python3-websockets", file=sys.stderr)
-    print("  Fedora/RHEL:   dnf install python3-websockets", file=sys.stderr)
-    print("  pip:           pip install 'websockets>=10'", file=sys.stderr)
-    sys.exit(2)
+    # Exit from main(), not from module scope. websockets is an OPTIONAL
+    # dependency — this sidecar is opt-in — so importing this file must stay
+    # safe for anything that only wants the pure parts (TicketStore, the arg
+    # parsing). sys.exit() here raises SystemExit through the importer, which
+    # takes the whole interpreter down: under `unittest discover` that ends the
+    # run with no verdict at all, which reads as a crashed suite rather than a
+    # missing optional package. The push daemon already had it this way round.
+    _WS_AVAILABLE = False
+    ConnectionClosed = Exception   # placeholder so `except ConnectionClosed` still parses
 
 # asyncssh's crypto backend imports ciphers the `cryptography` library has
 # deprecated (TripleDES/Blowfish/CAST5/SEED/… kept for legacy-host SSH compat),
@@ -113,12 +118,13 @@ MIN_ASYNCSSH = (2, 14, 2)
 
 try:
     import asyncssh
+    _SSH_AVAILABLE = True
 except ImportError:
-    print("ERROR: asyncssh library not installed.", file=sys.stderr)
-    print("  Debian/Ubuntu: apt install python3-asyncssh", file=sys.stderr)
-    print("  Fedora/RHEL:   dnf install python3-asyncssh", file=sys.stderr)
-    print("  pip:           pip install 'asyncssh>=2.14.2'", file=sys.stderr)
-    sys.exit(2)
+    # Same reason as websockets above: report it from main(), not from module
+    # scope. asyncssh is an optional dependency of an opt-in sidecar, and an
+    # exit here propagates SystemExit through anything that imports this file.
+    asyncssh = None
+    _SSH_AVAILABLE = False
 
 try:
     _av = tuple(int(x) for x in str(asyncssh.__version__).split('.')[:3])
@@ -148,11 +154,9 @@ if ASYNCSSH_OUTDATED:
             f"already on the network path to a target host can hijack or "
             f"downgrade a session. Upgrade when you can — "
             f"pip install -U 'asyncssh>=2.14.2', or a distro that packages it.")
-    if os.environ.get('RP_WEBTERM_REQUIRE_ASYNCSSH') == '1':
-        print(f"ERROR: {_msg}", file=sys.stderr)
-        print("  (RP_WEBTERM_REQUIRE_ASYNCSSH=1 makes this fatal.)", file=sys.stderr)
-        sys.exit(2)
-    print(f"WARNING: {_msg}", file=sys.stderr)
+    # The fatal form is checked in main() so importing this file stays safe.
+    if os.environ.get('RP_WEBTERM_REQUIRE_ASYNCSSH') != '1':
+        print(f"WARNING: {_msg}", file=sys.stderr)
 
 VERSION = '2.4.13'
 
@@ -990,6 +994,23 @@ async def main_async(args):
 
 
 def main():
+    if not _SSH_AVAILABLE:
+        print("ERROR: asyncssh library not installed.", file=sys.stderr)
+        print("  Debian/Ubuntu: apt install python3-asyncssh", file=sys.stderr)
+        print("  Fedora/RHEL:   dnf install python3-asyncssh", file=sys.stderr)
+        print("  pip:           pip install 'asyncssh>=2.14.2'", file=sys.stderr)
+        sys.exit(2)
+    if ASYNCSSH_OUTDATED and os.environ.get('RP_WEBTERM_REQUIRE_ASYNCSSH') == '1':
+        print(f"ERROR: {_msg}", file=sys.stderr)
+        print("  (RP_WEBTERM_REQUIRE_ASYNCSSH=1 makes this fatal.)", file=sys.stderr)
+        sys.exit(2)
+    if not _WS_AVAILABLE:
+        print("ERROR: websockets library not installed.", file=sys.stderr)
+        print("  Debian/Ubuntu: apt install python3-websockets", file=sys.stderr)
+        print("  Fedora/RHEL:   dnf install python3-websockets", file=sys.stderr)
+        print("  pip:           pip install 'websockets>=10'", file=sys.stderr)
+        sys.exit(2)
+
     p = argparse.ArgumentParser(
         description='RemotePower web terminal daemon (browser ↔ SSH proxy)')
     p.add_argument('--host', default=os.environ.get('WEBTERM_HOST', DEFAULT_BIND_HOST))
