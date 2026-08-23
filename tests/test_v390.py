@@ -342,7 +342,15 @@ class TestV390Bind(_ApiTestBase):
         self.api.save(self.api.METRICS_FILE, {})
         self.api._record_metrics('d-swap', {'cpu_percent': 5, 'mem_percent': 10,
                                             'disk_percent': 20, 'swap_percent': 42})
-        rows = self.api.load(self.api.METRICS_FILE).get('d-swap', [])
+        # Read back through _recent_metric_window — the accessor every reader in
+        # the product uses — rather than the metrics.json blob. Since v6.1.2 the
+        # database backends append the sample to the metric_samples time-series
+        # and stop maintaining that blob, so on SQLite/Postgres it is empty by
+        # design while the window holds the sample. Reading the blob asserted a
+        # JSON-only storage shape; it passed under `make test-sqlite` only
+        # because test_v3120.py used to leak RP_STORAGE_BACKEND back to JSON
+        # before this file ran.
+        rows = self.api._recent_metric_window('d-swap')
         self.assertTrue(rows and rows[-1].get('swap') == 42)
 
     def test_daily_sampler_keeps_loadavg(self):

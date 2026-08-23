@@ -281,6 +281,20 @@ class TestE2eSuiteCannotRedTheGate(unittest.TestCase):
     def test_there_are_e2e_files_to_check(self):
         self.assertTrue(self.E2E, 'glob found no e2e test files — did they move?')
 
+    # The condition a class-level skipUnless may carry. It has to be a name
+    # bound to `browser_available() or browser_required.required()`, and the
+    # reason is measurable: with RP_BROWSER_REQUIRE=1 and no browser, the
+    # folded form fails the class through skip_or_fail, while a bare
+    # `skipUnless(browser_available(), ...)` removes the class before
+    # setUpClass runs and the flag is never consulted at all. That is the hole
+    # that let the accessibility sweep report OK while running nothing
+    # (v7.0.2), so the shape this check demands is the folded one — asking for
+    # the literal `browser_available()` here would push every file back onto
+    # the broken shape.
+    _FOLDED_GATE = re.compile(
+        r'^\s*(\w+)\s*=\s*browser_available\(\)\s*or\s*'
+        r'browser_required\.required\(\)\s*$', re.M)
+
     def test_every_e2e_file_guards_on_the_shared_probe(self):
         bad = []
         for p in self.E2E:
@@ -288,12 +302,33 @@ class TestE2eSuiteCannotRedTheGate(unittest.TestCase):
             if 'browser_available()' not in src:
                 bad.append(f'{p.name}: no browser_available() guard')
                 continue
+            allowed = {m.group(1) for m in self._FOLDED_GATE.finditer(src)}
+            if not allowed:
+                bad.append(f'{p.name}: no `X = browser_available() or '
+                           f'browser_required.required()` gate — without the '
+                           f'flag folded in, RP_BROWSER_REQUIRE cannot turn a '
+                           f'missing browser into a failure')
+                continue
             for m in re.finditer(r'@unittest\.skipUnless\(\s*([^,]+),', src):
-                if m.group(1).strip() != 'browser_available()':
+                if m.group(1).strip() not in allowed:
                     bad.append(f'{p.name}: skipUnless({m.group(1).strip()}) — '
-                               f'use browser_available(), an import check does '
-                               f'not prove a browser exists')
+                               f'guard on the folded gate ({", ".join(sorted(allowed))}); '
+                               f'an import check does not prove a browser '
+                               f'exists, and a bare browser_available() skips '
+                               f'the class before RP_BROWSER_REQUIRE is read')
         self.assertEqual(bad, [], '\n'.join(bad))
+
+    def test_the_probe_check_rejects_the_shapes_it_is_meant_to_catch(self):
+        """Control on the RULE. `_FOLDED_GATE` matching nothing would make the
+        loop above skip every file with a one-line complaint that reads like a
+        finding, and matching everything would make it vacuous."""
+        good = '_GATE = browser_available() or browser_required.required()\n'
+        self.assertEqual(
+            [m.group(1) for m in self._FOLDED_GATE.finditer(good)], ['_GATE'])
+        for bad in ('_GATE = _HAVE_PLAYWRIGHT\n',
+                    '_GATE = browser_available()\n',
+                    '_GATE = browser_required.required()\n'):
+            self.assertEqual(list(self._FOLDED_GATE.finditer(bad)), [], bad)
 
     def test_every_e2e_class_is_actually_guarded(self):
         # A new unguarded class in an otherwise-guarded file is the regression

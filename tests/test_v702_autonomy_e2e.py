@@ -29,9 +29,15 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 import browser_required
 from e2e_harness import browser_available, SKIP_REASON
-try:
+
+# Folded so RP_BROWSER_REQUIRE is reachable. Guarding the class on
+# browser_available() alone removes it before setUpClass runs, so skip_or_fail
+# never gets asked and the flag turns a missing browser into nothing at all.
+_GATE = browser_available() or browser_required.required()
+
+if browser_available():
     from playwright.sync_api import sync_playwright
-except ImportError:                                     # pragma: no cover
+else:
     sync_playwright = None
 
 # What the seeder's default tenant allows, and the four classes that keep the
@@ -92,13 +98,13 @@ _READ_ENVELOPE = """() => {
 }"""
 
 
-@unittest.skipUnless(browser_available(), SKIP_REASON)
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheAutonomyPageRenders(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if sync_playwright is None:
-            browser_required.skip_or_fail('playwright not installed')
+        if not browser_available():
+            browser_required.skip_or_fail(SKIP_REASON)
         # v7.0.2: the same guard its sibling seeded-stack suites carry
         # (test_v643_box_overflow_rendered, test_v643_icon_label_gap), and this
         # file was written without it. The demo seeder writes JSON files; under

@@ -34,10 +34,18 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
+from e2e_harness import browser_available, SKIP_REASON
 
-try:
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a failure,
+# and it has to be folded into the CLASS condition: a class-level skipUnless
+# never reaches setUpClass, so skip_or_fail alone cannot see a missing browser.
+# `import playwright` was the wrong question — the module installs separately
+# from the chromium binary, so it can be importable on a box with no browser.
+_GATE = browser_available() or browser_required.required()
+
+if browser_available():
     from playwright.sync_api import sync_playwright
-except ImportError:                                     # pragma: no cover
+else:
     sync_playwright = None
 
 # The row containers styles.css pins to a single control height. Kept in step
@@ -132,11 +140,12 @@ def _pages_with_a_select():
     return [p for p in order if '<select' in blocks.get(p, '')]
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestOneControlHeightPerRow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if sync_playwright is None:
-            browser_required.skip_or_fail('playwright not installed')
+        if not browser_available():
+            browser_required.skip_or_fail(SKIP_REASON)
         if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('layout is backend-agnostic — measured once')
         seeder = _ROOT / 'packaging' / 'seed-demo-data.py'

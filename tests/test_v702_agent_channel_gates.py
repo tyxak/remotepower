@@ -19,6 +19,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import py_block  # noqa: E402
+
 _CLIENT = Path(__file__).parent.parent / 'client'
 sys.path.insert(0, str(_CLIENT))
 _loader = importlib.machinery.SourceFileLoader('agent_gates',
@@ -59,11 +62,11 @@ class _AgentSandbox(unittest.TestCase):
         self._tmp.cleanup()
 
     def _audit_on(self):
-        agent.AUDIT_MODE_FILE.write_text('')
+        agent.AUDIT_MODE_FILE.touch()
         self.assertTrue(agent._audit_mode())
 
     def _signed_required(self):
-        agent.REQUIRE_SIGNED_CMDS_FILE.write_text('')
+        agent.REQUIRE_SIGNED_CMDS_FILE.touch()
         self.assertTrue(agent._require_signed_commands())
 
 
@@ -235,8 +238,10 @@ class TestUnsignedCheckChannel(_AgentSandbox):
         """The gate must be wired into the agent_checks branch of the heartbeat,
         not merely available as a helper."""
         src = (_CLIENT / 'remotepower-agent.py').read_text()
-        start = src.index("if 'agent_checks' in resp:")
-        block = src[start:start + 2000]
+        # The branch, not a guessed number of characters after it. It is
+        # already 2,042 chars long, so the 2,000-char window this replaces had
+        # stopped covering its own tail.
+        block = py_block(src, "if 'agent_checks' in resp:")
         self.assertIn('_require_signed_commands()', block)
         self.assertIn('_strip_unsigned_protect(new_ac)', block)
 

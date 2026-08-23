@@ -85,6 +85,7 @@ class _Base(unittest.TestCase):
         api.AI_USAGE_FILE     = self._data_dir / 'ai_usage.json'
         api.AUDIT_LOG_FILE    = self._data_dir / 'audit_log.json'
         api.RUNBOOKS_FILE     = self._data_dir / 'runbooks.json'
+        api.SERVICES_FILE     = self._data_dir / 'services.json'
         _capture_respond()
         _stub_auth('admin')
 
@@ -326,17 +327,23 @@ class TestRunbookGenerate(_Base):
         api.save(api.CONFIG_FILE, {'ai': {
             'enabled': True, 'provider': 'anthropic', 'api_key': 'k',
         }})
+        # The snapshot's unit state and patch counts come from the stores
+        # that hold them — services.json and sysinfo.packages. The record
+        # keys this used to seed (`services_watched_state`, `patch_status`,
+        # `upgradable`, `pkg_manager`) have no writer anywhere, so the model
+        # was handed nulls for all of them while this test stayed green.
         api.save(api.DEVICES_FILE, {
             'dev1': {
                 'id': 'dev1', 'name': 'web01',
-                'os': 'Ubuntu 24.04 LTS', 'pkg_manager': 'apt',
+                'os': 'Ubuntu 24.04 LTS',
                 'last_seen': 9999999999, 'group': 'web',
-                'sysinfo': {'uptime': '7 days', 'hostname': 'web01'},
+                'sysinfo': {'uptime': '7 days', 'hostname': 'web01',
+                            'packages': {'manager': 'apt', 'upgradable': 0}},
                 'journal': ['log line 1', 'log line 2'],
-                'services_watched_state': [{'unit': 'nginx', 'active': 'active'}],
-                'patch_status': 'fully_patched', 'upgradable': 0,
             },
         })
+        api.save(api.SERVICES_FILE, {'dev1': {'ts': 1700000000, 'services': [
+            {'unit': 'nginx.service', 'active': 'active', 'sub': 'running'}]}})
         # CMD_OUTPUT_FILE[dev_id] is a LIST of command records (the shape the
         # agent actually writes — see api.py heartbeat cmd_output handling), not
         # a {'outputs': [...]} dict. v4.6.0 fixed the snapshot reader to match.
@@ -381,6 +388,10 @@ class TestRunbookGenerate(_Base):
         self.assertIn('Ubuntu', user_msg)
         self.assertIn('nginx', user_msg)
         self.assertIn('df -h', user_msg)
+        # The store-backed facts, which all arrived as null while the fixture
+        # seeded keys nothing writes.
+        self.assertIn('"pkg_manager": "apt"', user_msg)
+        self.assertIn('"upgradable": 0', user_msg)
 
     def test_snapshot_includes_fleet_context(self):
         """The runbook prompt should be wrapped with the same project +

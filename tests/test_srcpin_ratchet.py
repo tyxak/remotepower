@@ -126,6 +126,49 @@ def _windows():
     return found
 
 
+class TestPyBlockBoundsABranch(unittest.TestCase):
+    """Control on srcpin.py_block, the extractor added for the case
+    `py_function` cannot serve: one branch of a function too long to assert
+    over. Without a control, an extractor that returned the whole file would
+    make every `assertIn` over it pass.
+    """
+
+    SRC = (
+        "def outer():\n"
+        "    if 'agent_checks' in resp:\n"
+        "        wanted = 1\n"
+        "        # a comment at the branch's own depth stays in\n"
+        "        if nested:\n"
+        "            deeper = 2\n"
+        "    other = 3\n"
+        "    unwanted = 4\n"
+    )
+
+    def test_it_stops_at_the_dedent(self):
+        import srcpin
+        block = srcpin.py_block(self.SRC, "if 'agent_checks' in resp:")
+        self.assertIn('wanted = 1', block)
+        self.assertIn('deeper = 2', block)
+        self.assertNotIn('other = 3', block)
+        self.assertNotIn('unwanted = 4', block)
+
+    def test_it_raises_rather_than_returning_a_short_region(self):
+        """The failure this whole file exists to prevent is a region that
+        silently stops covering its target, so a missing anchor must be loud."""
+        import srcpin
+        with self.assertRaises(ValueError):
+            srcpin.py_block(self.SRC, 'if nothing_like_this:')
+
+    def test_it_grows_with_the_branch(self):
+        """The property a fixed window does not have."""
+        import srcpin
+        grown = self.SRC.replace('        wanted = 1\n',
+                                 '        wanted = 1\n' + '        pad = 0\n' * 400)
+        block = srcpin.py_block(grown, "if 'agent_checks' in resp:")
+        self.assertIn('deeper = 2', block)
+        self.assertNotIn('other = 3', block)
+
+
 class TestFixedSourceWindowRatchet(unittest.TestCase):
     def test_no_new_fixed_source_windows(self):
         found = _windows()

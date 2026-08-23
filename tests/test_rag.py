@@ -167,11 +167,16 @@ class TestCorpusBuilders(unittest.TestCase):
                             for d in docs))
 
     def test_live_state_facets(self):
+        # Unit state is a caller-supplied facet read from services.json. It
+        # used to be taken off dev['services'], which no producer writes — the
+        # configured watch list is dev['services_watched'], so the model was
+        # told which units are watched and never that one was down.
         devs = [{"id": "web01", "name": "web01", "os": "Debian 13",
-                 "sysinfo": {"kernel": "6.1.0", "disks": [{"mount": "/", "percent": 91}]},
-                 "services": [{"name": "nginx", "state": "running"}]}]
+                 "sysinfo": {"kernel": "6.1.0", "disks": [{"mount": "/", "percent": 91}]}}]
         docs = rag_index.build_live_state_corpus(
-            devs, facets={"web01": {"cves": [{"id": "CVE-2024-3094"}]}})
+            devs, facets={"web01": {"cves": [{"id": "CVE-2024-3094"}],
+                                    "services": [{"unit": "nginx.service",
+                                                  "active": "active"}]}})
         ids = {d["id"] for d in docs}
         self.assertIn("live/web01#summary", ids)
         self.assertIn("live/web01#hardware", ids)
@@ -221,13 +226,16 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertIn("10.20.0.11", hits[0]["text"])
 
     def test_resources_patches_drift_facets(self):
-        devs = [{"id": "app01", "name": "app01", "upgradable": 7,
-                 "drift_state": {"/etc/nginx/nginx.conf": {"status": "drifted"},
-                                 "/etc/hosts": {"status": "ok"}},
+        # The pending-update count is sysinfo.packages.upgradable (what
+        # safe_si stores); drift arrives from drift_state.json as
+        # drift_by_dev. Neither has ever lived on the device record.
+        devs = [{"id": "app01", "name": "app01",
                  "sysinfo": {"cores": 8, "mem_total_mb": 16384,
                              "disk_total_gb": 500, "reboot_required": True,
-                             "reboot_reason": "kernel update"}}]
-        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs))
+                             "reboot_reason": "kernel update",
+                             "packages": {"upgradable": 7}}}]
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(
+            devs, drift_by_dev={"app01": ["/etc/nginx/nginx.conf"]}))
         ids = {d["id"] for d in idx.docs}
         self.assertIn("live/app01#resources", ids)
         self.assertIn("live/app01#patches", ids)
@@ -242,13 +250,15 @@ class TestCorpusBuilders(unittest.TestCase):
 
     def test_fleet_patch_reboot_and_drift_rollups(self):
         devs = [
-            {"id": "a", "name": "a", "upgradable": 12,
-             "sysinfo": {"reboot_required": True}},
-            {"id": "b", "name": "b", "upgradable": 0,
-             "drift_state": {"/etc/x": {"status": "drifted"}},
-             "sysinfo": {"reboot_required": False}},
+            {"id": "a", "name": "a",
+             "sysinfo": {"reboot_required": True,
+                         "packages": {"upgradable": 12}}},
+            {"id": "b", "name": "b",
+             "sysinfo": {"reboot_required": False,
+                         "packages": {"upgradable": 0}}},
         ]
-        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs, now=1))
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(
+            devs, now=1, drift_by_dev={"b": ["/etc/x"]}))
         ids = {d["id"] for d in idx.docs}
         self.assertIn("live/_fleet#patches", ids)
         self.assertIn("live/_fleet#drift", ids)
@@ -257,7 +267,10 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertEqual(idx.search("which hosts have config drift", 1)[0]["id"],
                          "live/_fleet#drift")
         patch_roll = next(d for d in idx.docs if d["id"] == "live/_fleet#patches")
-        self.assertIn("a", patch_roll["text"])      # reboot + updates host listed
+        # Both halves of the rollup, and the count with it — a bare "a" match
+        # would pass on the reboot line alone and say nothing about the count.
+        self.assertIn("a: 12 pending updates", patch_roll["text"])
+        self.assertIn("- a", patch_roll["text"].split("require a reboot")[-1])
 
     def test_metrics_chunk_and_stable_resources(self):
         devs = [{"id": "app01", "name": "app01", "sysinfo": {
@@ -419,7 +432,11 @@ def _seed_fleet():
     api.save(api.DEVICES_FILE, {"web01": {
         "id": "web01", "name": "web01", "os": "Debian 13",
         "sysinfo": {"kernel": "6.1.0-21", "disks": [{"mount": "/", "percent": 92}]},
-        "services": [{"name": "nginx", "state": "running"}], "last_seen": now}})
+        "last_seen": now}})
+    # Unit state is its own store, keyed by device id — the device record has
+    # never carried a `services` list.
+    api.save(api.SERVICES_FILE, {"web01": {"ts": now, "services": [
+        {"unit": "nginx.service", "active": "active", "sub": "running"}]}})
     api.save(api.CVE_FINDINGS_FILE, {"web01": {"findings": [
         {"id": "CVE-2024-3094", "severity": "critical", "pkg": "xz"}]}})
     api.save(api.CONTAINERS_FILE, {"web01": {"ts": now, "items": [
@@ -466,11 +483,14 @@ class TestApiCorpus(unittest.TestCase):
         # in the all-off state — that summary IS the useful grounding.
         # firewall/integrations/backups/dns_email stay absent here because the
         # seeded fixture has no firewall/integration/backup/DMARC data.
-        devs = api.load(api.DEVICES_FILE)
-        for d in (devs.values() if isinstance(devs, dict) else devs):
-            d['drift_state'] = {'/etc/hosts': {'status': 'drifted'}}
-            break
-        api.save(api.DEVICES_FILE, devs)
+        # Two reports through the real ingest: the first sets the baseline,
+        # the second changes the hash. Drift is drift_state.json — writing a
+        # `drift_state` key on the device record produced no chunk at all,
+        # which is what kept the dead reader looking alive here.
+        for h in ('aaa', 'bbb'):
+            api._ingest_drift_report('web01', {'/etc/hosts': {
+                'hash': h, 'size': 1, 'mtime': 1, 'exists': True}})
+        api._invalidate_load_cache(api.DRIFT_STATE_FILE)
         cfg = api._ai_cfg()
         stats = api._rag_reindex(cfg)
         self.assertGreater(stats["docs"], 0)

@@ -40,7 +40,8 @@ class _HandlerBase(unittest.TestCase):
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
                      'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE', 'METRICS_FILE',
-                     'CONTAINERS_FILE', 'HARDWARE_FILE', 'BRUTE_FORCE_FILE'):
+                     'CONTAINERS_FILE', 'HARDWARE_FILE', 'BRUTE_FORCE_FILE',
+                     'DRIFT_STATE_FILE', 'SERVICES_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -65,8 +66,15 @@ class _HandlerBase(unittest.TestCase):
             self.cap['b'] = b
             raise api.HTTPError(s, b)
         api.respond = _resp
+        # The fleet-checks matrix caches into DATA_DIR, which is NOT one of
+        # the redirected stores — the checksrollup widget below would leave
+        # this module's host list in the real data dir for 15s and any sibling
+        # module that reads the Checks page picks it up.
+        self._cache_file_fn = api._fleet_checks_cache_file
+        api._fleet_checks_cache_file = lambda: self.d / 'fleet_checks_cache.json'
 
     def tearDown(self):
+        api._fleet_checks_cache_file = self._cache_file_fn
         for n, v in self._orig.items():
             setattr(api, n, v)
         for attr, v in self._files.items():
@@ -460,21 +468,35 @@ class TestRagNewSources(unittest.TestCase):
     """Feed the RAG more data: drift + compliance corpus builders (pure)."""
 
     def test_drift_corpus(self):
+        # Drift is threaded in from drift_state.json by the caller — the
+        # builder is pure and never reads it off the device record. Which
+        # paths count is `checks.drifted_files`' job, so the list handed over
+        # here is already filtered (see test_v702_binding for that half).
         devices = [
-            {'id': 'd1', 'name': 'web01', 'drift_state': {
-                '/etc/ssh/sshd_config': {'status': 'drifted'},
-                '/etc/hosts': {'status': 'ok'},
-                '/etc/fstab': {'status': 'drifted', 'ignored': True}}},
-            {'id': 'd2', 'name': 'db01', 'drift_state': {}},
+            {'id': 'd1', 'name': 'web01'},
+            {'id': 'd2', 'name': 'db01'},
         ]
-        docs = rag_index.build_drift_corpus(devices, now=100)
+        # Run the filter the api-side caller runs, over the shape
+        # `_ingest_drift_report` writes, so "which files count" stays under
+        # test rather than being asserted against a hand-picked list.
+        d1_rec = {'files': {
+            '/etc/ssh/sshd_config': {'baseline_hash': 'a', 'current_hash': 'b',
+                                     'exists': True},
+            '/etc/hosts':           {'baseline_hash': 'a', 'current_hash': 'a',
+                                     'exists': True},
+            '/etc/fstab':           {'baseline_hash': 'a', 'current_hash': 'b',
+                                     'exists': True, 'ignored': True}}}
+        drift_by_dev = {'d1': api.drifted_files(d1_rec),
+                        'd2': api.drifted_files({'files': {}})}
+        docs = rag_index.build_drift_corpus(devices, now=100,
+                                            drift_by_dev=drift_by_dev)
         ids = {d['id'] for d in docs}
         self.assertIn('drift/d1', ids)
         self.assertIn('drift/_fleet', ids)
         self.assertNotIn('drift/d2', ids)            # no drift → no chunk
         d1 = next(d for d in docs if d['id'] == 'drift/d1')
         self.assertIn('sshd_config', d1['text'])
-        self.assertNotIn('/etc/hosts', d1['text'])   # not drifted
+        self.assertNotIn('/etc/hosts', d1['text'])   # matches its baseline
         self.assertNotIn('/etc/fstab', d1['text'])   # ignored
 
     def test_compliance_corpus(self):
@@ -1041,7 +1063,6 @@ class TestFleetQueryFilters(_HandlerBase):
         now = int(api.time.time())
         api.save(api.DEVICES_FILE, {
             'd1': {'name': 'hot', 'last_seen': now, 'monitored': True,
-                   'drift_state': {'/etc/hosts': {'status': 'drifted'}},
                    'sysinfo': {
                        'cpu_percent': 95, 'mem_percent': 40, 'swap_percent': 80,
                        'loadavg_1m': 8.0, 'kernel': '6.1.0-amd64',
@@ -1066,6 +1087,13 @@ class TestFleetQueryFilters(_HandlerBase):
                        'listening_ports': [{'port': 22, 'scope': 'local'}],
                        'storage_health': [{'name': 'p', 'state': 'ONLINE'}]}},
         })
+        # Config drift lives in drift_state.json, not on the device record.
+        # Two reports through the real ingest: the first sets the baseline,
+        # the second changes the hash, which is what makes the file drifted.
+        for h in ('aaa', 'bbb'):
+            api._ingest_drift_report('d1', {'/etc/hosts': {
+                'hash': h, 'size': 1, 'mtime': 1, 'exists': True}})
+        api._invalidate_load_cache(api.DRIFT_STATE_FILE)
         # d1 has a stopped + a restarting container; d2 has none.
         api.save(api.CONTAINERS_FILE, {'d1': {'items': [
             {'name': 'web', 'status': 'exited (1)', 'runtime': 'docker'},
@@ -1218,12 +1246,19 @@ class TestHostChecks(_HandlerBase):
         api.get_online_ttl = self._gt
         super().tearDown()
 
+    # The per-device record `_ingest_drift_report` writes into
+    # DRIFT_STATE_FILE. `_host_checks` takes it as `drift_rec`; the device
+    # record never carries drift, which is why the old `drift_state` key here
+    # kept a dead reader looking alive.
+    DRIFT_REC = {'files': {'/etc/hosts': {'baseline_hash': 'a',
+                                          'current_hash': 'b',
+                                          'exists': True}}}
+
     def _dev(self):
         now = int(api.time.time())
         return now, {
             'name': 'web01', 'last_seen': now, 'group': 'prod',
             'metric_state': {'memory:': 'critical', 'disk:/': 'warning'},
-            'drift_state': {'/etc/hosts': {'status': 'drifted'}},
             'sysinfo': {
                 'loadavg_1m': 2.0, 'cpu_count': 4, 'mem_percent': 96,
                 'swap_percent': 10, 'fd_percent': 30, 'conntrack_percent': 20,
@@ -1238,7 +1273,8 @@ class TestHostChecks(_HandlerBase):
     def test_aggregator_status(self):
         now, dev = self._dev()
         hw = {'_smart_failed': True, '_ups_on_battery': False, '_temp_high': False}
-        chk = {c['key']: c for c in api._host_checks('d1', dev, hw, [], now, 180, cve_high=3)}
+        chk = {c['key']: c for c in api._host_checks(
+            'd1', dev, hw, [], now, 180, cve_high=3, drift_rec=self.DRIFT_REC)}
         self.assertEqual(chk['reachability']['status'], 'ok')
         self.assertEqual(chk['memory']['status'], 'critical')
         self.assertEqual(chk['disk:/']['status'], 'warning')

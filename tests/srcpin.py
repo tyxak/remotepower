@@ -113,6 +113,38 @@ def js_function(src, name, start=0):
     return src[a:_scan_balanced(src, o)]
 
 
+def py_block(src, anchor, start=0):
+    """The indentation-bounded Python suite introduced by `anchor`.
+
+    For an assertion about one BRANCH of a very long function. `py_function`
+    is the wrong tool there: the `if 'agent_checks' in resp:` arm of the
+    agent's heartbeat lives inside a 1,400-line def, so extracting the
+    enclosing construct would assert over the whole poll loop and a line that
+    drifted into a neighbouring branch would still pass. This returns the
+    anchor line plus every following line indented deeper than it, so the
+    region tracks the branch however long the branch becomes.
+
+    Python only — indentation is the delimiter.
+    """
+    a = src.find(anchor, start)
+    if a < 0:
+        raise ValueError(f'anchor not found: {anchor!r}')
+    line_start = src.rfind('\n', 0, a) + 1
+    indent = src[line_start:a]
+    if indent.strip():
+        raise ValueError(f'anchor is not at the start of a line: {anchor!r}')
+    lines = src[line_start:].split('\n')
+    out = [lines[0]]
+    for line in lines[1:]:
+        if line.strip() and not line.startswith(indent + ' ') \
+                and not line.startswith(indent + '\t'):
+            break
+        out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    return '\n'.join(out)
+
+
 def py_function(src, name, start=0):
     """The full text of a top-level or method `def <name>(...)` block,
     by indentation (includes decorators directly above it)."""

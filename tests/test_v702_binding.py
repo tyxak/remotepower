@@ -94,9 +94,17 @@ class _Base(unittest.TestCase):
         api.get_token_from_request = lambda: "tk"
         api.verify_token = lambda t: ("admin", "admin")
         api._RCTX.environ = {"QUERY_STRING": "", "REQUEST_METHOD": "GET"}
+        # The fleet-checks matrix caches for 15s in DATA_DIR under a
+        # fingerprint that does not include the device set, so a sibling test
+        # module that touched the Checks page or the checksrollup widget hands
+        # this one ITS host list and the drift row is simply absent. Give the
+        # cache the same private directory as the stores.
+        self._saved_cache_file = api._fleet_checks_cache_file
+        api._fleet_checks_cache_file = lambda: self.tmp / 'fleet_checks_cache.json'
         api._LOAD_CACHE.clear()
 
     def tearDown(self):
+        api._fleet_checks_cache_file = self._saved_cache_file
         for a, v in self._saved.items():
             setattr(api, a, v)
         for f, v in self._saved_fns.items():
@@ -529,12 +537,38 @@ class TestFourxxIsNotRewrittenTo500(_Base):
         api._read_valid = lambda *a, **k: body
         _pg = api.storage_pg_available
         api.storage_pg_available = lambda: False
+        # An earlier guard 409s when RP_STORAGE_BACKEND pins the backend, and
+        # the sqlite leg of the gate sets exactly that — the handler then
+        # never reaches the pre-flight under test and the assertion below
+        # reads as if the psycopg guard had regressed. Drop the pin for the
+        # call so both legs exercise the same branch.
+        _pin = os.environ.pop("RP_STORAGE_BACKEND", None)
         try:
             st, out = self.call(api.handle_storage_backend_migrate)
         finally:
             api.storage_pg_available = _pg
+            if _pin is not None:
+                os.environ["RP_STORAGE_BACKEND"] = _pin
         self.assertEqual(409, st)
         self.assertIn("psycopg", out["error"])
+
+    def test_storage_migrate_refuses_a_pinned_backend(self):
+        """The guard the case above steps around, asserted on its own."""
+        api.method = lambda: "POST"
+        body = {"target": "postgres"}
+        api.get_json_obj = lambda: body
+        api._read_valid = lambda *a, **k: body
+        _pin = os.environ.get("RP_STORAGE_BACKEND")
+        os.environ["RP_STORAGE_BACKEND"] = "sqlite"
+        try:
+            st, out = self.call(api.handle_storage_backend_migrate)
+        finally:
+            if _pin is None:
+                os.environ.pop("RP_STORAGE_BACKEND", None)
+            else:
+                os.environ["RP_STORAGE_BACKEND"] = _pin
+        self.assertEqual(409, st)
+        self.assertIn("RP_STORAGE_BACKEND", out["error"])
 
 
 if __name__ == "__main__":

@@ -396,6 +396,12 @@ SEED_TIMER_BODY=$(cat <<EOF
 # max(online_ttl, poll_interval * offline_missed_polls) + grace = ~30 min
 # (build_config sets offline_missed_polls, build_devices the poll_interval), so
 # a missed tick or two never shows on the pages.
+#
+# KNOWN GAP with --postgres: seed-demo-data.py writes flat JSON files, and once
+# the marker points at Postgres the app no longer reads them, so this timer
+# refreshes nothing on a Postgres-backed demo — its fleet ages out of the window
+# about half an hour after the one-time migration above. Closing it means giving
+# the seeder a storage backend, not re-running the migration on a timer.
 [Unit]
 Description=Re-seed the RemotePower demo data every 2 minutes
 

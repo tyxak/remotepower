@@ -40,25 +40,59 @@ _SEEDER = _ROOT / 'packaging' / 'seed-demo-data.py'
 # module-level *_FILE paths that DATA_DIR fixes at import.
 _SEED_DIR = tempfile.mkdtemp(prefix='rp-v702-contracts-')
 _SEED_ERR = None
+_SEED_TS = 0
 if _SEEDER.exists():
     _r = subprocess.run([sys.executable, str(_SEEDER), '--data-dir', _SEED_DIR,
                          '--apply', '--quiet'], capture_output=True, text=True,
                         timeout=300)
     if _r.returncode != 0:
         _SEED_ERR = f'seeder failed: {_r.stderr[-800:]}'
+    _SEED_TS = int(time.time())
 else:
     _SEED_ERR = 'seeder excluded from dist tree'
 
 os.environ['RP_DATA_DIR'] = _SEED_DIR
 sys.path.insert(0, str(_CGI))
 
+# The seeder writes flat JSON files and knows nothing about the storage
+# backends — its own comment says so, and install-demo.sh's --postgres mode is
+# built around it: seed JSON first, then run api._migrate_storage_pg() over the
+# result as a separate step. So "a seeded data dir" is a directory of JSON on
+# every install the product supports, and reading it back is a JSON-backend
+# read by construction.
+#
+# Under `make test-sqlite` the ambient RP_STORAGE_BACKEND points api.load() at
+# a database table the seeder never wrote, so thirteen handlers below returned
+# an empty collection and failed for a reason that has nothing to do with the
+# shapes this file measures. Pin the backend for the import instead.
+#
+# Popped rather than assigned, and put back immediately: unittest discover
+# imports every test module before running a single test, so a module-scope
+# leak here reconfigures the rest of the gate
+# (tests/test_no_import_time_env_leak.py, tests/test_storage_backend_env_ratchet.py).
+_PRIOR_BACKEND = os.environ.pop('RP_STORAGE_BACKEND', None)
+
 api = None
 if _SEED_ERR is None:
     _spec = importlib.util.spec_from_file_location('api_v702contracts',
                                                    _CGI / 'api.py')
     api = importlib.util.module_from_spec(_spec)
+    # setdefault, so this JSON-pinned instance can never displace a shared `api`
+    # another module already imported. In a full discover run the slot is taken
+    # long before a test_v7* file sorts in; in a targeted run this is the only
+    # instance, and claiming the slot keeps a sibling `import api` on the same
+    # backend as the handlers under test.
     sys.modules.setdefault('api', api)
     _spec.loader.exec_module(api)
+    # Memoising is not enough on its own: _storage_backend() caches into a
+    # module global that tests/conftest.py resets between modules, and the
+    # re-resolve reads the environment again. Pin the resolver instead — every
+    # internal caller (_dbmod, load, save) looks it up in module globals at call
+    # time, so this holds for the whole file.
+    api._storage_backend = lambda: 'json'
+
+if _PRIOR_BACKEND is not None:
+    os.environ['RP_STORAGE_BACKEND'] = _PRIOR_BACKEND
 
 
 def _seeder_module():
@@ -135,6 +169,23 @@ class TestTheSeedIsWorthMeasuring(_SeededBase):
                            f'only {len(stores)} stores seeded — the rest of '
                            f'this file would be measuring an empty directory')
         self.assertGreaterEqual(len(_store('devices.json')), 10)
+
+    def test_the_handlers_read_the_stores_the_seeder_wrote(self):
+        """_store() reads the file; every other class reads through api.load().
+        If those two ever point at different places, the handler assertions all
+        run against an empty collection and this file measures nothing."""
+        self.assertEqual(api._storage_backend(), 'json')
+        self.assertEqual(len(api.load(api.DEVICES_FILE) or {}),
+                         len(_store('devices.json')),
+                         'api.load() and the seeded file disagree about the '
+                         'fleet — the handlers below are reading somewhere else')
+
+    def test_the_seed_timestamp_is_real(self):
+        """Four assertions in this file age their evidence against _SEED_TS
+        instead of the wall clock; a zero would make each of them vacuously
+        true."""
+        self.assertGreater(_SEED_TS, 1700000000)
+        self.assertLessEqual(_SEED_TS, int(time.time()))
 
 
 class TestEveryDeviceReferenceIsInTheFleet(_SeededBase):
@@ -213,7 +264,7 @@ class TestCadenceMarkersAreStamped(_SeededBase):
     def test_the_integration_poll_is_not_due_at_seed_time(self):
         cfg = _store('config.json')
         interval = int(cfg.get('integrations_interval') or 300)
-        age = int(time.time()) - int(cfg.get('last_integrations_run') or 0)
+        age = _SEED_TS - int(cfg.get('last_integrations_run') or 0)
         self.assertLess(age, interval,
                         'the integrations sweep is already due on a fresh '
                         'seed, so the first GET repolls every .lab instance')
@@ -225,8 +276,13 @@ class TestTheSeededFleetIsOnlineLongEnoughToReSeed(_SeededBase):
     computed over the two hosts still inside the window."""
 
     def test_every_agented_host_reads_online(self):
+        # Aged against the moment of the seed, not the wall clock. unittest
+        # discover imports this module at the start of the run and executes it
+        # up to half an hour later, so `time.time()` here measures how long the
+        # gate has been going — the fleet's own offline window is ~30 min and
+        # the whole of it was being spent before the assertion ran.
         devices = _store('devices.json')
-        now = int(time.time())
+        now = _SEED_TS
         ttl = api.get_online_ttl()
         offline = [d.get('name', k) for k, d in devices.items()
                    if not d.get('agentless')
@@ -498,7 +554,9 @@ class TestDependencyEdgesResolve(_SeededBase):
         flow_handlers = api.flow_handlers_mod
         devices = api.load(api.DEVICES_FILE) or {}
         idx = flow_handlers._dep_ip_index(devices)
-        observed = flow_handlers._dep_observed_edges(devices, int(time.time()))
+        # _DEP_EVIDENCE_TTL is 15 min and the seeded conversation is ~3 min
+        # old, so this has to be asked as of the seed rather than as of now.
+        observed = flow_handlers._dep_observed_edges(devices, _SEED_TS)
         self.assertTrue(observed,
                         'no seeded flow conversation resolves to a pair of '
                         'fleet devices, so nothing verifies any declared link')
@@ -569,7 +627,10 @@ class TestResultStoresAreFreshEnoughToSurviveTheFirstSweep(_SeededBase):
     )
 
     def test_every_result_is_younger_than_its_recheck_interval(self):
-        now = int(time.time())
+        # Measured from the seed. The demo re-seeds every 2 minutes, so what
+        # matters is the age a fresh seed stamps; the age at the end of a
+        # 30-minute gate run is a property of the gate.
+        now = _SEED_TS
         checked = 0
         for store, const in self.CASES:
             interval = getattr(api, const)

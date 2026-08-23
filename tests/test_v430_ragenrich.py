@@ -30,13 +30,13 @@ class TestLiveStateIndexesNewFacets(unittest.TestCase):
     def _build(self):
         devices = [{
             'id': 'web01', 'name': 'web01',
-            'services': [{'unit': 'nginx.service', 'active': 'active'}],
             'sysinfo': {'cert_files': [{'path': '/etc/ssl/x.pem',
                                         'not_after': '2026-09-01'}]},
         }]
         facets = {'web01': {
             'open_alerts': ['[high] Device offline', '[medium] Disk / above 90%'],
             'cert_expiry': [{'path': '/etc/ssl/x.pem', 'not_after': '2026-09-01'}],
+            'services': [{'unit': 'nginx.service', 'active': 'active'}],
         }}
         return {d['id']: d for d in
                 ri.build_live_state_corpus(devices, facets=facets, now=1000)}
@@ -51,13 +51,26 @@ class TestLiveStateIndexesNewFacets(unittest.TestCase):
         self.assertIn('live/web01#cert_expiry', docs)
         self.assertIn('2026-09-01', docs['live/web01#cert_expiry']['text'])
 
-    def test_no_duplicate_services_chunk(self):
-        # services is indexed inline from the device record; the caller must NOT
-        # also add a `services` facet (that produced a duplicate doc id).
+    def test_services_chunk_comes_from_the_facet_exactly_once(self):
+        # Unit state is supplied by the caller from services.json. It used to
+        # ALSO be read inline off dev['services'] — a key no producer writes,
+        # falling back to the configured watch list — so the chunk either
+        # duplicated or described the wrong thing. One source, one chunk.
         devices = [{'id': 'web01', 'name': 'web01',
-                    'services': [{'unit': 'nginx.service', 'active': 'active'}]}]
-        ids = [d['id'] for d in ri.build_live_state_corpus(devices, facets={}, now=1)]
+                    'services': [{'unit': 'ghost.service', 'active': 'active'}]}]
+        facets = {'web01': {'services': [{'unit': 'nginx.service',
+                                          'active': 'active'}]}}
+        docs = ri.build_live_state_corpus(devices, facets=facets, now=1)
+        ids = [d['id'] for d in docs]
         self.assertEqual(ids.count('live/web01#services'), 1)
+        text = next(d for d in docs if d['id'] == 'live/web01#services')['text']
+        self.assertIn('nginx.service', text)
+        self.assertNotIn('ghost.service', text)   # the record is not a source
+        # With no facet there is no chunk, rather than one built from a key
+        # nothing writes.
+        self.assertNotIn('live/web01#services',
+                         [d['id'] for d in
+                          ri.build_live_state_corpus(devices, facets={}, now=1)])
 
     def test_fleet_rollup_doc(self):
         d = ri.make_doc('live/fleet#open_alerts', 'live_state', 'fleet_alerts',
@@ -131,9 +144,13 @@ class TestReindexCallerWiring(unittest.TestCase):
         # open = unresolved
         self.assertIn("a.get('resolved_at')", src)
 
-    def test_caller_does_not_duplicate_services(self):
+    def test_caller_supplies_services_from_its_own_store(self):
+        # Inverted at v7.0.2: the corpus builder no longer reads a `services`
+        # key off the device record (nothing writes one), so the caller is now
+        # the only source and must read the live store.
         src = inspect.getsource(api._rag_build_corpus)
-        self.assertNotIn("f['services']", src)
+        self.assertIn("f['services']", src)
+        self.assertIn("SERVICES_FILE", src)
 
     def test_ai_chat_retrieves_rag(self):
         self.assertIn('_rag_retrieve', inspect.getsource(api.handle_ai_chat))

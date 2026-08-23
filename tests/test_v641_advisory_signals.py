@@ -434,25 +434,57 @@ class TestAgentTamperReachesTheAdvisory(unittest.TestCase):
 
 class TestDriftNamesTheFiles(unittest.TestCase):
     """Risk counts drifted files; the advisory names them, which is the
-    actionable half. Deliberately paths only — drift_contents.json holds the
-    captured file CONTENT, and a config file's contents are exactly the kind
-    of thing that carries a credential."""
+    actionable half. Paths only — drift_contents.json holds the captured file
+    CONTENT, and a config file's contents are exactly the kind of thing that
+    carries a credential.
 
-    def _f(self, drift_state):
-        devs = {'d1': {'name': 'web', 'sysinfo': {}, 'drift_state': drift_state}}
-        return {g['id']: g for g in advisory.build(devs)['findings']}
+    OPEN, and not something this file can close: `advisory.build` takes the
+    drifted paths as `drift_by_dev`, and `_build_advisory` in
+    advisory_handlers.py — the only production caller — does not pass it. So
+    `int.drift` still cannot fire in the product; only these tests and
+    test_v702_binding reach it, by passing the argument themselves. The fix is
+    one line next to the other gatherers there:
+
+        drift_by_dev={d: A._drifted_for(d) for d in ids},
+    """
+
+    def _f(self, files):
+        """Drive the real ingest, then the real projection, then the advisory.
+
+        `files` is a DRIFT_STATE_FILE per-device record's `files` map — the
+        shape `_ingest_drift_report` writes. The advisory takes the drifted
+        PATHS from its caller, so the two halves under test are
+        `drifted_files` (which paths count) and `advisory.build` (what it says
+        about them). Nothing hand-builds a `drift_state` key on the device
+        record: no producer writes one, which is how this finding stayed dead
+        while the test stayed green.
+        """
+        api.save(api.DRIFT_STATE_FILE, {'d1': {'files': files}})
+        api._invalidate_load_cache(api.DRIFT_STATE_FILE)
+        devs = {'d1': {'name': 'web', 'sysinfo': {}}}
+        adv = advisory.build(devs, drift_by_dev={'d1': api._drifted_for('d1')})
+        return {g['id']: g for g in adv['findings']}
+
+    @staticmethod
+    def _drifted(**extra):
+        return dict({'baseline_hash': 'a', 'current_hash': 'b',
+                     'exists': True}, **extra)
+
+    @staticmethod
+    def _clean():
+        return {'baseline_hash': 'a', 'current_hash': 'a', 'exists': True}
 
     def test_drifted_files_are_named(self):
-        g = self._f({'/etc/nginx/nginx.conf': {'status': 'drifted'},
-                     '/etc/ssh/sshd_config': {'status': 'drifted'}})
+        g = self._f({'/etc/nginx/nginx.conf': self._drifted(),
+                     '/etc/ssh/sshd_config': self._drifted()})
         self.assertIn('int.drift', g)
         self.assertEqual(sorted(g['int.drift']['evidence']),
                          ['/etc/nginx/nginx.conf', '/etc/ssh/sshd_config'])
 
     def test_ignored_and_clean_files_do_not_count(self):
         self.assertEqual(self._f({
-            '/a': {'status': 'clean'},
-            '/b': {'status': 'drifted', 'ignored': True}}), {})
+            '/a': self._clean(),
+            '/b': self._drifted(ignored=True)}), {})
 
     def test_no_file_contents_reach_the_advisory(self):
         # Check the CODE, not the prose — advisory.py's comment names the store
@@ -469,10 +501,14 @@ class TestDriftNamesTheFiles(unittest.TestCase):
             self.assertNotIn('DRIFT_CONTENTS', code, rel)
 
     def test_evidence_is_the_path_and_nothing_else(self):
-        g = self._f({'/etc/ssh/sshd_config': {
-            'status': 'drifted',
-            'content': 'PermitRootLogin yes\nSuperSecret=hunter2'}})
+        # A store record carrying file content must still yield the path and
+        # only the path — the projection is what keeps a credential out of the
+        # advisory, not the caller's discretion.
+        g = self._f({'/etc/ssh/sshd_config': self._drifted(
+            content='PermitRootLogin yes\nSuperSecret=hunter2')})
         self.assertEqual(g['int.drift']['evidence'], ['/etc/ssh/sshd_config'])
+        blob = repr(g['int.drift'])
+        self.assertNotIn('hunter2', blob)
 
 
 class TestWeakSshKeys(unittest.TestCase):

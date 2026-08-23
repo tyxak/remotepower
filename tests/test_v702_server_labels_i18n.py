@@ -299,7 +299,6 @@ class TestLabelsRoundTripThroughTheRealEngine(unittest.TestCase):
         strings = sorted({s for v in _registries().values() for s in v})
         cls.count = len(strings)
         work = pathlib.Path(tempfile.mkdtemp(prefix='rp-i18n-'))
-        (work / 'strings.json').write_text(json.dumps(strings), encoding='utf-8')
         # i18n.js is a browser IIFE that hangs RPi18n off `window`. The shim is
         # the smallest DOM that lets it reach that line: it never renders, so
         # createTreeWalker is absent on purpose and translateTextNodes returns
@@ -320,7 +319,7 @@ global.document = { readyState: 'complete', documentElement: stub(), body: null,
 global.window = global;
 global.fetch = () => ({ catch(){} });
 require(process.argv[2]);
-const strings = JSON.parse(require('fs').readFileSync(process.argv[3], 'utf8'));
+const strings = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 const out = {};
 for (const lang of window.RPi18n.langs) {
   if (lang === 'en') continue;
@@ -329,8 +328,11 @@ for (const lang of window.RPi18n.langs) {
 }
 console.log(JSON.stringify(out));
 ''', encoding='utf-8')
-        r = subprocess.run([_NODE, str(work / 'run.js'), str(_I18N),
-                            str(work / 'strings.json')],
+        # The label list rides stdin rather than a scratch strings.json:
+        # a suite-wide scan for fixtures that write DATA_DIR as files cannot
+        # tell that name apart from a storage key.
+        r = subprocess.run([_NODE, str(work / 'run.js'), str(_I18N)],
+                           input=json.dumps(strings),
                            capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             raise AssertionError('node could not load i18n.js: '

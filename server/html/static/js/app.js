@@ -12041,6 +12041,12 @@ async function openServiceBaselines() {
   _renderServiceBaselines();
   openModal('service-baseline-modal');
 }
+// Every field carries an id whose only reader is its label's `for=` — the row
+// controls are still found by their data-* namespace, so the ids look unused to
+// a grep. Without them the scope <select> has no accessible name at all (the
+// text inputs borrow theirs from `placeholder`, which a <select> cannot have),
+// and a screen reader announces it as a bare "combo box". Found by the seeded
+// axe sweep, which is the first pass that ever had a baseline row to render.
 function _renderServiceBaselines() {
   const box = document.getElementById('service-baseline-list');
   if (!box) return;
@@ -12048,15 +12054,15 @@ function _renderServiceBaselines() {
   const opt = (b, t, label) => `<option value="${t}"${((b.scope || {}).type || 'all') === t ? ' selected' : ''}>${label}</option>`;
   box.innerHTML = bl.length ? bl.map((b, i) => `
     <div class="dash-card mb-12">
-      <div class="settings-row"><div class="form-group"><label class="form-label">Name</label>
-        <input type="text" class="form-input" data-blf="name" data-bl="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label" for="bl-name-${i}">Name</label>
+        <input type="text" class="form-input" id="bl-name-${i}" data-blf="name" data-bl="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
         <button class="btn-icon c-danger-outline" data-action="removeServiceBaseline" data-arg="${i}" title="Delete baseline">${_icon('trash', 14)}</button></div>
-      <div class="settings-row"><label class="form-label">Units (one systemd unit per line)</label>
-        <textarea class="form-input isl-226" rows="3" data-blf="units" data-bl="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
-      <div class="settings-row"><div class="form-group"><label class="form-label">Applies to</label>
-        <select class="form-input mw-160" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
-        <div class="form-group"><label class="form-label">Names (comma-separated; ignored for "All")</label>
-        <input type="text" class="form-input" data-blf="scopevals" data-bl="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
+      <div class="settings-row"><label class="form-label" for="bl-units-${i}">Units (one systemd unit per line)</label>
+        <textarea class="form-input isl-226" rows="3" id="bl-units-${i}" data-blf="units" data-bl="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label" for="bl-scopetype-${i}">Applies to</label>
+        <select class="form-input mw-160" id="bl-scopetype-${i}" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <div class="form-group"><label class="form-label" for="bl-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
+        <input type="text" class="form-input" id="bl-scopevals-${i}" data-blf="scopevals" data-bl="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
 }
 function _collectServiceBaselines() {
@@ -12110,6 +12116,12 @@ async function loadServiceBaselinesCard() {
   window._svcBaselinesCard = (data && Array.isArray(data.baselines)) ? data.baselines : [];
   _renderServiceBaselinesCard();
 }
+// Every field carries an id whose only reader is its label's `for=` — the row
+// controls are still found by their data-* namespace, so the ids look unused to
+// a grep. Without them the scope <select> has no accessible name at all (the
+// text inputs borrow theirs from `placeholder`, which a <select> cannot have),
+// and a screen reader announces it as a bare "combo box". Found by the seeded
+// axe sweep, which is the first pass that ever had a baseline row to render.
 function _renderServiceBaselinesCard() {
   const box = document.getElementById('services-baselines-list');
   if (!box) return;
@@ -12117,15 +12129,15 @@ function _renderServiceBaselinesCard() {
   const opt = (b, t, label) => `<option value="${t}"${((b.scope || {}).type || 'all') === t ? ' selected' : ''}>${label}</option>`;
   box.innerHTML = bl.length ? bl.map((b, i) => `
     <div class="dash-card mb-12">
-      <div class="settings-row"><div class="form-group"><label class="form-label">Name</label>
-        <input type="text" class="form-input" data-bl2f="name" data-bl2="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label" for="bl2-name-${i}">Name</label>
+        <input type="text" class="form-input" id="bl2-name-${i}" data-bl2f="name" data-bl2="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
         <button class="btn-icon c-danger-outline" data-action="removeServiceBaselineCard" data-arg="${i}" title="Delete baseline">${_icon('trash', 14)}</button></div>
-      <div class="settings-row"><label class="form-label">Units (one systemd unit per line)</label>
-        <textarea class="form-input isl-226" rows="3" data-bl2f="units" data-bl2="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
-      <div class="settings-row"><div class="form-group"><label class="form-label">Applies to</label>
-        <select class="form-input mw-160" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
-        <div class="form-group"><label class="form-label">Names (comma-separated; ignored for "All")</label>
-        <input type="text" class="form-input" data-bl2f="scopevals" data-bl2="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
+      <div class="settings-row"><label class="form-label" for="bl2-units-${i}">Units (one systemd unit per line)</label>
+        <textarea class="form-input isl-226" rows="3" id="bl2-units-${i}" data-bl2f="units" data-bl2="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label" for="bl2-scopetype-${i}">Applies to</label>
+        <select class="form-input mw-160" id="bl2-scopetype-${i}" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <div class="form-group"><label class="form-label" for="bl2-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
+        <input type="text" class="form-input" id="bl2-scopevals-${i}" data-bl2f="scopevals" data-bl2="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
 }
 function _collectServiceBaselinesCard() {
