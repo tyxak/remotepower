@@ -1,6 +1,6 @@
 # Security review — v7.0.2 "Prec3dentMatters"
 
-Every release gets a review before it ships. This one found **fifteen** issues
+Every release gets a review before it ships. This one found **twenty-seven** issues
 worth reporting, all **caught before release** and all fixed in the release they
 are described in. None came from the field.
 
@@ -218,22 +218,181 @@ on a value of the wrong type, producing a server error rather than a rejection.
 *Fixed:* one shared helper, applied to all nine, returns an empty list for
 anything that is not a list.
 
+## A second pass over the whole project
+
+After the review above was written, the release was held open for a full pass
+over the entire codebase rather than the changes in it. That pass found twelve
+more security issues. All are fixed here, none came from the field, and the same
+bar applies: nothing Critical, High or Medium ships.
+
+It is worth saying why a second pass found so much. The first one read the diff
+and the recurring weakness list. The second one started by asking a different
+question — not "is this rule followed?" but "how many places does this rule
+apply, and what is the ratio?". Nearly every finding below is a rule this project
+had already written down and applied nearly everywhere.
+
+### The fix button skipped every gate
+
+RemotePower has one function that queues a command to a host, and it applies six
+protections: maintenance windows, four-eyes approval, the refusal to touch a
+quarantined host, read-only audit mode, a per-device queue limit, and a check
+that the target platform can carry the command out. Separately, a device can
+carry an allow-list naming the only commands it will accept.
+
+The fix button on an alert did not use that function. It wrote to the queue
+directly, so none of the seven applied. An operator could run a command on a
+quarantined host, on a host in read-only mode, during a maintenance freeze, and
+past an allow-list that named something else — with the approval requirement
+turned on and never triggered.
+
+The same two routes also sat outside the path prefix that carries the tenant
+check, and the permission check they did use returns early for an administrator.
+A tenant administrator is an administrator. So on a multi-tenant install, those
+routes reached another tenant's hosts.
+
+Both entry points now go through the one gated path. Their own read-only sibling
+already had the tenant check, with a comment explaining why it was needed there.
+
+### Editing a file-integrity check could delete files
+
+A file-integrity check records a baseline on the host and reports what changed
+against it. The baseline was filed under the check's identifier without recording
+which path it was taken from.
+
+Change that path in the interface, or widen the pattern, and the agent compared
+the new location against the old baseline. Everything under the new path looked
+new — and a check set to quarantine moves what it considers new, as root. The
+only limit was a cap on mass changes, which a small directory never reaches.
+
+Baselines now record their scope and start fresh when it changes, and say so.
+
+### A hostile server could switch off command signing
+
+Command signing exists for one scenario, stated in the agent's own source: a
+server or database an attacker now controls. With it on, the agent refuses any
+instruction that is not signed.
+
+It covered three of the six channels that can change a host. One of the three it
+missed can move files as root — which means it could move the signing marker
+itself, and the release key, and the read-only audit flag. The control meant to
+survive a compromised server was removable by a compromised server.
+
+Three fixes, each independent of the others: the channel is now covered; moving
+files is refused for anything inside the agent's own directories no matter who
+asks, symlinks included; and read-only audit mode now covers every channel its
+own comment claimed it did.
+
+### A data-protection erasure request could delete more than it named
+
+The subject-access and erasure endpoints took the person's name from the request
+and used it to find their files. It went into a filename pattern rather than
+being treated as a name, so a request naming a wildcard matched every avatar on
+the instance and the erasure removed all of them while reporting one. A name
+containing a parent-directory reference reached outside the folder.
+
+Names are resolved to an explicit list now.
+
+### Four more ways one tenant could reach another
+
+- An Ansible playbook aimed at "everything" or at a site resolved across the
+  whole fleet instead of what the caller can see.
+- Network-scan schedules were listed across tenants, and could be deleted across
+  tenants.
+- A task could be pinned to any device on the instance. The handler that edits a
+  task already checked this; the one that creates it did not, and they share a
+  validator.
+- A read-only account could write to the shared billing ledger. The write goes
+  through a helper that takes the lock one call deeper than the check that looks
+  for locks, so the guard that reviews these handlers could not see it. Read-only
+  accounts could also fill an instance-wide limit.
+
+### Smaller
+
+- The web terminal's helper process did not check the scheme of its own base
+  address, while its three sibling processes all do. Anything but http or https
+  is refused at startup now.
+- Three alert actions raised their own "not found" and "already resolved"
+  responses inside a block that rewrote any exception as a server error, so a
+  clear answer arrived as a 500.
+
+## Two safety inputs that were counting zero
+
+Not vulnerabilities, but both are inputs to a decision about whether it is safe
+to act, so they belong here.
+
+Autonomous remediation weighs a **blast radius** before acting and refuses when
+it is over your limit. Two of its four components read the wrong place, so
+containers and watched services counted zero on every host — a machine running
+thirty containers scored the same as an empty one. The pre-flight an operator can
+open before a reboot reported zero containers as fact.
+
+Separately, **config drift** was collected and stored correctly and read from the
+wrong place by ten different features, so a drifted file raised no check, scored
+no risk, and reached no alert.
+
+## What the tests were and were not proving
+
+The most useful finding of this pass is not a vulnerability. Two gates were
+reporting success while measuring nothing, and one class of test defect had
+quietly made a set of tenant-isolation tests meaningless.
+
+- **The SQLite suite stopped testing SQLite about a quarter of the way in.** One
+  test clears the backend setting to check a default and did not restore it, and
+  the suite runs in one process. Roughly nine thousand of twelve thousand results
+  ran against the wrong backend.
+- **The JavaScript undefined-name check had never parsed anything.** It pointed
+  the linter at a file the linter considered out of scope, and the "file ignored"
+  notice did not match the filter looking for real problems. Once it could see,
+  it found a live one.
+- **Twenty-eight test modules pointed a storage key at a filename they invented.**
+  On the file backend a path is a path. On SQLite and PostgreSQL the backend
+  chooses its table from that name, so the data went somewhere else and every
+  lookup came back empty. One of those modules exists to prove one tenant cannot
+  approve another tenant's emergency-access request — and its "sees nothing"
+  assertions were being satisfied by a fixture that returned nothing to anybody.
+
+All three are fixed, and each now has a check that fails when the measurement
+stops happening rather than when it finds something.
+
+Five other guards were found to be enforcing a correct rule over a fraction of
+the code they name — in one case 66 of 856 handlers, which is why a handler that
+links one host's power supply to another's could sit outside a cross-tenant check
+without being exempt from it. Each population is now derived rather than listed,
+and each carries a check that fails if the derivation ever comes back empty.
+
 ## What the scans found
 
-- **CodeQL**, run with the same query suites and configuration as the production
-  scan: no results, Python and JavaScript.
-- **semgrep**, Python and JavaScript security rule sets: 24 findings, all
-  triaged to false positives — a container runtime name restricted to two
-  values, an encryption mode that is what the SNMPv3 standard specifies, and
-  three "credential disclosure" sites that log a file path, a truncated hash and
-  an exception respectively.
-- **bandit**: one new finding against the baseline, a per-row error skip that is
-  the fix rather than the flaw; annotated with that reason.
-- **gitleaks**: no leaks, in the working tree or the history.
-- **Strict type checking**: clean.
-- **JavaScript correctness rules**: two real defects, described below.
-- **Property-based testing** over the release's new safety helpers: one real
-  defect, described above.
+Re-run against the finished branch, not the one the first pass measured.
+
+- **CodeQL**, with the same query suites and configuration the production scan
+  uses: **no results**, Python and JavaScript.
+- **bandit** across the server and all three agents, against the reviewed
+  baseline: **no new findings**, and none at High.
+- **gitleaks**: no leaks, in the working tree or across 2,064 commits of history.
+- **ruff**, undefined-name checking over every Python file including the agents:
+  clean. Its coverage grew this release — it had been skipping `packaging/`, the
+  web terminal, and three programs with no `.py` extension, because the linter
+  only picks up `*.py` when handed a directory.
+- **semgrep**, Python and JavaScript security rule sets: 14 findings, all
+  triaged to false positives, each checked against the code rather than
+  dismissed by rule name:
+  - Five "insecure file permissions". Four are a mode of `0700`, which is the
+    restrictive one; the rule flags any change. The fifth really is world-
+    writable, on an inner directory nested under a `0700` parent so no local
+    user can traverse to it — it exists because a containerised scanner runs
+    under a different user and has to write its report out.
+  - Three "credential disclosure" in logging. All three log a file path and an
+    error, not a secret. One matched on the word "credentials" in the message.
+  - Three "tainted subprocess arguments". The value is a container runtime name
+    that comes from the service definition, is allow-listed to two literals at
+    every call site, and is passed as an argument list rather than through a
+    shell. Anyone able to set it can already run commands.
+  - One encryption mode without authentication. It is the mode the SNMPv3
+    standard specifies; changing it would break the protocol.
+  - Two cross-site scripting. One escapes every value it interpolates. The other
+    was worth chasing, because it puts a value into an attribute unescaped and
+    that value derives from a log line, which a monitored host controls — the
+    function returns one of four fixed literals, so nothing flows through.
 
 ### Two defects found by the JavaScript rule set
 
@@ -253,22 +412,41 @@ the first never took effect.
 
 ## Testing
 
-The full suite runs on all three storage backends: 12,658 tests on the default
-backend, 12,606 on SQLite, and the PostgreSQL suite complete with no skips. Every
-fix in this document has a test that was demonstrated to fail before the fix and
-pass after it — including the guards, which were each reverted in turn to confirm
-they detect what they claim to.
+The full suite runs on all three storage backends, and every fix in this
+document has a test that was demonstrated to fail before the fix and pass after
+it — including the guards, which were each reverted in turn to confirm they
+detect what they claim to.
 
-Two of those guards were found to be blind and were repaired:
+That discipline is why the second pass spent as much time on the tests as on the
+code. Seven guards were found to be measuring less than they appeared to:
 
-- The accessibility sweep had been reporting success while running nothing,
-  because an optional dependency was absent and the class-level skip fired before
-  the flag designed to prevent exactly that could be consulted. It now audits
-  81 pages and every dialog, with no violations.
-- The demo instance — which the rendered checks measure — was seeded with eight
-  signals in shapes no agent produces, so those checks were measuring something
-  the product never emits. A new check pushes every seeded signal through the
-  real ingest path and fails if any is dropped or altered.
+- **The accessibility sweep had never run.** An optional dependency was absent,
+  and the class-level skip fired before the flag designed to catch exactly that
+  could be consulted. It now audits every page and dialog on a populated
+  instance — where it immediately found three controls with no accessible name,
+  which are fixed here. On an empty instance those controls do not exist, which
+  is why years of runs could not have found them.
+- **The SQLite suite was not testing SQLite** for roughly three quarters of each
+  run. One test cleared a setting and did not restore it.
+- **The JavaScript undefined-name check had never parsed anything**, and was
+  hiding a real defect: an operation that succeeded reported failure to the
+  operator.
+- **Twenty-eight test modules wrote to storage keys under invented filenames.**
+  On the file backend that is harmless. On the database backends the filename
+  chooses the table, so the data went nowhere — including in a module whose
+  purpose is proving one tenant cannot approve another's emergency access.
+- **Four guards enforced a correct rule over a fraction of the code they name**,
+  in one case 66 of 856 handlers.
+
+Each of those now derives its population rather than listing it, and carries a
+check that fails when the measurement stops happening rather than only when it
+finds something. That second half is the point: a gate that can return an empty
+result for the wrong reason is indistinguishable from a clean run.
+
+The demo instance the rendered checks measure was also seeded with signals in
+shapes no agent produces, and with 23 of 56 signals missing entirely — so those
+checks were partly measuring something the product never emits. A contract test
+now compares every seeded store against its real producer or consumer.
 
 ## Reporting
 
