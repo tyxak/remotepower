@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.2-22">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.2-23">
 
 </head>
 <body>
@@ -4725,7 +4725,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.0.2 prec3dentmatters autonomy autonomous remediation refused everything no_precedent low_confidence precedent incident memory prior fix operator fix mitigation verified automation rule remediation verified require_precedent only act where this fleet has fixed the same thing before no_verified_backup requires_backup destructive restore drill backup precondition restart_networking gateway unreachable maintenance window change window gate_exec _exec_gated only inside a maintenance window did nothing shadow verdict receipts clear receipts delete receipt audited tenant scoped remount_all enable_autoupdates enable_av_realtime enable_gatekeeper shutdown_host ups critical battery graceful shutdown zpool scrub device name unit container process mount pool missing_parameter alias readonly_fs paths wuauserv windows update service twenty-eight action classes allow-list ladder fleet singleton no device_id resolver_unhealthy wan_down mailflow_delayed restart_resolver removed acknowledged alert acked_at backup_state restore drill drill_status tenant isolation multi-tenancy tenancy_enforced instance settings automation rule tenant_gate saved script library shared scripts maintenance window global scope cross-tenant secure boot uefi secure_boot efi firmware unsigned kernel dkms zfs nvidia virtualbox mok enrolled key secure_boot_checks opt-in tamper protection uac pending reboot auto security update posture pill unsigned agent update release signature downgrade gzip bomb decompression scap report replay signed command canary decoy audit mode read-only tagged command shell comment mitigate acme activity feed routing kmip wrong page duplicate translation keys i18n dupe permitted actions card width filter ask ai brief redaction hostname accessibility axe skipped toast not visible invisible toast success message restart self-update systemd path unit cron windows macos file manager folder download mailbox watch push daemon websockets postgres psycopg openapi wrong url box overflow accumulator panel api key tenant autopatch tenant ups dependency inherited credentials portal csp syslog flood regex budget compose payload signature">
+          <details class="doc-card" open data-keywords="release notes changelog v7.0.2 prec3dentmatters autonomy autonomous remediation refused everything no_precedent low_confidence precedent incident memory prior fix operator fix mitigation verified automation rule remediation verified require_precedent only act where this fleet has fixed the same thing before no_verified_backup requires_backup destructive restore drill backup precondition restart_networking gateway unreachable maintenance window change window gate_exec _exec_gated only inside a maintenance window did nothing shadow verdict receipts clear receipts delete receipt audited tenant scoped remount_all enable_autoupdates enable_av_realtime enable_gatekeeper shutdown_host ups critical battery graceful shutdown zpool scrub device name unit container process mount pool missing_parameter alias readonly_fs paths wuauserv windows update service twenty-six action classes allow-list ladder fleet singleton no device_id resolver_unhealthy wan_down mailflow_delayed restart_resolver removed acknowledged alert acked_at backup_state restore drill drill_status tenant isolation multi-tenancy tenancy_enforced instance settings automation rule tenant_gate saved script library shared scripts maintenance window global scope cross-tenant secure boot uefi secure_boot efi firmware unsigned kernel dkms zfs nvidia virtualbox mok enrolled key secure_boot_checks opt-in tamper protection uac pending reboot auto security update posture pill unsigned agent update release signature downgrade gzip bomb decompression scap report replay signed command canary decoy audit mode read-only tagged command shell comment mitigate acme activity feed routing kmip wrong page duplicate translation keys i18n dupe permitted actions card width filter ask ai brief redaction hostname accessibility axe skipped toast not visible invisible toast success message restart self-update systemd path unit cron windows macos file manager folder download mailbox watch push daemon websockets postgres psycopg openapi wrong url box overflow accumulator panel api key tenant autopatch tenant ups dependency inherited credentials portal csp syslog flood regex budget config drift drifted file drift binding checks row risk needs attention smart group blast radius pre-flight preflight what breaks if i restart containers watched services gdpr article 15 article 17 subject access erasure data protection request alert wall full screen alertwall wall display ops room never refreshed frozen snapshot auto-refresh countdown demo seeder demo went dark offline five minutes reseed sqlite gate storage backend eslint no-undef undefined global proxmox snapshot rollback exit code rc 127 remediation_failed receipt outcome precedent shown proxmox backup vzdump guest snapshot recoverable restore drill metric_critical snapshot_stale zfs snapshot inodes memory swap ladder maintenance window site tag smart group blank target server-provided labels event_registry notifications table translated six languages one-click link alert email expired seven days enrollment token revoke web terminal ticket single use fix button gate quarantined audit mode file integrity baseline quarantine command signing channels">
             <summary><strong>What's new — v7.0.2 &ldquo;Prec3dentMatters&rdquo;</strong> &mdash; the autonomy loop refused every single thing it looked at, and each reason was a gate naming a cause it did not have.</summary>
             <div class="doc-body">
               <p><strong>Precedent could not accumulate.</strong> The loop acts only where your fleet has fixed the same thing before — and it counted an incident as a prior fix only if the record carried a <em>recommended action</em>, a field filled by AI triage and nothing else. With no AI provider configured, which is the default, confidence came out at zero however many incidents you had resolved. Worse than neutral: a resolution note you write counts double an AI-authored one, so it counted double toward the denominator and nothing toward the numerator. A fleet whose incidents people fix scored <em>lower</em> than a fleet with no memory at all.</p>
@@ -4734,10 +4734,16 @@
               <p><strong>&ldquo;Only inside a maintenance window&rdquo; had never been evaluated.</strong> The check called a function that does not exist, behind a guard that skipped it when absent, so the ticked box did nothing. It now honours change-gated maintenance windows — and holds nothing on a host no such window covers.</p>
               <p><strong>Two mappings aimed at the wrong thing.</strong> When an alert did not name the unit, container, process, mount point or pool, the loop fell back to the alert&rsquo;s <code>name</code> field — which every alert here uses for the <em>device</em>. An overdue scrub on <code>web01</code> built <code>zpool scrub web01</code>. That fallback is gone: an alert that does not say which thing broke now refuses with <code>missing_parameter</code>.</p>
               <p><strong>Two more things it can do, and five it will no longer pretend to.</strong> Real-time malware protection and Gatekeeper can be switched back on. Five actions were removed, four of them added earlier in this same cycle — an adversarial review asked of each whether the alert that triggers it names a host, and whether the command can fix the state that fired it. <code>restart_resolver</code> and <code>flush_dns_cache</code> hang off a server-side DNS check that names no host; <code>enable_autoupdates</code> exits 0 having changed nothing in the state that fires it; <code>mount -a</code> skips filesystems that are already mounted, which is the stalled case the alert usually means; and the UPS shutdown targeted the machine reporting the UPS rather than the ones depending on it, routing around a path this product already has and gates on two separate opt-ins. Three more mappings went the same way, including the controller's own disk watchdog, which had the whole six-rung disk ladder attached to it.</p>
+              <p><strong>The alert inbox, full screen.</strong> A <strong>Full screen</strong> button on the Alert inbox card gives the inbox the whole display — no sidebar, no page title, larger type, and the list scrolling inside rather than off the bottom. For a spare monitor or a wall panel. <code>?alertwall=1</code> opens straight into it. It is a display mode, not a lockdown: the API still enforces the signed-in token&rsquo;s role. <strong>And it never refreshed</strong> — it showed one frozen snapshot with the countdown hidden, so nothing gave it away. Alerts, Checks, Needs Attention, CVE and Exposure were snapshots too; of 83 pages, 2 refreshed.</p>
+              <p><strong>Maintenance windows can target a site, a tag or a smart group</strong> — every other targeting surface here already took that vocabulary, so patching one customer&rsquo;s site on a Saturday could not be expressed without a window per device. A blank target is rejected rather than matching nothing. And <strong>a Proxmox backup counts as recoverable</strong>: a restore drill is the strongest evidence and most fleets do not run one, so a recent vzdump archive or snapshot of the guest a host <em>is</em> now satisfies the backup precondition, judged against your own staleness thresholds.</p>
+              <p><strong>A receipt now says what happened.</strong> The agent returns every command&rsquo;s exit code and nothing read it, so a command that exited 127 because the tool is not installed and one that worked produced identical receipts. A non-zero code now outranks the checks comparison and shows on the row, along with the outcome and the precedent that justified the decision.</p>
               <p><strong>Receipts can be cleared</strong>, per row or all at once. Admin-only and audited: who cleared it, how many rows, and how many were still waiting on their verification sample.</p>
-              <p><strong>A pre-release audit of the whole project</strong> — not just this release's changes — found fifteen issues, all fixed before release. Four ways one tenant could reach another: instance settings a tenant admin could rewrite, automation rules that carried no tenant and could run a saved script as root anywhere, a script library shared by everyone, and a <em>global</em> maintenance window that silenced every other tenant's alerts. On the agents: macOS would install an <strong>unsigned</strong> update, a report upload was capped at 30&nbsp;MB <em>compressed</em> (which bounds nothing), a signed command could be replayed while fresh, and planting a decoy file honoured neither audit mode nor signed commands. Objects created before this release keep their existing reach where assigning an owner would have been a guess, so review anything shared if you run multiple tenants.</p>
+              <p><strong>A pre-release audit of the whole project</strong> — not just this release's changes — found thirty-six issues, all fixed before release. Four ways one tenant could reach another: instance settings a tenant admin could rewrite, automation rules that carried no tenant and could run a saved script as root anywhere, a script library shared by everyone, and a <em>global</em> maintenance window that silenced every other tenant's alerts. On the agents: macOS would install an <strong>unsigned</strong> update, a report upload was capped at 30&nbsp;MB <em>compressed</em> (which bounds nothing), a signed command could be replayed while fresh, and planting a decoy file honoured neither audit mode nor signed commands. Objects created before this release keep their existing reach where assigning an owner would have been a guess, so review anything shared if you run multiple tenants.</p>
               <p><strong>Everything the agents collect now reaches a screen</strong> — 73 of 86 stored signals appeared somewhere before, 80 do now. <strong>UEFI Secure Boot</strong> is the clearest case: only the Windows agent reported it, so the column was empty across a mostly-Linux fleet. The Linux agent reads it from firmware now, with a drawer row, a check and an advisory finding — the check <strong>off by default</strong>, because out-of-tree kernel modules will not load under Secure Boot without an enrolled key. Also fixed: nineteen alerts opened the key-server page instead of the affected host when clicked in the activity feed, and fifty-two translations were being discarded silently because a repeated key means the later one wins.</p>
               <p><strong>Several things reported success for work that never happened.</strong> <strong>No toast in this product was ever visible</strong> &mdash; every confirmation, warning and error was built and timed out inside a container a stylesheet migration had hidden, so a failed save told you nothing. <strong>Restart</strong> and <strong>Self-update</strong> said systemd was doing it as root, and no installer had ever installed the unit that watches for the request. Crontab edits, the file manager, folder downloads and mailbox watching all accepted hosts whose agent has no such feature. Each now either works or refuses and says why. Faster too: the dashboard went from 121&nbsp;ms to 50&nbsp;ms on a 150-device fleet, and log ingest &mdash; which read and rewrote the whole fleet&rsquo;s buffer on every submission &mdash; from 2&nbsp;seconds to 5&nbsp;milliseconds.</p>
+              <p><strong>Config drift was collected, stored, and shown nowhere.</strong> Drift has its own store and its own page, and ten other features read it off the device record instead, where nothing has ever written it. So a drifted file raised no Checks row, scored no risk, reached neither Needs Attention nor the fleet rollup, and was invisible to the assistant. All ten read the store now. <strong>Two safety inputs counted zero</strong> in the same way: the blast radius weighed before an autonomous action read containers and watched services from the wrong place, so a host running thirty containers scored the same as an empty one — and the pre-flight you open before a reboot reported zero containers as fact.</p>
+              <p><strong>Two finished features had no screen.</strong> Subject access and erasure under GDPR Articles 15 and 17, and the blast-radius pre-flight, were implemented, permission-scoped and audited, and reachable only by a hand-written request. Both have one now. <strong>Every label the server sends is translated</strong> too — 546 of 558 were English in all six other languages, including the whole Settings &rarr; Notifications table, because a label that travels as data rather than markup is invisible to the checks that look for untranslated text.</p>
+              <p><strong>And the tests had been overstating what they proved.</strong> The SQLite gate stopped testing SQLite about a quarter of the way in, because one test cleared the backend setting and never put it back — 9,324 of 12,836 results ran on the file backend inside the run that exists to exercise SQLite. The JavaScript undefined-global check had never parsed a byte, and once sighted it immediately found a Proxmox snapshot rollback that succeeded and reported &ldquo;Failed&rdquo;. Both now carry a control that fails when they measure nothing. The <strong>demo instance</strong> also went dark five minutes after every seed, so a public demo showed most of its fleet dead within minutes.</p>
               <p class="hint">See <code>docs/v7.0.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -9273,7 +9279,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      half-filled form and got markdown source (or, where nginx has no .md MIME
      mapping and sends nosniff, a file download). renderMarkdown() already
      shipped for the KB and the AI chat. -->
-<!-- v7.0.0: the product map. 89 pages across 12 domains, and the sidebar shows
+<!-- v7.0.0: the product map. 81 pages across 12 domains, and the sidebar shows
      one domain at a time — so there was no surface that answered "what is in
      this product and where". Built from the sidebar DOM at open time, NOT from
      a second list: every nav button already carries a one-line title, and a
@@ -11821,36 +11827,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.2-22"></script>
+<script defer src="static/js/app.js?v=7.0.2-23"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-containers.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-network.js?v=7.0.2-22"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-containers.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-network.js?v=7.0.2-23"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.2-22"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.2-23"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-dns.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-drift.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-cve.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-backups.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-iac.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-virt.js?v=7.0.2-22"></script>
+<script defer src="static/js/app-ai.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-dns.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-drift.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-cve.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-backups.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-iac.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-virt.js?v=7.0.2-23"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-remote.js?v=7.0.2-22"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.2-22"></script>
+<script defer src="static/js/app-logs.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-remote.js?v=7.0.2-23"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.2-23"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.2-22"></script>
+<script defer src="static/js/app-self.js?v=7.0.2-23"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11860,6 +11866,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.2-22"></script>
+<script defer src="static/js/sw-register.js?v=7.0.2-23"></script>
 </body>
 </html>

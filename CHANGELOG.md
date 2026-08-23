@@ -29,8 +29,9 @@ checks a few minutes later whether the alert cleared; if it did not you get
 `mitigation_unverified`, and if it did, nothing happened. An automation rule's
 remediation was verified the same way and remembered just as little.
 
-Both now record it. So do this loop's own verified actions. Three kinds of
-prior fix, none of which needs a model:
+Both now record it. So do this loop's own verified actions. Three more kinds
+of prior fix, on top of the resolution note or AI verdict that already counted,
+and none of the three needs a model:
 
 - a fix an operator ran that cleared its alert
 - an automation rule whose remediation verified
@@ -69,7 +70,7 @@ with `missing_parameter`, which is what the receipt should have said all along.
 A read-only filesystem reporting exactly one path is remounted; two or more
 refuses rather than fixing one and leaving the rest.
 
-### Six more things it can do
+### Two more things it can do, and five it will no longer pretend to
 
 `enable_av_realtime` (Windows) and `enable_gatekeeper` (macOS), both off until
 you tick them.
@@ -90,7 +91,7 @@ and `server_disk_low`, the last being this server's own data directory with the
 whole six-rung disk ladder attached to it. The ladder moved to
 `disk_predict_fail`, the per-host signal it was written for. And `oom_detected`
 no longer maps to killing a process: the name in that alert belongs to the
-process the kernel already killed. Twenty-five action classes.
+process the kernel already killed. Twenty-six action classes.
 
 ### The allow-list is grouped and searchable, and one alert can mean several things
 
@@ -430,8 +431,37 @@ the 56 signals an agent reports were seeded on no host at all. Two of those,
 top processes and mount issues, are panels with a scroll cap — so the check
 that measures scroll caps had never seen either of them.
 
+### Every label the server sends is now translated
+
+A label that lives as a Python value and travels to your browser in a JSON
+response is not markup, so the checks that look for untranslated text could
+never see one. Measured across the five places the server sends them, 546 of
+558 were English in all six other languages — including the whole
+Settings → Notifications table, all 214 rows of it.
+
+They are complete now. Nine could not have worked whatever the dictionary held:
+the page skipped any text longer than 200 characters, and nine check
+descriptions run to 392. The limit is 400, rather than cutting the wording down
+to fit it.
+
 ### Security
 
+- **Every one-click link in an alert email worked for ever.** The signature is
+  the capability, so an operator can acknowledge from a phone without signing
+  in — but it carried no deadline, which leaves a standing power over the alert
+  inbox in every mailbox that has ever received one: an archive, a shared ops
+  inbox, a forwarded thread, a former colleague's account. Whoever opens it
+  later can resolve that alert, which hides an incident rather than surfacing
+  it. Links now last seven days, and the failure page's "no longer valid"
+  message is finally true of something.
+- **A single-use web-terminal ticket could be used twice.** Issuing one while
+  another was being spent wrote back a snapshot taken before the spend, so the
+  used ticket lived again for the rest of its minute. That ticket authorises an
+  SSH session to a managed host, and opening two terminals at once is ordinary.
+- **Revoking a leaked enrollment token could silently fail.** An enrollment
+  token is what lets a machine join your fleet. Creating or even listing one
+  alongside a revoke could put the revoked token back, and both administrators
+  were told it worked.
 - A tenant administrator could delete, rename, re-scope and rotate **another
   tenant's API keys** by id. Rotating one hands the caller a working key and
   disables the original.
@@ -534,7 +564,7 @@ that measures scroll caps had never seen either of them.
 - The terminal asked for a font that nothing had loaded since v6.0.0, so it had
   been falling back per platform — the complaint the pin was added to fix.
   1.5 MB of fonts for a skin removed in v6.0.0 stopped shipping in the tarball.
-- Four documentation counts were wrong: 683 paths (728), 89 pages (77), 24
+- Four documentation counts were wrong: 683 paths (728), 89 pages (81), 24
   action classes (26), 43 connectors (48).
 - **FileVault, Gatekeeper, SIP and firewall alerts could never fire on a Mac
   without psutil.** The macOS agent collects its posture outside the block that

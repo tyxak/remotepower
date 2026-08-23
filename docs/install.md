@@ -204,7 +204,7 @@ This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
 
 ```bash
-docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :6.4.0
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :7.0.2
 docker run -d --name remotepower -p 443:8443 -p 80:8080 \
   -e RP_TLS_SELFSIGNED=1 -e RP_TLS_HOST=your.host.example \
   -v remotepower-data:/var/lib/remotepower \

@@ -73,7 +73,7 @@ holds long-form docs that don't fit there.
  monitoring controls that were evaluating nothing, and the concurrency defects
  behind a lost device row and a reverted security setting.
 - **[security-review-7.0.2.md](security-review-7.0.2.md)** — the v7.0.2
-  pre-release review: fifteen issues, a whole-project pass rather than a
+  pre-release review: thirty-six issues, a whole-project pass rather than a
   diff, and two guards found to be blind.
 - **[security-review-7.0.0.md](security-review-7.0.0.md)** — the v7.0.0
  "Aut0nomyMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
@@ -88,7 +88,10 @@ holds long-form docs that don't fit there.
   incidents people fix scored lower than one with no memory at all), nothing
   recorded a fix that worked, the maintenance-window gate called a function that
   does not exist, and `no_verified_backup` was refusing actions a backup has
-  nothing to do with. Six more actions, and receipts you can clear.
+  nothing to do with. Two more actions and five removed, receipts you can clear,
+  and a whole-project audit that found thirty-six security issues, config drift
+  bound to the ten features that read it, and two gates that had been reporting
+  success while measuring nothing.
 - **[v7.0.1.md](v7.0.1.md)** — "C0llapseMatters": the sidebar collapses when
   you ask it to. Open alerts were holding it open in every mode, including a
   manual collapse with auto-hide switched off, so the page content moved to

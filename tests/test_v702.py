@@ -135,9 +135,33 @@ class TestVersionBumps(unittest.TestCase):
                 self.assertNotIn(dropped, p.read_text(),
                                  f"{rel} still links the deleted {dropped}")
 
+    def test_the_all_pages_map_count_is_derived_from_the_sidebar(self):
+        """The product map is built from the sidebar DOM, so the number quoted
+        in features.md is checkable. Nothing checked it: the row shipped 89,
+        a correction pass changed it to 77 — which is the doc-POINTER ratio
+        from a different measurement — and the sidebar holds 81. Two wrong
+        numbers in a row is what an unpinned count looks like."""
+        html = _html()
+        nav = html[html.index('<nav class="sidebar"'):]
+        nav = nav[:nav.index("app-content")]
+        pages = set(re.findall(r'data-page="([a-z0-9-]+)"', nav))
+        groups = set(re.findall(r'data-group="([a-z0-9-]+)"', nav))
+        self.assertGreater(len(pages), 40, "sidebar derivation collapsed")
+        self.assertGreater(len(groups), 5, "group derivation collapsed")
+        feats = (_ROOT / "docs/features.md").read_text()
+        m = re.search(r"\*\*(\d+) pages across (\d+) domains\*\*", feats)
+        self.assertTrue(m, "features.md no longer states the map's size")
+        self.assertEqual((int(m.group(1)), int(m.group(2))),
+                         (len(pages), len(groups)),
+                         "features.md disagrees with the sidebar it describes")
+
     def test_the_aur_packages_stay_on_the_last_shipped_release(self):
-        """This version is unreleased (test). The AUR cannot carry it — the
-        PKGBUILD's sha256 comes from a published tarball that does not exist."""
+        """The AUR cannot carry this version until its tarball is published —
+        `update.sh` derives the sha256 from the released file. So between the
+        CHANGELOG date flip and the AUR push, `test_v643_aur_tracks_release`
+        is red on purpose; that red is the reminder to push, not a defect.
+        This pin only holds the other direction: never fake the version here
+        ahead of a tarball to exist."""
         p = _ROOT / "packaging/aur/remotepower-server/PKGBUILD"
         if not p.exists():
             self.skipTest("excluded from dist tree")

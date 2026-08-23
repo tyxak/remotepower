@@ -61,8 +61,8 @@ machine's storage against a KMIP server that machine hosts.
 
 The current pass is [security-review-7.0.2.md](security-review-7.0.2.md) for
 **v7.0.2**, which reviewed the whole project rather than the release diff — the
-previous release having taught that the diff is the wrong unit. It found fifteen
-issues, nine of them the same shape: a rule this codebase already applies in most
+previous release having taught that the diff is the wrong unit. It found thirty-six
+issues, most of them the same shape: a rule this codebase already applies in most
 places, missed in one or two. Multi-tenancy was applied to the settings READ path
 and not the write path; to auto-patch policies and not to the maintenance windows
 they generate. Two of three agents refused an unsigned update. Four of eight
@@ -430,7 +430,7 @@ OIDC identity, so verification asserts *which workflow in which repository*
 built the image:
 
 ```bash
-cosign verify ghcr.io/tyxak/remotepower:7.0.0 \
+cosign verify ghcr.io/tyxak/remotepower:7.0.2 \
   --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

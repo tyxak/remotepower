@@ -1,6 +1,6 @@
 # Security review — v7.0.2 "Prec3dentMatters"
 
-Every release gets a review before it ships. This one found **twenty-seven** issues
+Every release gets a review before it ships. This one found **thirty-six** issues
 worth reporting, all **caught before release** and all fixed in the release they
 are described in. None came from the field.
 
@@ -29,7 +29,7 @@ ships. That bar is met.
 
 ## The pattern worth naming
 
-Nine of the fifteen are the same shape, and it is the shape this project keeps
+Most of them are the same shape, and it is the shape this project keeps
 finding: **a rule already written down and applied in most places, missed in one
 or two.**
 
@@ -221,7 +221,7 @@ anything that is not a list.
 ## A second pass over the whole project
 
 After the review above was written, the release was held open for a full pass
-over the entire codebase rather than the changes in it. That pass found twelve
+over the entire codebase rather than the changes in it. That pass found twenty-three
 more security issues. All are fixed here, none came from the field, and the same
 bar applies: nothing Critical, High or Medium ships.
 
@@ -233,7 +233,7 @@ had already written down and applied nearly everywhere.
 
 ### The fix button skipped every gate
 
-RemotePower has one function that queues a command to a host, and it applies six
+**Critical.** RemotePower has one function that queues a command to a host, and it applies six
 protections: maintenance windows, four-eyes approval, the refusal to touch a
 quarantined host, read-only audit mode, a per-device queue limit, and a check
 that the target platform can carry the command out. Separately, a device can
@@ -255,7 +255,7 @@ already had the tenant check, with a comment explaining why it was needed there.
 
 ### Editing a file-integrity check could delete files
 
-A file-integrity check records a baseline on the host and reports what changed
+**Critical.** A file-integrity check records a baseline on the host and reports what changed
 against it. The baseline was filed under the check's identifier without recording
 which path it was taken from.
 
@@ -268,7 +268,7 @@ Baselines now record their scope and start fresh when it changes, and say so.
 
 ### A hostile server could switch off command signing
 
-Command signing exists for one scenario, stated in the agent's own source: a
+**Critical.** Command signing exists for one scenario, stated in the agent's own source: a
 server or database an attacker now controls. With it on, the agent refuses any
 instruction that is not signed.
 
@@ -284,7 +284,7 @@ own comment claimed it did.
 
 ### A data-protection erasure request could delete more than it named
 
-The subject-access and erasure endpoints took the person's name from the request
+**High.** The subject-access and erasure endpoints took the person's name from the request
 and used it to find their files. It went into a filename pattern rather than
 being treated as a name, so a request naming a wildcard matched every avatar on
 the instance and the erasure removed all of them while reporting one. A name
@@ -292,8 +292,20 @@ containing a parent-directory reference reached outside the folder.
 
 Names are resolved to an explicit list now.
 
-### Four more ways one tenant could reach another
+### Eight more ways one tenant could reach another
 
+- **API keys.** A tenant administrator could delete, rename, re-scope and rotate
+  another tenant's key by its id. Rotating one returns a working key to the
+  caller and disables the original, so it is a takeover rather than a leak.
+- **Auto-patch policies** could be listed, deleted and *run* across tenants, and
+  editing another tenant's policy transferred ownership of it. Running one
+  installs packages and can reboot.
+- **UPS dependencies.** A host could be pointed at another tenant's UPS. That is
+  a cross-tenant shutdown path, not only an information leak.
+- **Inherited credentials.** Labels, usernames and notes from other tenants
+  appeared on your own device's inherited-credentials list whenever a site,
+  group or tag name matched — and those names collide across tenants as a matter
+  of course.
 - An Ansible playbook aimed at "everything" or at a site resolved across the
   whole fleet instead of what the caller can see.
 - Network-scan schedules were listed across tenants, and could be deleted across
@@ -305,6 +317,52 @@ Names are resolved to an explicit list now.
   through a helper that takes the lock one call deeper than the check that looks
   for locks, so the guard that reviews these handlers could not see it. Read-only
   accounts could also fill an instance-wide limit.
+
+### Three credentials that outlived their purpose
+
+- **Every one-click link in an alert email worked for ever.** The signature is
+  the capability — that is what lets an operator acknowledge from a phone
+  without signing in — but it carried no deadline. Every mailbox that has ever
+  received an alert mail therefore held a standing power over the alert inbox:
+  an archive, a shared ops inbox, a forwarded thread, a former colleague's
+  account. Resolving an alert from one of those hides an incident instead of
+  surfacing it. The failure page already offered "no longer valid or expired",
+  which was true of no link the product had sent. The deadline is signed rather
+  than stored, so the endpoint stays stateless and an edited URL does not
+  verify. Seven days.
+- **A single-use web-terminal ticket could be used twice.** Issuing a ticket
+  while another was being spent wrote back a snapshot taken before the spend, so
+  the used ticket was live again for the rest of its minute. It authorises an SSH
+  session to a managed host, and opening two terminals at once is ordinary. Both
+  processes take the storage layer's own lock now; fixing one side would have
+  proved nothing, because a lock only one of two writers holds is not a lock.
+- **Revoking a leaked enrollment token could silently fail.** An enrollment token
+  is what lets a machine join the fleet. A create — or merely a list, which
+  prunes expired entries as it goes — running alongside a revoke wrote back a
+  snapshot taken before the delete, and the revoked token came back. Both
+  administrators were told it worked.
+
+### Listeners, signing and the supply chain
+
+- **A compose deployment was signed on its identifier, not on the file it runs.**
+  Require-signed-commands therefore covered the name of the stack and not the
+  payload, which is the part that executes.
+- **One badly written file-content check could stop a host reporting for good.**
+  An operator-supplied pattern with no bound can take unlimited time on ordinary
+  input, and the agent ran it on every check-in. Those checks give up after
+  twenty seconds now and name the pattern that was too slow.
+- **The customer portal's browser-report endpoint wrote unauthenticated,
+  unthrottled text into the server log.** It now shares the throttling, size cap
+  and filtering that the operator app's equivalent has had for years.
+- **The syslog listener grew without limit under forged source addresses.** The
+  per-source state it keeps was created on sight and never reclaimed, and the
+  source of a UDP datagram is trivially spoofed.
+- **The vulnerability scanner image ran a two-year-old engine, fetched without
+  an integrity check.** Both halves are fixed: a current engine, and the download
+  is verified before it runs.
+- **The web terminal's manual install instructions named an SSH library version
+  with known session-hijack flaws.** The installer's own floor had already been
+  raised; the printed instruction had not moved with it.
 
 ### Smaller
 

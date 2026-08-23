@@ -31,7 +31,7 @@ The proposal comes from **incident memory** — the durable record of resolved
 incidents and what closed them. Two prior incidents minimum with the same
 signature, and at least 70% of them must have actually been resolved.
 
-Three things count as a prior fix, and none of them needs an AI provider:
+Four things count as a prior fix, and only the last of them can come from a model:
 
 * **A fix an operator ran** that cleared its alert. You press Fix on an alert
   row; the verify sweep checks a few minutes later whether the alert closed. It
