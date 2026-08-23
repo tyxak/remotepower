@@ -155,18 +155,18 @@ class TestVersionBumps(unittest.TestCase):
                          (len(pages), len(groups)),
                          "features.md disagrees with the sidebar it describes")
 
-    def test_the_aur_packages_stay_on_the_last_shipped_release(self):
-        """The AUR cannot carry this version until its tarball is published —
-        `update.sh` derives the sha256 from the released file. So between the
-        CHANGELOG date flip and the AUR push, `test_v643_aur_tracks_release`
-        is red on purpose; that red is the reminder to push, not a defect.
-        This pin only holds the other direction: never fake the version here
-        ahead of a tarball to exist."""
-        p = _ROOT / "packaging/aur/remotepower-server/PKGBUILD"
-        if not p.exists():
-            self.skipTest("excluded from dist tree")
-        self.assertNotIn(f"pkgver={V}", p.read_text())
-
+    # The AUR-version invariant lives in ONE place: tests/test_v643_aur_
+    # tracks_release.py, which asserts PKGBUILD == the newest DATED CHANGELOG
+    # entry. Equality already forbids BOTH directions — lagging behind a
+    # shipped release, and faking a version ahead of a tarball that exists to
+    # hash.
+    #
+    # A second pin here asserted the opposite ("pkgver must NOT be this
+    # version"), which was true for the whole development cycle and became
+    # false the moment the release was published. The two then contradicted
+    # each other, so no state of the tree could satisfy both and the release
+    # commit could not go green either way. Removed rather than re-dated: a
+    # rule with two owners is a rule that will disagree with itself again.
 
 class TestTheFixesAreInThisRelease(unittest.TestCase):
     """Release pins, not behavioural ones — the proofs live in
