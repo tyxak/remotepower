@@ -25319,8 +25319,18 @@ def _run_one_monitor_check(mtype, target, label, m):
         want_status = m.get('expect_status')
         max_lat = m.get('max_latency_ms')
         # GET when we need the body (content/JSON match), else HEAD.
+        #
+        # The User-Agent is load-bearing. Without it urllib sends
+        # `Python-urllib/3.x`, which Cloudflare's Browser Integrity Check —
+        # and most other WAFs — block outright with a 403 that never reaches
+        # the origin. A monitor on any Cloudflare-fronted host then reads as
+        # permanently down, with nothing in the origin's access log to explain
+        # it. Measured: `Python-urllib/3.12` -> 403, `RemotePower/<ver>` -> 200
+        # against the same URL.
         try:
-            req = urllib.request.Request(target, method='GET' if (bm or ej) else 'HEAD')
+            req = urllib.request.Request(
+                target, method='GET' if (bm or ej) else 'HEAD',
+                headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
             ctx = _get_ssl_context()
             _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
@@ -25482,7 +25492,12 @@ def _run_http_flow(m):
         if step.get('body'):
             data = _subst(str(step['body'])).encode('utf-8', 'replace')
         try:
-            req = urllib.request.Request(url, data=data, method=method)
+            # Same User-Agent requirement as the single-step http monitor —
+            # a flow step against a WAF-fronted host is blocked before the
+            # origin sees it if we let urllib send its default.
+            req = urllib.request.Request(
+                url, data=data, method=method,
+                headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
             if data is not None and not any(h.lower() == 'content-type'
                                             for h in req.headers):
                 req.add_header('Content-Type', 'application/x-www-form-urlencoded')
@@ -26991,7 +27006,18 @@ def _get_ssl_context():
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
     # v4.1.0: never negotiate obsolete TLS 1.0/1.1 on outbound HTTPS.
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    #
+    # RAISE the floor, never lower it. A bare assignment overrides a stricter
+    # system policy: OpenSSL's `MinProtocol` in openssl.cnf is honoured by
+    # create_default_context(), so on a host pinned to TLSv1.3 this handed back
+    # a TLS 1.2-capable context — a silent downgrade of the operator's own
+    # hardening. It also changed the ClientHello enough to alter the JA3/JA4
+    # fingerprint: Cloudflare Bot Fight Mode answered the resulting handshake
+    # with 403 `cf-mitigated: challenge`, so every monitor pointed at a
+    # Cloudflare-fronted host read as permanently down, while curl and plain
+    # urllib to the same URL returned 200. Measured 6/6 both directions.
+    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx
 
 
