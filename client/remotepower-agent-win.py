@@ -162,7 +162,10 @@ def _make_ssl_context():
     ctx = ssl.create_default_context()
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    # Raise the floor, never lower it — a bare assignment would undo a host
+    # pinned above 1.2.
+    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
     if not _ca:
         # v4.5.0: conventional self-signed CA path (mirrors _data_dir(), inlined

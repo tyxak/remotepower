@@ -555,7 +555,10 @@ def _make_ssl_context():
     ctx.verify_mode = _ssl.CERT_REQUIRED
     ctx.check_hostname = True
     # v4.1.0: refuse obsolete TLS 1.0/1.1 on the agent→server/satellite hop.
-    ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
+    # Raise the floor, never lower it — a bare assignment would undo a host
+    # pinned above 1.2.
+    if ctx.minimum_version < _ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
     if not _ca and os.path.exists('/etc/remotepower/ca.crt'):
         _ca = '/etc/remotepower/ca.crt'

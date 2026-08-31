@@ -54,7 +54,9 @@ def _ssl_ctx():
         return None
     ctx = ssl.create_default_context()
     # v4.1.0: never negotiate down to legacy TLS on the satellite→server hop.
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    # Raise the floor, never lower it.
+    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     if INSECURE:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -244,7 +246,10 @@ def main():
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # v4.1.0: require TLS 1.2+ on the agent→satellite hop — refuse the
         # obsolete TLS 1.0/1.1 protocols even if the platform still offers them.
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        # Raise the floor, never lower it: an operator who pinned this host
+        # above 1.2 keeps their setting.
+        if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(TLS_CERT, TLS_KEY)
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
         scheme = 'https'

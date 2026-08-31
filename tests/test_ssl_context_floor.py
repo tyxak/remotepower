@@ -17,6 +17,14 @@ The test simulates the hardened host by patching create_default_context, so it
 fails on ANY machine rather than only where the system default is already
 strict. A test that asserts `>= TLSv1_2` alone would pass against the old code
 everywhere and prove nothing.
+
+Simulating it is not optional, because whether openssl.cnf reaches the context
+depends on the interpreter. Measured on the dev box (CPython 3.14, OpenSSL
+3.6): `MaxProtocol` from `system_default` lands on the context, `MinProtocol`
+does not — CPython sets its own TLS 1.2 minimum on every SSLContext after
+creation, clobbering the operator's pin before any of our code runs. So a host
+where the guard is load-bearing is a host with a different interpreter, and no
+unpatched assertion here can reach the failing direction.
 """
 import os
 import ssl
@@ -92,6 +100,59 @@ class TestOutboundTLSFloor(unittest.TestCase):
         self.assertGreaterEqual(
             ctx.minimum_version, ssl.create_default_context().minimum_version,
             "the returned context is weaker than this host's own default")
+
+
+class TestIntegrationClientTLSFloor(unittest.TestCase):
+    """The same rule at the second site: `_SSRFIntegrationClient`.
+
+    `verify_tls=False` is an opt-out of CERTIFICATE verification, for the
+    self-signed homelab targets connectors poll. It is not an opt-out of the
+    protocol floor, and it used to lower one — the sibling of the bug above,
+    left behind when that site was fixed.
+    """
+
+    def _context_for(self, verify_tls):
+        """Build a client on a TLSv1.3-pinned host, return the ctx it chose."""
+        real = ssl.create_default_context     # bind before patching, or recurse
+        cap = {}
+
+        def hardened():
+            c = real()
+            c.minimum_version = ssl.TLSVersion.TLSv1_3
+            return c
+
+        class _Opener:
+            def add_handler(self, handler):
+                pass
+
+        def fake_opener(**kw):
+            cap['ctx'] = kw.get('ssl_ctx')
+            return _Opener()
+
+        with mock.patch.object(ssl, "create_default_context", hardened), \
+                mock.patch.object(api, "_ssrf_safe_opener", fake_opener):
+            api._SSRFIntegrationClient('https://box.lan', verify_tls=verify_tls)
+        self.assertIn('ctx', cap, "the client never reached _ssrf_safe_opener; "
+                                  "this test measured nothing")
+        return cap['ctx']
+
+    def test_verify_off_still_keeps_a_hardened_floor(self):
+        ctx = self._context_for(False)
+        # Control first: prove we exercised the verify_tls=False branch and not
+        # the one that delegates to _get_ssl_context().
+        self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
+        self.assertFalse(ctx.check_hostname)
+        self.assertEqual(
+            ctx.minimum_version, ssl.TLSVersion.TLSv1_3,
+            "_SSRFIntegrationClient(verify_tls=False) downgraded a TLSv1.3 "
+            f"system floor to {ctx.minimum_version!r}. Skipping certificate "
+            "checks for a self-signed homelab box does not license lowering "
+            "the protocol floor the operator set.")
+
+    def test_verify_on_still_keeps_a_hardened_floor(self):
+        ctx = self._context_for(True)
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+        self.assertEqual(ctx.minimum_version, ssl.TLSVersion.TLSv1_3)
 
 
 if __name__ == "__main__":

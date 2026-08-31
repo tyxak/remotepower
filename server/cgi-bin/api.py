@@ -25906,7 +25906,9 @@ class _SSRFIntegrationClient(integrations_mod.HTTPClient):
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            # verify_tls=False opts out of CERTIFICATE verification for
+            # self-signed homelab targets, not out of the protocol floor.
+            _raise_tls_floor(ctx)
         # allow_loopback=False blocks 127.0.0.0/8 + link-local/metadata; RFC1918
         # LAN is allowed (homelab targets live there).
         self._opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=ctx,
@@ -26999,6 +27001,35 @@ def _satellite_monitor_display(monitors):
     return out
 
 
+def _raise_tls_floor(ctx):
+    """Lift ctx to a TLS 1.2 floor, and never lower one that is already higher.
+
+    A bare `ctx.minimum_version = TLSv1_2` sets the floor in both directions.
+    Where OpenSSL's `MinProtocol` from openssl.cnf reaches the context, that
+    assignment hands back a TLS 1.2-capable context on a host the operator
+    pinned to TLSv1.3: it undoes their hardening, and putting TLS 1.2 back into
+    the ClientHello changes the JA3/JA4 fingerprint enough for Cloudflare Bot
+    Fight Mode to answer every probe with 403 `cf-mitigated: challenge`, so a
+    monitor on a Cloudflare-fronted host reads as permanently down. Measured on
+    a live host, 6/6 both directions.
+
+    Whether that config reaches the context depends on the interpreter, so do
+    not read a passing `minimum_version` here as proof the guard is dead code:
+    on this dev box (CPython 3.14, OpenSSL 3.6) CPython sets its own TLS 1.2
+    minimum on every SSLContext after creation, which clobbers `MinProtocol`
+    before we run — `MaxProtocol` from the same config section still lands. The
+    guard costs nothing where the floor is already 1.2, and is the whole
+    difference where it is not.
+
+    Every outbound and listening context we build goes through here;
+    tests/test_ssl_floor_ratchet.py fails the build on a bare assignment.
+    """
+    import ssl
+    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 def _get_ssl_context():
     """Return a strict SSL context for outgoing HTTPS requests."""
     import ssl
@@ -27006,19 +27037,7 @@ def _get_ssl_context():
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
     # v4.1.0: never negotiate obsolete TLS 1.0/1.1 on outbound HTTPS.
-    #
-    # RAISE the floor, never lower it. A bare assignment overrides a stricter
-    # system policy: OpenSSL's `MinProtocol` in openssl.cnf is honoured by
-    # create_default_context(), so on a host pinned to TLSv1.3 this handed back
-    # a TLS 1.2-capable context — a silent downgrade of the operator's own
-    # hardening. It also changed the ClientHello enough to alter the JA3/JA4
-    # fingerprint: Cloudflare Bot Fight Mode answered the resulting handshake
-    # with 403 `cf-mitigated: challenge`, so every monitor pointed at a
-    # Cloudflare-fronted host read as permanently down, while curl and plain
-    # urllib to the same URL returned 200. Measured 6/6 both directions.
-    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    return ctx
+    return _raise_tls_floor(ctx)
 
 
 # v3.10.0: defense-in-depth secret scrubber for GET /api/config. The handler

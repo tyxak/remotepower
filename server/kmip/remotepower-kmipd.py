@@ -589,7 +589,10 @@ class ServerState:
             return None
         try:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            # Raise the floor, never lower it: an operator who pinned this host
+            # above 1.2 keeps their setting.
+            if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+                ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.verify_mode = ssl.CERT_REQUIRED
             if LEGACY_CIPHERS:
                 # Opt-in, OFF by default. Some appliances only offer legacy

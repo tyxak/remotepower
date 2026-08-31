@@ -57,9 +57,11 @@ _EXCLUDE_TAGS = 'intrusive,dos,fuzz'
 def _ssl_ctx():
     ctx = ssl.create_default_context()
     # Explicit TLS 1.2 floor (matches RemotePower's server floor). The default
-    # is already >=1.2 on modern Python, but pin it so an old interpreter or a
-    # tampered default can't silently negotiate TLS 1.0/1.1.
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    # is already >=1.2 on modern Python, but raise it so an old interpreter or
+    # a tampered default can't silently negotiate TLS 1.0/1.1. Raise only — a
+    # bare assignment would undo a host pinned above 1.2.
+    if ctx.minimum_version < ssl.TLSVersion.TLSv1_2:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     if CA_BUNDLE and os.path.exists(CA_BUNDLE):
         # Trust an internal CA IN ADDITION to the system store, never instead.
         ctx.load_verify_locations(CA_BUNDLE)
