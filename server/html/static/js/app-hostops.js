@@ -383,7 +383,7 @@ async function fmDownload(path, name) {
 // above (which round-trips one file through the request/response file-manager
 // op) — the agent streams a whole directory back in bounded chunks over its
 // own endpoint, so this starts a job then polls status instead of a single
-// request/response call. See docs/feature-buildout-scoping-internal.md #9.
+// request/response call.
 function fmArchiveCwd() {
   if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   fmArchiveDir(_fmCwd);

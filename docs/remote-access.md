@@ -21,6 +21,26 @@ connected to that host over SSH.
 - The daemon URL and shared secret are set with the `webterm_daemon_url` /
   `webterm_daemon_secret` config keys.
 
+### The host's SSH key is checked first *(v7.0.3)*
+
+Before your password is sent, RemotePower compares the SSH key the host presents
+against the key fingerprints it already has on file for that device. The agent
+reports them with every heartbeat, so on an enrolled host this needs no setup.
+
+- **The key matches.** The session opens as usual.
+- **The key does not match.** The connection is refused during the handshake,
+  before your password leaves the browser, and the terminal tells you what
+  happened. If the host was rebuilt or its keys were rotated, wait for the agent
+  to report the new key, then reconnect. If nothing about the host changed,
+  treat it as you would any other host-key warning.
+- **RemotePower has no keys for the device.** This is the case for an agentless
+  host, or an agent that has not reported since enrolling. The session opens and
+  the audit entry records it as `host_key=unverified` with the fingerprint that
+  was presented, so a later change is visible.
+
+The audit line for every session carries the outcome, which makes "which
+sessions actually reached a host we can vouch for" a question you can answer.
+
 ## Remote file manager
 
 The drawer's **Files** button (page **Files**) browses, uploads and downloads

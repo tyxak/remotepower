@@ -305,11 +305,12 @@ confirm. The server:
 5. Records `cmdb_vault_change` in the audit log with the rotated
    credential count.
 
-If a credential fails to decrypt during rotation (corrupt entry —
-shouldn't happen, but here we are), it's dropped and a
-`cmdb_vault_change_drop` entry is written so you can see what was
-lost. Your old backup still has the original ciphertext if you need
-to recover it.
+If a credential fails to decrypt during rotation (a corrupt entry — it
+shouldn't happen, but here we are), the whole rotation stops before anything is
+written. You get a 409, the vault is exactly as it was, and a
+`cmdb_vault_change_aborted` entry records which secret could not be read. That
+usually means an earlier rotation did not finish; restore the vault metadata
+from a backup before trying again.
 
 Rotation re-encrypts **every** store keyed by this passphrase — per-device
 credentials, scoped credentials, DNS provider tokens, and the KMIP CA and
@@ -439,7 +440,7 @@ Searchable from the Audit page in the UI. The actions added by v1.9.0:
 | `cmdb_vault_unlock_failed` | bad passphrase | source IP recorded |
 | `cmdb_vault_change` | rotation | `rotated_credentials=N` |
 | `cmdb_vault_change_failed` | bad old passphrase on rotate | — |
-| `cmdb_vault_change_drop` | unrecoverable cred during rotation | `device=… cred=… reason=decrypt_failed` |
+| `cmdb_vault_change_aborted` | a secret would not decrypt; rotation stopped and the vault is unchanged | `undecryptable secret; vault unchanged: …` |
 | `cmdb_credential_add` | new cred | `device=… cred=… label=…` |
 | `cmdb_credential_update` | edit | `fields=label,password,…` |
 | `cmdb_credential_delete` | delete | — |
@@ -545,9 +546,9 @@ finish. Restore the vault metadata from backup before retrying.
 (Before v7.0.0 this case was reported as `dropped=N` and the offending secrets
 were DELETED, with a 200 and a success toast — so retrying after a failed
 rotation destroyed everything it could not read. If you are on an older version,
-do not retry a rotation that reported drops.) Check `cmdb_vault_change_drop`
-audit entries to see
-which assets and which credential IDs. If you have a backup from
+do not retry a rotation that reported drops.) Check the
+`cmdb_vault_change_aborted` audit entry to see which secret stopped it. If you
+have a backup from
 before the desync, restoring just those credentials from the old
 file's `nonce`/`ct` is straightforward — the old passphrase still
 decrypts them.

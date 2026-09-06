@@ -54,6 +54,21 @@ class TestTheConnectorCountIsCurrent(unittest.TestCase):
                       'the generic probe is gone, so the "+ Custom HTTP" '
                       'phrasing in the docs no longer describes anything')
 
+    def test_internals_md_matches(self):
+        """v7.0.3: internals.md's "by the numbers" table said 44, which is the
+        number of `@_register` DECORATORS — the five *arr connectors are
+        registered in a loop and the decorator count misses them. A v7.0.3
+        sweep trusted that grep over this test's runtime derivation and
+        "corrected" three surfaces that were right; this file caught it in one
+        run. Pin the fourth surface so the same grep cannot be believed twice.
+        """
+        txt = (_ROOT / 'docs' / 'internals.md').read_text()
+        m = re.search(r'\| Homelab integration connectors \| (\d+)', txt)
+        self.assertTrue(m, 'the connectors row moved or was reworded')
+        self.assertEqual(int(m.group(1)), len(self.named),
+                         f'internals.md says {m.group(1)}; there are '
+                         f'{len(self.named)} named connectors')
+
     def test_features_md_matches(self):
         row = (_ROOT / 'docs' / 'features.md').read_text()
         m = re.search(r'\|\s*(\d+)\s+connectors \(\+ Custom HTTP\)', row)

@@ -10189,8 +10189,8 @@ async function deleteApiKey(id) {
 // v6.1.1: one-click rotation. Mints a replacement key and deactivates this
 // one; the new secret is revealed exactly once via the SAME reveal panel
 // createApiKey() uses — never emailed/auto-delivered anywhere (see
-// docs/feature-buildout-scoping-internal.md #3 for why: this stays a
-// human-triggered action on purpose, not a silent background job).
+// below): this stays a human-triggered action on purpose, not a silent
+// background job).
 async function rotateApiKey(id, name) {
   if (!await uiConfirm({ message: `Rotate '${name}'? A new key is minted and this one is deactivated immediately — update every script/integration using it.`, confirmText: 'Rotate', danger: true })) return;
   const data = await api('POST', '/apikeys/' + id + '/rotate', {});
@@ -13389,8 +13389,7 @@ function _renderAuditChainBadge(d) {
 }
 
 // v6.1.1: mint a new audit-chain HMAC generation. Every past entry keeps
-// verifying against whichever generation actually signed it (see
-// docs/feature-buildout-scoping-internal.md #3) -- this only bounds the
+// verifying against whichever generation actually signed it -- this only bounds the
 // blast radius of a leaked key going forward, nothing to back up or migrate.
 async function rotateAuditHmacKey() {
   if (!await uiConfirm('Rotate the audit-chain signing key? Past entries stay verifiable; new entries sign with the new key.')) return;

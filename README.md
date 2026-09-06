@@ -202,12 +202,13 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 - **v7.0.3 "C4useMatters"** — three failures that named the wrong cause. A
   monitor reported a host as down when a bot filter at the edge had turned the
   probe away; the probe was identifying itself as Python and putting an older
-  TLS version back on the wire. That second half was a whole class: eleven places
-  set a minimum TLS version where they meant to raise one, so a server hardened
-  to TLS 1.3 was quietly handed a context that would still speak 1.2. Eight are
-  fixed across the server, all three agents, the satellite, the scanner and the
-  key server; the two left are appliances whose firmware negotiates nothing
-  newer, each with its reason recorded.
+  TLS version back on the wire. That second half was a whole class: of eleven
+  places that pin a minimum TLS version, ten set it where they meant to raise
+  it, so a server hardened to TLS 1.3 was quietly handed a context that would
+  still speak 1.2. Eight are fixed across the server, all three agents, the
+  satellite, the scanner and the key server; the two left are appliances whose
+  firmware negotiates nothing newer, each with its reason recorded. The web
+  terminal also verifies a host's SSH key before sending your password.
 - **v7.0.2 "Prec3dentMatters"** — the autonomy loop refused everything it looked
   at, and each reason named a cause it did not have. Precedent could only come
   from an AI verdict, so a fleet whose incidents people fix scored lower than one

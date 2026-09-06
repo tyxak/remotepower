@@ -38,20 +38,20 @@ The payoff is that the whole thing is *legible*. A single engineer can hold the
 request path in their head, and a new contributor can trace a feature from the URL
 to the byte on disk without learning a framework first.
 
-By the numbers (v6.4.1):
+By the numbers (v7.0.3):
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~113,000 lines |
-| The main API module (`api.py`) | ~67,000 lines |
-| Focused sibling modules | ~80 |
-| HTTP routes (exact + templated) | ~474 exact, ~385 pattern |
-| Request handlers (`handle_*`) | ~825 |
-| Typed request-body models | ~253 |
-| Homelab integration connectors | 44 |
-| Background maintenance sweeps | ~64 |
-| Frontend JS files (no bundler) | 44 |
-| Test methods across 445 files | ~8,900 |
+| Server Python (`server/cgi-bin/`) | ~132,000 lines |
+| The main API module (`api.py`) | ~74,000 lines |
+| Focused sibling modules | ~91 |
+| HTTP routes (exact + templated) | ~501 exact, ~428 pattern |
+| Request handlers (`handle_*`) | ~857 |
+| Typed request-body models | ~259 |
+| Homelab integration connectors | 48 (+ a generic HTTP probe) |
+| Background maintenance sweeps | ~73 |
+| Frontend JS files (no bundler) | 47 |
+| Test methods across ~750 files | ~13,200 |
 
 ---
 
@@ -245,8 +245,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~11,500 lines), one main `app.js` (~30,400
-lines), and ~44 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~11,900 lines), one main `app.js` (~31,500
+lines), and ~46 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 

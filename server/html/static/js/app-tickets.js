@@ -170,7 +170,7 @@ async function loadTickets() {
   loadPortalTicketQueue();
 }
 
-// ── docs/master-improvement-scoping-internal.md #84: portal-ticket approval
+// ── Portal-ticket approval
 // queue. Admin-only endpoint; a non-admin GET just 403s silently here (the
 // card stays hidden), same "don't render a control the caller can't use"
 // posture as other admin-only cards on this page.
