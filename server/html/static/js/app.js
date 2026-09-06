@@ -22593,6 +22593,16 @@ async function loadDashboardSettings() {
   renderBackupMonitors(cfg.backup_monitors || []);
   { const e = document.getElementById('cfg-backup-anomaly-pct'); if (e) e.value = cfg.backup_size_anomaly_pct || 0; }  // W3-42
   renderProcessWatches(cfg.process_watches || []);
+
+  // v7.0.3: log ignore patterns. This used to be bolted on nine thousand lines
+  // below by reassigning this function over itself — a wrapper that captured
+  // the original and replaced the global. It worked, because the dispatcher
+  // resolves `window[name]` at click time, but it worked by luck: anything
+  // that took a reference to this function before that line ran would have
+  // silently skipped the patterns. The config is already loaded here, so the
+  // two lines belong here.
+  _logIgnorePatterns = cfg.log_ignore_patterns || [];
+  _renderLogIgnoreList();
 }
 
 // v3.2.3: channel routing matrix. The server is canonical for the kind
@@ -28337,14 +28347,12 @@ async function removeLogIgnorePattern(idx) {
   }
 }
 
-// Extend loadDashboardSettings to populate log ignore patterns
-const _origLoadDashboardSettings = loadDashboardSettings;
-loadDashboardSettings = async function() {
-  await _origLoadDashboardSettings();
-  const cfg = await api('GET', '/config') || {};
-  _logIgnorePatterns = cfg.log_ignore_patterns || [];
-  _renderLogIgnoreList();
-};
+// v7.0.3: the wrapper that used to live here — `loadDashboardSettings =
+// async function() { await _orig(); … }` — is gone. It re-fetched /config a
+// second time for two lines that the original already had the config for, and
+// reassigning a function declaration over itself is fragile in a way nothing
+// warned about until eslint's no-func-assign was run over this bundle. The two
+// lines now sit at the end of loadDashboardSettings itself.
 
 // CVE table button helper — stops propagation reliably then calls fn
 
