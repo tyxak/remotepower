@@ -105,6 +105,26 @@ def _ssl_ctx():
     return ctx
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx.
+
+    v7.0.3: `_api` sends the RemotePower API token in BOTH `X-Token` and
+    `Authorization`, and the default opener follows redirects — replaying both
+    headers to wherever the 3xx points. A trailing proxy, a vhost redirect, an
+    open redirect in the app or an https->http downgrade hop is enough, and
+    `REMOTEPOWER_VERIFY_SSL=0` turns any on-path attacker into a redirect
+    source. Every other RemotePower component that carries a credential already
+    refuses 3xx; this client was the one that did not.
+    """
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _opener():
+    return urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
+
+
 def _safe_ascii(s, limit=2048):
     """Strip non-ASCII (header-unsafe) characters and cap length."""
     if not s:
@@ -140,7 +160,7 @@ def _api(method, path, body=None, mcp_prompt=None):
     if mcp_prompt:
         req.add_header("X-MCP-Prompt", _safe_ascii(mcp_prompt, 2048))
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_ctx()) as resp:
+        with _opener().open(req, timeout=HTTP_TIMEOUT) as resp:
             raw = resp.read()
             if not raw:
                 return None

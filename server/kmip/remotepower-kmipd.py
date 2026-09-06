@@ -503,6 +503,19 @@ _ATTR_NAME_LIST = ('Unique Identifier', 'Object Type', 'State', 'Name',
 
 
 # ── loopback API client ──────────────────────────────────────────────────────
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx. This client sends the daemon's shared secret, so a redirect
+    must never replay it anywhere else. The base URL is a fixed loopback address
+    enforced at start, which makes this defence in depth rather than a live
+    hole — but it is one line, and every other credential-bearing client in the
+    product already refuses 3xx."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class ApiClient:
     """All state lives behind these three endpoints in api.py."""
 
@@ -517,7 +530,7 @@ class ApiClient:
         # nosec B310 — SERVER_URL is a fixed loopback base from the systemd
         # unit (http://127.0.0.1:8090), never attacker-influenced; the path is
         # a literal. No file:/ or custom scheme can reach here.
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at import; fixed loopback base from the unit
+        with _OPENER.open(req, timeout=timeout) as r:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at import; fixed loopback base from the unit
             return json.loads(r.read().decode() or '{}')
 
     def state(self):

@@ -20153,11 +20153,61 @@ def handle_webterm_session_audit():
     bytes_out   = int(body.get('bytes_out', 0))  if isinstance(body.get('bytes_out'), int) else 0
     reason      = _sanitize_str(body.get('reason', ''), 128)
     session_id  = _sanitize_str(body.get('session_id', ''), 64)
+    # v7.0.3: whether the SSH host key matched what RemotePower has on file.
+    # A session that connected to a host nothing vouches for is a different
+    # event from one that did, and the audit trail is where that belongs.
+    hk_state    = _sanitize_str(body.get('host_key_state', ''), 16)
+    hk_fp       = _sanitize_str(body.get('host_key_fp', ''), 80)
     detail = (f'device={dev_id} ssh_user={ssh_user}@{ssh_host} '
               f'duration={duration_s}s bytes_in={bytes_in} bytes_out={bytes_out} '
-              f'reason={reason} session_id={session_id}')
+              f'reason={reason} session_id={session_id}'
+              + (f' host_key={hk_state}' if hk_state else '')
+              + (f' fp={hk_fp}' if hk_fp else ''))
     audit_log(actor, 'webterm_session', detail[:600])
     respond(200, {'ok': True})
+
+
+def handle_webterm_hostkeys():
+    """``GET /api/webterm/hostkeys?device_id=…`` — the host-key fingerprints
+    RemotePower has on file for a device.
+
+    v7.0.3 (SECURITY). The web terminal connected with host-key checking off
+    while sending the operator's SSH password, so anything able to answer on
+    that address and port — an ARP or DHCP spoof on the management segment, a
+    stale DNS record, a re-provisioned IP — received the password on the first
+    connect, because password authentication happens after an unverified key
+    exchange. There was no setting to turn checking on.
+
+    The trust anchor already existed and nothing used it: the agent reports
+    `sysinfo.ssh_hostkeys` as `{keytype: 'SHA256:…'}`, `safe_si` persists it,
+    and the product fires `hostkey_changed` when it moves. The daemon takes its
+    connection parameters from the browser, not from here, so it needs a way to
+    ask what this device's keys should be. This is it.
+
+    Authenticated with the daemon shared secret, like the audit endpoint. It
+    returns fingerprints, which are public by nature, for one device at a time.
+    """
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _config_ro() or {}
+    expected = cfg.get('webterm_daemon_secret', '')
+    provided = _env('HTTP_X_WEBTERM_SECRET', '')
+    if not expected or not provided or not hmac.compare_digest(expected, provided):
+        respond(403, {'error': 'Daemon secret mismatch'})
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    dev_id = _sanitize_str((qs.get('device_id') or [''])[0], 64)
+    if not dev_id:
+        respond(400, {'error': 'device_id required'})
+    dev = (_load_ro(DEVICES_FILE) or {}).get(dev_id) or {}
+    keys = ((dev.get('sysinfo') or {}).get('ssh_hostkeys') or {})
+    fingerprints = sorted({str(v) for v in keys.values()
+                           if isinstance(v, str) and v.startswith('SHA256:')})
+    # `known` says whether RemotePower has an opinion at all. An empty list and
+    # "we have never seen this host" are different answers, and the daemon has
+    # to tell them apart to decide between refusing and warning.
+    respond(200, {'ok': True, 'device_id': dev_id,
+                  'known': bool(fingerprints),
+                  'fingerprints': fingerprints})
 
 
 def _apply_enrol_rules(hostname, ip, group, tags):
@@ -70283,6 +70333,7 @@ def _build_exact_routes():
         ('DELETE', '/api/webhook/dlq'): handle_webhook_dlq_clear,
         ('POST', '/api/webhook/replay'): handle_webhook_replay,
         ('POST', '/api/webterm/audit'): handle_webterm_session_audit,
+        ('GET', '/api/webterm/hostkeys'): handle_webterm_hostkeys,
         ('POST', '/api/webterm/auth'): handle_webterm_auth,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,

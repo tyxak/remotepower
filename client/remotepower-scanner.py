@@ -71,8 +71,14 @@ def _ssl_ctx():
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Refuse 3xx: _api posts the satellite TOKEN, so a redirect (open-redirect,
     misconfig, or an https→http downgrade hop) must never replay it to another
-    host. Every other RemotePower component that carries a credential does this
-    (the agent's _OPENER, the relay satellite); the scanner was the lone outlier."""
+    host. The agent's _OPENER and the relay satellite do the same.
+
+    v7.0.3: this used to say "every other RemotePower component that carries a
+    credential does this ... the scanner was the lone outlier". It was not — the
+    MCP client still followed redirects while sending an admin API token in two
+    headers, and a comment claiming a class is closed is how the next one gets
+    missed. tests/test_v703_credential_clients_no_redirect.py enumerates them
+    now instead of asserting it in prose."""
     def redirect_request(self, *a, **k):
         return None
 

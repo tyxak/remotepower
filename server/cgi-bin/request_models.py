@@ -862,11 +862,15 @@ if _AVAILABLE:
         bytes_out: int = 0
         device_id: str = ''
         duration_s: int = 0
+        # v7.0.3: what host-key validation concluded — 'verified', 'unverified'
+        # or 'mismatch' — and which fingerprint was presented.
+        host_key_fp: str = ''
+        host_key_state: str = ''
         reason: str = ''
         session_id: str = ''
         ssh_host: str = ''
         ssh_user: str = ''
-        _v0 = field_validator('actor', 'device_id', 'reason', 'session_id', 'ssh_host', 'ssh_user', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('actor', 'device_id', 'host_key_fp', 'host_key_state', 'reason', 'session_id', 'ssh_host', 'ssh_user', mode='before')(_coerce_str_loose)
         _v1 = field_validator('bytes_in', 'bytes_out', 'duration_s', mode='before')(_coerce_int_or(0))
 
     class EnrollRegisterRequest(BaseModel):

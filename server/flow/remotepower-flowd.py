@@ -60,6 +60,22 @@ if not SERVER_URL.startswith(('http://', 'https://')):
     raise SystemExit(
         f'{_ENVVAR} must be an http(s) URL, got {SERVER_URL!r} — refusing to '
         'start rather than hand a non-HTTP scheme to urlopen()')
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx.
+
+    v7.0.3: the ingest token rides in the URL PATH here rather than a header,
+    so a redirect does not replay a credential — but it would send the ingest
+    payload to whatever the 3xx names, and the base URL comes from a systemd
+    Environment= value. Every other outbound client in the product refuses
+    redirects; the rule is only worth what its enumeration covers.
+    """
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
 BIND = os.environ.get('RP_FLOW_BIND', '0.0.0.0:2055')
 
 MAP_TTL_S = 30
@@ -252,7 +268,7 @@ def _post(token, agg):
                                  method='POST')
     try:
         # nosec B310 — fixed loopback base from the unit; literal path.
-        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at import; fixed loopback base from the unit
+        with _OPENER.open(req, timeout=10) as r:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at import; fixed loopback base from the unit
             r.read()
         return True
     except Exception as e:

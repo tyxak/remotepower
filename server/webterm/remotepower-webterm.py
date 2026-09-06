@@ -406,6 +406,46 @@ class SessionRecorder:
 # ─── Session metadata reporting ──────────────────────────────────────────────
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx. This client sends the daemon's shared secret, so a redirect
+    must never replay it anywhere else. The base URL is a fixed loopback address
+    enforced at start, which makes this defence in depth rather than a live
+    hole — but it is one line, and every other credential-bearing client in the
+    product already refuses 3xx."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def fetch_host_keys(api_base: str, secret: str, device_id: str) -> set:
+    """SSH host-key fingerprints RemotePower has on file for a device.
+
+    v7.0.3. Returns an empty set when nothing is known — an agentless host, an
+    agent that has not reported yet, or an API that could not be reached. The
+    caller treats "nothing known" as unverified rather than as permission, and
+    says so in the session audit.
+    """
+    if not device_id or device_id == '?':
+        return set()
+    try:
+        url = (f"{api_base.rstrip('/')}/webterm/hostkeys"
+               f"?device_id={urllib.parse.quote(str(device_id), safe='')}")
+        req = urllib.request.Request(url, method='GET')
+        req.add_header('X-Webterm-Secret', secret)
+        # nosec B310 — api_base's http(s) scheme is enforced in main() before
+        # the daemon starts; the path is a literal and the id is URL-quoted.
+        with _OPENER.open(req, timeout=5) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at start; fixed loopback base from the unit
+            data = json.loads(resp.read(65536) or b'{}')
+        return {f for f in (data.get('fingerprints') or [])
+                if isinstance(f, str) and f.startswith('SHA256:')}
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError,
+            ValueError) as e:
+        log.warning("host-key lookup failed for device=%s: %s", device_id, e)
+        return set()
+
+
 def post_audit(api_base: str, secret: str, payload: dict):
     """Best-effort POST to /api/webterm/audit. Synchronous (called at session end)."""
     try:
@@ -416,7 +456,7 @@ def post_audit(api_base: str, secret: str, payload: dict):
         req.add_header('X-Webterm-Secret', secret)
         # nosec B310 — api_base's http(s) scheme is enforced in main() before
         # the daemon starts; the path appended here is a literal.
-        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at start; fixed loopback base from the unit
+        with _OPENER.open(req, timeout=5) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced at start; fixed loopback base from the unit
             resp.read()
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
         # Audit log delivery isn't critical-path. Log and move on.
@@ -472,6 +512,18 @@ class WebtermSession:
         self.started = time.time()
         self.recorder = None
         self.reason = 'unknown'
+        # v7.0.3: what happened at key exchange — 'verified', 'unverified'
+        # (nothing on file for this device) or 'mismatch'. It goes into the
+        # session audit line, so an operator can see which sessions were
+        # actually authenticated to a known host.
+        self.host_key_state = 'unknown'
+        self.host_key_fp = ''
+
+    async def _expected_host_keys(self):
+        """Host keys on file for this session's device, fetched off the loop."""
+        return await asyncio.get_running_loop().run_in_executor(
+            None, fetch_host_keys, self.args.api_base, self.args.secret,
+            self.device_id)
 
     async def _send_json(self, ws, obj):
         try:
@@ -505,6 +557,8 @@ class WebtermSession:
                 'duration_s': duration,
                 'bytes_in':   self.bytes_in,
                 'bytes_out':  self.bytes_out,
+                'host_key_state': self.host_key_state,
+                'host_key_fp':    self.host_key_fp,
                 'reason':     self.reason,
             })
 
@@ -571,16 +625,74 @@ class WebtermSession:
 
         await self._send_json(websocket, {'type': 'connecting'})
 
-        # Step 3: SSH connect. We disable host-key checking —
-        # the user typed in this hostname; they know what they're connecting
-        # to. Adding strict host key checking would mean a known_hosts
-        # file the daemon manages and re-prompting on first connect, which
-        # is more security theatre than security in this flow. The user is
-        # already authenticated to RemotePower as admin and explicitly
-        # authorised this connection.
-        log.info("session %s connecting: actor=%s device=%s ssh=%s@%s:%d",
+        # Step 3: SSH connect, against the host keys RemotePower has on file.
+        #
+        # v7.0.3 (SECURITY). This used to pass `known_hosts=None` — asyncssh's
+        # "accept any host key" — and then authenticate with the operator's SSH
+        # password. Password auth happens AFTER the key exchange, so anything
+        # able to answer on that address received the password on the first
+        # connect: an ARP or DHCP spoof on the management segment, a stale DNS
+        # record, a re-provisioned IP, a compromised jump host. There was no
+        # setting to turn checking on.
+        #
+        # The comment that stood here argued the user "typed in this hostname;
+        # they know what they're connecting to" — which is the thing host keys
+        # exist to refute, since knowing the intended destination is not knowing
+        # you reached it — and that a daemon-managed known_hosts file would be
+        # theatre. It would not have been needed: the agent already reports
+        # `sysinfo.ssh_hostkeys` for every host, the server persists it, and the
+        # product fires `hostkey_changed` when it moves. The anchor was there
+        # and nothing consulted it.
+        #
+        # `validate_host_public_key` runs during key exchange, before any
+        # authentication. asyncssh only consults it when its trusted-key set is
+        # not None, and `known_hosts=None` sets that set to None — so the first
+        # version of this fix installed a callback the library never called, a
+        # guard that could not fire. Passing an EMPTY trusted set instead
+        # (`([], [], [])`: no trusted keys, no CA keys, no revoked keys) leaves
+        # the decision entirely to the callback. Measured against a real
+        # asyncssh server on loopback: with None the callback runs zero times,
+        # with the empty tuple it runs and a mismatch raises
+        # HostKeyNotVerifiable with no authentication attempt reaching the
+        # server.
+        expected = await self._expected_host_keys()
+        log.info("session %s connecting: actor=%s device=%s ssh=%s@%s:%d "
+                 "known_host_keys=%d",
                  self.session_id, self.actor, self.device_id,
-                 self.ssh_user, self.ssh_host, ssh_port)
+                 self.ssh_user, self.ssh_host, ssh_port, len(expected))
+
+        session = self
+
+        class _PinnedHostKey(asyncssh.SSHClient):
+            """Accept only a key RemotePower has already inventoried."""
+
+            def validate_host_public_key(self, host, addr, port, key):
+                fp = key.get_fingerprint()
+                if not expected:
+                    # Nothing on file — an agentless host, or an agent that has
+                    # not reported yet. Record what was presented so the first
+                    # session establishes the baseline, and say so in the audit
+                    # rather than pretending it was verified.
+                    session.host_key_state = 'unverified'
+                    session.host_key_fp = fp
+                    log.warning(
+                        "session %s: no host keys on file for device=%s — "
+                        "connecting UNVERIFIED, presented %s",
+                        session.session_id, session.device_id, fp)
+                    return True
+                if fp in expected:
+                    session.host_key_state = 'verified'
+                    session.host_key_fp = fp
+                    return True
+                session.host_key_state = 'mismatch'
+                session.host_key_fp = fp
+                log.error(
+                    "session %s: HOST KEY MISMATCH for device=%s host=%s — "
+                    "presented %s, expected one of %s",
+                    session.session_id, session.device_id, session.ssh_host,
+                    fp, ', '.join(sorted(expected)))
+                return False
+
         try:
             ssh_conn = await asyncio.wait_for(
                 asyncssh.connect(
@@ -588,11 +700,26 @@ class WebtermSession:
                     port=ssh_port,
                     username=self.ssh_user,
                     password=creds['password'],
-                    known_hosts=None,    # see comment above
+                    # An EMPTY trusted set, not None — see above. None
+                    # disables validation entirely and the callback below
+                    # would never run.
+                    known_hosts=([], [], []),
+                    client_factory=_PinnedHostKey,
                     keepalive_interval=SSH_KEEPALIVE_INTERVAL,
                 ),
                 timeout=SSH_CONNECT_TIMEOUT,
             )
+        except asyncssh.HostKeyNotVerifiable:
+            self.reason = 'host key mismatch'
+            await self._send_json(websocket, {
+                'type': 'error',
+                'message': (
+                    'The host presented an SSH key RemotePower has not seen '
+                    'for this device, so the connection was refused before '
+                    'your password was sent. If the host was rebuilt or its '
+                    'keys were rotated, wait for the agent to report the new '
+                    'key, then reconnect.')})
+            return
         except asyncio.TimeoutError:
             self.reason = 'ssh connect timeout'
             await self._send_json(websocket, {'type': 'error',
