@@ -51,6 +51,22 @@ if _SEEDER.exists():
 else:
     _SEED_ERR = 'seeder excluded from dist tree'
 
+# The seeded dir has to be the ambient RP_DATA_DIR for api.py's import, which
+# fixes every module-level *_FILE path. It must NOT still be ambient afterwards.
+#
+# v7.0.3: 431 test modules pin their own dir with `setdefault`, so whichever
+# module assigned RP_DATA_DIR last hands its directory to every module imported
+# after it — and pytest/unittest import every module before running anything.
+# This module's directory is a SEEDED FIXTURE, and the files in it are what the
+# assertions below read back, so a later module writing a device or a config
+# into it rewrites the fixture mid-run. The symptom was
+# `test_every_reported_custom_check_result_names_a_defined_check` finding zero
+# reported results in some selections and all of them in others.
+#
+# Restore the previous value the moment api.py is loaded — the same pop-use-put
+# discipline this file already applies to RP_STORAGE_BACKEND, and for the same
+# reason.
+_PRIOR_DATA_DIR = os.environ.get('RP_DATA_DIR')
 os.environ['RP_DATA_DIR'] = _SEED_DIR
 sys.path.insert(0, str(_CGI))
 
@@ -93,6 +109,13 @@ if _SEED_ERR is None:
 
 if _PRIOR_BACKEND is not None:
     os.environ['RP_STORAGE_BACKEND'] = _PRIOR_BACKEND
+
+# api.py has captured its paths; hand the environment back so no module imported
+# after this one writes into the seeded fixture.
+if _PRIOR_DATA_DIR is None:
+    os.environ.pop('RP_DATA_DIR', None)
+else:
+    os.environ['RP_DATA_DIR'] = _PRIOR_DATA_DIR
 
 
 def _seeder_module():

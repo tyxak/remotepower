@@ -5547,6 +5547,11 @@ def _provision_or_promote_user(username, role, metadata, source):
        can be promoted by a real superadmin in one click — whereas the reverse
        mistake is invisible until it is a breach. Setting `sso_default_tenant`
        (to `default` if that is what you want) restores the full role.
+
+    The same question is asked again, separately, for an account that already
+    exists — see the promote branch. The two cannot share one test: this one is
+    about where a NEW user would land, and that one is about where an existing
+    user already is. Reading `sso_default_tenant` answers only the first.
     """
     # Audit AFTER the lock is released — audit_log takes its own
     # AUDIT_LOG_FILE lock, and nesting locks (or SQLite transactions)
@@ -5584,7 +5589,29 @@ def _provision_or_promote_user(username, role, metadata, source):
             # v5.4.1 (D5): promote a viewer up to whatever role their groups now
             # map to (admin OR a custom/auditor/finance role); also keep the legacy
             # promote-to-admin for any non-admin existing user. Never demotes.
+            #
+            # v7.0.3 (SECURITY): the fail-closed check above is computed from
+            # _sso_provision_tenant() -- the tenant a NEW user would be created
+            # in. This branch acts on an EXISTING account, whose own tenant may
+            # be the default whatever `sso_default_tenant` says. So setting that
+            # option to a real tenant made the guard evaluate a tenant nobody
+            # here belongs to, it never fired, and an existing default-tenant
+            # viewer promoted to `admin` -- which is exactly the definition of
+            # a cross-tenant platform superadmin. A record with no `tenant_id`
+            # at all (the ordinary pre-tenancy shape) resolves to the default
+            # too, so it did not even need an explicit one.
+            #
+            # Ask the question about the account being promoted, not about
+            # where a hypothetical new one would land. `sso_default_tenant` is
+            # not part of this condition: it says where NEW users go and says
+            # nothing about an account that already exists.
             cur = user.get('role')
+            _u_tenant = user.get('tenant_id') or DEFAULT_TENANT
+            if _u_tenant not in _load_tenants():
+                _u_tenant = DEFAULT_TENANT
+            if (role == 'admin' and _u_tenant == DEFAULT_TENANT
+                    and bool(_cfg.get('tenancy_enforced'))):
+                role, _demoted = 'viewer', True
             if role and role != 'viewer' and cur in (None, '', 'viewer'):
                 user['role'] = role
                 users[username] = user
@@ -5593,6 +5620,16 @@ def _provision_or_promote_user(username, role, metadata, source):
                 user['role'] = 'admin'
                 users[username] = user
                 pending_audit = (f'{source}_role_promoted', 'matched admin group')
+            elif _demoted and cur in (None, '', 'viewer'):
+                # Nothing changed, but the operator needs to know an IdP group
+                # asked for admin and was refused -- silence here reads as "the
+                # mapping is not working".
+                pending_audit = (
+                    f'{source}_role_promotion_refused',
+                    'IdP group maps to admin, but this account is in the '
+                    'default tenant and tenancy is enforced, so admin here '
+                    'would be a cross-tenant platform superadmin. Move the '
+                    'account into a tenant, or promote it by hand.')
             result = dict(users[username])
     if pending_audit:
         audit_log(username, pending_audit[0], pending_audit[1])
@@ -17232,6 +17269,22 @@ def _tenant_visible(dev):
     gate = _tenant_gate()
     return gate is None or _device_tenant(dev) == gate
 
+
+def cve_ignore_applies(entry, dev_id, dev=None):
+    """Tenant-aware wrapper over `checks.cve_ignore_applies`.
+
+    Resolves the device's tenant and delegates. `dev` is the device RECORD when
+    the caller already has it, which every fleet sweep does; the fallback reads
+    the SHARED cached store (`_load_ro`, no deepcopy) so this stays a dict
+    lookup even when called once per finding.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if not entry.get('tenant'):
+        return checks_mod.cve_ignore_applies(entry, dev_id)
+    if dev is None:
+        dev = (_load_ro(DEVICES_FILE) or {}).get(dev_id) or {}
+    return checks_mod.cve_ignore_applies(entry, dev_id, _device_tenant(dev))
 
 def _user_tenant_visible(username):
     """Whether the caller may SEE or MANAGE this account under tenancy.
@@ -44910,9 +44963,22 @@ def handle_runbook_generate(dev_id):
     # Prepend project + fleet context if the operator has it enabled.
     # Runbook quality benefits a lot from fleet awareness ("this is
     # one of N webservers" rather than "this is a Linux box").
+    #
+    # v7.0.3 (SECURITY): the fleet list goes through _scope_filter_devices,
+    # which folds in BOTH role scope and tenant isolation. It used to be the raw
+    # store. There are exactly two callers of build_combined_system_prompt and
+    # the other one — handle_ai_chat — has scoped its fleet since v3.13.0 for
+    # this reason, so the rule was written and applied in one of the two places.
+    # `_enforce_device_scope` vets the device in the PATH before dispatch, which
+    # is why the per-device snapshot above can use the raw store; it says
+    # nothing about the fleet roster attached alongside it, and that roster is
+    # sent to whatever model provider is configured, which may be a third
+    # party. A tenant admin generating a runbook for their own host was naming
+    # every other tenant's hosts and their online state in the prompt.
     base_system = _resolve_system_prompt('generate_runbook')
     ctx_opts = cfg.get('context') or {}
-    fleet = list(devices.values()) if isinstance(devices, dict) else (devices or [])
+    _visible = _scope_filter_devices(devices if isinstance(devices, dict) else {})
+    fleet = list(_visible.values()) if isinstance(_visible, dict) else (_visible or [])
     system_prompt = ai_context.build_combined_system_prompt(
         base_system,
         devices=fleet,
@@ -51334,7 +51400,7 @@ def handle_home():
             for f in findings:
                 vid = f.get('vuln_id')
                 ig = ignore_data.get(vid) if vid else None
-                if ig and (ig.get('scope') == 'global' or ig.get('scope') == cdev_id):
+                if cve_ignore_applies(ig, cdev_id):
                     continue
                 sev = (f.get('severity') or '').lower()
                 if sev in counts:
@@ -54883,7 +54949,7 @@ def _cve_fixable_by_device():
                 continue
             vid = f.get('vuln_id')
             ig = ignore_data.get(vid) if vid else None
-            if ig and ig.get('scope') in ('global', dev_id):
+            if cve_ignore_applies(ig, dev_id):
                 continue
             n += 1
         if n:
@@ -64145,7 +64211,7 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
         if f.get('severity') not in severity_filter:
             continue
         ig = ignore_data.get(vid)
-        if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
+        if cve_ignore_applies(ig, dev_id):
             continue
         new_alerted.append(f)
 

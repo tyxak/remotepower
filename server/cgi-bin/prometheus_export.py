@@ -71,6 +71,8 @@ Uptime tracking, user counts, and api key counts can be added later if needed.
 import math
 import time
 
+import checks   # v7.0.3: the shared accepted-risk predicate
+
 
 # ── Label escaping (per Prometheus spec) ──────────────────────────────────────
 
@@ -242,7 +244,8 @@ def generate_metrics(ctx: dict) -> str:
                 continue   # v4.4.0: skip a malformed finding, don't break the scrape
             vid = f.get('vuln_id')
             ig = ignore_data.get(vid)
-            if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
+            if checks.cve_ignore_applies(
+                    ig, dev_id, (d or {}).get('tenant') or 'default'):
                 continue
             sev = f.get('severity', 'unknown')
             counts[sev if sev in counts else 'unknown'] += 1

@@ -29,6 +29,36 @@ import time
 _SECONDS_PER_DAY = 86400
 
 
+def cve_ignore_applies(entry, dev_id, dev_tenant=None):
+    """Does an accepted-risk record suppress a CVE finding on this device?
+
+    Thirteen places carried their own copy of `scope in ('global', dev_id)`,
+    which is the whole rule when there is one tenant. Under tenancy it is not:
+    CVE_IGNORE_FILE is keyed by vulnerability id alone, so one tenant accepting
+    a CVE with scope `global` silenced it on every other tenant's hosts.
+
+    A record written from v7.0.3 on carries the tenant that created it. A
+    tenant-owned record reaches only that tenant's devices. A record with no
+    tenant is pre-upgrade, or was written on a single-tenant install, and keeps
+    the old behaviour — an upgrade must not silently un-suppress findings an
+    operator already accepted.
+
+    `dev_tenant` is the DEVICE's tenant, resolved once per device by the caller
+    rather than per finding. None means "not known here", which only matters for
+    a tenant-owned record; those are ignored in that case, which errs toward
+    showing a finding rather than hiding one.
+    """
+    if not isinstance(entry, dict):
+        return False
+    scope = entry.get("scope")
+    if scope != "global" and scope != dev_id:
+        return False
+    owner = entry.get("tenant")
+    if not owner:
+        return True
+    return dev_tenant == owner
+
+
 def drifted_files(drift_rec):
     """Paths in a DRIFT_STATE_FILE per-device record that differ from baseline.
 

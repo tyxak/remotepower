@@ -79,7 +79,7 @@ def handle_cve_realert():
             if not vid or f.get('severity') not in sev_filter:
                 continue
             ig = ignore_data.get(vid)
-            if ig and ig.get('scope') in ('global', dev_id):
+            if A.cve_ignore_applies(ig, dev_id, devices.get(dev_id)):
                 continue
             alerted.append(f)
         if not alerted:
@@ -344,7 +344,7 @@ def handle_cve_findings():
         summary = A.cve_scanner.summarize_findings(
             findings,
             {k for k, v in ignore_data.items()
-             if v.get('scope') == 'global' or v.get('scope') == dev_id}
+             if A.cve_ignore_applies(v, dev_id, dev)}
         )
         status = 'scanned'
         if not pkg_entry:
@@ -449,6 +449,27 @@ def handle_cve_device(dev_id):
     })
 
 
+def _ignore_entry_visible(entry):
+    """Can the caller see this accepted-risk record?
+
+    A record scoped to a device is visible when that device is; a `global`
+    record is visible to the tenant that wrote it, and — for records written
+    before v7.0.3, which carry no tenant — to everyone, because that is what
+    they have always meant.
+    """
+    if not isinstance(entry, dict):
+        return True
+    gate = A._tenant_gate()
+    if gate is None:
+        return True
+    scope = entry.get('scope')
+    if scope and scope != 'global':
+        dev = A.device_get(scope)
+        return dev is None or A._tenant_visible(dev)
+    owner = entry.get('tenant')
+    return not owner or owner == gate
+
+
 def handle_cve_ignore_add():
     """POST /api/cve/ignore — mark a vuln as accepted risk."""
     actor = A.require_admin_auth()
@@ -463,14 +484,34 @@ def handle_cve_ignore_add():
         A.respond(400, {'error': 'vuln_id required'})
     if scope != 'global' and not A._validate_id(scope):
         A.respond(400, {'error': 'scope must be "global" or a valid device_id'})
+    # v7.0.3 (SECURITY): `scope` names a device and was validated for SHAPE only.
+    # require_admin_auth() passes a TENANT admin, so any device id was accepted
+    # and a finding could be marked accepted risk on another tenant's host.
+    if scope != 'global':
+        A._scope_block_device(scope)
+
+    # Stamp the tenant that accepted the risk. The store is keyed by
+    # vulnerability id alone, so without this a `global` record from one tenant
+    # silenced the same CVE on every other tenant's hosts — and overwrote their
+    # record for it. `_tenant_gate()` is None for a superadmin and on every
+    # single-tenant install, where a global record stays exactly that.
+    owner = A._tenant_gate()
 
     ignore_data = A.load(A.CVE_IGNORE_FILE)
-    ignore_data[vuln_id] = {
+    entry = {
         'scope':  scope,
         'reason': reason,
         'actor':  actor,
         'ts':     int(A.time.time()),
     }
+    if owner:
+        entry['tenant'] = owner
+    prior = ignore_data.get(vuln_id)
+    if isinstance(prior, dict) and not _ignore_entry_visible(prior):
+        # Someone else's accepted risk under the same key. Refuse rather than
+        # silently replacing a record this caller cannot even see.
+        A.respond(404, {'error': 'Not found'})
+    ignore_data[vuln_id] = entry
     A.save(A.CVE_IGNORE_FILE, ignore_data)
     A.audit_log(actor, 'cve_ignore_add',
               detail=f'{vuln_id} scope={scope} reason={reason[:80]}')
@@ -484,6 +525,12 @@ def handle_cve_ignore_delete(vuln_id):
     if not vuln_id:
         A.respond(400, {'error': 'Invalid vuln_id'})
     ignore_data = A.load(A.CVE_IGNORE_FILE)
+    entry = ignore_data.get(vuln_id)
+    # v7.0.3 (SECURITY): 404 rather than 403 on another tenant's record — the
+    # same shape every other device-keyed store uses, so the response does not
+    # confirm that the record exists.
+    if isinstance(entry, dict) and not _ignore_entry_visible(entry):
+        A.respond(404, {'error': 'Not found'})
     if vuln_id in ignore_data:
         del ignore_data[vuln_id]
         A.save(A.CVE_IGNORE_FILE, ignore_data)
@@ -495,6 +542,9 @@ def handle_cve_ignore_list():
     """GET /api/cve/ignore — list all active ignores."""
     A.require_auth()
     ignore_data = A.load(A.CVE_IGNORE_FILE)
-    items = [{'vuln_id': k, **v} for k, v in ignore_data.items()]
+    # v7.0.3 (SECURITY): the rows carry a device id in `scope`, so an
+    # unfiltered list handed every caller the other tenants' host ids.
+    items = [{'vuln_id': k, **v} for k, v in ignore_data.items()
+             if _ignore_entry_visible(v)]
     items.sort(key=lambda x: -x.get('ts', 0))
     A.respond(200, {'ignores': items})

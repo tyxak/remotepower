@@ -10,6 +10,7 @@ import re
 import shutil
 import urllib.request
 
+import checks        # v7.0.3: the shared accepted-risk predicate
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
@@ -876,7 +877,12 @@ def summarize_findings(findings: list, ignore_ids: set) -> dict:
     return out
 
 
-def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str) -> list:
+def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str,
+                      dev_tenant: str = None) -> list:
+    """v7.0.3: `dev_tenant` lets a tenant-owned accepted-risk record apply only
+    to that tenant's hosts. Callers that do not pass it keep the pre-tenancy
+    behaviour for records with no tenant, which is every record written before
+    this release."""
     out = []
     for f in findings:
         # .get() — a malformed finding without a vuln_id simply can't
@@ -887,7 +893,7 @@ def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str) -> list:
         # findings often come straight from a cached load() and are reused by
         # other callers — e.g. the timeline merge).
         f = dict(f)
-        if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
+        if checks.cve_ignore_applies(ig, dev_id, dev_tenant):
             f['ignored'] = True
             f['ignore_reason'] = ig.get('reason', '')
         else:
