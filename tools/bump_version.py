@@ -10,7 +10,7 @@ Edits, in place (or just prints with --dry-run):
   2. VERSION in client/remotepower-agent.py (+ syncs the extensionless copy)
   3. VERSION in client/remotepower-agent-win.py / -mac.py
   4. CACHE_NAME in server/html/sw.js
-  5. every ?v=<old> cache-bust in server/html/index.html
+  5. every ?v=<old> cache-bust in EVERY server/html/*.html surface
   6. the README version badge
   7. prepends a CHANGELOG.md section template
   8. creates docs/v<NEW>.md from a template
@@ -18,7 +18,7 @@ Edits, in place (or just prints with --dry-run):
 It does NOT do the judgment steps — it prints them as a checklist instead:
 new tests/test_vXYZ.py strict pins, loosening the previous release's pins,
 the in-app Docs page "What's new" cards, and the docs housekeeping rule
-(keep the 5 most recent docs/vX.Y.Z.md).
+(keep the 3 most recent docs/vX.Y.Z.md, and the last ~3 security reviews).
 
 The existing guardrail (test_vXYZ.TestVersionBumps) still verifies the
 result — this script removes the typo-prone editing, not the review.
@@ -81,8 +81,21 @@ def main():
     _sub_file(ROOT / 'server' / 'html' / 'sw.js',
               rf"remotepower-shell-v{re.escape(old)}",
               f"remotepower-shell-v{new}", dry=dry)
-    _sub_file(ROOT / 'server' / 'html' / 'index.html',
-              rf"\?v={re.escape(old)}", f"?v={new}", expect_min=5, dry=dry)
+    # v7.0.3: index.html only, for years. `test_ui_wiring.TestCacheBustLockstep`
+    # was widened in v6.4.2 to every HTML surface that loads a local asset —
+    # status.html, report.html, portal.html, fleet-query.html, swagger.html —
+    # and this script was not, so every bump left five pages stamped with the
+    # previous version and the gate failed on the release commit. Derive the
+    # population from the directory rather than listing it here, which is what
+    # let the list fall behind in the first place.
+    html_dir = ROOT / 'server' / 'html'
+    stamped = [f for f in sorted(html_dir.glob('*.html'))
+               if f'?v={old}' in f.read_text()]
+    if not stamped:
+        sys.exit(f'no HTML surface carries ?v={old} — has the stamp format '
+                 f'changed? refusing to bump a cache-bust nothing matches')
+    for page in stamped:
+        _sub_file(page, rf"\?v={re.escape(old)}", f"?v={new}", dry=dry)
     _sub_file(ROOT / 'README.md',
               rf"badge/version-{re.escape(old)}-",
               f"badge/version-{new}-", dry=dry)
@@ -115,7 +128,9 @@ Mechanical edits done. STILL MANUAL (judgment steps):
   [ ] loosen the previous release's strict pins to regex
   [ ] fill in CHANGELOG.md + docs/v{new}.md templates (codename, content)
   [ ] in-app Docs page "What's new" card (server/html/index.html ~Documentation)
-  [ ] docs housekeeping: keep only the 5 most recent docs/vX.Y.Z.md
+  [ ] docs housekeeping: keep only the 3 most recent docs/vX.Y.Z.md
+      (and the last ~3 docs/security-review-*.md; trim docs/README.md
+       and the in-app What's-new cards in the same commit)
   [ ] run: make check   (the TestVersionBumps guardrail verifies this script's work)
 """)
 

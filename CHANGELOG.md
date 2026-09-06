@@ -2,6 +2,33 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.0.3 — "C4useMatters" — unreleased (test)
+
+A release about failures that named the wrong cause. A monitor reported a host
+as down when a bot filter had turned the probe away; a TLS setting described in
+its own comment as a floor was lowering one; and a test helper written to stop
+digest tests interfering with each other could not see six of the stores the
+digest reads.
+
+- **Monitors no longer read a bot challenge as "host down".** A monitor pointed
+  at a site behind a bot filter reported a failure forever while the same URL
+  loaded fine in a browser. Two separate causes, both in how RemotePower makes
+  the request: it identified itself with the Python default rather than its own
+  name, and it was putting an older TLS version back on the wire. Probes send
+  `RemotePower/<version>` now, and raise the TLS floor rather than setting it.
+
+- **A TLS floor is raised, never set.** Ten places assigned a minimum TLS
+  version instead of raising it, so on a server hardened to TLS 1.3 the setting
+  quietly undid the hardening. Eight are fixed — both server contexts, all three
+  agents, the satellite, the scanner and the key server. Two stay as they are,
+  each with its reason recorded: an appliance whose firmware negotiates nothing
+  newer, and one more of the same kind.
+
+- **Needs-Attention tests could be contaminated by their neighbours.** The
+  helper that isolates the digest's inputs derived its list from one function
+  body, and the digest reaches six more stores through helpers it calls. It
+  walks the call graph now.
+
 ## v7.0.2 — "Prec3dentMatters" — 2026-08-23
 
 ### The autonomy loop refused everything, and here is why

@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.0.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.0.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,15 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.0.3 "C4useMatters"** — three failures that named the wrong cause. A
+  monitor reported a host as down when a bot filter at the edge had turned the
+  probe away; the probe was identifying itself as Python and putting an older
+  TLS version back on the wire. That second half was a whole class: eleven places
+  set a minimum TLS version where they meant to raise one, so a server hardened
+  to TLS 1.3 was quietly handed a context that would still speak 1.2. Eight are
+  fixed across the server, all three agents, the satellite, the scanner and the
+  key server; the two left are appliances whose firmware negotiates nothing
+  newer, each with its reason recorded.
 - **v7.0.2 "Prec3dentMatters"** — the autonomy loop refused everything it looked
   at, and each reason named a cause it did not have. Precedent could only come
   from an AI verdict, so a fleet whose incidents people fix scored lower than one
@@ -241,13 +250,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   endpoint posture feed the risk score. Security hardening became opt-in under
   Settings → Security: the advisory checks that flag things plenty of fleets
   choose on purpose stay quiet until you turn them on.
-- **v6.4.1 "Cust0dyMatters"** — a built-in KMIP key server, so a Synology NAS,
-  TrueNAS box or vSphere cluster stops keeping its encryption keys on the same
-  hardware as the encrypted data. Off by default, a separate sandboxed sidecar,
-  mutual TLS only, with an encrypted recovery bundle. Plus installer flags for
-  the optional syslog and flow receivers, an INGEST & KEYS view in `rp status`
-  and `rp tui`, and two monitor fixes: an actionable rejection message, and one
-  stale monitor no longer blocking every other monitor edit.
 
 ## Security
 
