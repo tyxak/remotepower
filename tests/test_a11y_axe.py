@@ -83,6 +83,38 @@ _SERIOUS_IMPACTS = ('critical', 'serious')
 _AXE_OPTIONS = {}
 
 
+# v7.0.3: settle the page before measuring it.
+#
+# The dashboard fades its cards in. axe samples computed styles at one instant,
+# and a text node caught mid-fade composites its colour against the background:
+# `--muted` (#7f8b98, 4.66:1 on --surface2, which passes) was reported as
+# #7b8693 at 4.38:1, which fails. The count moved between runs — twenty nodes
+# on one, one on the next — which is the signature of a race rather than a
+# palette. Driving the same element a moment later showed opacity 1 and the
+# real colour.
+#
+# So stop every animation and transition before running axe. What an operator
+# reads is the settled page; a gate that sometimes fails on a frame nobody sees
+# is a gate that gets switched off, and takes its real findings with it.
+_SETTLE_CSS = """
+  *, *::before, *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+"""
+
+
+def _settle(page):
+    """Freeze animations, then wait for anything already running to finish."""
+    page.add_style_tag(content=_SETTLE_CSS)
+    page.evaluate("""() => {
+      if (!document.getAnimations) return;
+      document.getAnimations().forEach(a => { try { a.finish(); } catch (e) {} });
+    }""")
+
+
 def _run_axe(page, axe, options=None):
     """axe_core_python 0.1.0's Axe.run() str()-formats the options dict for
     the injected JS call, which emits Python's `False`/`True`/`None` instead
@@ -90,6 +122,7 @@ def _run_axe(page, axe, options=None):
     a boolean (i.e. every realistic one, including ours). Reuses the
     package's vendored axe.min.js (no need to vendor our own copy) but does
     the injection + evaluate ourselves with json.dumps, which IS valid JS."""
+    _settle(page)
     page.evaluate(axe.axe_script)
     return page.evaluate(
         "axe.run(%s).then(r => r)" % json.dumps(options or {}))

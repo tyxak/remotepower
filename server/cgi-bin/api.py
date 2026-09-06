@@ -25336,6 +25336,35 @@ def _monitor_json_path(doc, path):
     return True, cur
 
 
+def _edge_refusal_detail(code, headers):
+    """Name the thing that refused a monitor probe, when it says so.
+
+    v7.0.3. A monitor behind a bot filter reported `403` and nothing else, so it
+    read exactly like a host that was down — the operator went looking at an
+    origin whose access log had nothing in it, because the request never got
+    there. The response says who refused it: Cloudflare sets `cf-mitigated` on
+    a challenge, and identifies itself in `server` either way.
+
+    Only claims an edge refusal when a header actually says so. A guard that
+    cannot distinguish two causes must not name one; this returns None and lets
+    the caller print the bare status when the answer is not in the response.
+    """
+    try:
+        get = headers.get if headers is not None else (lambda *_a, **_k: None)
+    except Exception:
+        return None
+    mitigated = (get('cf-mitigated') or '').strip().lower()
+    if mitigated:
+        # 'challenge', 'block', 'captcha', … — pass the word through rather
+        # than translating it, so it matches what the edge dashboard shows.
+        return (f'{code} · refused by the edge before it reached the origin '
+                f'(cf-mitigated: {_sanitize_str(mitigated, 32)})')
+    server = (get('server') or '').strip().lower()
+    if code in (403, 503) and server == 'cloudflare':
+        return f'{code} · refused by Cloudflare, not by the origin'
+    return None
+
+
 def _run_one_monitor_check(mtype, target, label, m):
     """Run a single resolved monitor check (target already sanitised) and return
     a result dict. Shared by host-targeted and tag/group-expanded checks."""
@@ -25498,9 +25527,16 @@ def _run_one_monitor_check(mtype, target, label, m):
             ok = e.code < 400
             if ok and isinstance(want_status, int) and e.code != want_status:
                 ok = False
-            detail = str(e.code)
-        except Exception:
-            detail = 'error'
+            # v7.0.3: say who refused, when the response says so. A bare '403'
+            # reads as "the host is down" and sends the operator to an origin
+            # log that has nothing in it, because the request never arrived.
+            detail = _edge_refusal_detail(e.code, getattr(e, 'headers', None)) \
+                or str(e.code)
+        except Exception as e:
+            # 'error' named nothing at all. The exception class separates a DNS
+            # failure from a refused connection from a timeout, which is the
+            # first question an operator asks.
+            detail = f'error: {_sanitize_str(type(e).__name__, 40)}'
     elif mtype == 'http_flow':
         # W4-13: multi-step HTTP transaction — run ordered steps sharing one
         # cookie jar; a step can `extract` a regex capture into a variable for
