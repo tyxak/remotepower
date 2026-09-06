@@ -1692,7 +1692,13 @@ def handle_scoped_credentials_list() -> None:
     Admins see all; a scoped operator sees only credentials within its scope."""
     A.require_auth()
     creds = A._scoped_creds_load()['creds']
-    devices = A.load(A.DEVICES_FILE) or {}
+    # v7.0.3 (SECURITY): the credential ROWS were tenant-filtered below and the
+    # `applies_to` count was computed over the unfiltered store, so the number
+    # beside a credential told a tenant admin how many of ANOTHER tenant's hosts
+    # it would match. Small, but it is fleet size leaking through an aggregate,
+    # which is the shape this project keeps finding. `_scope_filter_devices`
+    # folds in both role scope and tenancy, and is a no-op for an unscoped admin.
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
     out = []
     for c in creds:
         if not isinstance(c, dict):

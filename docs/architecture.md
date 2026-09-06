@@ -125,7 +125,6 @@ remotepower/
 ├── .dockerignore
 ├── install-server.sh
 ├── install-client.sh              # Linux client installer
-├── install-client.ps1             # Windows client installer (also client/install-windows.ps1)
 ├── deploy-server.sh
 ├── docker/
 │   ├── nginx-docker.conf          # Nginx config for Docker
@@ -141,6 +140,7 @@ remotepower/
 │   ├── remotepower-agent          # Linux daemon, byte-identical to the .py above
 │   ├── remotepower-agent-win.py   # Windows polling daemon (Python 3)
 │   ├── remotepower-agent-mac.py   # macOS polling daemon (Python 3)
+│   ├── install-windows.ps1        # Windows client installer
 │   └── remotepower-agent.service  # systemd unit (Linux)
 ├── tests/
 │   ├── test_api.py

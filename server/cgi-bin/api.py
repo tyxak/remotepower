@@ -19310,6 +19310,14 @@ def handle_ansible_playbook_run(pb_id):
     files for the run's duration and are removed afterward."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v7.0.3 (SECURITY): a coarse gate BEFORE anything is read. The per-device
+    # `require_perm('script', ids)` below cannot run until the targets are
+    # resolved, which meant an unauthenticated caller got a 404 for a playbook
+    # id that does not exist and a 400 for one that does — an existence oracle
+    # over the playbook library — after the handler had loaded the playbook
+    # store, the device store and resolved targets. The fine-grained check
+    # stays where it is; this only says you must be someone first.
+    require_write_role('run a playbook')
     if not _ansible_available():
         respond(400, {'error': 'ansible-playbook is not installed on the server.'})
     data = _ansible_load()
@@ -40030,7 +40038,16 @@ def handle_deadman_ping(token_str):
     fired = None
     with _LockedUpdate(DEADMAN_FILE) as store:
         jobs = store.setdefault('jobs', [])
-        job = next((j for j in jobs if isinstance(j, dict) and j.get('token') == tok), None)
+        # v7.0.3: constant-time compare. The token IS the credential here, and
+        # `==` on a str short-circuits at the first differing byte. Every other
+        # token comparison in this file already uses compare_digest; this was
+        # the one that did not. The window is small and remote timing over HTTP
+        # is noisy, so this is hygiene rather than a live hole — but the cost is
+        # one function call, and a lone exception is how the rule stops being a
+        # rule.
+        job = next((j for j in jobs
+                    if isinstance(j, dict)
+                    and hmac.compare_digest(str(j.get('token') or ''), tok)), None)
         if not job:
             # 404 with no detail — don't confirm which tokens exist.
             respond(404, {'error': 'Not found'})

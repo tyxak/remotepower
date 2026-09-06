@@ -233,7 +233,11 @@ if [[ -f "$SECRET_FILE" && -s "$SECRET_FILE" ]]; then
 else
   SECRET=$(openssl rand -hex 32)
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    printf '%s' "$SECRET" > "$SECRET_FILE"
+    # v7.0.3: umask FIRST. A plain `>` creates the file 0644 under root's
+    # default umask, so the daemon secret was world-readable for the moment
+    # between the write and the chmod two lines down. install-server.sh fixed
+    # exactly this for the KMIP secret and this copy was missed.
+    ( umask 077; printf '%s' "$SECRET" > "$SECRET_FILE" )
   else
     echo "DRY-RUN: would write 64-char hex secret to ${SECRET_FILE}"
   fi
@@ -249,15 +253,20 @@ CONFIG_FILE="$DATA_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   echo "── Writing secret to ${CONFIG_FILE}…"
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    sudo -u "$CGI_USER" python3 -c "
+    # v7.0.3: the secret goes in on STDIN, not on the argv. A `python3 -c`
+    # string is world-readable in /proc/<pid>/cmdline for as long as the process
+    # lives — docker/agent-entrypoint.sh documents the same rule, and this site
+    # interpolated the secret straight into the command line.
+    printf '%s' "$SECRET" | sudo -u "$CGI_USER" python3 -c "
 import json, sys
 p = '$CONFIG_FILE'
+secret = sys.stdin.read().strip()
 try:
     with open(p) as f:
         cfg = json.load(f)
 except Exception:
     cfg = {}
-cfg['webterm_daemon_secret'] = '$SECRET'
+cfg['webterm_daemon_secret'] = secret
 with open(p, 'w') as f:
     json.dump(cfg, f, indent=2)
 "
