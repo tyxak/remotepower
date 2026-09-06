@@ -233,10 +233,16 @@ def _build_fleet_report(site_id=None):
             continue
         si = d.get('sysinfo') or {}
         nm = d.get('name', did)
-        fw = si.get('firewall')
-        if isinstance(fw, dict) and fw.get('active') is not None:
+        # v7.0.3: read all three producers. This asked `sysinfo.firewall`,
+        # which only the Linux agent writes, so on a Windows-heavy fleet the
+        # denominator was zero — and report.js drops a section whose
+        # denominator is zero, so the printed report showed NO firewall posture
+        # rather than a wrong one. The encryption block below already fanned
+        # out; its two neighbours did not.
+        _pf = A.checks_mod.posture_flags(si)
+        if _pf.get('firewall_active') is not None:
             pos['firewall_reporting'] += 1
-            if fw.get('active') is False:
+            if _pf.get('firewall_active') is False:
                 pos['firewall_off'].append(nm)
         sc = si.get('ssh_config')
         if isinstance(sc, dict) and sc:
@@ -245,10 +251,9 @@ def _build_fleet_report(site_id=None):
                     or str(sc.get('permit_root_login', '')).lower() == 'yes'
                     or str(sc.get('password_authentication', '')).lower() == 'yes'):
                 pos['ssh_weak'].append(nm)
-        au = si.get('autoupdate')
-        if isinstance(au, dict) and 'enabled' in au:
+        if _pf.get('autoupdate_enabled') is not None:
             pos['autoupdate_reporting'] += 1
-            if au.get('enabled') is False:
+            if _pf.get('autoupdate_enabled') is False:
                 pos['autoupdate_off'].append(nm)
         # encryption-at-rest: FileVault (macOS bool) / BitLocker (Windows, per OS
         # volume). Present-and-off only; absence is not counted.

@@ -29,6 +29,67 @@ import time
 _SECONDS_PER_DAY = 86400
 
 
+def _backends_active(backends):
+    """Tri-state rollup over firewall backends, matching the agent's own.
+
+    None when nothing was readable — never False, which would report a host
+    whose probes all failed as having no firewall.
+    """
+    rows = [b for b in (backends or []) if isinstance(b, dict)]
+    readable = [b for b in rows if isinstance(b.get("active"), bool)]
+    if not readable:
+        return None
+    return any(b["active"] for b in readable)
+
+
+def posture_flags(si):
+    """The three cross-platform posture facts, read from all three producers.
+
+    v7.0.3. Linux reports `disk_encryption`, `firewall.backends[].active` and
+    `autoupdate`; Windows reports the same three under `win_posture` as
+    `bitlocker`, `firewall` and `wu_service`; macOS under `mac_posture` as
+    `filevault`, `firewall` and `auto_security_update`. This file's check rows
+    and the risk score already read all three. Three other surfaces — the Data
+    Explorer, the Fleet Query facets and the printable report — read only the
+    Linux producer, so every Windows and macOS host answered "unknown" to "is
+    this disk encrypted", and a question like "which hosts have no firewall"
+    silently excluded them. One helper rather than a fourth copy of the fan-out.
+
+    Each value is TRI-STATE and stays that way: False means "reported, and it is
+    off"; None means "this host never told us". Collapsing them puts a
+    non-reporting host into a list of findings it does not belong in.
+    """
+    si = si if isinstance(si, dict) else {}
+    wp = si.get("win_posture") if isinstance(si.get("win_posture"), dict) else {}
+    mp = si.get("mac_posture") if isinstance(si.get("mac_posture"), dict) else {}
+    de = si.get("disk_encryption") if isinstance(si.get("disk_encryption"), dict) else {}
+    au = si.get("autoupdate") if isinstance(si.get("autoupdate"), dict) else {}
+    fw = si.get("firewall") if isinstance(si.get("firewall"), dict) else {}
+
+    def _first_bool(*values):
+        for v in values:
+            if isinstance(v, bool):
+                return v
+        return None
+
+    return {
+        "disk_encrypted": _first_bool(de.get("encrypted"), wp.get("bitlocker"),
+                                      mp.get("filevault")),
+        # `firewall.active` is the agent's OWN tri-state: any READABLE backend
+        # active, None when every probe was unreadable. Prefer it — the Data
+        # Explorer recomputed it as `any(b['active'] for b in backends)`, which
+        # turns a host whose probes all failed into a confident "no firewall".
+        # Fall back to deriving it, tri-state intact, for a payload that
+        # carries backends without the rollup.
+        "firewall_active": _first_bool(fw.get("active"),
+                                       _backends_active(fw.get("backends")),
+                                       wp.get("firewall"), mp.get("firewall")),
+        "autoupdate_enabled": _first_bool(
+            (au.get("enabled") if isinstance(au.get("enabled"), bool) else None),
+            wp.get("wu_service"), mp.get("auto_security_update")),
+    }
+
+
 def cve_ignore_applies(entry, dev_id, dev_tenant=None):
     """Does an accepted-risk record suppress a CVE finding on this device?
 

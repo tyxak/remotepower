@@ -30956,15 +30956,12 @@ def _qe_device_posture(si):
     def _n(v):
         return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
-    de = si.get('disk_encryption') if isinstance(si.get('disk_encryption'), dict) else {}
     au = si.get('autoupdate') if isinstance(si.get('autoupdate'), dict) else {}
     sc = si.get('ssh_config') if isinstance(si.get('ssh_config'), dict) else {}
     ck = si.get('clock') if isinstance(si.get('clock'), dict) else {}
     _wp = si.get('win_posture') if isinstance(si.get('win_posture'), dict) else {}
-    fw = si.get('firewall') if isinstance(si.get('firewall'), dict) else {}
     bats = [b for b in (si.get('battery') or []) if isinstance(b, dict)]
     bat = bats[0] if bats else {}
-    backends = [b for b in (fw.get('backends') or []) if isinstance(b, dict)]
     return {
         'hostname': si.get('hostname') or '',
         'kernel': si.get('kernel') or '',
@@ -30983,10 +30980,12 @@ def _qe_device_posture(si):
         # Tri-state on purpose: False means "reported, and it is off", None
         # means "this host never told us". Collapsing them to False is how a
         # non-reporting host ends up in a list of findings it does not belong in.
-        'disk_encrypted': de.get('encrypted') if isinstance(de.get('encrypted'), bool) else None,
-        'firewall_active': (any(b.get('active') for b in backends)
-                            if backends else None),
-        'autoupdate_enabled': bool(au.get('enabled')) if au else None,
+        #
+        # v7.0.3: read from ALL THREE producers. These three asked the Linux
+        # agent only, so every Windows and macOS row answered "unknown" to "is
+        # this disk encrypted" — the same shape as the `secure_boot` bug fixed
+        # a few lines below, which is what prompted looking at its neighbours.
+        **checks_mod.posture_flags(si),
         'autoupdate_mechanism': au.get('mechanism') or '',
         'ssh_root_login': sc.get('permit_root_login') or '',
         'ssh_password_auth': sc.get('password_authentication') or '',
@@ -55440,10 +55439,14 @@ def handle_fleet_query():
             continue
         # v6.4.2: host security-posture facets, mirroring the Checks-page rows.
         if fwoff_q:
-            fw = si.get('firewall')
             # active is tri-state — only False means "no active ruleset";
             # None (unreadable probe) must NOT match, like the check row.
-            if not (isinstance(fw, dict) and fw.get('active') is False):
+            #
+            # v7.0.3: this read `sysinfo.firewall`, which only the Linux agent
+            # writes, so "which hosts have no firewall" silently excluded every
+            # Windows and macOS host — the answer looked complete and was not.
+            # posture_flags reads all three producers.
+            if checks_mod.posture_flags(si).get('firewall_active') is not False:
                 continue
         if sshweak_q:
             sc = si.get('ssh_config') or {}
@@ -55453,8 +55456,9 @@ def handle_fleet_query():
             if not weak:
                 continue
         if auoff_q:
-            au = si.get('autoupdate')
-            if not (isinstance(au, dict) and au.get('enabled') is False):
+            # v7.0.3: same fan-out as the firewall facet above — Windows
+            # reports `wu_service` and macOS `auto_security_update`.
+            if checks_mod.posture_flags(si).get('autoupdate_enabled') is not False:
                 continue
         matched_pkg = None
         if has_pkg:
