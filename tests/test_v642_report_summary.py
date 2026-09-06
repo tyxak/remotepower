@@ -274,8 +274,13 @@ class TestTheUiOffersIt(unittest.TestCase):
     def test_the_section_has_a_label(self):
         """`_REPORT_SECTION_LABELS` is a second registry — a section the server
         knows about but this map does not renders as its raw slug."""
-        i = self.js.index("_REPORT_SECTION_LABELS")
-        self.assertIn("summary:", self.js[i:i + 400])
+        # v7.0.3: was `self.js[i:i + 400]`. A fixed character window is the
+        # class tests/test_srcpin_ratchet.py holds at zero — one added comment
+        # inside the object pushed `summary:` past 400 and this went red for a
+        # change that did not touch it. Read the object, not a slice.
+        from srcpin import balanced_block
+        block = balanced_block(self.js, "const _REPORT_SECTION_LABELS = {")
+        self.assertIn("summary:", block)
 
     def test_the_server_ships_the_opt_in_list(self):
         src = (_CGI / "reports_handlers.py").read_text()

@@ -104,13 +104,17 @@ class TestTheSurfacesUseIt(unittest.TestCase):
         self.assertIn('posture_flags', ast.unparse(fn))
 
     def test_the_fleet_query_facets_use_the_helper(self):
+        """Bounded by content, not by a character count — a fixed window is the
+        class tests/test_srcpin_ratchet.py holds at a shrink-only ceiling, and
+        one added comment is enough to push the line being pinned out of it."""
+        from srcpin import py_block
         src = self._API.read_text(encoding='utf-8')
-        i = src.index('if fwoff_q:')
-        block = src[i:i + 1400]
-        self.assertIn('posture_flags', block)
-        self.assertIn('firewall_active', block)
-        j = src.index('if auoff_q:')
-        self.assertIn('posture_flags', src[j:j + 600])
+        fw = py_block(src, 'if fwoff_q:')
+        self.assertIn('posture_flags', fw)
+        self.assertIn('firewall_active', fw)
+        au = py_block(src, 'if auoff_q:')
+        self.assertIn('posture_flags', au)
+        self.assertIn('autoupdate_enabled', au)
 
     def test_the_printable_report_uses_the_helper(self):
         src = self._REPORTS.read_text(encoding='utf-8')

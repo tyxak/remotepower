@@ -109,6 +109,33 @@
         + '<tr><td>Compliance change</td><td>' + esc(sgn(dl.compliance_pct, ' pp')) + '</td></tr>'
         + '</tbody></table>';
     }
+    // v7.0.3: SLA and Needs-attention. Both are selectable sections in the
+    // Custom reports builder, both are computed by the server and shipped in
+    // the JSON, and neither appeared in this document — an operator ticked
+    // "SLA / uptime", the server measured 30 days of fleet uptime, and the
+    // printed report said nothing. For an MSP report that figure is often the
+    // reason the document exists. The CSV renderer emits both; only this one
+    // dropped them.
+    const sla = rep.sla || null;
+    if (sla && sla.fleet_uptime_pct != null) {
+      html += '<h2>Fleet uptime</h2><table><tbody>'
+        + '<tr><td>Measured over</td><td>' + esc(String(sla.days || 30))
+        + ' days</td></tr>'
+        + '<tr><td>Fleet uptime</td><td>' + esc(String(sla.fleet_uptime_pct))
+        + '%</td></tr>'
+        + '</tbody></table>';
+    }
+    // Absent is not zero: a fleet with no monitored history has no percentage,
+    // and printing 0% would read as a total outage.
+    const att = rep.attention || null;
+    if (att && (att.critical != null || att.warning != null || att.info != null)) {
+      html += '<h2>Needs attention</h2><table><tbody>'
+        + '<tr><td>Critical</td><td class="' + ((att.critical || 0) ? 'bad' : 'ok')
+        + '">' + (att.critical || 0) + '</td></tr>'
+        + '<tr><td>Warning</td><td>' + (att.warning || 0) + '</td></tr>'
+        + '<tr><td>Informational</td><td>' + (att.info || 0) + '</td></tr>'
+        + '</tbody></table>';
+    }
     // v6.4.2: host security posture — firewall, sshd hardening, encryption,
     // auto-update, each with its own reporting denominator so an absent signal
     // is never shown as a pass.

@@ -27615,6 +27615,10 @@ const _REPORT_SECTION_LABELS = {
   devices: 'Devices', health: 'Health score', attention: 'Needs attention',
   patches: 'Patches', cve: 'CVEs', sla: 'SLA / uptime', compliance: 'Compliance',
   period: 'Period activity',
+  // v7.0.3: 'posture' was in the server tuple and not here, so the checkbox
+  // rendered as the raw slug — which the comment above this block predicted
+  // would happen and nothing checked.
+  posture: 'Security posture',
   summary: 'AI summary (costs tokens)',
 };
 let _reportDefs = [];
