@@ -171,6 +171,13 @@ def _require_signed_updates():
 #   7. canary planting         _plant_canaries()          refused
 #   8. check protect=quarantine  _eval_one_agent_check()  refused (v7.0.2)
 #   9. guard restore/delete    _apply_guard_actions()     refused (v7.0.2)
+#  10. backup verify          collect_backup_verify()    refused (v7.0.3)
+#  11. restore drill          run_restore_drills()       refused (v7.0.3)
+#
+# 10 and 11 spawn `restic`/`borg`/`tar` as root against a repository the server
+# names, and 11 also creates and deletes a directory tree. They are CONFIG-driven
+# rather than command-driven, so require-signed-commands does not reach them —
+# audit mode does, and did not.
 #
 # A new channel that writes to the host, spawns a process, or moves a file
 # belongs on this list with its own _audit_mode() check — the flag is only worth
@@ -5088,6 +5095,33 @@ def collect_web_access_logs(state_dir):
     return results
 
 
+# Repository strings the server may hand the backup tools. restic and borg both
+# take a remote repo (sftp:, rest:, s3:, ssh://, …) and plenty of real fleets use
+# one, so this is not an allowlist of local paths — it is a shape check with two
+# jobs: refuse anything that argparse would read as an OPTION rather than a
+# repository, and refuse a scheme neither tool understands.
+#
+# v7.0.3: the repo string reaches `restic -r <repo> check` as root and had no
+# validation at all. `host_path()` only rewrites a string starting with `/`, so
+# anything else passed through unchanged — including a leading `-`.
+_BACKUP_REPO_SCHEMES = ('sftp:', 'rest:', 's3:', 'b2:', 'azure:', 'gs:',
+                        'swift:', 'rclone:', 'ssh://')
+
+
+def _valid_backup_repo(path):
+    """(ok, reason). A repository is an absolute path or a known remote URL."""
+    p = str(path or '')
+    if not p:
+        return False, 'empty path'
+    if p.startswith('-'):
+        return False, 'looks like a command-line option, not a repository'
+    if p.startswith('/'):
+        return True, ''
+    if p.startswith(_BACKUP_REPO_SCHEMES):
+        return True, ''
+    return False, 'not an absolute path or a supported repository URL'
+
+
 def collect_backup_status(backup_monitors):
     """v2.8.1: check mtime of configured backup file paths.
 
@@ -5155,6 +5189,14 @@ def collect_backup_verify(backup_monitors):
     restic/borg need their passphrase in the agent's environment (e.g.
     RESTIC_PASSWORD_FILE / BORG_PASSPHRASE set in the agent unit)."""
     out = []
+    # SEC (v7.0.3): the TENTH channel that spawns a root process, and it never
+    # asked. `restic -r <repo> check`, `borg check <repo>` and `tar -tf <repo>`
+    # all run as root with the repository taken from the server's own config,
+    # and neither /etc/remotepower/audit-mode nor require-signed-commands was
+    # consulted. An operator who set audit mode believed this agent would run
+    # nothing; the enumeration above the flag is only worth what it covers.
+    if _audit_mode():
+        return out
     mons = [m for m in (backup_monitors or [])
             if isinstance(m, dict) and m.get('verify_enabled')]
     if not mons:
@@ -5176,6 +5218,11 @@ def collect_backup_verify(backup_monitors):
     for mon in mons:
         p = mon.get('path', '')
         if not p:
+            continue
+        _ok, _why = _valid_backup_repo(p)
+        if not _ok:
+            out.append({'path': p, 'tool': '', 'verify_status': 'invalid_path',
+                        'verify_output': _why, 'verify_at': int(time.time())})
             continue
         tool = _detect_backup_tool(p, mon.get('tool', 'auto'))
         if not tool:
@@ -5274,6 +5321,12 @@ def run_restore_drills(backup_monitors, now=None):
     files, drill_output, drill_at}]."""
     import shutil
     import tempfile
+    # SEC (v7.0.3): the ELEVENTH channel. A restore drill spawns root processes
+    # AND creates and deletes a directory tree, from a repository the server
+    # names. Same reasoning as collect_backup_verify: audit mode meant "this
+    # agent runs nothing", and this ran.
+    if _audit_mode():
+        return []
     now = int(now if now is not None else time.time())
     mons = [m for m in (backup_monitors or [])
             if isinstance(m, dict) and m.get('restore_drill_enabled')]
@@ -5290,6 +5343,11 @@ def run_restore_drills(backup_monitors, now=None):
         p = mon.get('path', '')
         sample = str(mon.get('restore_sample_path', '') or '').strip()
         if not p or not sample:
+            continue
+        _ok, _why = _valid_backup_repo(p)
+        if not _ok:
+            out.append({'path': p, 'tool': '', 'drill_status': 'invalid_path',
+                        'drill_output': _why, 'drill_at': now})
             continue
         interval = max(1, int(mon.get('restore_drill_max_age_hours', 168) or 168)) * 3600
         if now - int(state.get(p, 0)) < interval or budget <= 0:
