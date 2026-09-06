@@ -250,6 +250,47 @@ class TestSubtitleTranslationCoverage(unittest.TestCase):
                          "page subtitles with no DICT/HTMLDICT entry (new page "
                          f"shipped without a subtitle translation?): {missing}")
 
+    def test_no_translation_entry_links_a_doc_that_does_not_exist(self):
+        """The version-doc deletion cascade reaches i18n.js, and did not.
+
+        Added v7.0.3. `docs/vX.Y.Z.md` files are deleted under the keep-three
+        rule, and CLAUDE.md's cascade list covers index.html, docs/README.md and
+        tests/ — not the translation tables. Four HTMLDICT keys still carried
+        `docs/v4.0.0.md`, deleted long ago, and two more pointed at a subtitle
+        whose Documentation link had since changed. All six were dead
+        duplicates of correct entries sitting a few lines away, so which one
+        rendered was down to file order: JavaScript keeps the LAST definition
+        of a duplicate key.
+
+        A link check is narrow on purpose. The general question — "does this key
+        still match a live subtitle?" — cannot be answered from markup alone,
+        because a page can build its subtitle in JS, and every approximation of
+        it tried here either missed the two real orphans or reported dozens of
+        healthy entries. This one has no false positives and catches the class
+        that actually shipped. The duplicate-key gate
+        (tests/test_v702_i18n_dupe_keys.py) covers the rest of the damage.
+        """
+        missing = {}
+        for m in re.finditer(r'href=\\?"(docs/[^"\\]+)\\?"', I18N):
+            rel = m.group(1)
+            if not (_ROOT / rel).exists():
+                missing.setdefault(rel, 0)
+                missing[rel] += 1
+        self.assertEqual(
+            missing, {},
+            "i18n.js links documentation files that do not exist — a deleted "
+            "version doc, or a renamed guide. The entry is either dead weight "
+            f"or the live one, and a reader cannot tell which: {missing}")
+
+    def test_the_doc_link_scan_sees_the_links_that_are_there(self):
+        """The control. `missing == {}` is also what a scan that finds no links
+        at all produces."""
+        found = re.findall(r'href=\\?"(docs/[^"\\]+)\\?"', I18N)
+        self.assertGreater(len(found), 200,
+                           f"only {len(found)} docs/ links found in i18n.js — "
+                           "the scan is broken, not the file")
+        self.assertTrue(all((_ROOT / rel).exists() for rel in set(found)))
+
     def test_htmldict_entries_carry_all_six_languages(self):
         incomplete = {k: sorted(set(LANGS) - langs)
                       for k, langs in self.htmldict_entries.items()

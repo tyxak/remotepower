@@ -69,8 +69,20 @@ def _xml_attr(s):
             .replace('<', '&lt;').replace('>', '&gt;'))
 
 
+# The one place the SP's Assertion Consumer Service path is written.
+#
+# v7.0.3: this said '/api/saml/acs' and the handler is routed at
+# '/api/auth/saml/acs'. `GET /api/saml/metadata` renders this value, and that
+# metadata file is exactly what docs/sso.md tells you to hand your IdP — so a
+# SAML login set up by following the documentation posted its assertion to a
+# path that 404s. The in-app hint beside the setting has always shown the right
+# one, which is why this survived: two of the three surfaces agreed with each
+# other and the third was the one the IdP actually reads.
+ACS_PATH = '/api/auth/saml/acs'
+
+
 def _sp_config(rp_cfg, base_url):
-    acs_url = base_url + '/api/saml/acs'
+    acs_url = base_url + ACS_PATH
     sp_entity = rp_cfg.get('saml_sp_entity_id') or (base_url + '/api/saml/metadata')
     idp_xml = _idp_metadata_xml(
         rp_cfg.get('saml_idp_entity_id', ''),

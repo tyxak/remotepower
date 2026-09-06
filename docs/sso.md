@@ -127,7 +127,7 @@ from your IdP:
 **On the IdP**: hand it the SP metadata from `GET /api/saml/metadata` (the
 "View SP metadata" button; public, no auth). The values it contains:
 
-- **ACS URL**: `https://<your-server>/api/saml/acs` (HTTP-POST binding)
+- **ACS URL**: `https://<your-server>/api/auth/saml/acs` (HTTP-POST binding)
 - **SP entity ID**: defaults to `https://<your-server>/api/saml/metadata`;
   override with the config-only key `saml_sp_entity_id` (no Settings field —
   set it via `POST /api/config`).
