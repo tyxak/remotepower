@@ -255,11 +255,29 @@ class TestEventWiring(unittest.TestCase):
         # v6.0.1: the _record_alert whitelist gained pool/paths/threshold after
         # repo/title/url, so it no longer closes on url'):.
         # v6.1.2: it then gained mac/old_ip/new_ip (network events), so the tuple
-        # now closes on new_ip'): — assert the keys are present without pinning the
-        # exact closing token (that brittleness is what keeps breaking here).
-        self.assertIn("'repo', 'title', 'url',", src)
-        self.assertIn("'pool', 'paths', 'threshold',", src)
-        self.assertIn("'mac', 'old_ip', 'new_ip'):", src)
+        # now closes on new_ip'):.
+        #
+        # v7.0.3: and then it gained thirty more keys and the pin broke again,
+        # for the fourth time, on a change that had nothing to do with GitHub
+        # issues. The comment above has said since v5.8.0 that the closing token
+        # is the brittle part; this now does what that comment describes and
+        # asks whether the KEYS are in the tuple, by parsing it. Growing the
+        # whitelist is the normal way this file changes.
+        import ast
+        rec = next(n for n in ast.walk(ast.parse(src))
+                   if isinstance(n, ast.FunctionDef) and n.name == '_record_alert')
+        keys = set()
+        for node in ast.walk(rec):
+            if isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple):
+                names = {e.value for e in node.iter.elts
+                         if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+                if len(names) > len(keys):
+                    keys = names
+        self.assertGreater(len(keys), 100,
+                           'the _record_alert whitelist no longer parses')
+        for k in ('repo', 'title', 'url', 'pool', 'paths', 'threshold',
+                  'mac', 'old_ip', 'new_ip'):
+            self.assertIn(k, keys, f'{k} dropped from the alert whitelist')
         self.assertIn("'repo', 'title', 'url', 'label',", src)
 
 

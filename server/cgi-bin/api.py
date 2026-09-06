@@ -11516,7 +11516,65 @@ def _record_alert(event, payload):
                     # v6.4.2 control_plane_security_change: which control
                     # changed, the admin who changed it, the account it hit.
                     'change', 'actor', 'target_user',
-                    'mac', 'old_ip', 'new_ip'):
+                    'mac', 'old_ip', 'new_ip',
+                    # ── v7.0.3 ────────────────────────────────────────────────
+                    # The inbox row renders every whitelisted payload fact, so
+                    # this tuple is the only thing deciding what an operator
+                    # sees. Twenty-seven inbox-bound events computed the answer
+                    # to their own question, sent it to the webhook, and dropped
+                    # it here. Each key below is the number or the noun that the
+                    # alert is ABOUT; plumbing (hostnames the row already shows,
+                    # tick counts, content hashes) stays out on purpose.
+                    #
+                    # ecc_errors: correctable and uncorrectable counts. These
+                    # are the ONLY numbers in that alert, and they mean
+                    # different things — watch it, versus replace the DIMM.
+                    'ce', 'ue', 'new_ce', 'new_ue',
+                    # tls_expiry: how long you have. The fleet-events copy has
+                    # stored days_left since it shipped; the inbox row, which is
+                    # where anyone reads it, did not.
+                    'days_left',
+                    # vault_break_glass: who broke the glass and why. An access
+                    # record with no actor and no reason is not a record.
+                    'requester', 'reason', 'cred_id', 'request_id',
+                    # mount_issue / storage_degraded: WHAT is wrong, not just
+                    # where. `state` separates degraded from faulted from
+                    # offline, and autonomy's remount ladder reads `issue`.
+                    'issue', 'fstype', 'state',
+                    # The predictions, in the predictive alerts. Both fired with
+                    # the projection stripped out.
+                    'eta_days', 'ceiling', 'current',
+                    # av_infected / av_warning: the counts. `tool` above says
+                    # which scanner; these say what it found.
+                    'infected', 'warnings',
+                    # Failures that said only that they failed.
+                    'verify_status', 'verify_output', 'drill_status',
+                    # software_policy_violation named no package; scan_finding
+                    # gave no way to drill in; snmp_dead no duration.
+                    'package', 'scan_id', 'total', 'medium', 'low', 'hours',
+                    # config_drift / netconfig_changed: which sections moved,
+                    # and the revision to diff against.
+                    'sections', 'revision', 'lines',
+                    # health_degraded shipped a score and a grade and showed
+                    # neither; monitor_down did not say which kind of monitor.
+                    'score', 'grade', 'type',
+                    # ping_missed: the job and when it last checked in — the
+                    # two things you need to know which cron stopped running.
+                    'job', 'last_ping',
+                    # The rest, each the subject of its own alert:
+                    # port_exposed_world (which address), guard_quarantined
+                    # (which check), remediation_failed (which event),
+                    # brute_force_detected (over what window), server_upgraded
+                    # (from/to), backup_stale (the configured bound),
+                    # snapshot_old (ditto).
+                    'addr', 'check', 'event', 'window_s',
+                    'from', 'to', 'max_age_hours', 'warn_days',
+                    # Found by widening the fire-site scan past `fire_webhook`
+                    # to the `_fire*` wrappers: firewall_changed said a firewall
+                    # changed without saying which backend or how many rules,
+                    # timer_failed did not name the unit the timer activates,
+                    # and the two "overdue" alerts did not say by how much.
+                    'backend', 'rules', 'activates', 'age_days'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
