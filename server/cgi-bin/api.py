@@ -30958,10 +30958,219 @@ def _qe_drift_rows():
 _QE_DRIFT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'device_id', 'device_name', 'path', 'drifted', 'exists', 'dormant', 'ignored')}
 
+# v7.0.3: the Data Explorer had three entities — devices, cves, drift — while
+# the heartbeat persists four more device-keyed inventories that every other
+# page already reads. "Which hosts run openssl 3.0.x", "who still listens on
+# 3306 from the world", "which units are flapping", "what is restarting" were
+# all unaskable, though each store is one flatten away from a row set. The
+# stores below are the same ones the Packages, Ports, Services and Containers
+# views load; nothing new is collected, and each goes through the same
+# _scope_filter_devices join the three existing entities use, so RBAC scope and
+# app-layer tenancy apply unchanged.
+
+# A package inventory is the one unbounded store here: ports cap at 80/host,
+# services at MAX_SERVICES_PER_DEVICE, containers at MAX_CONTAINERS_PER_DEVICE
+# and alerts at MAX_ALERTS, but a Debian host alone reports a few thousand
+# packages, so a 200-host fleet is most of a million rows built in memory to
+# answer a query whose response is capped at 2000. The scan stops here and the
+# response SAYS it stopped -- a silent cap is how a truncated answer gets read
+# as a complete one.
+_QE_SCAN_CAP = 100000
+
+
+def _qe_packages_rows():
+    """One row per (device, installed package) -- PACKAGES_FILE is device-keyed
+    with a nested `packages` list, flattened the same way
+    handle_inventory_search does, minus its name filter. Capped at
+    _QE_SCAN_CAP; `meta.truncated` reports it."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    store = load(PACKAGES_FILE) or {}
+    out = []
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        dname = devices.get(dev_id, {}).get('name', dev_id)
+        eco = (entry or {}).get('ecosystem', '') if isinstance(entry, dict) else ''
+        for pkg in ((entry or {}).get('packages') or [] if isinstance(entry, dict) else []):
+            if not isinstance(pkg, dict):
+                continue
+            out.append({
+                'device_id': dev_id, 'device_name': dname,
+                'package': pkg.get('name') or '',
+                'version': pkg.get('version') or '',
+                'ecosystem': eco,
+            })
+            if len(out) >= _QE_SCAN_CAP:
+                return out
+    return out
+
+
+_QE_PACKAGE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'package', 'version', 'ecosystem')}
+
+
+def _qe_ports_rows():
+    """One row per (device, listening socket). The ports live on the device
+    record under `sysinfo.listening_ports`, persisted by the heartbeat
+    sanitizer (proto/port/process/addr/scope, capped at 80 per host) -- the
+    same list the drawer's Ports table and the world-exposure check read.
+
+    `scope` is the field that makes this worth having: 'world' is the one an
+    attack-surface question is actually about, and it was reachable only as a
+    per-host count (`listening_ports`) on the devices entity."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    out = []
+    for dev_id, d in devices.items():
+        dname = d.get('name', dev_id)
+        for prt in ((d.get('sysinfo') or {}).get('listening_ports') or []):
+            if not isinstance(prt, dict):
+                continue
+            out.append({
+                'device_id': dev_id, 'device_name': dname,
+                'proto': prt.get('proto') or '',
+                'port': prt.get('port'),
+                'process': prt.get('process') or '',
+                'addr': prt.get('addr') or '',
+                'scope': prt.get('scope') or '',
+            })
+    return out
+
+
+_QE_PORT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'proto', 'port', 'process', 'addr', 'scope')}
+
+
+def _qe_services_rows():
+    """One row per (device, watched unit) -- SERVICES_FILE is device-keyed with
+    a nested `services` list, the live state the Services page renders.
+
+    `flapping` is a per-device NAME SET beside the list rather than a flag on
+    each entry, so it is joined back here; a unit that restarts under
+    Restart=always reads 'active' at every sample, and the restart count is the
+    only thing that shows it."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    store = load(SERVICES_FILE) or {}
+    out = []
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        dname = devices.get(dev_id, {}).get('name', dev_id)
+        flapping = set((entry or {}).get('flapping') or [])
+        for svc in ((entry or {}).get('services') or []):
+            if not isinstance(svc, dict):
+                continue
+            unit = svc.get('unit') or ''
+            out.append({
+                'device_id': dev_id, 'device_name': dname,
+                'unit': unit,
+                'canonical': svc.get('canonical') or unit,
+                'active': svc.get('active') or '',
+                'sub': svc.get('sub') or '',
+                'since': svc.get('since') or 0,
+                'restarts': svc.get('restarts'),
+                'flapping': unit in flapping,
+                'running': svc.get('active') == 'active',
+            })
+    return out
+
+
+_QE_SERVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'unit', 'canonical', 'active', 'sub', 'since',
+    'restarts', 'flapping', 'running')}
+
+
+def _qe_containers_rows():
+    """One row per (device, container) -- CONTAINERS_FILE is device-keyed with
+    a nested `items` list, already normalised by containers.normalize_listing,
+    so the keys here are that module's output and not the agent's raw docker
+    output.
+
+    `running` mirrors containers.summarise's test rather than inventing a
+    second one: runtimes word the status differently ('Up 3 days', 'running',
+    'Ready'), and two surfaces disagreeing about what counts as running is
+    worse than either answer."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    store = load(CONTAINERS_FILE) or {}
+    out = []
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        dname = devices.get(dev_id, {}).get('name', dev_id)
+        for ctr in ((entry or {}).get('items') or []):
+            if not isinstance(ctr, dict):
+                continue
+            status = (ctr.get('status') or '')
+            sl = status.lower()
+            out.append({
+                'device_id': dev_id, 'device_name': dname,
+                'name': ctr.get('name') or '',
+                'image': ctr.get('image') or '',
+                'tag': ctr.get('tag') or '',
+                'status': status,
+                'runtime': ctr.get('runtime') or '',
+                'health': ctr.get('health') or '',
+                'restart_count': ctr.get('restart_count'),
+                'running': any(t in sl for t in ('running', 'up ', 'up\t', 'ready')),
+            })
+    return out
+
+
+_QE_CONTAINER_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'name', 'image', 'tag', 'status', 'runtime',
+    'health', 'restart_count', 'running')}
+
+
+def _qe_alerts_rows():
+    """One row per alert. Visibility goes through _filter_alerts_for_caller,
+    NOT the _scope_filter_devices join the other entities use: an alert may
+    carry no device at all (a fleet-level condition), and dropping those is
+    what a devices join would silently do.
+
+    `status` is derived rather than stored -- the row carries
+    acknowledged_at/resolved_at, and every surface that shows an alert reduces
+    those two timestamps to the same three words."""
+    out = []
+    for a in _filter_alerts_for_caller((load(ALERTS_FILE) or {}).get('alerts') or []):
+        if not isinstance(a, dict):
+            continue
+        if a.get('resolved_at'):
+            status = 'resolved'
+        elif a.get('acknowledged_at'):
+            status = 'ack'
+        else:
+            status = 'open'
+        out.append({
+            'alertid': a.get('alertid') or a.get('id') or '',
+            'event': a.get('event') or '',
+            'severity': a.get('severity') or '',
+            'title': a.get('title') or '',
+            'device_id': a.get('device_id') or '',
+            'device_name': a.get('device_name') or '',
+            'status': status,
+            'source': a.get('source') or '',
+            'ts': a.get('ts') or 0,
+            'first_seen': a.get('first_seen') or a.get('ts') or 0,
+            'acknowledged_by': a.get('acknowledged_by') or '',
+            'resolved_by': a.get('resolved_by') or '',
+        })
+    return out
+
+
+_QE_ALERT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'alertid', 'event', 'severity', 'title', 'device_id', 'device_name',
+    'status', 'source', 'ts', 'first_seen', 'acknowledged_by', 'resolved_by')}
+
+
 _QE_ENTITIES = {
-    'devices': (_qe_devices_rows, _QE_DEVICE_FIELDS),
-    'cves':    (_qe_cve_rows, _QE_CVE_FIELDS),
-    'drift':   (_qe_drift_rows, _QE_DRIFT_FIELDS),
+    'devices':    (_qe_devices_rows, _QE_DEVICE_FIELDS),
+    'cves':       (_qe_cve_rows, _QE_CVE_FIELDS),
+    'drift':      (_qe_drift_rows, _QE_DRIFT_FIELDS),
+    # v7.0.3
+    'packages':   (_qe_packages_rows, _QE_PACKAGE_FIELDS),
+    'ports':      (_qe_ports_rows, _QE_PORT_FIELDS),
+    'services':   (_qe_services_rows, _QE_SERVICE_FIELDS),
+    'containers': (_qe_containers_rows, _QE_CONTAINER_FIELDS),
+    'alerts':     (_qe_alerts_rows, _QE_ALERT_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
@@ -31003,7 +31212,12 @@ def _query_run_one(body):
     except (TypeError, ValueError):
         offset = 0
     return 200, {'ok': True, 'entity': entity, 'rows': matched[offset:offset + limit],
-                 'meta': {'total': total, 'limit': limit, 'offset': offset}}
+                 'meta': {'total': total, 'limit': limit, 'offset': offset,
+                          # The row scan stopped at _QE_SCAN_CAP, so `total`
+                          # counts what was scanned, not what exists. Reported
+                          # conservatively: a population of exactly the cap says
+                          # truncated too, which over-reports and never under-.
+                          'truncated': len(rows) >= _QE_SCAN_CAP}}
 
 
 def handle_query():

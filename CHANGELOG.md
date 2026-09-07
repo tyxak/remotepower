@@ -106,6 +106,30 @@ in `docs/security-review-7.0.3.md`; the short version:
   Windows and macOS host, and on a Windows-heavy fleet the report printed no
   posture section at all.
 
+### Data Explorer
+
+- **Five more entities to ask about.** The page could query devices, CVEs and
+  config drift. Everything else the heartbeat stores was off limits, so
+  "which hosts still run openssl 3.0.x", "who listens on 3306 from the world"
+  and "which units are flapping" had no answer on the one page whose purpose is
+  arbitrary questions. Installed `packages`, listening `ports`, watched
+  `services`, `containers` and the `alerts` inbox are queryable now, joinable
+  and sortable like the other three.
+
+  Two of the fields are worth pointing at. A listening socket carries its
+  exposure `scope`, so an attack-surface question is one condition rather than a
+  page visit per host. And a watched unit carries `flapping` — a unit
+  crash-looping under `Restart=always` reads `active` every time it is sampled,
+  so no query on its state could ever find one.
+
+  A package inventory is large, so that scan stops at 100,000 rows and the
+  response says when it did. A truncated answer that does not say so is worse
+  than a smaller one.
+
+  The field list the query builder offers comes from the server, so the new
+  entities appear in the dropdown with no client change, and each one is read
+  through the same scope and tenant filtering as the rest of your data.
+
 ### Prometheus
 
 - **Ten more metric families, all of them already collected.** The exporter

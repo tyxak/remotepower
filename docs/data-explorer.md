@@ -8,15 +8,20 @@ cannot return a device your role or tenant would hide from you elsewhere.
 
 Not to be confused with **[Fleet Query](fleet-query.md)**, which is the quick
 one-line device filter in the toolbar. Data Explorer is the one with nested
-AND/OR conditions across three entities.
+AND/OR conditions across eight entities.
 
-## The three entities
+## The eight entities
 
 | Entity | One row per | Use it for |
 |---|---|---|
 | `devices` | host | posture, telemetry, inventory |
 | `cves` | (host, finding) | "which hosts still have a critical CVE in openssl" |
 | `drift` | (host, watched file) | "which hosts have drifted from baseline on /etc/ssh/sshd_config" |
+| `packages` | (host, installed package) | "which hosts still run openssl 3.0.x" |
+| `ports` | (host, listening socket) | "who listens on 3306, and is it reachable from the world" |
+| `services` | (host, watched unit) | "which units are failed, and which are quietly restarting" |
+| `containers` | (host, container) | "what is stopped, and what keeps restarting" |
+| `alerts` | alert | "every open critical on hosts in the prod group" |
 
 ## Conditions
 
@@ -92,6 +97,65 @@ told you their disks are not encrypted. It does **not** include hosts that said
 nothing, which is what you want: a list of findings should not be padded with
 hosts that were never asked. To find the silent ones, use `not` + `exists`.
 
+## The other entities' fields
+
+### `packages`
+
+`device_id`, `device_name`, `package`, `version`, `ecosystem`.
+
+Versions are strings, so compare them with `contains` (`"3.0."`) rather than
+`gt` — a string comparison would put `3.10` before `3.9`.
+
+The scan stops at 100,000 rows, because a large fleet reports more installed
+packages than any single answer needs. When it stops, the response says so in
+`meta.truncated`, so a partial answer is never presented as a complete one.
+
+### `ports`
+
+`device_id`, `device_name`, `proto`, `port`, `process`, `addr`, `scope`.
+
+`scope` is the one to reach for: `world` means the socket is bound somewhere
+reachable off the host, `lan` means the local network, `local` means loopback.
+"Which of my hosts expose a database to the world" is `port` plus
+`scope eq world`.
+
+### `services`
+
+`device_id`, `device_name`, `unit`, `canonical`, `active`, `sub`, `since`,
+`restarts`, `flapping`, `running`.
+
+`canonical` is what systemd actually matched, which differs from `unit` when
+you watch an alias (`mysql.service` resolving to `mariadb.service`).
+
+`flapping` is worth knowing about: a unit crash-looping under `Restart=always`
+reads `active` every time it is sampled, because it comes back before the next
+heartbeat. Only the restart count reveals it, so an `active`/`failed` query
+will never find one.
+
+### `containers`
+
+`device_id`, `device_name`, `name`, `image`, `tag`, `status`, `runtime`,
+`health`, `restart_count`, `running`.
+
+`status` is the runtime's own wording, which differs between Docker, Podman and
+Kubernetes (`Up 3 days`, `running`, `Ready`). `running` is the normalised
+boolean, and it is the same test the Devices page counts with, so the two
+cannot disagree.
+
+### `alerts`
+
+`alertid`, `event`, `severity`, `title`, `device_id`, `device_name`, `status`,
+`source`, `ts`, `first_seen`, `acknowledged_by`, `resolved_by`.
+
+`status` is `open`, `ack` or `resolved`. `first_seen` is when the condition
+first fired and `ts` is the most recent occurrence — they differ for a repeating
+alert, and `first_seen` is the one to measure how long something has been
+broken.
+
+Alerts are the one entity where a row need not belong to a device: a fleet-level
+condition such as a failed backup has no `device_id`, and those rows stay
+visible to you.
+
 ## Saved queries
 
 Saved on the server, not in your browser. Private to your account by default,
@@ -104,7 +168,7 @@ A predicate is capped at 100 nodes and six levels of nesting. Both are cost
 guards — a wide shallow tree with thousands of leaves is as expensive as a deep
 one.
 
-There is no raw SQL,. Every entity's rows are fetched through the
+There is no raw SQL. Every entity's rows are fetched through the
 same path every other page uses, so the tenant and role scoping that applies to
 your data elsewhere applies here without a second implementation to keep in
 step. See [scaling.md](scaling.md) for how that scoping works.

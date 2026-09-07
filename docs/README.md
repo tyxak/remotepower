@@ -347,9 +347,10 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[fleet-query.md](fleet-query.md)** — Fleet Query: the quick device-only
  filter in the toolbar.
 - **[data-explorer.md](data-explorer.md)** — Data Explorer: nested AND/OR
- conditions across devices, CVEs and drift, the 45 device fields you can query
- (posture, telemetry, inventory) and why the posture booleans are tri-state.
- Saved query templates.
+ conditions across devices, CVEs, drift, packages, listening ports, services,
+ containers and alerts; the 45 device fields you can query (posture, telemetry,
+ inventory) and why the posture booleans are tri-state. Saved query
+ templates.
 
 ### For contributors
 - **[testing-deep.md](testing-deep.md)** — Property-based and fuzz testing
