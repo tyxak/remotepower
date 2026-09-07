@@ -134,12 +134,18 @@ class TestBothWritersShareOneLock(unittest.TestCase):
             self.skipTest('excluded from dist tree')
 
     def test_the_cgi_holds_the_lock_across_read_and_write(self):
-        body = srcpin.py_function((_CGI / 'api.py').read_text(),
-                                  'handle_webterm_auth')
-        self.assertIn('_LockedUpdate(WEBTERM_TICKETS_FILE)', body)
+        # v7.0.3: read the COMBINED source. The webterm handlers moved into a
+        # bound module, and inside one, api services carry an `A.` prefix — so
+        # a raw api.py read finds no def at all and a bare
+        # `_LockedUpdate(WEBTERM_TICKETS_FILE)` no longer matches. apisrc.py
+        # documents both halves of this exact failure.
+        import apisrc
+        body = srcpin.py_function(apisrc.api_source(), 'handle_webterm_auth')
+        self.assertRegex(body,
+                         r'(?:A\.)?_LockedUpdate\((?:A\.)?WEBTERM_TICKETS_FILE')
         code = '\n'.join(l for l in body.splitlines()
                          if not l.lstrip().startswith('#'))
-        self.assertNotIn('save(WEBTERM_TICKETS_FILE', code)
+        self.assertNotRegex(code, r'(?:A\.)?save\((?:A\.)?WEBTERM_TICKETS_FILE')
 
     def test_the_daemon_uses_the_backends_own_lock(self):
         """Inside consume(), not merely present in the file. Checking the whole

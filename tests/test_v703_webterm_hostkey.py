@@ -180,17 +180,24 @@ class TestTheDaemonUsesTheCallback(unittest.TestCase):
 
 
 class TestTheEndpointExists(unittest.TestCase):
+    """The route table stays in api.py; the handler moved to a bound module at
+    v7.0.3, so the body is read through `apisrc.api_source()` — api.py plus
+    every `*_handlers.py`. A raw api.py read is the documented way these pins
+    break on a carve-out, and this one broke on its own carve-out."""
 
     def test_api_routes_the_hostkeys_endpoint(self):
-        src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        raw = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         self.assertIn("('GET', '/api/webterm/hostkeys'): handle_webterm_hostkeys",
-                      src)
-        self.assertIn('def handle_webterm_hostkeys', src)
+                      raw, 'the route table lives in api.py')
+        sys.path.insert(0, str(_ROOT / 'tests'))
+        import apisrc
+        self.assertIn('def handle_webterm_hostkeys', apisrc.api_source())
 
     def test_it_is_gated_on_the_daemon_secret(self):
-        src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        start = src.index('def handle_webterm_hostkeys')
-        body = src[start:src.index('\ndef ', start + 10)]
+        sys.path.insert(0, str(_ROOT / 'tests'))
+        import apisrc
+        from srcpin import py_function
+        body = py_function(apisrc.api_source(), 'handle_webterm_hostkeys')
         self.assertIn('hmac.compare_digest', body,
                       'the daemon secret must be compared in constant time')
         self.assertIn('webterm_daemon_secret', body)

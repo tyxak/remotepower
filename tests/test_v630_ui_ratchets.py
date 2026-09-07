@@ -55,7 +55,20 @@ _CAP_MARKERS = re.compile(
 # 30 -> 29 (v7.0.2): one of the thirty was a `<table>` written in a COMMENT
 # (app-self.js:973, the note recording that a bare table was capped). See
 # _js_srcs() — the ratchet used to read raw source.
-UNCAPPED_JS_BASELINE = 29
+#
+# 29 -> 31 (v7.0.3), and this is the only direction this number should ever move
+# with a reason attached. Two tables were added to report.js: fleet uptime (two
+# rows) and needs-attention (three rows). Both are FIXED key/value tables in a
+# document that gets PRINTED — a scroll container in a PDF is a strictly worse
+# outcome than the thing it guards against, and report.js already accounts for
+# four of the existing twenty-nine on exactly that basis ("24 of them are fixed
+# key/value tables in app-self.js and report.js, which is why this is a ceiling
+# rather than an assertEqual(0)").
+#
+# The sections themselves are not new work for its own sake: both were
+# selectable in the custom report builder and computed by the server, and this
+# renderer printed neither.
+UNCAPPED_JS_BASELINE = 31
 
 
 def _blank_js_comments(src):
