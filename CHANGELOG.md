@@ -137,6 +137,43 @@ in `docs/security-review-7.0.3.md`; the short version:
   reliability score already weights them, and one hardware fault counted by two
   scores makes both numbers wrong rather than either one better.
 
+### Compliance
+
+- **Four things you already collect became evidence.** Each had a page, an
+  alert path or a search box for several releases, and the compliance
+  checklist — the one surface whose whole job is saying what the evidence
+  shows — did not know they existed.
+
+  **OpenSCAP / USG benchmark results** now back a configuration-baseline
+  control (PCI 2.2.1, SOC 2 CC7.1c, SMB1001 S-config). The report had no such
+  control at all, while the product was running the benchmark that is exactly
+  that control's evidence.
+
+  **The privileged-command trail** backs logging of privileged actions (PCI
+  10.2.1.2, SOC 2 CC6.3, E8-5c). Read what it claims: sudo and doas use is
+  being recorded, which is what an audit-trail requirement asks for. It is not
+  a judgement about whether a command was appropriate, and a host that ran no
+  sudo command is not a finding.
+
+  **The regulated-data inventory** backs data minimisation (PCI 3.2.1, SOC 2
+  C1.1, SMB1001 S-data). The evidence names hosts and file counts and never a
+  matched value — the scanner does not store one, and the report does not
+  reintroduce it.
+
+  **DMARC, SPF and DKIM posture** backs anti-phishing (PCI 5.4.1, SMB1001
+  S-email). A domain that does not enforce DMARC can be spoofed by anyone,
+  which is how most phishing reaches a mailbox at all.
+
+  All four keep the rule the rest of the checklist follows: an empty offender
+  list on a fleet that never ran the scan reads **Not assessed**, never Pass. A
+  domain you added but have not checked reads Not assessed too — typing a
+  domain in is not evidence about it.
+
+- **Two Fix links that went nowhere.** Controls carrying the `sudo` topic have
+  had no entry in the page map since v6.3.1, so their Fix arrow never
+  rendered; it opens the fleet-wide privileged-command search on the Audit page
+  now, and the DMARC control opens the DMARC page.
+
 ### Data Explorer
 
 - **Five more entities to ask about.** The page could query devices, CVEs and

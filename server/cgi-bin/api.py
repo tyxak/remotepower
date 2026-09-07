@@ -44727,6 +44727,96 @@ def _compliance_facts(devices=None):
         facts['failed_backups'] = []
         facts['backup_monitors'] = 0
 
+    # ── v7.0.3: four collected sources no control read ───────────────────────
+    # Each has had a page, an alert path or a RAG corpus for releases, and the
+    # compliance report — the surface whose entire job is saying what the
+    # evidence shows — did not know they existed. All four follow the
+    # capable-source rule: a coverage count beside the offender list, so an
+    # empty list on a fleet that never ran the scan is NOT_ASSESSED, not PASS.
+
+    # OpenSCAP / USG benchmark results. `available` is the agent saying the
+    # toolchain is installed; a host without it has not been assessed rather
+    # than passed.
+    try:
+        scap_all = (load(SCAP_FILE) or {}) if backend_exists(SCAP_FILE) else {}
+        scap_failing, scap_scanned = [], 0
+        for did, rec in scap_all.items():
+            if did not in _visible_ids or not isinstance(rec, dict):
+                continue
+            if not rec.get('available'):
+                continue
+            scap_scanned += 1
+            try:
+                nfail = int(rec.get('fail') or 0)
+            except (TypeError, ValueError):
+                nfail = 0
+            if nfail:
+                nm = (devices.get(did) or {}).get('name', did)
+                scap_failing.append(f'{nm} ({nfail} rule(s))')
+        facts['scap_failing'] = scap_failing
+        facts['scap_scanned_devices'] = scap_scanned
+    except Exception:
+        facts['scap_failing'] = []
+        facts['scap_scanned_devices'] = 0
+
+    # Privileged-command trail. The control is "are sudo/doas commands being
+    # recorded", so a host WITH events is evidence and a host with none is not
+    # a finding -- somebody simply may not have run sudo. Only a fleet where no
+    # host has ever reported one is a blind spot.
+    try:
+        sudo_all = (load(SUDO_LOG_FILE) or {}) if backend_exists(SUDO_LOG_FILE) else {}
+        facts['sudo_trail_devices'] = sum(
+            1 for did, evs in sudo_all.items()
+            if did in _visible_ids and isinstance(evs, list) and evs)
+    except Exception:
+        facts['sudo_trail_devices'] = 0
+
+    # Regulated-data inventory. Findings are counts and paths, never values --
+    # the scanner stores no matched text -- so naming the hosts here discloses
+    # nothing the PII page does not already show the same caller.
+    try:
+        pii_all = (load(PII_FILE) or {}) if backend_exists(PII_FILE) else {}
+        pii_hosts, pii_scanned = [], 0
+        for did, rec in pii_all.items():
+            if did not in _visible_ids or not isinstance(rec, dict):
+                continue
+            pii_scanned += 1
+            finds = [f for f in (rec.get('findings') or []) if isinstance(f, dict)]
+            if finds:
+                nm = (devices.get(did) or {}).get('name', did)
+                pii_hosts.append(f'{nm} ({len(finds)} file(s))')
+        facts['pii_hosts'] = pii_hosts
+        facts['pii_scanned_devices'] = pii_scanned
+    except Exception:
+        facts['pii_hosts'] = []
+        facts['pii_scanned_devices'] = 0
+
+    # Email authentication. Fleet-level like the TLS facts -- a domain is not a
+    # device -- so it is not gated on _visible_ids. 'fail' is the grader's word
+    # for "not enforcing, so this domain is spoofable"; 'weak' is enforcing with
+    # gaps and is reported separately rather than folded in, because the two
+    # need different work.
+    try:
+        dm_targets = (load(DMARC_TARGETS_FILE) or {}) if backend_exists(DMARC_TARGETS_FILE) else {}
+        dm_results = (load(DMARC_RESULTS_FILE) or {}) if backend_exists(DMARC_RESULTS_FILE) else {}
+        dm_fail, dm_weak = [], []
+        for tid, t in dm_targets.items():
+            r = dm_results.get(tid) or {}
+            dom = (t or {}).get('domain', tid)
+            if r.get('status') == 'fail':
+                dm_fail.append(dom)
+            elif r.get('status') == 'weak':
+                dm_weak.append(dom)
+        facts['dmarc_failing'] = dm_fail
+        facts['dmarc_weak'] = dm_weak
+        facts['dmarc_domains'] = len(dm_targets)
+        facts['dmarc_checked'] = sum(1 for tid in dm_targets if dm_results.get(tid))
+    except Exception:
+        facts['dmarc_failing'] = []
+        facts['dmarc_weak'] = []
+        facts['dmarc_domains'] = 0
+        facts['dmarc_checked'] = 0
+
     # v3.4.1: end-of-life operating systems (no longer receiving patches).
     try:
         _eol_pkg = load(PACKAGES_FILE) or {}

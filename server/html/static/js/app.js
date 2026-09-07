@@ -26008,6 +26008,12 @@ const _COMPLIANCE_FIX_PAGE = {
   patches: 'patches', cve: 'cve', tls: 'tls', backup: 'self',
   mfa: 'settings', audit: 'audit', ports: 'audit', sshkeys: 'audit',
   intrusion: 'audit', vault: 'cmdb', reboot: 'devices',
+  // v7.0.3. `sudo` has had a topic since v6.3.1 with no entry here, so its
+  // controls never offered a Fix link — the fleet-wide privileged-command
+  // search lives on the Audit page. The benchmark and regulated-data topics
+  // are on purpose absent: their cards are on the Compliance page itself, and
+  // a Fix link that navigates you to where you already are is worse than none.
+  sudo: 'audit', dmarc: 'dmarc',
 };
 
 function complianceFix(topic) {

@@ -310,6 +310,72 @@ def _admin_privilege_control(facts):
                   "not the standing privilege inventory.")
 
 
+# ── v7.0.3: four sources the product has collected for releases and no
+# control read. Each follows the capable-source rule above — an empty offender
+# list on a fleet that never ran the scan is NOT_ASSESSED, never PASS.
+def _benchmark_control(facts):
+    """OpenSCAP / USG benchmark results. The evidence for a secure-configuration
+    control is the benchmark itself, and RemotePower has been running it and
+    storing the failing rules since v3.4.2."""
+    bad = facts.get('scap_failing') or []
+    if bad:
+        return FAIL, (f"{len(bad)} host(s) failing benchmark rules: "
+                      + ", ".join(bad[:10]) + ("…" if len(bad) > 10 else ""))
+    if _no_coverage(facts, 'scap_scanned_devices'):
+        return NOT_ASSESSED, ("No host has an OpenSCAP/USG benchmark scan on record — "
+                              "configuration hardening is not assessed.")
+    return PASS, "Every scanned host passes its configured benchmark profile."
+
+
+def _privileged_command_control(facts):
+    """Privileged-command accountability. Note what this control does and does
+    not say: it attests that sudo/doas commands are being RECORDED, which is
+    what an audit-trail requirement asks for. It is not a judgement about
+    whether the commands were appropriate, and a host with no sudo events is
+    not a finding — nobody may have run one."""
+    if facts.get('sudo_trail_devices', 0) > 0:
+        return PASS, (f"{facts['sudo_trail_devices']} host(s) are reporting a "
+                      "privileged-command (sudo) audit trail.")
+    if facts.get('devices', 0) > 0:
+        return NOT_ASSESSED, ("No host has reported a privileged-command trail — "
+                              "sudo/doas accountability is not assessed.")
+    return NOT_ASSESSED, "No devices are enrolled."
+
+
+def _regulated_data_control(facts):
+    """Regulated-data inventory. Knowing WHERE card numbers, national IDs and
+    bank details sit in the filesystem is the precondition for minimising them,
+    and the scanner records counts and paths only — never a matched value."""
+    hosts = facts.get('pii_hosts') or []
+    if hosts:
+        return FAIL, (f"{len(hosts)} host(s) hold regulated data in files: "
+                      + ", ".join(hosts[:10]) + ("…" if len(hosts) > 10 else ""))
+    if _no_coverage(facts, 'pii_scanned_devices'):
+        return NOT_ASSESSED, ("No host has a regulated-data scan on record — "
+                              "where sensitive data is stored is not assessed.")
+    return PASS, "No regulated data found in scanned files."
+
+
+def _email_auth_control(facts):
+    """DMARC/SPF/DKIM posture. A domain without an enforcing DMARC policy can be
+    spoofed by anyone, which is the mechanism behind most phishing that reaches
+    a mailbox at all."""
+    bad = facts.get('dmarc_failing') or []
+    weak = facts.get('dmarc_weak') or []
+    if bad:
+        return FAIL, (f"{len(bad)} domain(s) not enforcing DMARC (spoofable): "
+                      + ", ".join(bad[:10]) + ("…" if len(bad) > 10 else ""))
+    if facts.get('dmarc_domains', 0) == 0:
+        return NOT_ASSESSED, "No email domains are being monitored for DMARC/SPF/DKIM."
+    if facts.get('dmarc_checked', 0) == 0:
+        return NOT_ASSESSED, ("Email domains are configured but none has been checked yet — "
+                              "email authentication is not assessed.")
+    if weak:
+        return FAIL, (f"{len(weak)} domain(s) enforce DMARC with gaps: "
+                      + ", ".join(weak[:10]))
+    return PASS, "All monitored domains enforce DMARC with SPF and DKIM aligned."
+
+
 def _training_control(facts):
     return NA, ("Security-awareness training is a process control RemotePower "
                 "does not track — record it in your ISMS.")
@@ -352,6 +418,18 @@ _CONTROLS = [
     # since v6.4.1 and no control read.
     ('pci', '2.2.7',  'Harden non-console administrative access',   _remote_access_control,
      'Deny root login, password authentication and empty passwords in sshd.'),
+    # v7.0.3: configuration standards (2.2.1) are what the benchmark scan IS
+    # evidence for; 3.2.1 asks where account data is stored, which is the
+    # regulated-data inventory; 5.4.1 is the anti-phishing mechanism control,
+    # and an unenforced DMARC policy is the hole phishing comes through.
+    ('pci', '2.2.1',  'Configuration standards applied to system components', _benchmark_control,
+     'Remediate the failing benchmark rules, or adjust the profile to your standard.'),
+    ('pci', '3.2.1',  'Storage of account data is kept to a minimum', _regulated_data_control,
+     'Review the listed files and remove or relocate regulated data.'),
+    ('pci', '5.4.1',  'Mechanisms to detect and protect against phishing', _email_auth_control,
+     'Publish an enforcing DMARC policy (p=quarantine or p=reject) with SPF and DKIM.'),
+    ('pci', '10.2.1.2', 'Log all actions taken by privileged users', _privileged_command_control,
+     'Enable the privileged-command trail on the agent so sudo/doas use is recorded.'),
 
     # HIPAA Security Rule
     # v6.4.2 (audit): "Protection from malicious software" is now evidenced by
@@ -400,6 +478,13 @@ _CONTROLS = [
      'Restore backup freshness.'),
     ('soc2', 'CC7.4', 'Remediation — apply security reboots',        _reboot_control,
      'Reboot hosts pending update activation.'),
+    # v7.0.3
+    ('soc2', 'CC7.1c', 'Configuration baselines are applied and verified', _benchmark_control,
+     'Remediate the failing benchmark rules on the listed hosts.'),
+    ('soc2', 'CC6.3',  'Privileged access is logged and reviewable',       _privileged_command_control,
+     'Enable the privileged-command trail so sudo/doas use is recorded.'),
+    ('soc2', 'C1.1',   'Confidential information is identified and protected', _regulated_data_control,
+     'Review the listed files and remove or relocate regulated data.'),
 
     # ── ACSC Essential Eight (the eight mitigation strategies) ───────────────
     # RemotePower has strong signal for patching, MFA, backups and OS currency;
@@ -427,6 +512,12 @@ _CONTROLS = [
      'Enable TOTP or OIDC for all console operators.'),
     ('e8', 'E8-8', 'Regular backups',                            _backup_control,
      'Restore backup freshness on the listed targets.'),
+    # v7.0.3: E8 has no configuration-baseline strategy of its own, but the
+    # benchmark is the evidence behind "patch operating systems" being applied
+    # to a hardened build, and restricting admin privileges is what the
+    # privileged-command trail makes reviewable.
+    ('e8', 'E8-5c', 'Restrict administrative privileges — command logging', _privileged_command_control,
+     'Enable the privileged-command trail so sudo/doas use is recorded.'),
 
     # ── SMB1001:2026 (Australian SMB cyber-security standard) ────────────────
     # Thematic control mapping to the measures RemotePower can evidence, plus an
@@ -454,6 +545,13 @@ _CONTROLS = [
      'Record staff training in your ISMS.'),
     ('smb1001', 'S-ir',      'Incident-response plan',                      _ir_plan_control,
      'Maintain a written IR plan referencing RemotePower alerting/triage.'),
+    # v7.0.3
+    ('smb1001', 'S-email',  'Protect email from spoofing (DMARC/SPF/DKIM)', _email_auth_control,
+     'Publish an enforcing DMARC policy with SPF and DKIM for each domain.'),
+    ('smb1001', 'S-config', 'Apply a secure configuration baseline',        _benchmark_control,
+     'Remediate the failing benchmark rules on the listed hosts.'),
+    ('smb1001', 'S-data',   'Know where sensitive data is stored',          _regulated_data_control,
+     'Review the listed files and remove or relocate regulated data.'),
 ]
 
 
@@ -473,6 +571,11 @@ _TOPICS = {
     _vault_control:         'vault',
     _reboot_control:        'reboot',
     _admin_privilege_control: 'sudo',   # v6.3.1
+    # v7.0.3
+    _benchmark_control:         'scap',
+    _privileged_command_control: 'sudo',
+    _regulated_data_control:    'pii',
+    _email_auth_control:        'dmarc',
 }
 
 

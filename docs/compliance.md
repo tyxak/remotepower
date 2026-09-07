@@ -51,7 +51,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | Capability | SOC 2 | ISO 27001:2022 |
 |---|---|---|
 | Vulnerability management — CVE scanning with KEV/EPSS prioritisation; patch status + alerts | CC7.1 | A.8.8 |
-| Secure configuration — drift detection + remediation; CIS/posture checks; firewall/fail2ban visibility | CC7.1 | A.8.9 |
+| Secure configuration — drift detection + remediation; CIS/posture checks; **OpenSCAP/USG benchmark results scored as a control** *(v7.0.3)*; firewall/fail2ban visibility | CC7.1 | A.8.9 |
 | Change management — staged/health-gated rollouts with rollback; audited command queue | CC8.1 | A.8.32 |
 | Supply chain — fleet + control-plane SBOM (CycloneDX); SLSA build provenance on release images | CC7.1 | A.5.23, A.8.30 |
 
@@ -139,8 +139,26 @@ checklist assesses **host firewall state** (PCI 1.2.1 — previously declined as
 unassessable), **anti-malware / protection from malicious software** from the
 actual AV posture rather than patch counts (PCI 5.2.1, HIPAA
 164.308(a)(5)(ii)(B)), and **encryption at rest** on managed hosts —
-BitLocker / FileVault / LUKS (PCI 3.5.1, HIPAA 164.312(a)(2)(iv)). Every control lands
-on one of four verdicts:
+BitLocker / FileVault / LUKS (PCI 3.5.1, HIPAA 164.312(a)(2)(iv)).
+
+**v7.0.3 turns four more collected sources into evidence.** Each had a page or
+an alert path for several releases and reached the checklist nowhere:
+
+| Source | Backs |
+|---|---|
+| OpenSCAP / USG benchmark results | Configuration baselines — PCI 2.2.1, SOC 2 CC7.1c, SMB1001 S-config |
+| The privileged-command (sudo) trail | Logging of privileged actions — PCI 10.2.1.2, SOC 2 CC6.3, E8-5c |
+| The regulated-data inventory | Data minimisation — PCI 3.2.1, SOC 2 C1.1, SMB1001 S-data |
+| DMARC / SPF / DKIM posture | Anti-phishing — PCI 5.4.1, SMB1001 S-email |
+
+Two of these are worth reading closely. The privileged-command control attests
+that sudo and doas use is being **recorded**, which is what an audit-trail
+requirement asks for — it is not a judgement about whether a given command was
+appropriate, and a host that ran no sudo command is not a finding. And a domain
+you have added but never checked reads **Not assessed**, not Pass: typing a
+domain into the DMARC page is not evidence about it.
+
+Every control lands on one of four verdicts:
 
 - **Pass** — observed state satisfies the control.
 - **Fail** — observed state violates it, with the offending hosts as evidence.
