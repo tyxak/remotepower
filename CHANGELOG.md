@@ -5,29 +5,134 @@ All notable changes to RemotePower. Newest first.
 ## v7.0.3 — "C4useMatters" — unreleased (test)
 
 A release about failures that named the wrong cause. A monitor reported a host
-as down when a bot filter had turned the probe away; a TLS setting described in
-its own comment as a floor was lowering one; and a test helper written to stop
-digest tests interfering with each other could not see six of the stores the
-digest reads.
+as down when a bot filter had turned the probe away. A TLS setting described in
+its own comment as a floor was lowering one. The web terminal told you it had
+connected to your host without having checked that it had. And a test helper
+written to keep the Needs-Attention tests apart could not see six of the stores
+that digest reads.
 
-- **Monitors no longer read a bot challenge as "host down".** A monitor pointed
-  at a site behind a bot filter reported a failure forever while the same URL
-  loaded fine in a browser. Two separate causes, both in how RemotePower makes
-  the request: it identified itself with the Python default rather than its own
-  name, and it was putting an older TLS version back on the wire. Probes send
-  `RemotePower/<version>` now, and raise the TLS floor rather than setting it.
+The security work was a review of the whole project rather than of this
+release's changes, and every finding in it but one predates the release. It is
+written up in `docs/security-review-7.0.3.md`.
 
-- **A TLS floor is raised, never set.** Ten places assigned a minimum TLS
-  version instead of raising it, so on a server hardened to TLS 1.3 the setting
-  quietly undid the hardening. Eight are fixed — both server contexts, all three
-  agents, the satellite, the scanner and the key server. Two stay as they are,
-  each with its reason recorded: an appliance whose firmware negotiates nothing
-  newer, and one more of the same kind.
+### Monitors
 
-- **Needs-Attention tests could be contaminated by their neighbours.** The
-  helper that isolates the digest's inputs derived its list from one function
-  body, and the digest reaches six more stores through helpers it calls. It
-  walks the call graph now.
+- **A monitor no longer reads a bot challenge as "host down".** A monitor
+  pointed at a site behind a bot filter reported a failure forever while the
+  same URL loaded fine in a browser. Two separate causes, both in how
+  RemotePower makes the request: it identified itself with the Python default
+  rather than its own name, and it was putting an older TLS version back on the
+  wire. Probes send `RemotePower/<version>` now and raise the TLS floor rather
+  than setting it.
+
+- **A refused probe says who refused it.** A bare `403` reads exactly like a
+  host that is down, and sends you to an origin log with nothing in it because
+  the request never arrived. When the response says an edge refused it, the
+  monitor's error says so. When it does not, you get the status and no guess —
+  a message that cannot tell two causes apart should not name one.
+
+- **A failed probe names the failure.** `error` has become the exception class,
+  because a DNS failure, a refused connection and a timeout are three different
+  problems with three different first moves.
+
+### Security
+
+Fourteen issues, all caught before release, all fixed here. The full write-up is
+in `docs/security-review-7.0.3.md`; the short version:
+
+- **A TLS floor is raised, never set.** Of eleven places that pin a minimum TLS
+  version, ten assigned it, so a host hardened to TLS 1.3 was quietly handed a
+  context that would still speak 1.2. Eight are fixed — both server contexts,
+  all three agents, the satellite, the scanner and the key server. Two stay as
+  they are, each with its reason recorded: appliances whose firmware negotiates
+  nothing newer.
+
+- **The web terminal checks the host's SSH key before sending your password.**
+  It connected with host-key checking off, and password authentication happens
+  after the key exchange — so anything able to answer on that address received
+  the password. The fingerprints needed to verify it have been collected with
+  every heartbeat since v6.1.2 and were consulted by nothing.
+
+- **Three ways one tenant could reach another**, on installs with tenancy
+  enabled: an identity-provider group could promote an existing default-tenant
+  account to platform operator; generating a runbook sent every tenant's host
+  names to the configured model provider; and the accepted-risk list for
+  vulnerabilities had no tenant dimension at all, so a fleet-wide entry silenced
+  a CVE for everyone.
+
+- **Two agent channels ran commands as root in read-only mode.** Backup
+  verification and restore drills were not on the list of channels that honour
+  `audit-mode`, and the repository path they hand to `restic`, `borg` or `tar`
+  had no validation.
+
+- **An API token could ride a redirect.** The Model Context Protocol client sent
+  it in two headers through an opener that follows redirects; four sidecar
+  clients were on the same opener.
+
+- Plus four smaller ones: a check-in token compared in non-constant time, a
+  playbook endpoint that read two stores before authenticating, a credential
+  count that spanned tenants, and an installer that exposed its shared secret
+  twice.
+
+### Things that were broken and looked fine
+
+- **The API reference returned 403 on every install.** A rule that blocks stray
+  `.json` files in the web root is a regular-expression location, and in nginx a
+  regular expression outranks an ordinary prefix — so it, and not the API
+  prefix, answered `/api/openapi.json`. In the container image it also blocked
+  the web-app manifest and every JSON asset under `/static/`.
+
+- **SAML metadata advertised an endpoint that does not exist.** Anyone who set
+  up single sign-on by following the documentation had their assertions posted
+  into a 404. The in-app hint has always shown the right one.
+
+- **Thirty-one alerts computed the answer to their own question and hid it.**
+  The inbox row renders whatever the alert stored, and these stored none of it:
+  ECC alerts showed neither the correctable nor the uncorrectable count, so
+  "watch this" and "replace the DIMM" looked identical; a certificate expiry
+  showed no days remaining; a break-glass credential access recorded no actor
+  and no reason; predictive alerts fired with the prediction stripped out.
+
+- **The printable report dropped two sections it offers.** Tick "SLA / uptime",
+  and the server measured thirty days of fleet uptime and the document said
+  nothing about it. Same for Needs-attention. "Security posture" had no label,
+  so its checkbox showed a raw slug.
+
+- **Windows and macOS hosts answered "unknown" to three security questions.**
+  Firewall, disk encryption and automatic updates are reported by all three
+  agents under different keys. The Checks page and the risk score read all
+  three; the Data Explorer, the Fleet Query facets and the printable report read
+  only the Linux one — so "which hosts have no firewall" silently excluded every
+  Windows and macOS host, and on a Windows-heavy fleet the report printed no
+  posture section at all.
+
+### Translation
+
+- **Thirty-seven more server-provided strings are translated.** Every ACME DNS
+  credential field label and hint — the whole Settings → DNS pane for eleven
+  providers — plus the app catalog descriptions and the billing rate-card
+  labels. Two stay in English with their reason recorded: an example URL and a
+  list of literal endpoint values, where a translation would be wrong.
+
+- Six dictionary entries were dead, four of them pointing at a documentation
+  file deleted two releases ago. They duplicated correct entries, and which one
+  rendered was down to file order.
+
+### Under the hood
+
+- **A test helper reported isolation it was not providing.** The Needs-Attention
+  digest reads six stores through helpers it calls, and the guard that keeps the
+  isolation list current read only the digest's own body. It walks the call
+  graph now.
+- A test module that seeds a fixture directory left it as everyone's scratch
+  space, so modules imported after it wrote into the fixture its own assertions
+  read back.
+- The accessibility sweep audited pages mid-animation and reported contrast
+  failures that were an artefact of the fade rather than the palette.
+- `tools/bump_version.py` stamped the cache-bust in `index.html` alone, leaving
+  five other pages on the previous version at every release.
+- The JavaScript correctness rules now run over the bundle. They found a
+  function reassigned over itself nine thousand lines below its own declaration.
 
 ## v7.0.2 — "Prec3dentMatters" — 2026-08-23
 

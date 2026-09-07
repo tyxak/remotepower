@@ -234,7 +234,7 @@ what the enumeration passes are for, and it is why "the scans are green" is
 reported here as a fact rather than as reassurance.
 
 Each of the scanners was given a control before its result was believed: semgrep
-was run against a deliberately unsafe file and reported it, the JavaScript rule
+was run against a file written to be unsafe and reported it, the JavaScript rule
 set carries a file containing one of each defect it looks for, and the
 undefined-name checks fail if a planted undefined call is not reported.
 
