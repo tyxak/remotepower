@@ -106,6 +106,24 @@ in `docs/security-review-7.0.3.md`; the short version:
   Windows and macOS host, and on a Windows-heavy fleet the report printed no
   posture section at all.
 
+### Prometheus
+
+- **Ten more metric families, all of them already collected.** The exporter
+  emitted four per-host numbers — CPU, memory, disk and pending packages — out
+  of about fifteen the agents send and the device drawer already shows. Swap,
+  one-minute load, file-descriptor and connection-tracking usage, and counts of
+  failed units and mount issues are exported now, so an alert rule can be
+  written on any of them.
+
+  The three denominators come with them, in base units: without
+  `cpu_count`, `memory_total_bytes` and `disk_total_bytes` a dashboard can say
+  "72% of disk" and never "180 GB of 250 GB".
+
+  And `custom_metrics` — the numbers an operator pushes from their own hosts
+  through the textfile collector — reaches Prometheus as
+  `remotepower_device_custom_metric`. Exporting it is the reason to collect it,
+  and it had been going to the device drawer and stopping there.
+
 ### Translation
 
 - **Thirty-seven more server-provided strings are translated.** Every ACME DNS

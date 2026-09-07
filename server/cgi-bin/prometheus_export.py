@@ -211,6 +211,80 @@ def generate_metrics(ctx: dict) -> str:
         lambda d: (d.get('sysinfo') or {}).get('disk_percent'),
     )
 
+    # ── v7.0.3: the rest of the per-host scalars ───────────────────────────────
+    # The three above were the whole per-host numeric export. Everything below is
+    # already collected by every agent, already stored, and already rendered in
+    # the device drawer — it just never reached Prometheus, so a Grafana user
+    # could alert on CPU and not on swap, and could not draw a single absolute
+    # figure because none of the denominators were exported.
+    for _name, _help, _key in (
+        ('remotepower_device_swap_percent', 'Swap utilization percentage.',
+         'swap_percent'),
+        ('remotepower_device_loadavg_1m', 'One-minute load average.',
+         'loadavg_1m'),
+        ('remotepower_device_fd_percent',
+         'Open file descriptors as a percentage of the limit.', 'fd_percent'),
+        ('remotepower_device_conntrack_percent',
+         'Connection-tracking table usage as a percentage of the limit.',
+         'conntrack_percent'),
+        # The denominators. Without them a dashboard can show "72% of disk" and
+        # never "180 GB of 250 GB", which is the figure a person acts on.
+        ('remotepower_device_cpu_count', 'Logical CPUs.', 'cpu_count'),
+        ('remotepower_device_memory_total_bytes', 'Total physical memory.',
+         'mem_total_mb'),
+        ('remotepower_device_disk_total_bytes', 'Total root filesystem size.',
+         'disk_total_gb'),
+    ):
+        _scale = (1024 * 1024 if _key == 'mem_total_mb'
+                  else 1024 ** 3 if _key == 'disk_total_gb' else 1)
+
+        def _extract(d, _k=_key, _s=_scale):
+            v = (d.get('sysinfo') or {}).get(_k)
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                return None
+            return v * _s
+
+        _emit_metric_family(lines, devices, _name, _help, _extract)
+
+    # Counts of things that are wrong, so an alert rule can be written on them
+    # without scraping a page. `failed_units` and `mount_issues` are lists in
+    # sysinfo; a length is the only useful scalar.
+    for _name, _help, _key in (
+        ('remotepower_device_failed_units',
+         'systemd units in a failed state.', 'failed_units'),
+        ('remotepower_device_mount_issues',
+         'Mount points reporting a problem.', 'mount_issues'),
+    ):
+        def _extract_len(d, _k=_key):
+            v = (d.get('sysinfo') or {}).get(_k)
+            return len(v) if isinstance(v, list) else None
+
+        _emit_metric_family(lines, devices, _name, _help, _extract_len)
+
+    # ── The operator's own textfile-collector values ───────────────────────────
+    # `custom_metrics` exists so an operator can push a number of their own from
+    # a host. Exporting it is the entire point of collecting it, and it was
+    # reaching the device drawer and nothing else. Keyed by metric name, so one
+    # family carries all of them.
+    lines.append('# HELP remotepower_device_custom_metric '
+                 'Operator-defined metric reported by the agent.')
+    lines.append('# TYPE remotepower_device_custom_metric gauge')
+    for dev_id, d in devices.items():
+        cm = (d.get('sysinfo') or {}).get('custom_metrics')
+        if not isinstance(cm, dict):
+            continue
+        for mname, mval in sorted(cm.items())[:64]:
+            if isinstance(mval, dict):
+                mval = mval.get('value')
+            if not isinstance(mval, (int, float)) or isinstance(mval, bool):
+                continue
+            lines.append(_metric(
+                'remotepower_device_custom_metric',
+                {'device': dev_id, 'name': d.get('name', dev_id),
+                 'group': d.get('group', ''), 'metric': str(mname)[:64]},
+                mval,
+            ))
+
     # Patch counts
     lines.append('# HELP remotepower_device_upgradable_packages Pending package upgrades.')
     lines.append('# TYPE remotepower_device_upgradable_packages gauge')
