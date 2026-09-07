@@ -137,6 +137,21 @@ in `docs/security-review-7.0.3.md`; the short version:
   reliability score already weights them, and one hardware fault counted by two
   scores makes both numbers wrong rather than either one better.
 
+### Remote desktop
+
+- **noVNC 1.5.0 → 1.7.0, and a test that can see it work.** The bump was
+  written down as deferred earlier in this cycle, with the reason: nothing in
+  the suite drove the VNC console, and a viewer you cannot watch work is how a
+  blank page ships. So the test came first.
+
+  It plays a real VNC server against the vendored files — the full RFB 3.8
+  handshake, then a framebuffer rectangle in whatever pixel format the viewer
+  asks for, read back off the canvas — and drives every call the app makes
+  against the library. It passed against the shipped 1.5.0 before the bump,
+  which is what made it a measurement rather than a hope. On 1.7.0 the whole
+  thing passes unchanged: same handshake, same geometry, same painted
+  rectangle, clean console.
+
 ### Compliance
 
 - **Four things you already collect became evidence.** Each had a page, an

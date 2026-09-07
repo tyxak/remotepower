@@ -70,13 +70,30 @@ properly on the next update.
   error and rendered nothing — so the pins are doing work rather than decorating
   the tag.
 
-- **noVNC 1.5.0 → 1.7.0 — NOT DONE, and recorded rather than left implicit.**
-  Two minor versions with no advisory against either. The VNC console tunnels
-  RFB over the existing SSH connection, and nothing in the suite drives it — the
-  xterm bump earned its confidence from
-  `tests/test_v643_vendored_terminal_boots.py`, and noVNC has no equivalent. A
-  bump with no way to see it work is how the blank Swagger page shipped. The
-  honest order is a boot test first, then the bump.
+- **noVNC 1.5.0 → 1.7.0 — DONE, in that order.** This was recorded as deferred
+  earlier in the cycle for a reason: nothing in the suite drove the VNC console,
+  and a bump you cannot watch work is how the blank Swagger page shipped. So the
+  boot test came first — `tests/test_v703_vendored_vnc_boots.py`, which plays a
+  real RFB 3.8 server against the vendored files and drives every call
+  `app-remote.js` makes: the module's default export, the raw-channel
+  `new RFB(target, channel, {})` form, the viewport setters, all four event
+  listeners, `sendCredentials` and `disconnect`. It passed against the shipped
+  1.5.0 first, which is what made it a measurement rather than a hope, and it
+  was demonstrated failing by mutating the library two ways.
+
+  Then the bump: `core/` and `vendor/pako/` replaced from the v1.7.0 tag,
+  LICENSE.txt with them. Two new decoders arrive (`h264.js`, `zlib.js`); pako is
+  byte-identical. No SRI pin to recompute — the viewer is a dynamic ES-module
+  import, same-origin under `script-src 'self'`, which
+  `tests/test_v232.py::test_the_unpinnable_novnc_path_is_still_the_only_one`
+  holds to that one path. The whole boot test passes unchanged on 1.7.0: same
+  handshake, same canvas geometry, same painted rectangle, clean console.
+
+  A trap worth keeping, found writing the harness: pushing the server's reply
+  synchronously from `send()` re-enters noVNC's receive handler mid-compaction
+  and the bytes vanish, leaving the client stuck in state `Security`. That reads
+  exactly like a library that stopped speaking RFB — it was the probe. Defer the
+  push; a real socket is never re-entrant.
 
 - xterm.js 6.0.0 and addon-fit 0.11.0 are the current upstream releases. fonts
   and qrcode-generator: unchanged, no security-relevant update.
@@ -92,7 +109,7 @@ the same reason the AUR publication now has `tools/aur-status.sh`.
 
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
-| `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
+| `novnc/` | noVNC | 1.7.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
 | `swagger-ui/` | Swagger UI | 5.32.15 (SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
 | `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 6.0.0 (`@xterm/xterm@6.0.0`; SRI-pinned in `app-remote.js`) | https://github.com/xtermjs/xterm.js | Web terminal |
