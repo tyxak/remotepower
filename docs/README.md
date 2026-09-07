@@ -61,17 +61,15 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.4.2.md](security-review-6.4.2.md)** — the
- v6.4.2 "Ver1tyMatters" pass. Unlike the passes before it, this one found real
- defects rather than confirming their absence, and all of them are fixed in the
- release: configuration secrets that stopped being encrypted at rest on one write
- path, a privacy control that did not redact compressed IPv6 addresses, an
- access-control gate applied to one endpoint and not its sibling (patch/SBOM
- exports, standalone retrieval, the Tuning mute list), a webhook signature that
- could not support the replay protection the documentation promised, and an
- export that did not neutralise spreadsheet formula cells — plus a set of
- monitoring controls that were evaluating nothing, and the concurrency defects
- behind a lost device row and a reverted security setting.
+- **[security-review-7.0.3.md](security-review-7.0.3.md)** — the v7.0.3
+  "C4useMatters" pass: fourteen issues, again a whole-project review rather than
+  a diff. Three ways one tenant could reach another; a browser terminal that
+  sent the operator's SSH password to a host it had not verified, while the
+  fingerprints to verify it with were already on file; two agent channels that
+  ran commands as root in read-only mode; an API token that could ride a
+  redirect; and the API reference returning 403 on every install because a
+  regular-expression rule in the web-server configuration outranked the API
+  prefix.
 - **[security-review-7.0.2.md](security-review-7.0.2.md)** — the v7.0.2
   pre-release review: thirty-six issues, a whole-project pass rather than a
   diff, and two guards found to be blind.

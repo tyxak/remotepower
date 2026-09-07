@@ -59,19 +59,23 @@ trade-offs in the open — opt-in legacy ciphers for appliances that offer nothi
 else, and the availability coupling that makes it a mistake to unlock a
 machine's storage against a KMIP server that machine hosts.
 
-The current pass is [security-review-7.0.2.md](security-review-7.0.2.md) for
-**v7.0.2**, which reviewed the whole project rather than the release diff — the
-previous release having taught that the diff is the wrong unit. It found thirty-six
-issues, most of them the same shape: a rule this codebase already applies in most
-places, missed in one or two. Multi-tenancy was applied to the settings READ path
-and not the write path; to auto-patch policies and not to the maintenance windows
-they generate. Two of three agents refused an unsigned update. Four of eight
-Windows posture fields reached a screen. It also repaired two guards found to be
-blind — an accessibility sweep that had been reporting success while running
-nothing, and a demo instance seeded in shapes no agent produces, which is what
-the rendered checks measure.
-[security-review-7.0.0.md](security-review-7.0.0.md) and
-[security-review-6.4.2.md](security-review-6.4.2.md) are the two kept before it.
+The current pass is [security-review-7.0.3.md](security-review-7.0.3.md) for
+**v7.0.3**, a whole-project review rather than a diff — every finding in it
+except one predates the release it shipped in. It found fourteen issues, most of
+them the same shape as last time: a rule this codebase already applies in most
+places, missed in one or two. Every outbound client that carries a credential
+refuses redirects, except one. Every channel that can change a host honours
+read-only mode, except two. Every surface reporting a host's security posture
+reads all three operating systems, except three.
+
+Two are worth calling out. The browser terminal connected with SSH host-key
+checking off and then sent the operator's password, while the fingerprints
+needed to verify the host had been collected with every heartbeat since v6.1.2
+and consulted by nothing. And the API reference returned 403 on every install,
+because a rule meant to stop a stray data file being served outranked the API
+prefix in the web server's matching order.
+[security-review-7.0.2.md](security-review-7.0.2.md) and
+[security-review-7.0.0.md](security-review-7.0.0.md) are the two kept before it.
 Each found real defects, and every one of them is fixed before the release goes
 out.
 Configuration secrets stopped being encrypted at rest on one write path; the AI
@@ -141,7 +145,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-6.4.2.md) files.
+[`security-review-*.md`](security-review-7.0.3.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -209,7 +213,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-7.0.0.md](security-review-7.0.0.md).
+summarised in the latest, [security-review-7.0.3.md](security-review-7.0.3.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, Semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most
 recent full run reported **no exploitable findings** (see *Security testing*
@@ -392,7 +396,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.4.2.md](security-review-6.4.2.md)).
+  [security-review-7.0.2.md](security-review-7.0.2.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
