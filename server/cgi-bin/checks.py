@@ -73,20 +73,26 @@ def posture_flags(si):
         return None
 
     return {
-        "disk_encrypted": _first_bool(de.get("encrypted"), wp.get("bitlocker"),
-                                      mp.get("filevault")),
+        "disk_encrypted": _first_bool(
+            de.get("encrypted"), wp.get("bitlocker"), mp.get("filevault")
+        ),
         # `firewall.active` is the agent's OWN tri-state: any READABLE backend
         # active, None when every probe was unreadable. Prefer it — the Data
         # Explorer recomputed it as `any(b['active'] for b in backends)`, which
         # turns a host whose probes all failed into a confident "no firewall".
         # Fall back to deriving it, tri-state intact, for a payload that
         # carries backends without the rollup.
-        "firewall_active": _first_bool(fw.get("active"),
-                                       _backends_active(fw.get("backends")),
-                                       wp.get("firewall"), mp.get("firewall")),
+        "firewall_active": _first_bool(
+            fw.get("active"),
+            _backends_active(fw.get("backends")),
+            wp.get("firewall"),
+            mp.get("firewall"),
+        ),
         "autoupdate_enabled": _first_bool(
             (au.get("enabled") if isinstance(au.get("enabled"), bool) else None),
-            wp.get("wu_service"), mp.get("auto_security_update")),
+            wp.get("wu_service"),
+            mp.get("auto_security_update"),
+        ),
     }
 
 
