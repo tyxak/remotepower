@@ -53,6 +53,34 @@ properly on the next update.
   nothing.
 - noVNC 1.5.0, qrcode-generator, fonts: current / no security-relevant update.
 
+## v7.0.3 — 2026-09-07
+
+- **swagger-ui 5.32.13 → 5.32.15 — DONE.** Two upstream patch releases since the
+  last bump; the one that matters raises the bundled `js-yaml` past a security
+  advisory. Same procedure as last time: files replaced, **both SRI hashes
+  recomputed** from the new bytes, and the page booted in a real Chromium.
+
+  Verified in both directions, because "it rendered" on its own proves less than
+  it looks. The harness first reported **zero operations** — and reported zero
+  for the SHIPPED 5.32.13 files too, which is what identified the harness rather
+  than the bundle: `swagger-init.js` shows a "log in first" panel unless a token
+  is in storage, so nothing ever fetched the spec. With a token: five operations
+  render, the stylesheet applies, the console is clean. Then the pin was
+  corrupted on purpose and the browser refused the bundle with an integrity
+  error and rendered nothing — so the pins are doing work rather than decorating
+  the tag.
+
+- **noVNC 1.5.0 → 1.7.0 — NOT DONE, and recorded rather than left implicit.**
+  Two minor versions with no advisory against either. The VNC console tunnels
+  RFB over the existing SSH connection, and nothing in the suite drives it — the
+  xterm bump earned its confidence from
+  `tests/test_v643_vendored_terminal_boots.py`, and noVNC has no equivalent. A
+  bump with no way to see it work is how the blank Swagger page shipped. The
+  honest order is a boot test first, then the bump.
+
+- xterm.js 6.0.0 and addon-fit 0.11.0 are the current upstream releases. fonts
+  and qrcode-generator: unchanged, no security-relevant update.
+
 ## Re-verified for v7.0.0 — 2026-08-14
 
 No changes needed. Every pinned version in the table below still matches the
@@ -65,7 +93,7 @@ the same reason the AUR publication now has `tools/aur-status.sh`.
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
-| `swagger-ui/` | Swagger UI | 5.32.13 (bundles DOMPurify 3.4.13; SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
+| `swagger-ui/` | Swagger UI | 5.32.15 (SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
 | `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 6.0.0 (`@xterm/xterm@6.0.0`; SRI-pinned in `app-remote.js`) | https://github.com/xtermjs/xterm.js | Web terminal |
 | `xterm-addon-fit/` | xterm fit addon | 0.11.0 (`@xterm/addon-fit@0.11.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |
