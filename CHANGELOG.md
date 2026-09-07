@@ -106,6 +106,37 @@ in `docs/security-review-7.0.3.md`; the short version:
   Windows and macOS host, and on a Windows-heavy fleet the report printed no
   posture section at all.
 
+### Risk score
+
+- **Five more signals your hosts already report.** Each was collected,
+  persisted, and shown on a page — and moved the risk number by nothing.
+
+  **UEFI Secure Boot** off now scores, read from both the Linux and the Windows
+  agent. Off scores; never reported does not, because a machine that boots
+  without UEFI is telling you nothing.
+
+  **A canary file the agent could not place.** You configured a honeytoken and
+  the host has none — a decoy on your settings page and no decoy on disk. A
+  canary that found a real file already at that path is watching it for change
+  instead, and that is not scored: weaker than a honeytoken, but not a gap.
+
+  **Files the integrity guard has quarantined**, **failed systemd timers**, and
+  **your own custom checks**. A failed timer is scored apart from a failed unit
+  on purpose: when the timer cannot fire, the unit it starts is simply never
+  started, so it still looks fine while a backup or a scan goes quiet.
+
+  Custom checks go through the same evaluator the Checks page uses — per-device
+  assignment, the disabled list, an accepted baseline — so a check cannot read
+  one way on that page and another in the score. A warning counts half a
+  critical, and the total is capped.
+
+  All five weights are tunable on Settings → Alert parameters like the rest, and
+  0 switches one off.
+
+  ECC memory counters were the sixth candidate and are left alone: the
+  reliability score already weights them, and one hardware fault counted by two
+  scores makes both numbers wrong rather than either one better.
+
 ### Data Explorer
 
 - **Five more entities to ask about.** The page could query devices, CVEs and

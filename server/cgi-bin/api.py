@@ -49812,12 +49812,26 @@ _RISK_WEIGHTS = {
     # a real exposure but a narrower one than no firewall at all.
     'ssh_weak': 10,          # root/password/empty-password/X11 SSH permitted
     'autoupdate_off': 6,     # no automatic security updates
+    # v7.0.3: five more signals the agents already report and safe_si already
+    # persists, each read by a page or a check and by no score. ECC counters
+    # were the sixth candidate and are left alone on purpose -- the RELIABILITY
+    # score already weights them, and a hardware fault counted twice makes both
+    # numbers wrong rather than one of them better.
+    'secure_boot_off': 6,      # UEFI Secure Boot reported OFF
+    'canary_not_armed': 6,     # a configured honeytoken could not be planted
+    'files_quarantined': 8,    # the integrity guard has quarantined files here
+    'timer_failed': 3,         # systemd timers (scheduled jobs) in a failed state
+    'custom_check_failed': 5,  # the operator's own checks, failing
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
               'mount_issue': 24, 'storage_degraded': 24, 'smart_failure': 24,
               'failed_units': 15, 'config_drift': 12,
-              'image_cves': 16, 'secrets_exposed': 20, 'cve_kev': 36}
+              'image_cves': 16, 'secrets_exposed': 20, 'cve_kev': 36,
+              # v7.0.3: the counted ones. A host with forty failing custom
+              # checks is in trouble, but not forty times a host with one.
+              'files_quarantined': 24, 'timer_failed': 12,
+              'custom_check_failed': 20}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -49861,7 +49875,8 @@ def _risk_level(score):
 def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
-                 patch_sla_breach=None, drift_rec=None):
+                 patch_sla_breach=None, drift_rec=None, custom_defs=None,
+                 checks_disabled=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -50145,6 +50160,74 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('patch_sla_breach', w['patch_sla_breach'],
              str(patch_sla_breach)[:120] if isinstance(patch_sla_breach, str)
              else 'pending updates past the patch SLA')
+
+    # ── v7.0.3: five more signals already collected and scored nowhere ──────
+    # Secure Boot. Read from BOTH producers, the same way _qe_device_posture
+    # does -- the Linux agent reports it from the EFI variable and the Windows
+    # agent under win_posture. Tri-state: score only an explicit False. A host
+    # that never told us is not a host that told us bad news, and a BIOS
+    # (non-UEFI) machine legitimately reports nothing at all.
+    _wp = si.get('win_posture') if isinstance(si.get('win_posture'), dict) else {}
+    _sb = next((v for v in (si.get('secure_boot'), _wp.get('secure_boot'))
+                if isinstance(v, bool)), None)
+    if _sb is False:
+        _add('secure_boot_off', w['secure_boot_off'], 'UEFI Secure Boot is off')
+
+    # Canary files. `failed` means the agent could not PLANT the decoy and says
+    # why -- so the operator has a honeytoken on their settings page and nothing
+    # on the host. `watching` is not scored: a real file was already at that
+    # path, so it is being monitored for change, which is a weaker thing than a
+    # honeytoken but not a gap.
+    _cf = [c for c in (si.get('canary_status') or [])
+           if isinstance(c, dict) and c.get('state') == 'failed']
+    if _cf:
+        _add('canary_not_armed', w['canary_not_armed'],
+             f'{len(_cf)} configured canary file(s) could not be placed')
+
+    # Integrity Guard quarantine. The ledger is cumulative, so this is "this
+    # host has had files quarantined", not "is under attack right now" -- worth
+    # points either way, since nothing else moves the number when it happens.
+    _gq = [e for e in (si.get('guard_quarantine') or []) if isinstance(e, dict)]
+    if _gq:
+        _add('files_quarantined',
+             min(_RISK_CAPS['files_quarantined'], len(_gq) * w['files_quarantined']),
+             f'{len(_gq)} file(s) quarantined by the integrity guard')
+
+    # Failed systemd TIMERS. Distinct from failed_units above: a timer that
+    # cannot fire means a scheduled job -- a backup, a scan, a rotation -- is
+    # silently not running, and the unit it activates looks fine because it is
+    # simply never started.
+    _tf = [t for t in (si.get('timers') or [])
+           if isinstance(t, dict) and t.get('failed')]
+    if _tf:
+        _names = ', '.join(t.get('unit', '?') for t in _tf[:3])
+        _add('timer_failed',
+             min(_RISK_CAPS['timer_failed'], len(_tf) * w['timer_failed']),
+             f'{len(_tf)} failed scheduled job/timer ({_names})')
+
+    # The operator's OWN checks. Evaluated through checks._custom_checks_for
+    # rather than re-read here, so the Checks page and the risk score cannot
+    # disagree about the same host -- it applies the per-device assignment
+    # rules, the disabled list and the accepted-baseline suppression, none of
+    # which a second implementation would have. Both agent-evaluated types
+    # (file/job/log) and server-evaluated ones (process/port) are covered,
+    # because that helper reads only the sysinfo already in hand.
+    if custom_defs:
+        try:
+            _cc = checks_mod._custom_checks_for(dev_id, dev, custom_defs,
+                                                set(checks_disabled or ()))
+        except Exception:
+            _cc = []
+        _crit = [c for c in _cc if c.get('enabled') and c.get('status') == 'critical']
+        _warn = [c for c in _cc if c.get('enabled') and c.get('status') == 'warning']
+        if _crit or _warn:
+            _pts = ((len(_crit) * w['custom_check_failed'])
+                    + (len(_warn) * max(1, w['custom_check_failed'] // 2)))
+            _first = (_crit or _warn)[0].get('name', '?')
+            _add('custom_check_failed',
+                 min(_RISK_CAPS['custom_check_failed'], _pts),
+                 f'{len(_crit)} critical / {len(_warn)} warning custom check(s)'
+                 f' ({_first})')
 
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
@@ -50668,6 +50751,12 @@ def _compute_fleet_risk():
     except Exception:
         ttl = 180
     weights = _risk_weights()   # hoist the config read out of the per-device loop
+    # v7.0.3: the operator's own checks, hoisted the same way -- both reads are
+    # per-FLEET, and doing them inside the loop would re-read the config once
+    # per host for a value that cannot change mid-sweep.
+    _cfg_ro = _config_ro()
+    _custom_defs = _cfg_ro.get('custom_checks') or []
+    _checks_disabled = _cfg_ro.get('host_checks_disabled') or {}
     # Drift state is its own store (never on the device record), so the
     # config_drift factor needs it threaded in like hw_rec. Read once.
     _drift_all = _drift_state_ro()
@@ -50709,7 +50798,9 @@ def _compute_fleet_risk():
                                 backup_stale=stale_backups.get(dev_id) or [],
                                 secrets_rec=secrets.get(dev_id) or {},
                                 patch_sla_breach=sla_detail.get(dev_id),
-                                drift_rec=_drift_all.get(dev_id) or {}))
+                                drift_rec=_drift_all.get(dev_id) or {},
+                                custom_defs=_custom_defs,
+                                checks_disabled=_checks_disabled.get(dev_id) or []))
     out.sort(key=lambda r: -r['score'])
     return out
 

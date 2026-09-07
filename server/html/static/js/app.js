@@ -22267,6 +22267,8 @@ const _SCORE_WEIGHT_DEFAULTS = [
     av_bad: 12, cve_kev: 12, image_cves: 4, backup_stale: 8, secrets_exposed: 10,
     patch_sla_breach: 5, encryption_off: 12,
     ssh_weak: 10, autoupdate_off: 6,
+    secure_boot_off: 6, canary_not_armed: 6, files_quarantined: 8,
+    timer_failed: 3, custom_check_failed: 5,
   }],
   ['ap-lw-', 'reliability_weight_', {
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,
