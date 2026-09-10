@@ -208,7 +208,9 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   still speak 1.2. Eight are fixed across the server, all three agents, the
   satellite, the scanner and the key server; the two left are appliances whose
   firmware negotiates nothing newer, each with its reason recorded. The web
-  terminal also verifies a host's SSH key before sending your password.
+  terminal also verifies a host's SSH key before sending your password, and the
+  Data Explorer, risk score, compliance checklist and Prometheus exporter now
+  use signals the agents were already sending.
 - **v7.0.2 "Prec3dentMatters"** — the autonomy loop refused everything it looked
   at, and each reason named a cause it did not have. Precedent could only come
   from an AI verdict, so a fleet whose incidents people fix scored lower than one

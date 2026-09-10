@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-25">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-26">
 
 </head>
 <body>
@@ -4745,7 +4745,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.0.3 c4usematters monitor monitors host down site down false down cloudflare cloudflare 403 403 forbidden bot fight mode browser integrity check cf-mitigated challenge managed challenge waf edge user-agent user agent python-urllib urllib default user agent probe http probe https probe tls ssl minimum_version minimum tls tls floor tls 1.2 tls 1.3 minprotocol openssl.cnf system_default hardened host hardening undone lowered downgrade ja3 ja4 fingerprint clienthello handshake certificate verify verify_tls self-signed appliance routeros opnsense seclevel legacy firmware ssl context create_default_context agent satellite scanner kmip key server listening socket needs attention digest attention isolation test flake order dependent shared data dir drift state reliability rollup cache openapi.json api reference 403 swagger nginx location regex manifest.json saml acs assertion consumer service metadata sso 404 identity provider ecc errors correctable uncorrectable dimm certificate expiry days left break glass vault requester reason predictive alert eta days saturation report sla uptime needs attention posture section printable pdf windows macos firewall bitlocker filevault disk encryption automatic updates data explorer fleet query facet acme dns credential translated six languages ssh host key known_hosts fingerprint web terminal password tenant isolation cross-tenant runbook model provider cve accepted risk audit mode backup verify restore drill redirect token mcp">
+          <details class="doc-card" open data-keywords="release notes changelog v7.0.3 c4usematters monitor monitors host down site down false down cloudflare cloudflare 403 403 forbidden bot fight mode browser integrity check cf-mitigated challenge managed challenge waf edge user-agent user agent python-urllib urllib default user agent probe http probe https probe tls ssl minimum_version minimum tls tls floor tls 1.2 tls 1.3 minprotocol openssl.cnf system_default hardened host hardening undone lowered downgrade ja3 ja4 fingerprint clienthello handshake certificate verify verify_tls self-signed appliance routeros opnsense seclevel legacy firmware ssl context create_default_context agent satellite scanner kmip key server listening socket needs attention digest attention isolation test flake order dependent shared data dir drift state reliability rollup cache openapi.json api reference 403 swagger nginx location regex manifest.json saml acs assertion consumer service metadata sso 404 identity provider ecc errors correctable uncorrectable dimm certificate expiry days left break glass vault requester reason predictive alert eta days saturation report sla uptime needs attention posture section printable pdf windows macos firewall bitlocker filevault disk encryption automatic updates data explorer fleet query facet acme dns credential translated six languages ssh host key known_hosts fingerprint web terminal password tenant isolation cross-tenant runbook model provider cve accepted risk audit mode backup verify restore drill redirect token mcp risk score secure boot canary honeytoken quarantine failed timer custom check compliance evidence openscap usg benchmark sudo privileged command pii regulated data dmarc spf dkim not assessed data explorer packages ports listening services containers alerts flapping exposure scope prometheus metrics swap load conntrack file descriptors custom_metric novnc vnc console jellyfin 10.12 x-emby-token 401">
             <summary><strong>What's new — v7.0.3 &ldquo;C4useMatters&rdquo;</strong> &mdash; three failures that named the wrong cause: a monitor that read a bot challenge as &ldquo;host down&rdquo;, a TLS floor that lowered one, and a test helper that reported isolation it was not providing.</summary>
             <div class="doc-body">
               <p><strong>A monitor reported a bot challenge as &ldquo;host down&rdquo;.</strong> A monitor aimed at a site behind Cloudflare failed continuously while the same URL loaded fine in a browser. Two independent causes, both in how RemotePower makes the request. It introduced itself as <code>Python-urllib</code>, which a Browser Integrity Check refuses before the request ever reaches your origin — so the origin&rsquo;s access log has nothing in it to explain the failure. Probes send <code>RemotePower/&lt;version&gt;</code> now, the same name every other outbound call already used.</p>
@@ -4755,6 +4755,7 @@
               <p><strong>Fourteen security issues, all caught before release.</strong> The browser terminal connected with SSH host-key checking off and then sent your password — while the fingerprints needed to verify the host had been collected with every heartbeat since v6.1.2 and consulted by nothing. Three ways one tenant could reach another on installs with tenancy enabled, including an identity-provider group that could promote an existing account to platform operator. Two agent channels that ran commands as root while read-only mode was on. An API token that could be replayed across a redirect. The write-up is <code>docs/security-review-7.0.3.md</code>.</p>
               <p><strong>Thirty-one alerts computed the answer to their own question and hid it.</strong> An ECC alert showed neither the correctable nor the uncorrectable count, so &ldquo;keep an eye on this&rdquo; and &ldquo;replace the DIMM now&rdquo; looked the same; a certificate expiry showed no days remaining; a break-glass credential access recorded no actor and no reason; and the predictive alerts fired with the prediction stripped out. Separately, the <strong>printable report</strong> dropped two sections it offers — tick &ldquo;SLA / uptime&rdquo; and the server measured thirty days of fleet uptime while the document said nothing about it.</p>
               <p><strong>Windows and macOS hosts answer three more questions.</strong> Firewall, disk encryption and automatic updates are reported by all three agents under different names. Checks and the risk score always read all three; the Data Explorer, the Fleet Query facets and the printable report read only the Linux one — so a query for hosts without a firewall silently excluded every Windows and macOS host. And <strong>thirty-seven more server-provided strings are translated</strong> in all six languages, including the whole Settings &rarr; DNS credential pane.</p>
+              <p><strong>Signals you already collect, put to work.</strong> The Data Explorer can ask about installed packages, listening ports, watched services, containers and the alerts inbox; a socket carries its exposure scope and a unit its flapping flag. The risk score reads five more signals: Secure Boot off, a canary the agent could not place, quarantined files, failed timers and your own custom checks. The compliance checklist takes OpenSCAP results, the sudo trail, the regulated-data inventory and DMARC as evidence, and a scan that never ran reads Not assessed. Prometheus exports ten more metric families plus your custom metrics. The VNC console runs noVNC 1.7.0, and the Jellyfin connector works with Jellyfin 10.12.</p>
               <p><strong>Isolation that was not isolating.</strong> The Needs-Attention digest reads about two dozen stores, and the helper that keeps its tests from contaminating each other derived that list from one function body. Six stores are reached through helpers it calls, so those six stayed pointed at a shared directory while the list read as complete. The guard walks the call graph now — a population derived from one function body is what went stale, not the rule.</p>
               <p class="hint">See <code>docs/v7.0.3.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
@@ -11839,36 +11840,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.3-25"></script>
+<script defer src="static/js/app.js?v=7.0.3-26"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-containers.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-network.js?v=7.0.3-25"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-containers.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-network.js?v=7.0.3-26"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.3-25"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.3-26"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-dns.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-drift.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-cve.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-backups.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-iac.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-virt.js?v=7.0.3-25"></script>
+<script defer src="static/js/app-ai.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-dns.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-drift.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-cve.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-backups.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-iac.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-virt.js?v=7.0.3-26"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-remote.js?v=7.0.3-25"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.3-25"></script>
+<script defer src="static/js/app-logs.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-remote.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.3-26"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.3-25"></script>
+<script defer src="static/js/app-self.js?v=7.0.3-26"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11878,6 +11879,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.3-25"></script>
+<script defer src="static/js/sw-register.js?v=7.0.3-26"></script>
 </body>
 </html>
