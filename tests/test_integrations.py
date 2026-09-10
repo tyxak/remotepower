@@ -211,6 +211,81 @@ class TestConnectors(unittest.TestCase):
         self.assertEqual(r['metrics']['pending_requests'], 4)
 
 
+class _Jellyfin(I.HTTPClient):
+    """Answers the way Jellyfin's AuthorizationContext picks a token.
+
+    With legacy=False (the 10.12 default) only the Authorization header with the
+    MediaBrowser scheme, or the ApiKey query parameter, carries one. legacy=True
+    (10.11 and earlier) also reads the Emby scheme, X-Emby-Token,
+    X-MediaBrowser-Token and api_key.
+    """
+    def __init__(self, key, legacy=False):
+        super().__init__('http://jf')
+        self.key, self.legacy = key, legacy
+
+    def _token(self, headers, params):
+        headers, params = headers or {}, params or {}
+        scheme, _, rest = headers.get('Authorization', '').partition(' ')
+        schemes = ('mediabrowser', 'emby') if self.legacy else ('mediabrowser',)
+        if scheme.lower() in schemes:
+            for part in rest.split(','):
+                k, _, v = part.strip().partition('=')
+                if k == 'Token':
+                    return v.strip('"')
+        if self.legacy:
+            for name in ('X-Emby-Token', 'X-MediaBrowser-Token'):
+                if headers.get(name):
+                    return headers[name]
+            if params.get('api_key'):
+                return params['api_key']
+        return params.get('ApiKey')
+
+    def request(self, method, path, headers=None, params=None, body=None):
+        if self._token(headers, params) != self.key:
+            return I.Resp(401, '')
+        if path == '/System/Info':
+            return I.Resp(200, json.dumps({'Version': '10.12.0'}))
+        if path == '/Sessions':
+            return I.Resp(200, json.dumps([
+                {'NowPlayingItem': {'Name': 'a'}, 'TranscodingInfo': {'VideoCodec': 'h264'}},
+                {'NowPlayingItem': {'Name': 'b'}},
+                {},
+            ]))
+        return I.Resp(404, '')
+
+
+class TestJellyfinAuth(unittest.TestCase):
+    KEY = '0123456789abcdef0123456789abcdef'
+
+    def test_fake_reproduces_the_legacy_header_401(self):
+        # Control: the fake must refuse the old header with legacy auth off and
+        # accept it with legacy on, or the tests below prove nothing.
+        old = {'X-Emby-Token': self.KEY}
+        self.assertEqual(_Jellyfin(self.KEY).get('/System/Info', headers=old).status, 401)
+        self.assertEqual(_Jellyfin(self.KEY, legacy=True).get('/System/Info', headers=old).status, 200)
+
+    def test_polls_with_legacy_auth_off(self):
+        r = I.poll_instance({'type': 'jellyfin', 'secret': self.KEY}, _Jellyfin(self.KEY))
+        self.assertEqual(r['status'], I.OK, r)
+        self.assertEqual(r['version'], '10.12.0')
+        # /Sessions swallows its own errors, so counts of 0 would hide a 401 there.
+        self.assertEqual(r['metrics'], {'sessions_active': 2, 'transcoding': 1})
+
+    def test_older_server_still_polls(self):
+        r = I.poll_instance({'type': 'jellyfin', 'secret': self.KEY}, _Jellyfin(self.KEY, legacy=True))
+        self.assertEqual(r['status'], I.OK, r)
+
+    def test_key_pasted_with_whitespace(self):
+        r = I.poll_instance({'type': 'jellyfin', 'secret': f' {self.KEY}\n'}, _Jellyfin(self.KEY))
+        self.assertEqual(r['status'], I.OK, r)
+
+    def test_wrong_key_says_so(self):
+        r = I.poll_instance({'type': 'jellyfin', 'secret': 'nope'}, _Jellyfin(self.KEY))
+        self.assertEqual(r['status'], I.CRIT)
+        self.assertIn('401', r['detail'])
+        self.assertIn('API key', r['detail'])
+
+
 # ── api.py wiring ──────────────────────────────────────────────────────────────
 def _load_api():
     os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())

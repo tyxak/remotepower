@@ -35,6 +35,16 @@ written up in `docs/security-review-7.0.3.md`.
   because a DNS failure, a refused connection and a timeout are three different
   problems with three different first moves.
 
+### Integrations
+
+- **The Jellyfin connector works with Jellyfin 10.12.** 10.12 stopped
+  accepting the old `X-Emby-Token` header by default, and that header was how
+  the connector sent its API key, so after the upgrade every poll failed with
+  `HTTP 401 from /System/Info`. The key now goes in the `Authorization` header,
+  which older Jellyfin releases read as well. Your saved key keeps working, so
+  there is nothing to re-enter. A key Jellyfin really rejects now says so in the
+  error.
+
 ### Security
 
 Fourteen issues, all caught before release, all fixed here. The full write-up is

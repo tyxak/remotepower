@@ -1156,11 +1156,22 @@ def _remotepower(inst, c):
     "Jellyfin",
     "media",
     [_field("secret", "API key", PASSWORD)],
-    notes="Jellyfin /System/Info with an API key (X-Emby-Token / api_key).",
+    notes="Jellyfin /System/Info with an API key (Authorization: MediaBrowser Token).",
 )
 def _jellyfin(inst, c):
-    h = {"X-Emby-Token": inst.get("secret", "")}
-    info = c.get_json("/System/Info", headers=h)
+    # Jellyfin 10.12 turned EnableLegacyAuthorization off by default, and with it
+    # the X-Emby-Token / X-MediaBrowser-Token headers and the api_key parameter:
+    # a key sent that way is ignored and every call answers 401. The
+    # Authorization header with the MediaBrowser scheme is read with or without
+    # that flag, and older releases read it too.
+    token = str(inst.get("secret", "")).strip().replace('"', "")
+    h = {"Authorization": f'MediaBrowser Token="{token}"'}
+    r = c.get("/System/Info", headers=h)
+    if r.status == 401:
+        raise IntegrationError("HTTP 401 from /System/Info — Jellyfin rejected the API key")
+    if not r.ok:
+        raise IntegrationError(f"HTTP {r.status} from /System/Info")
+    info = r.json()
     ver = info.get("Version", "")
     active = transcoding = 0
     try:
