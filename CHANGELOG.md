@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v7.0.3 — "C4useMatters" — unreleased (test)
+## v7.0.3 — "C4useMatters" — 2026-09-10
 
 A release about failures that named the wrong cause. A monitor reported a host
 as down when a bot filter had turned the probe away. A TLS setting described in
