@@ -255,7 +255,7 @@ class _Jellyfin(I.HTTPClient):
 
 
 class TestJellyfinAuth(unittest.TestCase):
-    KEY = '0123456789abcdef0123456789abcdef'
+    KEY = 'jellyfin-test-fixture'
 
     def test_fake_reproduces_the_legacy_header_401(self):
         # Control: the fake must refuse the old header with legacy auth off and
