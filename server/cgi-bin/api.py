@@ -849,6 +849,9 @@ WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
 # gateway sessions, and per-device tunnel/session timestamps for the page.
 SSHGW_SESSIONS_FILE = DATA_DIR / 'sshgw_sessions.json'
 SSHGW_STATE_FILE    = DATA_DIR / 'sshgw_state.json'
+# AbuseIPDB / SniffCat (ip_intel_handlers.py): the queue the brute-force
+# detector feeds, per-address reputation and reports, active blocks, budget.
+IPINTEL_FILE        = DATA_DIR / 'ip_intel.json'
 
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -1112,6 +1115,21 @@ for _ss_name in (
 ):
     globals()[_ss_name] = getattr(sshgw_handlers_mod, _ss_name)
 del _ss_name
+
+# AbuseIPDB / SniffCat: reputation lookups, opt-in reporting and timed auto-
+# blocks for the sources the brute-force detector finds.
+_ii_spec = _tk_ilu.spec_from_file_location(
+    'ip_intel_handlers', Path(__file__).parent / 'ip_intel_handlers.py')
+ip_intel_handlers_mod = _tk_ilu.module_from_spec(_ii_spec)
+_ii_spec.loader.exec_module(ip_intel_handlers_mod)
+ip_intel_handlers_mod.bind(globals())
+for _ii_name in (
+        'ip_intel_note_attack', '_ip_intel_http', 'run_ip_intel_if_due',
+        'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
+        'handle_ip_intel_block', 'handle_ip_intel_unblock',
+):
+    globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
+del _ii_name
 
 # v7.0.0: Autonomous remediation loop — policy, shadow receipts, blast radius.
 _ao_spec = _tk_ilu.spec_from_file_location(
@@ -38685,6 +38703,9 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
             changed = True
 
             if len(timestamps) == threshold + 1:  # just crossed configured threshold
+                # Queue the source for AbuseIPDB / SniffCat. Appends only; the
+                # lookups run in the cadence sweep, never on the heartbeat.
+                ip_intel_note_attack(dev_id, unit, src, len(timestamps), window)
                 try:
                     fire_webhook('brute_force_detected', {
                         'device_id': dev_id,
@@ -70697,6 +70718,11 @@ def _build_exact_routes():
         ('POST', '/api/sshgw/agent-check'): handle_sshgw_agent_check,
         ('POST', '/api/sshgw/authorize'): handle_sshgw_authorize,
         ('POST', '/api/sshgw/audit'): handle_sshgw_audit,
+        ('GET', '/api/ip-intel'): handle_ip_intel,
+        ('POST', '/api/ip-intel/settings'): handle_ip_intel_settings,
+        ('POST', '/api/ip-intel/lookup'): handle_ip_intel_lookup,
+        ('POST', '/api/ip-intel/block'): handle_ip_intel_block,
+        ('POST', '/api/ip-intel/unblock'): handle_ip_intel_unblock,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,
         ('POST', '/api/kmip/config'): handle_kmip_config,
@@ -72021,6 +72047,7 @@ def main():
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
+    _safe(run_ip_intel_if_due, 'run_ip_intel_if_due')   # AbuseIPDB / SniffCat
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
     _safe(run_flow_export_check_if_due, 'run_flow_export_check_if_due')  # v6.4.3 exporter went silent
     _safe(run_incident_memory_if_due, 'run_incident_memory_if_due')   # v6.3.1 harvest resolved triaged incidents

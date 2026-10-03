@@ -2636,6 +2636,47 @@ if _AVAILABLE:
 
         _v0 = field_validator('device_id', 'token', mode='before')(_coerce_str_loose)
 
+    # ── AbuseIPDB / SniffCat (ip_intel_handlers.py) ──────────────────────────
+    class IpIntelSettingsRequest(BaseModel):
+        """handle_ip_intel_settings POST. Every field optional; the handler
+        clamps the numbers and validates the lists itself."""
+        model_config = ConfigDict(extra='ignore')
+        lookup_enabled: Any = None
+        report_enabled: Any = None
+        block_enabled: Any = None
+        block_min_score: Any = None
+        block_ttl_hours: Any = None
+        block_max_per_hour: Any = None
+        report_min_count: Any = None
+        cache_hours: Any = None
+        daily_lookup_budget: Any = None
+        never_block: Any = None
+        abuseipdb_api_key: str = ''
+        sniffcat_api_key: str = ''
+        clear_abuseipdb_key: bool = False
+        clear_sniffcat_key: bool = False
+
+        _v0 = field_validator('abuseipdb_api_key', 'sniffcat_api_key',
+                              mode='before')(_coerce_str_loose)
+        _v1 = field_validator('clear_abuseipdb_key', 'clear_sniffcat_key',
+                              mode='before')(_coerce_bool_loose)
+
+    class IpIntelLookupRequest(BaseModel):
+        """handle_ip_intel_lookup POST."""
+        model_config = ConfigDict(extra='ignore')
+        ip: str = ''
+
+        _v0 = field_validator('ip', mode='before')(_coerce_str_loose)
+
+    class IpIntelBlockRequest(BaseModel):
+        """handle_ip_intel_block / _unblock POST."""
+        model_config = ConfigDict(extra='ignore')
+        device_id: str = ''
+        ip: str = ''
+        hours: Any = None
+
+        _v0 = field_validator('device_id', 'ip', mode='before')(_coerce_str_loose)
+
     class SshgwAuditRequest(BaseModel):
         """handle_sshgw_audit POST — the daemon reports a finished stream."""
         model_config = ConfigDict(extra='ignore')
@@ -2921,6 +2962,9 @@ else:
     SshgwAuthorizeRequest = None
     SshgwAgentCheckRequest = None
     SshgwAuditRequest = None
+    IpIntelSettingsRequest = None
+    IpIntelLookupRequest = None
+    IpIntelBlockRequest = None
 
 
 def validate(model_cls, body):

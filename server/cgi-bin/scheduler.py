@@ -68,6 +68,7 @@ CADENCE = (
     'run_incident_promotion_if_due',     # v6.1.1 (#53) alert-storm auto-promotion
     'run_ai_triage_if_due',              # v6.3.1 opt-in agentic auto-triage
     'run_remediation_verify_if_due',     # v6.3.1 auto-remediation verify loop
+    'run_ip_intel_if_due',               # AbuseIPDB / SniffCat lookups, reports, blocks
     'run_flow_dep_check_if_due',         # v6.3.1 flow-verified service-dependency links
     'run_flow_export_check_if_due',      # v6.4.3 a NetFlow exporter stopped sending
     'run_incident_memory_if_due',        # v6.3.1 cross-fleet incident outcome memory harvest

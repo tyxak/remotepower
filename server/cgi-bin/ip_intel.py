@@ -1,0 +1,344 @@
+"""IP threat intelligence — AbuseIPDB and SniffCat, pure helpers.
+
+When the brute-force detector sees a source address cross its threshold, the
+sweep in ip_intel_handlers.py can:
+
+  * LOOK UP the address with AbuseIPDB and SniffCat and keep the answer
+    (confidence score, report count, country, network owner);
+  * REPORT it back to either service (opt-in, off by default); and
+  * BLOCK it on the host that was attacked (opt-in, off by default), for a
+    limited time, through the normal guarded command queue.
+
+This module holds everything worth testing without a network: request
+building and response parsing for both services, the category mapping, the
+report comment, the merged verdict, the never-block rules and the firewall
+commands. It is stdlib-only and never opens a socket; the caller passes an
+HTTP function in.
+
+API facts this module relies on (checked against each service's docs):
+
+  AbuseIPDB v2   https://api.abuseipdb.com/api/v2
+    GET  /check?ipAddress=&maxAgeInDays=     header `Key`
+         -> {"data": {"abuseConfidenceScore", "totalReports", "countryCode",
+                      "isp", "usageType", "domain", "isWhitelisted", ...}}
+    POST /report  form: ip, categories="18,22", comment (<= 1024 chars)
+         The same address may be reported once per 15 minutes.
+
+  SniffCat v1    https://api.sniffcat.com/api/v1
+    GET  /check?ip=                          header `X-Secret-Token`
+         -> {"success", "status", "abuseConfidenceScore"}
+    POST /report  JSON: {ip, categories: [..], comment (>= 10 chars)}
+         The same address may be reported once per 20 minutes.
+"""
+
+import ipaddress
+import json
+import re
+import urllib.parse
+
+PROVIDERS = ('abuseipdb', 'sniffcat')
+
+ABUSEIPDB_BASE = 'https://api.abuseipdb.com/api/v2'
+SNIFFCAT_BASE = 'https://api.sniffcat.com/api/v1'
+
+# What kind of attack the detector saw → each service's category ids.
+#   AbuseIPDB: 14 port scan, 15 hacking, 18 brute-force, 21 web app attack, 22 SSH
+#   SniffCat:   4 port scan, 11 hacking, 17 brute-force, 18 SSH/SFTP, 21 HTTP/HTTPS
+CATEGORIES = {
+    'ssh': {'abuseipdb': [18, 22], 'sniffcat': [17, 18]},
+    'web': {'abuseipdb': [18, 21], 'sniffcat': [17, 21]},
+    'other': {'abuseipdb': [18], 'sniffcat': [17]},
+}
+
+# Defaults for the operator-tunable policy (config `ip_intel`).
+DEFAULTS = {
+    'lookup_enabled': False,
+    'report_enabled': False,
+    'block_enabled': False,
+    'block_min_score': 90,        # merged confidence needed to block
+    'block_ttl_hours': 24,        # blocks lift themselves after this
+    'block_max_per_hour': 20,     # per host; a cap on a runaway
+    'report_min_count': 10,       # failed attempts seen before reporting
+    'cache_hours': 24,            # how long a lookup answer is reused
+    'daily_lookup_budget': 900,   # per provider; AbuseIPDB's free tier is 1000
+    'never_block': [],            # extra CIDRs that are never blocked
+}
+
+_MAX_COMMENT = 1000
+_BLOCK_MARKER = 'rp-ipintel'
+
+
+# ── addresses ──────────────────────────────────────────────────────────────────
+
+def parse_ip(value):
+    """Normalised address string, or None. Hostnames are not looked up."""
+    try:
+        return str(ipaddress.ip_address(str(value or '').strip()))
+    except ValueError:
+        return None
+
+
+def is_public(ip):
+    """True only for a globally routable unicast address. Private, loopback,
+    link-local, multicast, reserved and documentation ranges are never looked
+    up, reported or blocked: they are someone's own network."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if getattr(a, 'ipv4_mapped', None):
+        a = a.ipv4_mapped
+    return bool(a.is_global) and not a.is_multicast
+
+
+def parse_cidrs(values):
+    out = []
+    for v in values or []:
+        try:
+            out.append(ipaddress.ip_network(str(v).strip(), strict=False))
+        except ValueError:
+            continue
+    return out
+
+
+def in_any(ip, networks):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(a.version == n.version and a in n for n in networks)
+
+
+# ── AbuseIPDB ──────────────────────────────────────────────────────────────────
+
+def abuseipdb_check_request(ip, key, max_age_days=90):
+    q = urllib.parse.urlencode({'ipAddress': ip, 'maxAgeInDays': int(max_age_days)})
+    return {'method': 'GET', 'url': f'{ABUSEIPDB_BASE}/check?{q}',
+            'headers': {'Key': key, 'Accept': 'application/json'}, 'body': None}
+
+
+def abuseipdb_parse_check(status, body):
+    if status != 200:
+        return _error(status, body)
+    data = (body or {}).get('data') if isinstance(body, dict) else None
+    if not isinstance(data, dict):
+        return {'ok': False, 'error': 'unexpected response'}
+    return {
+        'ok': True,
+        'score': _clamp_score(data.get('abuseConfidenceScore')),
+        'reports': _int(data.get('totalReports')),
+        'country': _short(data.get('countryCode'), 2),
+        'isp': _short(data.get('isp'), 120),
+        'usage': _short(data.get('usageType'), 80),
+        'domain': _short(data.get('domain'), 120),
+        'whitelisted': bool(data.get('isWhitelisted')),
+        'last_reported': _short(data.get('lastReportedAt'), 40),
+    }
+
+
+def abuseipdb_report_request(ip, key, categories, comment):
+    form = urllib.parse.urlencode({
+        'ip': ip, 'categories': ','.join(str(int(c)) for c in categories),
+        'comment': comment[:_MAX_COMMENT]}).encode()
+    return {'method': 'POST', 'url': f'{ABUSEIPDB_BASE}/report',
+            'headers': {'Key': key, 'Accept': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded'},
+            'body': form}
+
+
+def abuseipdb_parse_report(status, body):
+    if status == 200:
+        return {'ok': True}
+    return _error(status, body)
+
+
+# ── SniffCat ───────────────────────────────────────────────────────────────────
+
+def sniffcat_check_request(ip, key):
+    q = urllib.parse.urlencode({'ip': ip})
+    return {'method': 'GET', 'url': f'{SNIFFCAT_BASE}/check?{q}',
+            'headers': {'X-Secret-Token': key, 'Accept': 'application/json'},
+            'body': None}
+
+
+def sniffcat_parse_check(status, body):
+    if status != 200 or not isinstance(body, dict) or body.get('success') is False:
+        return _error(status, body)
+    if 'abuseConfidenceScore' not in body:
+        return {'ok': False, 'error': 'unexpected response'}
+    return {'ok': True, 'score': _clamp_score(body.get('abuseConfidenceScore')),
+            'reports': _int(body.get('count'))}
+
+
+def sniffcat_report_request(ip, key, categories, comment):
+    payload = {'ip': ip, 'categories': [int(c) for c in categories],
+               'comment': comment[:_MAX_COMMENT]}
+    return {'method': 'POST', 'url': f'{SNIFFCAT_BASE}/report',
+            'headers': {'X-Secret-Token': key, 'Accept': 'application/json',
+                        'Content-Type': 'application/json'},
+            'body': json.dumps(payload).encode()}
+
+
+def sniffcat_parse_report(status, body):
+    if status == 200 and not (isinstance(body, dict) and body.get('success') is False):
+        return {'ok': True}
+    return _error(status, body)
+
+
+CHECK = {
+    'abuseipdb': (abuseipdb_check_request, abuseipdb_parse_check),
+    'sniffcat': (sniffcat_check_request, sniffcat_parse_check),
+}
+REPORT = {
+    'abuseipdb': (abuseipdb_report_request, abuseipdb_parse_report),
+    'sniffcat': (sniffcat_report_request, sniffcat_parse_report),
+}
+
+
+def _error(status, body):
+    msg = ''
+    if isinstance(body, dict):
+        errs = body.get('errors')
+        if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+            msg = errs[0].get('detail') or ''
+        msg = msg or body.get('message') or body.get('error') or ''
+    if status == 429:
+        return {'ok': False, 'error': 'rate limited', 'rate_limited': True}
+    if status in (401, 403):
+        return {'ok': False, 'error': 'API key rejected', 'auth': True}
+    return {'ok': False, 'error': _short(msg or f'HTTP {status}', 160)}
+
+
+def _int(v):
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clamp_score(v):
+    return max(0, min(100, _int(v)))
+
+
+def _short(v, n):
+    if v is None:
+        return ''
+    return ''.join(ch for ch in str(v) if ch.isprintable())[:n]
+
+
+# ── verdicts, reports, comments ────────────────────────────────────────────────
+
+def merge(results):
+    """One verdict from the per-provider answers: the highest score wins, so a
+    service that knows the address is never outvoted by one that does not."""
+    ok = {p: r for p, r in (results or {}).items() if isinstance(r, dict) and r.get('ok')}
+    if not ok:
+        return {'score': None, 'reports': 0, 'providers': {}}
+    best = max(ok.values(), key=lambda r: r.get('score') or 0)
+    out = {'score': max(r.get('score') or 0 for r in ok.values()),
+           'reports': sum(r.get('reports') or 0 for r in ok.values()),
+           'providers': {p: {'score': r.get('score'), 'reports': r.get('reports')}
+                         for p, r in ok.items()}}
+    for k in ('country', 'isp', 'usage', 'domain'):
+        val = best.get(k) or next((r.get(k) for r in ok.values() if r.get(k)), '')
+        if val:
+            out[k] = val
+    if any(r.get('whitelisted') for r in ok.values()):
+        out['whitelisted'] = True
+    return out
+
+
+def attack_kind(unit):
+    u = str(unit or '').lower()
+    if 'ssh' in u:
+        return 'ssh'
+    if any(w in u for w in ('nginx', 'apache', 'httpd', 'caddy', 'traefik', 'web', 'http')):
+        return 'web'
+    return 'other'
+
+
+def report_comment(kind, count, window_s):
+    """What a report says. Counts and the kind of attack only: no hostnames,
+    usernames, paths or log lines, because the comment is public on both
+    services and the attacked machine is ours."""
+    what = {'ssh': 'SSH', 'web': 'web login'}.get(kind, 'login')
+    mins = max(1, int(window_s or 0) // 60)
+    return (f'{what} brute force: {int(count)} failed attempts within {mins} '
+            f'minutes (reported by RemotePower)')
+
+
+# ── blocking ───────────────────────────────────────────────────────────────────
+
+def block_decision(policy, verdict, local_count):
+    """(True, '') when the policy says to block, else (False, reason)."""
+    if not policy.get('block_enabled'):
+        return False, 'auto-block is off'
+    if not verdict or verdict.get('score') is None:
+        return False, 'no reputation answer'
+    if verdict.get('whitelisted'):
+        return False, 'listed as legitimate by a provider'
+    need = int(policy.get('block_min_score', DEFAULTS['block_min_score']))
+    if verdict['score'] < need:
+        return False, f"score {verdict['score']} is below {need}"
+    if int(local_count or 0) < 1:
+        return False, 'not seen attacking this host'
+    return True, ''
+
+
+def never_block_reason(ip, protected):
+    """Why this address must not be blocked, or ''. `protected` holds the
+    networks of the RemotePower server, the fleet, the operator's allow-list
+    and the configured never-block list."""
+    if not is_public(ip):
+        return 'not a public address'
+    if in_any(ip, protected):
+        return 'on the never-block list'
+    return ''
+
+
+def _rule_family(ip):
+    return 'ipv6' if ':' in ip else 'ipv4'
+
+
+def block_command(ip):
+    """Shell command that drops traffic from `ip` with whichever firewall the
+    host runs. Only a validated address is interpolated, and every rule carries
+    a marker so it can be found and removed again."""
+    ip = parse_ip(ip)
+    if not ip:
+        raise ValueError('invalid address')
+    fam = _rule_family(ip)
+    ipt = 'ip6tables' if fam == 'ipv6' else 'iptables'
+    m = _BLOCK_MARKER
+    return (
+        'if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then '
+        f'ufw insert 1 deny from {ip} comment {m}; '
+        'elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then '
+        f"firewall-cmd --permanent --add-rich-rule='rule family={fam} source address={ip} drop' "
+        '&& firewall-cmd --reload; '
+        f'else {ipt} -C INPUT -s {ip} -j DROP -m comment --comment {m} 2>/dev/null '
+        f'|| {ipt} -I INPUT -s {ip} -j DROP -m comment --comment {m}; fi')
+
+
+def unblock_command(ip):
+    ip = parse_ip(ip)
+    if not ip:
+        raise ValueError('invalid address')
+    fam = _rule_family(ip)
+    ipt = 'ip6tables' if fam == 'ipv6' else 'iptables'
+    m = _BLOCK_MARKER
+    return (
+        'if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then '
+        f'ufw --force delete deny from {ip} comment {m} || ufw --force delete deny from {ip}; '
+        'elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then '
+        f"firewall-cmd --permanent --remove-rich-rule='rule family={fam} source address={ip} drop' "
+        '&& firewall-cmd --reload; '
+        f'else while {ipt} -D INPUT -s {ip} -j DROP -m comment --comment {m} 2>/dev/null; '
+        'do :; done; fi')
+
+
+_KEY_RE = re.compile(r'^[A-Za-z0-9._~+/=-]{8,256}$')
+
+
+def valid_api_key(key):
+    return isinstance(key, str) and bool(_KEY_RE.match(key))
