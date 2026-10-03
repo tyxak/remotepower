@@ -31,10 +31,14 @@ above the old 200-char cap and were untranslatable for that reason alone.
 `test_no_label_exceeds_the_engines_text_node_cap` reads the cap out of i18n.js
 (through tests/i18n_engine.py) so the two cannot drift apart again.
 
+`EVENT_REGISTRY[...]['title']` IS in the population: the Timeline renders it as
+a text node (`tl-title`). The same string also goes out in webhook, push and
+email notifications, which DICT cannot reach.
+
 Not in the population, on purpose:
-  * `EVENT_REGISTRY[...]['title']` and `tags` — webhook/push/email decoration.
-    They never become a DOM text node, so DICT cannot reach them; translating
-    them needs a different mechanism and would be a different gate.
+  * `EVENT_REGISTRY[...]['tags']` — webhook/push decoration that never becomes
+    a DOM text node; translating it needs a different mechanism and would be a
+    different gate.
   * `_MITIGATE_PLAYBOOKS[...]['diagnostic']` / `['fix']` — shell commands.
 """
 import ast
@@ -127,6 +131,10 @@ def _registries():
     ev = _top_level_value(api, 'EVENT_REGISTRY')
     out['EVENT_REGISTRY.label'] = [
         (_literal(v) or {}).get('label') for v in ev.values]
+    # The Timeline renders each event's title as a text node (`tl-title`), so a
+    # title without a DICT entry shows English on that page. 163 of 186 did.
+    out['EVENT_REGISTRY.title'] = [
+        (_literal(v) or {}).get('title') for v in ev.values]
 
     kinds = _top_level_value(api, 'CHANNEL_KIND_DEFS')
     out['CHANNEL_KIND_DEFS.label'] = [
@@ -155,6 +163,7 @@ def _registries():
 # does not fail here; a broken parse falls off a cliff, it does not drift.
 _FLOOR = {
     'EVENT_REGISTRY.label': 150,
+    'EVENT_REGISTRY.title': 120,
     'CHANNEL_KIND_DEFS.label': 60,
     '_AI_PROMPT_LABELS': 50,
     '_MITIGATE_PLAYBOOKS.label': 15,
