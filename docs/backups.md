@@ -13,7 +13,7 @@ pipeline.
 
 - `GET/POST /api/backup-jobs`, `PUT/DELETE /api/backup-jobs/{id}`, and
   **Run now** (`POST /api/backup-jobs/{id}/run`).
-- Cron expressions are validated; up to 100 jobs per fleet.
+- Cron expressions are validated; up to 200 jobs per fleet.
 - **Apply one job to many devices (a baseline).** Pick one or more devices when
   you create the job — the same backup runs on every one, on demand or on the
   schedule. (Cross-tenant / out-of-scope devices are filtered out for you.)

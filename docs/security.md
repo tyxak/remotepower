@@ -130,10 +130,10 @@ keys are database rows rather than files. The most security-relevant of them:
 | `pins.json` | Pending enrollment PINs |
 | `commands.json` | Pending command queue per device |
 | `config.json` | Webhook URL, WoL settings, monitor targets, patch threshold |
-| `history.json` | Command log (last 200 entries) |
+| `history.json` | Command log (last 200 entries by default; tunable) |
 | `schedule.json` | Scheduled jobs (one-shot + recurring cron) |
 | `uptime.json` | Online/offline state changes per device |
-| `monitor_history.json` | Check results per monitor target (last 50) |
+| `monitor_history.json` | Check results per monitor target (last 300 by default; tunable) |
 | `cmd_output.json` | Custom command output per device (last 100) |
 | `metrics.json` | CPU/RAM/disk snapshots per device (last 1440) |
 | `cmd_library.json` | Saved command snippets |
@@ -241,9 +241,11 @@ defences in place (kept current):
 - Per-event toggles, CVE severity filters, maintenance-window suppression, and
   per-device "unmonitored" gating all apply uniformly to legacy single-URL and
   multi-destination configurations.
-- Optional `webhook_block_local` config flag refuses POSTs to loopback /
-  link-local / unspecified IPs (covers cloud metadata services at
-  169.254.169.254). RFC1918 private networks are permitted —
+- The `webhook_block_local` setting (on by default, in **Settings → Security**)
+  refuses POSTs to link-local and unspecified addresses, which covers cloud
+  metadata services at 169.254.169.254. Loopback is allowed so a notifier running
+  next to the server keeps working; send `webhook_allow_loopback: false` to
+  `POST /api/config` to refuse it too. RFC1918 private networks are permitted —
   homelab Gotify / ntfy on the LAN is legitimate.
 - **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, the
   OIDC discovery / token-exchange fetches, and the HTTP uptime
@@ -431,8 +433,9 @@ Recommended for production deployments beyond the secure defaults:
 - [ ] Change the default admin password on first login (a banner reminds you).
 - [ ] Enable TOTP 2FA for every admin account: **Settings → Security → TOTP**.
 - [ ] Rotate or expire any API keys you no longer use.
-- [ ] If your deployment must never POST webhooks to internal IPs, enable
-      `webhook_block_local` in the config.
+- [ ] If your deployment must never POST webhooks to the server's own loopback
+      address, send `webhook_allow_loopback: false` to `POST /api/config`
+      (`webhook_block_local`, which covers cloud metadata, is already on).
 - [ ] Configure a daily backup destination (built-in scheduled backup,
       **Settings → Backups**) and verify the redacted export can be restored.
 - [ ] Review the audit log on a schedule — `/api/audit-log` or
