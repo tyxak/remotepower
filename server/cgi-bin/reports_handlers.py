@@ -1024,7 +1024,7 @@ def handle_report_schedule_get():
 
 def handle_report_schedule_set():
     """PUT /api/report/schedule — configure the scheduled report. Admin-only."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Scheduled reports')
     if A.method() != 'PUT':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.ReportScheduleSetRequest)
@@ -1110,7 +1110,7 @@ def handle_report_defs_list():
 
 def handle_report_defs_save():
     """POST /api/report/definitions — create/update a report definition. Admin."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Report definitions')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     cleaned = A._clean_report_def(A.get_json_body())
@@ -1135,7 +1135,7 @@ def handle_report_defs_save():
 
 def handle_report_def_delete(def_id):
     """DELETE /api/report/definitions/<id> — remove a report definition. Admin."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Report definitions')
     if A.method() != 'DELETE':
         A.respond(405, {'error': 'Method not allowed'})
     found = False

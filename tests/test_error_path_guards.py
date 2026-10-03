@@ -120,7 +120,9 @@ class TestNoPathExistsOnStorageKeys(unittest.TestCase):
 
 _MUTATORS = {"save", "_LockedUpdate", "_DeviceUpdate", "_locked_update"}
 _STRONGER_GATES = {"require_admin_auth", "require_write_role",
-                   "require_perm", "require_admin"}
+                   "require_perm", "require_admin",
+                   # require_admin_auth() plus the platform-operator check
+                   "require_instance_admin_auth"}
 
 
 def _called_names(fn):
@@ -244,6 +246,9 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         # Flagged only because the role lookup goes through verify_token, which
         # can expire a stale session.
         "handle_sshgw_status",
+        # Security → Threat intel listing: reads the attacker and block stores,
+        # scoped to visible devices. Flagged for the same verify_token reason.
+        "handle_ip_intel",
     }
 
     def test_new_bare_auth_mutating_handlers_get_reviewed(self):

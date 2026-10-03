@@ -1573,7 +1573,7 @@ def handle_device_backups(dev_id):
 
 def handle_proxmox_backup_threshold() -> None:
     """``POST /api/proxmox/backups/threshold`` — set proxmox_backup_warn_days."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The Proxmox backup threshold')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     try:

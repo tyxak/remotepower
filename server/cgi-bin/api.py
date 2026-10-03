@@ -3977,7 +3977,7 @@ def handle_maintenance_mode_set():
     """``POST /api/maintenance-mode`` {enabled, reason} — toggle maintenance mode.
     Admin only; audit-logged. While on, new agent command dispatch is paused
     (heartbeats + browsing keep working)."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Maintenance mode')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.MaintenanceModeSetRequest)
@@ -4020,6 +4020,7 @@ def handle_litigation_hold_set():
     # session. (Degrades gracefully for a pure-SSO account with nothing to
     # re-verify — see require_step_up.)
     actor = require_step_up()
+    _require_platform_operator('The litigation hold')
     body = get_json_obj()
     _rm_ok, _rm_err = request_models.validate(request_models.LitigationHoldSetRequest, body)
     if not _rm_ok: respond(400, {'error': _rm_err})
@@ -7140,6 +7141,7 @@ def handle_service_baselines():
         respond(200, {'baselines': _config_ro().get('service_baselines', [])})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    _require_platform_operator('Service baselines')
     body = _read_valid(request_models.ServiceBaselinesRequest)
     raw = body.get('baselines')
     if not isinstance(raw, list):
@@ -10649,6 +10651,84 @@ def _enforce_module_gate(pi):
                     respond(404, {'error': 'Not found',
                                   'module_disabled': name})
                 return
+
+
+_WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
+
+# Resources that belong to the whole install rather than to any one tenant:
+# infrastructure (the KMIP server, relay satellites, WireGuard access, the
+# scanner targets), the control plane (roles, the audit and history logs, the
+# CMDB vault passphrase, webhook delivery), and libraries other people run
+# (command library, playbooks, blueprints, the app catalogue). Under tenancy a
+# tenant admin passes every `require_admin_auth()` these handlers carry, and
+# none of their stores has a tenant dimension, so one tenant could clear the
+# audit trail, re-key the vault, destroy KMIP keys, rewrite a playbook another
+# tenant runs, or mint a VPN peer into the operator's network.
+#
+# (prefix, methods or None for every method, path suffixes that stay open).
+# The suffixes are the run/render actions: they target devices, and the
+# handler's own per-device permission check is the right gate for those.
+# The KMIP daemon's endpoints authenticate with its shared secret and carry no
+# user at all, so the gate below never applies to them.
+_PLATFORM_ROUTES = (
+    ('/api/kmip',                    None,           ()),
+    ('/api/satellites',              None,           ()),
+    ('/api/vpn-tunnels',             None,           ()),
+    ('/api/vpn-default-template',    _WRITE_METHODS, ()),
+    ('/api/signing',                 _WRITE_METHODS, ()),
+    ('/api/roles',                   _WRITE_METHODS, ()),
+    ('/api/audit-log',               ('DELETE',),    ()),
+    ('/api/history',                 ('DELETE',),    ()),
+    ('/api/webhook/log',             ('DELETE',),    ()),
+    ('/api/webhook/dlq',             _WRITE_METHODS, ()),
+    ('/api/cmdb/vault/setup',        _WRITE_METHODS, ()),
+    ('/api/cmdb/vault/change',       _WRITE_METHODS, ()),
+    ('/api/scan-targets',            None,           ()),
+    ('/api/logs/rules/global',       _WRITE_METHODS, ()),
+    ('/api/db-maintenance',          None,           ()),
+    ('/api/privacy',                 None,           ()),
+    ('/api/app-catalog/custom',      _WRITE_METHODS, ()),
+    ('/api/cmd-library',             _WRITE_METHODS, ()),
+    ('/api/ansible/playbooks',       _WRITE_METHODS, ('/run',)),
+    ('/api/provisioning/blueprints', _WRITE_METHODS, ('/run', '/render')),
+    ('/api/tls/targets',             _WRITE_METHODS, ()),
+    ('/api/tls/scan',                _WRITE_METHODS, ()),
+    ('/api/dmarc',                   _WRITE_METHODS, ()),
+    ('/api/reputation',              _WRITE_METHODS, ()),
+    ('/api/resolver-health',         _WRITE_METHODS, ()),
+    ('/api/calendar/import',         _WRITE_METHODS, ()),
+)
+
+
+def _platform_route(pi, m):
+    """The _PLATFORM_ROUTES entry covering this request, or None."""
+    for prefix, methods, open_suffixes in _PLATFORM_ROUTES:
+        if not (pi == prefix or pi.startswith(prefix + '/')):
+            continue
+        if methods is not None and m not in methods:
+            return None
+        if prefix == '/api/kmip' and pi.startswith('/api/kmip/daemon/'):
+            return None
+        if any(pi.endswith(sfx) for sfx in open_suffixes):
+            return None
+        return prefix
+    return None
+
+
+def _enforce_platform_routes(pi, m):
+    """403 a tenant user on a _PLATFORM_ROUTES request. Runs once per request
+    from main(), like the module gate. No-op with tenancy off, for the platform
+    operator, and for a request with no signed-in user (the handler's own 401,
+    or a daemon's secret check, answers that)."""
+    if not pi.startswith('/api/') or not _tenancy_enforced():
+        return
+    if _platform_route(pi, m) is None:
+        return
+    user, _role = verify_token(get_token_from_request())
+    if not user or _caller_is_superadmin():
+        return
+    respond(403, {'error': 'This belongs to the whole installation and is managed by '
+                           'the platform operator.'})
 
 
 def _portal_hash(tok):
@@ -17371,6 +17451,59 @@ def require_superadmin_auth(what='manage tenants'):
     return actor
 
 
+def _require_platform_operator(what='Instance settings'):
+    """403 a tenant admin who is about to change INSTANCE-wide state.
+
+    config.json and the stores beside it are one per install, and
+    `require_admin_auth()` is true for a tenant admin. v7.0.2 closed this for
+    the Settings save; the same shape stayed open in the ~50 handlers that each
+    own one slice of that store — the AI provider (and with it the stored
+    provider key and every other tenant's prompts), the agent-release signing
+    key, metrics push and GitOps targets, report definitions mailed fleet-wide,
+    the mail-in and DNS provider credentials, maintenance mode, and a config
+    revision restore that could put `tenancy_enforced: false` back.
+
+    Call it AFTER the handler's own auth gate and only on the branch that
+    changes something. No-op with tenancy off or for the platform operator, so
+    single-tenant installs see no difference. tests/test_tenant_instance_gate.py
+    derives the handler population from the source and fails on a new one.
+    """
+    if _tenancy_enforced() and not _caller_is_superadmin():
+        respond(403, {'error': f'{what} are managed by the platform operator. '
+                               'Your tenant\'s own settings are unaffected.'})
+
+
+def _enrol_tenant():
+    """The tenant a device enrolled with the caller's PIN or token belongs to,
+    or '' for the default tenant.
+
+    A tenant admin's credential used to enrol into the platform operator's
+    tenant: the device record carried no tenant, so the admin who minted the
+    token could not see the host it had just enrolled, and the platform operator
+    found an unexplained one in theirs. Recorded on the credential at mint time
+    and stamped on the device at registration, when the device has no
+    authenticated caller to ask.
+    """
+    if not _tenancy_enforced():
+        return ''
+    user, _role = verify_token(get_token_from_request())
+    t = _caller_effective_tenant(user) if user else DEFAULT_TENANT
+    return '' if t == DEFAULT_TENANT else t
+
+
+def _enrol_credential_visible(meta):
+    """Whether the caller may list or revoke this enrolment credential."""
+    gate = _tenant_gate()
+    return gate is None or str((meta or {}).get('tenant') or DEFAULT_TENANT) == gate
+
+
+def require_instance_admin_auth(what='Instance settings'):
+    """require_admin_auth() for state that belongs to the whole install."""
+    actor = require_admin_auth()
+    _require_platform_operator(what)
+    return actor
+
+
 def _tenant_gate():
     """The caller's tenant id when isolation should apply to them, else None
     (isolation off, or caller is a superadmin). Computed once per request path
@@ -17492,7 +17625,31 @@ def handle_tenancy_readiness():
                  'trail across tenants; not a gap to close.'},
         {'key': 'roles', 'label': 'Users & roles', 'isolated': False, 'layer': 'none', 'deliberate': True,
          'note': 'Global control-plane by design — user/role management stays a '
-                 'superadmin concern; not a gap to close.'},
+                 'superadmin concern; not a gap to close. Tenant admins manage the '
+                 'accounts in their own tenant; role definitions, the audit-log wipe '
+                 'and the history wipe are platform-operator only.'},
+        {'key': 'instance', 'label': 'Instance settings & infrastructure',
+         'isolated': enforced, 'layer': 'app' if enforced else 'none', 'deliberate': True,
+         'note': 'Settings, config revisions, the AI provider, release signing, metrics '
+                 'push, GitOps, scheduled reports, the KMIP server, relay satellites, '
+                 'WireGuard access, scanner targets and the CMDB vault passphrase belong '
+                 'to the whole install. With tenancy enforced only the platform operator '
+                 'can change them.'},
+        {'key': 'libraries', 'label': 'Shared libraries',
+         'isolated': False, 'layer': 'none', 'deliberate': True,
+         'note': 'The command library, playbooks, blueprints and app catalogue are '
+                 'readable by every tenant. With tenancy enforced only the platform '
+                 'operator can change them, because other tenants run them.'},
+        {'key': 'enrolment', 'label': 'Enrolment PINs & tokens', 'isolated': enforced,
+         'layer': 'app' if enforced else 'none',
+         'note': "A PIN or token records the tenant of the admin who created it, and a "
+                 "device enrolled with it joins that tenant. Tenant admins list and "
+                 "revoke only their own."},
+        {'key': 'inbound', 'label': 'Inbound webhook & ingest tokens', 'isolated': enforced,
+         'layer': 'app' if enforced else 'none',
+         'note': "A token pinned to a device belongs to that device's tenant. Tokens "
+                 "with no device attribute across the fleet and are the platform "
+                 "operator's."},
     ]
     respond(200, {'ok': True, 'tenancy_enforced': enforced, 'tenancy_rls': rls,
                   'storage_backend': _storage_backend(), 'stores': stores})
@@ -19895,6 +20052,7 @@ def handle_device_compose_enabled(dev_id):
 
 def handle_enroll_pin():
     require_admin_auth()
+    _pin_tenant = _enrol_tenant()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     pin = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
@@ -19914,7 +20072,8 @@ def handle_enroll_pin():
         for _stale in [k for k, v in pins.items()
                        if now - v.get('created', 0) >= PIN_TTL]:
             del pins[_stale]
-        pins[_hash_device_token(pin)] = {'created': now}
+        pins[_hash_device_token(pin)] = ({'created': now, 'tenant': _pin_tenant}
+                                         if _pin_tenant else {'created': now})
     respond(200, {'pin': pin, 'expires': now + PIN_TTL})
 
 
@@ -20019,6 +20178,9 @@ def handle_enroll_token_create():
             'label':         label,
             'prefix':        token[:8],
         }
+        _tok_tenant = _enrol_tenant()
+        if _tok_tenant:
+            tokens[_hash_device_token(token)]['tenant'] = _tok_tenant
     audit_log(actor, 'enrollment_token_created',
               f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}')
     respond(201, {
@@ -20052,7 +20214,8 @@ def handle_enroll_token_list():
     except LockBusy:
         _snapshot = _load_ro(ENROLL_TOKENS_FILE) or {}
     tokens = {k: v for k, v in _snapshot.items()
-              if int((v or {}).get('expires', 0) or 0) > now}
+              if int((v or {}).get('expires', 0) or 0) > now
+              and _enrol_credential_visible(v)}
     out = []
     for token, meta in tokens.items():
         out.append({
@@ -20099,7 +20262,8 @@ def handle_enroll_token_revoke(token_prefix: str):
         # v5.4.1: match against the stored display `prefix` (the key is a hash
         # now); legacy plaintext-keyed tokens fall back to matching the key.
         matches = [k for k, m in tokens.items()
-                   if (m.get('prefix') or k).startswith(prefix)]
+                   if (m.get('prefix') or k).startswith(prefix)
+                   and _enrol_credential_visible(m)]
         if len(matches) == 0:
             respond(404, {'error': 'No matching enrollment token'})
         if len(matches) > 1:
@@ -20179,6 +20343,7 @@ def handle_enroll_register():
     enroll_token = str(body.get('enrollment_token', '')).strip()
     default_group = ''
     default_tags = []
+    enrol_tenant = ''
 
     if enroll_token:
         # Token path. The token must exist, not be expired, and gets
@@ -20204,6 +20369,7 @@ def handle_enroll_register():
             del tokens[_ekey]
         default_group = meta.get('default_group', '') or ''
         default_tags = meta.get('default_tags', []) or []
+        enrol_tenant = str(meta.get('tenant') or '')
     elif pin:
         # PIN path (existing flow).
         if not re.match(r'^\d{6}$', pin):
@@ -20231,6 +20397,7 @@ def handle_enroll_register():
             if not entry or (now - entry.get('created', 0)) > PIN_TTL:
                 respond(403, {'error': 'Invalid or expired PIN'})
             del pins[stored_key]
+        enrol_tenant = str(entry.get('tenant') or '')
     else:
         respond(400, {'error': 'Either pin or enrollment_token is required'})
 
@@ -20306,6 +20473,8 @@ def handle_enroll_register():
                 }
                 if _site:
                     dev_rec['site'] = _site
+                if enrol_tenant and enrol_tenant != DEFAULT_TENANT:
+                    dev_rec['tenant'] = enrol_tenant
                 devices[dev_id] = dev_rec
                 # v6.4.2: a first enrollment left NO trace — no audit row (only
                 # the reenroll/denied branches set pending_audit) and no event,
@@ -23326,7 +23495,7 @@ def handle_drift_policies_get():
 def handle_drift_policies_set():
     """PUT /api/drift-policies — replace the fleet drift-enforcement policy list.
     Admin-only. Each entry: {scope: tag|group, value, mode: apply|enforce}."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Drift enforcement policies')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()   # accept a bare list too (b7327ea); the isinstance branch below handles both
@@ -26443,7 +26612,7 @@ def handle_integrations_save():
     Body: {integrations: [...], interval?: int}. A blank secret on an existing
     instance (matched by id) keeps the stored secret, so the UI never has to
     re-enter it."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Integrations')
     body = _read_valid(request_models.IntegrationsSaveRequest)
     new_list = body.get('integrations')
     if not isinstance(new_list, list):
@@ -26936,6 +27105,7 @@ def handle_monitor_pause():
     threw the history away and meant retyping the whole thing afterwards.
     """
     actor = require_write_role('exec')
+    _require_platform_operator('Monitors')
     body = _read_valid(request_models.MonitorPauseRequest)
     label = _sanitize_str(str(body.get('label', '')), 128)
     if not label:
@@ -33059,7 +33229,7 @@ def handle_signing_generate():
     (no passphrase, so the server can sign non-interactively), export its public
     key + fingerprint into config, and enable signing. Admin-only. `force`
     replaces an existing key."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Agent release signing')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     gpg = shutil.which('gpg')
@@ -33093,7 +33263,7 @@ def handle_signing_generate():
 def handle_signing_sign():
     """POST /api/signing/sign — sign the currently-published agent binary with the
     server key (writes the detached signature). Admin-only."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Agent release signing')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     # v3.4.2: signing the release is security-sensitive (it's what agents trust)
@@ -33139,7 +33309,7 @@ def handle_signing_toggle():
     (body `password`). Externally-authenticated admins (OIDC/LDAP, no local
     password hash) can't re-verify a password, so the check is skipped for them
     — they're already authenticated as admin and the action is audited."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Agent release signing')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.SigningToggleRequest)
@@ -35699,7 +35869,7 @@ def handle_sla_targets_put():
     """PUT /api/fleet/sla-targets — set SLA targets. Admin-only. Body accepts
     {default, groups:{name:pct}, tags:{name:pct}, devices:{id:pct}}; each pct is
     validated to (0,100]. A null/absent value clears that level."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('SLA targets')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.SlaTargetsPutRequest)
@@ -38560,12 +38730,24 @@ def handle_ssh_keys_fleet():
 # ── v2.8.0: Brute-force detection ─────────────────────────────────────────────
 
 # Patterns that indicate a failed authentication attempt.
+#
+# The SSH user name sits BEFORE the source address in every sshd line, and the
+# client chooses it. sshd keeps spaces in it, so a login as `x from 192.0.2.7`
+# logs `Invalid user x from 192.0.2.7 from <real address> port 4711`. A pattern
+# that takes the first `from <addr>` credits the attempt to an address the
+# attacker picked, and with IP intel reporting on that address is what gets
+# reported to AbuseIPDB / SniffCat under the operator's key. The ssh patterns
+# therefore take the LAST address: a greedy `.*` for the user name, anchored on
+# the ` port <n>` sshd writes after the real one (or the end of the line on
+# releases that omit it). pam_unix writes rhost= before user=, so that one takes
+# the FIRST rhost=, and an empty value is no address rather than a reason to
+# keep looking further along the line.
 _BRUTE_PATTERNS = {
     'ssh': [
-        re.compile(r'Failed password for (?:invalid user )?\S+ from (\S+)', re.I),
-        re.compile(r'Invalid user \S+ from (\S+)', re.I),
-        re.compile(r'authentication failure.*rhost=(\S+)', re.I),
-        re.compile(r'Connection closed by invalid user \S+ (\S+)', re.I),
+        re.compile(r'Failed password for (?:invalid user )?.* from (\S+)(?: port \d+\b.*|\s*)$', re.I),
+        re.compile(r'Invalid user .* from (\S+)(?: port \d+\b.*|\s*)$', re.I),
+        re.compile(r'authentication failure;.*? rhost=(\S*)', re.I),
+        re.compile(r'Connection closed by invalid user .* (\S+) port \d+\b', re.I),
     ],
     'web': [
         # nginx/apache access log: POST to WordPress endpoints
@@ -39362,7 +39544,7 @@ def handle_mailflow_get() -> None:
 def handle_mailflow_save() -> None:
     """``POST /api/mailflow`` — save the round-trip config (admin). Blank IMAP
     password keeps the stored one."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Mail-flow monitoring settings')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.MailflowSaveRequest)
@@ -42454,7 +42636,7 @@ def handle_ai_config_get():
 
 
 def handle_ai_config_set():
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('AI provider settings')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.AiConfigSetRequest)
@@ -43723,7 +43905,7 @@ def handle_ai_rag_index_migrate():
     pgvector store reuses the storage Postgres connection, so 'postgres' requires
     the storage backend already be Postgres. Flips the config, rebuilds into the
     new backend, and (when leaving PG) drops the chunk table. Admin only."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('The RAG index backend')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.AiRagIndexMigrateRequest)
@@ -47542,7 +47724,7 @@ def handle_monitoring_profiles():
         respond(200, {'ok': True, 'profiles': cfg.get('monitoring_profiles') or []})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Monitoring profiles')
     body = _read_valid(request_models.MonitoringProfilesRequest)
     name = _sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
@@ -47565,7 +47747,7 @@ def handle_monitoring_profiles():
 
 def handle_monitoring_profile_delete(pid):
     """DELETE /api/monitoring-profiles/{id}."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Monitoring profiles')
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     found = False
@@ -48318,7 +48500,7 @@ def handle_custom_checks_list():
 
 def handle_custom_checks_save():
     """POST /api/checks/custom — add or update a custom-check definition. Admin."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Custom checks')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.CustomChecksSaveRequest)
@@ -48412,7 +48594,7 @@ def handle_custom_checks_save():
 
 def handle_custom_checks_delete():
     """POST /api/checks/custom/delete {id} — remove a custom-check definition. Admin."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Custom checks')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     cid = _sanitize_str(str((get_json_obj()).get('id', '')), 64).strip()
@@ -48495,7 +48677,7 @@ def handle_check_baselines_apply():
     Admin. Idempotent: de-dupes on (type, param, scope), so re-applying adds nothing.
     A role-tagged template keeps its own default tag scope when the request scope is
     'all', so applying 'docker running' fleet-wide really lands on the 'docker' tag."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Check baselines')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.CheckBaselineApplyRequest)
@@ -51995,7 +52177,7 @@ def handle_dashboard_kinds_set():
     kinds and unknown channels are silently dropped. Missing kinds keep
     their existing value (read-modify-write semantics, but a single POST
     can replace a whole row by sending all 4 channels)."""
-    require_admin_auth()
+    require_instance_admin_auth('Alert channel routing')
     body = _read_valid(request_models.DashboardKindsSetRequest)
     incoming = body.get('channel_routing') or body
     if not isinstance(incoming, dict):
@@ -52595,7 +52777,7 @@ def handle_ha_bridge():
 def handle_status_token():
     """POST /api/status-token — generate (or rotate) the status token.
     Body {"enabled": false} clears it, disabling the status endpoint."""
-    require_admin_auth()
+    require_instance_admin_auth('The public status page')
     body = _read_valid(request_models.StatusTokenRequest)
     with _LockedUpdate(CONFIG_FILE) as cfg:
         if body.get('enabled') is False:
@@ -52928,6 +53110,7 @@ def handle_drift_profiles():
                       'assignments': drift_cfg.get('assignments') or []})
     if m == 'POST':
         actor = require_admin_auth()
+        _require_platform_operator('Drift profiles')
         body = _read_valid(request_models.DriftProfilesRequest)
         name = _sanitize_str(body.get('name', ''), 80).strip()
         if not name:
@@ -52953,7 +53136,7 @@ def handle_drift_profiles():
 def handle_drift_profile_edit(pid):
     """PUT    /api/drift/profiles/<id> — update {name?, files?} (admin).
        DELETE /api/drift/profiles/<id> — delete the profile + its assignments."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Drift profiles')
     m = method()
     if m == 'PUT':
         body = _read_valid(request_models.DriftProfileEditRequest)
@@ -52997,7 +53180,7 @@ def handle_drift_assign():
     """POST /api/drift/assign — assign/unassign a profile to a scope (admin).
     Body: {scope_type: device|tag|group, scope_value, profile_id|null}. A null
     profile_id clears the assignment for that scope."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Drift profiles')
     body = _read_valid(request_models.DriftAssignRequest)
     st = _sanitize_str(body.get('scope_type', ''), 16)
     sv = _sanitize_str(body.get('scope_value', ''), 128).strip()
@@ -60643,12 +60826,35 @@ def handle_inbound_webhook(token_str):
     respond(200, {'ok': True, 'alert_id': alert['id'], 'coalesced': coalesced})
 
 
+def _inbound_token_visible(t):
+    """Whether the caller may see or manage this inbound token.
+
+    A token pinned to a device belongs to that device's tenant. A token with no
+    pin attributes by tag or by payload across the whole fleet, so under
+    tenancy it is the platform operator's. The list, edit and revoke handlers
+    all took `require_admin_auth()` alone, which a tenant admin passes, so one
+    tenant could switch off or delete another tenant's ingest."""
+    if _tenant_gate() is None:
+        return True
+    did = str((t or {}).get('scope_device_id') or '')
+    return bool(did) and _tenant_visible(device_get(did) or {})
+
+
+def _inbound_tokens_visible_ids():
+    """Ids of the inbound tokens the caller may manage, read before any store
+    lock is taken (visibility reads the device store)."""
+    return {t.get('id') for t in ((_load_ro(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
+            if isinstance(t, dict) and _inbound_token_visible(t)}
+
+
 def handle_inbound_webhooks_list():
     """GET /api/inbound-webhooks — admin-only. Returns tokens without secret."""
     require_admin_auth()
     cfg = load(INBOUND_WEBHOOKS_FILE)
     redacted = []
     for t in cfg.get('tokens', []):
+        if not _inbound_token_visible(t):
+            continue
         copy = {k: v for k, v in t.items() if k != 'token'}
         copy['token_preview'] = (t.get('token') or '')[:12] + '…'
         redacted.append(copy)
@@ -60676,6 +60882,10 @@ def handle_inbound_webhooks_create():
     # the string checked its shape and nothing about who owns it.
     if scope_dev:
         _scope_block_device(scope_dev)
+    elif _tenant_gate() is not None:
+        # Unpinned tokens attribute across the whole fleet (by tag or payload).
+        respond(403, {'error': 'Pick one of your devices for this token. Tokens '
+                               'without a device are managed by the platform operator.'})
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
     if kind not in ('alert', 'syslog', 'snmp_trap', 'flow', 'itsm'):
@@ -60720,11 +60930,12 @@ def handle_inbound_webhook_revoke(token_id):
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     found = False
+    _visible_ids = _inbound_tokens_visible_ids()
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             arr = store.get('tokens', [])
             for i, t in enumerate(arr):
-                if t.get('id') == token_id:
+                if t.get('id') == token_id and token_id in _visible_ids:
                     arr.pop(i)
                     found = True
                     break
@@ -60762,10 +60973,14 @@ def handle_inbound_webhook_toggle(token_id):
             # Same attribution target as create — re-pinning an existing token
             # is the same cross-tenant write.
             _scope_block_device(_sd)
+        elif _tenant_gate() is not None:
+            respond(403, {'error': 'Tokens without a device are managed by the '
+                                   'platform operator.'})
+    _visible_ids = _inbound_tokens_visible_ids()
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
-                if t.get('id') == token_id:
+                if t.get('id') == token_id and token_id in _visible_ids:
                     if 'enabled' in body:
                         t['enabled'] = bool(body['enabled'])
                         changes.append(f'enabled={t["enabled"]}')
@@ -63641,7 +63856,7 @@ def handle_ldap_test_user():
 
 def handle_monitor_alerts_clear():
     """Reset monitor alert state so alerts can re-fire."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Monitor alert state')
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     with _LockedUpdate(CONFIG_FILE) as cfg:   # v6.4.2: was an unlocked RMW
         cfg['monitor_notified'] = {}
@@ -64014,6 +64229,11 @@ def handle_exposure_mute():
     if not rule:
         respond(400, {'error': 'specify at least one of device / process / proto / port'})
         return
+    # A rule naming a device was scope-checked above. One without a device
+    # silences that process/port on EVERY host, so under tenancy it belongs to
+    # the platform operator, like the other fleet-wide mutes.
+    if not rule.get('device_id'):
+        _require_platform_operator('Fleet-wide exposure mutes')
     with _LockedUpdate(CONFIG_FILE) as cfg:
         mutes = cfg.get('exposure_mutes') or []
         if action == 'remove':
@@ -64409,7 +64629,7 @@ def handle_secrets_mute():
     """POST /api/secrets/mute {fingerprint, unmute?} — mute (or unmute) a secret
     finding by fingerprint so it stops alerting / counting. Admin-only; the
     fingerprint is a sha256 prefix, never the secret itself. Audit-logged."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Fleet-wide secret mutes')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.SecretsMuteRequest)
@@ -65205,7 +65425,7 @@ def handle_import_monitors():
     `config.monitors`, deduped by (type, target) against existing ones."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Monitors')
     body = _read_valid(request_models.ImportMonitorsRequest)
     content = str(body.get('content') or '')
     if not content.strip():
@@ -65939,7 +66159,7 @@ def handle_metrics_push_get():
 
 def handle_metrics_push_set():
     """PUT /api/metrics/push/config — configure the metrics push. Admin-only."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('Metrics push')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.MetricsPushSetRequest)
@@ -66187,7 +66407,7 @@ def handle_gitops_get():
 
 def handle_gitops_set():
     """PUT /api/gitops — configure GitOps sync (admin). Off by default."""
-    actor = require_admin_auth()
+    actor = require_instance_admin_auth('GitOps sync')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.GitopsSetRequest)
@@ -72201,6 +72421,9 @@ def main():
     # any caller could bypass). One place, so a new route under a gated prefix
     # is covered automatically.
     _enforce_module_gate(pi)
+    # Instance-wide infrastructure and libraries: platform operator only under
+    # tenancy. After the module gate, so a switched-off module still 404s.
+    _enforce_platform_routes(pi, m)
 
     # v4.3.0: time the handler and record it if it ran past the slow threshold.
     # try/finally so the timing fires on every exit path (normal HTTPError
@@ -73185,7 +73408,7 @@ def handle_ai_prompts_get():
 
 def handle_ai_prompts_save():
     """POST /api/ai/prompts — body {key, text}. Empty text = revert to default."""
-    require_admin_auth()
+    require_instance_admin_auth('AI prompts')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = _read_valid(request_models.AiPromptsSaveRequest)
@@ -73505,7 +73728,7 @@ def handle_ai_params_get():
 def handle_ai_params_save():
     """POST /api/ai/params — body {key, temperature, top_p, max_tokens, num_ctx}.
     Each field may be omitted/empty/null to clear (revert to default)."""
-    require_admin_auth()
+    require_instance_admin_auth('AI model parameters')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = _read_valid(request_models.AiParamsSaveRequest)

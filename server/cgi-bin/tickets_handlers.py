@@ -438,7 +438,7 @@ def handle_ticket_sla():
                         'by_type': by_type})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Ticket SLA targets')
     body = A.get_json_obj()
     out = _clean_sla_hours(body)
     by_type_in = body.get('by_type')
@@ -484,7 +484,7 @@ def handle_ticket_templates():
         A.respond(200, {'ok': True, 'templates': tpls})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Ticket templates')
     body = A.get_json_obj()
     raw = body.get('templates')
     if not isinstance(raw, list):
@@ -518,7 +518,7 @@ def handle_ticket_schedules():
         A.respond(200, {'ok': True, 'schedules': scheds})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Scheduled tickets')
     body = A.get_json_obj()
     raw = body.get('schedules')
     if not isinstance(raw, list):
@@ -902,7 +902,7 @@ def handle_ticket_autoreply():
         A.respond(200, {'ok': True, 'enabled': bool(c.get('enabled')),
                       'subject': c.get('subject', ''),
                       'body': c.get('body', '') or A._TICKET_AUTOREPLY_DEFAULT})
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The ticket auto-reply')
     body = A.get_json_obj()
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cfg['ticket_autoreply'] = {
@@ -927,7 +927,7 @@ def handle_ticket_imap_get():
 
 
 def handle_ticket_imap_save():
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The helpdesk mailbox')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()

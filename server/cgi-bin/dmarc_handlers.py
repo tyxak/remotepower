@@ -334,7 +334,7 @@ def handle_dmarc_imap_get() -> None:
 def handle_dmarc_imap_save() -> None:
     """``POST /api/dmarc/imap`` — save IMAP config (admin). A blank password keeps
     the stored one."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The DMARC mailbox')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.DmarcImapSaveRequest)

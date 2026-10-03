@@ -279,6 +279,8 @@ def run_ip_intel_if_due():
     # ── phase 2 ──
     spent = {}
     looked = {}          # ip -> (verdict, errors): one lookup per address per sweep
+    devices = A._load_ro(A.DEVICES_FILE) or {}
+    protected = None
     for p in plan:
         ip, item = p['ip'], p['item']
         if p['lookup'] and ip not in looked:
@@ -289,6 +291,18 @@ def run_ip_intel_if_due():
         if not pol['report_enabled'] or (p['verdict'] or {}).get('whitelisted'):
             continue
         if int(item.get('count') or 0) < int(pol['report_min_count']):
+            continue
+        # A report is public and filed under the operator's account, so the
+        # addresses that may never be blocked may never be reported either:
+        # the fleet's own, the operator's allow-list, recent login sources.
+        # A misconfigured script failing logins from the office is not an
+        # attacker, and a public report naming it is hard to take back.
+        if protected is None:
+            protected = _protected_networks(pol, devices)
+        nb = ip_intel.never_block_reason(ip, protected)
+        if nb:
+            p['report_err'] = {prov: f'not reported: {nb}' for prov in ip_intel.PROVIDERS
+                               if pol['keys'].get(prov)}
             continue
         comment = ip_intel.report_comment(p['kind'], item.get('count'), item.get('window_s'))
         for prov in ip_intel.PROVIDERS:
@@ -307,8 +321,6 @@ def run_ip_intel_if_due():
                 p['report_err'][prov] = res.get('error')
 
     # ── phase 3 ──
-    devices = A._load_ro(A.DEVICES_FILE) or {}
-    protected = None
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         _add_spend(st, today, spent)
         atts = st.setdefault('attackers', {})
@@ -494,6 +506,11 @@ def handle_ip_intel_lookup():
     actor = A.require_admin_auth()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
+    # The API keys and the daily budget are the instance's, configured by the
+    # platform operator; a tenant admin spending them is spending someone
+    # else's quota.
+    if A._tenancy_enforced() and not A._caller_is_superadmin():
+        A.respond(403, {'error': 'Lookups use the instance API keys and are run by the platform operator.'})
     body = A._read_valid(A.request_models.IpIntelLookupRequest)
     ip = ip_intel.parse_ip(body.get('ip'))
     if not ip or not ip_intel.is_public(ip):
@@ -520,6 +537,10 @@ def handle_ip_intel_lookup():
 
 
 def _block_target():
+    # Authenticate before reading the body or touching the device store, so an
+    # anonymous caller cannot tell an existing device from a missing one by the
+    # status code. The per-device permission check follows in the caller.
+    A.require_auth()
     body = A._read_valid(A.request_models.IpIntelBlockRequest)
     dev_id = str(body.get('device_id') or '')
     ip = ip_intel.parse_ip(body.get('ip'))

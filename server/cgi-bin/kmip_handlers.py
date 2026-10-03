@@ -593,6 +593,7 @@ def handle_kmip_install_snippet():
     Admin-only, same trust model as the agent-install one-liner.
     """
     _kmip_require_admin()
+    A._require_platform_operator('The KMIP server')
     secret = _kmip_daemon_secret()
     if not secret:
         secret = secrets.token_hex(32)
@@ -796,6 +797,7 @@ def handle_kmip_reset():
     response carries the two root commands that finish the job.
     """
     actor = _kmip_require_admin()
+    A._require_platform_operator('The KMIP server')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.KmipResetRequest)

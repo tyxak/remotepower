@@ -215,7 +215,7 @@ class TestV341Backend(unittest.TestCase):
         m = re.search(r'def handle_report_schedule_set\(.*?\n(.*?)\ndef ',
                       self.API, re.DOTALL)
         self.assertIsNotNone(m)
-        self.assertIn('require_admin_auth()', m.group(1))
+        self.assertRegex(m.group(1), r'require_(instance_)?admin_auth\(')
 
     def test_health_score_weights_present(self):
         self.assertIn('_HEALTH_WEIGHTS', self.API)

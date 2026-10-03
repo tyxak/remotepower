@@ -242,7 +242,7 @@ def handle_acme_dns_credentials_set():
     Body: {provider: "dns_cf", credentials: {CF_Token: "...", ...}}.
     Sending an explicit null value clears the field.
     """
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('ACME DNS credentials')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.AcmeDnsCredentialsSetRequest)

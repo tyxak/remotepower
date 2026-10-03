@@ -25,6 +25,9 @@ paths = [
   '''packaging/aur/[^/]+/pkg/.*''', # AUR makepkg package tree (regenerated)
   '''.*\.BUILDINFO''',              # AUR build metadata (regenerated)
   '''site/.*''',                    # marketing site (gitignored, separate deploy)
+  '''server/html/static/vendor/.*''',  # third-party minified bundles (xterm, noVNC,
+                                       # swagger-ui): identifier soup such as
+                                       # `t.FourKeyMap=...` reads as generic-api-key
   '''\.cursor/.*''',                # gitignored Cursor IDE rules mirror — contains
                                     # the maintainer's public PGP fingerprint
                                     # (validpgpkeys=), not a secret
@@ -52,6 +55,10 @@ regexes = [
   '''-----BEGIN OPENSSH PRIVATE KEY-----''',
   '''(?i)(saml|oidc|ldap)_[a-z0-9_]*''',  # SSO config KEY-NAME literals (not secrets)
   '''x509_cert''',
+  # Field names, not values: the sshd setting the agent reports and the DOM ids
+  # of the write-only SNMP secret inputs (cleared after save, never filled).
+  '''x11_forwarding''',
+  '''ds-snmp-v3-(auth|priv)-secret''',
   # test_config_secret_tree.py's original fixture value (commit 14cef9f) — an
   # obviously-fake unit fixture that pattern-matched generic-api-key; the
   # working-tree fixture was renamed, but the historical commit is permanent.

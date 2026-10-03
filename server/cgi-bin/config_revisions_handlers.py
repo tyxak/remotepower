@@ -80,7 +80,7 @@ def record_config_revision(prev_cfg, new_cfg, user):
 def handle_config_revisions_list():
     """GET /api/config/revisions — metadata only, newest first. The stored
     config bodies are NEVER returned (they hold unscrubbed secrets)."""
-    A.require_admin_auth()
+    A.require_instance_admin_auth('Configuration revisions')
     revs = (A.load(A.CONFIG_REVS_FILE) or {}).get('revisions') or []
     out = [{
         'id': str(r.get('id') or ''),
@@ -95,7 +95,7 @@ def handle_config_revision_restore():
     """POST /api/config/revisions/restore {id} — swap the live config for the
     picked revision. The just-replaced config becomes a revision itself first,
     so a restore is always undoable by restoring THAT."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('Configuration revisions')
     body = A.get_json_obj()
     rid = str(body.get('id') or '')
     revs = (A.load(A.CONFIG_REVS_FILE) or {}).get('revisions') or []

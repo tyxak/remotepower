@@ -264,7 +264,8 @@ class TestDnsVault(unittest.TestCase):
     def test_route_and_handler_gated(self):
         self.assertIn(("POST", "/api/dns/vault-credentials"), api._build_exact_routes())
         src = inspect.getsource(api.handle_dns_vault_creds_set)
-        self.assertIn("require_admin_auth", src)
+        # instance-wide credentials: the admin gate plus the platform-operator check
+        self.assertIn("require_instance_admin_auth", src)
         self.assertIn("audit_log", src)
         self.assertIn("cmdb_vault.encrypt", src)
 

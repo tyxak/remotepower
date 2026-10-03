@@ -520,11 +520,15 @@ summary is:
 | Store | Isolated when enforced? |
 |---|---|
 | Devices, and everything keyed by a device id (metrics, history, alerts, entity records) | **Yes** — app layer, plus the database when RLS is on |
+| CMDB assets & credentials | **Yes** — app layer; each record is keyed by a device id and inherits its tenant |
+| Enrolment PINs & tokens | **Yes** — a PIN or token carries the tenant of the admin who made it, and the device it enrols joins that tenant |
+| Inbound webhook & ingest tokens | **Yes** — a token pinned to a device belongs to that device's tenant; unpinned tokens are the platform operator's |
+| Instance settings & infrastructure | **Platform operator only** — settings, config revisions, the AI provider, release signing, metrics push, GitOps, scheduled reports, the KMIP server, relay satellites, WireGuard access, scanner targets and the CMDB vault passphrase |
+| Shared libraries (command library, playbooks, blueprints, app catalogue) | Readable by every tenant; **changed only by the platform operator**, because other tenants run them |
 | Tickets | No — one shared store |
-| CMDB assets & credentials | No — one shared store |
 | Billing, time tracking, invoices | No — one shared store |
-| Audit log | No — global on purpose; a superadmin needs one complete trail |
-| Users & roles | No — a global control-plane, on purpose |
+| Audit log | No — global on purpose; a superadmin needs one complete trail. Only the platform operator can clear it |
+| Users & roles | Accounts are tenant-scoped; role definitions are a global control-plane, changed only by the platform operator |
 
 ### Other things worth knowing
 

@@ -185,7 +185,7 @@ def handle_dns_vault_creds_set():
     an unlocked vault (the X-RP-Vault-Key header). Body
     {provider, credentials:{<field>:<value>,...}}; a blank value leaves a field
     unchanged, an explicit null clears it. Admin-only, audit-logged."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('DNS provider credentials')
     # Don't use _cmdb_require_unlocked here: it responds 401 on a locked vault,
     # and the generic api() client logs the user out on 401. Use 409 for vault
     # state so the UI gets the body and can prompt to unlock.
@@ -351,7 +351,7 @@ def handle_dns_vault_import():
     {provider, clear_plaintext?:bool}. With clear_plaintext the plaintext copy is
     removed afterwards so the credentials then exist ONLY encrypted. Requires an
     unlocked vault. Admin-only, audit-logged."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('DNS provider credentials')
     meta = A._cmdb_get_vault_meta()
     if not A.cmdb_vault.is_configured(meta):
         A.respond(409, {'error': 'vault not configured — set up the CMDB vault first',

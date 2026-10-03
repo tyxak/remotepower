@@ -105,7 +105,8 @@ class TestPinHashing(unittest.TestCase):
 
     def test_source_uses_hash_on_both_paths(self):
         src = (_CGI / 'api.py').read_text()
-        self.assertIn("pins[_hash_device_token(pin)] = {'created': now}", src)
+        # keyed by the hash; the value also carries the minting tenant when one applies
+        self.assertIn("pins[_hash_device_token(pin)] = ({'created': now, 'tenant': _pin_tenant}", src)
         self.assertIn('pin_hash = _hash_device_token(pin)', src)
         # legacy plaintext-keyed entries still accepted on verify (upgrade grace)
         self.assertIn('if not entry and pin in pins:', src)

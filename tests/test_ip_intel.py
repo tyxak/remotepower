@@ -219,6 +219,48 @@ class TestQueueing(_Case):
         q = (api.load(api.IPINTEL_FILE) or {}).get('queue') or []
         self.assertEqual([x['ip'] for x in q], [ATTACKER])
 
+    def test_a_source_chosen_in_the_user_name_is_not_credited(self):
+        """sshd logs the client-chosen user name BEFORE the real address, and
+        keeps spaces in it. Logging in as `x from <victim>` used to credit the
+        victim, which IP intel would then report under the operator's key."""
+        api = self.api
+        api._brute_config = lambda: (True, 3, 600)
+        victim = '8.8.4.4'
+        lines = []
+        for i in range(5):
+            lines += [
+                f'Invalid user x from {victim} from {ATTACKER} port 4{i}',
+                f'Failed password for invalid user x from {victim} port 22 from {ATTACKER} port 4{i} ssh2',
+                f'Connection closed by invalid user x {victim} port 22 {ATTACKER} port 4{i} [preauth]',
+                'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh '
+                f'ruser= rhost={ATTACKER}  user=rhost={victim}',
+            ]
+        api._detect_brute_force('d1', 'web01', 'sshd.service', lines)
+        api._LOAD_CACHE.clear()
+        q = (api.load(api.IPINTEL_FILE) or {}).get('queue') or []
+        self.assertEqual({x['ip'] for x in q}, {ATTACKER})
+        bf = api.load(api.BRUTE_FORCE_FILE) or {}
+        self.assertEqual(set(bf['d1']['sshd.service']), {ATTACKER})
+
+    def test_the_patterns_still_read_every_sshd_shape(self):
+        """The anchoring must not cost a real line: with and without the port
+        sshd stopped omitting, IPv6, and an empty pam rhost (no address)."""
+        api = self.api
+        pats = api._BRUTE_PATTERNS['ssh']
+
+        def src(line):
+            for pat in pats:
+                m = pat.search(line)
+                if m:
+                    return m.group(1)
+            return None
+        self.assertEqual(src(f'Failed password for root from {ATTACKER} port 22 ssh2'), ATTACKER)
+        self.assertEqual(src(f'Failed password for invalid user a b from {ATTACKER6} port 2 ssh2'), ATTACKER6)
+        self.assertEqual(src(f'Invalid user admin from {ATTACKER}'), ATTACKER)
+        self.assertEqual(src(f'Invalid user admin from {ATTACKER} port 22'), ATTACKER)
+        self.assertEqual(src('pam_unix(sshd:auth): authentication failure; logname= uid=0 '
+                             'euid=0 tty=ssh ruser= rhost=  user=root'), '')
+
     def test_private_sources_and_a_disabled_feature_queue_nothing(self):
         self.attack(ip='10.1.2.3')
         self.attack(ip='host.example.com')
@@ -264,6 +306,24 @@ class TestSweep(_Case):
         self.attack(count=40)
         self.sweep()
         self.assertEqual(len([c for c in self.calls if c['method'] == 'POST']), 2)
+
+    def test_protected_addresses_are_never_reported(self):
+        """A report is public and filed under the operator's account. The
+        never-block rules used to apply only to blocking, so the office address
+        in the UI allow-list was reported like any attacker."""
+        cfg = self.api.load(self.api.CONFIG_FILE)
+        cfg['ip_allowlist'] = ['185.220.101.0/24']
+        self.api.save(self.api.CONFIG_FILE, cfg)
+        self.policy(report_enabled=True, report_min_count=1)
+        self.attack(count=40)
+        st = self.sweep()
+        self.assertFalse([c for c in self.calls if c['method'] == 'POST'],
+                         'an allow-listed address was reported')
+        self.assertIn('never-block', str(st['attackers'][ATTACKER].get('errors')))
+        # and the fleet's own public address
+        self.attack(dev='d1', ip='198.51.100.20', count=40)
+        self.sweep()
+        self.assertFalse([c for c in self.calls if c['method'] == 'POST'])
 
     def test_block_queues_a_real_command_and_expires(self):
         self.policy(block_enabled=True)
@@ -395,6 +455,27 @@ class TestEndpoints(_Case):
         self.assertEqual(self.call(self.api.handle_ip_intel_lookup, 'POST', {'ip': '10.0.0.1'})[0], 400)
         self.assertEqual(self.call(self.api.handle_ip_intel_lookup, 'POST', {'ip': ATTACKER},
                                    role='viewer')[0], 403)
+
+    def test_block_endpoints_authenticate_before_touching_the_store(self):
+        seen = []
+        self.api._scope_block_device = lambda d: seen.append(d)
+        self.api.verify_token = lambda _t=None: (None, None)
+        self.api.method = lambda: 'POST'
+        self.api.get_json_obj = lambda: {'device_id': 'd1', 'ip': ATTACKER}
+        for fn in (self.api.handle_ip_intel_block, self.api.handle_ip_intel_unblock):
+            self.cap.clear()
+            try:
+                fn()
+            except self.api.HTTPError:
+                pass
+            self.assertEqual(self.cap.get('status'), 401)
+        self.assertEqual(seen, [], 'the device store was consulted for an anonymous caller')
+
+    def test_lookup_is_the_platform_operators_under_tenancy(self):
+        self.api._tenancy_enforced = lambda: True
+        self.api._caller_is_superadmin = lambda: False
+        self.assertEqual(self.call(self.api.handle_ip_intel_lookup, 'POST', {'ip': ATTACKER})[0], 403)
+        self.assertEqual(self.calls, [], 'a tenant admin spent the instance budget')
 
     def test_settings_are_admin_only_in_the_listing(self):
         st, d = self.call(self.api.handle_ip_intel, role='viewer')

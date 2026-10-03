@@ -391,7 +391,7 @@ def handle_vpn_default_template() -> None:
         A.require_admin_or_auditor_auth()
         tmpl = (A.load(A.CONFIG_FILE) or {}).get('vpn_default_template') or {}
         A.respond(200, {'ok': True, 'template': tmpl})
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The default VPN template')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()
