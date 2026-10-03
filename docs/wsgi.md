@@ -31,9 +31,10 @@ threads** (no global lock). Scale on either axis in
   `sys.stdout` proxy routes each request's output to its own buffer.
 - **`--workers N`** for process parallelism (more memory, sidesteps the GIL
   for CPU-bound work). Workers are independent processes.
-- A typical mix is `--workers <cpus> --threads 8` (the shipped default is
-  `--workers 4 --threads 8`). Tune threads to your DB connection budget (each
-  active thread may hold one connection).
+- A typical mix is `--workers <cpus> --threads 8`. The systemd unit that
+  `install-server.sh` installs uses `--workers 4 --threads 8`; the Docker image
+  runs `--workers 2 --threads 8` and has no setting for it. Tune threads to your
+  DB connection budget (each active thread may hold one connection).
 - Use **sync workers with threads** (the default — do not switch to
   gevent/eventlet). Long-poll endpoints (`/api/exec/wait`) and the
   `_LOAD_CACHE` per-request-invalidation contract were validated against this

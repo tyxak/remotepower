@@ -33,10 +33,11 @@ tuning-step mapping once you're past a few hundred devices.
 
 ### Where that comes from, per component
 
-- **gunicorn (`--workers 4 --threads 8` default)** — each worker is a real
+- **gunicorn (`--workers 4 --threads 8` on a bare-metal install, `--workers 2`
+  in the Docker image)** — each worker is a real
   process; count on roughly 100–150 MB resident per worker with Flask + the
   app's imports loaded, so ~500 MB–1 GB for the app server at the default
-  worker count. `scaling.md`'s rule of thumb (workers ≈ CPU cores) is why the
+  worker count of a bare-metal install. `scaling.md`'s rule of thumb (workers ≈ CPU cores) is why the
   recommended tier assumes 2–4 cores — fewer workers on a 1–2 core box is
   fine for a small homelab fleet, just lower request concurrency.
 - **PostgreSQL** — comfortable in a few hundred MB of `shared_buffers` at

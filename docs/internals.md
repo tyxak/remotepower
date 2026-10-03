@@ -3,7 +3,7 @@
 Most of the docs here tell you *what* RemotePower does and *how to use it*. This
 one is for the curious — and for anyone hacking on the code. It's the engineering
 tour: the shape of the codebase, the decisions behind it, and the load-bearing
-patterns that hold ~113,000 lines of server Python together — a hand-rolled
+patterns that hold the server Python together — a hand-rolled
 request dispatcher and handler layer, with Flask/gunicorn as the thin WSGI shell.
 
 If you just want to run the thing, start with [install.md](install.md) and
@@ -26,8 +26,8 @@ do the job. The guiding rules:
   JavaScript. There is no webpack, no bundler, no transpiler, no `node_modules`.
   You can `curl` the page, read it, and understand it. Edit a file, reload, done.
 - **One big module, many small ones.** The API is one large file
-  (`server/cgi-bin/api.py`, ~67k lines) that owns routing, auth, and the request
-  lifecycle, surrounded by ~80 focused sibling modules that each do one thing
+  (`server/cgi-bin/api.py`) that owns routing, auth, and the request
+  lifecycle, surrounded by dozens of focused sibling modules that each do one thing
   (DNS, SNMP, TLS monitoring, hypervisor drivers, the RAG index, …).
 - **Everything degrades.** Optional dependencies are guarded behind
   `try: import …`. No `bcrypt`? Fall back to PBKDF2. No `pydantic`? Request
@@ -38,20 +38,20 @@ The payoff is that the whole thing is *legible*. A single engineer can hold the
 request path in their head, and a new contributor can trace a feature from the URL
 to the byte on disk without learning a framework first.
 
-By the numbers (v7.0.3):
+By the numbers (v7.1.0):
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~132,000 lines |
-| The main API module (`api.py`) | ~74,000 lines |
-| Focused sibling modules | ~91 |
-| HTTP routes (exact + templated) | ~501 exact, ~428 pattern |
-| Request handlers (`handle_*`) | ~857 |
-| Typed request-body models | ~259 |
+| Server Python (`server/cgi-bin/`) | ~136,000 lines |
+| The main API module (`api.py`) | ~75,000 lines |
+| Focused sibling modules | ~95 |
+| HTTP routes (exact + templated) | ~515 exact, ~430 pattern |
+| Request handlers (`handle_*`) | ~870 |
+| Typed request-body models | ~268 |
 | Homelab integration connectors | 48 (+ a generic HTTP probe) |
-| Background maintenance sweeps | ~73 |
-| Frontend JS files (no bundler) | 47 |
-| Test methods across ~750 files | ~13,200 |
+| Background maintenance sweeps | ~74 |
+| Frontend JS files (no bundler) | 49 |
+| Test methods across ~770 files | ~13,500 |
 
 ---
 
@@ -245,8 +245,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~11,900 lines), one main `app.js` (~31,500
-lines), and ~46 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~12,100 lines), one main `app.js` (~31,600
+lines), and ~48 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 
