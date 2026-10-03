@@ -33,7 +33,7 @@ _GATE = _HAVE_PLAYWRIGHT or browser_required.required()
 
 _ROOT = Path(__file__).resolve().parent.parent
 _I18N = _ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js'
-_CLOSING = ')]}.,;:!?，。；：！？、）،؛'
+_CLOSING = ')]}.,;:!?，。；：！？、）،؛।'
 _LANGS = ('de', 'fr', 'es', 'zh', 'hi', 'ar')
 
 
@@ -113,8 +113,29 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
             page.close()
         self.assertEqual(text, 'x ' + value)
 
+    def test_a_one_character_translation_can_be_switched_back_to_english(self):
+        """The engine used to judge a node by its CURRENT text, so a node translated to a single character
+        ("。" in Chinese, "।" in Hindi) was shorter than the two-character minimum and stayed translated
+        after the page went back to English. A sentinel entry is injected so the test does not depend on
+        which real entries happen to be one character long."""
+        src = _I18N.read_text(encoding='utf-8')
+        marker = 'var DICT = {\n'
+        self.assertEqual(src.count(marker), 1, 'the DICT opening line changed; update this test with it')
+        patched = src.replace(marker, marker + '    "Sentinel one-char": { "zh": "。", "hi": "।", "es": ".", "ar": ".", "de": ".", "fr": "." },\n')
+        self.assertIn('Sentinel one-char', patched)
+        page = self._browser.new_page()
+        try:
+            page.set_content('<body><p id="t"><code>x</code> Sentinel one-char</p></body>')
+            page.add_script_tag(content=patched)
+            page.evaluate('l => RPi18n.setLang(l, false)', 'zh')
+            self.assertEqual(page.evaluate("() => document.getElementById('t').textContent"), 'x。')
+            page.evaluate('l => RPi18n.setLang(l, false)', 'en')
+            self.assertEqual(page.evaluate("() => document.getElementById('t').textContent"), 'x Sentinel one-char')
+        finally:
+            page.close()
+
     def test_going_back_to_english_restores_the_original_space(self):
-        key, _value = self.probes['zh'][0]
+        key, _value = next((k, v) for k, v in self.probes['zh'] if len(v) > 1)
         page = self._page(key)
         try:
             page.evaluate('l => RPi18n.setLang(l, false)', 'zh')
