@@ -99,6 +99,9 @@ DECLARED = {
     # mDNS discovery and the push-channel listener: Linux agent features.
     'mdns_enabled':         ('linux',),
     'push_enabled':         ('linux',),
+    # The SSH gateway tunnel: only the Linux agent carries it, and the server
+    # refuses to opt a non-Linux device in (handle_device_sshgw → 409).
+    'sshgw_enabled':        ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

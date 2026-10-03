@@ -45,8 +45,10 @@ class FakeApi:
         self.devices = {'d1': 'tok-1'}
         self.opted_in = {'d1'}
         self.audits = []
+        self.calls = []
 
     async def authorize(self, username, fp, target, ip):
+        self.calls.append((username, fp, target))
         if self.keys.get(username) != fp:
             return {'ok': False, 'error': 'key not authorized'}
         if not target:
@@ -237,6 +239,44 @@ class TestGatewayEndToEnd(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncssh.PermissionDenied):
             await self.jump(username='bob')
 
+    async def test_a_login_asks_the_api_once_per_key(self):
+        """asyncssh validates the accepted key twice (offer, then signature).
+        The second answer comes from the connection's own record."""
+        async with await self.jump():
+            pass
+        logins = [c for c in self.api.calls if not c[2]]
+        self.assertEqual(len(logins), 1, logins)
+
+    async def test_key_offers_per_connection_are_capped(self):
+        """asyncssh has no MaxAuthTries. Without a cap one unauthenticated
+        connection could make an API request per key it offers, for the whole
+        login timeout."""
+        self.gwmod.MAX_AUTH_ATTEMPTS = 4
+        keys = [asyncssh.generate_private_key('ssh-ed25519') for _ in range(12)]
+        with self.assertRaises((asyncssh.PermissionDenied, asyncssh.ConnectionLost,
+                                asyncssh.DisconnectError, OSError)):
+            await asyncssh.connect('127.0.0.1', self.gw_port, username='alice',
+                                   client_keys=keys, known_hosts=None, agent_path=None)
+        self.assertLessEqual(len(self.api.calls), 4, self.api.calls)
+
+    async def test_unauthenticated_connections_per_address_are_capped(self):
+        self.gwmod.MAX_UNAUTH_PER_IP = 2
+        idle = [await asyncio.open_connection('127.0.0.1', self.gw_port) for _ in range(2)]
+        await asyncio.sleep(0.2)
+        with self.assertRaises((asyncssh.ConnectionLost, asyncssh.DisconnectError,
+                                asyncssh.PermissionDenied, OSError)):
+            await asyncio.wait_for(self.jump(), 10)
+        for _r, w in idle:
+            w.close()
+        for _ in range(50):
+            if not self.gw._logging_in:
+                break
+            await asyncio.sleep(0.05)
+        self.assertFalse(self.gw._logging_in, 'closed connections still counted')
+        async with await self.jump():
+            pass
+        self.assertFalse(self.gw._logging_in, 'an authenticated connection is still counted')
+
     async def test_no_shell_on_the_gateway_just_instructions(self):
         async with await self.jump() as gw:
             r = await gw.run('id')
@@ -291,14 +331,16 @@ class TestAgentLocalPolicy(unittest.TestCase):
                 os.environ['RP_SSHGW_PORT'] = old
 
     def test_host_kill_switch_and_audit_mode(self):
-        d = Path(tempfile.mkdtemp())
-        self.agent.SSHGW_DISABLED_FILE = d / 'sshgw-disabled'
+        # The host owner's kill switch is a real file on the host, not a store
+        # key, so it is written through a plain path.
+        kill_switch = Path(tempfile.mkdtemp()) / 'sshgw-disabled'
+        self.agent.SSHGW_DISABLED_FILE = kill_switch
         self.agent.IN_CONTAINER = False
         self.agent._audit_mode = lambda: False
         self.assertEqual(self.agent._sshgw_blocked_locally(), '')
-        self.agent.SSHGW_DISABLED_FILE.write_text('')
+        kill_switch.write_text('')
         self.assertIn('sshgw-disabled', self.agent._sshgw_blocked_locally())
-        self.agent.SSHGW_DISABLED_FILE.unlink()
+        kill_switch.unlink()
         self.agent._audit_mode = lambda: True
         self.assertIn('audit', self.agent._sshgw_blocked_locally())
 

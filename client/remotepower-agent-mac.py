@@ -14,8 +14,9 @@ this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy);
 `mailbox_paths` (mail spools);
 `host_config_desired` (users/sudoers/motd apply); `push_enabled` (push relay);
-`mdns_enabled`; `force_iac_collect`; `guard_actions` (Integrity Guard check
-types are Linux-only); `harvest_dns_creds` / `force_acme_rescan` (acme.sh).
+`sshgw_enabled` (SSH gateway tunnel); `mdns_enabled`; `force_iac_collect`;
+`guard_actions` (Integrity Guard check types are Linux-only);
+`harvest_dns_creds` / `force_acme_rescan` (acme.sh).
 Everything else the server sends is honoured here — when closing one of these,
 also update this list and the Windows agent's.
 
@@ -54,6 +55,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'mailbox_paths',                      # Unix mail spools, not macOS layout
     'host_config_desired',                # users/sudoers/motd apply
     'push_enabled',
+    'sshgw_enabled',                      # SSH gateway tunnel (Linux agent only)
     'mdns_enabled',
     'force_iac_collect',
     'guard_actions',                      # Integrity Guard types are Linux-only

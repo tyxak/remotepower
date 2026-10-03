@@ -130,6 +130,14 @@ CHUNK = 32 * 1024
 FAIL_WINDOW_S = 600
 FAIL_LIMIT = 20
 BAN_S = 600
+# asyncssh has no MaxAuthTries: left alone, one unauthenticated connection may
+# offer keys for the whole login timeout, and every offer is a request to the
+# API. Distinct (user, key) offers per connection, as OpenSSH counts them; an
+# ssh-agent holding a handful of keys stays well inside it.
+MAX_AUTH_ATTEMPTS = 10
+# Connections from one address that have not finished logging in yet, the
+# per-address half of OpenSSH's MaxStartups.
+MAX_UNAUTH_PER_IP = 10
 
 log = logging.getLogger('sshgw')
 
@@ -496,6 +504,8 @@ class GatewaySSHServer(_SSHServer):
         self.authed = False
         self.streams = 0
         self.denied = 0
+        self._answers = {}         # (username, fingerprint) -> bool, this connection
+        self._pending = False      # counted in the gateway's unauthenticated total
 
     def connection_made(self, conn):
         self.conn = conn
@@ -504,8 +514,18 @@ class GatewaySSHServer(_SSHServer):
         if self.gw.banned(self.client_ip):
             log.info('refusing %s: too many failed logins', self.client_ip)
             conn.close()
+            return
+        if not self.gw.login_started(self.client_ip):
+            log.info('refusing %s: %d connections already logging in',
+                     self.client_ip, MAX_UNAUTH_PER_IP)
+            conn.close()
+            return
+        self._pending = True
 
     def connection_lost(self, exc):
+        if self._pending:
+            self._pending = False
+            self.gw.login_finished(self.client_ip)
         if not self.authed and self.client_ip:
             self.gw.note_failure(self.client_ip)
 
@@ -524,16 +544,30 @@ class GatewaySSHServer(_SSHServer):
 
     async def validate_public_key(self, username, key):
         fp = key.get_fingerprint('sha256')
-        res = await self.gw.api.authorize(username, fp, '', self.client_ip)
-        if res.get('ok'):
+        pair = (username, fp)
+        if pair not in self._answers:
+            if len(self._answers) >= MAX_AUTH_ATTEMPTS:
+                log.info('closing %s: more than %d keys offered',
+                         self.client_ip, MAX_AUTH_ATTEMPTS)
+                if self.conn is not None:
+                    self.conn.close()
+                return False
+            res = await self.gw.api.authorize(username, fp, '', self.client_ip)
+            self._answers[pair] = bool(res.get('ok'))
+        if self._answers[pair]:
             # asyncssh asks once without a signature and once with; the last
-            # key accepted before auth completes is the one that signed.
+            # key accepted before auth completes is the one that signed. The
+            # second ask is answered from this connection's own record, so a
+            # client re-offering one key costs the API nothing.
             self.fingerprint = fp
             return True
         return False
 
     def auth_completed(self):
         self.authed = True
+        if self._pending:
+            self._pending = False
+            self.gw.login_finished(self.client_ip)
         log.info('login %s from %s key %s', self.username, self.client_ip, self.fingerprint)
 
     def session_requested(self):
@@ -599,7 +633,22 @@ class Gateway:
         self.public_port = public_port
         self._fails = collections.defaultdict(collections.deque)
         self._banned = {}
+        self._logging_in = collections.Counter()   # ip -> connections not yet authenticated
         self._audit_tasks = set()
+
+    # concurrent unauthenticated connections per address
+    def login_started(self, ip):
+        if self._logging_in[ip] >= MAX_UNAUTH_PER_IP:
+            return False
+        self._logging_in[ip] += 1
+        return True
+
+    def login_finished(self, ip):
+        n = self._logging_in.get(ip, 0) - 1
+        if n > 0:
+            self._logging_in[ip] = n
+        else:
+            self._logging_in.pop(ip, None)
 
     # failed-login throttle
     def note_failure(self, ip):

@@ -29,7 +29,8 @@ server-side CIS baseline is the cross-platform path);
 container-image CVEs); `du_scan_*` / `force_du_scan` (no `du` on Windows;
 macOS has it since v6.4.1); `mailbox_paths` (Unix mail
 spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
-push relay channel); `mdns_enabled`; `force_iac_collect`; `guard_actions`
+push relay channel); `sshgw_enabled` (the SSH gateway tunnel to a local sshd);
+`mdns_enabled`; `force_iac_collect`; `guard_actions`
 (Integrity Guard check types are Linux-only); `harvest_dns_creds` /
 `force_acme_rescan` (acme.sh). Everything else the server sends is honoured
 here — when closing one of these, also update this list and the macOS agent's.
@@ -78,6 +79,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'mailbox_paths',                      # Unix mail spools
     'host_config_desired',                # users/sudoers/motd apply
     'push_enabled',                       # the push relay channel
+    'sshgw_enabled',                      # SSH gateway tunnel (Linux agent only)
     'mdns_enabled',
     'force_iac_collect',
     'guard_actions',                      # Integrity Guard types are Linux-only
