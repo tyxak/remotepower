@@ -390,6 +390,7 @@ def build_users() -> dict:
             'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 120,
+            'sshgw_keys':    [_demo_sshgw_key('alice', 'laptop', 40, 1)],
         },
         'bob': {
             'role': 'admin',
@@ -397,6 +398,7 @@ def build_users() -> dict:
             'totp_secret':   '',
             'created_at':    now() - 86400 * 90,
             'ui_prefs':      {'team': 'Infrastructure'},
+            'sshgw_keys':    [_demo_sshgw_key('bob', 'laptop', 20, 5)],
         },
         # v5.4.0 — the Billing / invoices / worksheet pages are admin/finance
         # only by design (viewers get a 403). So the demo ships a dedicated
@@ -877,6 +879,57 @@ _DEMO_HOST_CONFIG = {
 }
 
 
+def _demo_sshgw_opted_in(dev):
+    os_name = str(dev.get('os') or '').lower()
+    if dev.get('agentless') or any(w in os_name for w in ('windows', 'mac', 'darwin')):
+        return False
+    return int(hashlib.sha256(dev['id'].encode()).hexdigest(), 16) % 4 != 0
+
+
+def _demo_sshgw_key(user, name, added_days, used_hours):
+    blob = b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20' + hashlib.sha256(
+        ('demo-sshgw-' + user + name).encode()).digest()
+    fp = 'SHA256:' + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
+    return {'fingerprint': fp, 'type': 'ssh-ed25519',
+            'key': 'ssh-ed25519 ' + base64.b64encode(blob).decode(),
+            'name': name, 'comment': f'{user}@{name}',
+            'added': now() - 86400 * added_days,
+            'last_used': now() - 3600 * used_hours}
+
+
+def build_sshgw_state() -> dict:
+    out = {}
+    for dev in FAKE_DEVICES:
+        if _demo_sshgw_opted_in(dev):
+            rng = _seeded_random(dev['id'], 'sshgw')
+            out[dev['id']] = {'tunnel_seen': now() - rng.randint(10, 600),
+                              'last_session': now() - rng.randint(600, 86400 * 3)}
+    return out
+
+
+def build_sshgw_sessions() -> dict:
+    ids = [d['id'] for d in FAKE_DEVICES if _demo_sshgw_opted_in(d)]
+    rng = _seeded_random('sshgw-sessions')
+    rows = []
+    for i in range(24):
+        user = rng.choice(['alice', 'alice', 'bob'])
+        did = rng.choice(ids)
+        started = now() - rng.randint(300, 86400 * 6)
+        dur = rng.randint(20, 5400)
+        rows.append({
+            'session_id': _stable_hex('sshgw', i, nbytes=8), 'username': user,
+            'fingerprint': _demo_sshgw_key(user, 'laptop', 40, 1)['fingerprint'],
+            'device_id': did, 'target': did + '.rp',
+            'client_ip': rng.choice(['198.51.100.23', '203.0.113.41', '192.0.2.77']),
+            'started': started, 'duration_s': dur,
+            'bytes_in': rng.randint(4_000, 900_000),
+            'bytes_out': rng.randint(20_000, 40_000_000),
+            'reason': rng.choice(['client closed', 'client closed', 'host closed']),
+        })
+    rows.sort(key=lambda r: r['started'])
+    return {'sessions': rows}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -902,6 +955,9 @@ def build_devices() -> dict:
             # This is also what makes the dashboard tile counts diverge
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
+            # SSH gateway opt-in: every Linux agent host except a couple, so the
+            # page shows both states.
+            'sshgw_enabled': _demo_sshgw_opted_in(dev),
             # 300s, not 60s: the offline threshold is
             # max(online_ttl, poll_interval * offline_missed_polls) + grace, and
             # at 60s the seeded fleet went dark five minutes after every seed.
@@ -2558,6 +2614,10 @@ def build_config() -> dict:
         # page-smoke sweeps walk the seeded stack, so a gated page that the
         # demo never switches on is simply unreachable to them.
         'autonomy_enabled':      True,
+        # SSH gateway: module on so its page is reachable to the seeded sweeps.
+        'sshgw_enabled':         True,
+        'sshgw_public_host':     'gw.demo.example',
+        'sshgw_public_port':     2222,
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).
@@ -6738,6 +6798,8 @@ BUILDERS = {
     'pending_confirmations.json':  build_confirmations,
     # v3.2.x / v3.4.1 dashboard content
     'alerts.json':                 build_alerts,
+    'sshgw_sessions.json':         build_sshgw_sessions,
+    'sshgw_state.json':            build_sshgw_state,
     'fleet_events.json':           build_fleet_events,
     'drift_state.json':            build_drift,
     'health_history.json':         build_health_history,

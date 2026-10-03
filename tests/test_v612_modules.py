@@ -56,6 +56,9 @@ class TestModuleDefaults(unittest.TestCase):
                 # it inert is the per-tenant policy defaulting to off, not
                 # hiding the nav — a feature nobody can find is not shipped.
                 "autonomy": True,
+                # The SSH gateway ships OFF: on is what makes an opted-in host
+                # reachable at all, so an install must choose it.
+                "sshgw": False,
             },
         )
 

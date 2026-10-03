@@ -95,6 +95,8 @@ EXEMPT = {
     'handle_enroll_register':  'agent-self (one-time PIN / enroll token; re-enroll gated by device-token)',
     # ---- daemon shared-secret auth; id is only written to the audit log
     'handle_webterm_session_audit': 'daemon shared-secret (webterm_daemon_secret); id is audit metadata only',
+    'handle_sshgw_audit':       'daemon shared-secret (sshgw_daemon_secret); id is audit metadata only',
+    'handle_sshgw_agent_check': 'agent-self via the gateway daemon (device token checked with _device_token_ok)',
     # ---- non-device / metadata: the id is stored as a free label and the
     #      device's data is never read / mutated / commanded through it.
     # v7.0.0: surfaced when the population regex was widened to include

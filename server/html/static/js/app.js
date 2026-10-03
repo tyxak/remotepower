@@ -2350,6 +2350,7 @@ const MODULE_PAGES = {
   // queue, which is a different feature entirely.
   ai_exec:    null,
   autonomy:   'autonomy',
+  sshgw:      'sshgw',
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2364,6 +2365,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-pentest',    'pentest_enabled',    true],
   ['cfg-mod-ai_exec',    'ai_exec_enabled',    false],
   ['cfg-mod-autonomy',   'autonomy_enabled',   true],
+  ['cfg-mod-sshgw',      'sshgw_enabled',      false],
 ];
 
 function _applyModuleNavGates(modules) {
@@ -2553,6 +2555,7 @@ const _LAZY_PAGE_MODULES = {
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   autonomy: ['app-autonomy.js'],  // v7.0.0 receipts + safety envelope (lazy)
+  sshgw: ['app-sshgw.js'],        // SSH gateway: keys, opt-in, sessions (lazy)
   dmarc: ['app-dmarc.js'],
   gpus: ['app-gpu.js'],
   kb: ['app-kb.js'],
@@ -2806,6 +2809,7 @@ function showPage(name, btn) {
   if (name === 'dmarc')      loadDmarc();
   if (name === 'dns')        loadDns();
   if (name === 'vpn')        loadVpn();
+  if (name === 'sshgw')      loadSshgw();
   if (name === 'timesheet')  loadTimesheet();
   if (name === 'billing')    loadBilling();
   if (name === 'ssh-keys')   loadSshKeys();

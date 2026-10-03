@@ -85,7 +85,8 @@ import warnings as _warnings
 try:
     from cryptography.utils import CryptographyDeprecationWarning as _CryptoDeprecation
     _warnings.filterwarnings('ignore', category=_CryptoDeprecation)
-except Exception:  # nosec B110 — optional; only silences a noisy warning
+except Exception:  # nosec B110
+    # optional; only silences a noisy warning
     pass
 
 try:
@@ -102,12 +103,14 @@ MIN_ASYNCSSH = (2, 14, 2)
 
 VERSION = '1.0.0'
 
-DEFAULT_SSH_HOST = '0.0.0.0'  # nosec B104 — the gateway's public listener
+# The gateway's public listener, so all interfaces by default.
+DEFAULT_SSH_HOST = '0.0.0.0'  # nosec B104
 DEFAULT_SSH_PORT = 2222
 DEFAULT_WS_HOST = '127.0.0.1'
 DEFAULT_WS_PORT = 8767
 DEFAULT_API_BASE = 'http://127.0.0.1:8090/api'
-DEFAULT_SECRET_FILE = '/etc/remotepower/sshgw-secret'
+# A path to the secret, not the secret.
+DEFAULT_SECRET_FILE = '/etc/remotepower/sshgw-secret'  # nosec B105
 DEFAULT_HOST_KEY = '/var/lib/remotepower-sshgw/ssh_host_ed25519_key'
 
 OPEN_TIMEOUT_S = 10            # agent must answer OPEN within this
@@ -183,7 +186,7 @@ class ApiClient:
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Sshgw-Secret', self.secret)
         try:
-            # nosec B310 — scheme enforced in __init__; the path is a literal.
+            # The scheme is enforced in __init__ and the path is a literal.
             with _OPENER.open(req, timeout=8) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- http(s) scheme enforced; fixed loopback base
                 return resp.status, json.loads(resp.read(65536) or b'{}')
         except urllib.error.HTTPError as e:
@@ -440,7 +443,8 @@ class GatewaySession(_SSHTCPSession):
         if self.chan is not None:
             try:
                 self.chan.write_eof()
-            except Exception:  # nosec B110 — channel may already be closing
+            except Exception:  # nosec B110
+                # channel may already be closing
                 pass
             self.chan.close()
         self._finish(close_tunnel_side=False)
@@ -667,7 +671,8 @@ class Gateway:
             old.close('superseded by a new tunnel')
             try:
                 await old.ws.close(code=4409, reason='superseded')
-            except Exception:  # nosec B110 — the old peer may be gone already
+            except Exception:  # nosec B110
+                # the old peer may be gone already
                 pass
         tunnel = Tunnel(dev_id, websocket)
         self.tunnels[dev_id] = tunnel

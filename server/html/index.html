@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-26">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-27">
 
 </head>
 <body>
@@ -573,6 +573,10 @@
         <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
           <span>WG Access</span>
+        </button>
+        <button class="nav-btn" data-page="sshgw" title="Reach hosts with your own SSH client through one gateway — no inbound port on the host">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/></svg>
+          <span>SSH gateway</span>
         </button>
       </div>
     </div>
@@ -2886,6 +2890,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-pentest" checked> <strong>Pentest</strong> — the authorized vulnerability-scan orchestrator (nuclei / nikto / ZAP / nmap).</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-ai_exec"> <strong>AI executor</strong> — lets the AI <em>propose</em> a remediation for a host. It executes nothing: a proposal is parked in the Confirmations queue and a human admin must approve it, and the AI may only <em>select</em> from your saved scripts and registered playbooks — it cannot write a command. <strong>Off by default</strong>; off means the whole API is 404, not merely a hidden button.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-autonomy" checked> <strong>Autonomous remediation</strong> — the loop that can fix recurring problems on its own. The page is visible by default and the loop is <strong>inert</strong>: every tenant starts at <em>off</em>, which records nothing and acts on nothing. You move a tenant to <em>shadow</em> to have it write receipts you can grade, and only then to <em>enabled</em>. Unticking this hides the page and 404s the API. <a href="docs/autonomy.md" class="c-accent">Documentation</a></label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-sshgw"> <strong>SSH gateway</strong> — reach opted-in servers with your own SSH client through one gateway, with no inbound port on the server. Off by default. It needs the gateway service on this server (<code>install-server.sh --with-sshgw</code>); unticking this refuses every gateway login and 404s the API. <a href="docs/sshgw.md" class="c-accent">Documentation</a></label></div>
           </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
@@ -6574,6 +6579,102 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v5.2.0 AccessMatters: WG Access (WireGuard road-warrior VPN) ──── -->
       <!-- v5.6.x lazy page: inert until first visit — showPage clones the
            template in place (i18n MutationObserver localises the clone). -->
+      <div id="page-sshgw" class="page">
+        <div class="page-title">SSH gateway</div>
+        <div class="page-subtitle">Reach your servers with your own SSH client through one gateway. Agents dial out, so no server needs an open port, and every session is checked against your role and recorded. <a href="docs/sshgw.md" class="c-accent">Documentation</a></div>
+
+        <div class="dash-card">
+          <div class="section-title">Connect</div>
+          <div id="sshgw-state" class="hint mb-8" role="status"></div>
+          <p class="hint">Add this to <code>~/.ssh/config</code>, then connect with <code>ssh root@&lt;name&gt;.rp</code>. Names are a server's RemotePower name, hostname or device id.</p>
+          <pre id="sshgw-config" class="ff-mono"></pre>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="copySshgwConfig"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Your keys</div>
+          <p class="hint">Paste a public key such as <code>~/.ssh/id_ed25519.pub</code>. Adding a key asks for your password, because the key keeps working after you sign out.</p>
+          <div class="form-group">
+            <label class="form-label" for="sshgw-key-text">Public key</label>
+            <textarea id="sshgw-key-text" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+          </div>
+          <div class="toolbar">
+            <label class="form-label" for="sshgw-key-name">Key name</label>
+            <input type="text" id="sshgw-key-name" class="form-input mw-200" maxlength="64">
+            <label class="form-label" for="sshgw-key-pw">Password or TOTP code</label>
+            <input type="password" id="sshgw-key-pw" class="form-input mw-200" autocomplete="current-password">
+            <button class="btn-primary" data-action="addSshgwKey">Add key</button>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="sshgw-keys-thead"><tr>
+                <th scope="col" data-col="name">Name</th>
+                <th scope="col" data-col="type">Type</th>
+                <th scope="col" data-col="fingerprint">Fingerprint</th>
+                <th scope="col" data-col="added">Added</th>
+                <th scope="col" data-col="last_used">Last used</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="sshgw-keys-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-card" id="sshgw-admin-card" hidden>
+          <div class="section-title">Gateway address</div>
+          <p class="hint">The hostname and port people connect to. Port 2222 unless you changed the service.</p>
+          <div class="toolbar">
+            <label class="form-label" for="sshgw-public-host">Public hostname</label>
+            <input type="text" id="sshgw-public-host" class="form-input mw-200" maxlength="253">
+            <label class="form-label" for="sshgw-public-port">Port</label>
+            <input type="number" id="sshgw-public-port" class="form-input isl-80" min="1" max="65535">
+            <button class="btn-primary" data-action="saveSshgwAddress">Save</button>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Servers</div>
+          <p class="hint">Only servers turned on here can be reached, and only by people whose role has the <strong>ssh</strong> permission. Linux agents only for now.</p>
+          <div class="toolbar">
+            <input type="text" id="sshgw-dev-filter" class="form-input input-wide" aria-label="Filter servers">
+            <button class="btn-icon" data-action="loadSshgw"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="sshgw-dev-thead"><tr>
+                <th scope="col" data-col="name">Server</th>
+                <th scope="col" data-col="hostname">Hostname</th>
+                <th scope="col" data-col="os">OS</th>
+                <th scope="col" data-col="enabled">Gateway</th>
+                <th scope="col" data-col="tunnel_seen">Tunnel</th>
+                <th scope="col" data-col="last_session">Last session</th>
+              </tr></thead>
+              <tbody id="sshgw-dev-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-card" id="sshgw-sessions-card" hidden>
+          <div class="section-title">Sessions</div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="sshgw-sess-thead"><tr>
+                <th scope="col" data-col="started">Started</th>
+                <th scope="col" data-col="username">User</th>
+                <th scope="col" data-col="device">Server</th>
+                <th scope="col" data-col="client_ip">From</th>
+                <th scope="col" data-col="duration_s">Duration</th>
+                <th scope="col" data-col="bytes">Transferred</th>
+                <th scope="col" data-col="reason">Ended</th>
+              </tr></thead>
+              <tbody id="sshgw-sess-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <template data-page-tpl="vpn">
       <div id="page-vpn" class="page">
         <div class="page-title">WG Access</div>
@@ -11840,36 +11941,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.3-26"></script>
+<script defer src="static/js/app.js?v=7.0.3-27"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-containers.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-network.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-containers.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-network.js?v=7.0.3-27"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.3-27"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-dns.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-drift.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-cve.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-backups.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-iac.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-virt.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-ai.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-dns.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-drift.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-cve.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-backups.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-iac.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-virt.js?v=7.0.3-27"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-remote.js?v=7.0.3-26"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-logs.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-remote.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.3-27"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.3-26"></script>
+<script defer src="static/js/app-self.js?v=7.0.3-27"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11879,6 +11980,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.3-26"></script>
+<script defer src="static/js/sw-register.js?v=7.0.3-27"></script>
 </body>
 </html>
