@@ -648,6 +648,38 @@ def _ws_header_kwarg():
 _WS_HEADER_KW = _ws_header_kwarg() if _PUSH_AVAILABLE else 'extra_headers'
 
 
+def _ws_no_redirect_connect():
+    """`websockets.connect` with redirect-following switched off.
+
+    Both WebSocket channels carry the device token in a custom header
+    (X-RP-Push-Token, X-RP-Sshgw-Token). The library follows up to ten
+    redirects, and on a cross-origin one it strips only Authorization, Cookie
+    and Proxy-Authorization, so either token would ride a 3xx to whatever host
+    it named. _NoRedirect above closed that for every HTTP call in 2.x; the
+    WebSocket clients came later and used the library default.
+
+    `websockets.connect` is a class in both generations of the library: the
+    asyncio client (14+) asks `process_redirect` whether to follow, the legacy
+    client (10-13, which Debian and Ubuntu ship) calls `handle_redirect`. The
+    subclass answers "no" to each, so a 3xx surfaces as the connect error it
+    is, the thread backs off and retries, and the token stays here."""
+    base = websockets.connect
+    if not isinstance(base, type):
+        return base
+    ns = {}
+    if hasattr(base, 'process_redirect'):
+        ns['process_redirect'] = lambda self, exc: exc
+    if hasattr(base, 'handle_redirect'):
+        def handle_redirect(self, uri):
+            raise websockets.exceptions.InvalidHandshake(
+                'refusing to follow a redirect with the device token')
+        ns['handle_redirect'] = handle_redirect
+    return type('_RpNoRedirectConnect', (base,), ns)
+
+
+_WS_CONNECT = _ws_no_redirect_connect() if _PUSH_AVAILABLE else None
+
+
 def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
     """Runs in a background daemon thread for the agent's whole lifetime
     once started. Maintains (and silently reconnects) a WebSocket to the
@@ -681,7 +713,7 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
                 # broken on websockets 10.x, where the TypeError only fires when
                 # the connection is awaited).
                 connect_kwargs[_WS_HEADER_KW] = {'X-RP-Push-Token': token}
-                async with websockets.connect(url, **connect_kwargs) as ws:
+                async with _WS_CONNECT(url, **connect_kwargs) as ws:
                     backoff = 5   # reset once a connection actually succeeds
                     async for raw in ws:
                         if stop_event.is_set():
@@ -894,7 +926,7 @@ def _sshgw_tunnel_thread(server_url, dev_id, token, stop_event):
                           ssl=(_SSL_CTX if _secure else None),
                           max_size=5 + _SSHGW_MAX_PAYLOAD)
                 kw[_WS_HEADER_KW] = {'X-RP-Sshgw-Token': token}
-                async with websockets.connect(url, **kw) as ws:
+                async with _WS_CONNECT(url, **kw) as ws:
                     backoff = 5
                     log.info('sshgw: tunnel connected')
                     await _sshgw_serve(ws, stop_event, port)
