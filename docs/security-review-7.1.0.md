@@ -19,9 +19,12 @@ ships. That bar is met.
   configuration.
 - **The web server as it ships.** nginx was run with the shipped configuration
   files included unchanged, in front of the real application server, and
-  scanned with the tools the product's own Pentest page runs: nmap with its
+  scanned with the tools the product's own Pentest page runs — nmap with its
   HTTP scripts, nikto, and nuclei with its full HTTP template set (about
-  10,000 templates).
+  10,000 templates) — and with wapiti, signed in and fed the API's own OpenAPI
+  description, so its injection, file, command-execution, SSRF, XXE, CRLF and
+  redirect modules exercised all 742 API paths rather than only the login
+  page.
 - **Static analysis:** CodeQL with the production query suites and
   configuration, semgrep across Python, JavaScript, shell, Dockerfiles and
   HTML, bandit against a triaged baseline, gitleaks over the full history, and
@@ -168,9 +171,11 @@ platform operator's under multi-tenancy.
 
 ## 10. What the web-server scans found
 
-nmap, nikto and nuclei against nginx running the shipped configuration found
-no vulnerability in the application. They did find four things worth changing
-in the configuration itself:
+nmap, nikto, nuclei and wapiti against nginx running the shipped
+configuration found no vulnerability in the application: wapiti's authenticated
+pass over 1,090 resources, every API path among them, reported no injection,
+no file or command execution, no SSRF and no server error. The scanners did
+find four things worth changing in the configuration itself:
 
 - **The nginx version was in every response.** `server_tokens off` is now set
   in every server block, in the bare-metal and the container configuration.
@@ -206,11 +211,24 @@ technology fingerprints that match product names in the interface text.
 | Tool | Result |
 |---|---|
 | CodeQL (production configuration) | 0 results, Python and JavaScript |
-| semgrep (Python, JavaScript, shell, Dockerfile, HTML) | see below |
+| semgrep (851 rules: security, audit and correctness sets for Python, JavaScript, shell, Dockerfile and HTML) | 2,164 matches, all triaged; none exploitable |
 | bandit (against the triaged baseline) | 0 new, 0 high |
 | gitleaks (full history and working tree) | no leaks |
 | undefined-name check (Python and JavaScript) | 0 |
-| nmap, nikto, nuclei (shipped nginx configuration) | no findings above informational after the fixes in section 9 |
+| nmap, nikto, nuclei (shipped nginx configuration) | no findings above informational after the fixes in section 10 |
+| wapiti (signed in, all 742 API paths from the OpenAPI description) | 0 vulnerabilities, 0 anomalies |
+
+The semgrep count looks large because this run used the audit rule sets, which
+flag every use of a pattern rather than an unsafe one: each `innerHTML`
+assignment (the dashboard escapes what it interpolates, and tests drive the
+renderers with hostile input), each `subprocess` call (argument lists, apart
+from two deliberate shells: the agent's command channel, where running a shell
+command is the feature, and a secret-helper command the operator sets in the
+server's environment — neither takes request data). The rest are false
+positives — `ipaddress`
+properties read as un-called methods, deliberate NaN checks, intended implicit
+string concatenation — and one protocol-mandated cipher mode (AES-CFB is what
+SNMPv3 privacy specifies).
 
 As in earlier reviews, the table is worth reading next to the rest of this
 document. Findings 1 to 9 were present while every static tool reported clean.

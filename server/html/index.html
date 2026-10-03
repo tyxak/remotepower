@@ -3034,7 +3034,7 @@
           </div>
         </div>
 
-        <!-- ── Tickets (v6.1.1) — split out of Advanced ────────────────── -->
+        <!-- ── Tickets — split out of Advanced ────────────────── -->
         <div class="settings-pane" id="settings-pane-tickets" role="tabpanel" aria-labelledby="settings-tab-btn-tickets">
           <div class="settings-section">
             <div class="section-title">Tickets</div>
@@ -3129,7 +3129,7 @@
           </div>
         </div>
 
-        <!-- ── Backups (v6.1.1) — split out of Advanced ────────────────── -->
+        <!-- ── Backups — split out of Advanced ────────────────── -->
         <div class="settings-pane" id="settings-pane-backups" role="tabpanel" aria-labelledby="settings-tab-btn-backups">
           <!-- v3.0.2: backup config -->
           <div class="settings-section">
@@ -3336,7 +3336,7 @@
           </div>
 
           <div class="settings-section">
-            <div class="section-title">Context awareness <span class="isl-74">(v2.1.7)</span></div>
+            <div class="section-title">Context awareness</div>
             <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on). <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-project" checked> Include project context (what RemotePower is)</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
@@ -3349,7 +3349,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round" class="isl-771">
                 <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
               </svg>
-              Knowledge index (RAG) <span class="isl-74">(v3.4.0)</span>
+              Knowledge index (RAG)
             </div>
             <p class="hint">Indexes your own infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; docs, runbooks, recent commands and alerts, plus the product docs — so the assistant answers from <i>your</i> fleet instead of generic knowledge. Lexical (keyword) search works with every provider, including Anthropic. Optional embeddings add semantic search when you run an embedding-capable provider. <strong>The credentials vault is never indexed.</strong> <a href="docs/rag.md" class="c-accent">Documentation</a></p>
 
@@ -4806,8 +4806,8 @@
               <p class="hint">See <code>docs/v7.0.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v6.3.0 and earlier</summary>
+          <details class="doc-card" data-keywords="release notes changelog older versions history v7.0.1 c0llapsematters sidebar collapse rail auto-hide v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+            <summary><strong>Older releases</strong> &mdash; v7.0.1 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the three most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -4959,10 +4959,10 @@
           <details class="doc-card" data-keywords="backup restore disaster recovery data files">
             <summary><strong>Backup &amp; restore</strong></summary>
             <div class="doc-body">
-              <p>All state lives in the data directory <code>/var/lib/remotepower/</code> — <strong>PostgreSQL by default</strong> since v6.1.0 (flat JSON files with <code>--no-postgres</code>, or a single SQLite database). To back up:</p>
+              <p>All state lives in the data directory <code>/var/lib/remotepower/</code> — <strong>PostgreSQL by default</strong> (flat JSON files with <code>--no-postgres</code>, or a single SQLite database). To back up:</p>
               <pre><code>sudo tar czf rp-backup-$(date +%F).tar.gz /var/lib/remotepower/</code></pre>
               <p>To restore: stop nginx briefly so no writes interleave, untar, restart.</p>
-              <p>v1.12.1+ keeps a rolling <code>.bak</code> next to each file. If a file ever ends up corrupted, <code>load()</code> automatically falls back to the .bak with a warning to the nginx error log. The dashboard keeps working with last-known-good data.</p>
+              <p>RemotePower keeps a rolling <code>.bak</code> next to each file. If a file ever ends up corrupted, <code>load()</code> automatically falls back to the .bak with a warning to the nginx error log. The dashboard keeps working with last-known-good data.</p>
             </div>
           </details>
 
@@ -4972,8 +4972,6 @@
               <p><strong>Devices show "Offline" but agent is running:</strong> agent token doesn't match server. Check <code>journalctl -u remotepower-agent</code> for "Credentials rejected" — re-enroll on the device with <code>sudo remotepower-agent enroll</code>.</p>
               <p><strong>Web terminal fails with 404:</strong> nginx routes <code>/api/webterm/connect</code> to the app server instead of the daemon. The exact-match <code>location = /api/webterm/connect</code> block must come BEFORE any <code>location ^~ /api/</code> in the same server block.</p>
               <p><strong>Web terminal fails with 502:</strong> nginx is correctly trying the daemon but the daemon isn't running. <code>sudo systemctl status remotepower-webterm</code> and <code>journalctl -u remotepower-webterm</code>.</p>
-              <p><strong>Per-mount disk thresholds aren't taking effect:</strong> Agent must be v1.11.10+ to report per-mount data. Push an agent self-update from the toolbar.</p>
-              <p><strong>Update history is empty for old agents:</strong> Pre-v1.11.7 had a bug where command output never reached the server. Push agent self-updates; the next upgrade will populate history.</p>
 
             </div>
           </details>
@@ -5023,7 +5021,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>CMDB page</strong> — asset metadata + credentials vault</summary>
             <div class="doc-body">
               <p>Per-device structured metadata that the agent doesn't auto-discover: asset ID, server function (web / db / nas / firewall…), hypervisor URL, SSH port, free-form Markdown documents.</p>
-              <p><strong>Multiple documents per asset (v2.0):</strong> attach as many titled Markdown docs as you want — runbook, hardware spec, change log, vendor contacts. Each doc has its own title, body, and timestamp. Docs render as expandable cards in the asset view.</p>
+              <p><strong>Multiple documents per asset:</strong> attach as many titled Markdown docs as you want — runbook, hardware spec, change log, vendor contacts. Each doc has its own title, body, and timestamp. Docs render as expandable cards in the asset view.</p>
               <p><strong>Credentials vault:</strong> store SSH passwords, BMC credentials, vendor portal logins encrypted at rest. Encryption is AES-GCM with PBKDF2-SHA256-derived keys; the passphrase is shared across admins (set once at vault setup). Reveal events are audit-logged. Each credential row exposes an <code>ssh://</code> link button if the asset has an SSH user/port set.</p>
               <p><strong>Server functions list:</strong> editable in Settings, used as autocomplete suggestions when filling the function field on an asset.</p>
             </div>
@@ -5108,13 +5106,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p>The <strong>Monitoring</strong> sidebar group has six items that each deep-link to a section of this page and smooth-scroll to it on arrival:</p>
               <ul>
                 <li><strong>Targets</strong> — ICMP ping, TCP port, HTTP HEAD probes the server runs against external targets. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</li>
-                <li><strong>Device Metrics</strong> (v1.12.0) — fleet-wide memory / swap / CPU / disk view, color-coded by alert level. Filter by name, group, mount path.</li>
-                <li><strong>Listening Ports</strong> (v2.8.1) — all open ports across monitored devices, grouped by port number with process name and device list. Live filter by port, process, or device.</li>
+                <li><strong>Device Metrics</strong> — fleet-wide memory / swap / CPU / disk view, color-coded by alert level. Filter by name, group, mount path.</li>
+                <li><strong>Listening Ports</strong> — all open ports across monitored devices, grouped by port number with process name and device list. Live filter by port, process, or device.</li>
                 <li><strong>Custom Scripts</strong> — fleet-wide results table for your bash health-check scripts. Filter by name or status.</li>
                 <li><strong>Services</strong> — systemd unit health matrix for watched services.</li>
                 <li><strong>Logs</strong> — fleet log tail with regex pattern-alert rules.</li>
               </ul>
-              <p><strong>Trend button (v2.0):</strong> next to each device in Device Metrics, opens the time-series chart modal for that device.</p>
+              <p><strong>Trend button:</strong> next to each device in Device Metrics, opens the time-series chart modal for that device.</p>
             </div>
           </details>
 
@@ -5315,7 +5313,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="script library bash run dry lint batch dangerous pattern">
-            <summary><strong>Scripts</strong> — the multi-line script library (v2.1+)</summary>
+            <summary><strong>Scripts</strong> — the multi-line script library</summary>
             <div class="doc-body">
               <p>Like the command library but for full bash scripts — multi-line, with `set -euo pipefail`, error handling, the works. Stored in <code>scripts.json</code>; created and edited via the Scripts page.</p>
               <p><strong>Save flow:</strong> paste a script → editor runs <code>bash -n</code> (syntax check) and a regex-based dangerous-pattern detector (<code>rm -rf /</code>, fork bomb, <code>dd if=/dev/zero of=/dev/sda</code>, <code>curl|bash</code>, <code>chmod 777 /</code>, etc.). Both must pass before save.</p>
@@ -5327,7 +5325,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="ai assistant claude anthropic openai chatgpt ollama deepseek localai sparkle">
-            <summary><strong>AI assistant</strong> — five providers, AI buttons across the dashboard (v2.1.3+)</summary>
+            <summary><strong>AI assistant</strong> — five providers, AI buttons across the dashboard</summary>
             <div class="doc-body">
               <p><strong>Disabled by default.</strong> Enable in Settings → AI assistant. Five providers: Anthropic (Claude), OpenAI (ChatGPT), DeepSeek, Ollama (local), LocalAI (local). Pure stdlib — no extra pip deps. Pick a local provider (Ollama / LocalAI) if you don't want data leaving the building.</p>
               <p><strong>Where the AI buttons appear:</strong></p>
@@ -5349,7 +5347,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="runbook generate ai documentation per-device summary fleet">
-            <summary><strong>Device runbooks</strong> — AI-generated, per device (v2.1.7)</summary>
+            <summary><strong>Device runbooks</strong> — AI-generated, per device</summary>
             <div class="doc-body">
               <p><strong>What it is:</strong> a structured operations document for each device, generated by the AI from the device's current state (sysinfo, watched services, containers, recent commands, journal, CVE findings, patch status). Saved per-device; regenerable any time.</p>
               <p><strong>How to generate:</strong> Devices page → ⋯ menu → Inspect → <em>Generate runbook</em>. The AI gets the live snapshot of the device plus the fleet context (so it can say "this is your mail server" rather than just "this is a Linux box"). Takes 15–90 s depending on provider and model.</p>
@@ -5360,7 +5358,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="drift configuration detection file integrity hash baseline sshd_config sudoers compliance soc2 iso27001 hipaa">
-            <summary><strong>Configuration drift detection</strong> — per-device file integrity monitoring (v2.2.0)</summary>
+            <summary><strong>Configuration drift detection</strong> — per-device file integrity monitoring</summary>
             <div class="doc-body">
               <p><strong>What it is:</strong> the agent computes SHA-256 hashes of a list of watched config files every few heartbeats and ships them in the heartbeat payload. The server stores baselines (first-seen hash per file per device) and fires a <code>drift_detected</code> webhook when a current hash diverges from the baseline.</p>
               <p><strong>Hash-only by design.</strong> The contents of <code>/etc/sudoers</code>, <code>/etc/ssh/sshd_config</code>, etc. <em>never</em> cross the wire on routine polling. To see what actually changed, an operator action queues a <code>cat</code> command through the existing exec mechanism (subject to the usual audit + permission checks).</p>
@@ -5368,13 +5366,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Default watched list:</strong> <code>/etc/ssh/sshd_config</code>, <code>/etc/sudoers</code>, <code>/etc/fstab</code>, <code>/etc/crontab</code>, <code>/etc/hosts</code>, <code>/etc/resolv.conf</code>, <code>/etc/nsswitch.conf</code>, <code>/etc/pam.d/sshd</code>. Customisable globally (<code>cfg['drift']['default_watched_files']</code>) and per-device (<code>device.watched_files</code>).</p>
               <p><strong>Webhook</strong>: <code>drift_detected</code> fires once per change (debounced — not on every poll that reports the same new hash). Route it to a channel you check, especially for after-hours alerts.</p>
               <p><strong>Compliance:</strong> covers configuration management controls in SOC 2 (CC6.1, CC6.6), ISO 27001 (A.12.4.3, A.14.2.4), HIPAA (164.312(c)), PCI DSS (11.5), FedRAMP. Baseline-acceptance audit-log entries are designed to be readable as evidence.</p>
-              <p><strong>Agent version</strong>: requires <strong>v2.2.0+</strong> for the agent-side hash reporting. Older agents work normally otherwise but show "no drift data" on the Drift page.</p>
               <p>Full reference: <a href="docs/drift.md" class="c-accent">docs/drift.md</a>.</p>
             </div>
           </details>
 
           <details class="doc-card" data-keywords="mcp model context protocol claude desktop cursor vscode copilot natural language fleet query stdio anthropic">
-            <summary><strong>MCP server</strong> — natural-language fleet queries from Claude Desktop, Cursor, VS Code (v2.2.0)</summary>
+            <summary><strong>MCP server</strong> — natural-language fleet queries from Claude Desktop, Cursor, VS Code</summary>
             <div class="doc-body">
               <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" class="c-accent">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for mail01 from the last hour"</em> in plain English.</p>
               <p><strong>Architecture:</strong> the MCP server runs on the <strong>operator's laptop</strong>, not on the RemotePower server. The AI host (Claude Desktop, Cursor, etc.) spawns it as a stdio subprocess. The MCP server makes HTTPS calls to RemotePower's REST API on behalf of the AI using an API token you provision. Credentials live in the host's config file and never reach the AI provider.</p>
@@ -5482,14 +5479,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Extra instructions:</strong> A textarea below the format dropdown lets you append custom guidance ("use Terraform 1.5+ syntax", "wrap in a reusable module"). Persisted in localStorage.</p>
               <p><strong>Reasoning-model safety net:</strong> The prompt instructs the LLM to wrap output between <code>&lt;&lt;&lt;BEGIN_IAC&gt;&gt;&gt;</code> and <code>&lt;&lt;&lt;END_IAC&gt;&gt;&gt;</code> markers. The stripper extracts only what's between them — so DeepSeek-R1-style reasoning prose gets discarded automatically.</p>
               <p><strong>Security:</strong> Before the payload leaves your server for the LLM, env vars whose name matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> are masked with <code>&lt;REDACTED_BY_REMOTEPOWER&gt;</code>. TLS certificate <em>paths</em> are sent but never the certificate contents. SSH authorized_keys are sent raw — the LLM is instructed to convert them to variables.</p>
-              <p><strong>Endpoints:</strong> <code>POST /api/iac/request</code> · <code>GET /api/iac/status/&lt;id&gt;</code> · <code>POST /api/iac/generate</code> · <code>GET /api/iac/payload/&lt;id&gt;</code> (v3.0.0)</p>
+              <p><strong>Endpoints:</strong> <code>POST /api/iac/request</code> · <code>GET /api/iac/status/&lt;id&gt;</code> · <code>POST /api/iac/generate</code> · <code>GET /api/iac/payload/&lt;id&gt;</code></p>
             </div>
           </details>
 
           <!-- v3.0.1 docs ─────────────────────────────────────────── -->
 
           <details class="doc-card" data-keywords="ignore hide attention card stale container per-item restore">
-            <summary><strong>Per-item ignore lists</strong> (v3.0.1) — × button on Needs Attention and stale containers</summary>
+            <summary><strong>Per-item ignore lists</strong> — × button on Needs Attention and stale containers</summary>
             <div class="doc-body">
               <p>Each Needs Attention card and each stale Containers row now has a <strong>×</strong> button that hides that specific entry from view. Ignores are per-item (one specific CVE on one specific device, not the whole category).</p>
               <p><strong>Restore:</strong> Settings → AI Assistant → Ignored items lists every hidden entry with a Restore button. Categories tracked separately: Needs Attention, Stale containers, Devices, ignored CVEs, and cleared log lines.</p>
@@ -5500,22 +5497,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="logs apt history syslog nginx timestamp dedupe rearchitect ingestion 11000 lines buffer">
-            <summary><strong>Log ingestion (v3.0.1)</strong> — embedded timestamps + content dedupe</summary>
+            <summary><strong>Log ingestion</strong> — embedded timestamps + content dedupe</summary>
             <div class="doc-body">
-              <p>The Logs page ingestion path was rearchitected to handle re-submitted file-based logs (apt.history, nginx access, syslog) correctly.</p>
-              <p><strong>Previous bug:</strong> agents resubmit log files on every poll. The server used to stamp every line with <code>now</code>, so apt.history entries from days ago appeared as "new" and the 6-hour TTL never evicted them. Worse, the resulting bloat pushed nginx and brute-force lines past the 2 MB byte cap (silently dropped).</p>
-              <p><strong>Fix (v3.0.1):</strong></p>
+              <p>Agents resubmit file-based logs (apt.history, nginx access, syslog) on every poll, so the Logs page de-duplicates them and keeps each line at the time it actually happened.</p>
+              <p><strong>How it works:</strong></p>
               <ol>
                 <li>Each incoming line is hashed (<code>sha1[:16]</code>) and compared against the buffer. Duplicates are dropped at ingestion.</li>
                 <li>The line's own embedded timestamp is used when present. Supported formats: apt.history <code>Start-Date: YYYY-MM-DD HH:MM:SS</code>, nginx access <code>[DD/MMM/YYYY:HH:MM:SS +TZ]</code>, syslog <code>Mon DD HH:MM:SS</code>, ISO <code>YYYY-MM-DDTHH:MM:SS</code>.</li>
-                <li>The 2 MB byte cap was removed. With dedupe + TTL, the buffer can't grow unboundedly on idle units anymore.</li>
+                <li>With de-duplication and the retention window, the buffer cannot grow without bound on an idle unit.</li>
               </ol>
               <p><strong>Impact:</strong> If you upgraded from a buffer that had 11 000+ apt.history lines, give it one full TTL window (6 hours) for old entries to drop out. Nginx and brute-force events should re-appear immediately after restart since they're no longer being crowded out.</p>
             </div>
           </details>
 
           <details class="doc-card" data-keywords="logwatch severity ok warn crit checkmk pattern named">
-            <summary><strong>Logwatch severity</strong> (v3.0.1) — OK / WARN / CRIT classification</summary>
+            <summary><strong>Logwatch severity</strong> — OK / WARN / CRIT classification</summary>
             <div class="doc-body">
               <p>Log alert rules (per-device and fleet-wide) carry a <strong>severity</strong> field — OK, WARN, or CRIT — modelled after CheckMK's classification.</p>
               <p><strong>Semantics:</strong></p>
@@ -5529,7 +5525,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="ai prompt customization tune deepseek ollama claude default override per-feature system">
-            <summary><strong>AI prompt customization &amp; fine-tuning</strong> (v3.0.1) — per-feature settings</summary>
+            <summary><strong>AI prompt customization &amp; fine-tuning</strong> — per-feature settings</summary>
             <div class="doc-body">
               <p>Each AI feature (IaC Generator, Investigate, Diagnose Service, Runbook, etc.) uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models but may need adjusting per-model — a DeepSeek-R1 prompt doesn't necessarily fit a small local Llama.</p>
               <p><strong>Where:</strong> Settings → AI Assistant → Prompt customization. One editable card per AI feature.</p>
@@ -5547,7 +5543,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="force upgrade agent re-deploy push bundled corrupt recovery">
-            <summary><strong>Force-upgrade agent</strong> (v3.0.1) — re-deploy regardless of version</summary>
+            <summary><strong>Force-upgrade agent</strong> — re-deploy regardless of version</summary>
             <div class="doc-body">
               <p>The Device Drawer's <strong>Force-upgrade</strong> button pushes the currently-bundled agent binary to a device, even if the agent already reports the same version.</p>
               <p><strong>Use cases:</strong> recovery after a corrupt or truncated update, pushing a rebuilt binary at the same version, testing the self-update path.</p>
@@ -5558,7 +5554,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="version available update banner snooze 30 days dismiss hide">
-            <summary><strong>Update banner snooze 30d</strong> (v3.0.1)</summary>
+            <summary><strong>Update banner snooze 30d</strong></summary>
             <div class="doc-body">
               <p>The "RemotePower v&lt;X&gt; is available" banner has a <strong>Snooze 30d</strong> button. Click it to hide the banner for that specific version for 30 days.</p>
               <p>Snooze is per-version, so a newer release re-shows the banner. State lives in <code>localStorage</code> under <code>rp_version_snooze_&lt;version&gt;</code>.</p>
@@ -5568,7 +5564,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <!-- v2.6.0 docs (filling gaps) ──────────────────────────── -->
 
           <details class="doc-card" data-keywords="custom scripts monitoring python bash run scheduled assigned per-device library">
-            <summary><strong>Custom monitoring scripts</strong> (v2.6.0)</summary>
+            <summary><strong>Custom monitoring scripts</strong></summary>
             <div class="doc-body">
               <p>Custom scripts let you ship arbitrary monitoring logic to selected devices, run on a schedule, and surface output in the UI.</p>
               <p><strong>Library:</strong> Scripts page → New script. Each script has a name, description, runtime (bash or python3), assignment selector (devices/tags/groups), schedule (interval in minutes), and timeout. Server pushes the body and metadata in the heartbeat response; agent stores them locally and runs them on schedule.</p>
@@ -5578,7 +5574,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="host config desired state apt yum kernel package modules sysctl systemd enforce drift logrotate cron crontab">
-            <summary><strong>Host configuration management</strong> (v2.6.0)</summary>
+            <summary><strong>Host configuration management</strong></summary>
             <div class="doc-body">
               <p>Per-device Host Configuration captures a <em>desired state</em> for a small set of system attributes; the agent reconciles on every poll.</p>
               <p><strong>Where:</strong> Device Drawer → Host config.</p>
@@ -5594,7 +5590,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="debug logging troubleshoot client side console api toast instrumentation">
-            <summary><strong>Debug logging</strong> (v2.7.0+) — client-side observability</summary>
+            <summary><strong>Debug logging</strong> — client-side observability</summary>
             <div class="doc-body">
               <p>The UI ships an in-page debug logger that captures <code>api()</code> calls, <code>toast()</code> events, click handlers, and other instrumented events.</p>
               <p><strong>Enable:</strong> Settings → Advanced → Enable debug logging. State persists in <code>localStorage</code> under <code>rp_debug</code>, so a fresh page load picks it up immediately.</p>
@@ -5613,7 +5609,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="security hardening pbkdf2 password salt secrets redaction backup must-change-password">
-            <summary><strong>Security hardening</strong> (v2.3.2 / v3.0.0)</summary>
+            <summary><strong>Security hardening</strong></summary>
             <div class="doc-body">
               <p>Several security improvements accumulated through the 2.x and 3.0 line:</p>
               <ul>
@@ -5621,7 +5617,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li><strong>Default admin:</strong> the first <code>admin/admin</code> account has <code>must_change_password</code> set. A persistent banner in the UI nags until the password is changed.</li>
                 <li><strong>Backup export:</strong> the <code>/api/backup</code> export now redacts Proxmox tokens, SMTP passwords, LDAP bind passwords, and similar secrets. The backup is otherwise full-fidelity.</li>
                 <li><strong>IaC payload masking:</strong> env vars whose name matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> are masked before being sent to the LLM. TLS cert <em>paths</em> are sent, never the contents.</li>
-                <li><strong>Recursion depth guard</strong> (v3.0.1) on the IaC mask walker so a pathological JSON payload can't trigger a RecursionError.</li>
+                <li><strong>Recursion depth guard</strong> on the IaC mask walker so a pathological JSON payload can't trigger a RecursionError.</li>
               </ul>
             </div>
           </details>
@@ -5657,7 +5653,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p><strong>Needs Attention</strong> = "fix this NOW". Only items whose underlying state is <em>currently broken</em>: a service that's down right now, a probe that's failing right now, pending patches that still need to be applied, etc.</p>
               <p><strong>Recent Activity</strong> = event log of things that happened in the past — transitions, dispatches, ACK'd alerts. A service that went down at 14:30 and came back up at 14:35 shows in Recent Activity but disappears from Needs Attention once it's healthy again. Click the <strong>✕ Clear</strong> button in the Recent Activity header to hide all current entries; this lasts for the browser session (persisted via <code>sessionStorage</code>) and resets when you close the tab.</p>
-              <p><strong>v3.0.1 audit (attention coverage):</strong> these state-derived kinds now appear in NA whenever the condition is active:</p>
+              <p><strong>Coverage:</strong> these state-derived kinds appear in Needs Attention whenever the condition is active:</p>
               <ul>
                 <li><code>service_down</code> — any watched systemd unit in <code>failed</code> (critical) or <code>inactive</code>/<code>deactivating</code> (warning). Carries the unit name as <code>target</code> so the Investigate button can run <code>systemctl status</code> + <code>journalctl -u &lt;unit&gt;</code> automatically.</li>
                 <li><code>monitor_down</code> — any monitor target whose latest probe came back <code>ok: false</code>.</li>
@@ -5686,7 +5682,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Force-upgrade agent</strong> — push a fresh binary to a single device</summary>
             <div class="doc-body">
               <p>Per-device drawer → <strong>Force upgrade</strong> button. Sets a one-shot flag on the device record. On the next heartbeat (within 60s), the server includes the flag in the response; agent calls <code>check_for_update(force=True)</code>, which bypasses the version-compare check and re-downloads the binary regardless of "we're already at version X". Flag is cleared atomically inside the heartbeat lock so it fires exactly once.</p>
-              <p><strong>v3.0.1 fix:</strong> the flag had been silently dropped (copied to the wrong scope inside the heartbeat handler) so the operator got a success toast but nothing happened. Now wired through correctly, with a regression test. Use for re-deploys, recovery from corrupted binaries, or rolling out same-version rebuilds.</p>
+              <p>Use for re-deploys, recovery from corrupted binaries, or rolling out same-version rebuilds.</p>
             </div>
           </details>
 
@@ -5712,7 +5708,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Package manager coverage</strong> — apt, dnf, yum, pacman</summary>
             <div class="doc-body">
               <p><strong>Patch status detection</strong> works across all four: apt (<code>apt list --upgradable</code>), dnf (<code>dnf check-update</code>), yum (<code>yum check-update</code> — RHEL 7 / older CentOS, reports as <code>manager: dnf</code> so it shares the CVE path), pacman (<code>pacman -Sy</code> + <code>pacman -Qu</code>).</p>
-              <p><strong>pacman 7+ sandbox:</strong> the new download sandbox user (<code>alpm</code>) fails on hosts where that user isn't usable — CachyOS in particular. v3.0.1 probes <code>pacman --help</code> for <code>--disable-sandbox</code> support and passes it when available, in both the agent's status check and the server's <code>_UPGRADE_CMD</code>. On real failure, <code>upgradable</code> is reported as <code>None</code> (UI shows "unknown") instead of <code>0</code> ("fully patched") — the previous silent-0 was the reason CachyOS devices appeared up-to-date when they weren't.</p>
+              <p><strong>pacman 7+ sandbox:</strong> the new download sandbox user (<code>alpm</code>) fails on hosts where that user isn't usable — CachyOS in particular. RemotePower probes <code>pacman --help</code> for <code>--disable-sandbox</code> support and passes it when available, in both the agent's status check and the server's <code>_UPGRADE_CMD</code>. On real failure, <code>upgradable</code> is reported as <code>None</code> (UI shows "unknown") instead of <code>0</code> ("fully patched") — the previous silent-0 was the reason CachyOS devices appeared up-to-date when they weren't.</p>
               <p><strong>CVE scanning</strong>: uses OSV.dev. Mapping: Debian/Ubuntu by codename, Rocky/AlmaLinux/RedHat for rpm-based, no Fedora (no OSV feed). Arch / CachyOS intentionally unsupported — Arch packages aren't in OSV.</p>
             </div>
           </details>
@@ -5726,7 +5722,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="webhook pushover discord slack teams ntfy multi destinations format">
-            <summary><strong>Multi-webhook destinations</strong> — fire every alert to multiple endpoints (v3.0.2)</summary>
+            <summary><strong>Multi-webhook destinations</strong> — fire every alert to multiple endpoints</summary>
             <div class="doc-body">
               <p>Up to 20 webhook destinations, each with its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON). Per-destination filters: limit by event name or minimum priority. Configure in <strong>Settings → Notifications → Webhook destinations</strong>.</p>
               <p><strong>Pushover</strong> uses form-encoded POST with <code>token</code> + <code>user</code> + <code>message</code> + <code>priority</code>. Internal critical (priority=2) maps to Pushover priority=1 (high), not 2 (emergency tier) — that requires retry+expire and forced acknowledgment, must be operator-explicit. Credentials are write-once-and-redacted (UI shows <code>••••• (set)</code>) and redacted from the backup export.</p>
@@ -5736,7 +5732,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="server status self monitoring health disk backup webhook delivery">
-            <summary><strong>Server status</strong> — RemotePower watching itself (v3.0.2)</summary>
+            <summary><strong>Server status</strong> — RemotePower watching itself</summary>
             <div class="doc-body">
               <p>New sidebar entry. Reports server version + memory, <code>/var/lib/remotepower</code> disk usage with the top 20 largest files, fleet device freshness, webhook delivery success rate (24h + 7d), audit log size, and scheduled backup state.</p>
               <p>Closes the "who monitors the monitor?" gap — if RemotePower itself starts misbehaving (webhooks failing silently, disk filling, agents stuck), the page surfaces it. <code>GET /api/self/status</code> works for external monitoring (Uptime Kuma, Grafana, Homepage).</p>
@@ -5745,7 +5741,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="backup scheduled tarball restore retention disaster recovery clear export">
-            <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code> (v3.0.2)</summary>
+            <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code></summary>
             <div class="doc-body">
               <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery.</p>
               <p><strong>Manual triggers (Server status page):</strong></p>
@@ -5760,7 +5756,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="bulk batch fleet wide upgrade reboot shutdown scan rescan">
-            <summary><strong>Bulk operations</strong> — fleet-wide operations on filtered devices (v3.0.2)</summary>
+            <summary><strong>Bulk operations</strong> — fleet-wide operations on filtered devices</summary>
             <div class="doc-body">
               <p>From the command palette (<code>/</code> → "Bulk actions") or <strong>Settings → Advanced → Bulk actions</strong>. Filter by all monitored / by group / by tag, then pick an action: upgrade packages, reboot, shutdown, force package scan, force ACME rescan.</p>
               <p>Destructive actions (reboot, shutdown) require typing <code>RUN</code> to confirm. Every queued command is audit-logged. No undo once a command is queued — operator must reach the agent another way (SSH) to cancel before the next heartbeat picks it up.</p>
@@ -5769,7 +5765,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="ux interface undo redo notification center drafts autosave tables selection shift click columns deep links crosshair radar posture rollback configuration history working the interface guide">
-            <summary><strong>Working the interface</strong> — undo, notification center, drafts, tables, charts (v6.3.0)</summary>
+            <summary><strong>Working the interface</strong> — undo, notification center, drafts, tables, charts</summary>
             <div class="doc-body">
               <p>Low-risk deletes are <strong>undoable instead of confirmed</strong> (the API call fires only when the toast expires); the topbar arrows and <kbd>Ctrl-Z</kbd> drive a global undo stack. The bell replays the session's toasts; editors autosave drafts; Settings keeps <strong>configuration history with rollback</strong>. Tables filter/sort/export everywhere; device selection supports shift-click ranges; charts have hover crosshairs and the drawer opens with a posture radar.</p>
               <p>Full doc at <a href="docs/ux.md" class="c-accent">docs/ux.md</a>.</p>
@@ -5777,7 +5773,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="search command palette keybind shortcut keyboard navigation">
-            <summary><strong>Command palette &amp; keyboard shortcuts</strong> — <code>/</code>, <code>Ctrl-K</code>, <code>?</code> (v3.0.2)</summary>
+            <summary><strong>Command palette &amp; keyboard shortcuts</strong> — <code>/</code>, <code>Ctrl-K</code>, <code>?</code></summary>
             <div class="doc-body">
               <p>Press <kbd>/</kbd> or <kbd>Ctrl-K</kbd> to open the global search. Indexes all pages, every device (from the cached list), and quick actions. Arrow keys to navigate, Enter to activate.</p>
               <p><kbd>?</kbd> shows the cheat sheet. <strong>g-prefix shortcuts</strong>: press <kbd>g</kbd>, then <kbd>h/d/l/s/c/m/a/v</kbd> within 1.5 seconds to jump to Home/Devices/Logs/Settings/CVE/Monitor/Audit/serVer-status.</p>
@@ -5786,7 +5782,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="acme rescan force letsencrypt cert renewal scan">
-            <summary><strong>Force ACME rescan</strong> — bypass the hourly scan cadence (v3.0.2)</summary>
+            <summary><strong>Force ACME rescan</strong> — bypass the hourly scan cadence</summary>
             <div class="doc-body">
               <p>When you've issued or renewed a cert via the acme.sh CLI on the host and don't want to wait up to an hour for RemotePower to catch up: from the ACME table, click Rescan on the device row.</p>
               <p>Sets a one-shot <code>force_acme_rescan</code> flag on the device. Next heartbeat (within 60s by default) carries the signal, agent re-walks <code>~/.acme.sh/</code> regardless of the <code>ACME_CHECK_EVERY</code> cadence. Same flag-on-heartbeat-lock pattern as force-upgrade and force-package-scan.</p>
@@ -5794,7 +5790,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="cache performance load json mtime">
-            <summary><strong>Per-request load() cache</strong> — performance under the hood (v3.0.2)</summary>
+            <summary><strong>Per-request load() cache</strong> — performance under the hood</summary>
             <div class="doc-body">
               <p>The load cache is request-scoped, so it lives only as long as one handler even on the persistent gunicorn/Flask server. Within that handler though, <code>CONFIG_FILE</code> was being parsed up to 4× per heartbeat and <code>LONGPOLL_FILE</code> 3× in <code>handle_longpoll_exec</code>. The cache deduplicates redundant reads.</p>
               <p>Two safety properties: deep-copy on every load() so caller mutations don't corrupt the cache, and explicit invalidation in <code>_LockedUpdate.__exit__</code> when the save aborts due to exception — otherwise the next load would return uncommitted in-flight changes.</p>
@@ -6100,7 +6096,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-secondary" data-action="downloadEvidencePack"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Evidence pack</button>
           </div>
 
-          <p class="hint mt-8">The <strong>evidence pack</strong> bundles this posture report with the 90-day compliance-baseline trend and an audit-log excerpt for the period into one JSON document — the artifact auditors ask for. Admin only; generating it is itself audit-logged.</p>
+          <p class="hint mt-8">The evidence pack bundles this posture report with the 90-day compliance-baseline trend and an audit-log excerpt for the period into one JSON document — the artifact auditors ask for. Admin only; generating it is itself audit-logged.</p>
         </div>
         <div class="dash-card mb-16">
           <div class="section-title">Delivered report archive</div>
@@ -6242,7 +6238,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
-      <!-- ── Checks page (v4.1.0) — CheckMK-style per-host service status ──── -->
+      <!-- ── Checks page — CheckMK-style per-host service status ──── -->
       <div id="page-checks" class="page">
         <div class="page-title">Checks</div>
         <div class="page-subtitle">Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host. <a href="docs/checks.md" class="c-accent">Documentation</a></div>
@@ -6470,13 +6466,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Release Signing</div>
         <div class="page-subtitle">Sign the agent release so agents <strong>refuse any self-update that isn't validly signed</strong> by your key. <a href="docs/security.md" class="c-accent">Documentation</a>.</div>
         <div class="settings-section" id="signing-caveat">
-          <p class="hint"><strong>Server-side signing is the convenient mode.</strong> The private key lives on this server, so it protects against tampering of the published files <em>at rest</em> (mirror/CDN), but <strong>not</strong> a full compromise of this server. For the strongest guarantee, sign off-server in CI with <code>tools/sign-agent-release.sh</code> and only publish the public key here.</p>
+          <p class="hint"><strong>Server-side signing is the convenient mode.</strong> The private key lives on this server, so it protects the published files against tampering on a mirror or CDN, but not against a full compromise of this server. For the strongest guarantee, sign off-server in CI with <code>tools/sign-agent-release.sh</code> and only publish the public key here.</p>
         </div>
         <div id="signing-status" class="mb-16"><div class="c-muted">Loading…</div></div>
         <div class="settings-section">
           <div class="section-title">Distribute the public key to agents</div>
           <p class="hint">Pin this on each agent host at <code>/etc/remotepower/release.pub</code>. Once present, that agent enforces signatures (fail-closed). No key pinned → agent keeps using sha256-only verification.</p>
-          <p class="hint"><strong>Commands are signed with the same key</strong> <em>(v6.4.0)</em>: every dispatched command carries a detached signature bound to the target device + a fresh timestamp. Hosts that also create <code>/etc/remotepower/require-signed-commands</code> refuse unsigned, tampered or replayed commands outright — database/queue tampering alone can no longer execute anything. <a href="docs/agent-commands.md" class="c-accent">Documentation</a></p>
+          <p class="hint"><strong>Commands are signed with the same key</strong>: every dispatched command carries a detached signature bound to the target device + a fresh timestamp. Hosts that also create <code>/etc/remotepower/require-signed-commands</code> refuse unsigned, tampered or replayed commands outright — database/queue tampering alone can no longer execute anything. <a href="docs/agent-commands.md" class="c-accent">Documentation</a></p>
           <textarea id="signing-pubkey" class="form-input ff-mono fs-12" rows="6" readonly placeholder="Generate a key to see the public key here." aria-label="Generate a key to see the public key here"></textarea>
         </div>
       </div>
@@ -6918,7 +6914,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- W1-9: enrolment auto-placement rules -->
         <div class="dash-card mt-16">
           <div class="section-title">Auto-placement rules</div>
-          <p class="hint">When a <strong>new</strong> device enrols, the first matching rule stamps its group / site / tags automatically — by hostname (regex) or source-IP range (CIDR). Enrolment-token defaults always win: a rule only fills a group left empty and merges extra tags. Rules never touch already-enrolled devices.</p>
+          <p class="hint">When a new device enrols, the first matching rule stamps its group / site / tags automatically — by hostname (regex) or source-IP range (CIDR). Enrolment-token defaults always win: a rule only fills a group left empty and merges extra tags. Rules never touch already-enrolled devices.</p>
           <div id="enrol-rules-list" class="scroll-cap mt-8"></div>
           <div class="form-row mt-8">
             <div class="form-group"><label class="form-label" for="enrol-rule-mtype">Match</label><select id="enrol-rule-mtype" class="form-input" aria-label="Match type"><option value="hostname">Hostname (regex)</option><option value="cidr">Source IP (CIDR)</option></select></div>
@@ -7001,7 +6997,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card">
           <div class="section-title">Groups</div>
-          <p class="hint">A device belongs to exactly one group. Renaming onto a name that already exists merges the two; deleting a group clears the label from every device but keeps the devices. Counts cover the devices you can see. Renaming a group does <strong>not</strong> rewrite the role scopes, alert routing, auto-patch targets, rollout rings or smart groups that name it — you are told which ones still reference it so you can repoint them.</p>
+          <p class="hint">A device belongs to exactly one group. Renaming onto a name that already exists merges the two; deleting a group clears the label from every device but keeps the devices. Counts cover the devices you can see. Renaming a group does not rewrite the role scopes, alert routing, auto-patch targets, rollout rings or smart groups that name it — you are told which ones still reference it so you can repoint them.</p>
           <input type="text" id="taxonomy-groups-filter" class="form-input page-filter mb-8" placeholder="Filter groups…" aria-label="Filter groups">
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
@@ -11533,7 +11529,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group d-none" id="ro-script-row"><label>Saved script</label><select id="ro-script" aria-label="Saved script"></select>
     <div class="page-subtitle mt-4">Scripts can only be confirmed as <em>delivered</em>, not verified for success — upgrades get true post-deploy verification.</div>
     <label class="mt-8">Rollback script (optional)</label><select id="ro-rollback-script" aria-label="Rollback script (optional)"></select>
-    <div class="page-subtitle mt-4">v5.0.0: enables a one-click <strong>Rollback</strong> that re-runs this script on exactly the devices the rollout reached.</div>
+    <div class="page-subtitle mt-4">Enables a one-click <strong>Rollback</strong> that re-runs this script on exactly the devices the rollout reached.</div>
   </div>
   <div class="form-group"><label>Rings (top to bottom; empty rings are skipped)</label>
     <div id="ro-rings">
