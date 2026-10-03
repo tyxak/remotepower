@@ -6,6 +6,27 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v7.1.0 — 2026-10-03
+
+- **swagger-ui 5.32.15 → 5.33.1 — DONE.** The current upstream release, taken
+  from the npm `swagger-ui-dist@5.33.1` tarball (its sha512 integrity checked)
+  and copied verbatim, as before. **Both SRI pins in `swagger.html`
+  recomputed.** Booted signed in, in Chromium: the spec loads, operations
+  render and expand, no console errors and no failed requests.
+- **qrcode-generator 1.4.4 → 2.0.4 — DONE.** 2.0 adds an ES-module build and
+  type definitions; the UMD API the 2FA enrolment uses (`qrcode(0, 'M')`,
+  `addData`, `make`, `createDataURL`) is unchanged. Minified from
+  `dist/qrcode.js` with terser, licence header kept, and **the new bundle drew
+  the identical QR matrix as the old one for three inputs** (a plain
+  `otpauth://` URI, one with percent-encoded UTF-8, and a 300-character
+  string) before it replaced it. SRI pin in `app.js` recomputed; the code
+  renders in the browser through the pin.
+- **Fonts — current.** Every one of the 92 files under `fonts/files/` is
+  byte-identical to `@fontsource/inter@5.3.0` and
+  `@fontsource/jetbrains-mono@5.3.0`, the current releases.
+- xterm.js 6.0.0, addon-fit 0.11.0 and noVNC 1.7.0 are the current upstream
+  releases.
+
 ## Version check — 2026-08-13
 
 - **swagger-ui 5.32.6 → 5.32.13 — DONE.** Closes the DOMPurify advisories
@@ -110,11 +131,11 @@ the same reason the AUR publication now has `tools/aur-status.sh`.
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.7.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
-| `swagger-ui/` | Swagger UI | 5.32.15 (SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
-| `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
+| `swagger-ui/` | Swagger UI | 5.33.1 (SRI-pinned in `swagger.html`) | https://github.com/swagger-api/swagger-ui | API Reference page |
+| `qrcode-generator/` | qrcode-generator | 2.0.4 (minified from `dist/qrcode.js`; SRI-pinned in `app.js`) | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 6.0.0 (`@xterm/xterm@6.0.0`; SRI-pinned in `app-remote.js`) | https://github.com/xtermjs/xterm.js | Web terminal |
 | `xterm-addon-fit/` | xterm fit addon | 0.11.0 (`@xterm/addon-fit@0.11.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |
-| `fonts/` | Inter + JetBrains Mono | see `inter-jetbrains.css` | https://rsms.me/inter/ · https://www.jetbrains.com/lp/mono/ | UI / mono typography |
+| `fonts/` | Inter + JetBrains Mono | `@fontsource/inter` 5.3.0, `@fontsource/jetbrains-mono` 5.3.0 | https://rsms.me/inter/ · https://www.jetbrains.com/lp/mono/ | UI / mono typography |
 
 ## Optional Python dependencies (server)
 

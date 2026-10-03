@@ -11145,14 +11145,13 @@ async function deleteCmdSnippet(id) {
 }
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
-  // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the
+  // qrcode-generator@2.0.4, self-hosted under /static/vendor/ so the
   // strict CSP (`script-src 'self'`) doesn't block it. SRI hash
-  // pins the on-disk file to its v1.4.4 SHA-384 — if the file is
-  // ever overwritten with something else, the browser refuses to
-  // execute it.
+  // pins the on-disk file to its SHA-384 — if the file is ever
+  // overwritten with something else, the browser refuses to execute it.
   const script = document.createElement('script');
   script.src = '/static/vendor/qrcode-generator/qrcode.min.js';
-  script.integrity = 'sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1';
+  script.integrity = 'sha384-4NYG62zVWn1yXBB8UY/4zOaYaKhbztvaJYRQ8pXtk1vZrriwxzU5t3cQb9TW7LuV';
   script.onload  = () => _renderQR(containerId, text);
   script.onerror = () => {
     const el = document.getElementById(containerId);
