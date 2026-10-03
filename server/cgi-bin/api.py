@@ -845,6 +845,11 @@ WEBTERM_TICKET_TTL   = 60          # seconds — long enough to click Connect
 WEBTERM_SESSION_DIR  = DATA_DIR / 'webterm-sessions'
 WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
 
+# SSH gateway (server/sshgw/remotepower-sshgw.py, sshgw_handlers.py): finished
+# gateway sessions, and per-device tunnel/session timestamps for the page.
+SSHGW_SESSIONS_FILE = DATA_DIR / 'sshgw_sessions.json'
+SSHGW_STATE_FILE    = DATA_DIR / 'sshgw_state.json'
+
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
@@ -1092,6 +1097,21 @@ for _we_name in (
 ):
     globals()[_we_name] = getattr(webterm_handlers_mod, _we_name)
 del _we_name
+
+# SSH gateway: operator public keys, per-device opt-in, and the gateway daemon's
+# authorize / agent-check / audit endpoints. The daemon holds no policy; it asks.
+_ss_spec = _tk_ilu.spec_from_file_location(
+    'sshgw_handlers', Path(__file__).parent / 'sshgw_handlers.py')
+sshgw_handlers_mod = _tk_ilu.module_from_spec(_ss_spec)
+_ss_spec.loader.exec_module(sshgw_handlers_mod)
+sshgw_handlers_mod.bind(globals())
+for _ss_name in (
+        '_sshgw_is_linux', 'handle_sshgw_keys', 'handle_sshgw_status',
+        'handle_sshgw_devices', 'handle_device_sshgw', 'handle_sshgw_sessions',
+        'handle_sshgw_agent_check', 'handle_sshgw_authorize', 'handle_sshgw_audit',
+):
+    globals()[_ss_name] = getattr(sshgw_handlers_mod, _ss_name)
+del _ss_name
 
 # v7.0.0: Autonomous remediation loop — policy, shadow receipts, blast radius.
 _ao_spec = _tk_ilu.spec_from_file_location(
@@ -10574,6 +10594,10 @@ _MODULES = {
     # 'off', so nothing acts until an operator sets a mode. Turning the module
     # off still 404s the whole /api/autonomy prefix at the dispatcher.
     'autonomy':   ('autonomy_enabled',       True,  ('/api/autonomy',)),
+    # SSH gateway sidecar. DEFAULT OFF: turning it on is what lets an opted-in
+    # host be reached at all, and off makes the daemon's authorize endpoint 404,
+    # which the daemon treats as a refusal for every connection.
+    'sshgw':      ('sshgw_enabled',          False, ('/api/sshgw',)),
 }
 
 
@@ -21735,6 +21759,7 @@ def handle_heartbeat():
         saved_dev['name']        = dev.get('name', dev_id)
         saved_dev['last_seen']   = dev['last_seen']
         saved_dev['quarantined'] = bool(dev.get('quarantined', False))
+        saved_dev['sshgw_enabled'] = bool(dev.get('sshgw_enabled', False))
         for _k, _factory in _HEARTBEAT_PASSTHROUGH_FIELDS.items():
             saved_dev[_k] = dev.get(_k, _factory())
         # v2.4.5: one-shot "scan packages now" flag. If an operator
@@ -22812,6 +22837,11 @@ def handle_heartbeat():
     # its normal poll interval if the thread never starts or ever fails.
     if _sec_cfg.get('push_enabled'):
         common_resp['push_enabled'] = True
+    # SSH gateway: the Linux agent opens its outbound tunnel only while this is
+    # sent, and closes it again when it stops arriving. Module on AND the device
+    # opted in, both checked on every heartbeat.
+    if saved_dev.get('sshgw_enabled') and _module_on('sshgw'):
+        common_resp['sshgw_enabled'] = True
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -27736,6 +27766,8 @@ def handle_config_get():
     # which is a hell of a surprise for an upgrade.
     safe.setdefault('vault_checkout_required', False)
     safe.setdefault('push_enabled', False)          # v6.1.1 #1
+    safe.setdefault('sshgw_public_host', '')
+    safe.setdefault('sshgw_public_port', 2222)
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
     safe.setdefault('portal_ticket_approval_required', False)   # master-improvement-scoping #84
@@ -30459,6 +30491,24 @@ def handle_config_save():
         if _wp.scheme not in ('http', 'https') or not _wp.netloc:
             respond(400, {'error': 'webterm_daemon_url must be http:// or https:// '
                                    'with a hostname'})
+    # SSH gateway: the public endpoint shown on the page and in the generated
+    # ~/.ssh/config, and the daemon's shared secret (write-only; empty keeps it).
+    if 'sshgw_public_host' in body:
+        _gh = _sanitize_str(str(body['sshgw_public_host'] or ''), 253).strip()
+        if _gh and not re.match(r'^[A-Za-z0-9.-]+$|^\[[0-9A-Fa-f:.]+\]$', _gh):
+            respond(400, {'error': 'sshgw_public_host must be a hostname or address'})
+        cfg['sshgw_public_host'] = _gh
+    if 'sshgw_public_port' in body:
+        try:
+            cfg['sshgw_public_port'] = max(1, min(65535, int(body['sshgw_public_port'] or 2222)))
+        except (TypeError, ValueError):
+            respond(400, {'error': 'sshgw_public_port must be an integer'})
+    if body.get('sshgw_daemon_secret'):
+        _gs = str(body['sshgw_daemon_secret'])
+        if not re.match(r'^[A-Za-z0-9_-]{32,256}$', _gs):
+            respond(400, {'error': 'sshgw_daemon_secret must be 32+ characters of '
+                                   'letters, digits, - or _ (openssl rand -hex 32)'})
+        cfg['sshgw_daemon_secret'] = _gs
     if 'slow_handler_ms' in body:
         try:
             cfg['slow_handler_ms'] = max(1, min(600000, int(body['slow_handler_ms'])))
@@ -70638,6 +70688,15 @@ def _build_exact_routes():
         ('POST', '/api/webterm/audit'): handle_webterm_session_audit,
         ('GET', '/api/webterm/hostkeys'): handle_webterm_hostkeys,
         ('POST', '/api/webterm/auth'): handle_webterm_auth,
+        ('GET', '/api/sshgw/status'): handle_sshgw_status,
+        ('GET', '/api/sshgw/keys'): handle_sshgw_keys,
+        ('POST', '/api/sshgw/keys'): handle_sshgw_keys,
+        ('DELETE', '/api/sshgw/keys'): handle_sshgw_keys,
+        ('GET', '/api/sshgw/devices'): handle_sshgw_devices,
+        ('GET', '/api/sshgw/sessions'): handle_sshgw_sessions,
+        ('POST', '/api/sshgw/agent-check'): handle_sshgw_agent_check,
+        ('POST', '/api/sshgw/authorize'): handle_sshgw_authorize,
+        ('POST', '/api/sshgw/audit'): handle_sshgw_audit,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,
         ('POST', '/api/kmip/config'): handle_kmip_config,
@@ -70751,6 +70810,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/opnsense', 'handle_device_opnsense', "pi.startswith('/api/devices/') and pi.endswith('/opnsense') and m in ('GET', 'PATCH')"),
     ('pat', ('POST',), '/api/devices/', '/synology/upgrade', 'handle_device_synology_upgrade', "pi.startswith('/api/devices/') and pi.endswith('/synology/upgrade') and m == 'POST'"),
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/ssh', 'handle_device_ssh', "pi.startswith('/api/devices/') and pi.endswith('/ssh') and m in ('GET', 'PATCH')"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/sshgw', 'handle_device_sshgw', "pi.startswith('/api/devices/') and pi.endswith('/sshgw') and m in ('GET', 'PATCH')"),
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/routeros', 'handle_device_routeros', "pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH')"),
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/snmp', 'handle_device_snmp', "pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH')"),
     ('pat', ('GET',), '/api/devices/', '/hardware', 'handle_device_hardware', "pi.startswith('/api/devices/') and pi.endswith('/hardware') and m == 'GET'"),

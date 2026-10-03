@@ -2588,6 +2588,75 @@ if _AVAILABLE:
         _v0 = field_validator('passphrase', 'bundle_b64', mode='before')(_coerce_str_loose)
         _v1 = field_validator('confirm', mode='before')(_coerce_bool_loose)
 
+    # ── SSH gateway (sshgw_handlers.py) ──────────────────────────────────────
+    class SshgwKeyAddRequest(BaseModel):
+        """handle_sshgw_keys POST — register one of your own public keys."""
+        model_config = ConfigDict(extra='ignore')
+        public_key: str = ''
+        name: str = ''
+        password: str = ''
+        totp_code: str = ''
+
+        _v0 = field_validator('public_key', 'name', 'password', 'totp_code',
+                              mode='before')(_coerce_str_loose)
+
+    class SshgwKeyDeleteRequest(BaseModel):
+        """handle_sshgw_keys DELETE — by fingerprint."""
+        model_config = ConfigDict(extra='ignore')
+        fingerprint: str = ''
+        username: str = ''
+
+        _v0 = field_validator('fingerprint', 'username', mode='before')(_coerce_str_loose)
+
+    class SshgwDeviceRequest(BaseModel):
+        """handle_device_sshgw PATCH — per-device opt-in."""
+        model_config = ConfigDict(extra='ignore')
+        enabled: bool = False
+
+        _v0 = field_validator('enabled', mode='before')(_coerce_bool_loose)
+
+    class SshgwAuthorizeRequest(BaseModel):
+        """handle_sshgw_authorize POST — the daemon asks whether a key may reach
+        a target. `target` empty means "is this key known at all"."""
+        model_config = ConfigDict(extra='ignore')
+        username: str = ''
+        fingerprint: str = ''
+        target: str = ''
+        client_ip: str = ''
+
+        _v0 = field_validator('username', 'fingerprint', 'target', 'client_ip',
+                              mode='before')(_coerce_str_loose)
+
+    class SshgwAgentCheckRequest(BaseModel):
+        """handle_sshgw_agent_check POST — the daemon asks whether a device token
+        is valid and the device has opted in."""
+        model_config = ConfigDict(extra='ignore')
+        device_id: str = ''
+        token: str = ''
+
+        _v0 = field_validator('device_id', 'token', mode='before')(_coerce_str_loose)
+
+    class SshgwAuditRequest(BaseModel):
+        """handle_sshgw_audit POST — the daemon reports a finished stream."""
+        model_config = ConfigDict(extra='ignore')
+        session_id: str = ''
+        username: str = ''
+        fingerprint: str = ''
+        device_id: str = ''
+        target: str = ''
+        client_ip: str = ''
+        started: int = 0
+        duration_s: int = 0
+        bytes_in: int = 0
+        bytes_out: int = 0
+        reason: str = ''
+
+        _v0 = field_validator('session_id', 'username', 'fingerprint', 'device_id',
+                              'target', 'client_ip', 'reason',
+                              mode='before')(_coerce_str_loose)
+        _v1 = field_validator('started', 'duration_s', 'bytes_in', 'bytes_out',
+                              mode='before')(_coerce_int_or(0))
+
 else:
     # Placeholders so `request_models.UserCreateRequest` etc. always resolve as
     # an attribute at call sites -- validate() short-circuits on `_AVAILABLE`
@@ -2846,6 +2915,12 @@ else:
     KmipExportRequest = None
     KmipImportRequest = None
     KmipResetRequest = None
+    SshgwKeyAddRequest = None
+    SshgwKeyDeleteRequest = None
+    SshgwDeviceRequest = None
+    SshgwAuthorizeRequest = None
+    SshgwAgentCheckRequest = None
+    SshgwAuditRequest = None
 
 
 def validate(model_cls, body):
