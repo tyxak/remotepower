@@ -23,7 +23,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         # Long-poll exec needs an extended timeout
         proxy_read_timeout 130s;
-        limit_except GET POST DELETE PATCH { deny all; }
+        limit_except GET POST PUT DELETE PATCH { deny all; }
     }
 
     location /agent/ {

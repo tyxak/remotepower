@@ -13,6 +13,11 @@ Run against nginx 1.24 with the shipped files included unchanged:
     current browsers and, where it survives, the blocking mode can be abused to
     blank a page. `0`, as OWASP and MDN recommend.
 
+And one functional bug the same run turned up: `location /api/` allowed
+GET POST DELETE PATCH, while the dashboard saves 34 kinds of edit with PUT —
+schedules, maintenance windows, sites, tenants, the report schedule. On a
+standard install every one of them was a 403 from nginx.
+
 The checks read the same five files the installer and the image ship.
 """
 import re
@@ -90,6 +95,30 @@ class TestUnknownPathsAre404(unittest.TestCase):
         js = '\n'.join(p.read_text(encoding='utf-8')
                        for p in (ROOT / 'server/html/static/js').glob('app*.js'))
         self.assertNotRegex(js, r'history\.pushState\(')
+
+
+class TestEveryMethodTheDashboardSendsIsAllowed(unittest.TestCase):
+    def _client_methods(self):
+        js = '\n'.join(p.read_text(encoding='utf-8')
+                       for p in (ROOT / 'server/html/static/js').glob('*.js'))
+        found = set(re.findall(r"\bapi\(\s*['\"]([A-Z]+)['\"]", js))
+        found |= set(re.findall(r"\bmethod:\s*['\"]([A-Z]+)['\"]", js))
+        return found
+
+    def test_the_extraction_sees_the_methods(self):
+        self.assertTrue({'GET', 'POST', 'PUT', 'DELETE', 'PATCH'} <= self._client_methods())
+
+    def test_the_api_location_allows_them(self):
+        for f in LOCATION_FILES:
+            body = _location_body(f.read_text(), 'location /api/')
+            with self.subTest(file=f.name):
+                self.assertIsNotNone(body)
+                m = re.search(r'limit_except\s+([A-Z ]+)\{', body)
+                self.assertIsNotNone(m, 'no method restriction on /api/ at all')
+                allowed = set(m.group(1).split()) | {'HEAD'}   # GET implies HEAD
+                missing = self._client_methods() - allowed
+                self.assertEqual(missing, set(),
+                                 f'the dashboard sends {sorted(missing)} and nginx refuses it')
 
 
 class TestXssProtectionHeader(unittest.TestCase):
