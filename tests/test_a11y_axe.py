@@ -334,7 +334,10 @@ class TestAccessibilityAxe(unittest.TestCase):
     # default to off, so they are unreachable here BY DESIGN — and audited for
     # real by the seeded sweep, whose demo config switches them on. Named, not
     # silent: the assertion below fails if anything ELSE becomes unreachable.
-    MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb'}
+    # v7.1.0: + sshgw. The SSH gateway page shipped with its module off by
+    # default (`'sshgw': ('sshgw_enabled', False, ...)` in api._MODULES), the
+    # same as the other two; the seeded sweep switches it on and audits it.
+    MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb', 'sshgw'}
 
     def _check_walk_result(self, target, results, label):
         with self.subTest(target=target):

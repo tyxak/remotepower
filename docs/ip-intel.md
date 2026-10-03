@@ -28,7 +28,8 @@ All three are off until you turn them on. You'll find everything under
 4. **Report.** If reporting is on and the address made at least the number of
    attempts you set (default 10), it's reported to each service at most once a
    day. The categories used are SSH and brute-force for sshd, and web attack
-   and brute-force for web logins.
+   and brute-force for web logins. An address that is never blocked (see
+   [Blocking](#blocking)) is never reported either.
 5. **Block.** If blocking is on and the score reaches your threshold (default
    90), the host it attacked gets a firewall rule that drops its traffic. The
    rule is removed again after the hours you set (default 24).
@@ -57,6 +58,12 @@ limit. The page shows how many have been used today.
 | Report | The attacking address, the attack categories, and a one-line comment such as "SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)". |
 
 Hostnames, user names, log lines and your own addresses are never sent.
+
+The address is the one sshd logged the connection from, not anything the
+client typed. sshd writes the user name a client asks for into the same log
+line, before the real address, so a login as `x from 203.0.113.9` puts a
+second address in the line. RemotePower reads the last address, the one
+followed by `port`.
 
 ## Blocking
 
@@ -93,7 +100,7 @@ page, which needs the **command** permission on that host.
 | Anyone else | Attackers and blocks for the hosts their role can see. |
 
 Under multi-tenancy, only the platform operator can change the provider
-settings.
+settings or run a manual lookup, which spends the install's daily quota.
 
 ## Troubleshooting
 

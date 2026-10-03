@@ -135,6 +135,10 @@ runs in a container, because a container's loopback isn't the host's sshd.
   other machines on that network.
 - **Failed logins are throttled.** After 20 failed logins in 10 minutes from
   one address, the gateway refuses that address for 10 minutes.
+- **Login attempts are capped, like OpenSSH's `MaxAuthTries` and
+  `MaxStartups`.** One connection can offer at most 10 keys before it is
+  closed, and one address can have at most 10 connections still logging in at
+  the same time.
 - **Port 22.** To run the gateway on port 22, add
   `AmbientCapabilities=CAP_NET_BIND_SERVICE` to the service, and set
   `SSHGW_SSH_PORT=22` in `/etc/remotepower/sshgw.env`.
