@@ -214,6 +214,17 @@ class TestGatewayEndToEnd(unittest.IsolatedAsyncioTestCase):
         self.assertIn('no device named', cm.exception.reason)
         self.assertEqual(cm.exception.code, asyncssh.OPEN_ADMINISTRATIVELY_PROHIBITED)
 
+    async def test_repeated_refusals_close_the_connection(self):
+        self.gwmod.MAX_DENIED_PER_CONN = 3
+        gw = await self.jump()
+        for _ in range(3):
+            with self.assertRaises(asyncssh.ChannelOpenError):
+                await self.host_conn(gw, 'db01.rp')
+        await asyncio.wait_for(gw.wait_closed(), 5)
+        with self.assertRaises((asyncssh.ChannelOpenError, asyncssh.ConnectionLost,
+                                asyncssh.DisconnectError, OSError)):
+            await self.host_conn(gw, 'web01.rp')
+
     async def test_authorized_but_no_tunnel_says_so(self):
         async with await self.jump() as gw:
             with self.assertRaises(asyncssh.ChannelOpenError) as cm:

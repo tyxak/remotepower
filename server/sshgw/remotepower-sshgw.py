@@ -117,6 +117,9 @@ OPEN_TIMEOUT_S = 10            # agent must answer OPEN within this
 TUNNEL_RECHECK_S = 300         # re-ask agent-check for every open tunnel
 MAX_STREAMS_PER_TUNNEL = 64
 MAX_STREAMS_PER_CONN = 16
+# A logged-in client that keeps asking for hosts it may not reach is probing
+# names (and filling the audit log); drop the connection after this many.
+MAX_DENIED_PER_CONN = 20
 LOGIN_TIMEOUT_S = 30
 # Back-pressure on the client → agent direction: pause reading the SSH channel
 # when this much is queued for the tunnel, resume below the low mark.
@@ -492,6 +495,7 @@ class GatewaySSHServer(_SSHServer):
         self.client_ip = ''
         self.authed = False
         self.streams = 0
+        self.denied = 0
 
     def connection_made(self, conn):
         self.conn = conn
@@ -549,6 +553,11 @@ class GatewaySSHServer(_SSHServer):
                                           dest_host, self.client_ip)
         if not res.get('ok'):
             log.info('denied %s → %s: %s', self.username, dest_host, res.get('error'))
+            self.denied += 1
+            if self.denied >= MAX_DENIED_PER_CONN and self.conn is not None:
+                log.warning('closing %s from %s after %d refused channels',
+                            self.username, self.client_ip, self.denied)
+                self.conn.close()
             raise asyncssh.ChannelOpenError(
                 asyncssh.OPEN_ADMINISTRATIVELY_PROHIBITED,
                 res.get('error') or 'not authorized')
