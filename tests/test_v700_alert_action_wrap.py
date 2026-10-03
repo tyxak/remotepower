@@ -21,6 +21,10 @@ stack:
   * the rule it uses actually wraps and is bounded, because a flex row without
     `flex-wrap` is a `nowrap` cell wearing a different name, and one without a
     width bound lets the column widen the table again instead.
+
+v7.1.0: four actions stay on the row and the rest moved into a More menu
+(test_v710_alert_row_menu.py), so the cell now settles at one line. The wrap
+and the bounds still matter: a translated label can run longer than English.
 """
 import re
 import unittest

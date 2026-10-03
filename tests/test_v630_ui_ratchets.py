@@ -68,7 +68,12 @@ _CAP_MARKERS = re.compile(
 # The sections themselves are not new work for its own sake: both were
 # selectable in the custom report builder and computed by the server, and this
 # renderer printed neither.
-UNCAPPED_JS_BASELINE = 31
+#
+# 31 -> 33 (v7.1.0), on the same basis: report.js gained the "Threats and
+# remote access" section — a six-row key/value summary and a most-attacked-hosts
+# table the server cuts to five rows (reports_handlers._threats_section). Both
+# are fixed-size and both are printed.
+UNCAPPED_JS_BASELINE = 33
 
 
 def _blank_js_comments(src):

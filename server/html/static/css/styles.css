@@ -490,7 +490,7 @@
   .notes-tip:hover::after { opacity: 1; }
   .form-textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 11px 14px; font-size: 12.5px; color: var(--text); outline: none;
+    padding: 11px 14px; font-size: 13px; color: var(--text); outline: none;
     transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
   }
   .form-textarea:focus { border-color: var(--accent); }
@@ -695,7 +695,7 @@
     color: var(--side-ink);
     padding: 5px 9px;
     border-radius: 6px;
-    font-size: 12.5px;
+    font-size: 13px;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
     font-family: inherit;
@@ -757,7 +757,7 @@
     display: block; width: 100%; text-align: left;
     background: transparent; border: none; color: var(--text);
     padding: 7px 10px; border-radius: 6px;
-    font-size: 12.5px; font-family: inherit; cursor: pointer;
+    font-size: 13px; font-family: inherit; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .sidebar-search-hit:hover, .sidebar-search-hit.active { background: var(--hair-2); }
@@ -840,7 +840,7 @@
     padding-bottom: 0;
     border-left-color: transparent;
   }
-  .sidebar-group .nav-btn { padding: 5px 9px; font-size: 12.5px; }
+  .sidebar-group .nav-btn { padding: 5px 9px; font-size: 13px; }
   .sidebar-group .nav-btn svg { width: 14px; height: 14px; }
   /* The active row's accent bar (.nav-btn.active::before, -9px) lands exactly
      on the group rail — no extra rules needed (the old inset box-shadow +
@@ -1006,7 +1006,7 @@
     padding: 4px 18px 18px 32px;
     color: var(--text);
     line-height: 1.65;
-    font-size: 13.5px;
+    font-size: 13px;
   }
   .doc-card .doc-body p { margin: 8px 0; }
   .doc-card .doc-body code {
@@ -1136,7 +1136,7 @@
      left, internal notes a dashed amber aside. */
   #tk-conversation .tk-msg { max-width: 82%; padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; }
   #tk-conversation .tk-msg-meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-  #tk-conversation .tk-msg-body { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+  #tk-conversation .tk-msg-body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
   #tk-conversation .tk-msg-in  { background: rgba(127,127,127,0.10); border: 1px solid var(--border); margin-right: auto; }
   #tk-conversation .tk-msg-out { background: rgba(59,130,246,0.12); border: 1px solid var(--accent); margin-left: auto; }
   #tk-conversation .tk-msg-note { background: rgba(255,193,7,0.10); border: 1px dashed #d4a017; margin-right: auto; }
@@ -1155,13 +1155,13 @@
     color: var(--text, #16181d); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
     box-shadow: var(--shadow-3); }
   .tour-pop-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
-  .tour-pop-body { font-size: 13.5px; line-height: 1.5; margin-bottom: 12px; }
+  .tour-pop-body { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
   .tour-pop-row { display: flex; align-items: center; gap: 6px; }
   .tour-pop-meta { font-size: 12px; color: var(--muted); margin-right: auto; }
   /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
     background: var(--accent); color: var(--accent-contrast, #fff); padding: 8px 14px; border-radius: 0 0 6px 0;
-    font-size: 13.5px; text-decoration: none; }
+    font-size: 13px; text-decoration: none; }
   .skip-link:focus { left: 0; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
@@ -1279,12 +1279,18 @@
   }
   .page-subtitle {
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: 13px;
     margin: 0 0 18px;
   }
   /* directly under the title (or title row) it pulls up to sit 3px below it
      (16px title margin − 13px); elsewhere it spaces itself normally */
   .page-title + .page-subtitle { margin-top: -13px; }
+  /* v7.1.0: a heading for a section that sits between cards on a page
+     (Containers → Image updates). It was a 16px .page-title — a third heading
+     size between the 19px page title and the 13px card heading. Same size and
+     weight as a card heading now; the subtitle under it pulls up the same way. */
+  .subsection-title { margin: 0 0 16px; font-size: 13px; font-weight: 620; }
+  .subsection-title + .page-subtitle { margin-top: -13px; }
   .stats-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1479,7 +1485,7 @@
   .devices-grid.dens-compact .device-card { padding: 12px 14px; border-radius: 10px; }
   .devices-grid.dens-compact .device-header { margin-bottom: 8px; }
   .devices-grid.dens-compact .device-icon { width: 32px; height: 32px; border-radius: 7px; }
-  .devices-grid.dens-compact .device-name { font-size: 13.5px; }
+  .devices-grid.dens-compact .device-name { font-size: 13px; }
   .devices-grid.dens-compact .device-hostname { font-size: 11px; }
   .devices-grid.dens-compact .device-meta { gap: 6px; }
   .devices-grid.dens-compact .device-meta .meta-label { font-size: 10px; }
@@ -1608,38 +1614,9 @@
     border-top: 1px solid rgba(99, 179, 237, 0.3);
     border-bottom: 1px solid rgba(99, 179, 237, 0.3);
   }
-  /* slightly tighter row height for the dropdown column (no padding) */
+  /* slightly tighter row height for the ⋮ (open the drawer) column */
   .devices-minimal-table .dev-actions-cell {
     padding: 4px 8px;
-    overflow: visible;          /* the ⋯ menu pops out of the cell */
-    position: relative;          /* z-index anchor for the dropdown */
-  }
-  .devices-minimal-table .dev-actions-cell .device-dropdown {
-    position: relative;
-  }
-  /* v1.11.8: when the dropdown is OPEN, hoist the entire row above the
-     surrounding table chrome so the menu can't get clipped by other
-     rows or the wrap edge. The .device-dropdown.active class gets
-     toggled by toggleDropdown() in JS; tr:has() finds the row that
-     contains it. Falls back gracefully on browsers without :has()
-     support — the menu would still render via z-index on the cell
-     itself, just possibly clipped on the bottom row. Safari, Chrome,
-     Firefox 121+ all support :has() now. */
-  .devices-minimal-table tbody tr:has(.device-dropdown.active) {
-    position: relative;
-    z-index: 100;
-  }
-  .devices-minimal-table .dev-actions-cell .device-dropdown.active {
-    z-index: 101;               /* above the row's z-index */
-  }
-  .devices-minimal-table .dev-actions-cell .dropdown-content {
-    /* Anchor to the right edge of the cell so the menu drops down-and-
-       to-the-left rather than pushing off the right side of the page.
-       The default rule from the cards-mode CSS positions it differently;
-       override here for the table layout. */
-    right: 0;
-    left: auto;
-    z-index: 102;
   }
   /* responsive — drop low-priority columns on narrow viewports.
      Order of importance, kept-most → dropped-first:
@@ -1705,7 +1682,7 @@
     cursor: pointer;
   }
   .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
-  .device-name     { font-size: 13.5px; font-weight: 600; }
+  .device-name     { font-size: 13px; font-weight: 600; }
   .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: var(--font-mono); }
   .status-badge {
     display: flex;
@@ -1758,143 +1735,6 @@
   .patch-badge.crit { background: rgba(239,68,68,0.15);  color: #ec7a70; }
   .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
-  /* Dropdown menu styles - clean, no icons, properly positioned */
-  .device-dropdown {
-    position: relative;
-    display: inline-block;
-    z-index: 20;
-  }
-  .dropdown-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 6px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
-  }
-  .dropdown-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent-ink);
-  }
-  .dropdown-content {
-    display: none;
-    position: absolute;
-    right: 0;
-    top: 100%;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    min-width: 180px;
-    max-width: 260px;
-    box-shadow: var(--shadow-2);
-    z-index: 10000;
-    margin-top: 4px;
-    overflow: visible;
-  }
-  /* If the dropdown would go off-screen on the right, flip it to the left */
-  @media (max-width: 600px) {
-    .dropdown-content {
-      right: auto;
-      left: 0;
-    }
-  }
-  .dropdown-content a, .dropdown-content button {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 8px 14px;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-size: 13px;
-    font-family: var(--font);
-    cursor: pointer;
-    transition: background 0.15s;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  /* On very small screens, allow text to wrap */
-  @media (max-width: 480px) {
-    .dropdown-content a, .dropdown-content button {
-      white-space: normal;
-      word-break: break-word;
-    }
-    .dropdown-content {
-      min-width: 160px;
-      max-width: 220px;
-    }
-  }
-  .dropdown-content a:hover, .dropdown-content button:hover {
-    background: var(--surface2);
-    color: var(--accent-ink);
-  }
-  .dropdown-content hr {
-    margin: 4px 0;
-    border-color: var(--border);
-  }
-  /* v2.1.5: compact grouped dropdown — <details>/<summary> for the
-     three secondary sections (Inspect / Operate / Configure). Keeps
-     the dropdown short by default; click to expand a section. */
-  .dropdown-content.compact {
-    min-width: 220px;
-    max-height: 80vh;
-    overflow-y: auto;
-  }
-  .dropdown-content.compact .dropdown-group {
-    border-radius: 4px;
-  }
-  .dropdown-content.compact .dropdown-group > summary {
-    list-style: none;
-    cursor: pointer;
-    padding: 6px 14px 6px 22px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    position: relative;
-    user-select: none;
-  }
-  .dropdown-content.compact .dropdown-group > summary::-webkit-details-marker {
-    display: none;
-  }
-  /* Disclosure caret in a fixed position so the label doesn't shift
-     when the section opens. */
-  .dropdown-content.compact .dropdown-group > summary::before {
-    content: '▸';
-    position: absolute;
-    left: 8px;
-    top: 6px;
-    font-size: 10px;
-    transition: transform 0.15s ease;
-    color: var(--muted);
-  }
-  .dropdown-content.compact .dropdown-group[open] > summary::before {
-    transform: rotate(90deg);
-  }
-  .dropdown-content.compact .dropdown-group > summary:hover {
-    background: var(--surface2);
-    color: var(--text);
-  }
-  .dropdown-content.compact .dropdown-group a {
-    padding-left: 22px;   /* indent group children */
-    font-size: 13px;
-  }
-  .device-dropdown.active .dropdown-content {
-    display: block;
-  }
-  /* When a dropdown is active, lift its parent device card above sibling cards
-     so the open menu isn't pierced by other cards' ... buttons */
-  .device-dropdown.active {
-    z-index: 9999;
-  }
-  .device-card:has(.device-dropdown.active) {
-    z-index: 9999;
-  }
-
   /* v6.4.1: this was one of THREE depth-0 `.empty-state` rules; the last one
      in the file won, so this padding and the compact one below were both
      dead. Consolidated here — the only declaration — with the body anchor
@@ -1903,7 +1743,7 @@
     text-align: center;
     padding: 40px 24px;
     color: var(--muted);
-    font-size: 13.5px;
+    font-size: 13px;
     grid-column: 1 / -1;
   }
   .empty-icon {
@@ -1917,8 +1757,9 @@
     margin: 0 auto 20px;
   }
   .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
-  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
-  .empty-text  { font-size: 13.5px; line-height: 1.6; }
+  /* v7.1.0: an empty card's heading is a card heading — 13px/620, not a 16px third size */
+  .empty-title { font-size: 13px; font-weight: 620; color: var(--text); margin-bottom: 8px; }
+  .empty-text  { font-size: 13px; line-height: 1.6; }
   .modal-overlay {
     position: fixed;
     inset: 0;
@@ -2009,7 +1850,7 @@
      want to purge resolved."). Without it every one of those collapsed into a
      single run-on grey line, burying the escape hatch mid-sentence. Wrapping is
      unaffected — pre-line still wraps, it only stops eating authored breaks. */
-  .modal-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
+  .modal-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
   .pin-display {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -2042,19 +1883,23 @@
     font-size: 12px; color: var(--muted); font-weight: 500;
     margin-bottom: 6px; display: block;
   }
-  /* v6 (chosen-design .inp): flat hairline field, mono value text */
+  /* v6 (chosen-design .inp): flat hairline field. v7.1.0: single-line fields
+     and selects use the UI font at body size, so a filter box and the buttons
+     beside it read as one row; multi-line editors (scripts, YAML, keys) keep
+     the mono face — see textarea below. */
   .form-input {
     width: 100%;
     background: var(--bg);
     border: 1px solid var(--hair);
     border-radius: 7px;
     padding: 8px 10px;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text);
     outline: none;
     transition: border-color 0.2s;
-    font-family: var(--font-mono);
+    font-family: var(--font);
   }
+  textarea.form-input { font-family: var(--font-mono); }
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
   select.form-input { cursor: pointer; }
@@ -2074,10 +1919,11 @@
     border: 1px solid var(--hair);
     border-radius: 7px;
     padding: 8px 10px;
-    font-size: 12.5px;
-    font-family: var(--font-mono);
+    font-size: 13px;
+    font-family: var(--font);
     outline: none;
   }
+  textarea { font-family: var(--font-mono); }
   /* v6: flat select with a muted chevron (the chamfered dropdown is gone);
      background-IMAGE only, so the field colour above still applies */
   select {
@@ -2200,6 +2046,11 @@
     font-size: 11px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.5px;
     border-bottom: 1px solid var(--hair);
+    /* v7.1.0: one line per header. A sortable header carries its ↕/▲/▼ glyph
+       as a trailing span, and in a squeezed column the glyph wrapped onto a
+       line of its own ("SCORE" over "↕", "LAST" over "SEEN"), so header rows
+       came out two lines tall on most data tables. */
+    white-space: nowrap;
   }
   td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--hair-2); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
@@ -2336,7 +2187,7 @@
     border: 1px solid var(--hair);
     border-radius: 7px;
     color: var(--accent-ink);
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 600;
     padding: 4px 10px;
     cursor: pointer;
@@ -2390,7 +2241,7 @@
   .undo-hist-row {
     display: flex; align-items: center; gap: 7px; width: 100%;
     background: none; border: none; color: var(--text);
-    font-size: 12.5px; padding: 4px 2px; cursor: pointer; text-align: left;
+    font-size: 13px; padding: 4px 2px; cursor: pointer; text-align: left;
   }
   .undo-hist-row:hover { color: var(--accent-ink); }
   /* v6.3.0 (UX wave 9): sticky first column on scrollable tables */
@@ -2413,7 +2264,7 @@
     padding: 10px 12px; max-height: 340px; overflow-y: auto;
   }
   #tbl-cols-pop.hidden { display: none; }
-  .tbl-cols-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; cursor: pointer; }
+  .tbl-cols-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
   /* v6.3.0 (UX wave 3): notification center — bell + popover */
   #toast-history-btn { position: relative; }
   #toast-history-btn.has-unread::after {
@@ -2431,7 +2282,7 @@
   .toast-hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   .toast-hist-row {
     display: flex; align-items: baseline; gap: 8px;
-    padding: 5px 2px; font-size: 12.5px;
+    padding: 5px 2px; font-size: 13px;
     border-top: 1px solid var(--hair-2, var(--hair));
   }
   .toast-hist-row:first-child { border-top: none; }
@@ -2481,7 +2332,7 @@
   /* v6.3.0 (UX wave 1): failed-load state with inline Retry */
   .error-state {
     display: flex; align-items: center; justify-content: center; gap: 10px;
-    padding: 18px 12px; font-size: 12.5px;
+    padding: 18px 12px; font-size: 13px;
   }
   /* v6.3.0 (UX wave 1): "N of M shown" chip above a filtered table */
   .table-filter-info {
@@ -2537,10 +2388,10 @@
     background: transparent;
   }
   .login-title { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
-  .login-sub   { font-size: 13.5px; color: var(--muted); margin-bottom: 28px; }
+  .login-sub   { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
   /* v5.0.0: login banner / security notice */
   .login-banner {
-    font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
     background: var(--accent-soft); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 12px; margin: -16px 0 24px; color: var(--text);
   }
@@ -2641,7 +2492,7 @@
   .kb-item-tags { display: flex; flex-wrap: wrap; gap: 4px; }
   .kb-view-head { display: flex; justify-content: space-between; align-items: flex-start;
     gap: 12px; margin-bottom: 12px; }
-  .kb-view-body { font-size: 13.5px; line-height: 1.6; }
+  .kb-view-body { font-size: 13px; line-height: 1.6; }
 
   .event-toggle-table {
     width: 100%;
@@ -2837,10 +2688,11 @@ body.light {
  * alternates that fix the awkward default "1", straight-sided "a", etc.
  * cv02/cv03/cv04/cv11 enable those; harmless on systems without Inter. */
 body {
-  /* Anchor the canonical BODY size once, document-wide (v6: the design's
-     13.5px, line-height 1.5 — chosen-design body). Components with an
+  /* Anchor the canonical BODY size once, document-wide. v7.1.0: one body
+     size — 13px for prose, table cells, form fields and buttons alike (the
+     v6 scale split body text across 12.5, 13 and 13.5). Components with an
      explicit size are unaffected. */
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
@@ -3094,7 +2946,7 @@ input.form-input[type="text"][data-token],
   align-items: center;
   gap: 3px;
   color: var(--accent-ink);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .ai-thinking .sparkle {
   display: inline-block;
@@ -3130,7 +2982,7 @@ input.form-input[type="text"][data-token],
 /* v6.3.1: hail-mary log sweep modal ("Diagnose from logs") */
 .log-sweep-file summary {
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 13px;
   padding: 4px 0;
 }
 .log-sweep-file summary code {
@@ -3436,7 +3288,7 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
 .isl-774 { margin-top: 6px; }
 .isl-775 { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .isl-776 { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
-.isl-777 { font-size: 13.5px; }
+.isl-777 { font-size: 13px; }
 .isl-778 { margin-bottom: 6px; }
 .isl-779 { align-items: flex-end; }
 .err-text { color: var(--red); }
@@ -3533,13 +3385,13 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
   opacity: 0.4;
 }
 .empty-state-title {
-  font-size: 16px;
+  font-size: 13px;
   color: var(--text);
   margin-bottom: 6px;
-  font-weight: 500;
+  font-weight: 620;
 }
 .empty-state-body {
-  font-size: 13.5px;   /* descriptive prose = body (13.5), not dense-cell 13 */
+  font-size: 13px;   /* descriptive prose = body (13) */
   margin-bottom: 16px;
   max-width: 480px;
   margin-left: auto;
@@ -3866,14 +3718,9 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
  * declarations without needing !important everywhere.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/* Dropdowns must sit below modals — an open device-row menu bleeding
- * through a modal was the most visible desktop+mobile stacking bug. */
-.device-dropdown.active            { z-index: 200; }
-.device-card:has(.device-dropdown.active) { z-index: 200; }
-.dropdown-content                  { z-index: 201; }
-.devices-minimal-table .dev-actions-cell .dropdown-content { z-index: 201; }
-.devices-minimal-table tbody tr:has(.device-dropdown.active) { z-index: 200; }
-.devices-minimal-table .dev-actions-cell .device-dropdown.active { z-index: 201; }
+/* Row menus must sit below modals — an open row menu bleeding through a
+ * modal was the most visible desktop+mobile stacking bug. */
+#row-more-pop { z-index: 200; }
 
 /* Modal overlays — base tier. */
 .modal-overlay { z-index: 1000; }
@@ -3991,7 +3838,7 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
 .dyk-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 600px; }
 .dyk-header { display: flex; align-items: center; gap: 8px; color: var(--accent-ink); font-weight: 600; font-size: 13px; }
 .dyk-header svg { width: 16px; height: 16px; }
-.dyk-text { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5; min-height: 2.6em; }
+.dyk-text { margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; min-height: 2.6em; }
 
 /* v2.2.6: body scroll lock while a modal is open. Without this the
  * page behind the modal scrolls on touch, which on mobile reads as
@@ -4160,7 +4007,7 @@ button, a, [role="button"],
   flex-shrink: 0;
 }
 .drawer-device-name { font-weight: 700; font-size: 16px; }
-.drawer-device-sub  { font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+.drawer-device-sub  { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
 /* Tabs */
 .drawer-tabs {
@@ -4257,7 +4104,7 @@ button, a, [role="button"],
 .audit-section[open] summary::after { transform: rotate(90deg); }
 .audit-section-body {
   padding: 0 16px 14px;
-  font-size: 13.5px; line-height: 1.6;
+  font-size: 13px; line-height: 1.6;
   /* v3.13.0: cap each drawer card to ~15 rows then scroll internally, so a
    * host with many containers/disks/ports doesn't make one card grow
    * unboundedly. Inner tables wrapped in .audit-scroll cap first. */
@@ -4415,13 +4262,13 @@ td .kev-badge { margin-left: 0; }
 .anomaly-link:hover { text-decoration: underline; }
 .compliance-fix { color: var(--accent-ink); cursor: pointer; text-decoration: none; white-space: nowrap; margin-left: 6px; }
 .compliance-fix:hover { text-decoration: underline; }
-.cron-result-expr { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+.cron-result-expr { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .cron-runs { margin: 4px 0 0; padding-left: 18px; max-height: 132px; overflow-y: auto; }
 .cron-runs li { font-size: 12px; color: var(--muted); }
 .ai-insight-body { max-height: 60vh; overflow-y: auto; padding: 4px 2px; line-height: 1.55; }
 
 /* v3.4.0: compliance report */
-.compliance-summary { font-size: 13.5px; margin-bottom: 14px; font-weight: 500; }
+.compliance-summary { font-size: 13px; margin-bottom: 14px; font-weight: 500; }
 .compliance-fw-card { margin-bottom: 14px; }
 .compliance-fw-head { display: flex; align-items: center; justify-content: space-between; }
 .compliance-score { font-size: 28px; font-weight: 700; }
@@ -4856,8 +4703,8 @@ body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: b
 .fs-12 { font-size: 12px; }
 .fs-13 { font-size: 13px; }
 .bh-day { min-width: 96px; }
-.fs-body { font-size: 13.5px; }  /* THE body anchor — reach for this one */
-.fs-14 { font-size: 13.5px; }   /* deprecated alias of .fs-body; the 14px anchor was retired → 13.5px */
+.fs-body { font-size: 13px; }  /* THE body anchor — reach for this one */
+.fs-14 { font-size: 13px; }    /* deprecated alias of .fs-body (the 14px and 13.5px anchors were retired) */
 .meta-sm { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hint-mb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .meta-sm-nm { font-size: 11px; color: var(--muted); }
@@ -4942,7 +4789,7 @@ label.form-label:has(> input[type="radio"]) {
      — the "weird indentation". Block + padding-left keeps it one flowing run, and
      any .hint stacks underneath at the same indent. */
   display: block; position: relative; padding-left: 26px;
-  font-size: 13.5px; text-transform: none; letter-spacing: normal; line-height: 1.5;
+  font-size: 13px; text-transform: none; letter-spacing: normal; line-height: 1.5;
   color: var(--text); margin-bottom: 14px; cursor: pointer;
 }
 label.form-label:has(> input[type="checkbox"]) > input[type="checkbox"],
@@ -4953,13 +4800,31 @@ label.form-label:has(> input[type="checkbox"]) > .hint,
 label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3px 0 0; }
 .row-12-center { display: flex; align-items: center; gap: 12px; }
 .row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
-/* v7.0.0: the Alerts row carries up to seven actions (Triage, Fix,
-   Mute, Clear line, Resolve, Incident, Ticket). They were in a
-   `nowrap` cell, so the whole table scrolled sideways to fit one long
-   line. Wrap them instead; the cap is what forces the wrap rather than
-   letting the column widen the table again. */
+/* v7.0.0: the Alerts row carried up to eleven actions in a `nowrap` cell,
+   so the whole table scrolled sideways to fit one long line. v7.1.0 keeps
+   four on the row (Triage, Fix, Mute, Resolve) and moves the rest into the
+   row's More menu. The cell still wraps and is bounded, so a translated
+   label that runs long wraps inside the column instead of widening it. */
 .alert-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-                 min-width: 288px; max-width: 312px; }
+                 min-width: 352px; max-width: 368px; }
+/* v7.1.0: a row's More menu (rowMoreMenu in app.js). Body-level and fixed,
+   so a scrolling table cannot clip it. */
+#row-more-pop {
+  position: fixed; min-width: 200px; max-width: 280px; padding: 4px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--hair); border-radius: 8px; box-shadow: var(--shadow-2);
+}
+#row-more-pop > button, #row-more-pop > a {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; font-size: 13px;
+  text-align: left; white-space: nowrap; text-decoration: none; cursor: pointer;
+}
+#row-more-pop > button:hover, #row-more-pop > button:focus-visible,
+#row-more-pop > a:hover, #row-more-pop > a:focus-visible {
+  background: var(--surface2); color: var(--accent-ink); outline: none;
+}
+#row-more-pop svg { flex: none; color: var(--muted); }
 
 .col-4 { display: flex; flex-direction: column; gap: 4px; }
 .mb-6 { margin-bottom: 6px; }
@@ -5173,10 +5038,10 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-113 { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center }
 .isl-114 { max-width:340px; font-size:13px }
 .isl-115 { font-size:12px; margin-left:auto }
-.isl-116 { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; min-height:300px; max-height:55vh; overflow-y:auto; font-size: 13.5px; line-height:1.55 }
+.isl-116 { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; min-height:300px; max-height:55vh; overflow-y:auto; font-size: 13px; line-height:1.55 }
 .isl-117 { color:var(--muted); text-align:center; padding:40px 12px }
 .isl-118 { margin-top:12px; display:flex; gap:8px; align-items:flex-end }
-.isl-119 { flex:1; resize:vertical; min-height:60px; font-family:inherit; font-size:12.5px }
+.isl-119 { flex:1; resize:vertical; min-height:60px; font-family:inherit; font-size: 13px }
 .isl-120 { height:60px; min-width:90px }
 .isl-121 { margin-top:6px; font-size:11px; color:var(--muted) }
 .isl-122 { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
@@ -5216,16 +5081,14 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-145 { max-height:500px; min-height:300px; font-size:12px; overflow-y:auto; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px }
 .isl-146 { padding:18px }
 .isl-147 { margin:24px 0 12px; display:flex; justify-content:space-between; align-items:center }
-.isl-148 { font-size:16px; margin:0 }
 .isl-149 { display:flex; gap:0; margin-bottom:-1px; position:relative; z-index:1 }
 .isl-150 { border-radius:6px 6px 0 0; border-bottom:1px solid transparent }
 .isl-151 { border-radius:6px 6px 0 0; border-bottom:1px solid var(--border); background:var(--surface2) }
 .isl-152 { font-size:12px; color:var(--muted); padding:12px 16px 0 }
 .isl-153 { margin-top:24px; display:none }
-.isl-154 { font-size:16px; margin-top:24px }
 .isl-155 { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px; flex-wrap:wrap }
 .isl-156 { display:flex; align-items:center; gap:8px }
-.isl-157 { font-size: 16px; font-weight:600; min-width:180px; text-align:center }
+.isl-157 { font-size: 13px; font-weight:620; min-width:180px; text-align:center }
 .isl-158 { margin-left:8px; font-size:12px }
 .isl-159 { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; padding:0 4px 8px }
 .isl-160 { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; min-height:500px }
@@ -5240,7 +5103,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-169 { flex:1; max-width:480px }
 .isl-170 { flex:1; min-width:240px; max-width:380px }
 .isl-171 { display:none; margin-top:24px }
-.isl-172 { font-size: 16px }
 /* v7.0.0: `flex-wrap: wrap`. Without it these toolbar rows SHRINK their
    controls to fit, and a flex item shrunk below its content width squashes
    the label inside it. Measured on the Network map page, whose toolbar is
@@ -5263,7 +5125,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 #page-netmap > .table-card { max-height:none; overflow:visible; contain:none; }
 .isl-177 { flex:1; min-width:200px; max-width:340px; padding:8px 12px; font-size:13px }
 .isl-178 { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px }
-.isl-179 { margin-bottom:4px }
 .isl-180 { margin-bottom:0 }
 .isl-181 { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
 .isl-182 { font-weight:500 }
@@ -5432,7 +5293,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .p-2-8 { padding: 2px 8px; }
 .fs-11-bold { font-size: 11px; font-weight: 600; }
 .fs-12-bold { font-size: 12px; font-weight: 600; }
-.fw-600-14 { font-size: 13.5px; font-weight: 600; }
+.fw-600-14 { font-size: 13px; font-weight: 600; }
 .row-space-between { display: flex; justify-content: space-between; }
 .row-between-center { display: flex; align-items: center; justify-content: space-between; }
 .row-4-center { display: flex; align-items: center; gap: 4px; }
@@ -5694,7 +5555,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-507 { color: var(--muted); padding: 20px }
 .isl-508 { max-width: 720px; width: 92vw; max-height: 88vh; display: flex; flex-direction: column }
 .isl-509 { padding: 8px 16px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border) }
-.isl-510 { flex: 1; overflow: auto; padding: 14px 16px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; font-family: var(--font) }  /* v6.4.1: body anchor — AI answers are prose */
+.isl-510 { flex: 1; overflow: auto; padding: 14px 16px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-family: var(--font) }  /* v6.4.1: body anchor — AI answers are prose */
 .isl-511 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap }
 .isl-512 { display: flex; align-items: center; gap: 10px; color: var(--muted) }
 .isl-513 { color: var(--red); white-space: pre-wrap }
@@ -6156,7 +6017,7 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 }
 .isl-715 { cursor: pointer; color: var(--muted); font-size: 12px }
 .isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: var(--shadow-3) }
-.isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 12.5px; outline: none }
+.isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; outline: none }
 .isl-718 { overflow-y: auto; padding: 6px; flex: 1 }
 .isl-719 { font-size: 11px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 14px }
 .isl-720 { background: var(--bg); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border) }
@@ -6326,6 +6187,10 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .sev-pill.sev-info     { background: rgba(59,130,246,0.15); color: var(--accent-ink); border: 1px solid var(--accent); }
 .tl-dot.sev-info       { background: var(--accent); }
 .alerts-row.resolved   { opacity: 0.55; }
+/* v7.1.0: alert evidence key: value — the pair stays together, a long value
+   (a path, a URL) breaks inside itself rather than widening the table. */
+.alert-kv { white-space: nowrap; }
+.alert-kv strong { white-space: normal; overflow-wrap: anywhere; }
 /* v6.2.2: keyboard-inbox selection (j/k in app-alerts.js) */
 .alerts-row.kb-selected td { background: var(--accent-soft); }
 .alerts-row.kb-selected td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
@@ -6334,7 +6199,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
   position: fixed; z-index: 220; max-width: 280px; padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--hair);
   border-radius: 11px; box-shadow: var(--shadow-2);
-  font-size: 12.5px; pointer-events: none;
+  font-size: 13px; pointer-events: none;
 }
 #dev-hovercard .dev-hovercard-title { font-weight: 620; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 #dev-hovercard .dev-hovercard-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
@@ -6625,7 +6490,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .status-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
 .status-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .status-v { font-size: 28px; font-weight: 700; margin-top: 4px; }
-.status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .status-pill { display: inline-block; min-width: 48px; text-align: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
 .status-pill.ok { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid #22c55e; }
 .status-pill.down { background: rgba(239,68,68,0.15); color: var(--red-on-tint); border: 1px solid var(--red); }
@@ -6645,7 +6510,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .hh-score { text-align: center; }
 .hh-num { font-size: 48px; font-weight: 700; line-height: 1; }
 .hh-grade { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.hh-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (13.5) */
+.hh-sub { font-size: 13px; margin-top: 2px; }   /* widget subtitle = body text */
 .hh-bar-track { width: 100%; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .hh-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .hh-counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -6686,7 +6551,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .rep-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .rep-v { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; margin-top: 4px; }
 .rep-unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
-.rep-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (13.5) */
+.rep-sub { font-size: 13px; margin-top: 2px; }   /* widget subtitle = body text */
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 
@@ -6767,7 +6632,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
     color: #111 !important;
     background: #fff !important;
     padding: 0;
-    font-size: 13.5px;
+    font-size: 13px;
   }
   #print-report * { color: #111 !important; background: transparent !important;
     border-color: #ccc !important; }
@@ -6920,7 +6785,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
 .trend-chart { width: 100%; overflow-x: auto; }
 /* v6.4.2: metric explorer pickers (app-trends.js). Two flat panels beside each
    other above the chart — hairline, 11px radius, no font-size of their own so
-   they stay on the 13.5px body anchor. The host box also carries .scroll-cap,
+   they stay on the 13px body anchor. The host box also carries .scroll-cap,
    which owns its height cap; do not add a second max-height here. */
 .mx-hostbox {
   flex: 1 1 260px;
@@ -7235,7 +7100,7 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .connector-row { display:flex; align-items:baseline; gap:6px; padding:3px 0; flex-wrap:wrap; }
 .connector-row > strong { font-weight:600; }
 /* Server-status "Restart the stack" runbook command */
-.self-restart-cmd { font-family:var(--font-mono); font-size:12.5px; background:var(--surface2); border:1px solid var(--hair); border-radius:6px; padding:4px 8px; overflow-x:auto; flex:1; min-width:0; }
+.self-restart-cmd { font-family:var(--font-mono); font-size: 13px; background:var(--surface2); border:1px solid var(--hair); border-radius:6px; padding:4px 8px; overflow-x:auto; flex:1; min-width:0; }
 .ff-bold { font-weight:600; }
 .spacer  { flex:1 1 auto; }
 .mw-100 { max-width:100px; } .mw-220 { max-width:220px; } .mw-260 { max-width:260px; }
@@ -7408,7 +7273,7 @@ body.density-compact .group-title { margin-bottom: 6px; }
 /* v6: flat (chosen-design .health) — coloured text + icon, no pill chrome. */
 .site-health {
   display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-  font-family: var(--font-ui); font-size: 11.5px; font-weight: 400; line-height: 1;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 400; line-height: 1;
   padding: 4px 7px; border-radius: 6px; cursor: pointer; border: none; background: none;
 }
 /* v6.4.3: hide the pill until it has something to say. It ships EMPTY —
@@ -7846,7 +7711,7 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
   border-top: 1px solid var(--border); font-size: 13px;
 }
 .ts-entry:first-child, .tk-hours-row:first-child { border-top: none; }
-.ws-totals { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 13.5px; }
+.ws-totals { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 13px; }
 .ws-grand { font-size: 16px; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; }
 #billing-host .num, #invoice-view-body .num, #ws-result .num { text-align: right; }
 .inv-head { display: flex; justify-content: space-between; align-items: flex-start; }
@@ -8284,7 +8149,7 @@ body.alertwall #alerts-inbox-card > .scrollable-table-wrap {
   flex: 1 1 auto; max-height: none; overflow-y: auto;
 }
 
-/* Readable from across a room. Only inside the wall — the document-wide 13.5px
+/* Readable from across a room. Only inside the wall — the document-wide 13px
    body size and the 13px .section-title stand everywhere else. */
 body.alertwall #alerts-inbox-card > .section-title { font-size: 19px; }
 /* 16px, not 15: the canonical scale has no 15px stop and the gate says so.
@@ -8414,7 +8279,7 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
 .adv-title { flex: 1 1 240px; }   /* v6.4.1: sizing comes from .section-title */
 .adv-hosts { margin-left: auto; }
 /* v6.4.1: both are BODY copy (the 'why it matters' sentence and the
-   remediation instruction) — they inherit the 13.5px anchor now. */
+   remediation instruction) — they inherit the 13px anchor now. */
 .adv-why { color: var(--muted); margin-bottom: 6px; }
 .adv-fix { margin-bottom: 6px; }
 .adv-ev ul { margin: 2px 0 6px; padding-left: 18px; }
@@ -8441,7 +8306,7 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
   margin: 6px 0 4px;
   width: 100%;
   max-width: 280px;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .host-list-items { font-size: 12px; }
 .host-list-item {
@@ -8468,7 +8333,7 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
   grid-template-columns: minmax(120px, max-content) 1fr;
   gap: 6px 16px;
   align-items: baseline;
-  font-size: 13.5px;
+  font-size: 13px;
 }
 /* Per-appliance setup steps in the client wizard. */
 .kmip-steps { margin: 8px 0 0; padding-left: 20px; }
@@ -8485,7 +8350,7 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
   border: 1px solid var(--hair);
   border-radius: 8px;
   background: var(--surface2);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 

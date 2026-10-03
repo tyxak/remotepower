@@ -826,6 +826,69 @@ document.addEventListener('click', (e) => {
   pop.classList.add('hidden');
 });
 
+// v7.1.0: overflow menu for a table row with more actions than fit on one line.
+// The row renders its secondary buttons into a <template class="row-more-items">
+// beside the trigger. The open menu is a body-level clone, so a scrolling table
+// cannot clip it, and each item keeps its own data-action through the one click
+// dispatcher. A click anywhere (an item included), Escape, scroll or resize
+// closes it; the periodic refresh waits while it is open.
+function rowMoreMenu(btn) {
+  const open = document.getElementById('row-more-pop');
+  const reopen = !(open && open._owner === btn);
+  _closeRowMore();
+  const tpl = btn && btn.parentElement && btn.parentElement.querySelector('template.row-more-items');
+  if (!reopen || !tpl) return;
+  const pop = document.createElement('div');
+  pop.id = 'row-more-pop';
+  pop.setAttribute('role', 'menu');
+  pop.appendChild(tpl.content.cloneNode(true));
+  pop._owner = btn;
+  document.body.appendChild(pop);
+  btn.setAttribute('aria-expanded', 'true');
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const top = (r.bottom + 4 + h > window.innerHeight - 8) ? Math.max(8, r.top - h - 4) : r.bottom + 4;
+  pop.style.top = Math.round(top) + 'px';
+  pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))) + 'px';
+  const first = pop.querySelector('button, a[href]');
+  if (first) first.focus();
+}
+function _closeRowMore(refocus) {
+  const pop = document.getElementById('row-more-pop');
+  if (!pop) return;
+  const owner = pop._owner;
+  pop.remove();
+  if (owner) {
+    owner.setAttribute('aria-expanded', 'false');
+    if (refocus && document.contains(owner)) owner.focus();
+  }
+}
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('row-more-pop')) return;
+  if (e.target.closest('[data-action="rowMoreMenu"]')) return;   // the handler toggles
+  if (e.target.closest('#row-more-pop') && !e.target.closest('button, a')) return;
+  // An item's own action still runs: the dispatcher resolves it from e.target,
+  // which keeps its ancestors after the menu leaves the document.
+  _closeRowMore();
+});
+document.addEventListener('keydown', (e) => {
+  const pop = document.getElementById('row-more-pop');
+  if (!pop) return;
+  if (e.key === 'Escape') { e.preventDefault(); _closeRowMore(true); return; }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = Array.from(pop.querySelectorAll('button, a[href]'));
+  if (!items.length) return;
+  e.preventDefault();
+  const i = items.indexOf(document.activeElement);
+  const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+  items[next].focus();
+});
+window.addEventListener('scroll', (e) => {
+  if (e.target && e.target.id === 'row-more-pop') return;
+  _closeRowMore();
+}, true);
+window.addEventListener('resize', () => _closeRowMore());
+
 // ══════════════════════════════════════════════════════════════════════════════
 // v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
 // Currently only used on the front Devices index. Future-proofed so any
@@ -6114,12 +6177,12 @@ function _refreshShouldPause() {
   if (typeof document !== 'undefined' && document.hidden) return true;
   // Modal open: don't redraw under the user's hand
   if (document.querySelector('.modal-overlay.active')) return true;
-  // v2.1.0 follow-up: a device-card dropdown lives *inside* the device grid
-  // that loadDevices() rewrites via innerHTML. Re-rendering while a dropdown
-  // is open closes the dropdown — the user clicks the ⋯ button, opens the
-  // menu, the 60s tick fires before they pick an item, and the menu vanishes
-  // mid-click. Pause for these the same way we do for modals.
-  if (document.querySelector('.device-dropdown.active')) return true;
+  // A row's More menu belongs to a row the refresh is about to rewrite: the
+  // user opens it, the tick fires before they pick an item, and the menu is
+  // left pointing at a row that no longer exists. Pause the same way as for
+  // modals. (v7.1.0: replaces the device-card dropdown check — that menu went
+  // with the v6.4.0 drawer.)
+  if (document.getElementById('row-more-pop')) return true;
   return false;
 }
 // v7.0.2: the periodic tick used to refresh exactly two pages — the device
@@ -23202,6 +23265,7 @@ const _ICONS = {
   check:       '<polyline points="20 6 9 17 4 12"/>',
   x:           '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   info:        '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  moreHorizontal: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   // v3.3.0: extra icons for device-icon palette + status pills
   laptop:      '<rect x="2" y="4" width="20" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>',
   smartphone:  '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
@@ -27369,10 +27433,18 @@ function _sbomFleetBtn(btn) {
 }
 
 // Smart-PDU power control — map an outlet, then On/Off/Cycle to hard-recover a host.
+// v7.1.0: the vendor list is built here rather than written into index.html.
+// The login page ships the whole app's markup, and a vendor name sitting in it
+// is what web scanners fingerprint as "a Tasmota device's web UI is exposed".
+const _PDU_KINDS = [['tasmota', 'Tasmota'], ['shelly1', 'Shelly (gen 1)'], ['shelly2', 'Shelly (gen 2+)']];
 async function openPduModal(devId, devName) {
   document.getElementById('pdu-dev-id').value = devId;
   document.getElementById('pdu-modal-title').textContent = `Power control — ${devName || devId}`;
-  document.getElementById('pdu-kind').value = '';
+  const kindSel = document.getElementById('pdu-kind');
+  if (kindSel.options.length < 2) {
+    for (const [v, label] of _PDU_KINDS) kindSel.add(new Option(label, v));
+  }
+  kindSel.value = '';
   document.getElementById('pdu-host').value = '';
   document.getElementById('pdu-outlet').value = '';
   openModal('pdu-modal');

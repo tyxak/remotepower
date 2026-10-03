@@ -46,7 +46,6 @@ DELIBERATELY_UNINDEXED = {
     'auth': 'covered by the dedicated posture and access-review corpora',
     'ssh_hostkeys': 'key fingerprints — high churn, and the SSH-key baseline '
                     'already surfaces changes',
-    'usb': 'device inventory lives in the hardware chunk',
     'uptime': 'volatile; the corpus excludes live telemetry by design',
 }
 

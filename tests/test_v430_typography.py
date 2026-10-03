@@ -42,7 +42,11 @@ CSS = "\n".join(f.read_text() for f in _CSS_FILES)
 # lingered on ~9 selectors — device names, the status board, a mono code, a score
 # numeral — so 13.5px body text sat next to 14px body text. Folded onto the scale
 # (body → 13.5, headings/chrome/numerals → 13) and dropped here so it can't creep back.
-CANONICAL = {28, 19, 16, 13.5, 13, 12.5, 12, 11.5, 11, 10, 9.5}
+# v7.1.0: one body size. 13.5 (prose), 12.5 (fields, nav rows, subtitles) and
+# 11.5 (the top-bar health chip) folded onto 13 / 13 / 12 — body text sat at
+# three sizes a half-pixel apart, which reads as a mistake rather than a
+# hierarchy. Dropped here so none of them can creep back.
+CANONICAL = {28, 19, 16, 13, 12, 11, 10, 9.5}
 
 # Deliberate display-size exceptions: size → max occurrences.
 # .status-num 64 / .hh-num 48 (big stat digits), .pin-code 36 (enrollment PIN),

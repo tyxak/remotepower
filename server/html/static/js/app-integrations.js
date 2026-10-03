@@ -531,7 +531,7 @@ async function openRouterosConsole() {
   if (data && data.config && data.config.enabled) {
     const fw = document.createElement('div');
     fw.innerHTML = `
-      <div class="page-title isl-172 mt-32">Firewall</div>
+      <div class="subsection-title mt-32">Firewall</div>
       <div class="row-6 mb-6">
         <button class="btn-icon" data-action="loadRouterosFirewall">Load rules</button>
         <button class="btn-icon" data-action="routerosFirewallExplain" title="AI: explain this ruleset + flag risks">${_icon('sparkles',14)} Explain</button>
@@ -542,7 +542,7 @@ async function openRouterosConsole() {
 
     const qos = document.createElement('div');
     qos.innerHTML = `
-      <div class="page-title isl-172 mt-32">QoS &amp; traffic</div>
+      <div class="subsection-title mt-32">QoS &amp; traffic</div>
       <div class="row-6 mb-6">
         <button class="btn-icon" data-action="loadRouterosQos">Load queues</button>
         <button class="btn-icon" data-action="routerosLiveRates">Live interface rates</button>

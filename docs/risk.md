@@ -44,8 +44,8 @@ whether the host is being attacked right now.
   abusive (score 75 or more in [IP intel](ip-intel.md)) and that is not blocked
   on the host adds more. Both are capped. The sources are the ones the
   brute-force alert and the Security Advisory name, so the three agree.
-- **Every weight is tunable** under Settings → Risk score weights; 0 turns a
-  factor off.
+- **Every weight is tunable** under Settings → Alert parameters → Risk score
+  weights; 0 turns a factor off.
 - **Posture booleans are tri-state.** Secure Boot off scores; Secure Boot never
   reported does not. A machine that boots without UEFI tells you nothing, and a
   list of findings should not be padded with hosts that were never asked.

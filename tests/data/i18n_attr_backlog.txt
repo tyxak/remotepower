@@ -20,7 +20,6 @@
 /etc/remotepower/smb.cred
 /export/backups
 /home /srv /var/www /opt
-/mnt/offsite/remotepower (leave blank for local-host only)
 /root/.aws/credentials.bak /home/deploy/.ssh/id_rsa.old C:\Users\Public\Documents\payroll-2026.xlsx
 /usr/local/sbin/remotepower-server-update
 /var
@@ -32,9 +31,7 @@
 /var/log/myapp/*.log { daily rotate 7 compress missingok notifempty }
 /var/log/myapp/application.log
 /var/log/nginx/error.log
-/var/log/remotepower-audit.jsonl (blank = off)
 /var/mail/vhosts/example.com/jmo/new
-0 3 * * 0 (every Sunday 03:00)
 10.0.0.0/8 192.168.1.42 fd00::/8
 127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
 192.168.1.1 / host:22 / https://…
@@ -42,7 +39,6 @@
 ASSET-12345
 CHG-1042
 CVE-2026-1234 CVE-2026-5678
-Customer-facing web 99.9%
 DELETE VOLUMES
 Get-Service | Where-Object Status -eq 'Stopped'
 Hi, we believe {ticket_id} is resolved…
@@ -50,10 +46,8 @@ INBOX
 Linux
 Linux baseline, Web server pack…
 REMOVE KMIP
-Rack A1
 RemotePower
 Slack, , PagerDuty
-Uncategorised
 Windows
 [connection] id=remotepower-managed type=ethernet
 ^web- / 10.20.0.0/16
@@ -85,9 +79,6 @@ docker compose down
 docker compose pull + up -d
 docker compose up -d
 e.g. Use Terraform 1.5+ syntax · Mark all variables sensitive=true · Include comments explaining each resource · Wrap in a module
-e.g. before_upgrade
-e.g. debian / arm64
-e.g. hq, dc1
 e.g. web-server set
 error|critical|FATAL
 etc/hostname
@@ -97,6 +88,7 @@ eval\s*\(\s*(base64_decode|gzinflate)
 example.com
 groupname
 groups
+gw.example.com
 home.example.com
 homelab
 hot-web
@@ -164,6 +156,7 @@ services:  myapp:  image: org/myapp:latest  restart: unless-stopped  ports:  - "
 smtp.example.com
 source_net (e.g. any or 192.168.1.0/24)
 src-address (e.g. 192.168.2.50)
+ssh-ed25519 AAAA… you@laptop
 sshd : Failed password\nnginx : 5[0-9][0-9]
 sshd.service remotepower-agent.service
 status.healthy / items.0.state

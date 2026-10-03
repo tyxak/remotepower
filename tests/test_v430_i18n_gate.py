@@ -479,7 +479,6 @@ _DELIBERATE_ENGLISH = {
     "Splunk HEC",
     "Syslog",
     "TTL",
-    "Tasmota",
     "Terraform",
     "UPS",
     "Uptime Kuma (JSON)",
@@ -848,7 +847,8 @@ class TestAttributeTranslationRatchet(unittest.TestCase):
         # hint), where a translation would be wrong. Recording pre-existing,
         # newly-measurable debt is not the same event as adding debt; a raise
         # for any other reason is the failure this test exists to catch.
-        self.assertLessEqual(len(self.backlog), 182,
+        # 182 -> 175 (v7.1.0): nine translated, two example values recorded.
+        self.assertLessEqual(len(self.backlog), 175,
                              'the attribute backlog may only shrink; it was '
                              '1,081 before the v6.4.3 batch and 984 after')
         self.assertGreater(len(self.backlog), 0)

@@ -6595,57 +6595,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Threat intel</div>
         <div class="page-subtitle">Addresses that attacked your hosts, with their reputation from AbuseIPDB and SniffCat. You can report them back and block them for a while on the host they attacked. <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>
 
-        <div class="dash-card" id="ipintel-settings-card" hidden>
-          <div class="section-title">Providers</div>
-          <p class="hint">Each setting is off until you turn it on. Lookups send only the address. Reports also send the attack type and a count, never hostnames or log lines.</p>
-          <div class="form-group">
-            <label class="form-label" for="ipintel-abuseipdb-key">AbuseIPDB API key</label>
-            <input type="password" id="ipintel-abuseipdb-key" class="form-input mw-380" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="ipintel-sniffcat-key">SniffCat API key</label>
-            <input type="password" id="ipintel-sniffcat-key" class="form-input mw-380" autocomplete="off">
-          </div>
-          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-lookup"> Look up attacking addresses</label></div>
-          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-report"> Report attackers back to both services</label></div>
-          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-block"> Block high-scoring attackers on the host they attacked</label></div>
-          <div class="toolbar">
-            <label class="form-label" for="ipintel-min-score">Block at score</label>
-            <input type="number" id="ipintel-min-score" class="form-input isl-80" min="1" max="100">
-            <label class="form-label" for="ipintel-ttl">Block for (hours)</label>
-            <input type="number" id="ipintel-ttl" class="form-input isl-80" min="1" max="2160">
-            <label class="form-label" for="ipintel-max-hour">Blocks per host per hour</label>
-            <input type="number" id="ipintel-max-hour" class="form-input isl-80" min="1" max="1000">
-            <label class="form-label" for="ipintel-report-min">Report after attempts</label>
-            <input type="number" id="ipintel-report-min" class="form-input isl-80" min="1">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="ipintel-never">Never block (one address or network per line)</label>
-            <textarea id="ipintel-never" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
-          </div>
-          <div class="toolbar">
-            <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
-            <span id="ipintel-budget" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="dash-card" id="ipintel-lookup-card" hidden>
-          <div class="section-title">Check an address</div>
-          <div class="toolbar">
-            <input type="text" id="ipintel-lookup-ip" class="form-input mw-200" aria-label="IP address to check">
-            <button class="btn-icon" data-action="lookupIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Look up</button>
-          </div>
-          <div id="ipintel-lookup-result" class="mt-8" role="status" aria-live="polite"></div>
-        </div>
-
         <div class="dash-card">
           <div class="section-title">Attackers</div>
           <div class="toolbar">
-            <input type="text" id="ipintel-filter" class="form-input input-wide" aria-label="Filter attackers">
+            <input type="text" id="ipintel-filter" class="form-input input-wide" placeholder="Filter by address, country, network or host…" aria-label="Filter attackers">
             <button class="btn-icon" data-action="loadIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
           <div class="scrollable-table-wrap audit-scroll">
-            <table>
+            <table class="data-table w-full">
               <thead id="ipintel-att-thead"><tr>
                 <th scope="col" data-col="ip">Address</th>
                 <th scope="col" data-col="score">Score</th>
@@ -6655,17 +6612,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th scope="col" data-col="hosts">Hosts attacked</th>
                 <th scope="col" data-col="last_seen">Last seen</th>
                 <th scope="col" data-col="status">Status</th>
-                <th scope="col"></th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
               </tr></thead>
-              <tbody id="ipintel-att-tbody"></tbody>
+              <tbody id="ipintel-att-tbody"><tr><td colspan="9" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card mt-16">
           <div class="section-title">Active blocks</div>
           <div class="scrollable-table-wrap audit-scroll">
-            <table>
+            <table class="data-table w-full">
               <thead id="ipintel-blk-thead"><tr>
                 <th scope="col" data-col="ip">Address</th>
                 <th scope="col" data-col="name">Host</th>
@@ -6673,10 +6630,63 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th scope="col" data-col="by">Blocked by</th>
                 <th scope="col" data-col="at">Since</th>
                 <th scope="col" data-col="until">Expires</th>
-                <th scope="col"></th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
               </tr></thead>
-              <tbody id="ipintel-blk-tbody"></tbody>
+              <tbody id="ipintel-blk-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
             </table>
+          </div>
+        </div>
+
+        <div class="dash-card mt-16" id="ipintel-lookup-card" hidden>
+          <div class="section-title">Check an address</div>
+          <div class="toolbar">
+            <input type="text" id="ipintel-lookup-ip" class="form-input mw-200" placeholder="203.0.113.7" aria-label="IP address to check">
+            <button class="btn-icon" data-action="lookupIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Look up</button>
+          </div>
+          <div id="ipintel-lookup-result" class="mt-8" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="dash-card mt-16" id="ipintel-settings-card" hidden>
+          <div class="section-title">Providers</div>
+          <p class="hint mb-12">Each setting is off until you turn it on. Lookups send only the address. Reports also send the attack type and a count, never hostnames or log lines.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="ipintel-abuseipdb-key">AbuseIPDB API key</label>
+              <input type="password" id="ipintel-abuseipdb-key" class="form-input mw-380" autocomplete="off" placeholder="Leave blank to keep the stored key">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-sniffcat-key">SniffCat API key</label>
+              <input type="password" id="ipintel-sniffcat-key" class="form-input mw-380" autocomplete="off" placeholder="Leave blank to keep the stored key">
+            </div>
+          </div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-lookup"> Look up attacking addresses</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-report"> Report attackers back to both services</label></div>
+          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-block"> Block high-scoring attackers on the host they attacked</label></div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="ipintel-min-score">Block at score</label>
+              <input type="number" id="ipintel-min-score" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-ttl">Block for (hours)</label>
+              <input type="number" id="ipintel-ttl" class="form-input isl-80" min="1" max="2160" placeholder="24">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-max-hour">Blocks per host per hour</label>
+              <input type="number" id="ipintel-max-hour" class="form-input isl-80" min="1" max="1000" placeholder="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-report-min">Report after attempts</label>
+              <input type="number" id="ipintel-report-min" class="form-input isl-80" min="1" placeholder="10">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-never">Never block or report (one address or network per line)</label>
+            <textarea id="ipintel-never" class="form-input ff-mono" rows="3" spellcheck="false" placeholder="198.51.100.0/24"></textarea>
+          </div>
+          <div class="toolbar">
+            <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
+            <span id="ipintel-budget" class="hint"></span>
           </div>
         </div>
       </div>
@@ -6695,56 +6705,68 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card mt-16">
           <div class="section-title">Your keys</div>
           <p class="hint">Paste a public key such as <code>~/.ssh/id_ed25519.pub</code>. Adding a key asks for your password, because the key keeps working after you sign out.</p>
           <div class="form-group">
             <label class="form-label" for="sshgw-key-text">Public key</label>
-            <textarea id="sshgw-key-text" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+            <textarea id="sshgw-key-text" class="form-input ff-mono" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA… you@laptop"></textarea>
+          </div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="sshgw-key-name">Key name</label>
+              <input type="text" id="sshgw-key-name" class="form-input mw-200" maxlength="64" placeholder="laptop">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="sshgw-key-pw">Password or TOTP code</label>
+              <input type="password" id="sshgw-key-pw" class="form-input mw-200" autocomplete="current-password">
+            </div>
           </div>
           <div class="toolbar">
-            <label class="form-label" for="sshgw-key-name">Key name</label>
-            <input type="text" id="sshgw-key-name" class="form-input mw-200" maxlength="64">
-            <label class="form-label" for="sshgw-key-pw">Password or TOTP code</label>
-            <input type="password" id="sshgw-key-pw" class="form-input mw-200" autocomplete="current-password">
             <button class="btn-primary" data-action="addSshgwKey">Add key</button>
           </div>
           <div class="scrollable-table-wrap audit-scroll">
-            <table>
+            <table class="data-table w-full">
               <thead id="sshgw-keys-thead"><tr>
                 <th scope="col" data-col="name">Name</th>
                 <th scope="col" data-col="type">Type</th>
                 <th scope="col" data-col="fingerprint">Fingerprint</th>
                 <th scope="col" data-col="added">Added</th>
                 <th scope="col" data-col="last_used">Last used</th>
-                <th scope="col"></th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
               </tr></thead>
               <tbody id="sshgw-keys-tbody"></tbody>
             </table>
           </div>
         </div>
 
-        <div class="dash-card" id="sshgw-admin-card" hidden>
+        <div class="dash-card mt-16" id="sshgw-admin-card" hidden>
           <div class="section-title">Gateway address</div>
           <p class="hint">The hostname and port people connect to. Port 2222 unless you changed the service.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="sshgw-public-host">Public hostname</label>
+              <input type="text" id="sshgw-public-host" class="form-input mw-200" maxlength="253" placeholder="gw.example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="sshgw-public-port">Port</label>
+              <input type="number" id="sshgw-public-port" class="form-input isl-80" min="1" max="65535" placeholder="2222">
+            </div>
+          </div>
           <div class="toolbar">
-            <label class="form-label" for="sshgw-public-host">Public hostname</label>
-            <input type="text" id="sshgw-public-host" class="form-input mw-200" maxlength="253">
-            <label class="form-label" for="sshgw-public-port">Port</label>
-            <input type="number" id="sshgw-public-port" class="form-input isl-80" min="1" max="65535">
             <button class="btn-primary" data-action="saveSshgwAddress">Save</button>
           </div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card mt-16">
           <div class="section-title">Servers</div>
           <p class="hint">Only servers turned on here can be reached, and only by people whose role has the <strong>ssh</strong> permission. Linux agents only for now.</p>
           <div class="toolbar">
-            <input type="text" id="sshgw-dev-filter" class="form-input input-wide" aria-label="Filter servers">
+            <input type="text" id="sshgw-dev-filter" class="form-input input-wide" placeholder="Filter by name, hostname or OS…" aria-label="Filter servers">
             <button class="btn-icon" data-action="loadSshgw"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
           <div class="scrollable-table-wrap audit-scroll">
-            <table>
+            <table class="data-table w-full">
               <thead id="sshgw-dev-thead"><tr>
                 <th scope="col" data-col="name">Server</th>
                 <th scope="col" data-col="hostname">Hostname</th>
@@ -6758,10 +6780,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card" id="sshgw-sessions-card" hidden>
+        <div class="dash-card mt-16" id="sshgw-sessions-card" hidden>
           <div class="section-title">Sessions</div>
           <div class="scrollable-table-wrap audit-scroll">
-            <table>
+            <table class="data-table w-full">
               <thead id="sshgw-sess-thead"><tr>
                 <th scope="col" data-col="started">Started</th>
                 <th scope="col" data-col="username">User</th>
@@ -7284,7 +7306,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- Alert rules -->
         <div class="section-header isl-147">
           <div>
-            <div class="page-title isl-148">Alert rules</div>
+            <div class="subsection-title m-0">Alert rules</div>
             <div class="hint">Regex match on incoming log lines fires a <code>log_alert</code> webhook.</div>
           </div>
           <button class="btn-primary isl-23" data-action="openAddRuleModal" >+ Add rule</button>
@@ -7337,7 +7359,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card"><table><thead id="maint-thead"><tr><th scope="col" data-col="reason">Reason</th><th scope="col" data-col="scope">Scope</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="when">When</th><th scope="col" data-col="events">Events</th><th scope="col" data-col="status" class="ta-center">Status</th><th scope="col"></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" class="empty-state">Click Refresh. </td></tr></tbody></table></div>
         <div id="maint-suppressions" class="isl-153">
-          <div class="page-title isl-154">Recent Suppressions</div>
+          <div class="subsection-title mt-24">Recent Suppressions</div>
           <div class="table-card"><table><thead id="maint-supp-thead"><tr><th scope="col" data-col="ts">When</th><th scope="col" data-col="event">Event</th><th scope="col" data-col="device">Device</th><th scope="col" data-col="window">Window</th><th scope="col" data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
         </div>
       </div>
@@ -7704,7 +7726,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
 
           <!-- ── v3.3.4: container image updates ───────────────────────── -->
-          <div class="page-title isl-172 mt-32">Image updates</div>
+          <div class="subsection-title mt-32">Image updates</div>
           <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint"></span></div>
           <div class="toolbar">
             <input type="text" id="image-updates-search" class="form-input isl-170" placeholder="Filter by image, tag, or registry…" aria-label="Filter by image, tag, or registry">
@@ -7719,7 +7741,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
 
           <!-- ── v3.3.4: compose stacks (upload + deploy) ──────────────── -->
-          <div class="page-title isl-172 mt-32">Compose stacks</div>
+          <div class="subsection-title mt-32">Compose stacks</div>
           <div class="page-subtitle">Upload a docker-compose file and deploy it to a device — up / down / redeploy. Admin-only and audited, and only to devices where you've turned on compose deploys. RemotePower runs the file as-is on the host; it doesn't sandbox it.</div>
           <div class="toolbar">
             <button class="btn-icon" data-action="loadComposeStacks"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -7739,7 +7761,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="containers-lxc-section" class="isl-171">
             <div class="section-header">
               <div>
-                <div class="page-title isl-172">Proxmox LXC containers</div>
+                <div class="subsection-title">Proxmox LXC containers</div>
                 <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
               </div>
               <button class="enroll-btn" id="lxc-create-btn" data-action="openLxcCreateWizard"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> Create container</button>
@@ -8889,7 +8911,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="mt-32">
           <div class="isl-178">
             <div>
-              <div class="page-title isl-179">ACME certificates</div>
+              <div class="subsection-title">ACME certificates</div>
               <div class="page-subtitle isl-180">
                 Lets Encrypt certs managed by <code>acme.sh</code> on each device. Server scans
                 <code>~/.acme.sh/</code> and shows next renewal, alt names, and the configured DNS
@@ -9049,7 +9071,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <table>
             <thead id="alerts-thead">
               <tr>
-                <th scope="col" class="isl-187"><input type="checkbox" id="alerts-select-all" data-change="toggleAllAlerts" data-change-checked="1" aria-label="Alerts select all"></th>
+                <th scope="col" class="isl-321"><input type="checkbox" id="alerts-select-all" data-change="toggleAllAlerts" data-change-checked="1" aria-label="Alerts select all"></th>
                 <th scope="col" data-col="severity">Severity</th>
                 <th scope="col" data-col="ts">Time</th>
                 <th scope="col" data-col="title">Title</th>
@@ -10202,16 +10224,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="pdu-kind">Type</label>
     <select id="pdu-kind" class="form-input">
       <option value="">(none — disable)</option>
-      <option value="tasmota">Tasmota</option>
-      <option value="shelly1">Shelly (gen 1)</option>
-      <option value="shelly2">Shelly (gen 2+)</option>
     </select></div>
   <div class="form-group"><label class="form-label" for="pdu-host">Host / IP</label><input type="text" id="pdu-host" class="form-input ff-mono" placeholder="192.168.1.50"></div>
   <div class="form-group"><label class="form-label" for="pdu-outlet">Outlet (optional)</label><input type="text" id="pdu-outlet" class="form-input" placeholder="0 or 1" maxlength="8"></div>
   <div class="row-6 mb-8">
-    <button class="btn-secondary" data-action="pduControl" data-arg="on">Power On</button>
-    <button class="btn-secondary" data-action="pduControl" data-arg="off">Power Off</button>
-    <button class="btn-secondary" data-action="pduControl" data-arg="cycle">Power Cycle</button>
+    <button class="btn-secondary" data-action="pduControl" data-arg="on">Power on</button>
+    <button class="btn-secondary" data-action="pduControl" data-arg="off">Power off</button>
+    <button class="btn-secondary" data-action="pduControl" data-arg="cycle">Power cycle</button>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="pdu-modal">Close</button><button class="btn-primary" data-action="savePduConfig">Save mapping</button></div>
 </div></div>

@@ -443,7 +443,10 @@ function _alertEvidenceHtml(a) {
     if (skip.has(k) || v === null || v === undefined || v === '') continue;
     const sv = Array.isArray(v) ? `${v.length} item${v.length === 1 ? '' : 's'}`
       : (typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 80));
-    bits.push(`<span class="nowrap">${_escapeHtml(k)}: <strong>${_escapeHtml(sv)}</strong></span>`);
+    // v7.1.0: the key stays with its value, but a long value (a path, a URL)
+    // breaks inside itself — one unbreakable 80-char path set the Title
+    // column's minimum and pushed the whole table past its card.
+    bits.push(`<span class="alert-kv">${_escapeHtml(k)}: <strong>${_escapeHtml(sv)}</strong></span>`);
     if (bits.length >= 8) break;
   }
   if (bits.length) html += `<div class="hint fs-11">${bits.join(' · ')}</div>`;
@@ -554,19 +557,24 @@ function _alertRowHtml(a, role) {
   const ts = _formatTs(a.ts);
   let actions = '';
   if (!isResolved) {
+    // v7.1.0: the row carried up to eleven buttons and wrapped to three lines
+    // inside a column that still pushed the table past the card. The four an
+    // operator reaches for on every alert stay on the row; the rest live in
+    // the row's More menu (rowMoreMenu), labelled, so nothing is icon-only.
+    let more = '';
     // v6.3.1 (UX): Triage is the PRIMARY AI action (agentic — gathers evidence
     // via read-only tools and stores a verdict + trail). The older one-shot
-    // Investigate is kept but demoted to an icon-only quick action so the row
-    // has one clear AI entry point instead of two competing labels.
-    actions += `<button class="btn-icon btn-xs" data-action="aiTriageAlert" data-arg="${a.id}" title="AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert">${_icon('sparkles',14)} Triage</button> `;
-    actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="Quick AI investigate (one-shot explanation + suggested fixes, no stored verdict)" aria-label="Quick AI investigate">${_icon('search',12)}</button> `;
+    // Investigate is kept but demoted to the More menu so the row has one
+    // clear AI entry point instead of two competing labels.
+    actions += `<button class="btn-icon btn-xs" data-action="aiTriageAlert" data-arg="${a.id}" title="AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert">${_icon('sparkles',14)} Triage</button>`;
+    more += `<button data-action="aiInvestigateAlert" data-arg="${a.id}" title="One-shot explanation and suggested fixes, no stored verdict" role="menuitem">${_icon('search',14)} Quick investigate</button>`;
     // v5.8.0 (B1.2): one-click remediation when the server tagged a playbook
     // for this alert's event (mitigation_kind set only when a device + playbook
     // apply). Opens the same diagnostic→AI→fix runner as the dashboard feed.
     if (a.mitigation_kind && a.device_id) {
-      actions += `<button class="btn-icon btn-xs" data-action="mitigateAlert" data-arg="${a.id}" title="Fix: run the guided remediation playbook for this alert">${_icon('wrench',14)} Fix</button> `;
+      actions += `<button class="btn-icon btn-xs" data-action="mitigateAlert" data-arg="${a.id}" title="Fix: run the guided remediation playbook for this alert">${_icon('wrench',14)} Fix</button>`;
     }
-    actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
+    actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button>`;
     // v6.3.1: for a log alert, muting the whole EVENT is too blunt — it blinds
     // the rule. Clearing the matched LINE silences this message only, and a
     // different one still alerts. Offered only when evidence exists.
@@ -574,27 +582,29 @@ function _alertRowHtml(a, role) {
       const _logLine = _alertSampleLine(a);
       const _pat = (a.payload && a.payload.pattern) || '';
       if (_logLine || _pat) {
-        actions += `<button class="btn-icon btn-xs" data-action="clearLogLine" data-arg="${_escapeHtml(a.device_id || '')}" data-arg2="${_escapeHtml((a.payload && a.payload.unit) || '')}" data-arg3="${_escapeHtml(_logLine)}" data-arg4="${_escapeHtml(_pat)}" title="${_logLine ? 'Clear this line: it stops counting toward the rule, but a new message still alerts' : 'No line was captured — silence this rule on this unit'}">${_icon('undo',14)} ${_logLine ? 'Clear line' : 'Silence rule'}</button> `;
+        more += `<button data-action="clearLogLine" data-arg="${_escapeHtml(a.device_id || '')}" data-arg2="${_escapeHtml((a.payload && a.payload.unit) || '')}" data-arg3="${_escapeHtml(_logLine)}" data-arg4="${_escapeHtml(_pat)}" title="${_logLine ? 'Clear this line: it stops counting toward the rule, but a new message still alerts' : 'No line was captured — silence this rule on this unit'}" role="menuitem">${_icon('undo',14)} ${_logLine ? 'Clear line' : 'Silence rule'}</button>`;
       }
     }
-    actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button> `;
-    // v6.4.2: resolve AND record what fixed it. Kept as a separate icon so the
-    // plain Resolve stays a single instant click — the note is opt-in, never a
+    actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
+    // v6.4.2: resolve AND record what fixed it. Kept separate so the plain
+    // Resolve stays a single instant click — the note is opt-in, never a
     // dialog in the way of closing an alert.
-    actions += `<button class="btn-icon btn-xs" data-action="resolveAlertWithNote" data-arg="${a.id}" title="Resolve and record what fixed it — the note shows on the resolved row and in the MTTR timeline" aria-label="Resolve with a note">${_icon('edit',12)}</button> `;
+    more += `<button data-action="resolveAlertWithNote" data-arg="${a.id}" title="Resolve and record what fixed it — the note shows on the resolved row and in the MTTR timeline" role="menuitem">${_icon('edit',14)} Resolve with a note</button>`;
     // v6.4.2: point the Timeline AT the incident. The Timeline is the one
     // screen built for incident reconstruction and no alert linked to it — the
     // operator picked the device from a dropdown and got the newest 300 rows,
     // which on a busy host may not even reach the 03:41 the alert is about.
     // The row knows its own timestamp; "what surrounded this" is the question.
-    actions += `<button class="btn-icon btn-xs" data-action="alertTimeline" data-arg="${a.id}" title="Timeline: what else happened on this host around the time this alert first fired" aria-label="Show the timeline around this alert">${_icon('clock',12)}</button> `;
+    more += `<button data-action="alertTimeline" data-arg="${a.id}" title="What else happened on this host around the time this alert first fired" role="menuitem">${_icon('clock',14)} Timeline</button>`;
     if (!a.incident_id) {
-      actions += `<button class="btn-icon btn-xs" data-action="declareIncident" data-arg="${a.id}" title="Declare an incident from this alert — spans the alerts you pick, shows on the public status page and notifies subscribers">Incident</button> `;
+      more += `<button data-action="declareIncident" data-arg="${a.id}" title="Declare an incident from this alert — spans the alerts you pick, shows on the public status page and notifies subscribers" role="menuitem">${_icon('alertTriangle',14)} Declare incident</button>`;
     }
-    actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
-      actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
+      more += `<button data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert" role="menuitem">${_icon('ticket',14)} Open ticket</button>`;
     }
+    more += `<button data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" role="menuitem">${_icon('link',14)} Copy link</button>`;
+    actions += `<button class="btn-icon btn-xs" data-action="rowMoreMenu" data-pass-btn="1" aria-haspopup="menu" aria-expanded="false" title="More actions for this alert" aria-label="More actions">${_icon('moreHorizontal',14)}</button>`
+      + `<template class="row-more-items">${more}</template>`;
   } else {
     const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
     actions = `<span class="c-muted">resolved by ${byWho}</span> `
