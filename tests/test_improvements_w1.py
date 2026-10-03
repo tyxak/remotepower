@@ -921,10 +921,17 @@ class TestAlertEmailAckLinks(_HandlerBase):
         self.assertEqual(api._alert_email_ack_block(
             'metric_critical', {'device_id': 'd1', 'metric': 'disk'},
             {'alert_email_ack_links': False}), '')
-        # enabled → finds the open alert + emits both links
+        # v7.1.0: enabled but no public URL → no links. The request Host is
+        # never used: the links carry a working signature, and a forged Host
+        # would point them at someone else's site.
+        self.assertEqual(api._alert_email_ack_block(
+            'metric_critical', {'device_id': 'd1', 'metric': 'disk'},
+            {'alert_email_ack_links': True}), '')
+        # enabled with the public URL → finds the open alert + emits both links
         block = api._alert_email_ack_block(
             'metric_critical', {'device_id': 'd1', 'metric': 'disk'},
-            {'alert_email_ack_links': True})
+            {'alert_email_ack_links': True, 'public_base_url': 'https://rp.example.com'})
+        self.assertIn('https://rp.example.com/api/alerts/act', block)
         self.assertIn('op=ack', block)
         self.assertIn('op=resolve', block)
         # v7.0.2: the tag now covers a deadline the block mints, so it cannot be

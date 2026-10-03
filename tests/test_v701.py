@@ -76,16 +76,11 @@ class TestVersionBumps(unittest.TestCase):
                  if l.startswith("## v")][0]
         self.assertTrue(first.startswith(f'## v{api.SERVER_VERSION} — "'), first)
 
-    def test_version_doc_still_exists_inside_the_keep_three_window(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
-
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary",
-                     "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_version_doc_left_the_keep_three_window(self):
+        """v7.1.0 pushed v7.0.1 out of the three kept version docs. Its
+        history stays in CHANGELOG.md."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(),
+                         f"docs/v{V}.md should have been removed at the v7.1.0 bump")
 
     def test_gen_wiki_carries_a_codename(self):
         """gen-wiki.py's Home line hardcodes the codename. Which one it is
@@ -114,14 +109,7 @@ class TestVersionBumps(unittest.TestCase):
         cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
         self.assertEqual(cards[0], api.SERVER_VERSION, "the new release leads")
-        # This release still has a card, and it still carries its own codename
-        # in the doc-search keywords — the surface a visible-text rename never
-        # touches.
-        self.assertIn(V, cards)
-        head = html[:html.index(f"What's new — v{V}")]
-        kw = head[head.rindex('data-keywords="'):]
-        self.assertIn(CODENAME.lower(), kw.lower(),
-                      "data-keywords must carry the codename for doc search")
+        self.assertNotIn(V, cards, "v7.0.1 left the three kept cards at v7.1.0")
 
     def test_no_dangling_links_to_the_dropped_version_doc(self):
         dropped = "v6.4.2.md"

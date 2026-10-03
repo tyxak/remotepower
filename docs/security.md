@@ -24,75 +24,34 @@ service, elevation of privilege) rather than by feature, see
 **The bar: no Critical, High, or Medium severity finding ships.** Anything that
 could be exploited is fixed before release, on both the server and the agent.
 
-Each release is reviewed for security at the code level and scanned with an
-external toolchain in addition to the CI guardrails. An earlier pass,
-**v6.2.2**, ran the full SAST stack (Bandit, gitleaks, agent undefined-name
-analysis — all clean) plus a Semgrep pass with every finding triaged in the open,
-a trust-boundary review of the new delta-heartbeat protocol (per-device,
-whitelisted, capability-negotiated) and the reused HTTPS transport (same
-certificate/mTLS verification, redirects still refused), and a live header and
-auth-boundary check of production. One agent hardening — a billion-laughs guard on
-the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. **v7.0.0** (see [security-review-7.0.0.md](security-review-7.0.0.md)) ran in
-four passes. The last one reviewed the release's own new subsystem —
-**autonomous remediation**, the first code in the product that can decide on its
-own to run a command on a host — and found three issues in it, none ever
-reachable because this build plans actions without dispatching them: a command
-assembled from alert text, a parameter that could have re-aimed the action, and
-a safety validation the interpreter would remove in optimised mode. Each was one
-wiring commit from mattering, which is the argument for closing them now. The
-earlier passes went looking at fleet-wide READ endpoints and found three that
-authenticated the caller and then answered as though every caller were an
-unrestricted administrator — metrics, the calendar feed and rack elevation — and
-then at the write side. All long-standing rather than new, all fixed in the
-release that describes them. That pass built on the **v6.4.1** review, weighted
-toward the **KMIP key server** — the highest-consequence surface that release
-added, since it holds encryption keys for other people's storage. Every trust
-boundary was traced by hand rather than reviewed function-by-function: the
-TLS-terminating sidecar holds no key material and no store access, mTLS is
-enforced both at the handshake and again on every operation, per-client key
-scoping is applied on all nine object operations rather than merely documented,
-key material is AES-256-GCM at rest under a master key excluded from backups,
-and the listener is bounded against resource exhaustion (message size, TTLV
-nesting depth, connections, timeouts). That review also states the two accepted
-trade-offs in the open — opt-in legacy ciphers for appliances that offer nothing
-else, and the availability coupling that makes it a mistake to unlock a
-machine's storage against a KMIP server that machine hosts.
+Every release is reviewed as a whole project rather than as a diff, because
+most of what a review finds is older than the release it ships in. Each review
+reads the server, the agents, the sidecars, the installers, the container image
+and the shipped web-server configuration; runs the static analysers (CodeQL,
+semgrep, bandit, gitleaks, an undefined-name check); scans nginx running the
+shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
+test suite on every storage backend. The write-ups for the last three releases
+are kept:
 
-The current pass is [security-review-7.0.3.md](security-review-7.0.3.md) for
-**v7.0.3**, a whole-project review rather than a diff — every finding in it
-except one predates the release it shipped in. It found fourteen issues, most of
-them the same shape as last time: a rule this codebase already applies in most
-places, missed in one or two. Every outbound client that carries a credential
-refuses redirects, except one. Every channel that can change a host honours
-read-only mode, except two. Every surface reporting a host's security posture
-reads all three operating systems, except three.
+- [security-review-7.1.0.md](security-review-7.1.0.md) — ten issues, among
+  them a tenant admin able to change install-wide state on multi-tenant
+  installs, signed alert-email links that took their address from the request,
+  a crafted SSH user name that could make threat intel blame an address of the
+  attacker's choosing, and the agent's WebSocket channels following redirects
+  with the device token. Also a functional bug the web-server scans turned up:
+  the shipped nginx configuration refused every dashboard edit sent with PUT.
+- [security-review-7.0.3.md](security-review-7.0.3.md) — fourteen issues: three
+  ways one tenant could reach another, a browser terminal that sent the
+  operator's SSH password to a host it had not verified, two agent channels
+  that ran commands in read-only mode, and an API token that could ride a
+  redirect.
+- [security-review-7.0.2.md](security-review-7.0.2.md) — thirty-six issues from
+  a whole-project pass, and two guards found to be measuring nothing.
 
-Two are worth calling out. The browser terminal connected with SSH host-key
-checking off and then sent the operator's password, while the fingerprints
-needed to verify the host had been collected with every heartbeat since v6.1.2
-and consulted by nothing. And the API reference returned 403 on every install,
-because a rule meant to stop a stray data file being served outranked the API
-prefix in the web server's matching order.
-[security-review-7.0.2.md](security-review-7.0.2.md) and
-[security-review-7.0.0.md](security-review-7.0.0.md) are the two kept before it.
-Each found real defects, and every one of them is fixed before the release goes
-out.
-Configuration secrets stopped being encrypted at rest on one write path; the AI
-privacy toggle did not redact compressed IPv6 addresses; three
-places applied an access-control gate to one endpoint and not to its sibling
-(the patch-report/SBOM exports, standalone knowledge retrieval, and the mute list
-on Monitoring → Tuning); the webhook signature covered the body alone, so the age
-check the documentation recommended could not reject a replay; and one export did
-not neutralise spreadsheet formula cells. The review also lists a set of
-monitoring controls that were evaluating nothing at all — a loopback service
-reported as world-exposed while a wildcard bind was not, an antivirus alert that
-could never fire because its log was read from the wrong end, firewall rules
-missing from the inventory, and duplicate-MAC detection reading a field that does
-not exist — on the principle that a control which is silent reports the same
-thing as a control that is clear.
+Each review found real defects, and every one of them was fixed before the
+release went out.
 
-The v4.10.0 headline surface, the **Security → Firewall** page (view/edit
+The **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated, permission-gated, written to the
 audited command queue, and skipped on quarantined hosts** — a rule you add is
@@ -101,9 +60,9 @@ into tokens and quoted, so an existing rule's comment or negation reaches the
 host as an inert argument. There is no path from the UI to a command the operator
 could not already run with that permission.
 
-### Control-plane hardening (v5.0.0)
+### Control-plane hardening
 
-v5.0.0 strengthens the trust boundary around the agents and the secrets store:
+The trust boundary around the agents and the secrets store:
 
 - **Mutual-TLS agent authentication.** Agents can present a CA-verified **client
   certificate** on every connection, pinned per device, so the server accepts
@@ -129,13 +88,6 @@ v5.0.0 strengthens the trust boundary around the agents and the secrets store:
   the sign-in form (for example "Authorized use only. Activity is monitored."),
   surfaced before authentication.
 
-Every release through **v6.4.1** is penetration-tested with
-[wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),
-[nuclei](https://github.com/projectdiscovery/nuclei), [bandit](https://github.com/PyCQA/bandit),
-[semgrep](https://semgrep.dev/), [gitleaks](https://github.com/gitleaks/gitleaks)
-and [OWASP ZAP](https://www.zaproxy.org/), each passing clean. The write-ups for
-the releases still in the retention window are the `security-review-*.md` files
-listed above.
 Every outbound feature — integrations, DNS providers, AI providers, web-push and
 the monitors — reuses the same connect-time SSRF guard (loopback / link-local /
 cloud-metadata refused, peer IP re-validated, no redirects), with credentials
@@ -143,11 +95,10 @@ redacted from API responses and raw URLs kept admin-only. The strict
 Content-Security-Policy (`default-src 'self'`, no `unsafe-inline`), full
 security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
-state-changing requests, and the SSRF-safe fetch path were all verified live. A
-durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-7.0.3.md) files.
+state-changing requests, and the SSRF-safe fetch path are verified against a
+running instance in each review.
 
-### v4.0.0 hardening pass
+### Further hardening
 
 - Session tokens hashed at rest (above).
 - OIDC token-exchange failures log only the HTTP status + OAuth error code, never the IdP response body (which can echo a client secret).
@@ -212,15 +163,12 @@ RemotePower has been audited end-to-end across multiple releases — the server
 the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
-`docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-7.0.3.md](security-review-7.0.3.md).
-The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
-gitleaks, Semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most
-recent full run reported **no exploitable findings** (see *Security testing*
-below). At v7.0.0 all four static scanners report **zero**: Semgrep 0 across the
-security-audit and secrets rulesets, Bandit 0 new against its baseline with no
-high-severity finding in it, gitleaks clean over the full history, and CodeQL 0
-in both languages under the same configuration production runs. Where a finding
+`docs/security-review-*.md`; the latest is
+[security-review-7.1.0.md](security-review-7.1.0.md). The codebase is also
+scanned with a combined **SAST + DAST** pipeline (see *Security testing* below):
+CodeQL reports zero in both languages under the configuration production runs,
+Bandit reports nothing new against its baseline and no high-severity finding,
+and gitleaks is clean over the full history. Where a finding
 is by design it carries an inline suppression **with its reason** next to the
 code, rather than being filtered out of sight. Summary of the
 defences in place (kept current):
@@ -257,8 +205,7 @@ defences in place (kept current):
   are capped at 50 per server.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
   exists for self-signed CAs.
-- **`Authorization: Bearer`** is accepted alongside `X-Token` as of v3.2.0
-  (was previously only `/api/metrics`). The token verification path is
+- **`Authorization: Bearer`** is accepted alongside `X-Token`. The token verification path is
   identical — same TTL, same role lookup, same admin gate. `X-Token`
   takes priority when both headers are present, so a stray
   `Authorization` header injected by a transparent proxy can't override
@@ -299,14 +246,14 @@ defences in place (kept current):
   169.254.169.254). RFC1918 private networks are permitted —
   homelab Gotify / ntfy on the LAN is legitimate.
 - **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, the
-  OIDC discovery / token-exchange fetches, and (since v3.9.0) the HTTP uptime
+  OIDC discovery / token-exchange fetches, and the HTTP uptime
   monitor re-validate the *actual* peer IP at connect time, not just the address
   resolved during the pre-flight check — so a hostname that resolves to a
   permitted address for the check but an internal/metadata address for the real
   request is caught and refused. TLS verification (server name + certificate
   chain) is unaffected; the audit forwarder pins the verified TLS context for the
-  connection it validated. (Introduced v3.8.0.)
-- **HTTP monitor SSRF (v3.9.0).** The uptime monitor's `http`/`https` check now
+  connection it validated.
+- **HTTP monitor SSRF.** The uptime monitor's `http`/`https` check
   validates its target through the shared per-IP classifier instead of a literal
   string-prefix blocklist (which missed IPv6 `[::1]`, integer/octal/hex-encoded
   IPv4, and DNS rebinding) and fetches through the connect-time SSRF guard above.
@@ -332,7 +279,7 @@ defences in place (kept current):
   `http_post()` rejects non-HTTPS URLs at the function head.
 - Self-updates are SHA-256 verified with `hmac.compare_digest` and applied
   atomically via `mkstemp` + `shutil.move`.
-- **Opt-in mandatory signed updates** (v3.8.0): create the marker file
+- **Opt-in mandatory signed updates**: create the marker file
   `/etc/remotepower/require-signed-updates` and the agent fails *closed* — it
   refuses any self-update unless a release public key is pinned *and* the download
   carries a valid signature. Without the marker the default is fail-open (an
@@ -357,8 +304,14 @@ defences in place (kept current):
 
 - Strict security headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying
-  geolocation/camera/microphone, `frame-ancestors 'none'` in CSP.
-- Methods restricted to `GET POST DELETE PATCH` at the location block.
+  geolocation/camera/microphone, `Cross-Origin-Opener-Policy` and
+  `Cross-Origin-Resource-Policy: same-origin`,
+  `X-Permitted-Cross-Domain-Policies: none`, `X-XSS-Protection: 0` (the legacy
+  filter off, as OWASP recommends) and `frame-ancestors 'none'` in CSP.
+- `server_tokens off` — no nginx version in responses or error pages.
+- Unknown paths return 404 rather than the dashboard (the dashboard navigates by
+  `#fragment`, so no route needs a catch-all).
+- Methods on `/api/` restricted to `GET POST PUT DELETE PATCH`.
 - Request body capped at 2 MB.
 - Static `.json` and `.tmp` files denied (defence against accidental data-dir exposure).
 - The `/cgi-bin/` path is denied as a static location (defence in depth — the
@@ -396,23 +349,18 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-7.0.2.md](security-review-7.0.2.md)).
-- **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
-  semgrep, and a local **CodeQL** run using GitHub's default query suites.
-- **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
-  [Nikto](https://github.com/sullo/nikto), [Nuclei](https://github.com/projectdiscovery/nuclei),
-  [Wapiti](https://wapiti-scanner.github.io/) and WhatWeb against a running
-  instance.
+  [security-review-7.1.0.md](security-review-7.1.0.md)).
+- **SAST** — **CodeQL** with GitHub's query suites (also run on every push),
+  [Bandit](https://bandit.readthedocs.io/), [semgrep](https://semgrep.dev/),
+  [gitleaks](https://github.com/gitleaks/gitleaks) and an undefined-name check.
+- **DAST** — [nmap](https://nmap.org/), [Nikto](https://github.com/sullo/nikto),
+  [Nuclei](https://github.com/projectdiscovery/nuclei) and
+  [Wapiti](https://wapiti-scanner.github.io/) against nginx running the shipped
+  configuration; earlier releases also ran [OWASP ZAP](https://www.zaproxy.org/).
 
-The most recent full SAST + DAST run reported **no exploitable findings** —
-only informational results and tool false positives (e.g. a metadata-SSRF
-probe against a path that simply returns a 404, and benign timestamp/internal-IP
-disclosures inherent to a fleet dashboard). The few static-analysis nits it did
-surface (e.g. non-cryptographic fingerprint hashes) were annotated or fixed.
-Every release since has been tested the same way — wapiti, nikto, nuclei,
-bandit, semgrep, gitleaks and OWASP ZAP — most recently **v6.4.1**, which
-weighted the pass toward the new KMIP key server as the highest-consequence
-surface it adds.
+The most recent run reported **no exploitable findings** after the fixes in
+that release's review — only informational results and scanner false positives,
+such as technology fingerprints matching product names in the interface text.
 
 If you find a security issue, please report it **privately** via GitHub's
 [**"Report a vulnerability"**](https://github.com/tyxak/remotepower/security/advisories/new)
@@ -425,8 +373,8 @@ detached **GPG signature** (`.tar.gz.asc`); the signing key fingerprint is
 signature at build time, and the agent self-update can be pinned to require a
 signed binary (fail-closed).
 
-The **container images** are signed too, since v7.0.0 — they were the gap, and
-for most people the image is what actually runs. They use **cosign keyless
+The **container images** are signed too — for most people the image is what
+actually runs. They use **cosign keyless
 signing** (Sigstore) rather than a key, because the reason the GPG key is kept
 local is that CI must not hold a signing key, and putting a cosign key in CI
 would reintroduce exactly that. The signature is bound to the release workflow's
@@ -434,7 +382,7 @@ OIDC identity, so verification asserts *which workflow in which repository*
 built the image:
 
 ```bash
-cosign verify ghcr.io/tyxak/remotepower:7.0.2 \
+cosign verify ghcr.io/tyxak/remotepower:latest \
   --certificate-identity-regexp '^https://github.com/tyxak/remotepower/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -498,7 +446,7 @@ Recommended for production deployments beyond the secure defaults:
       every device token, the CMDB credential vault, API-key hashes and the
       backups — a stolen or decommissioned disk hands over the fleet, and no
       application-level control can undo that. **Settings → Security posture**
-      reports the state of the volume `RP_DATA_DIR` sits on (v7.0.0); a host
+      reports the state of the volume `RP_DATA_DIR` sits on; a host
       that cannot see device-mapper — a container, typically — reports
       "cannot be determined" rather than a finding, so check the underlying
       host yourself in that case.

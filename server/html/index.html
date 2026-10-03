@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-28">
+<link rel="stylesheet" href="static/css/styles.css?v=7.1.0-28">
 
 </head>
 <body>
@@ -4765,7 +4765,19 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.0.3 c4usematters monitor monitors host down site down false down cloudflare cloudflare 403 403 forbidden bot fight mode browser integrity check cf-mitigated challenge managed challenge waf edge user-agent user agent python-urllib urllib default user agent probe http probe https probe tls ssl minimum_version minimum tls tls floor tls 1.2 tls 1.3 minprotocol openssl.cnf system_default hardened host hardening undone lowered downgrade ja3 ja4 fingerprint clienthello handshake certificate verify verify_tls self-signed appliance routeros opnsense seclevel legacy firmware ssl context create_default_context agent satellite scanner kmip key server listening socket needs attention digest attention isolation test flake order dependent shared data dir drift state reliability rollup cache openapi.json api reference 403 swagger nginx location regex manifest.json saml acs assertion consumer service metadata sso 404 identity provider ecc errors correctable uncorrectable dimm certificate expiry days left break glass vault requester reason predictive alert eta days saturation report sla uptime needs attention posture section printable pdf windows macos firewall bitlocker filevault disk encryption automatic updates data explorer fleet query facet acme dns credential translated six languages ssh host key known_hosts fingerprint web terminal password tenant isolation cross-tenant runbook model provider cve accepted risk audit mode backup verify restore drill redirect token mcp risk score secure boot canary honeytoken quarantine failed timer custom check compliance evidence openscap usg benchmark sudo privileged command pii regulated data dmarc spf dkim not assessed data explorer packages ports listening services containers alerts flapping exposure scope prometheus metrics swap load conntrack file descriptors custom_metric novnc vnc console jellyfin 10.12 x-emby-token 401">
+          <details class="doc-card" open data-keywords="release notes changelog v7.1.0 g4tewaymatters gateway ssh gateway jump host proxyjump ssh -j bastion tunnel no inbound port public key keys sessions threat intel ip intel abuseipdb sniffcat reputation brute force attackers block auto-block report never block allow-list advisory risk data explorer usb logged-in users report threats remote access typography font size body size heading size alert actions more menu nginx put 403 dashboard public url alert email links security review tenancy platform operator websocket redirect">
+            <summary><strong>What's new — v7.1.0 &ldquo;G4tewayMatters&rdquo;</strong> &mdash; reach hosts with your own SSH client through one gateway, look up and block the addresses attacking them, and see both wherever a host is described.</summary>
+            <div class="doc-body">
+              <p><strong>The SSH gateway.</strong> Add a key on <strong>Access &rarr; SSH gateway</strong>, copy the <code>~/.ssh/config</code> block it gives you, and <code>ssh web01.rp</code> works from your laptop. Each opted-in Linux host opens a tunnel outward to the gateway, so there is no inbound port on the host, and the gateway forwards to nothing but that host&rsquo;s own sshd. Every login and every connection is asked of RemotePower &mdash; your permission, scope and tenant, the host&rsquo;s opt-in &mdash; and every session is recorded. Off by default; see <a href="docs/sshgw.md" class="c-accent">the guide</a>.</p>
+              <p><strong>Threat intel.</strong> An address that crosses the brute-force threshold is checked against AbuseIPDB and SniffCat, reported back if you choose, and blocked on the attacked host for a while if its score is high enough &mdash; through the normal command queue, so maintenance, quarantine and four-eyes approval all apply. Your own addresses, your allow-list and anywhere someone recently signed in from are never blocked or reported. <strong>Security &rarr; Threat intel</strong>; see <a href="docs/ip-intel.md" class="c-accent">the guide</a>.</p>
+              <p><strong>Attacks and access, everywhere a host is described.</strong> The Security Advisory puts known-abusive sources first, the risk score gains two tunable factors, the Data Explorer can ask about attackers, gateway sessions, USB devices and logged-in users, and the fleet report, AI assistant, Prometheus export, knowledge index, compliance evidence and Timeline carry the same facts.</p>
+              <p><strong>One body size, one heading size.</strong> Body text sat at three sizes half a pixel apart; it is one size now, and every card heading shares one size. Alert rows keep Triage, Fix, Mute and Resolve on one line and put the rest in a labelled <strong>More</strong> menu.</p>
+              <p><strong>Edits saved with PUT work on a standard install.</strong> The shipped nginx configuration refused PUT on the API, which the dashboard uses to save about thirty kinds of edit. Fixed, along with a version banner and a catch-all page the scanners flagged.</p>
+              <p><strong>Ten security issues, all caught before release.</strong> The biggest: with multi-tenancy on, a tenant admin could change state that belongs to the whole install. Signed links in alert emails now use the new <strong>Dashboard public URL</strong> setting rather than the address a request arrived on. The full write-up is in <a href="docs/security-review-7.1.0.md" class="c-accent">security-review-7.1.0.md</a>.</p>
+              <p class="hint">See <code>docs/v7.1.0.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v7.0.3 c4usematters monitor monitors host down site down false down cloudflare cloudflare 403 403 forbidden bot fight mode browser integrity check cf-mitigated challenge managed challenge waf edge user-agent user agent python-urllib urllib default user agent probe http probe https probe tls ssl minimum_version minimum tls tls floor tls 1.2 tls 1.3 minprotocol openssl.cnf system_default hardened host hardening undone lowered downgrade ja3 ja4 fingerprint clienthello handshake certificate verify verify_tls self-signed appliance routeros opnsense seclevel legacy firmware ssl context create_default_context agent satellite scanner kmip key server listening socket needs attention digest attention isolation test flake order dependent shared data dir drift state reliability rollup cache openapi.json api reference 403 swagger nginx location regex manifest.json saml acs assertion consumer service metadata sso 404 identity provider ecc errors correctable uncorrectable dimm certificate expiry days left break glass vault requester reason predictive alert eta days saturation report sla uptime needs attention posture section printable pdf windows macos firewall bitlocker filevault disk encryption automatic updates data explorer fleet query facet acme dns credential translated six languages ssh host key known_hosts fingerprint web terminal password tenant isolation cross-tenant runbook model provider cve accepted risk audit mode backup verify restore drill redirect token mcp risk score secure boot canary honeytoken quarantine failed timer custom check compliance evidence openscap usg benchmark sudo privileged command pii regulated data dmarc spf dkim not assessed data explorer packages ports listening services containers alerts flapping exposure scope prometheus metrics swap load conntrack file descriptors custom_metric novnc vnc console jellyfin 10.12 x-emby-token 401">
             <summary><strong>What's new — v7.0.3 &ldquo;C4useMatters&rdquo;</strong> &mdash; three failures that named the wrong cause: a monitor that read a bot challenge as &ldquo;host down&rdquo;, a TLS floor that lowered one, and a test helper that reported isolation it was not providing.</summary>
             <div class="doc-body">
               <p><strong>A monitor reported a bot challenge as &ldquo;host down&rdquo;.</strong> A monitor aimed at a site behind Cloudflare failed continuously while the same URL loaded fine in a browser. Two independent causes, both in how RemotePower makes the request. It introduced itself as <code>Python-urllib</code>, which a Browser Integrity Check refuses before the request ever reaches your origin — so the origin&rsquo;s access log has nothing in it to explain the failure. Probes send <code>RemotePower/&lt;version&gt;</code> now, the same name every other outbound call already used.</p>
@@ -4792,15 +4804,6 @@
               <p><strong>A pre-release audit of the whole project</strong> — not just this release's changes — found thirty-six issues, all fixed before release. Four ways one tenant could reach another: instance settings a tenant admin could rewrite, automation rules that carried no tenant and could run a saved script as root anywhere, a script library shared by everyone, and a <em>global</em> maintenance window that silenced every other tenant's alerts. On the agents: macOS would install an <strong>unsigned</strong> update, a report upload was capped at 30&nbsp;MB <em>compressed</em> (which bounds nothing), a signed command could be replayed while fresh, and planting a decoy file honoured neither audit mode nor signed commands. Objects created before this release keep their existing reach where assigning an owner would have been a guess, so review anything shared if you run multiple tenants.</p>
               <p><strong>And the tests had been overstating what they proved.</strong> The SQLite gate stopped testing SQLite about a quarter of the way in, because one test cleared the backend setting and never put it back — 9,324 of 12,836 results ran on the file backend inside the run that exists to exercise SQLite. The JavaScript undefined-global check had never parsed a byte, and once sighted it immediately found a Proxmox snapshot rollback that succeeded and reported &ldquo;Failed&rdquo;. Both now carry a control that fails when they measure nothing. The <strong>demo instance</strong> also went dark five minutes after every seed, so a public demo showed most of its fleet dead within minutes.</p>
               <p class="hint">See <code>docs/v7.0.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v7.0.1 c0llapsematters sidebar side menu left menu collapse collapsed cannot collapse won't collapse will not collapse expand rail slim rail auto-hide autohide auto hide hover expand keep hiding while alerts are open open alerts alert pin pinned overlap overlaps sits on top content moves shifted margin breakpoint media query 721 768 769 720 window width laptop split screen split-screen narrow window drawer mobile drawer edge browser my account appearance navigation per browser preference">
-            <summary><strong>What's new — v7.0.1 &ldquo;C0llapseMatters&rdquo;</strong> &mdash; the sidebar collapses when you ask it to. Two faults, both in how it works out its own width.</summary>
-            <div class="doc-body">
-              <p><strong>Open alerts held the sidebar open, in every mode.</strong> RemotePower keeps the sidebar visible while something needs attention, so a slim rail cannot conceal a problem — but that rule matched on the collapsed state alone, which a sidebar you collapsed by hand also has. With one alert open, <strong>Collapse</strong> slid the page content across to the narrow-rail margin while the sidebar stayed at full width on top of it. Turning auto-hide off changed nothing, because the setting was never part of the check. The reveal now applies only in auto-hide mode.</p>
-              <p><strong>New: keep hiding while alerts are open.</strong> If you work with alerts open most of the day, the reveal is more nuisance than safeguard. <strong>My Account → Appearance → Navigation</strong> has a second checkbox that leaves the rail hidden regardless. Off by default, and remembered per browser like the auto-hide switch itself.</p>
-              <p><strong>Between 721 and 768 pixels the button did nothing.</strong> Below 721px the sidebar is a slide-over drawer and the button is hidden; above that it appears — but the rules it drives began at 769px, a floor left behind when the drawer breakpoint moved from 768 to 720. In those 48 pixels you got a button and no behaviour. A copy of the block scoped to the installed app had patched the gap there and nowhere else; there is one copy now, starting where the button appears.</p>
-              <p class="hint">See <code>docs/v7.0.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -12065,36 +12068,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.3-28"></script>
+<script defer src="static/js/app.js?v=7.1.0-28"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-containers.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-network.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-calendar.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-cmdb.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-containers.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-network.js?v=7.1.0-28"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-compliance.js?v=7.1.0-28"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-dns.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-drift.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-cve.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-backups.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-iac.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-virt.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-ai.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-dns.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-drift.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-cve.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-firewall.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-backups.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-iac.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-proxmox.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-virt.js?v=7.1.0-28"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-remote.js?v=7.0.3-28"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-logs.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-remote.js?v=7.1.0-28"></script>
+<script defer src="static/js/app-tickets.js?v=7.1.0-28"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-self.js?v=7.1.0-28"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12104,6 +12107,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.3-28"></script>
+<script defer src="static/js/sw-register.js?v=7.1.0-28"></script>
 </body>
 </html>

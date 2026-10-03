@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.0.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.1.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,17 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.1.0 "G4tewayMatters"** — the front door. Reach any opted-in Linux host
+  with your own `ssh` client through one gateway, over a tunnel the host opens
+  outward, so no inbound port is open on the host; every connection is checked
+  against your permission, scope and tenant, and every session is recorded.
+  Addresses that brute-force a host are looked up against AbuseIPDB and
+  SniffCat, reported back if you choose, and blocked for a while on the
+  attacked host if they are known to be abusive — never your own addresses or
+  anywhere someone recently signed in from. Both reach the Security Advisory,
+  the risk score, the Data Explorer, the fleet report and the AI assistant. One
+  body size and one heading size across the interface, and dashboard edits
+  saved with PUT work on a standard nginx install again.
 - **v7.0.3 "C4useMatters"** — three failures that named the wrong cause. A
   monitor reported a host as down when a bot filter at the edge had turned the
   probe away; the probe was identifying itself as Python and putting an older
@@ -244,24 +255,14 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   them, including an encryption-at-rest compliance control that could never pass
   on a Linux fleet and an SSO login that could become a cross-tenant platform
   operator.
-- **v6.4.2 "Ver1tyMatters"** — per-container alert mutes, so you can silence one
-  container without silencing its host, and a real container log window. An
-  adversarial audit closed a cross-tenant log-content leak, a governance switch a
-  config import could flip, and a webhook credential that shipped in clear text.
-  A data-binding sweep put Linux firewall, SSH and auto-update posture on the
-  Checks page, into fleet-query and behind PCI 1.2.1, and made Windows and macOS
-  endpoint posture feed the risk score. Security hardening became opt-in under
-  Settings → Security: the advisory checks that flag things plenty of fleets
-  choose on purpose stay quiet until you turn them on.
 
 ## Security
 
 Every release gets a security review and a penetration test. The bar is that
 nothing Critical, High or Medium ships, and nothing exploitable. Each release
-runs static analysis (Bandit, gitleaks, Semgrep and CodeQL — the same advanced
-setup GitHub runs, all reporting clean), adversarial code review, dynamic
-analysis (OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) and live probing of our own
-instance. Release tarballs are GPG-signed, and container images are signed with
+runs static analysis (CodeQL — the same setup GitHub runs — Bandit, gitleaks and
+Semgrep), adversarial code review of the whole project, and dynamic scans (nmap,
+Nikto, Nuclei and Wapiti) against nginx running the shipped configuration. Release tarballs are GPG-signed, and container images are signed with
 cosign in keyless mode, verifiable against the release workflow's identity.
 
 The product side: bcrypt-hashed passwords behind a rate-limited login,

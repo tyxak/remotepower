@@ -2,6 +2,133 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.1.0 — "G4tewayMatters" — unreleased
+
+A release about the front door. Hosts can now be reached with your own SSH
+client through one gateway, with no inbound port open on the host. The
+addresses knocking on that door, and on every host's sshd, are now looked up
+against two public reputation services, reported back if you choose, and
+blocked for a while if they are known to be abusive. And both — who is
+attacking a host and who logged in to it — now reach every surface that
+describes a host's posture, instead of living on a page of their own.
+
+The security work was again a review of the whole project rather than of this
+release's changes. It is written up in `docs/security-review-7.1.0.md`.
+
+### SSH gateway
+
+- **Reach any opted-in Linux host with `ssh -J`.** The new gateway sidecar
+  accepts public-key logins only and forwards each connection over a tunnel
+  the host's agent opens outward, to that host's own sshd on loopback. No
+  inbound port on the host, no shell on the gateway, no port forwarding beyond
+  the one hop. Every login and every connection is decided by RemotePower —
+  the account's `ssh` permission, its role scope and tenant, the host's opt-in,
+  quarantine and decommissioning — and asked again for each connection, so a
+  revocation takes effect on the next connect.
+- **Access → SSH gateway** gives each person the `~/.ssh/config` block to copy,
+  manages their keys (adding one asks for the password or TOTP again), lets
+  admins opt hosts in and see every session: who, which host, from where, for
+  how long and how much data.
+- **Off by default.** `install-server.sh --with-sshgw` installs it; it is the
+  only sidecar that listens on a public port. A host can refuse the tunnel
+  whatever the server says. See `docs/sshgw.md`.
+
+### Threat intel
+
+- **Brute-force sources are looked up, optionally reported, optionally
+  blocked.** When an address crosses the brute-force threshold on any host it
+  is checked against AbuseIPDB and SniffCat (one or both), with the result
+  cached for a day and a daily lookup budget kept under the free tier. With
+  reporting on, it is reported back with the attack categories and a count —
+  never a hostname, user name or log line. With blocking on, an address whose
+  score reaches your threshold is dropped on the attacked host's firewall for
+  the hours you choose, through the normal command queue, so maintenance,
+  quarantine, audit mode and four-eyes approval all apply.
+- **Never blocked, never reported:** private ranges, the fleet's own
+  addresses, your allow-list, a never-block list, and addresses people signed
+  in from in the last 30 days.
+- **Security → Threat intel** lists the attackers with their score, country,
+  network, the hosts each one attacked and what happened, plus the active
+  blocks with Unblock. See `docs/ip-intel.md`.
+
+### Attacks and access reach every surface
+
+- The **Security Advisory** names the known-abusive sources first and says
+  whether they are blocked; the **risk score** gains two factors — hosts under
+  brute force, and known-abusive attackers that are not blocked — both tunable.
+- The **Data Explorer** can ask about attackers and gateway sessions, and about
+  USB devices, logged-in users and the gateway opt-in on devices.
+- The **fleet report** has a *Threats and remote access* section (also in the
+  CSV and the email); the **AI context**, **Prometheus** export, **knowledge
+  index**, **compliance evidence** and the **Timeline** carry the same facts.
+
+### Interface
+
+- **One body size and one heading size.** Body text sat at three sizes half a
+  pixel apart; it is 13 px everywhere now, and every card and section heading
+  is the same size. Text fields and selects use the interface font, so a filter
+  box and the buttons beside it read as one row.
+- **Alert rows fit on one line.** Triage, Fix, Mute and Resolve stay on the
+  row; the rest — quick investigate, resolve with a note, timeline, declare
+  incident, open ticket, copy link — are in a labelled **More** menu. A long
+  value in an alert's evidence (a path, a URL) no longer pushes the table wider
+  than its card.
+- The **Threat intel** and **SSH gateway** pages use the standard table and
+  form layout, and table headers no longer wrap.
+
+### Web server
+
+- **Edits saved with PUT work on a standard install.** The shipped nginx
+  configuration allowed GET, POST, DELETE and PATCH on the API, and the
+  dashboard saves about thirty kinds of edit with PUT — schedules, maintenance
+  windows, sites, tenants, the report schedule. nginx refused every one.
+- **Hardening:** no nginx version in responses, unknown paths are a 404 rather
+  than the dashboard, `X-XSS-Protection: 0` and
+  `X-Permitted-Cross-Domain-Policies: none`.
+
+### Settings
+
+- **Dashboard public URL** (Settings → Notifications). Links in outgoing email
+  are built from it. The one-click Acknowledge / Resolve links in alert emails
+  need it and are left out without it.
+
+### Security
+
+Ten issues, all caught before release, all fixed here. The full write-up is in
+`docs/security-review-7.1.0.md`; the short version:
+
+- **A tenant admin could change install-wide state** on a multi-tenant
+  install — restore a configuration from before tenancy was switched on,
+  repoint the AI provider, replace the release signing key, clear the audit log,
+  edit roles, or rewrite a playbook another tenant runs. Install-wide state is
+  the platform operator's now, gated where requests are routed.
+- **Signed links in alert emails took their address from the request**, so a
+  forged Host header could put a genuine email in an operator's inbox linking
+  to someone else's site with a working signature attached.
+- **A crafted SSH user name could make threat intel blame an address of the
+  attacker's choosing**, and reporting did not honour the never-block rules.
+- **The agent's push and gateway WebSockets followed redirects** with the
+  device token in a header.
+- **The SSH gateway capped key offers and unauthenticated connections** per
+  connection and per address, as OpenSSH does.
+- Smaller: enrolment and inbound webhook tokens across tenants, manual block
+  and unblock checking permissions last, and the web-server findings above.
+
+### Demo
+
+- The public demo answers the Virtualization guest list and the DNS blockers'
+  status from canned data instead of a 502, in read-only mode only.
+
+### Under the hood
+
+- About 190 test assertions that drive the dashboard's JavaScript were skipped
+  in CI because the V8 engine they need was never installed. It is now.
+- A test could answer 405 depending on which test ran before it; per-request
+  state is now cleared between test modules.
+- `docs/features.md` is a feature table again: the version tags older than the
+  last three releases and the "it used to…" history are gone (that history is
+  here).
+
 ## v7.0.3 — "C4useMatters" — 2026-09-10
 
 A release about failures that named the wrong cause. A monitor reported a host

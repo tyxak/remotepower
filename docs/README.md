@@ -61,6 +61,13 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.1.0.md](security-review-7.1.0.md)** — the v7.1.0
+  pass: ten issues from a whole-project review plus the shipped web-server
+  configuration under nmap, nikto, nuclei and wapiti. A tenant admin could
+  change state that belongs to the whole install; signed alert-email links took
+  their address from the request; a crafted SSH user name could make threat
+  intel blame someone else; the agent's WebSocket channels followed redirects
+  with the device token; and nginx refused every dashboard edit sent with PUT.
 - **[security-review-7.0.3.md](security-review-7.0.3.md)** — the v7.0.3
   "C4useMatters" pass: fourteen issues, again a whole-project review rather than
   a diff. Three ways one tenant could reach another; a browser terminal that
@@ -73,14 +80,11 @@ holds long-form docs that don't fit there.
 - **[security-review-7.0.2.md](security-review-7.0.2.md)** — the v7.0.2
   pre-release review: thirty-six issues, a whole-project pass rather than a
   diff, and two guards found to be blind.
-- **[security-review-7.0.0.md](security-review-7.0.0.md)** — the v7.0.0
- "Aut0nomyMatters" pass, aimed at fleet-wide READ endpoints. Three answered as
- though every caller were an unrestricted admin (metrics, calendar feed, rack
- elevation) — long-standing, read-only, no credential exposed, all fixed here;
- plus a Linux-only safety gate bypassable by editing rather than creating a
- job. Each reproduced from the lowest-privilege account before and after the
- fix, with regression tests asserting both that restricted callers see less
- AND that the machine scrape still sees everything.
+- **[v7.1.0.md](v7.1.0.md)** — "G4tewayMatters": the front door. Reach hosts
+  with your own SSH client through one gateway and no inbound port; look up,
+  report and block the addresses brute-forcing them; and see both wherever a
+  host is described. One body size and one heading size, alert rows on one
+  line, and dashboard edits saved with PUT working on a standard nginx install.
 - **[v7.0.3.md](v7.0.3.md)** — "C4useMatters": three failures that named the
   wrong cause. A monitor read a bot challenge at the edge as "host down", after
   identifying itself as Python and putting an older TLS version back on the
@@ -96,12 +100,6 @@ holds long-form docs that don't fit there.
   and a whole-project audit that found thirty-six security issues, config drift
   bound to the ten features that read it, and two gates that had been reporting
   success while measuring nothing.
-- **[v7.0.1.md](v7.0.1.md)** — "C0llapseMatters": the sidebar collapses when
-  you ask it to. Open alerts were holding it open in every mode, including a
-  manual collapse with auto-hide switched off, so the page content moved to
-  the rail margin while the sidebar stayed full width on top of it; and
-  between 721 and 768 pixels the Collapse button appeared but did nothing at
-  all. Plus a new per-browser option to keep hiding while alerts are open.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
