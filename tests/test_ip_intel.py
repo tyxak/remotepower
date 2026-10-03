@@ -396,6 +396,10 @@ class TestEndpoints(_Case):
         self.assertEqual(self.call(self.api.handle_ip_intel_lookup, 'POST', {'ip': ATTACKER},
                                    role='viewer')[0], 403)
 
+    def test_settings_are_admin_only_in_the_listing(self):
+        st, d = self.call(self.api.handle_ip_intel, role='viewer')
+        self.assertEqual((st, d['is_admin'], d['settings']), (200, False, {}))
+
     def test_listing_is_scoped_to_visible_devices(self):
         self.policy(block_enabled=True)
         self.attack()

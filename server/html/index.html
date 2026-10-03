@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-27">
+<link rel="stylesheet" href="static/css/styles.css?v=7.0.3-28">
 
 </head>
 <body>
@@ -422,6 +422,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
           <span>SSH keys</span>
         </button>
+        <button class="nav-btn" data-page="ipintel" title="Attacking addresses with their AbuseIPDB and SniffCat reputation, reports and timed blocks">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          <span>Threat intel</span>
+        </button>
         <button class="nav-btn" data-page="tls" title="TLS certificate + domain/DNS expiry monitoring and ACME (Let’s Encrypt) certificates">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           <span>TLS / DNS</span>
@@ -570,13 +574,13 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
           <span>Files</span>
         </button>
-        <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
-          <span>WG Access</span>
-        </button>
         <button class="nav-btn" data-page="sshgw" title="Reach hosts with your own SSH client through one gateway — no inbound port on the host">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/></svg>
           <span>SSH gateway</span>
+        </button>
+        <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
+          <span>WG Access</span>
         </button>
       </div>
     </div>
@@ -6579,6 +6583,96 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v5.2.0 AccessMatters: WG Access (WireGuard road-warrior VPN) ──── -->
       <!-- v5.6.x lazy page: inert until first visit — showPage clones the
            template in place (i18n MutationObserver localises the clone). -->
+      <div id="page-ipintel" class="page">
+        <div class="page-title">Threat intel</div>
+        <div class="page-subtitle">Addresses that attacked your hosts, with their reputation from AbuseIPDB and SniffCat. You can report them back and block them for a while on the host they attacked. <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>
+
+        <div class="dash-card" id="ipintel-settings-card" hidden>
+          <div class="section-title">Providers</div>
+          <p class="hint">Each setting is off until you turn it on. Lookups send only the address. Reports also send the attack type and a count, never hostnames or log lines.</p>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-abuseipdb-key">AbuseIPDB API key</label>
+            <input type="password" id="ipintel-abuseipdb-key" class="form-input mw-380" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-sniffcat-key">SniffCat API key</label>
+            <input type="password" id="ipintel-sniffcat-key" class="form-input mw-380" autocomplete="off">
+          </div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-lookup"> Look up attacking addresses</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-report"> Report attackers back to both services</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-block"> Block high-scoring attackers on the host they attacked</label></div>
+          <div class="toolbar">
+            <label class="form-label" for="ipintel-min-score">Block at score</label>
+            <input type="number" id="ipintel-min-score" class="form-input isl-80" min="1" max="100">
+            <label class="form-label" for="ipintel-ttl">Block for (hours)</label>
+            <input type="number" id="ipintel-ttl" class="form-input isl-80" min="1" max="2160">
+            <label class="form-label" for="ipintel-max-hour">Blocks per host per hour</label>
+            <input type="number" id="ipintel-max-hour" class="form-input isl-80" min="1" max="1000">
+            <label class="form-label" for="ipintel-report-min">Report after attempts</label>
+            <input type="number" id="ipintel-report-min" class="form-input isl-80" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-never">Never block (one address or network per line)</label>
+            <textarea id="ipintel-never" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+          </div>
+          <div class="toolbar">
+            <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
+            <span id="ipintel-budget" class="hint"></span>
+          </div>
+        </div>
+
+        <div class="dash-card" id="ipintel-lookup-card" hidden>
+          <div class="section-title">Check an address</div>
+          <div class="toolbar">
+            <input type="text" id="ipintel-lookup-ip" class="form-input mw-200" aria-label="IP address to check">
+            <button class="btn-icon" data-action="lookupIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Look up</button>
+          </div>
+          <div id="ipintel-lookup-result" class="mt-8" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Attackers</div>
+          <div class="toolbar">
+            <input type="text" id="ipintel-filter" class="form-input input-wide" aria-label="Filter attackers">
+            <button class="btn-icon" data-action="loadIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="ipintel-att-thead"><tr>
+                <th scope="col" data-col="ip">Address</th>
+                <th scope="col" data-col="score">Score</th>
+                <th scope="col" data-col="reports">Reports</th>
+                <th scope="col" data-col="country">Country</th>
+                <th scope="col" data-col="isp">Network</th>
+                <th scope="col" data-col="hosts">Hosts attacked</th>
+                <th scope="col" data-col="last_seen">Last seen</th>
+                <th scope="col" data-col="status">Status</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="ipintel-att-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Active blocks</div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="ipintel-blk-thead"><tr>
+                <th scope="col" data-col="ip">Address</th>
+                <th scope="col" data-col="name">Host</th>
+                <th scope="col" data-col="score">Score</th>
+                <th scope="col" data-col="by">Blocked by</th>
+                <th scope="col" data-col="at">Since</th>
+                <th scope="col" data-col="until">Expires</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="ipintel-blk-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div id="page-sshgw" class="page">
         <div class="page-title">SSH gateway</div>
         <div class="page-subtitle">Reach your servers with your own SSH client through one gateway. Agents dial out, so no server needs an open port, and every session is checked against your role and recorded. <a href="docs/sshgw.md" class="c-accent">Documentation</a></div>
@@ -9393,7 +9487,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      half-filled form and got markdown source (or, where nginx has no .md MIME
      mapping and sends nosniff, a file download). renderMarkdown() already
      shipped for the KB and the AI chat. -->
-<!-- v7.0.0: the product map. 81 pages across 12 domains, and the sidebar shows
+<!-- v7.0.0: the product map. 83 pages across 12 domains, and the sidebar shows
      one domain at a time — so there was no surface that answered "what is in
      this product and where". Built from the sidebar DOM at open time, NOT from
      a second list: every nav button already carries a one-line title, and a
@@ -11941,36 +12035,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.0.3-27"></script>
+<script defer src="static/js/app.js?v=7.0.3-28"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-cmdb.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-containers.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-network.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-calendar.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-cmdb.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-containers.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-network.js?v=7.0.3-28"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-compliance.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-compliance.js?v=7.0.3-28"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-dns.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-drift.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-cve.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-firewall.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-backups.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-iac.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-proxmox.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-virt.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-ai.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-dns.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-drift.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-cve.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-firewall.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-backups.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-iac.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-proxmox.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-virt.js?v=7.0.3-28"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-remote.js?v=7.0.3-27"></script>
-<script defer src="static/js/app-tickets.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-logs.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-remote.js?v=7.0.3-28"></script>
+<script defer src="static/js/app-tickets.js?v=7.0.3-28"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.0.3-27"></script>
+<script defer src="static/js/app-self.js?v=7.0.3-28"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11980,6 +12074,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.0.3-27"></script>
+<script defer src="static/js/sw-register.js?v=7.0.3-28"></script>
 </body>
 </html>

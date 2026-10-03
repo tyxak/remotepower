@@ -930,6 +930,44 @@ def build_sshgw_sessions() -> dict:
     return {'sessions': rows}
 
 
+def build_ip_intel() -> dict:
+    """Attackers with provider verdicts, a few reports and active blocks.
+    Addresses are from the documentation ranges, so nothing real is named."""
+    rng = _seeded_random('ip-intel')
+    linux = [d for d in FAKE_DEVICES if _demo_sshgw_opted_in(d)]
+    isps = ['Example Hosting GmbH', 'Demo Cloud LLC', 'Sample Telecom', 'Placeholder VPS']
+    attackers, blocks = {}, {}
+    for i in range(18):
+        ip = f'198.51.100.{100 + i}' if i % 3 else f'203.0.113.{40 + i}'
+        score = rng.choice([100, 100, 97, 91, 64, 33, 12, 0])
+        seen = now() - rng.randint(120, 86400 * 5)
+        targets = rng.sample(linux, rng.randint(1, 2))
+        devs = {d['id']: {'count': rng.randint(21, 400),
+                          'unit': rng.choice(['sshd.service', 'sshd.service', 'nginx.access']),
+                          'at': seen} for d in targets}
+        att = {'first_seen': seen - rng.randint(0, 86400), 'last_seen': seen,
+               'devices': devs, 'checked_at': seen,
+               'verdict': {'score': score, 'reports': rng.randint(0, 5000) if score else 0,
+                           'country': rng.choice(['DE', 'NL', 'US', 'CN', 'BR', 'RU', 'VN']),
+                           'isp': rng.choice(isps), 'usage': 'Data Center/Web Hosting/Transit',
+                           'providers': {'abuseipdb': {'score': score, 'reports': 10},
+                                         'sniffcat': {'score': max(0, score - 10), 'reports': 2}}},
+               'reported': ({'abuseipdb': seen, 'sniffcat': seen} if score >= 50 else {}),
+               'errors': {}}
+        if score >= 90:
+            d0 = targets[0]['id']
+            blocks.setdefault(d0, {})[ip] = {'at': seen, 'until': now() + rng.randint(3600, 86400),
+                                             'score': score, 'by': 'auto', 'kind': 'ssh'}
+        else:
+            for x in devs.values():
+                x['not_blocked'] = f'score {score} is below 90'
+        attackers[ip] = att
+    return {'attackers': attackers, 'blocks': blocks, 'queue': [],
+            'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
+                       'abuseipdb': 18, 'sniffcat': 18},
+            'last_sweep': now()}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -2618,6 +2656,10 @@ def build_config() -> dict:
         'sshgw_enabled':         True,
         'sshgw_public_host':     'gw.demo.example',
         'sshgw_public_port':     2222,
+        # Threat intel: lookups and auto-block on, so the page shows scores,
+        # reports and blocks. No provider keys: the demo never calls out.
+        'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
+                     'block_enabled': True},
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).
@@ -6800,6 +6842,7 @@ BUILDERS = {
     'alerts.json':                 build_alerts,
     'sshgw_sessions.json':         build_sshgw_sessions,
     'sshgw_state.json':            build_sshgw_state,
+    'ip_intel.json':               build_ip_intel,
     'fleet_events.json':           build_fleet_events,
     'drift_state.json':            build_drift,
     'health_history.json':         build_health_history,

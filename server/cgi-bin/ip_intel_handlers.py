@@ -389,6 +389,8 @@ def handle_ip_intel():
     A.require_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
+    role = A.verify_token(A.get_token_from_request())[1]
+    is_admin = bool(A._resolve_role(role).get('admin'))
     pol = _policy()
     visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     st = _store_ro()
@@ -424,7 +426,8 @@ def handle_ip_intel():
                                  name=(visible[dev_id] or {}).get('name') or dev_id))
     rows.sort(key=lambda r: int(r.get('at') or 0), reverse=True)
     budget = st.get('budget') if isinstance(st.get('budget'), dict) else {}
-    A.respond(200, {'ok': True, 'settings': _settings_view(pol),
+    A.respond(200, {'ok': True, 'is_admin': is_admin,
+                    'settings': _settings_view(pol) if is_admin else {},
                     'attackers': attackers[:1000], 'blocks': rows,
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 

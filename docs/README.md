@@ -187,6 +187,8 @@ holds long-form docs that don't fit there.
  and encrypted control-plane disaster recovery.
 - **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
  manager, and host user / SSH-key / firewall management from the drawer.
+- **[ip-intel.md](ip-intel.md)** — Threat intel: look up, report and block
+ brute-force sources with AbuseIPDB and SniffCat.
 - **[sshgw.md](sshgw.md)** — SSH gateway: reach hosts with your own SSH client
  through one gateway, with no inbound port on the host, public-key login and a
  per-session audit trail.

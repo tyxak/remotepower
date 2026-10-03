@@ -2556,6 +2556,7 @@ const _LAZY_PAGE_MODULES = {
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   autonomy: ['app-autonomy.js'],  // v7.0.0 receipts + safety envelope (lazy)
   sshgw: ['app-sshgw.js'],        // SSH gateway: keys, opt-in, sessions (lazy)
+  ipintel: ['app-ipintel.js'],    // AbuseIPDB / SniffCat reputation + blocks (lazy)
   dmarc: ['app-dmarc.js'],
   gpus: ['app-gpu.js'],
   kb: ['app-kb.js'],
@@ -2810,6 +2811,7 @@ function showPage(name, btn) {
   if (name === 'dns')        loadDns();
   if (name === 'vpn')        loadVpn();
   if (name === 'sshgw')      loadSshgw();
+  if (name === 'ipintel')    loadIpIntel();
   if (name === 'timesheet')  loadTimesheet();
   if (name === 'billing')    loadBilling();
   if (name === 'ssh-keys')   loadSshKeys();
