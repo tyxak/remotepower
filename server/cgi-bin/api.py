@@ -26878,8 +26878,27 @@ def _dns_inst(integration_id):
     return inst
 
 
+def _demo_snapshot(inst, op):
+    """The canned answer a DEMO integration carries for a live read, or None.
+
+    The public demo's integrations point at hosts that do not exist (the .lab
+    TLD), so every page that asks a platform live — the virtualization guest
+    list, a DNS blocker's status — answered 502 with a connection error. The
+    seeder gives those records a `demo_snapshot` keyed by operation. It is
+    honoured ONLY in read-only demo mode (RP_READ_ONLY), which nothing in the
+    product can switch on, and only for reads: a real install never takes this
+    path, and a demo still refuses every write."""
+    if not _is_demo_read_only() or method() != 'GET':
+        return None
+    snap = inst.get('demo_snapshot') if isinstance(inst, dict) else None
+    return snap.get(op) if isinstance(snap, dict) and op in snap else None
+
+
 def _dns_dispatch(inst, op, *args):
     """Call a dns_control driver op, translating failures to a 502."""
+    _demo = _demo_snapshot(inst, op)
+    if _demo is not None:
+        return _demo
     try:
         return dns_control_mod.CONTROL[inst['type']][op](
             inst, _integration_client(inst), *args)
@@ -26956,6 +26975,9 @@ def _virt_inst(integration_id):
 
 def _virt_dispatch(inst, op, *args):
     """Call a hypervisor driver op, translating failures to a 502."""
+    _demo = _demo_snapshot(inst, op)
+    if _demo is not None:
+        return _demo
     try:
         return hypervisor_mod.LIFECYCLE[inst['type']][op](inst, _integration_client(inst), *args)
     except integrations_mod.IntegrationError as e:

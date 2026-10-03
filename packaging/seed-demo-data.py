@@ -3579,6 +3579,42 @@ _DEMO_INTEGRATIONS = [
     for (typ, label, url, status, detail, version, metrics) in _DEMO_INTEG_DEFS
 ]
 
+# v7.1.0: canned answers for the live reads a page makes against a platform
+# (api._demo_snapshot). The demo's hosts do not exist, so without these the
+# Virtualization guest list and the DNS blockers' status answered 502. Honoured
+# only in read-only demo mode, and only for GETs.
+_DEMO_VCENTER_VMS = [
+    {'id': f'vm-{n}', 'name': name, 'status': st, 'cpu': cpu, 'mem_mb': mem, 'host': host}
+    for n, (name, st, cpu, mem, host) in enumerate([
+        ('web-prod-01', 'running', 4, 8192, 'esx01.lab'),
+        ('web-prod-02', 'running', 4, 8192, 'esx02.lab'),
+        ('db-primary', 'running', 8, 32768, 'esx01.lab'),
+        ('db-replica', 'running', 8, 32768, 'esx03.lab'),
+        ('k8s-ctrl-01', 'running', 2, 4096, 'esx02.lab'),
+        ('k8s-node-01', 'running', 4, 16384, 'esx01.lab'),
+        ('k8s-node-02', 'running', 4, 16384, 'esx02.lab'),
+        ('k8s-node-03', 'running', 4, 16384, 'esx03.lab'),
+        ('build-runner', 'running', 8, 16384, 'esx03.lab'),
+        ('mail-gw', 'running', 2, 4096, 'esx02.lab'),
+        ('vpn-edge', 'running', 2, 2048, 'esx01.lab'),
+        ('legacy-erp', 'stopped', 4, 8192, 'esx03.lab'),
+        ('win-jump', 'suspended', 2, 8192, 'esx02.lab'),
+        ('test-sandbox', 'stopped', 2, 4096, 'esx01.lab'),
+    ], start=101)]
+_DEMO_SNAPSHOTS = {
+    'vcenter': {'list_vms': _DEMO_VCENTER_VMS,
+                'list_snapshots': [
+                    {'id': 'snap-1', 'name': 'before-upgrade',
+                     'description': 'Taken before the 8.0.3 patch run', 'created': '2026-09-28T21:04:00Z'},
+                    {'id': 'snap-2', 'name': 'weekly',
+                     'description': 'Scheduled weekly snapshot', 'created': '2026-10-01T02:00:00Z'}]},
+    'pihole': {'status': {'blocking': True, 'remaining': 0}},
+    'adguard': {'status': {'blocking': True, 'remaining': 0}},
+}
+for _inst in _DEMO_INTEGRATIONS:
+    if _inst['type'] in _DEMO_SNAPSHOTS:
+        _inst['demo_snapshot'] = _DEMO_SNAPSHOTS[_inst['type']]
+
 _DEMO_INTEG_RESULTS = {
     _stable_id('integration', typ, label): (status, detail, metrics, version)
     for (typ, label, url, status, detail, version, metrics) in _DEMO_INTEG_DEFS
