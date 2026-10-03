@@ -9162,13 +9162,16 @@ def _alert_email_ack_block(event, payload, cfg):
     single-capability (the HMAC is the auth)."""
     if not cfg.get('alert_email_ack_links'):
         return ''
-    try:
-        base = _request_base_url(os.environ)
-    except Exception:
+    # v7.1.0 (SECURITY): the links carry working ack/resolve signatures, so
+    # their address must never come from a request. It used to be this
+    # request's Host header — and alerts fire inside heartbeats, inbound
+    # webhooks, failed logins and sweeps that ride any incoming request, so a
+    # forged Host put a genuine email from this server in an operator's inbox
+    # linking to an attacker's site with a valid capability attached. The
+    # canonical public URL from Settings, or no links.
+    base = _public_base_url(cfg)
+    if not base:
         return ''
-    host = base.split('://', 1)[-1]
-    if not host or host.startswith('localhost'):
-        return ''      # no externally-reachable URL to link to
     aid = _find_open_alert_id(event, payload)
     if not aid:
         return ''
@@ -19778,6 +19781,14 @@ def _bp_public(bp):
     }
 
 
+def _public_base_url(cfg=None):
+    """The dashboard's public origin as the operator set it (Settings →
+    Notifications), or ''. Links that leave the server — signed alert actions,
+    survey links — are built from this, never from a request's Host header."""
+    cfg = _config_ro() if cfg is None else cfg
+    return str((cfg or {}).get('public_base_url') or '').strip().rstrip('/')
+
+
 def _request_base_url(environ=None):
     """`proto://host` for THIS request, correct under EVERY server model. The
     threaded WSGI worker keeps request CGI vars in the thread-local _RCTX, NOT in
@@ -27983,6 +27994,7 @@ def handle_config_get():
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
     safe.setdefault('portal_ticket_approval_required', False)   # master-improvement-scoping #84
     safe.setdefault('portal_base_url', '')          # W6-28 canonical portal URL (magic-link)
+    safe.setdefault('public_base_url', '')          # v7.1.0 canonical dashboard URL (email links)
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
@@ -30522,8 +30534,24 @@ def handle_config_save():
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
     # W1-21: append signed one-click ack/resolve links to alert emails.
+    # v7.1.0: the dashboard's public origin, for links in outgoing email. Only a
+    # well-formed http(s) origin is kept; anything else clears it.
+    if 'public_base_url' in body:
+        _pub = str(body.get('public_base_url') or '').strip()[:300]
+        if _pub:
+            _pu = urllib.parse.urlparse(_pub)
+            _pub = f'{_pu.scheme}://{_pu.netloc}' if _pu.scheme in ('http', 'https') and _pu.netloc else ''
+        cfg['public_base_url'] = _pub
     if 'alert_email_ack_links' in body:
         cfg['alert_email_ack_links'] = bool(body['alert_email_ack_links'])
+    # Turning the links on (or clearing the URL under them) needs the URL: the
+    # links carry working signatures and are never built from a request Host.
+    if (('alert_email_ack_links' in body or 'public_base_url' in body)
+            and cfg.get('alert_email_ack_links') and not _public_base_url(cfg)):
+        respond(400, {'error': 'Set the dashboard\'s public URL (Settings → Notifications) '
+                      'before adding Acknowledge / Resolve links to alert emails — the '
+                      'links are signed, and are never built from the address a request '
+                      'arrived on.'})
     # v4.1.0 (#56): when False, the UI hides the optional "comment" prompt on
     # ack. The backend always accepts an `ack_note` either way (this only
     # governs whether operators are prompted for one).

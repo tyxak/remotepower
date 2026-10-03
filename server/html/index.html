@@ -1871,7 +1871,10 @@
               </div>
               <div class="meta-sm">A scoped recipient list only receives events it can attribute to that slice. An event with no host and no site of its own — a fleet-wide monitor, a server-side sweep — will <strong>not</strong> be emailed to it. Leave on <em>the whole fleet</em> unless you route by site or team.</div>
             </div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-alert-ack-links"> Add one-click <strong>Acknowledge / Resolve</strong> links to alert emails</label><span class="hint">Signed, single-capability links so an operator can ack or resolve straight from the email — no login. Uses this request's server hostname for the link; leave off if the server isn't reachable at that address.</span></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-alert-ack-links"> Add one-click <strong>Acknowledge / Resolve</strong> links to alert emails</label><span class="hint">Signed, single-capability links so an operator can ack or resolve straight from the email — no login. Needs the dashboard's public URL below.</span></div>
+            <div class="settings-row"><label class="form-label" for="cfg-public-base-url">Dashboard public URL</label>
+              <input type="url" id="cfg-public-base-url" class="form-input mw-380" placeholder="https://remotepower.example.com" maxlength="300">
+              <span class="hint">The address operators open the dashboard at. Links in outgoing email use it, never the address a request arrived on. <a href="docs/webhooks.md" class="c-accent">Documentation</a></span></div>
 
             <div class="isl-38">
               <input type="email" id="cfg-smtp-test-recipient" class="form-input isl-39" placeholder="Send a test to (optional override)" aria-label="Send a test to (optional override)">

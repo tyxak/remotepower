@@ -5004,6 +5004,8 @@ async function loadSettings() {
   // W1-21: signed ack/resolve links in alert emails (default off)
   const _aal = document.getElementById('cfg-alert-ack-links');
   if (_aal) _aal.checked = !!data.alert_email_ack_links;
+  const _pubUrl = document.getElementById('cfg-public-base-url');   // v7.1.0
+  if (_pubUrl) _pubUrl.value = data.public_base_url || '';
 
   // v3.11.0: scheduled posture digest
   const _pde = document.getElementById('cfg-posture-digest-enabled');
@@ -5585,6 +5587,7 @@ async function saveSettings(btn) {
     ack_comment_enabled:       (document.getElementById('cfg-ack-comment-enabled') || {}).checked ?? true,
     // W1-21: signed ack/resolve links in alert emails (default off)
     alert_email_ack_links:     !!(document.getElementById('cfg-alert-ack-links') || {}).checked,
+    public_base_url:           ((document.getElementById('cfg-public-base-url') || {}).value || '').trim(),
 
     // v3.11.0: scheduled posture digest
     posture_digest_enabled:    (document.getElementById('cfg-posture-digest-enabled') || {}).checked || false,

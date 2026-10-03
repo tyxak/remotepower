@@ -769,7 +769,8 @@ def handle_ticket_update(tid):
     # W1-31: send the CSAT survey AFTER the tickets lock (SMTP + no nested lock).
     if csat_target:
         try:
-            _base = A._request_base_url(A.os.environ)
+            # The canonical URL when set; else this admin's own request.
+            _base = A._public_base_url() or A._request_base_url(A.os.environ)
             _send_ticket_csat(csat_target[0], csat_target[1], _base)
         except Exception as e:
             sys.stderr.write(f'[remotepower] CSAT dispatch failed: {e}\n')

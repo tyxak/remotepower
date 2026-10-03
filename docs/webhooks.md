@@ -201,9 +201,10 @@ Every successful POST is logged to `webhook_log.json` with the format suffix: `O
 
 ## One-click ack from alert emails
 
-Turn on **Settings → Notifications → Add one-click Acknowledge / Resolve links
-to alert emails** (`alert_email_ack_links`, default off) and every alert email
-gains two links:
+Set **Settings → Notifications → Dashboard public URL** (`public_base_url`) to
+the address operators open the dashboard at, then turn on **Add one-click
+Acknowledge / Resolve links to alert emails** (`alert_email_ack_links`, default
+off). Every alert email gains two links:
 
 ```
 Acknowledge: https://<server>/api/alerts/act?a=<id>&op=ack&s=<hmac>
@@ -215,8 +216,12 @@ operation — it is the capability, so clicking acks or resolves the alert with
 **no login**, from any device or network (the endpoint is exempt from the IP
 allowlist). The action is idempotent (clicking a link for an
 already-resolved alert just reports its state) and audit-logged as actor
-`email-link`. The link uses the server hostname from the request that sent the
-mail, so leave the toggle off if your server isn't reachable at that address.
+`email-link`, and a link expires after a while, so an old email cannot act on
+an alert raised again later.
+
+The links are built from the public URL you set, never from the address a
+request arrived on. Because they carry a working signature, RemotePower will
+not switch them on until that URL is set.
 
 ## Agent lifecycle events
 

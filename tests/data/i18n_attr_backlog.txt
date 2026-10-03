@@ -44,7 +44,6 @@ Get-Service | Where-Object Status -eq 'Stopped'
 Hi, we believe {ticket_id} is resolved…
 INBOX
 Linux
-Linux baseline, Web server pack…
 REMOVE KMIP
 RemotePower
 Slack, , PagerDuty
@@ -79,7 +78,6 @@ docker compose down
 docker compose pull + up -d
 docker compose up -d
 e.g. Use Terraform 1.5+ syntax · Mark all variables sensitive=true · Include comments explaining each resource · Wrap in a module
-e.g. web-server set
 error|critical|FATAL
 etc/hostname
 eth0 / ens18
@@ -101,6 +99,7 @@ https://idp.example.com/saml/sso
 https://ntfy.sh/your-topic
 https://portal.example.com
 https://raw.githubusercontent.com/org/repo/main/remotepower.json
+https://remotepower.example.com
 https://service.lan:port
 https://siem.example.com/ingest
 https://splunk.example.com:8088/services/collector
