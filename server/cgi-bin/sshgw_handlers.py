@@ -59,6 +59,7 @@ def bind(api_globals):
 
 
 import hmac
+import os
 import secrets
 import time
 import urllib.parse
@@ -71,10 +72,18 @@ STATE_CAP = 5000
 
 # ── shared checks ──────────────────────────────────────────────────────────────
 
+def _daemon_secret():
+    """The secret the gateway daemon must present. Settings wins; otherwise
+    RP_SSHGW_SECRET from the app server's environment (/etc/remotepower/api.env),
+    which is how install-server.sh --with-sshgw wires both sides without anyone
+    pasting it. Process-level deploy config, not request data."""
+    cfg = A._config_ro() or {}
+    return str(cfg.get('sshgw_daemon_secret') or os.environ.get('RP_SSHGW_SECRET', '') or '')
+
+
 def _require_daemon():
     """403 unless the request carries the gateway daemon's shared secret."""
-    cfg = A._config_ro() or {}
-    expected = str(cfg.get('sshgw_daemon_secret') or '')
+    expected = _daemon_secret()
     provided = A._env('HTTP_X_SSHGW_SECRET', '')
     if not expected or not provided or not hmac.compare_digest(expected, provided):
         A.respond(403, {'error': 'Daemon secret mismatch'})
@@ -274,7 +283,7 @@ def handle_sshgw_status():
         'enabled': A._module_on('sshgw'),
         'public_host': str(cfg.get('sshgw_public_host') or ''),
         'public_port': int(cfg.get('sshgw_public_port') or 2222),
-        'daemon_secret_set': bool(cfg.get('sshgw_daemon_secret')),
+        'daemon_secret_set': bool(_daemon_secret()),
         'username': actor,
         'can_connect': bool(rd.get('admin') or 'ssh' in rd.get('permissions', set())),
         'is_admin': bool(rd.get('admin')),

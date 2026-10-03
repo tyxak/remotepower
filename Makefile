@@ -335,7 +335,7 @@ format:
 # whatever its extension. client/remotepower-agent is left out on purpose: it is
 # byte-identical to client/remotepower-agent.py (test_agent_extensionless_
 # matches_py enforces that), so linting it twice only costs time.
-RUFF_F821_SRC := server/cgi-bin client server/flow server/syslog server/push \
+RUFF_F821_SRC := server/cgi-bin client server/flow server/syslog server/push server/sshgw \
                  server/kmip tools mcp tests packaging server/webterm \
                  packaging/remotepower-wg-apply server/remotepower-passwd \
                  server/cgi-bin/remotepower-tls-check
@@ -398,7 +398,7 @@ sdk:
 # scan — keep them in scope.
 BANDIT_SRC := server/cgi-bin client/remotepower-agent.py \
               client/remotepower-agent-win.py client/remotepower-agent-mac.py \
-              server/kmip server/syslog server/flow server/push
+              server/kmip server/syslog server/flow server/push server/sshgw
 # NOTE: tools/bandit-baseline.json is NOT a duplicate of .bandit-baseline.json.
 # This one is the MEDIUM+severity/confidence gate (-ll -ii, small file); the root
 # .bandit-baseline.json is the FULL unfiltered triage baseline used by the

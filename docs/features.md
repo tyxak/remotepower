@@ -244,6 +244,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Remote file manager | Browse/view/edit files through the agent — no SSH/SFTP; allowlisted roots, exec-gated, audited; reads survive quarantine; opt-in per server *(v3.6.0)*; **binary-safe download + upload** (base64, ≤8 MB, no-overwrite unless forced) *(v6.0.0)*; **folder-as-tar streaming download** for directories too large for the base64-blob channel *(v6.1.1)* |
 | Host user/key/firewall mgmt | Add/lock/unlock/delete users, add/revoke SSH keys, allow/deny ufw/firewalld ports from the drawer; exec-gated *(v3.6.0)* |
 | SSH links | Per-credential `ssh://user@host:port` + copy button; default SSH username *(v2.4.2)* |
+| SSH gateway | Reach opted-in Linux hosts with your own SSH client through one gateway (`ssh -J you@gw:2222 root@web01.rp`) — no inbound port, VPN or firewall rule on the host; the agent dials out. Public-key login with keys you register under **SSH gateway**; each channel checked against your role's `ssh` permission, scope and tenant; end-to-end encrypted to the host's own sshd; one audit record per session (who, key, source, host, duration, bytes). Opt-in module + per-device opt-in; `docs/sshgw.md` |
 
 ## Patching & packages
 

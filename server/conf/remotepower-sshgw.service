@@ -1,0 +1,75 @@
+# RemotePower SSH gateway. OPT-IN: install-server.sh installs it only with
+# --with-sshgw, because unlike every other sidecar it listens on a PUBLIC port.
+#
+# What it is: server/sshgw/remotepower-sshgw.py. Operators connect with a normal
+# SSH client (ProxyJump) on port 2222; opted-in Linux agents dial out to it over
+# the /api/sshgw/tunnel WebSocket; the gateway relays between the two. Every
+# login and channel is decided by the RemotePower API. See docs/sshgw.md.
+#
+# Manual install (install-server.sh --with-sshgw does all of this):
+#   pip3 install 'asyncssh>=2.14.2' 'websockets>=10'
+#   install -m0755 server/sshgw/remotepower-sshgw.py /usr/local/bin/remotepower-sshgw
+#   (umask 077; openssl rand -hex 32 > /etc/remotepower/sshgw-secret)
+#   echo "RP_SSHGW_SECRET=$(cat /etc/remotepower/sshgw-secret)" >> /etc/remotepower/api.env
+#   cp server/conf/remotepower-sshgw.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now remotepower-sshgw
+#   systemctl restart remotepower-wsgi          # picks up RP_SSHGW_SECRET
+# Then open TCP 2222 in the server's firewall and turn the module on in
+# Settings → Advanced → SSH gateway.
+
+[Unit]
+Description=RemotePower SSH gateway
+Documentation=file:///var/www/remotepower/cgi-bin/../sshgw/remotepower-sshgw.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# A throwaway user: the gateway reads no store and writes only its own host key.
+DynamicUser=yes
+StateDirectory=remotepower-sshgw
+StateDirectoryMode=0700
+# The shared secret reaches the daemon as a systemd credential, readable only by
+# this unit, rather than as a file the dynamic user would need to own.
+LoadCredential=sshgw-secret:/etc/remotepower/sshgw-secret
+Environment=SSHGW_SECRET_FILE=%d/sshgw-secret
+Environment=SSHGW_HOST_KEY=/var/lib/remotepower-sshgw/ssh_host_ed25519_key
+Environment=RP_CGI_BIN=/var/www/remotepower/cgi-bin
+# Optional overrides: SSHGW_SSH_PORT, SSHGW_PUBLIC_HOST, SSHGW_API_BASE.
+EnvironmentFile=-/etc/remotepower/sshgw.env
+ExecStart=/usr/local/bin/remotepower-sshgw --verbose
+Restart=always
+RestartSec=5s
+TimeoutStopSec=8
+
+# To listen on port 22 instead of 2222, also add:
+#   AmbientCapabilities=CAP_NET_BIND_SERVICE
+#   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-sshgw
+
+[Install]
+WantedBy=multi-user.target

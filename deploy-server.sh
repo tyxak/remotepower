@@ -209,6 +209,13 @@ if [[ -f /usr/local/bin/remotepower-push ]] \
     echo "      → /usr/local/bin/remotepower-push"
 fi
 
+# SSH gateway binary — refreshed only where it was installed (it is opt-in).
+if [[ -f /usr/local/bin/remotepower-sshgw ]]; then
+    info "Deploying the SSH gateway binary..."
+    install -m 755 "$SCRIPT_DIR/server/sshgw/remotepower-sshgw.py" /usr/local/bin/remotepower-sshgw
+    echo "      → /usr/local/bin/remotepower-sshgw"
+fi
+
 # Refresh the shipped nginx locations snippet (push/webterm routes) IF this box
 # uses it — a hand-maintained vhost that doesn't include the snippet is left
 # untouched. Add the $connection_upgrade map to conf.d only if none exists.
@@ -275,7 +282,7 @@ fi
 # own — restart any that are running so the redeploy actually takes effect.
 # remotepower-push is included: its binary was just redeployed above, so a
 # running daemon must restart to pick it up (and its unit refreshes too).
-for _svc in remotepower-wsgi remotepower-scheduler remotepower-push; do
+for _svc in remotepower-wsgi remotepower-scheduler remotepower-push remotepower-sshgw; do
     _src="$SCRIPT_DIR/server/conf/${_svc}.service"
     _dst="/etc/systemd/system/${_svc}.service"
     if [[ -f "$_src" && -f "$_dst" ]]; then

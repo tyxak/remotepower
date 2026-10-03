@@ -22,6 +22,7 @@ WITH_SCHEDULER="${RP_WITH_SCHEDULER:-1}" # 1 → out-of-band maintenance schedul
 WITH_POSTGRES="${RP_WITH_POSTGRES:-1}"   # 1 → provision a PostgreSQL backend
 WITH_SCANNER="${RP_WITH_SCANNER:-1}"     # 1 → install a co-located scanner satellite
 WITH_PUSH="${RP_WITH_PUSH:-1}"           # 1 → install the agent push (wake-nudge) daemon
+WITH_SSHGW="${RP_WITH_SSHGW:-0}"         # 1 → install the SSH gateway (public port; opt-in)
 # Opt-IN sidecars (default 0). These listen on the network for THIRD-PARTY
 # devices, so they only exist when the operator asks for them — no install
 # should open a port nobody requested. Previously these had no installer path
@@ -51,6 +52,8 @@ Usage: sudo bash install-server.sh [options]
   --with-push             Install the agent push (wake-nudge) daemon so the
                         push channel is a single Settings toggle (default)
   --no-push               Opt out — don't install remotepower-push
+  --with-sshgw            Install the SSH gateway (listens on public TCP 2222;
+                          off by default — see docs/sshgw.md)
   --with-syslogd        Install the agentless syslog receiver on udp/5514
                         (off by default — it opens a listening port)
   --with-flowd          Install the agentless NetFlow/IPFIX receiver on
@@ -77,6 +80,8 @@ while [[ $# -gt 0 ]]; do
     --no-scanner)     WITH_SCANNER=0 ;;
     --with-push)      WITH_PUSH=1 ;;
     --no-push)        WITH_PUSH=0 ;;
+    --with-sshgw)     WITH_SSHGW=1 ;;
+    --no-sshgw)       WITH_SSHGW=0 ;;
     --with-syslogd)   WITH_SYSLOGD=1 ;;
     --no-syslogd)     WITH_SYSLOGD=0 ;;
     --with-flowd)     WITH_FLOWD=1 ;;
@@ -758,6 +763,52 @@ if [[ "$WITH_PUSH" == "1" ]]; then
     info "  Turn the channel ON later in Settings → Advanced → agent push channel (push_enabled)."
 fi
 
+# ── SSH gateway (opt-in: --with-sshgw) ─────────────────────────────────────────
+# The one sidecar that listens on a PUBLIC port, so it is never installed by
+# default. Generates the daemon <-> API secret once and gives it to both sides:
+# the daemon as a systemd credential, the app server as RP_SSHGW_SECRET in
+# api.env. Nobody has to paste it anywhere. See docs/sshgw.md.
+if [[ "$WITH_SSHGW" == "1" ]]; then
+    info "Installing the SSH gateway..."
+    if ! python3 -c "import asyncssh, websockets" 2>/dev/null; then
+        case $PKG_MGR in
+          apt)    pip3 install 'asyncssh>=2.14.2' websockets --break-system-packages 2>/dev/null \
+                    || pip3 install 'asyncssh>=2.14.2' websockets || true ;;
+          *)      pip3 install 'asyncssh>=2.14.2' websockets || true ;;
+        esac
+    fi
+    if ! python3 -c "import asyncssh, websockets" 2>/dev/null; then
+        warn "asyncssh/websockets unavailable — skipping the SSH gateway."
+        warn "  Install them (pip3 install 'asyncssh>=2.14.2' websockets) and re-run with --with-sshgw."
+        WITH_SSHGW=0
+    fi
+fi
+if [[ "$WITH_SSHGW" == "1" ]]; then
+    install -m 0755 "$SCRIPT_DIR/server/sshgw/remotepower-sshgw.py" /usr/local/bin/remotepower-sshgw
+    install -d -m 755 /etc/remotepower
+    if [[ ! -s /etc/remotepower/sshgw-secret ]]; then
+        ( umask 077; openssl rand -hex 32 > /etc/remotepower/sshgw-secret )
+    fi
+    chmod 600 /etc/remotepower/sshgw-secret
+    touch /etc/remotepower/api.env && chmod 600 /etc/remotepower/api.env
+    if ! grep -q '^RP_SSHGW_SECRET=' /etc/remotepower/api.env; then
+        ( umask 077; printf 'RP_SSHGW_SECRET=%s\n' "$(cat /etc/remotepower/sshgw-secret)" \
+            >> /etc/remotepower/api.env )
+    fi
+    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-sshgw.service" \
+        /etc/systemd/system/remotepower-sshgw.service
+    systemctl daemon-reload
+    systemctl restart remotepower-wsgi 2>/dev/null || true
+    if systemctl enable --now remotepower-sshgw; then
+        success "SSH gateway installed (remotepower-sshgw, SSH on :2222)"
+        info "  1. Open TCP 2222 in this server's firewall."
+        info "  2. Settings → Advanced → turn on the SSH gateway module."
+        info "  3. SSH gateway page: set the public hostname, opt devices in, add your key."
+    else
+        warn "Could not start remotepower-sshgw — check: systemctl status remotepower-sshgw"
+    fi
+fi
+
 # ── Optional ingest receivers + KMIP key server (all opt-IN) ──────────────────
 # These listen for THIRD-PARTY devices, so none is installed unless asked for:
 # an install should never open a port the operator didn't request. Their units
@@ -875,7 +926,7 @@ echo "             (add / change / delete users and list accounts)"
 echo ""
 echo "  Control:   rp status | rp doctor | rp restart | rp logs   (omd-style CLI)"
 echo ""
-echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}  push=${WITH_PUSH}"
+echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}  push=${WITH_PUSH}  sshgw=${WITH_SSHGW}"
 echo "  Optional:  syslogd=${WITH_SYSLOGD}  flowd=${WITH_FLOWD}  kmip=${WITH_KMIP}"
 echo ""
 echo "  Next: Install the client on each machine you want to control:"

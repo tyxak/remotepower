@@ -187,6 +187,9 @@ holds long-form docs that don't fit there.
  and encrypted control-plane disaster recovery.
 - **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
  manager, and host user / SSH-key / firewall management from the drawer.
+- **[sshgw.md](sshgw.md)** — SSH gateway: reach hosts with your own SSH client
+ through one gateway, with no inbound port on the host, public-key login and a
+ per-session audit trail.
 - **[sso.md](sso.md)** — Single sign-on & directory integration: OIDC, SAML 2.0
  and LDAP/LDAPS sign-in, the shared IdP group→role mapping, SCIM provisioning /
  deactivation, and SSO-only mode with break-glass local login.
