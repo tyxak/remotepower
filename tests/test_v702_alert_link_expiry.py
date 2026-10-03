@@ -89,6 +89,7 @@ class TestTheEndpointEnforcesIt(unittest.TestCase):
         for n, v in self._saved.items():
             setattr(api, n, v)
         api._public_action_page = self._page
+        api._RCTX.environ = None   # set by _act(); never leave it to the next module
 
     def _act(self, aid='al1', op='ack', exp=None, sig=None):
         now = int(time.time())

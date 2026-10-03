@@ -119,6 +119,23 @@ def _api_guard_names(api):
     return names
 
 
+def _clear_request_context(api):
+    """v7.1.0: the per-request thread-local is shared state too.
+
+    api._env() reads `_RCTX.environ` BEFORE os.environ whenever it is set, and
+    a dozen handler tests set it to drive a request without clearing it. The
+    request-env guard above restores os.environ, which _env() then never
+    consults: test_v342_bind_fixes saw a leaked REQUEST_METHOD and answered
+    405 only when it ran after test_v702_binding in the same process.
+    """
+    rctx = getattr(api, "_RCTX", None)
+    if rctx is not None and getattr(rctx, "environ", None) is not None:
+        try:
+            rctx.environ = None
+        except Exception:
+            pass
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _api_shared_state_guard():
     api = sys.modules.get("api")
@@ -144,6 +161,7 @@ def _api_shared_state_guard():
             api._BACKEND_CACHE = None
         except Exception:
             pass
+    _clear_request_context(api)
     yield
     for n, v in snap.items():
         try:
@@ -160,3 +178,4 @@ def _api_shared_state_guard():
             api._BACKEND_CACHE = None
         except Exception:
             pass
+    _clear_request_context(api)

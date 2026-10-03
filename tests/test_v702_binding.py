@@ -104,6 +104,7 @@ class _Base(unittest.TestCase):
         api._LOAD_CACHE.clear()
 
     def tearDown(self):
+        api._RCTX.environ = None   # set by call(); never leave it to the next module
         api._fleet_checks_cache_file = self._saved_cache_file
         for a, v in self._saved.items():
             setattr(api, a, v)

@@ -97,6 +97,10 @@ class _ApiBase(unittest.TestCase):
         api.fire_webhook = lambda *a, **k: None
         api.get_token_from_request = lambda: "t"
         api.verify_token = lambda t: ("admin", "admin")
+        # These tests drive the CGI path through os.environ, and api._env()
+        # prefers a WSGI request context when one is set — a sibling module
+        # that left one behind turned this GET into a 405.
+        api._RCTX.environ = None
         api._LOAD_CACHE.clear()
 
     def tearDown(self):
