@@ -705,6 +705,217 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
         log.debug(f'push listener thread exiting: {e}')
 
 
+# SSH gateway tunnel (server/sshgw/remotepower-sshgw.py). When the server
+# advertises `sshgw_enabled`, this agent keeps ONE outbound WebSocket open to the
+# gateway and relays SSH streams from it to the local sshd. Nothing on this host
+# listens on the network for it, and the operator's SSH session stays encrypted
+# end to end with the local sshd, which still decides who may log in.
+#
+# What the gateway can make this agent do is deliberately narrow: open a TCP
+# connection to THIS host's sshd on loopback, and pass bytes. The port comes from
+# this host (RP_SSHGW_PORT, default 22), never from the gateway, so the tunnel
+# cannot be turned into a way to reach other ports or other machines on the LAN.
+#
+# Off on the host side, whatever the server says, when:
+#   * /etc/remotepower/sshgw-disabled exists (the host owner's kill switch),
+#   * audit (read-only) mode is on, or
+#   * the agent runs in a container (its loopback is not the host's sshd).
+#
+# Frame format — keep in step with server/cgi-bin/sshgw.py (a test pins them).
+_SSHGW_FRAME_OPEN = 1
+_SSHGW_FRAME_OPEN_OK = 2
+_SSHGW_FRAME_OPEN_FAIL = 3
+_SSHGW_FRAME_DATA = 4
+_SSHGW_FRAME_CLOSE = 5
+_SSHGW_FRAME_PAUSE = 6
+_SSHGW_FRAME_RESUME = 7
+_SSHGW_MAX_PAYLOAD = 64 * 1024
+_SSHGW_MAX_STREAMS = 64
+SSHGW_DISABLED_FILE = CONF_DIR / 'sshgw-disabled'
+
+
+def _sshgw_local_port():
+    try:
+        port = int(os.environ.get('RP_SSHGW_PORT', '') or 22)
+    except ValueError:
+        return 22
+    return port if 0 < port < 65536 else 22
+
+
+def _sshgw_blocked_locally():
+    """Reason this host refuses the gateway tunnel, or '' when it may run."""
+    try:
+        if SSHGW_DISABLED_FILE.exists():
+            return f'{SSHGW_DISABLED_FILE} exists'
+    except OSError:
+        pass
+    if _audit_mode():
+        return 'audit (read-only) mode is on'
+    if IN_CONTAINER:
+        return 'the agent runs in a container'
+    return ''
+
+
+async def _sshgw_serve(ws, stop_event, port, connect=None):
+    """Relay gateway streams over one connected WebSocket until it closes or
+    stop_event is set. `connect` is injectable for tests; by default it opens
+    loopback TCP to the local sshd."""
+    import struct as _struct
+    hdr = _struct.Struct('>BI')
+    if connect is None:
+        async def connect():
+            try:
+                return await asyncio.open_connection('127.0.0.1', port)
+            except OSError:
+                return await asyncio.open_connection('::1', port)
+    streams = {}       # sid -> [reader, writer, resume_event, pump_task]
+    send_lock = asyncio.Lock()
+
+    async def send(kind, sid, payload=b''):
+        async with send_lock:
+            await ws.send(hdr.pack(kind, sid) + payload)
+
+    def drop(sid):
+        st = streams.pop(sid, None)
+        if st is None:
+            return False
+        try:
+            st[1].close()
+        except Exception:
+            pass
+        if st[3] is not None and st[3] is not asyncio.current_task():
+            st[3].cancel()
+        return True
+
+    async def pump(sid, reader, resume):
+        try:
+            while True:
+                await resume.wait()
+                data = await reader.read(32 * 1024)
+                if not data:
+                    break
+                await send(_SSHGW_FRAME_DATA, sid, data)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            log.debug(f'sshgw: stream {sid} read: {e}')
+        if drop(sid):
+            try:
+                await send(_SSHGW_FRAME_CLOSE, sid)
+            except Exception:
+                pass
+
+    async def open_stream(sid):
+        if len(streams) >= _SSHGW_MAX_STREAMS:
+            await send(_SSHGW_FRAME_OPEN_FAIL, sid, b'too many streams on this host')
+            return
+        try:
+            reader, writer = await asyncio.wait_for(connect(), 5)
+        except Exception:
+            await send(_SSHGW_FRAME_OPEN_FAIL, sid,
+                       f'sshd is not reachable on local port {port}'.encode())
+            return
+        resume = asyncio.Event()
+        resume.set()
+        streams[sid] = [reader, writer, resume, None]
+        await send(_SSHGW_FRAME_OPEN_OK, sid)
+        streams[sid][3] = asyncio.ensure_future(pump(sid, reader, resume))
+
+    async def watch_stop():
+        while not stop_event.is_set():
+            await asyncio.sleep(1)
+        await ws.close()
+
+    watcher = asyncio.ensure_future(watch_stop())
+    openers = set()
+    try:
+        async for msg in ws:
+            if isinstance(msg, str) or len(msg) < hdr.size \
+                    or len(msg) > hdr.size + _SSHGW_MAX_PAYLOAD:
+                continue
+            kind, sid = hdr.unpack_from(msg, 0)
+            if sid == 0:
+                continue
+            payload = msg[hdr.size:]
+            if kind == _SSHGW_FRAME_OPEN:
+                # The OPEN payload is ignored on purpose: the port is ours.
+                if sid not in streams:
+                    t = asyncio.ensure_future(open_stream(sid))
+                    openers.add(t)
+                    t.add_done_callback(openers.discard)
+            elif kind == _SSHGW_FRAME_DATA:
+                st = streams.get(sid)
+                if st is None:
+                    continue
+                try:
+                    st[1].write(payload)
+                    await st[1].drain()
+                except Exception:
+                    if drop(sid):
+                        await send(_SSHGW_FRAME_CLOSE, sid)
+            elif kind == _SSHGW_FRAME_CLOSE:
+                drop(sid)
+            elif kind == _SSHGW_FRAME_PAUSE:
+                st = streams.get(sid)
+                if st is not None:
+                    st[2].clear()
+            elif kind == _SSHGW_FRAME_RESUME:
+                st = streams.get(sid)
+                if st is not None:
+                    st[2].set()
+    finally:
+        watcher.cancel()
+        for t in list(openers):
+            t.cancel()
+        for sid in list(streams):
+            drop(sid)
+
+
+def _sshgw_tunnel_thread(server_url, dev_id, token, stop_event):
+    """Background thread: keep the gateway tunnel connected until stop_event is
+    set. Never raises; any failure means "no tunnel for now, retry later"."""
+    if not _PUSH_AVAILABLE:
+        return
+    host_and_path = _strip_url_scheme(server_url)
+    _secure = not server_url.lower().startswith('http://')
+    url = (f'{"wss" if _secure else "ws"}://{host_and_path}/api/sshgw/tunnel'
+           f'?device_id={urlparse.quote(dev_id, safe="")}')
+    port = _sshgw_local_port()
+
+    async def _run():
+        backoff = 5
+        while not stop_event.is_set():
+            why = _sshgw_blocked_locally()
+            if why:
+                log.info(f'sshgw: tunnel not started: {why}')
+                return
+            try:
+                kw = dict(ping_interval=20, ping_timeout=20, open_timeout=10,
+                          ssl=(_SSL_CTX if _secure else None),
+                          max_size=5 + _SSHGW_MAX_PAYLOAD)
+                kw[_WS_HEADER_KW] = {'X-RP-Sshgw-Token': token}
+                async with websockets.connect(url, **kw) as ws:
+                    backoff = 5
+                    log.info('sshgw: tunnel connected')
+                    await _sshgw_serve(ws, stop_event, port)
+            except Exception as e:
+                log.debug(f'sshgw: tunnel: {type(e).__name__}: {e}')
+            if stop_event.is_set():
+                break
+            # Sleep in short steps so turning the gateway off is prompt.
+            for _ in range(backoff):
+                if stop_event.is_set():
+                    break
+                await asyncio.sleep(1)
+            backoff = min(backoff * 2, 60)
+        log.info('sshgw: tunnel stopped')
+
+    try:
+        asyncio.run(_run())
+    except Exception as e:
+        log.debug(f'sshgw tunnel thread exiting: {e}')
+
+
 def _strip_url_scheme(url: str) -> str:
     """Remove a leading http:// or https:// scheme from a URL.
 
@@ -10990,6 +11201,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     _push_wake_event = threading.Event()
     _push_stop_event = threading.Event()
     _push_thread_started = False
+    # SSH gateway tunnel: unlike push, it STOPS when the server stops
+    # advertising it, so opting a device out closes the path promptly.
+    _sshgw_stop_event = None
 
     # v2.7.0: log source expansion state
     _auto_watch_detected = detect_auto_watch_units()
@@ -11912,6 +12126,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     args=(server, dev_id, token, _push_wake_event, _push_stop_event),
                     daemon=True, name='push-listener').start()
                 log.info('push channel: listener thread started')
+            if resp.get('sshgw_enabled') and _PUSH_AVAILABLE:
+                if _sshgw_stop_event is None:
+                    _sshgw_stop_event = threading.Event()
+                    threading.Thread(
+                        target=_sshgw_tunnel_thread,
+                        args=(server, dev_id, token, _sshgw_stop_event),
+                        daemon=True, name='sshgw-tunnel').start()
+                    log.info('sshgw: tunnel thread started')
+            elif _sshgw_stop_event is not None:
+                _sshgw_stop_event.set()
+                _sshgw_stop_event = None
+                log.info('sshgw: gateway turned off by the server; closing tunnel')
             # W3-19: live high-res view — when armed, burst 1 s metric samples
             # for a bounded window so the operator's Live tab updates in near
             # real time. Bounded (≤30 iterations) so command processing resumes
