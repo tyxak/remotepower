@@ -75,6 +75,16 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
         cls._browser.close()
         cls._pw.stop()
 
+    @staticmethod
+    def _with_entries(lines):
+        """i18n.js with extra DICT entries injected, so a test does not depend on which real entries exist."""
+        src = _I18N.read_text(encoding='utf-8')
+        marker = 'var DICT = {\n'
+        assert src.count(marker) == 1, 'the DICT opening line changed; update this test with it'
+        patched = src.replace(marker, marker + lines)
+        assert lines in patched
+        return patched
+
     def _page(self, key):
         page = self._browser.new_page()
         page.set_content('<body><p id="t"><code>x</code> %s</p></body>' % key.replace('&', '&amp;').replace('<', '&lt;'))
@@ -118,11 +128,7 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
         ("。" in Chinese, "।" in Hindi) was shorter than the two-character minimum and stayed translated
         after the page went back to English. A sentinel entry is injected so the test does not depend on
         which real entries happen to be one character long."""
-        src = _I18N.read_text(encoding='utf-8')
-        marker = 'var DICT = {\n'
-        self.assertEqual(src.count(marker), 1, 'the DICT opening line changed; update this test with it')
-        patched = src.replace(marker, marker + '    "Sentinel one-char": { "zh": "。", "hi": "।", "es": ".", "ar": ".", "de": ".", "fr": "." },\n')
-        self.assertIn('Sentinel one-char', patched)
+        patched = self._with_entries('    "Sentinel one-char": { "zh": "。", "hi": "।", "es": ".", "ar": ".", "de": ".", "fr": "." },\n')
         page = self._browser.new_page()
         try:
             page.set_content('<body><p id="t"><code>x</code> Sentinel one-char</p></body>')
@@ -131,6 +137,28 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
             self.assertEqual(page.evaluate("() => document.getElementById('t').textContent"), 'x。')
             page.evaluate('l => RPi18n.setLang(l, false)', 'en')
             self.assertEqual(page.evaluate("() => document.getElementById('t').textContent"), 'x Sentinel one-char')
+        finally:
+            page.close()
+
+    def test_french_sets_a_space_before_a_semicolon_that_follows_markup_directly(self):
+        """"</strong>; off means" has no space in English, but French sets one before ; : ! ? whatever precedes
+        them, so the engine supplies a non-breaking space when the node itself had none. German must not get
+        one, and a literal marker such as "!HSTS" is not punctuation and must stay glued."""
+        patched = self._with_entries(
+            '    "; Sentinel glued semicolon": { "fr": "; arrêt", "de": "; Halt", "es": "; parada", "zh": "；停止", "hi": "; रुकें", "ar": "؛ توقف" },\n'
+            '    "!Sentinel marker": { "fr": "!Marqueur", "de": "!Marker", "es": "!Marcador", "zh": "!标记", "hi": "!चिह्न", "ar": "!علامة" },\n')
+        page = self._browser.new_page()
+        try:
+            page.set_content('<body><p id="t"><strong>x</strong>; Sentinel glued semicolon</p>'
+                             '<p id="m"><strong>x</strong>!Sentinel marker</p></body>')
+            page.add_script_tag(content=patched)
+            text = "() => [document.getElementById('t').textContent, document.getElementById('m').textContent]"
+            page.evaluate('l => RPi18n.setLang(l, false)', 'fr')
+            self.assertEqual(page.evaluate(text), ['x\u00a0; arrêt', 'x!Marqueur'])
+            page.evaluate('l => RPi18n.setLang(l, false)', 'de')
+            self.assertEqual(page.evaluate(text), ['x; Halt', 'x!Marker'])
+            page.evaluate('l => RPi18n.setLang(l, false)', 'en')
+            self.assertEqual(page.evaluate(text), ['x; Sentinel glued semicolon', 'x!Sentinel marker'])
         finally:
             page.close()
 
