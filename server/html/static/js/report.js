@@ -99,7 +99,7 @@
         return (v > 0 ? '+' : '') + v + (suffix || '');
       };
       html += '<h2>Last ' + esc(String(per.days || 30)) + ' days</h2>'
-        + '<table><tbody>'
+        + '<table data-rows="print"><tbody>'
         + '<tr><td>Alerts opened</td><td>' + (per.alerts_opened || 0) + '</td></tr>'
         + '<tr><td>Alerts resolved</td><td>' + (per.alerts_resolved || 0) + '</td></tr>'
         + '<tr><td>Median time to resolve</td><td>' + esc(dur(per.mttr_median)) + '</td></tr>'
@@ -118,7 +118,7 @@
     // dropped them.
     const sla = rep.sla || null;
     if (sla && sla.fleet_uptime_pct != null) {
-      html += '<h2>Fleet uptime</h2><table><tbody>'
+      html += '<h2>Fleet uptime</h2><table data-rows="print"><tbody>'
         + '<tr><td>Measured over</td><td>' + esc(String(sla.days || 30))
         + ' days</td></tr>'
         + '<tr><td>Fleet uptime</td><td>' + esc(String(sla.fleet_uptime_pct))
@@ -129,7 +129,7 @@
     // and printing 0% would read as a total outage.
     const att = rep.attention || null;
     if (att && (att.critical != null || att.warning != null || att.info != null)) {
-      html += '<h2>Needs attention</h2><table><tbody>'
+      html += '<h2>Needs attention</h2><table data-rows="print"><tbody>'
         + '<tr><td>Critical</td><td class="' + ((att.critical || 0) ? 'bad' : 'ok')
         + '">' + (att.critical || 0) + '</td></tr>'
         + '<tr><td>Warning</td><td>' + (att.warning || 0) + '</td></tr>'
@@ -147,7 +147,7 @@
       ['Disk encryption off', pos.encryption_off, pos.encryption_off_count, pos.encryption_reporting],
     ].filter(function (r) { return (r[3] || 0) > 0; });
     if (posRows.length) {
-      html += '<h2>Host security posture</h2><table><thead><tr><th>Finding</th>'
+      html += '<h2>Host security posture</h2><table data-rows="print"><thead><tr><th>Finding</th>'
         + '<th>Affected / reporting</th><th>For example</th></tr></thead><tbody>'
         + posRows.map(function (r) {
             const n = r[2] || 0, rep_n = r[3] || 0;
@@ -174,14 +174,14 @@
         ['Distinct gateway users', th.gw_users, 0],
         ['Distinct hosts reached', th.gw_hosts, 0],
       ];
-      html += '<h2>Threats and remote access</h2><table><tbody>'
+      html += '<h2>Threats and remote access</h2><table data-rows="print"><tbody>'
         + thRows.map(function (r) {
             return '<tr><td>' + esc(r[0]) + '</td><td class="' + ((r[2] || 0) ? 'bad' : '')
               + '">' + esc(String(r[1] || 0)) + '</td></tr>';
           }).join('')
         + '</tbody></table>';
       if (Array.isArray(th.top_hosts) && th.top_hosts.length) {
-        html += '<table><thead><tr><th>Most attacked host</th><th>Sources</th>'
+        html += '<table data-rows="print"><thead><tr><th>Most attacked host</th><th>Sources</th>'
           + '<th>Known-abusive</th></tr></thead><tbody>'
           + th.top_hosts.map(function (t) {
               return '<tr><td>' + esc(t.device) + '</td><td>' + esc(String(t.attackers || 0))
@@ -193,7 +193,7 @@
     }
     const fwKeys = Object.keys(fws);
     if (fwKeys.length) {
-      html += '<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'
+      html += '<h2>Compliance frameworks</h2><table data-rows="print"><thead><tr><th>Framework</th>'
         + '<th>Score</th></tr></thead><tbody>'
         + fwKeys.map(function (fw) {
             const s = fws[fw].score;
@@ -205,7 +205,7 @@
     if (baseline && Array.isArray(baseline.checks)) {
       html += '<h2>Configuration baseline'
         + (baseline.score != null ? ' — ' + baseline.score + '%' : '') + '</h2>'
-        + '<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th>'
+        + '<table data-rows="print"><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th>'
         + '<th>N/A</th></tr></thead><tbody>'
         + baseline.checks.map(function (ch) {
             const pa = ch.pass || 0, fa = ch.fail || 0;

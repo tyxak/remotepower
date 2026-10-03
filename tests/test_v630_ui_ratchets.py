@@ -45,35 +45,29 @@ _CAP_MARKERS = re.compile(
     r"|md-table-wrap"
     r"|sticky-head-scroll")
 
-# v6.4.3: the ratchet above reads ONLY index.html, so the 146 tables built in
-# JS template literals had no structural guard at all — and that is where the
-# variable-row tables actually live (a static table in this app is usually a
-# fixed settings/about grid). Same rule, applied to the place it matters more.
-# 29 is the measured current state, not a target: 24 of them are fixed
-# key/value tables in app-self.js and report.js, which is why this is a ceiling
-# rather than an assertEqual(0).
-# 30 -> 29 (v7.0.2): one of the thirty was a `<table>` written in a COMMENT
-# (app-self.js:973, the note recording that a bare table was capped). See
-# _js_srcs() — the ratchet used to read raw source.
+# The static ratchet above reads only index.html, but the variable-row tables
+# live in JS template literals (146 of them at v6.4.3), so this one reads every
+# client module.
 #
-# 29 -> 31 (v7.0.3), and this is the only direction this number should ever move
-# with a reason attached. Two tables were added to report.js: fleet uptime (two
-# rows) and needs-attention (three rows). Both are FIXED key/value tables in a
-# document that gets PRINTED — a scroll container in a PDF is a strictly worse
-# outcome than the thing it guards against, and report.js already accounts for
-# four of the existing twenty-nine on exactly that basis ("24 of them are fixed
-# key/value tables in app-self.js and report.js, which is why this is a ceiling
-# rather than an assertEqual(0)").
+# The count used to be a baseline of 33 bare tables. That number could not say
+# WHICH 33 were fine, so every new fixed table raised it (29 -> 31 -> 33) and
+# every raise left headroom a real uncapped table could hide in. Measured at
+# v7.1.0, none of the 33 needed a cap:
+#   - 13 in app-self.js, 5 SNMP vendor blocks, the update check, the OIDC
+#     discovery result, the AI debug panel: key/value tables of 2-8 rows;
+#   - 8 in report.js, fleet-query.js and printPatchReport: printed documents,
+#     where a scroll container would cut the page off in the PDF.
+# (The one that did need a cap was the keyboard-shortcuts sheet, which had no
+# max-height and ran off short screens; it is wrapped in scrollable-table-wrap.)
 #
-# The sections themselves are not new work for its own sake: both were
-# selectable in the custom report builder and computed by the server, and this
-# renderer printed neither.
-#
-# 31 -> 33 (v7.1.0), on the same basis: report.js gained the "Threats and
-# remote access" section — a six-row key/value summary and a most-attacked-hosts
-# table the server cuts to five rows (reports_handlers._threats_section). Both
-# are fixed-size and both are printed.
-UNCAPPED_JS_BASELINE = 33
+# So a table that is deliberately uncapped now says so at the site:
+#   data-rows="fixed"  a handful of key/value rows, bounded by construction
+#   data-rows="print"  rendered into a document that is printed or exported
+# and the ceiling is zero. test_v643_box_overflow_rendered checks the claim
+# from the other side: a "fixed" table that renders more than 15 rows fails.
+UNCAPPED_JS_BASELINE = 0
+_DECLARED_ROWS = re.compile(r'<table\b[^>]{0,240}?\bdata-rows="(fixed|print)"')
+_ANY_DECLARATION = re.compile(r'\bdata-rows="([^"]*)"')
 
 
 def _blank_js_comments(src):
@@ -258,10 +252,13 @@ class TestBoxOverflowRatchet(unittest.TestCase):
         invoice line-items table was the lone bare one of six in
         app-billing.js — its own file's majority set the target."""
         viol = []
-        seen = 0
+        seen = declared = 0
         for name, src in _js_srcs().items():
             for m in re.finditer(r"<table\b", src):
                 seen += 1
+                if _DECLARED_ROWS.match(src, m.start()):
+                    declared += 1
+                    continue
                 if not _CAP_MARKERS.search(src[max(0, m.start() - 400):m.start()]):
                     viol.append(f"{name}:{src.count(chr(10), 0, m.start()) + 1}")
         # Non-emptiness control: the comment blanker is a hand-written scanner,
@@ -279,6 +276,23 @@ class TestBoxOverflowRatchet(unittest.TestCase):
             UNCAPPED_JS_BASELINE - len(viol), 2,
             f"baseline ({UNCAPPED_JS_BASELINE}) is above the real count "
             f"({len(viol)}) — lower it to {len(viol)}")
+        # Control: the declaration scan must see the declared tables, or a
+        # broken regex would turn every one of them back into a violation (or,
+        # worse, let the ratchet pass over an empty population).
+        self.assertGreater(
+            declared, 20,
+            "found %d data-rows declarations, expected more than 20 — the "
+            "declaration pattern no longer matches the markup" % declared)
+
+    def test_a_declaration_is_fixed_or_print_and_nothing_else(self):
+        """data-rows is a claim, not a free-text note: only the two values the
+        rendered check and the ratchet understand are allowed."""
+        bad = []
+        for name, src in _js_srcs().items():
+            for m in _ANY_DECLARATION.finditer(src):
+                if m.group(1) not in ("fixed", "print"):
+                    bad.append(f"{name}: data-rows={m.group(1)!r}")
+        self.assertEqual(bad, [], bad)
 
 
 if __name__ == "__main__":

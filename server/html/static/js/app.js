@@ -4693,7 +4693,7 @@ async function loadUpdatePanel() {
   st.innerHTML = '<div class="c-muted">Checking…</div>';
   const v = await api('GET', '/version').catch(() => null);
   if (!v) { st.innerHTML = '<div class="c-red">Could not check for updates.</div>'; return; }
-  st.innerHTML = `<table class="fs-13">
+  st.innerHTML = `<table data-rows="fixed" class="fs-13">
     <tr><td class="c-muted-padded">Running</td><td class="ff-mono">${escHtml(v.current || '—')}</td></tr>
     <tr><td class="c-muted-padded">Latest</td><td class="ff-mono">${escHtml(v.latest || '—')} ${
       v.update_available
@@ -11854,7 +11854,7 @@ function exportPatchPdf() {
       <div class="pr-card"><div class="pr-k">Patched</div><div class="pr-v">${pct}%</div></div>
     </div>
     <h2>Devices</h2>
-    <table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Manager</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No devices match the current filter.</td></tr>'}</tbody></table>
+    <table data-rows="print"><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Manager</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No devices match the current filter.</td></tr>'}</tbody></table>
     <div class="pr-foot">RemotePower patch report — ${escHtml(scope)}</div>`;
   toast('Opening the print dialog — choose "Save as PDF"', 'info');
   // Let the injected DOM paint before printing (matches printFleetReport's note),
@@ -14921,7 +14921,7 @@ async function testOidcConfig() {
   const warns = (r.warnings || []).map(w => `<li>${_escapeHtml(w)}</li>`).join('');
   out.innerHTML =
     `<div class="sev-pill sev-success">ok</div> Discovery succeeded.` +
-    `<table class="fs-13 mt-8">` +
+    `<table data-rows="fixed" class="fs-13 mt-8">` +
       `<tr><td class="c-muted-padded">Issuer</td><td><code>${_escapeHtml(r.issuer || '—')}</code></td></tr>` +
       `<tr><td class="c-muted-padded">Authorization</td><td><code>${_escapeHtml(ep.authorization || '—')}</code></td></tr>` +
       `<tr><td class="c-muted-padded">Token</td><td><code>${_escapeHtml(ep.token || '—')}</code></td></tr>` +
@@ -24654,7 +24654,7 @@ async function _loadAuditSection(key) {
         // a compact view here too.
         if (Array.isArray(si.top_processes) && si.top_processes.length) {
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Top processes</div>
-            <table class="isl-627">
+            <table data-rows="fixed" class="isl-627">
             <thead><tr class="c-muted"><th class="isl-628">PID</th><th>Name</th><th class="ta-center">CPU%</th><th class="ta-center">Mem%</th><th></th></tr></thead>
             <tbody>` + si.top_processes.slice(0, 8).map(p=>
               `<tr><td class="isl-629"><code>${escHtml(String(p.pid != null ? p.pid : '—'))}</code></td>
@@ -25274,7 +25274,7 @@ async function _loadAuditSection(key) {
         let h = trapsHtml;
         // Sys-group
         if (data.system) {
-          h += '<h4 class="mt-0">System</h4><table class="fs-13">';
+          h += '<h4 class="mt-0">System</h4><table data-rows="fixed" class="fs-13">';
           for (const [k, v] of Object.entries(data.system)) {
             if (k === '_oids') continue;
             h += `<tr><td class="c-muted-padded">${escHtml(k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
@@ -25323,7 +25323,7 @@ async function _loadAuditSection(key) {
         }
         // Vendor-specific — Mikrotik
         if (data.mikrotik && Object.keys(data.mikrotik).length) {
-          h += '<h4 class="mt-12">Mikrotik vendor</h4><table class="fs-13">';
+          h += '<h4 class="mt-12">Mikrotik vendor</h4><table data-rows="fixed" class="fs-13">';
           const labels = {
             mtxrSystemVersion:  'RouterOS version',
             mtxrSystemUptime:   'Uptime (1/100 s)',
@@ -25345,7 +25345,7 @@ async function _loadAuditSection(key) {
         }
         // Vendor-specific — Ubiquiti UniFi
         if (data.ubnt && Object.keys(data.ubnt).length) {
-          h += '<h4 class="mt-12">Ubiquiti UniFi</h4><table class="fs-13">';
+          h += '<h4 class="mt-12">Ubiquiti UniFi</h4><table data-rows="fixed" class="fs-13">';
           const labels = {
             unifiApSystemModel:   'Model',
             unifiApSystemVersion: 'Firmware',
@@ -25366,7 +25366,7 @@ async function _loadAuditSection(key) {
         }
         // Host Resources MIB
         if (data.host_resources && Object.keys(data.host_resources).length) {
-          h += '<h4 class="mt-12">Host Resources MIB</h4><table class="fs-13">';
+          h += '<h4 class="mt-12">Host Resources MIB</h4><table data-rows="fixed" class="fs-13">';
           const labels = {
             hrSystemUptime:     'Uptime (1/100 s)',
             hrSystemNumUsers:   'Logged-in users',
@@ -25399,7 +25399,7 @@ async function _loadAuditSection(key) {
             : (v ? `<span class="status-pill critical">${escHtml(v)}</span>` : '—');
           h += '<h4 class="mt-12">Synology</h4>';
           h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · ' + escHtml(sy.dsm_version) : ''}${sy.serial ? ' · ' + escHtml(sy.serial) : ''}</div>`;
-          h += '<table class="fs-13"><tbody>';
+          h += '<table data-rows="fixed" class="fs-13"><tbody>';
           h += `<tr><td class="c-muted-padded">System</td><td>${okBadge(sy.system)}</td></tr>`;
           h += `<tr><td class="c-muted-padded">Power</td><td>${okBadge(sy.power)}</td></tr>`;
           h += `<tr><td class="c-muted-padded">Fan</td><td>${okBadge(sy.fan)}</td></tr>`;
@@ -30814,6 +30814,7 @@ function showKeyboardShortcuts() {
         <h3 class="isl-726">Keyboard shortcuts</h3>
         <button aria-label="Close" class="btn-icon isl-727" data-action="closeKbdCheat"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
+      <div class="scrollable-table-wrap audit-scroll">
       <table class="isl-728">
         <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-K</kbd></td><td>Open command palette</td></tr>
@@ -30824,6 +30825,7 @@ function showKeyboardShortcuts() {
         <tr><td class="cell-padl"><kbd class="code-pill">Esc</kbd></td><td>Close any modal</td></tr>
         ${_pageHelpRows()}
       </table>
+      </div>
     </div>`;
   o.addEventListener('click', e => { if (e.target === o) o.remove(); });
   document.body.appendChild(o);

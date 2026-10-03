@@ -59,7 +59,7 @@
         + '<td>' + (d.cve_high == null ? '—' : d.cve_high) + '</td></tr>';
     }).join('');
     el('fq-table').innerHTML = rows.length
-      ? '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>'
+      ? '<table data-rows="print"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>'
       : '<p>No devices match the criteria.</p>';
     el('fq-foot').textContent =
       'RemotePower fleet query — generated on demand. '

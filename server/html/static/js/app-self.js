@@ -626,7 +626,7 @@ async function loadSelfStatus() {
   const runtimeCard = `
     <div class="dash-card">
       <div class="section-title">Serving &amp; runtime</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         ${_selfInfoRow('Storage backend', be[0], be[1], be[2])}
         ${_selfInfoRow('Request tier', tier[0], tier[1], tier[2])}
         ${_selfInfoRow('Out-of-band scheduler', sched.value, sched.note, sched.state)}
@@ -643,7 +643,7 @@ async function loadSelfStatus() {
     <div class="dash-card">
       <div class="section-title">Distributed subsystems</div>
       ${sub.error ? `<div class="c-red fs-12 mb-8">Subsystem probe failed: ${escHtml(String(sub.error))}</div>` : ''}
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         ${_selfSidecarRows(s).map(r => _selfInfoRow(r.label, r.status, r.detail, r.state)).join('')}
       </table>
       <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand; the syslog receiver takes agentless appliance logs. See <a href="docs/scaling.md" class="c-accent">scaling.md</a>, <a href="docs/push.md" class="c-accent">push.md</a> and <a href="docs/syslog.md" class="c-accent">syslog.md</a>.</div>
@@ -690,7 +690,7 @@ async function loadSelfStatus() {
   body.innerHTML = readinessCard + runtimeCard + subsystemsCard + restartCard + `
     <div class="dash-card">
       <div class="section-title">Site health ${healthPill}</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}${_versionSinceHtml(s)}</td></tr>
         ${_versionHistoryRow(s)}
         ${la['1m'] != null ? `<tr><td class="c-muted-padded">Load average</td><td>${la['1m'].toFixed(2)} · ${la['5m'].toFixed(2)} · ${la['15m'].toFixed(2)} <span class="c-muted">(1m · 5m · 15m)</span></td></tr>` : ''}
@@ -705,7 +705,7 @@ async function loadSelfStatus() {
 
     <div class="dash-card">
       <div class="section-title">Devices</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
         <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713" data-color="${offlineSev}">${dev.offline ?? '—'}</span></td></tr>
         <tr><td class="c-muted-padded">Freshest heartbeat</td><td>${_selfFmtAgo(dev.freshest_seen)}</td></tr>
@@ -716,7 +716,7 @@ async function loadSelfStatus() {
 
     <div class="dash-card">
       <div class="section-title">Webhook delivery — outbound</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
         <tr><td class="c-muted-padded">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
         <tr><td class="c-muted-padded">Logged total</td><td>${(s.webhooks || {}).total_logged ?? '—'}</td></tr>
@@ -738,7 +738,7 @@ async function loadSelfStatus() {
       };
       return `<div class="dash-card">
         <div class="section-title">Inbound webhooks &amp; syslog</div>
-        <table class="fs-13">
+        <table data-rows="fixed" class="fs-13">
           <tr><td class="c-muted-padded">Last 24h</td><td>${_iwHtml(i24)}</td></tr>
           <tr><td class="c-muted-padded">Last 7 days</td><td>${_iwHtml(i7d)}</td></tr>
           <tr><td class="c-muted-padded">Logged total</td><td>${iw.total_logged ?? '—'}</td></tr>
@@ -748,7 +748,7 @@ async function loadSelfStatus() {
 
     <div class="dash-card">
       <div class="section-title">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
-      <table class="isl-714">
+      <table data-rows="fixed" class="isl-714">
         <tr><td class="c-muted-padded">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
         ${diskPct != null ? `<tr><td class="c-muted-padded">Filesystem used</td><td>${diskPct}% (${_selfFmtBytes(dd.fs_total_bytes - dd.fs_free_bytes)} of ${_selfFmtBytes(dd.fs_total_bytes)})</td></tr>` : ''}
       </table>
@@ -757,7 +757,7 @@ async function loadSelfStatus() {
 
     <div class="dash-card">
       <div class="section-title">Audit log</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
         <tr><td class="c-muted-padded">Retention</td><td>${(s.audit_log || {}).retention_days ?? '—'} days</td></tr>
         ${(s.audit_log || {}).archive_bytes ? `<tr><td class="c-muted-padded">Archive (gzip)</td><td>${_selfFmtBytes(s.audit_log.archive_bytes)}</td></tr>` : ''}
@@ -766,7 +766,7 @@ async function loadSelfStatus() {
 
     <div class="dash-card">
       <div class="section-title">Backup</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
           ? '<span class="patch-badge ok">AES-256-GCM at rest</span>'
           : `<span class="patch-badge warn">plaintext</span> <span class="hint">not encrypted</span>`}${
@@ -799,7 +799,7 @@ sudo systemctl restart remotepower-api</pre>
         <div class="hint mt-6">Encrypts archives on disk now with a passphrase you supply (never stored). For ongoing scheduled backups, set <code>RP_BACKUP_PASSPHRASE</code>.</div>` :
         (bk.encryption_available === false ? '<div class="hint mt-6">Install the <code>cryptography</code> library to enable backup encryption.</div>' : '')}
       ${bk.last_run ? `
-        <table class="fs-13 mt-6">
+        <table data-rows="fixed" class="fs-13 mt-6">
           <tr><td class="c-muted-padded">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span class="c-muted">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
           <tr><td class="c-muted-padded">Last file</td><td><code class="fs-11">${escHtml(bk.last_file || '—')}</code>${bk.encrypted ? ' <span class="patch-badge ok">encrypted</span>' : ''}</td></tr>
           <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
@@ -816,12 +816,12 @@ sudo systemctl restart remotepower-api</pre>
         <div id="self-verify-restore-result" class="fs-12 mt-6" role="status" aria-live="polite"></div>`
         : '<div class="c-muted-fs13 mt-6">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
       ${bk.rpo_hours ? `
-        <table class="fs-13 mt-6">
+        <table data-rows="fixed" class="fs-13 mt-6">
           <tr><td class="c-muted-padded">RPO target</td><td>${bk.rpo_hours}h — last backup ${bk.hours_since_last_backup != null ? bk.hours_since_last_backup + 'h ago' : 'never'}
             ${bk.rpo_breached ? ' <span class="patch-badge crit">breached</span>' : ' <span class="patch-badge ok">met</span>'}</td></tr>
         </table>` : ''}
       ${bk.rto_hours ? `
-        <table class="fs-13 mt-6">
+        <table data-rows="fixed" class="fs-13 mt-6">
           <tr><td class="c-muted-padded">RTO target</td><td>${bk.rto_hours}h${bk.last_test_restore_seconds != null
             ? ` — last "Test restore" checked in ${bk.last_test_restore_seconds}s ${_selfFmtAgo(bk.last_test_restore_at)} <span class="hint">(decrypt/decompress/structure check only — a lower bound, not a full restore)</span>`
             : ' — no "Test restore" run yet'}</td></tr>
@@ -834,7 +834,7 @@ sudo systemctl restart remotepower-api</pre>
 
     <div class="dash-card">
       <div class="section-title">Fleet events</div>
-      <table class="fs-13">
+      <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
         ${(s.fleet_events || {}).archive_bytes ? `<tr><td class="c-muted-padded">Archive (gzip)</td><td>${_selfFmtBytes(s.fleet_events.archive_bytes)}</td></tr>` : ''}
       </table>

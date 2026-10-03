@@ -87,6 +87,29 @@ _MEASURE = """() => {
 }""" % (_TALL_PX, _MANY_CHILDREN)
 
 
+# A table that declares itself `data-rows="fixed"` (see test_v630_ui_ratchets)
+# is exempt from the scroll cap on the claim that it holds a handful of rows.
+# The static ratchet can only check that the claim is MADE; this checks that it
+# is TRUE, on the seeded fleet: a "fixed" table past the 15-row rule is a
+# variable-row table that was declared its way out of the cap.
+_FIXED_MAX_ROWS = 15
+
+_MEASURE_FIXED = """() => {
+  const out = [];
+  document.querySelectorAll('#app .page.active table[data-rows="fixed"]').forEach(t => {
+    const st = getComputedStyle(t);
+    if (st.display === 'none' || st.visibility === 'hidden') return;
+    out.push({rows: t.rows.length, cls: String(t.className).slice(0, 40)});
+  });
+  return out;
+}"""
+
+
+def _too_long(fixed):
+    """The declared-fixed tables that render past the cap."""
+    return [f for f in fixed if f['rows'] > _FIXED_MAX_ROWS]
+
+
 # ── panels that do not exist until an operator interacts ────────────────────
 #
 # _MEASURE returns early on `display: none`, and the walk drives each page with
@@ -197,6 +220,7 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
         findings, measured, clicked = {}, 0, 0
+        fixed_seen, fixed_long = 0, []
         self._reveal_budget = _MAX_REVEAL_CLICKS
         try:
             page.goto(self.base + '/index.html')
@@ -213,6 +237,9 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
                 bad = [b for b in page.evaluate(_MEASURE) if b['id'] not in EXEMPT]
                 if bad:
                     findings[name] = bad
+                fx = page.evaluate(_MEASURE_FIXED)
+                fixed_seen += len(fx)
+                fixed_long.extend((name, f) for f in _too_long(fx))
                 clicked += self._reveal_and_remeasure(page, name, findings)
         finally:
             page.close(); ctx.close()
@@ -227,6 +254,17 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
             'the derived action set (%s) no longer matches the markup, or the '
             'seeded fleet renders none of them'
             % (measured, sorted(_REVEAL_ACTIONS)))
+        # Control for the declaration check: if no fixed table was ever on screen
+        # the claim was never tested, and `fixed_long == []` means nothing.
+        self.assertGreater(
+            fixed_seen, 0,
+            'the walk saw no data-rows="fixed" table on any page — either the '
+            'declarations are gone or the pages that hold them did not render')
+        self.assertEqual(
+            fixed_long, [],
+            'these tables are declared data-rows="fixed" but render more than '
+            '%d rows — cap them in a scrollable-table-wrap instead: %s'
+            % (_FIXED_MAX_ROWS, fixed_long))
         self.assertEqual(findings, {}, 'These boxes render past the ~15-line cap '
                          'and neither they nor any ancestor scroll:\n' +
                          json.dumps(findings, indent=2))
@@ -308,6 +346,38 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
             self.assertIn('rp-probe-tall-box', found,
                           'the measurement cannot see a 1600px 40-child box — '
                           'it would report a clean sweep no matter what shipped')
+        finally:
+            page.close(); ctx.close()
+
+    def test_the_fixed_row_check_can_see_a_long_table(self):
+        """Positive control for the data-rows="fixed" check. A declaration that
+        lies — a 20-row table that claims to be fixed — must be reported, or the
+        zero-ceiling ratchet would let any variable table declare its way out of
+        the cap."""
+        ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        page = ctx.new_page()
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(4000)
+            page.evaluate("""() => {
+              const p = document.querySelector('#app .page.active');
+              const t = document.createElement('table');
+              t.setAttribute('data-rows', 'fixed');
+              t.id = 'rp-probe-long-fixed';
+              for (let i = 0; i < 20; i++) {
+                const r = t.insertRow(); r.insertCell().textContent = 'row ' + i;
+              }
+              p.appendChild(t);
+            }""")
+            seen = page.evaluate(_MEASURE_FIXED)
+            self.assertTrue(any(f['rows'] == 20 for f in seen),
+                            'the check did not see a visible 20-row fixed table')
+            self.assertTrue(_too_long(seen),
+                            'a 20-row table declared fixed was not reported')
         finally:
             page.close(); ctx.close()
 

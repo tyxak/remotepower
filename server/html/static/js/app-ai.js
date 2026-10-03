@@ -1091,7 +1091,7 @@ async function _aiRunDebug({ title, system, userMsg, context }) {
   body.innerHTML =
     `<div class="ai-content">
        <div class="ai-dbg-note ${ok ? 'ai-dbg-ok' : 'ai-dbg-warn'}">${escHtml(resp.note || '')}</div>
-       <table class="ai-dbg-tbl">
+       <table data-rows="fixed" class="ai-dbg-tbl">
          <tr><td>RAG enabled (Settings → AI)</td><td>${yn(resp.rag_enabled)}</td></tr>
          <tr><td>RAG requested this call</td><td>${yn(resp.include_rag)}</td></tr>
          <tr><td>Full-access caller (RAG allowed)</td><td>${yn(resp.caller_full_access)}</td></tr>
