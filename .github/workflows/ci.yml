@@ -77,12 +77,15 @@ jobs:
       # flask + gunicorn are the app server since v6.1.0 (wsgi.py) — the
       # WSGI entrypoint tests import wsgi.py, which imports flask.
       # psycopg drives the Postgres backend tests against the service above.
+      # mini-racer is V8: ten test files drive the real browser JS under it and
+      # skip without it, which made ~190 assertions report green in CI without
+      # ever running.
       # KEEP THIS LINE AND THE dist JOB'S IDENTICAL — tests/test_ci_green_parity.py
       # pins every pip line in this file equal to each other AND to Makefile CI_DEPS.
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]' mini-racer
 
       - name: Run test suite
         env:
@@ -125,7 +128,7 @@ jobs:
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]' mini-racer
 
       - name: Build + verify the release tarball (staged-tree suite)
         env:

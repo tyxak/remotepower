@@ -481,7 +481,7 @@ CI_PY := 3.14
 # `import pytest` in a test passes a pytest-based parity run and then red-Xs
 # prod CI at import time. tests/test_ci_green_parity.py pins this list == the
 # ci.yml pip line, so neither can drift without the other.
-CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]'
+CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic 'psycopg[binary]' mini-racer
 # NOTE on RP_BROWSER_REQUIRE: `pre-release` exports it at TARGET scope, and
 # make propagates that to every prerequisite — including this one. Inside this
 # venv playwright is absent, correctly, because the ci.yml dep list does not
