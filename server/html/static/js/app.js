@@ -29824,7 +29824,7 @@ document.addEventListener('click', e => {
   const btnEl = e.target.closest('[data-action-btn]');
   if (btnEl) {
     if (btnEl.dataset.stopProp) e.stopPropagation();
-    if (btnEl.dataset.preventDefault) e.preventDefault();
+    if (btnEl.dataset.preventDefault !== undefined) e.preventDefault();
     const fn = window[btnEl.dataset.actionBtn];
     if (!fn) {
       // Parity with the data-action branch below: the handler may live in a
@@ -29851,7 +29851,7 @@ document.addEventListener('click', e => {
   if (!el) return;
 
   if (el.dataset.stopProp) e.stopPropagation();
-  if (el.dataset.preventDefault) e.preventDefault();
+  if (el.dataset.preventDefault !== undefined) e.preventDefault();
 
   const fn = window[el.dataset.action];
   if (!fn) {

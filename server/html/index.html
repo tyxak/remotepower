@@ -7729,7 +7729,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
           <!-- ── v3.3.4: container image updates ───────────────────────── -->
           <div class="subsection-title mt-32">Image updates</div>
-          <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint"></span></div>
+          <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint" data-i18n-park></span></div>
           <div class="toolbar">
             <input type="text" id="image-updates-search" class="form-input isl-170" placeholder="Filter by image, tag, or registry…" aria-label="Filter by image, tag, or registry">
             <button class="btn-icon" data-action="loadImageUpdates"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8137,7 +8137,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v3.14.0 #35: secrets-on-disk findings (opt-in agent scan) -->
         <div class="dash-card">
         <div class="section-title">Exposed secrets on disk</div>
-        <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting. <a href="docs/secret-scan.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default="1" class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting. <a href="docs/secret-scan.md" class="c-accent">Documentation</a></div>
         <div id="secrets-summary" class="hint mb-8"></div>
         <div class="toolbar-mb24">
           <input type="text" id="secrets-filter" class="form-input" placeholder="Filter by device, type, path, preview…" data-input-debounce="150" aria-label="Filter by device, type, path, preview">
@@ -8410,7 +8410,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.12.0: per-asset risk score ──────────────────────────────── -->
       <div id="page-risk" class="page">
         <div class="page-title">Risk</div>
-        <div class="page-subtitle">A per-asset risk score (0–100) computed on demand from everything RemotePower already knows — open CVEs, world-reachable services, software-policy violations, pending updates, contract/license expiry, mount issues and more. Every point is attributed. Findings you've <strong>ignored</strong> (CVEs) or <strong>muted</strong> (Exposure) don't count. Risk is a security-posture lens, independent of <a href="#" data-action-btn="_showPageBtn" data-page="about" data-prevent-default class="c-accent">fleet health</a>. <a href="docs/risk.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">A per-asset risk score (0–100) computed on demand from everything RemotePower already knows — open CVEs, world-reachable services, software-policy violations, pending updates, contract/license expiry, mount issues and more. Every point is attributed. Findings you've <strong>ignored</strong> (CVEs) or <strong>muted</strong> (Exposure) don't count. Risk is a security-posture lens, independent of <a href="#" data-action-btn="_showPageBtn" data-page="about" data-prevent-default="1" class="c-accent">fleet health</a>. <a href="docs/risk.md" class="c-accent">Documentation</a></div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadRisk"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Recompute</button>
           <input type="text" class="form-input page-filter" placeholder="Filter devices / factors…" data-input="filterRows" data-input-el="1" data-filter-target="#risk-tbody tr" aria-label="Filter devices / factors">

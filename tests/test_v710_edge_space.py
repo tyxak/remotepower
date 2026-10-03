@@ -76,10 +76,9 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
         cls._pw.stop()
 
     @staticmethod
-    def _with_entries(lines):
-        """i18n.js with extra DICT entries injected, so a test does not depend on which real entries exist."""
+    def _with_entries(lines, marker='var DICT = {\n'):
+        """i18n.js with extra dictionary entries injected, so a test does not depend on which real entries exist."""
         src = _I18N.read_text(encoding='utf-8')
-        marker = 'var DICT = {\n'
         assert src.count(marker) == 1, 'the DICT opening line changed; update this test with it'
         patched = src.replace(marker, marker + lines)
         assert lines in patched
@@ -159,6 +158,32 @@ class TestNoSpaceBeforeClosingPunctuation(unittest.TestCase):
             self.assertEqual(page.evaluate(text), ['x; Halt', 'x!Marker'])
             page.evaluate('l => RPi18n.setLang(l, false)', 'en')
             self.assertEqual(page.evaluate(text), ['x; Sentinel glued semicolon', 'x!Sentinel marker'])
+        finally:
+            page.close()
+
+    def test_a_parked_inline_widget_goes_back_after_a_space(self):
+        """A page appends live text to a subtitle (<span data-i18n-park>). The engine lifts it out to read the
+        subtitle's key and sets it back at the end; the translation replaced the text that carried the space
+        before it, so the engine must supply one, and must not stack another on every pass."""
+        patched = self._with_entries(
+            '    "Sentinel subtitle text.": {"de": "Sentinel Untertitel.", "fr": "Sentinel sous-titre."},\n',
+            marker='var HTMLDICT = {\n')
+        page = self._browser.new_page()
+        try:
+            page.set_content('<body><div class="page-subtitle" id="s">Sentinel subtitle text. '
+                             '<span id="m" data-i18n-park>(live 15)</span></div></body>')
+            page.add_script_tag(content=patched)
+            read = "() => document.getElementById('s').textContent"
+            page.evaluate('l => RPi18n.setLang(l, false)', 'de')
+            self.assertEqual(page.evaluate(read), 'Sentinel Untertitel. (live 15)')
+            page.evaluate('() => RPi18n.apply()')
+            page.evaluate('() => RPi18n.apply()')
+            self.assertEqual(page.evaluate(read), 'Sentinel Untertitel. (live 15)')
+            page.evaluate('l => RPi18n.setLang(l, false)', 'fr')
+            self.assertEqual(page.evaluate(read), 'Sentinel sous-titre. (live 15)')
+            page.evaluate('l => RPi18n.setLang(l, false)', 'en')
+            self.assertEqual(page.evaluate(read).replace('  ', ' '), 'Sentinel subtitle text. (live 15)')
+            self.assertTrue(page.evaluate("() => document.getElementById('m') === document.querySelector('#s > #m')"))
         finally:
             page.close()
 

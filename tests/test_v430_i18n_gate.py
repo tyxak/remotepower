@@ -193,7 +193,10 @@ def _page_subtitles():
     for sm in re.finditer(
             r'<(\w+)[^>]*class="[^"]*\bpage-subtitle\b[^"]*"[^>]*>(.*?)</\1>',
             INDEX, re.S):
-        text = re.sub(r'\s+', ' ', sm.group(2)).strip()
+        # The engine lifts widgets the app fills in (`data-i18n-park`) out of a subtitle before it
+        # reads the key, so they are not part of it; do the same here.
+        inner = re.sub(r'<(\w+)\b[^>]*\bdata-i18n-park\b[^>]*>.*?</\1>', '', sm.group(2), flags=re.S)
+        text = re.sub(r'\s+', ' ', inner).strip()
         if text:
             subs.add(text)
     return subs
