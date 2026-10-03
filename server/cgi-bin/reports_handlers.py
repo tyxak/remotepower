@@ -126,6 +126,67 @@ def _period_activity(devices, now, days=30):
     return out
 
 
+def _threats_section(devices, now, days=30):
+    """v7.1.0: attacks on the fleet and remote access through the SSH gateway,
+    for the report a security reviewer is handed. Both used to live only on
+    their own pages. `devices` is already scoped to the caller, and every count
+    below is limited to it.
+
+    Brute force: hosts with a source over the alert threshold right now.
+    Attackers: sources IP intel recorded in the last week, how many a
+    reputation service lists as abusive, and how many of those are blocked.
+    Gateway: sessions in the period, by how many people, to how many hosts."""
+    ids = set(devices)
+    out = {'days': days, 'bf_hosts': 0, 'bf_sources': 0,
+           'attackers': 0, 'known_bad': 0, 'known_bad_unblocked': 0,
+           'blocks_active': 0, 'reported': 0, 'top_hosts': [],
+           'gw_sessions': 0, 'gw_users': 0, 'gw_hosts': 0, 'gw_hours': 0.0}
+    try:
+        on, thresh, window = A._brute_config()
+        if on and A.backend_exists(A.BRUTE_FORCE_FILE):
+            bf = A._load_ro(A.BRUTE_FORCE_FILE) or {}
+            srcs = set()
+            for did in ids:
+                rows = A._bf_active(bf.get(did) or {}, now - window, thresh)
+                if rows:
+                    out['bf_hosts'] += 1
+                    srcs.update(r.get('source_ip') for r in rows)
+            out['bf_sources'] = len(srcs)
+    except Exception:  # nosec B110 — a report section must not fail the report
+        pass
+    try:
+        intel = {d: v for d, v in A.ip_intel_by_device(now).items() if d in ids}
+        for k in ('attackers', 'known_bad', 'known_bad_unblocked'):
+            out[k] = sum(int(v.get(k) or 0) for v in intel.values())
+        st = (A._load_ro(A.IPINTEL_FILE) or {}) if A.backend_exists(A.IPINTEL_FILE) else {}
+        out['blocks_active'] = sum(len(v) for d, v in (st.get('blocks') or {}).items()
+                                   if d in ids and isinstance(v, dict))
+        cutoff = now - days * 86400
+        out['reported'] = sum(
+            1 for a in (st.get('attackers') or {}).values()
+            if isinstance(a, dict) and set(a.get('devices') or {}) & ids
+            and any(int(t or 0) >= cutoff for t in (a.get('reported') or {}).values()))
+        top = sorted(intel.items(), key=lambda kv: (-kv[1].get('known_bad', 0),
+                                                    -kv[1].get('attackers', 0)))[:5]
+        out['top_hosts'] = [{'device': (devices.get(d) or {}).get('name') or d,
+                             'attackers': v.get('attackers', 0),
+                             'known_bad': v.get('known_bad', 0)} for d, v in top]
+    except Exception:  # nosec B110 — IP intel is optional
+        pass
+    try:
+        cutoff = now - days * 86400
+        rows = [r for r in ((A._load_ro(A.SSHGW_SESSIONS_FILE) or {}).get('sessions') or [])
+                if isinstance(r, dict) and r.get('device_id') in ids
+                and int(r.get('started') or 0) >= cutoff]
+        out['gw_sessions'] = len(rows)
+        out['gw_users'] = len({r.get('username') for r in rows})
+        out['gw_hosts'] = len({r.get('device_id') for r in rows})
+        out['gw_hours'] = round(sum(int(r.get('duration_s') or 0) for r in rows) / 3600, 1)
+    except Exception:  # nosec B110 — the gateway is optional
+        pass
+    return out
+
+
 def _build_fleet_report(site_id=None):
     """Assemble the fleet (or single-site) posture report from data RemotePower
     already holds.
@@ -309,6 +370,7 @@ def _build_fleet_report(site_id=None):
                            'worst': health['devices'][:10]},
         'attention':      health['counts'],
         'posture':        pos,
+        'threats':        _threats_section(devices, now),
         'compliance':     comp,
         # v6.4.2: what CHANGED, not just where things stand. Every section above
         # is a live counter, so two consecutive weekly reports were
@@ -325,7 +387,7 @@ def _build_fleet_report(site_id=None):
 
 # v3.14.0: custom report builder — selectable sections + saved definitions.
 _REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention',
-                    'posture', 'compliance', 'period')
+                    'posture', 'threats', 'compliance', 'period')
 # v6.4.2: sections that cost real money and latency to produce. 
 # OUTSIDE the default tuple, because `sections or list(_REPORT_SECTIONS)` would
 # otherwise switch AI billing on for every install that has ever saved a report
@@ -510,6 +572,19 @@ def _fleet_report_csv_bytes(report):
              '' if _dl.get('health_score') is None else _dl['health_score']])
         row(['Period', 'Compliance change (pp)',
              '' if _dl.get('compliance_pct') is None else _dl['compliance_pct']])
+    th = report.get('threats') or {}
+    if th:
+        row(['Threats', 'Hosts under brute force now', th.get('bf_hosts', 0)])
+        row(['Threats', 'Brute-force sources now', th.get('bf_sources', 0)])
+        row(['Threats', 'Attacking sources (7d)', th.get('attackers', 0)])
+        row(['Threats', 'Known-abusive sources (7d)', th.get('known_bad', 0)])
+        row(['Threats', 'Known-abusive, not blocked', th.get('known_bad_unblocked', 0)])
+        row(['Threats', 'Blocks active', th.get('blocks_active', 0)])
+        row(['Threats', f"Addresses reported ({th.get('days', 30)}d)", th.get('reported', 0)])
+        row(['Remote access', f"SSH gateway sessions ({th.get('days', 30)}d)", th.get('gw_sessions', 0)])
+        row(['Remote access', 'Distinct users', th.get('gw_users', 0)])
+        row(['Remote access', 'Distinct hosts', th.get('gw_hosts', 0)])
+        row(['Remote access', 'Hours connected', th.get('gw_hours', 0)])
     for fw, fwrep in ((report.get('compliance') or {}).get('frameworks') or {}).items():
         row(['Compliance', fw.upper() + ' pass %',
              fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
@@ -921,6 +996,21 @@ def _render_report_email(report):
         if _dl.get('health_score') is not None or _dl.get('compliance_pct') is not None:
             lines.append(f"  Change             : health {_signed(_dl.get('health_score'))}, "
                          f"compliance {_signed(_dl.get('compliance_pct'), '%')}")
+    th = report.get('threats') or {}
+    if th:
+        lines.append('')
+        lines.append('Threats and remote access')
+        lines.append(f"  Brute force now    : {th.get('bf_hosts', 0)} host(s), "
+                     f"{th.get('bf_sources', 0)} source(s)")
+        lines.append(f"  Attackers (7d)     : {th.get('attackers', 0)}, "
+                     f"{th.get('known_bad', 0)} known-abusive "
+                     f"({th.get('known_bad_unblocked', 0)} not blocked)")
+        if th.get('blocks_active') or th.get('reported'):
+            lines.append(f"  Blocks / reports   : {th.get('blocks_active', 0)} active, "
+                         f"{th.get('reported', 0)} reported")
+        if th.get('gw_sessions'):
+            lines.append(f"  SSH gateway ({th.get('days', 30)}d)  : {th['gw_sessions']} session(s), "
+                         f"{th.get('gw_users', 0)} user(s), {th.get('gw_hosts', 0)} host(s)")
     lines.append("")
     if h.get('worst'):
         lines.append("Lowest-scoring devices:")

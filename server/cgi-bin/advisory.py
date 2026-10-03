@@ -355,9 +355,26 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
     if bf_sources:
         attempts = sum(int(s.get('count') or 0) for s in bf_sources
                        if isinstance(s, dict))
+
+        def _rep(s):
+            # IP intel's verdict, when it has one: score, where, and whether
+            # the address is already blocked on this host.
+            bits = []
+            if s.get('score') is not None:
+                bits.append(f"reputation {s.get('score')}/100"
+                            + (f", {s.get('country')}" if s.get('country') else ''))
+            if s.get('blocked'):
+                bits.append('blocked')
+            return f"; {', '.join(bits)}" if bits else ''
+        # Known-abusive sources first: they are the ones worth acting on.
+        ordered = sorted((s for s in bf_sources if isinstance(s, dict)),
+                         key=lambda s: (-(s.get('score') or -1), -int(s.get('count') or 0)))
         ev = [f"{s.get('count')} failed from {s.get('source_ip')} "
-              f"({s.get('unit') or 'auth'})"
-              for s in bf_sources[:6] if isinstance(s, dict)]
+              f"({s.get('unit') or 'auth'}{_rep(s)})"
+              for s in ordered[:6]]
+        known_bad = [s for s in ordered
+                     if isinstance(s.get('score'), int) and s['score'] >= 75
+                     and not s.get('blocked')]
         # fail2ban is the fix we recommend — say whether it is even installed
         # rather than telling the operator to check something we already know.
         f2b = si.get('fail2ban')
@@ -370,17 +387,25 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
                         'is not banning anything.')
         else:
             f2b_note = ''
+        intel_note = (f' {len(known_bad)} of the sources are listed as abusive by a '
+                      'reputation service and are not blocked here — block them '
+                      'first (Security → Threat intel can block them for a set '
+                      'time, or do it automatically).' if known_bad else '')
         out.append(_finding(
-            'id.bruteforce', 'identity', 'high' if len(bf_sources) > 2 else 'medium',
+            'id.bruteforce', 'identity',
+            'high' if (len(bf_sources) > 2 or known_bad) else 'medium',
             f'{attempts} failed authentication attempts from '
-            f'{len(bf_sources)} source(s)',
+            f'{len(bf_sources)} source(s)'
+            + (f', {len(known_bad)} known-abusive' if known_bad else ''),
             'Sustained guessing means this host is a known target. It only has '
             'to succeed once.',
             'Block the source addresses, confirm fail2ban (or equivalent) is '
             'jailing them, and turn off password authentication if it is still '
-            'on.' + f2b_note,
-            device_id=dev_id, device=name, evidence=ev, source='auth log',
-            doc='docs/security.md'))
+            'on.' + f2b_note + intel_note,
+            device_id=dev_id, device=name, evidence=ev,
+            source='auth log' + (' + IP intel' if any(
+                s.get('score') is not None for s in ordered) else ''),
+            doc='docs/ip-intel.md' if known_bad else 'docs/security.md'))
 
     # Authorized SSH keys using a deprecated algorithm. Unlike "a key was
     # added" — which is an event, and already an alert — this is a durable

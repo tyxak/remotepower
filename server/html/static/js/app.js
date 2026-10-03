@@ -22275,6 +22275,7 @@ const _SCORE_WEIGHT_DEFAULTS = [
     ssh_weak: 10, autoupdate_off: 6,
     secure_boot_off: 6, canary_not_armed: 6, files_quarantined: 8,
     timer_failed: 3, custom_check_failed: 5,
+    brute_force: 4, known_attacker: 8,
   }],
   ['ap-lw-', 'reliability_weight_', {
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,
@@ -24045,6 +24046,7 @@ const _AUDIT_SECTIONS = [
   {key: 'firewall',  title: 'Firewall',          icon: 'shield',   group: 'Security'},
   {key: 'cve',       title: 'CVE Summary',       icon: 'sparkles', group: 'Security'},
   {key: 'drift',     title: 'Drift State',       icon: 'search',   group: 'Security'},
+  {key: 'threats',   title: 'Attacks & remote access', icon: 'shield', group: 'Security'},
   {key: 'packages',  title: 'Packages',          icon: 'package',  group: 'Software'},
   {key: 'containers',title: 'Containers',        icon: 'ship',     group: 'Software'},
   {key: 'helm',      title: 'Helm Releases',     icon: 'cloud',    group: 'Software'},
@@ -24904,6 +24906,49 @@ async function _loadAuditSection(key) {
             </div>
           </div>`;
         }).join('');
+        break;
+      }
+
+      // v7.1.0: who is attacking this host (IP intel's view, with reputation
+      // and block state) and whether it is reachable through the SSH gateway.
+      // Both had their own pages and nothing on the host they concern.
+      case 'threats': {
+        const [intel, gw] = await Promise.all([
+          api('GET', '/ip-intel').catch(() => null),
+          api('GET', `/devices/${id}/sshgw`).catch(() => null),
+        ]);
+        const atk = ((intel && intel.attackers) || []).map(a => {
+          const here = (a.devices || []).find(d => d.device_id === id);
+          return here ? Object.assign({}, a, {here}) : null;
+        }).filter(Boolean);
+        const blocked = new Set(((intel && intel.blocks) || [])
+          .filter(b => b.device_id === id).map(b => b.ip));
+        const known = atk.filter(a => (a.score ?? -1) >= 75 && !blocked.has(a.ip)).length;
+        badge.textContent = atk.length
+          ? `${atk.length} source${atk.length === 1 ? '' : 's'}${known ? ` · ${known} known-abusive` : ''}`
+          : 'quiet';
+        let h = '';
+        if (atk.length) {
+          h += `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr>
+              <th scope="col">Source</th><th scope="col">Reputation</th><th scope="col">Attempts</th>
+              <th scope="col">Last seen</th><th scope="col">Blocked</th></tr></thead><tbody>`
+            + atk.slice(0, 50).map(a => `<tr>
+              <td class="ff-mono">${escHtml(a.ip)}</td>
+              <td>${a.score == null ? '—' : escHtml(String(a.score))}${a.country ? ` <span class="hint">${escHtml(a.country)}</span>` : ''}</td>
+              <td>${escHtml(String(a.here.count || 0))}</td>
+              <td>${escHtml(timeAgo(a.last_seen))}</td>
+              <td>${blocked.has(a.ip) ? 'yes' : 'no'}</td></tr>`).join('')
+            + '</tbody></table></div>';
+        } else {
+          h += '<div class="c-muted">No brute-force sources recorded for this host.</div>';
+        }
+        if (gw) {
+          h += `<div class="mt-8">SSH gateway: ${gw.module_enabled
+            ? (gw.enabled ? `reachable${gw.tunnel_seen ? ` · tunnel seen ${escHtml(timeAgo(gw.tunnel_seen))}` : ' · tunnel not connected yet'}` : 'not opted in')
+            : 'module off'}</div>`;
+        }
+        h += `<div class="hint mt-8"><a href="#" data-action-btn="_showPageBtn" data-page="ipintel" data-prevent-default class="c-accent">Threat intel</a> · <a href="#" data-action-btn="_showPageBtn" data-page="sshgw" data-prevent-default class="c-accent">SSH gateway</a> · <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>`;
+        body.innerHTML = h;
         break;
       }
 
@@ -27632,6 +27677,7 @@ const _REPORT_SECTION_LABELS = {
   // rendered as the raw slug — which the comment above this block predicted
   // would happen and nothing checked.
   posture: 'Security posture',
+  threats: 'Threats & remote access',
   summary: 'AI summary (costs tokens)',
 };
 let _reportDefs = [];

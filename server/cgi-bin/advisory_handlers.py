@@ -133,7 +133,10 @@ def _advisory_brute_force(ids):
         except Exception:
             continue
         if rows:
-            out[did] = rows
+            # What IP intel knows about each source (reputation, blocked here)
+            # turns "N failed attempts" into "a known-abusive address is still
+            # getting through" — the difference between noise and a priority.
+            out[did] = A.ip_intel_annotate(did, rows)
     return out
 
 

@@ -1201,6 +1201,72 @@ def build_firewall_corpus(devices, now=0):
     return docs
 
 
+def build_threats_corpus(devices, intel=None, sessions=None, now=0):
+    """v7.1.0: who is attacking which host, and who reached it remotely.
+
+    `intel` is the IP-intel store (attackers with their reputation verdict,
+    per-host attempt counts and blocks); `sessions` is the SSH-gateway session
+    list. Both had a page and no corpus, so "is web01 under attack" or "who
+    logged in to db02 through the gateway this week" had nothing to ground an
+    answer. Attacker addresses are public internet sources, not fleet data;
+    gateway rows carry an account name and a client address, which is the same
+    audit-grade detail the history source already indexes."""
+    docs = []
+    devs = devices if isinstance(devices, dict) else {}
+    intel = intel if isinstance(intel, dict) else {}
+    atts = intel.get('attackers') if isinstance(intel.get('attackers'), dict) else {}
+    blocks = intel.get('blocks') if isinstance(intel.get('blocks'), dict) else {}
+    per = {}
+    for ip, a in atts.items():
+        if not isinstance(a, dict):
+            continue
+        v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
+        for did, seen in (a.get('devices') or {}).items():
+            if did not in devs or not isinstance(seen, dict):
+                continue
+            bits = [f"{ip}: {int(seen.get('count') or 0)} failed logins"
+                    f" ({seen.get('unit') or 'auth'})"]
+            if v.get('score') is not None:
+                bits.append(f"reputation {v['score']}/100")
+            if v.get('country'):
+                bits.append(str(v['country'])[:2])
+            if v.get('isp'):
+                bits.append(str(v['isp'])[:60])
+            bits.append('BLOCKED on this host' if ip in (blocks.get(did) or {})
+                        else 'not blocked')
+            if seen.get('not_blocked'):
+                bits.append(f"auto-block skipped: {str(seen['not_blocked'])[:80]}")
+            per.setdefault(did, []).append((v.get('score') or -1, ', '.join(bits),
+                                            int(seen.get('at') or 0)))
+    for did, rows in per.items():
+        name = (devs.get(did) or {}).get('name') or did
+        rows.sort(key=lambda r: -r[0])
+        docs.append(make_doc(
+            f"live/{did}#attacks", 'live_state', 'device_attacks',
+            f"{name} brute-force sources and their reputation (IP intel — "
+            f"AbuseIPDB / SniffCat), and whether each is blocked:\n"
+            + '\n'.join(r[1] for r in rows[:30]),
+            title=f"{name} — attackers", device=did,
+            ts=max((r[2] for r in rows), default=now) or now))
+    by_dev = {}
+    for r in sessions or []:
+        if isinstance(r, dict) and r.get('device_id') in devs:
+            by_dev.setdefault(r['device_id'], []).append(r)
+    for did, rows in by_dev.items():
+        name = (devs.get(did) or {}).get('name') or did
+        rows.sort(key=lambda r: -int(r.get('started') or 0))
+        lines = [f"{r.get('username') or '?'} from {r.get('client_ip') or '?'} at epoch "
+                 f"{int(r.get('started') or 0)} for {int(r.get('duration_s') or 0)}s"
+                 for r in rows[:20]]
+        docs.append(make_doc(
+            f"live/{did}#gateway", 'live_state', 'device_gateway_sessions',
+            f"{name} SSH gateway sessions (who reached this host through the "
+            f"RemotePower gateway, newest first):\n" + '\n'.join(lines),
+            title=f"{name} — SSH gateway access", device=did,
+            ts=int(rows[0].get('started') or now)))
+    return docs
+
+
 def build_integrations_corpus(latest, now=0):
     """v4.10.0: homelab software-integration health (Pi-hole / TrueNAS / UniFi /
     *arr / …) for the RAG. `latest` is integrations_state['latest'] = {id:

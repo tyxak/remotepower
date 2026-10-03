@@ -8,9 +8,9 @@ cannot return a device your role or tenant would hide from you elsewhere.
 
 Not to be confused with **[Fleet Query](fleet-query.md)**, which is the quick
 one-line device filter in the toolbar. Data Explorer is the one with nested
-AND/OR conditions across eight entities.
+AND/OR conditions across ten entities.
 
-## The eight entities
+## The ten entities
 
 | Entity | One row per | Use it for |
 |---|---|---|
@@ -22,6 +22,8 @@ AND/OR conditions across eight entities.
 | `services` | (host, watched unit) | "which units are failed, and which are quietly restarting" |
 | `containers` | (host, container) | "what is stopped, and what keeps restarting" |
 | `alerts` | alert | "every open critical on hosts in the prod group" |
+| `attackers` | (source address, attacked host) | "which known-abusive addresses are hitting the web tier, and are they blocked" |
+| `gateway_sessions` | finished SSH-gateway session | "who reached the database hosts through the gateway this week" |
 
 ## Conditions
 
@@ -155,6 +157,26 @@ broken.
 Alerts are the one entity where a row need not belong to a device: a fleet-level
 condition such as a failed backup has no `device_id`, and those rows stay
 visible to you.
+
+### `attackers`
+
+`ip`, `device_id`, `device_name`, `unit`, `count`, `score`, `reports`,
+`country`, `isp`, `usage`, `blocked`, `reported`, `first_seen`, `last_seen`.
+
+One row for each brute-force source on each host it attacked, as
+[IP intel](ip-intel.md) recorded it. `score` is the merged reputation (0–100)
+and is empty until a lookup has run; `blocked` is whether the address is blocked
+on that host right now; `reported` is whether it has been reported to a
+reputation service.
+
+### `gateway_sessions`
+
+`username`, `device_id`, `device_name`, `client_ip`, `fingerprint`, `started`,
+`duration_s`, `bytes_in`, `bytes_out`, `reason`.
+
+Finished [SSH gateway](sshgw.md) sessions. Visible to admins and auditors, the
+same people who see the session list on the gateway page; for every other role
+the entity returns no rows.
 
 ## Saved queries
 

@@ -1,8 +1,9 @@
 # Reports
 
 **Business → Reports** produces a single **fleet posture report** — health
-score, pending patches, open CVEs and compliance — as one export you can
-download on demand or have emailed on a schedule.
+score, pending patches, open CVEs, host security posture, threats and remote
+access, and compliance — as one export you can download on demand or have
+emailed on a schedule.
 
 ## Posture report
 
@@ -12,6 +13,24 @@ download on demand or have emailed on a schedule.
   [compliance](compliance.md) baseline trend and an [audit-log](security.md)
   excerpt for the period into one JSON document — the artifact auditors ask for.
   Generating it is admin-only and itself audit-logged.
+
+## Threats and remote access
+
+The **Threats & remote access** section answers two questions a security
+reviewer asks of every report: *is anything attacking us*, and *who reached our
+hosts remotely*.
+
+- Hosts with a brute-force source over the alert threshold right now, and how
+  many sources.
+- Sources [IP intel](ip-intel.md) recorded in the last week, how many a
+  reputation service lists as abusive, and how many of those are not blocked.
+- Blocks currently in place and addresses reported in the period.
+- [SSH gateway](sshgw.md) sessions in the period, by how many people, to how
+  many hosts.
+- The five most attacked hosts.
+
+A count of zero still prints: "nothing attacked us" is a finding worth reading.
+Every figure is limited to the devices the person generating the report can see.
 
 ## Scheduled reports
 

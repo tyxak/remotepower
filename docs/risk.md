@@ -12,7 +12,8 @@ backup freshness, contract and warranty expiry, config drift, and hardware
 health (SMART, storage, thermal, ECC, OOM, and a NIC accumulating errors —
 which the reliability score also weighs as failing hardware). It also reads
 UEFI Secure Boot, canary files that could not be placed, files the integrity
-guard has quarantined, failed scheduled jobs, and your own custom checks.
+guard has quarantined, failed scheduled jobs, your own custom checks, and
+whether the host is being attacked right now.
 
 - The score is **explained** — each contributing factor is listed with its
   weight, so "why is this 78" has an answer.
@@ -38,8 +39,17 @@ guard has quarantined, failed scheduled jobs, and your own custom checks.
   timer cannot fire, the job it starts is simply never started, so the unit
   itself still looks fine. Backups and scans go quiet without anything else
   changing.
+- **Being attacked counts.** Each source currently over the brute-force
+  threshold adds points, and a source that a reputation service lists as
+  abusive (score 75 or more in [IP intel](ip-intel.md)) and that is not blocked
+  on the host adds more. Both are capped. The sources are the ones the
+  brute-force alert and the Security Advisory name, so the three agree.
+- **Every weight is tunable** under Settings → Risk score weights; 0 turns a
+  factor off.
 - **Posture booleans are tri-state.** Secure Boot off scores; Secure Boot never
   reported does not. A machine that boots without UEFI tells you nothing, and a
   list of findings should not be padded with hosts that were never asked.
 - It is a *prioritisation* aid computed from observed data — not a formal
   risk assessment.
+
+← [Back to docs index](README.md)

@@ -193,9 +193,14 @@ def _remote_access_control(facts):
                     + ", ".join(str(h) for h in keyonly[:10])
                     + ". That is not a failure here; tighten to `no` if your "
                       "policy forbids direct root access entirely.")
+        gw = int(facts.get('sshgw_hosts') or 0)
+        gw_note = (f" {gw} host(s) are reachable through the RemotePower SSH "
+                   "gateway, which accepts registered keys only, checks role, "
+                   "scope and tenant on every connection and records each "
+                   "session." if gw else '')
         return PASS, ("No host that reported sshd configuration accepts a root "
                       "password, password authentication or empty passwords."
-                      + note +
+                      + note + gw_note +
                       " Remote access by other means (VPN, RDP, console) is out "
                       "of scope — verify those separately.")
     return NA, ("No host has reported sshd configuration yet — verify remote "
@@ -250,8 +255,19 @@ def _access_review_control(facts):
 def _intrusion_control(facts):
     bf = facts.get('brute_force') or []
     if bf:
-        return FAIL, f"Brute-force attempts detected on {len(bf)} host(s) in the last 30 days: " + \
-               ", ".join(str(h) for h in bf[:10])
+        # v7.1.0: say whether anything RESPONDED. "Attacked" and "attacked by a
+        # known-abusive address that is still getting through" are different
+        # findings for an auditor, and IP intel knows which one this is.
+        kb = facts.get('known_bad_unblocked') or []
+        blocks = int(facts.get('ip_blocks_active') or 0)
+        resp = ''
+        if kb:
+            resp += (f" Known-abusive sources are still not blocked on {len(kb)} "
+                     f"host(s): " + ", ".join(str(h) for h in kb[:10]) + ".")
+        if blocks:
+            resp += f" {blocks} source address(es) are currently blocked."
+        return FAIL, (f"Brute-force attempts detected on {len(bf)} host(s) in the last 30 days: "
+                      + ", ".join(str(h) for h in bf[:10]) + "." + resp)
     return PASS, "No brute-force login activity in the last 30 days."
 
 

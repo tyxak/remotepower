@@ -110,6 +110,79 @@ def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
         pass
 
 
+# ── what other surfaces read ───────────────────────────────────────────────────
+
+KNOWN_BAD_SCORE = 75          # "a provider says this address is abusive"
+RECENT_S = 7 * 86400          # how long an attack counts towards a host's posture
+
+
+def ip_intel_annotate(dev_id, rows):
+    """Brute-force source rows ({source_ip, …}) with what IP intel knows about
+    each: the merged reputation score, country and network, and whether the
+    address is blocked on this host right now. Rows IP intel has never seen
+    come back unchanged. Read-only; never raises."""
+    try:
+        st = _store_ro()
+    except Exception:  # nosec B110 — enrichment is optional
+        return list(rows or [])
+    atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+    blocks = (st.get('blocks') or {}).get(dev_id) if isinstance(st.get('blocks'), dict) else None
+    blocks = blocks if isinstance(blocks, dict) else {}
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        r = dict(r)
+        ip = ip_intel.parse_ip(r.get('source_ip'))
+        v = ((atts.get(ip) or {}).get('verdict') or {}) if ip else {}
+        if isinstance(v, dict) and v.get('score') is not None:
+            r['score'] = v.get('score')
+            for k in ('country', 'isp'):
+                if v.get(k):
+                    r[k] = v[k]
+        r['blocked'] = bool(ip and ip in blocks)
+        out.append(r)
+    return out
+
+
+def ip_intel_by_device(now=None):
+    """{device_id: {attackers, known_bad, known_bad_unblocked, blocked, top}} for
+    attacks seen in the last week. `known_bad` is an address a provider scores
+    at KNOWN_BAD_SCORE or above; `top` lists the worst few for evidence. One
+    read of the store for the whole fleet, so callers hoist it out of any
+    per-device loop."""
+    now = int(now or time.time())
+    try:
+        st = _store_ro()
+    except Exception:  # nosec B110 — enrichment is optional
+        return {}
+    atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+    blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
+    out = {}
+    for ip, a in atts.items():
+        if not isinstance(a, dict):
+            continue
+        score = (a.get('verdict') or {}).get('score') if isinstance(a.get('verdict'), dict) else None
+        for did, seen in (a.get('devices') or {}).items():
+            if not isinstance(seen, dict) or now - int(seen.get('at') or 0) > RECENT_S:
+                continue
+            rec = out.setdefault(did, {'attackers': 0, 'known_bad': 0,
+                                       'known_bad_unblocked': 0, 'blocked': 0, 'top': []})
+            rec['attackers'] += 1
+            blocked = ip in (blocks.get(did) or {})
+            if blocked:
+                rec['blocked'] += 1
+            if isinstance(score, int) and score >= KNOWN_BAD_SCORE:
+                rec['known_bad'] += 1
+                if not blocked:
+                    rec['known_bad_unblocked'] += 1
+            rec['top'].append({'ip': ip, 'score': score, 'count': int(seen.get('count') or 0),
+                               'blocked': blocked})
+    for rec in out.values():
+        rec['top'] = sorted(rec['top'], key=lambda t: (-(t['score'] or -1), -t['count']))[:5]
+    return out
+
+
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 
 def _ip_intel_http(req):

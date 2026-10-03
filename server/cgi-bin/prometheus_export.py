@@ -619,6 +619,35 @@ def generate_metrics(ctx: dict) -> str:
     if isinstance(compliance, dict) and compliance:
         _emit_compliance(lines, devices, compliance)
 
+    # ── v7.1.0: attack pressure and SSH-gateway use ────────────────────────────
+    attack = ctx.get('attack')
+    if isinstance(attack, dict) and attack:
+        for fam, key, help_text in (
+                ('remotepower_device_bruteforce_sources', 'bf_sources',
+                 'Sources currently over the brute-force threshold on this host.'),
+                ('remotepower_device_known_attackers_unblocked', 'known_bad_unblocked',
+                 'Known-abusive sources (IP intel) that attacked this host in the last week and are not blocked.'),
+                ('remotepower_device_ip_blocks_active', 'blocks',
+                 'Addresses IP intel has blocked on this host right now.')):
+            lines.append(f'# HELP {fam} {help_text}')
+            lines.append(f'# TYPE {fam} gauge')
+            for dev_id, rec in sorted(attack.items()):
+                if isinstance(rec, dict):
+                    lines.append(_metric(fam, _dev_labels(devices, str(dev_id)),
+                                         int(rec.get(key) or 0)))
+    sshgw = ctx.get('sshgw')
+    if isinstance(sshgw, dict) and sshgw:
+        for fam, key, help_text in (
+                ('remotepower_sshgw_devices_opted_in', 'opted_in',
+                 'Devices that may be reached through the SSH gateway.'),
+                ('remotepower_sshgw_tunnels_connected', 'tunnels',
+                 'Opted-in devices whose agent tunnel is connected.'),
+                ('remotepower_sshgw_sessions_24h', 'sessions_24h',
+                 'SSH gateway sessions that finished in the last 24 hours.')):
+            lines.append(f'# HELP {fam} {help_text}')
+            lines.append(f'# TYPE {fam} gauge')
+            lines.append(_metric(fam, {}, int(sshgw.get(key) or 0)))
+
     # ── v6.4.2: per-device uptime/SLA + framework compliance ───────────────────
     # The two posture numbers the product has always computed for its own
     # screens and never let an operator take away.

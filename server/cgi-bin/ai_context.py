@@ -157,7 +157,11 @@ def _device_flags(d):
     # would otherwise read as healthy.
     if si.get('psutil') is False:
         out.append('limited metrics')
-    return out[:_MAX_FLAGS_PER_DEVICE]
+    # v7.1.0: conditions that live outside the device record (brute force, IP
+    # intel), attached by the caller to a copy as `_extra_flags`. They go first:
+    # being attacked right now outranks a full disk.
+    extra = [str(f)[:60] for f in (d.get('_extra_flags') or []) if f]
+    return (extra + out)[:_MAX_FLAGS_PER_DEVICE]
 
 
 def _device_one_liner(d, now=None, ttl=300):

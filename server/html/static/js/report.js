@@ -158,6 +158,39 @@
           }).join('')
         + '</tbody></table>';
     }
+    // v7.1.0: attacks and remote access. A row whose count is zero still
+    // prints — "nothing attacked us" is a finding a reviewer wants to read.
+    const th = rep.threats || null;
+    if (th) {
+      const thRows = [
+        ['Hosts under brute force now', th.bf_hosts, th.bf_hosts],
+        ['Brute-force sources now', th.bf_sources, 0],
+        ['Attacking sources (last 7 days)', th.attackers, 0],
+        ['Known-abusive sources (last 7 days)', th.known_bad, 0],
+        ['Known-abusive, not blocked', th.known_bad_unblocked, th.known_bad_unblocked],
+        ['Blocks active', th.blocks_active, 0],
+        ['Addresses reported (last ' + (th.days || 30) + ' days)', th.reported, 0],
+        ['SSH gateway sessions (last ' + (th.days || 30) + ' days)', th.gw_sessions, 0],
+        ['Distinct gateway users', th.gw_users, 0],
+        ['Distinct hosts reached', th.gw_hosts, 0],
+      ];
+      html += '<h2>Threats and remote access</h2><table><tbody>'
+        + thRows.map(function (r) {
+            return '<tr><td>' + esc(r[0]) + '</td><td class="' + ((r[2] || 0) ? 'bad' : '')
+              + '">' + esc(String(r[1] || 0)) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+      if (Array.isArray(th.top_hosts) && th.top_hosts.length) {
+        html += '<table><thead><tr><th>Most attacked host</th><th>Sources</th>'
+          + '<th>Known-abusive</th></tr></thead><tbody>'
+          + th.top_hosts.map(function (t) {
+              return '<tr><td>' + esc(t.device) + '</td><td>' + esc(String(t.attackers || 0))
+                + '</td><td class="' + ((t.known_bad || 0) ? 'bad' : '') + '">'
+                + esc(String(t.known_bad || 0)) + '</td></tr>';
+            }).join('')
+          + '</tbody></table>';
+      }
+    }
     const fwKeys = Object.keys(fws);
     if (fwKeys.length) {
       html += '<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'

@@ -193,6 +193,9 @@ metrics. Each block is emitted only when the underlying store has data.
 | `remotepower_compliance_pass_ratio`, `remotepower_compliance_devices_evaluated` | — | Fleet baseline compliance, severity-weighted, as a 0–1 ratio |
 | `remotepower_device_compliance_pass_ratio` | — | Per-host, omitted when no check applied (a 0 would read as total failure) |
 | `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Device counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
+| `remotepower_device_bruteforce_sources` | — | Sources currently over the brute-force threshold on the host; quiet hosts are omitted |
+| `remotepower_device_known_attackers_unblocked`, `remotepower_device_ip_blocks_active` | — | Known-abusive sources that attacked the host this week and are not blocked, and blocks in place — see [ip-intel.md](ip-intel.md) |
+| `remotepower_sshgw_devices_opted_in`, `remotepower_sshgw_tunnels_connected`, `remotepower_sshgw_sessions_24h` | — | SSH gateway reach, live agent tunnels and recent sessions, emitted only when the module is on — see [sshgw.md](sshgw.md) |
 
 Health, risk and reliability are three separate families, not one
 number: health is the Needs-Attention rollup, risk is security posture, and

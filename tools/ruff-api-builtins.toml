@@ -576,6 +576,8 @@ builtins = [
     "handle_webterm_auth",
     "handle_webterm_hostkeys",
     "handle_webterm_session_audit",
+    "ip_intel_annotate",
+    "ip_intel_by_device",
     "ip_intel_note_attack",
     "process_backup_jobs",
     "record_config_revision",

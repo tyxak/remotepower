@@ -1127,6 +1127,7 @@ for _ii_name in (
         'ip_intel_note_attack', '_ip_intel_http', 'run_ip_intel_if_due',
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
         'handle_ip_intel_block', 'handle_ip_intel_unblock',
+        'ip_intel_annotate', 'ip_intel_by_device',
 ):
     globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
 del _ii_name
@@ -31399,6 +31400,76 @@ _QE_ALERT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'status', 'source', 'ts', 'first_seen', 'acknowledged_by', 'resolved_by')}
 
 
+def _qe_attackers_rows():
+    """v7.1.0: one row per (source address, attacked host) that IP intel has
+    recorded — "which known-abusive addresses are hitting my web tier and are
+    not blocked" is a Data Explorer question now. Limited to visible devices,
+    like every device-keyed entity here."""
+    visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    st = (_load_ro(IPINTEL_FILE) or {}) if backend_exists(IPINTEL_FILE) else {}
+    blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
+    out = []
+    for ip, a in (st.get('attackers') or {}).items():
+        if not isinstance(a, dict):
+            continue
+        v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
+        rep = a.get('reported') if isinstance(a.get('reported'), dict) else {}
+        for did, seen in (a.get('devices') or {}).items():
+            if did not in visible or not isinstance(seen, dict):
+                continue
+            out.append({
+                'ip': ip, 'device_id': did,
+                'device_name': (visible[did] or {}).get('name') or did,
+                'unit': seen.get('unit') or '', 'count': int(seen.get('count') or 0),
+                'score': v.get('score'), 'reports': v.get('reports'),
+                'country': v.get('country') or '', 'isp': v.get('isp') or '',
+                'usage': v.get('usage') or '',
+                'blocked': ip in (blocks.get(did) or {}),
+                'reported': bool(rep),
+                'first_seen': int(a.get('first_seen') or 0),
+                'last_seen': int(seen.get('at') or a.get('last_seen') or 0),
+            })
+    return out
+
+
+_QE_ATTACKER_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'ip', 'device_id', 'device_name', 'unit', 'count', 'score', 'reports',
+    'country', 'isp', 'usage', 'blocked', 'reported', 'first_seen', 'last_seen')}
+
+
+def _qe_gateway_sessions_rows():
+    """v7.1.0: finished SSH-gateway sessions. Same audience as the gateway
+    page's session list — admins and auditors — and the same device scope;
+    any other role gets no rows rather than an error, so a shared template
+    simply returns nothing for them."""
+    try:
+        role = verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        role = 'viewer'
+    if not (_resolve_role(role).get('admin') or role == 'auditor'):
+        return []
+    visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    st = (_load_ro(SSHGW_SESSIONS_FILE) or {}) if backend_exists(SSHGW_SESSIONS_FILE) else {}
+    out = []
+    for r in (st.get('sessions') or []):
+        if not isinstance(r, dict) or (r.get('device_id') or '') not in visible:
+            continue
+        out.append({
+            'username': r.get('username') or '', 'device_id': r.get('device_id') or '',
+            'device_name': (visible.get(r.get('device_id')) or {}).get('name') or r.get('device_id') or '',
+            'client_ip': r.get('client_ip') or '', 'fingerprint': r.get('fingerprint') or '',
+            'started': int(r.get('started') or 0), 'duration_s': int(r.get('duration_s') or 0),
+            'bytes_in': int(r.get('bytes_in') or 0), 'bytes_out': int(r.get('bytes_out') or 0),
+            'reason': r.get('reason') or '',
+        })
+    return out
+
+
+_QE_GATEWAY_SESSION_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'username', 'device_id', 'device_name', 'client_ip', 'fingerprint', 'started',
+    'duration_s', 'bytes_in', 'bytes_out', 'reason')}
+
+
 _QE_ENTITIES = {
     'devices':    (_qe_devices_rows, _QE_DEVICE_FIELDS),
     'cves':       (_qe_cve_rows, _QE_CVE_FIELDS),
@@ -31409,6 +31480,9 @@ _QE_ENTITIES = {
     'services':   (_qe_services_rows, _QE_SERVICE_FIELDS),
     'containers': (_qe_containers_rows, _QE_CONTAINER_FIELDS),
     'alerts':     (_qe_alerts_rows, _QE_ALERT_FIELDS),
+    # v7.1.0
+    'attackers':  (_qe_attackers_rows, _QE_ATTACKER_FIELDS),
+    'gateway_sessions': (_qe_gateway_sessions_rows, _QE_GATEWAY_SESSION_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
@@ -43227,6 +43301,14 @@ def _rag_build_corpus(cfg):
             raw = load(DEVICES_FILE)
             devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
             docs += rag_index.build_firewall_corpus(devices, now=now)
+            # v7.1.0: attackers (with reputation + block state) and SSH-gateway
+            # access ride the same source — both are about who gets in.
+            docs += rag_index.build_threats_corpus(
+                raw if isinstance(raw, dict) else {},
+                intel=(_load_ro(IPINTEL_FILE) or {}) if backend_exists(IPINTEL_FILE) else {},
+                sessions=((_load_ro(SSHGW_SESSIONS_FILE) or {}).get('sessions') or [])
+                if backend_exists(SSHGW_SESSIONS_FILE) else [],
+                now=now)
         except Exception as e:
             sys.stderr.write(f'rag: firewall source failed: {e}\n')
 
@@ -43732,6 +43814,36 @@ def _rag_budget_trim(chunks, budget):
     return out
 
 
+def _ai_fleet_with_attack_flags(visible):
+    """The scoped fleet for an AI prompt, each device annotated with what is
+    attacking it. ai_context reads the device record only, and attack state
+    lives in its own stores, so a host under active guessing by a known-abusive
+    address read to the model exactly like a quiet one. Copies are annotated,
+    never the shared cached records."""
+    visible = visible if isinstance(visible, dict) else {}
+    try:
+        _on, _thresh, _window = _brute_config()
+        _bf = (_load_ro(BRUTE_FORCE_FILE) or {}) if _on and backend_exists(BRUTE_FORCE_FILE) else {}
+        _intel = ip_intel_by_device()
+    except Exception:
+        _bf, _intel = {}, {}
+    _now = int(time.time())
+    out = []
+    for did, dev in visible.items():
+        if not isinstance(dev, dict):
+            continue
+        flags = []
+        rows = _bf_active(_bf.get(did) or {}, _now - _window, _thresh) if _bf else []
+        if rows:
+            n = len({r.get('source_ip') for r in rows})
+            flags.append(f'brute force from {n} source' + ('s' if n != 1 else ''))
+        kb = int((_intel.get(did) or {}).get('known_bad_unblocked') or 0)
+        if kb:
+            flags.append(f'{kb} known-abusive attacker' + ('s' if kb != 1 else '') + ' not blocked')
+        out.append(dict(dev, _extra_flags=flags) if flags else dev)
+    return out
+
+
 def _rag_retrieve_pg(cfg, query):
     """Retrieval against the pgvector store: vector ANN when embeddings are
     active, else Postgres full-text. Lazily (re)builds under the same throttle as
@@ -44111,7 +44223,8 @@ def handle_ai_chat():
     if include_fleet:
         try:
             raw = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
-            fleet_devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
+            fleet_devices = (_ai_fleet_with_attack_flags(raw) if isinstance(raw, dict)
+                             else (raw or []))
         except Exception:
             # If devices.json can't be read, just skip fleet context —
             # the AI call should still work, just with less awareness.
@@ -45146,6 +45259,20 @@ def _compliance_facts(devices=None):
             _ev_label(e) for e in recent if e.get('event') == 'priv_group_added'))
     except Exception:
         pass
+    # v7.1.0: the response half of intrusion detection, and the gateway as a
+    # remote-access path. Evidence only: neither changes a control's verdict.
+    try:
+        _intel = ip_intel_by_device(now)
+        facts['known_bad_unblocked'] = [
+            (devices.get(d) or {}).get('name') or d for d, v in _intel.items()
+            if d in _visible_ids and v.get('known_bad_unblocked')]
+        facts['ip_blocks_active'] = sum(int(v.get('blocked') or 0) for d, v in _intel.items()
+                                        if d in _visible_ids)
+    except Exception:
+        facts['known_bad_unblocked'], facts['ip_blocks_active'] = [], 0
+    facts['sshgw_hosts'] = (sum(1 for d in devices.values()
+                                if isinstance(d, dict) and d.get('sshgw_enabled'))
+                            if _module_on('sshgw') else 0)
     return facts
 
 
@@ -45488,7 +45615,8 @@ def handle_runbook_generate(dev_id):
     base_system = _resolve_system_prompt('generate_runbook')
     ctx_opts = cfg.get('context') or {}
     _visible = _scope_filter_devices(devices if isinstance(devices, dict) else {})
-    fleet = list(_visible.values()) if isinstance(_visible, dict) else (_visible or [])
+    fleet = (_ai_fleet_with_attack_flags(_visible) if isinstance(_visible, dict)
+             else (_visible or []))
     system_prompt = ai_context.build_combined_system_prompt(
         base_system,
         devices=fleet,
@@ -50165,6 +50293,12 @@ _RISK_WEIGHTS = {
     'files_quarantined': 8,    # the integrity guard has quarantined files here
     'timer_failed': 3,         # systemd timers (scheduled jobs) in a failed state
     'custom_check_failed': 5,  # the operator's own checks, failing
+    # v7.1.0: two attack signals that drove an alert and the advisory and no
+    # score. A host being guessed at right now is more exposed than an
+    # identical quiet one, and more so when a reputation service already knows
+    # the address and nothing here has blocked it.
+    'brute_force': 4,          # per source over the brute-force threshold now
+    'known_attacker': 8,       # per known-abusive source (IP intel) not blocked
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -50174,7 +50308,8 @@ _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               # v7.0.3: the counted ones. A host with forty failing custom
               # checks is in trouble, but not forty times a host with one.
               'files_quarantined': 24, 'timer_failed': 12,
-              'custom_check_failed': 20}
+              'custom_check_failed': 20,
+              'brute_force': 12, 'known_attacker': 24}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -50219,7 +50354,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
                  patch_sla_breach=None, drift_rec=None, custom_defs=None,
-                 checks_disabled=None):
+                 checks_disabled=None, bf_rows=None, intel_rec=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -50571,6 +50706,22 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  min(_RISK_CAPS['custom_check_failed'], _pts),
                  f'{len(_crit)} critical / {len(_warn)} warning custom check(s)'
                  f' ({_first})')
+
+    # Being attacked right now. Sources come from the same store and window the
+    # brute-force alert and the advisory read, so all three agree.
+    if bf_rows:
+        _srcs = sorted({r.get('source_ip') for r in bf_rows if isinstance(r, dict)})
+        _add('brute_force', min(_RISK_CAPS['brute_force'], len(_srcs) * w['brute_force']),
+             f'{len(_srcs)} source(s) guessing logins right now'
+             + (f' ({", ".join(_srcs[:2])})' if _srcs else ''))
+    # ...by addresses a reputation service already lists, still unblocked here.
+    if isinstance(intel_rec, dict) and intel_rec.get('known_bad_unblocked'):
+        _n = int(intel_rec['known_bad_unblocked'])
+        _ips = [t['ip'] for t in intel_rec.get('top') or []
+                if t.get('score') is not None and t['score'] >= 75 and not t.get('blocked')]
+        _add('known_attacker', min(_RISK_CAPS['known_attacker'], _n * w['known_attacker']),
+             f'{_n} known-abusive source(s) not blocked'
+             + (f' ({", ".join(_ips[:2])})' if _ips else ''))
 
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
@@ -51103,6 +51254,16 @@ def _compute_fleet_risk():
     # Drift state is its own store (never on the device record), so the
     # config_drift factor needs it threaded in like hw_rec. Read once.
     _drift_all = _drift_state_ro()
+    # v7.1.0: attack signals, read once for the fleet. Brute-force sources use
+    # the alert's own threshold and window; IP intel is empty until configured.
+    _bf_store = {}
+    _bf_on, _bf_thresh, _bf_window = _brute_config()
+    if _bf_on and backend_exists(BRUTE_FORCE_FILE):
+        _bf_store = _load_ro(BRUTE_FORCE_FILE) or {}
+    try:
+        _intel = ip_intel_by_device(now)
+    except Exception:
+        _intel = {}
     # Backup state is keyed `<device>:<path>`; fold it into per-device counts
     # once rather than re-scanning the store for every host.
     _bs_file = DATA_DIR / 'backup_state.json'
@@ -51143,7 +51304,11 @@ def _compute_fleet_risk():
                                 patch_sla_breach=sla_detail.get(dev_id),
                                 drift_rec=_drift_all.get(dev_id) or {},
                                 custom_defs=_custom_defs,
-                                checks_disabled=_checks_disabled.get(dev_id) or []))
+                                checks_disabled=_checks_disabled.get(dev_id) or [],
+                                bf_rows=(_bf_active(_bf_store.get(dev_id) or {},
+                                                    now - _bf_window, _bf_thresh)
+                                         if _bf_store else None),
+                                intel_rec=_intel.get(dev_id)))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -63396,6 +63561,12 @@ _TIMELINE_AUDIT_PREFIXES = (
     'device_delete', 'device_add', 'firewall_', 'rollout_', 'patch_',
     'script_', 'check_', 'mute', 'unmute', 'alert_', 'agent_',
     'backup_', 'restore', 'drift_', 'group_', 'tag_',
+    # v7.1.0: a firewall block IP intel placed, and who reached the host
+    # through the SSH gateway — both "what changed right before this broke".
+    # sshgw_open, not sshgw_session: the login time is the moment that matters,
+    # and listing both would show every session twice.
+    'ip_intel_block', 'ip_intel_unblock', 'sshgw_open', 'sshgw_device_',
+    'sshgw_key_',
 )
 
 
@@ -65848,7 +66019,7 @@ def _metrics_scope_ctx(ctx, visible):
 
     for key in ('devices', 'pending_cmds', 'cve_findings', 'cve_ignore',
                 'services', 'hardware', 'backup_state', 'disk_fill_eta',
-                'device_uptime', 'compliance'):
+                'device_uptime', 'compliance', 'attack'):
         if isinstance(ctx.get(key), dict):
             ctx[key] = _by_key(ctx[key])
     for key in ('schedule', 'fleet_events', 'slo', 'risk', 'reliability',
@@ -65862,6 +66033,48 @@ def _metrics_scope_ctx(ctx, visible):
                 if isinstance(v.get(sub), list):
                     v[sub] = _by_field(v[sub])
     return ctx
+
+
+def _metrics_attack(devices, now):
+    """{device_id: {bf_sources, known_bad_unblocked, blocks}} for hosts with
+    anything to report; quiet hosts are absent, so the families stay small."""
+    out = {}
+    try:
+        on, thresh, window = _brute_config()
+        bf = (_load_ro(BRUTE_FORCE_FILE) or {}) if on and backend_exists(BRUTE_FORCE_FILE) else {}
+        intel = ip_intel_by_device(now)
+        st = (_load_ro(IPINTEL_FILE) or {}) if backend_exists(IPINTEL_FILE) else {}
+        blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
+    except Exception:
+        return out
+    for did in devices:
+        rows = _bf_active(bf.get(did) or {}, now - window, thresh) if bf else []
+        rec = {'bf_sources': len({r.get('source_ip') for r in rows}),
+               'known_bad_unblocked': int((intel.get(did) or {}).get('known_bad_unblocked') or 0),
+               'blocks': len(blocks.get(did) or {}) if isinstance(blocks.get(did), dict) else 0}
+        if any(rec.values()):
+            out[did] = rec
+    return out
+
+
+def _metrics_sshgw(devices, now):
+    """Fleet-level SSH gateway gauges, or {} when the module is off."""
+    if not _module_on('sshgw'):
+        return {}
+    st = (_load_ro(SSHGW_STATE_FILE) or {}) if backend_exists(SSHGW_STATE_FILE) else {}
+    ss = (_load_ro(SSHGW_SESSIONS_FILE) or {}) if backend_exists(SSHGW_SESSIONS_FILE) else {}
+    ids = set(devices)
+    return {
+        'opted_in': sum(1 for d in devices.values()
+                        if isinstance(d, dict) and d.get('sshgw_enabled')),
+        # The gateway re-checks every tunnel at least every five minutes, so a
+        # tunnel seen within ten is connected.
+        'tunnels': sum(1 for did, r in st.items() if did in ids and isinstance(r, dict)
+                       and now - int(r.get('tunnel_seen') or 0) < 600),
+        'sessions_24h': sum(1 for r in (ss.get('sessions') or [])
+                            if isinstance(r, dict) and r.get('device_id') in ids
+                            and now - int(r.get('started') or 0) < 86400),
+    }
 
 
 def _build_metrics_ctx(visible=None):
@@ -65949,6 +66162,10 @@ def _build_metrics_ctx(visible=None):
         # _compliance_facts(None) is the documented SYSTEM whole-fleet path
         # (its docstring names the RAG corpus builder as the precedent).
         'framework_compliance': _metrics_framework_compliance(),
+        # v7.1.0: attack pressure per host and SSH-gateway use. Both drove a
+        # page, an alert or the advisory and reached no dashboard.
+        'attack':            _metrics_attack(_mctx_devs, now),
+        'sshgw':             _metrics_sshgw(_mctx_devs, now),
     }
     return ctx if visible is None else _metrics_scope_ctx(ctx, visible)
 

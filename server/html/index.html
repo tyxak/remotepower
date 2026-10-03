@@ -506,7 +506,7 @@
           <span>Confirmations</span>
           <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
         </button>
-        <button class="nav-btn" data-page="dataexplorer" title="Advanced predicate query across devices, CVEs and drift — nested AND/OR conditions, build, run, save as a template. Separate from the simpler device-only Fleet Query page.">
+        <button class="nav-btn" data-page="dataexplorer" title="Advanced predicate query across devices, CVEs, drift, packages, ports, services, containers, alerts, attackers and gateway sessions — nested AND/OR conditions, build, run, save as a template. Separate from the simpler device-only Fleet Query page.">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Data Explorer</span>
         </button>
@@ -4270,6 +4270,14 @@
               <input type="number" id="ap-rw-custom_check_failed" class="form-input isl-80" min="0" max="1000" placeholder="5">
             </div>
             <div class="form-group">
+              <label for="ap-rw-brute_force" class="form-label">Brute-force source (now)</label>
+              <input type="number" id="ap-rw-brute_force" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-known_attacker" class="form-label">Known-abusive source, not blocked</label>
+              <input type="number" id="ap-rw-known_attacker" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+            <div class="form-group">
               <label for="ap-rw-image_cves" class="form-label">Container image CVE</label>
               <input type="number" id="ap-rw-image_cves" class="form-input isl-80" min="0" max="1000" placeholder="4">
             </div>
@@ -6509,7 +6517,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
            between the two. -->
       <div id="page-dataexplorer" class="page">
         <div class="page-title">Data Explorer</div>
-        <div class="page-subtitle">Build a filter across devices, CVEs, or drift — run it, save it as a template. Read-only; scoped to what you can already see. <a href="docs/fleet-query.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Build a filter across devices, CVEs, drift, packages, listening ports, services, containers, alerts, attackers and SSH-gateway sessions — run it, save it as a template. Read-only; scoped to what you can already see. <a href="docs/data-explorer.md" class="c-accent">Documentation</a></div>
         <div class="dash-card">
           <div class="section-title">Query builder</div>
           <div class="settings-row">
