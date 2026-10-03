@@ -27,9 +27,9 @@ through_the_real_engine` loads i18n.js in node and asks the engine itself.
 THE ONE THING THAT BLOCKS THE ROUND TRIP IS LENGTH. `translateTextNode` skips a
 text node longer than its own cap, so a label above it cannot be translated no
 matter what DICT holds. Nine baseline-check descriptions (up to 392 chars) sat
-above the old 200-char cap and were untranslatable for that reason alone; the
-cap is 400 now. `test_no_label_exceeds_the_engines_text_node_cap` reads the cap
-out of i18n.js so the two cannot drift apart again.
+above the old 200-char cap and were untranslatable for that reason alone.
+`test_no_label_exceeds_the_engines_text_node_cap` reads the cap out of i18n.js
+(through tests/i18n_engine.py) so the two cannot drift apart again.
 
 Not in the population, on purpose:
   * `EVENT_REGISTRY[...]['title']` and `tags` — webhook/push/email decoration.
@@ -43,8 +43,12 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from i18n_engine import text_node_cap   # noqa: E402
 
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _API = _ROOT / 'server' / 'cgi-bin' / 'api.py'
@@ -76,17 +80,6 @@ def _dict_keys():
         raw = m.group(1) if m.group(1) is not None else m.group(2)
         keys.add(raw.replace("\\'", "'").replace('\\"', '"').replace('\\\\', '\\'))
     return keys
-
-
-def _engine_text_node_cap():
-    """The engine's own maximum translatable text-node length, read from source.
-
-    Hardcoding it here would let the two drift, which is exactly how nine
-    descriptions became untranslatable while every key was present.
-    """
-    m = re.search(r'trimmed\.length\s*>\s*(\d+)', _I18N.read_text(encoding='utf-8'))
-    assert m, 'the text-node length cap is no longer in translateTextNode'
-    return int(m.group(1))
 
 
 # ── the population, derived from the registries themselves ───────────────────
@@ -182,7 +175,7 @@ class TestServerLabelsAreTranslated(unittest.TestCase):
     def setUpClass(cls):
         cls.registries = _registries()
         cls.keys = _dict_keys()
-        cls.cap = _engine_text_node_cap()
+        cls.cap = text_node_cap()
 
     def test_the_dictionary_parse_is_not_lying(self):
         """Positive control for _dict_keys.
@@ -270,8 +263,8 @@ class TestServerLabelsAreTranslated(unittest.TestCase):
             json.dumps(over, indent=2, ensure_ascii=False),
             '',
             'Either shorten the label or raise the cap in translateTextNode '
-            '(i18n.js) — and if you raise it, raise the extraction caps in '
-            'test_v430_i18n_gate.py with it.']))
+            '(i18n.js). The markup gate in test_v430_i18n_gate.py reads the '
+            'same number, so its extraction windows follow.']))
 
     def test_the_gate_catches_an_untranslated_string(self):
         """Control on the RULE. Inject a string no dictionary will ever hold

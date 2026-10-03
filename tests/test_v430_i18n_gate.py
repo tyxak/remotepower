@@ -12,8 +12,12 @@ five non-English languages.
 import html as _html
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from i18n_engine import text_node_cap   # noqa: E402
 
 _ROOT = Path(__file__).parent.parent
 INDEX = (_ROOT / "server" / "html" / "index.html").read_text()
@@ -550,15 +554,17 @@ def _extract(pattern, source):
 # lived there, among them the ITSM-callback option and four backup/RPO/RTO field
 # labels.
 #
-# 400 tracks the engine: translateTextNode skips a text node longer than its own
-# cap, so a literal past it cannot be translated even with a DICT entry, and the
-# cap moved to 400 when nine baseline-check descriptions turned out to sit above
-# 200. Extracting past what the engine can act on would demand translations that
+# The window is the engine's own cap, read from i18n.js: translateTextNode skips a
+# text node longer than that, so a literal past it cannot be translated even with a
+# DICT entry. The cap moved 200 -> 400 when nine baseline-check descriptions sat
+# above it, and 400 -> 1000 in v7.1.0 for the About blurb (942) and three Settings
+# hints. Extracting past what the engine can act on would demand translations that
 # do nothing; stopping short of it hides strings that would work.
+_TEXT_NODE_CAP = text_node_cap(I18N)
 _UNGUARDED_PATTERNS = (
-    ('option',  r'<option[^>]*>([^<]{2,400})</option>'),
-    ('th',      r'<th[^>]*>([^<]{2,400})</th>'),
-    ('label',   r'<label[^>]*>([^<]{2,400})</label>'),
+    ('option',  r'<option[^>]*>([^<]{2,%d})</option>' % _TEXT_NODE_CAP),
+    ('th',      r'<th[^>]*>([^<]{2,%d})</th>' % _TEXT_NODE_CAP),
+    ('label',   r'<label[^>]*>([^<]{2,%d})</label>' % _TEXT_NODE_CAP),
 )
 
 
