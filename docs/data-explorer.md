@@ -88,6 +88,9 @@ sortable, which is why nothing could rank hosts by uptime before.
 | `clock_synced`, `clock_offset_ms` | a skewed clock breaks log correlation and certificate validation |
 | `battery_pct`, `battery_health_pct` | |
 | `audit_mode` | the agent is in read-only mode and refuses every command |
+| `usb_devices` | how many USB devices the host reports attached; empty when it never reported |
+| `logged_in_users` | how many interactive sessions are open on the host right now |
+| `sshgw_enabled` | the host is opted in to the [SSH gateway](sshgw.md) |
 
 **The posture booleans are tri-state, and this matters when you write a
 query.** `false` means the host reported, and the answer is no. **Absent** means

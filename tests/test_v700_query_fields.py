@@ -93,7 +93,8 @@ class TestTheTwoHalvesAgree(unittest.TestCase):
                      device_id='d1', name='web01', group='', site='', os='linux',
                      agent_version='7.0.0', monitored=True, agentless=False,
                      reboot_required=True, cpu_pct=1, mem_pct=1, disk_pct=1,
-                     swap_pct=1, tags='', last_seen=1, online=True)]
+                     swap_pct=1, tags='', last_seen=1, online=True,
+                     sshgw_enabled=False)]
         missing = sorted(k for k in api._QE_DEVICE_FIELDS if k not in rows[0])
         self.assertEqual(
             missing, [],

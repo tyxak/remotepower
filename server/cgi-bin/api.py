@@ -31098,6 +31098,12 @@ def _qe_device_posture(si):
         # The agent's own "my metrics are limited" signal. Without it an empty
         # CPU column is indistinguishable from an idle host.
         'metrics_limited': si.get('psutil') is False,
+        # v7.1.0: two collected lists that were visible only in the drawer.
+        # "Which servers have a USB device attached" and "who is logged in
+        # where" are fleet questions. None when the host never reported.
+        'usb_devices': len(si['usb']) if isinstance(si.get('usb'), dict) else None,
+        'logged_in_users': (len(si['logged_in']) if isinstance(si.get('logged_in'), list)
+                            else None),
     }
 
 
@@ -31124,6 +31130,8 @@ def _qe_devices_rows():
             'last_seen': last,
             'online': (_agentless_online(d) if d.get('agentless')
                        else bool(last and (now - last) < ttl)),
+            # v7.1.0: reachable through the SSH gateway (opt-in per device).
+            'sshgw_enabled': bool(d.get('sshgw_enabled')),
         }
         row.update(_qe_device_posture(si))
         out.append(row)
@@ -31143,7 +31151,9 @@ _QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'firewall_active', 'autoupdate_enabled', 'autoupdate_mechanism',
     'ssh_root_login', 'ssh_password_auth', 'ssh_empty_passwords',
     'ssh_x11_forwarding', 'secure_boot', 'clock_synced', 'clock_offset_ms',
-    'battery_pct', 'battery_health_pct', 'audit_mode', 'metrics_limited')}
+    'battery_pct', 'battery_health_pct', 'audit_mode', 'metrics_limited',
+    # v7.1.0
+    'usb_devices', 'logged_in_users', 'sshgw_enabled')}
 
 
 def _qe_cve_rows():

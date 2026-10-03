@@ -886,6 +886,12 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
         if isinstance(_li, list) and _li:
             posture.append("logged-in users: "
                            + ", ".join(str(u) for u in _li[:10]))
+        # v7.1.0: USB inventory {VID:PID: label} — "which hosts have a USB
+        # device attached" had a drawer row and an alert, and no corpus entry.
+        _usb = si.get('usb')
+        if isinstance(_usb, dict) and _usb:
+            posture.append(f"{len(_usb)} USB device(s) attached: " + ", ".join(
+                f"{_v} ({_k})" for _k, _v in list(_usb.items())[:8]))
         _ch = si.get('chassis')
         if isinstance(_ch, str) and _ch:
             posture.append(f"chassis type: {_ch}")
