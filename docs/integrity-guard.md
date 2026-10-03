@@ -20,7 +20,7 @@ and review anything the agent quarantined.
 2. Click **Baseline protect checks**, choose a scope (whole fleet, a group, a
    tag, or **a specific host**), tick the templates you want, and **Apply**.
 3. Results appear on **Monitoring → Checks** within ~10 minutes (see
-   [Why is everything "unknown"?](#why-is-everything-unknown)).
+   [Why is everything "unknown"?](#why-is-everything-unknown--not-yet-reported-by-agent)).
 4. Tune or remove anything that doesn't fit under **Protect checks**.
 
 To watch a web root and *neutralise* anything dropped into it, see

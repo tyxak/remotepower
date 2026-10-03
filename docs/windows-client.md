@@ -118,7 +118,7 @@ Stop is normally immediate (the agent is asleep between heartbeats and that slee
 is interruptible). If a stop lands *during* a heartbeat it can take up to the HTTP
 timeout (~20 s) to return — the service reports a wait hint so `services.msc`
 won't declare "could not stop". If a Stop ever appears stuck, see
-[the service won't stop/start](#services-msc-cant-start-stop-or-restart-the-service)
+[the service won't stop/start](#servicesmsc-cant-start-stop-or-restart-the-service)
 below.
 
 Install / remove the service directly with the agent (Administrator):
