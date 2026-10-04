@@ -133,6 +133,17 @@ function _selfSidecarRows(s) {
     rows.push({ key: 'push-daemon', label: 'Agent push daemon', state: 'bad', status: 'Enabled — unreachable',
                 detail: `nothing listening on port ${push.port} — check systemctl status remotepower-push` });
   }
+  const gw = sub.sshgw || {};
+  if (!gw.enabled) {
+    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'muted', status: 'Off',
+                detail: 'the optional SSH gateway module is switched off' });
+  } else if (gw.reachable) {
+    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'ok', status: 'Running',
+                detail: `agent tunnels on port ${gw.port}, SSH on port ${gw.ssh_port}; ${gw.tunnels} of ${gw.opted_in} opted-in hosts connected` });
+  } else {
+    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'bad', status: 'Enabled — unreachable',
+                detail: `nothing listening on port ${gw.port} on this server — check systemctl status remotepower-sshgw` });
+  }
   // Syslog / flow receivers are INFORMATIONAL: optional, and they may legitimately
   // run on another host, so "not detected locally" is never a fault here.
   const sy = sub.syslog || {};

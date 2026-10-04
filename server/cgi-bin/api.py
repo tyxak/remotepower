@@ -34176,6 +34176,28 @@ def _subsystems_status(now):
             out['push'] = {'enabled': False}
     except Exception:
         pass
+    # SSH gateway daemon (remotepower-sshgw) — only probed when the module is on.
+    # A TCP-connect to the daemon's agent-tunnel port on this server, plus how
+    # many opted-in hosts have a tunnel up. A gateway that runs on another host
+    # reads as unreachable here, which the row says rather than guesses at.
+    try:
+        if _module_on('sshgw'):
+            _gw_port = int(os.environ.get('RP_SSHGW_WS_PORT', 8767))
+            _gw_up = False
+            try:
+                with socket.create_connection(('127.0.0.1', _gw_port), timeout=1):
+                    _gw_up = True
+            except OSError:
+                _gw_up = False
+            _gw = _metrics_sshgw(_load_ro(DEVICES_FILE) or {}, now)
+            out['sshgw'] = {'enabled': True, 'port': _gw_port, 'reachable': _gw_up,
+                            'ssh_port': int((_config_ro() or {}).get('sshgw_public_port') or 2222),
+                            'opted_in': int(_gw.get('opted_in') or 0),
+                            'tunnels': int(_gw.get('tunnels') or 0)}
+        else:
+            out['sshgw'] = {'enabled': False}
+    except Exception:
+        pass
     # v6.3.1: native agentless syslog receiver (remotepower-syslogd) — an
     # INFORMATIONAL watcher, never a warning/health input: the
     # receiver is an optional sidecar, and it may legitimately run on a

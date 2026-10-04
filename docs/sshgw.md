@@ -92,6 +92,13 @@ journalctl -u remotepower-sshgw | grep 'host key fingerprint'
 3. On the same page, opt in the servers you want to reach. For now this needs
    a Linux agent. The agent opens its tunnel on its next heartbeat.
 
+Once the module is on, **Server status** has an **SSH gateway** row. It says
+**Running** when the gateway answers on this server, and how many of the hosts you
+opted in have a tunnel up. **Enabled — unreachable** means nothing is listening
+on the tunnel port here; check `systemctl status remotepower-sshgw`. If you run
+the gateway on another machine, that row will read unreachable even when all is
+well.
+
 ### 3. Add your key
 
 On the **SSH gateway** page, paste your public key (the contents of

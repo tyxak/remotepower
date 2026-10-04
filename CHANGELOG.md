@@ -32,6 +32,9 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
 - **Off by default.** `install-server.sh --with-sshgw` installs it; it is the
   only sidecar that listens on a public port. A host can refuse the tunnel
   whatever the server says. See `docs/sshgw.md`.
+- **Server status shows the gateway.** A new **SSH gateway** row says whether
+  the daemon is answering on this server and how many opted-in hosts have a
+  tunnel up, like the rows for the push daemon and the satellites.
 - **Already installed from a package?** `packaging/install-sshgw.sh` adds the
   gateway to that server: it installs the daemon and its service, creates the
   shared secret once and starts it. Run it again after an upgrade. The server
