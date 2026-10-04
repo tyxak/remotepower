@@ -16147,7 +16147,10 @@ document.addEventListener('keydown', e => {
 // holds the same rule in Python, and tests/test_v710_doc_viewer_markdown.py runs
 // both over every heading in docs/ and requires them to agree.
 function _mdSlug(h) {
-  h = String(h).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '').replace(/`/g, '').trim().toLowerCase();
+  h = String(h).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  // Strip tags until none are left, so '<scr<b>ipt>' cannot re-form one after a pass.
+  for (let prev = null; prev !== h;) { prev = h; h = h.replace(/<[^>]+>/g, ''); }
+  h = h.replace(/`/g, '').trim().toLowerCase();
   const [word, flag] = _mdWord();
   return h.replace(new RegExp('[^' + word + '\\- ]', 'g' + flag), '').replace(/ /g, '-');
 }
