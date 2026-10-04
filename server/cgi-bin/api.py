@@ -17398,10 +17398,17 @@ def _load_tenants():
 
 
 def _user_tenant(username):
-    """The tenant a user belongs to ('default' if unset/unknown)."""
-    u = (load(USERS_FILE) or {}).get(username) or {}
+    """The tenant a user belongs to ('default' if unset/unknown).
+
+    Read-only on both stores: it is called per window and per device by the maintenance and SLA loops
+    (24,012 load() calls for one GET /api/maintenance on a 2,000-device fleet), and a copy of the users and
+    tenants stores per call bought nothing. The built-in tenant is always known, as _load_tenants() makes it."""
+    u = (_load_ro(USERS_FILE) or {}).get(username) or {}
     tid = u.get('tenant_id') or DEFAULT_TENANT
-    return tid if tid in _load_tenants() else DEFAULT_TENANT
+    if tid == DEFAULT_TENANT:
+        return tid
+    tenants = _load_ro(TENANTS_FILE)
+    return tid if isinstance(tenants, dict) and tid in tenants else DEFAULT_TENANT
 
 
 def _caller_effective_tenant(username):
@@ -52605,8 +52612,9 @@ def _status_page_maintenance(sp, devices, now):
         # The ANNOUNCEMENT is opt-in, because that is where the text lives, and
         # declaring a window for internal alert suppression is not consent to
         # tell the internet what you are doing.
+        owner = _window_owner_tenant(w)
         ids.update(did for did, d in devices.items()
-                   if isinstance(d, dict) and _window_applies(w, did, dev=d))
+                   if isinstance(d, dict) and _window_applies(w, did, dev=d, owner=owner))
         if w.get('public'):
             announce.append({
                 'title': _sanitize_str(str(w.get('public_title') or ''), 80)
@@ -66925,8 +66933,14 @@ def _visible_windows(windows):
             and _window_owner_tenant(w, users, memo) in (None, gate)]
 
 
-def _window_applies(w, dev_id, dev=None, dev_group=None):
+_OWNER_UNKNOWN = object()
+
+
+def _window_applies(w, dev_id, dev=None, dev_group=None, owner=_OWNER_UNKNOWN):
     """Does this maintenance window cover this device?
+
+    A loop over many devices for one window passes `owner` (the window's _window_owner_tenant()), because the
+    owner is a property of the window and not of the device.
 
     One copy of a rule that had five, which is how a tenant check ends up on
     some of them. A window created inside a tenant covers only that tenant's
@@ -66941,7 +66955,8 @@ def _window_applies(w, dev_id, dev=None, dev_group=None):
     """
     if not isinstance(w, dict):
         return False
-    owner = _window_owner_tenant(w)
+    if owner is _OWNER_UNKNOWN:
+        owner = _window_owner_tenant(w)
     if owner is not None and _device_tenant(dev or {}) != owner:
         return False
     if dev_group is None:
@@ -67193,6 +67208,7 @@ def handle_maintenance_list():
         except Exception as e:
             sys.stderr.write(f'[remotepower] maint window id backfill: {e}\n')
     out = []
+    users, owners = _load_ro(USERS_FILE) or {}, {}
     for w in windows:
         entry = {**w, 'active': _window_active(w, now)}
         # Resolve a device-scoped target id to a human label so the UI can
@@ -67217,8 +67233,9 @@ def handle_maintenance_list():
         # cannot claim a reach the suppression path does not have. An unknown
         # scope covers nothing, and that is the honest answer: nothing is what
         # it suppresses.
+        owner = _window_owner_tenant(w, users, owners)
         entry['covers'] = sum(1 for did, d in devices.items()
-                              if isinstance(d, dict) and _window_applies(w, did, dev=d))
+                              if isinstance(d, dict) and _window_applies(w, did, dev=d, owner=owner))
         out.append(entry)
     out.sort(key=lambda x: (not x['active'], x.get('reason', '')))
     respond(200, {'windows': out})
