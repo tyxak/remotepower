@@ -233,6 +233,14 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
             for name in pages:
                 page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
                 page.wait_for_timeout(1200)
+                if name == 'self':
+                    # The Self page fills its key/value tables after a fetch that
+                    # can outlast the fixed settle above; without this the control
+                    # below measured an empty page and read as 'no declarations'.
+                    try:
+                        page.wait_for_selector('#app .page.active table[data-rows="fixed"]', timeout=10000)
+                    except Exception:
+                        pass
                 measured += 1
                 bad = [b for b in page.evaluate(_MEASURE) if b['id'] not in EXEMPT]
                 if bad:

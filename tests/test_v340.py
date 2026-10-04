@@ -18,6 +18,7 @@ from clientjs import client_js
 import re
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -604,7 +605,11 @@ class TestProxmoxLxcDelete(unittest.TestCase):
                 return {'status': 'running' if seq['n'] == 1 else 'stopped'}
             return 'UPID:x'
         self.p._request = req
-        self.p.time.sleep = lambda s: None
+        # restored on cleanup: time is the real module, so a bare assignment
+        # leaked a no-op sleep into every later test in the process
+        _sleep_patch = unittest.mock.patch.object(self.p.time, 'sleep', lambda s: None)
+        _sleep_patch.start()
+        self.addCleanup(_sleep_patch.stop)
         r = self.p.delete_lxc(self.pc, 206)
         self.assertTrue(r['stopped'])
         self.assertIn(('POST', '/nodes/pve/lxc/206/status/stop'), sent)

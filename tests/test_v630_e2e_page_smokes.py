@@ -39,7 +39,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 # install this sweep runs against. Named rather than silent — the assertion in
 # the walk fails if anything ELSE becomes unreachable, which is the whole point
 # of listing them.
-MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb'}
+# v7.1.0: + sshgw (module ships off, see api._MODULES; the seeded sweep in
+# test_a11y_axe switches it on).
+MODULE_GATED_OFF_ON_EMPTY_INSTALL = {'billing', 'kb', 'sshgw'}
 
 
 def _sidebar_pages():
