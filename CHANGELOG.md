@@ -150,9 +150,11 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
 - **A monitor sweep takes about as long as its slowest probe, not the sum of
   all of them.** The Monitor page's "run now" and the background sweep ran every
   ping, socket check and HTTP request one after another, so twelve unreachable
-  monitors made one page load wait 6 s. They run together now (eight at a time),
+  monitors made one page load wait 6 s. They run together now (32 at a time),
   results keep their configured order, and the same twelve take 4 s, which is the
-  slowest single probe.
+  slowest single probe. A tag or group monitor that fans out to a host each is
+  where it matters in an outage: 64 unreachable hosts took 16 s at eight at a
+  time and take 4 s at 32.
 - **The agentless ping sweep no longer holds the devices lock while it waits on
   the network.** It pinged each agentless host in turn inside the lock, and a
   host that is down waits out two to four seconds, so six down hosts blocked every

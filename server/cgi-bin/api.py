@@ -25831,8 +25831,11 @@ _MON_FANOUT_SEP = ' · '
 
 # How many monitor probes run at once. Each is a ping, a socket or one HTTP request that spends nearly all
 # its time waiting, so a sweep of N monitors took the SUM of their timeouts (12 unreachable seeded monitors:
-# six seconds for one page load); together it takes about the slowest one.
-_MONITOR_PROBE_WORKERS = 8
+# six seconds for one page load); together it takes about the slowest one. A tag or group monitor fans out to
+# one probe per matching host, and during an outage those are exactly the slow ones: 64 unreachable ping
+# probes took 16 s at eight workers, 8 s at sixteen and 4 s at thirty-two. Thirty-two matches the agentless
+# ping sweep; the probes hold a socket or a child process, not CPU.
+_MONITOR_PROBE_WORKERS = 32
 
 
 def _run_monitor_probes(items):

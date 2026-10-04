@@ -4,7 +4,7 @@
 HTTP request that spends nearly all its time waiting. `GET /api/monitor` (the Monitor page's "run them
 now") therefore answered after the SUM of the timeouts: twelve seeded monitors that cannot be reached
 took 5.96 seconds for one page load, and the background sweep blocked for as long. The probes now run
-together (up to eight at once) and the results come back in the order the monitors were configured.
+together (up to thirty-two at once) and the results come back in the order the monitors were configured.
 
 This drives the real runner with stand-in probes that wait, so it measures the thing that changed:
 elapsed time, result order, and that a worker thread never reads the config store itself (a worker has a
@@ -72,6 +72,16 @@ class TestMonitorProbesRunTogether(unittest.TestCase):
         res = api._execute_monitor_checks(monitors)
         self.assertEqual(['first', 'bad', 'last'], [r['label'] for r in res])
         self.assertEqual('blocked: invalid target', res[1]['detail'])
+
+    def test_forty_probes_take_two_waves_not_five(self):
+        """A fan-out monitor in an outage: 40 stand-ins of 0.3 s. Eight workers need five waves (1.5 s), thirty-two
+        need two (0.6 s). The bound sits between them."""
+        t0 = time.monotonic()
+        res = api._execute_monitor_checks(_monitors(40))
+        elapsed = time.monotonic() - t0
+        self.assertEqual(40, len(res))
+        self.assertLess(elapsed, 1.0, 'forty probes took %.2fs: the pool is smaller than 32 workers' % elapsed)
+        self.assertGreaterEqual(elapsed, _DELAY * 2 * 0.9, 'finished faster than two waves of probes can')
 
     def test_a_single_probe_does_not_start_a_pool(self):
         api._execute_monitor_checks(_monitors(1))
