@@ -3099,11 +3099,11 @@ def _claim_cadence_slot(key, now):
         cfg_w[key] = int(now)
 
 
-# How many agentless hosts are pinged at once. A host that is down waits out its whole timeout (about four
-# seconds: the ping binary, then the socket probe), and the sweep used to wait it out for each device in turn
-# while holding the devices lock. With 40 agentless hosts and six of them down, every heartbeat and every
-# device edit queued behind a 24 second hold, once a minute. The probes run together now and the lock is taken
-# only to write the answers.
+# How many agentless hosts are pinged at once. A host that is down waits out its timeout (two seconds for the
+# socket probe, four when the ping binary waited its two as well), and the sweep used to wait it out for each
+# device in turn while holding the devices lock. With 40 agentless hosts and six of them down, every heartbeat
+# and every device edit queued behind a hold of twelve to twenty-four seconds, once a minute. The probes run
+# together now and the lock is taken only to write the answers.
 AGENTLESS_PING_WORKERS = 32
 
 

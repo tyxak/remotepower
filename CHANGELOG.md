@@ -155,8 +155,8 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   slowest single probe.
 - **The agentless ping sweep no longer holds the devices lock while it waits on
   the network.** It pinged each agentless host in turn inside the lock, and a
-  host that is down waits out about four seconds, so six down hosts blocked every
-  heartbeat and device edit for 24 s once a minute. The hosts are pinged together
+  host that is down waits out two to four seconds, so six down hosts blocked every
+  heartbeat and device edit for 12 to 24 s once a minute. The hosts are pinged together
   (32 at a time) and the lock is taken once to write the answers; a device that
   was deleted, re-addressed or switched to manual during the sweep keeps its own
   state. Of 601 lock blocks in the server this was the only one that waited on

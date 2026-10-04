@@ -1,7 +1,7 @@
 """The agentless reachability sweep pings with no lock held, and the pings run together.
 
 `run_agentless_reachability_if_due` called `_ping_host` for each agentless device inside
-`with _LockedUpdate(DEVICES_FILE)`. A host that is down waits out its timeout (about four seconds), so a
+`with _LockedUpdate(DEVICES_FILE)`. A host that is down waits out its timeout (two to four seconds), so a
 fleet with a handful of down hosts held the devices lock for tens of seconds once a minute: every heartbeat
 and every device edit queued behind it, and 446 agentless devices on a 2,000-device fleet kept the first
 request from answering at all. Of the 601 lock blocks in server/cgi-bin it was the only one that waited on
