@@ -179,6 +179,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_install_sshgw.py",
         "tests/test_v710_sshgw_status_row.py",
         "tests/test_v710_sshgw_config_block.py",
+        "tests/test_v710_agent_sshgw_no_websockets.py",
         "tests/test_v710_risk_kind_labels.py",
         "tests/test_v710_topbar_fits_phone.py",
         "tests/test_v710_docs_internal_links.py",

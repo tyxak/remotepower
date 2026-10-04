@@ -11236,6 +11236,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # SSH gateway tunnel: unlike push, it STOPS when the server stops
     # advertising it, so opting a device out closes the path promptly.
     _sshgw_stop_event = None
+    _sshgw_warned_no_ws = False
 
     # v2.7.0: log source expansion state
     _auto_watch_detected = detect_auto_watch_units()
@@ -12166,6 +12167,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                         args=(server, dev_id, token, _sshgw_stop_event),
                         daemon=True, name='sshgw-tunnel').start()
                     log.info('sshgw: tunnel thread started')
+            elif resp.get('sshgw_enabled'):
+                # Opted in, but the tunnel needs the websockets module. Without a
+                # line here the host just never connects and says nothing.
+                if not _sshgw_warned_no_ws:
+                    _sshgw_warned_no_ws = True
+                    log.warning('sshgw: this host is opted in to the SSH gateway but the python '
+                                'websockets module is not installed, so no tunnel can open. '
+                                'Install it (apt install python3-websockets, or pip3 install '
+                                'websockets) and restart the agent.')
             elif _sshgw_stop_event is not None:
                 _sshgw_stop_event.set()
                 _sshgw_stop_event = None
