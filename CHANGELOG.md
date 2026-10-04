@@ -175,6 +175,12 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   SNMP description, which reads and rewrites the entire fleet store, once per
   SNMP device per pass, even when the label had not changed. It now takes the lock
   only for a device whose label differs from the record.
+- **An alert event no longer copies the whole fleet twice.** The maintenance
+  check and the automation-rule matcher each loaded the full device store to read
+  one device's group, tags or tenant, so every event paid two fleet copies. On a
+  2,000-device fleet one `device_offline` event cost 1,110 ms (profiled) and costs
+  137 ms; a pass that found 446 devices offline at once spent 83 s of CPU on the
+  copies. Both read the one device now.
 - **One malformed hostname no longer ends agentless monitoring for the fleet.** A
   name such as `nas..lan` raised out of the ping probe, which aborted the sweep's
   write for every agentless device on every run, with nothing logged. It now
