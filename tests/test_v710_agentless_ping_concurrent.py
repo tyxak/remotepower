@@ -4,8 +4,9 @@
 `with _LockedUpdate(DEVICES_FILE)`. A host that is down waits out its timeout (two to four seconds), so a
 fleet with a handful of down hosts held the devices lock for tens of seconds once a minute: every heartbeat
 and every device edit queued behind it, and 446 agentless devices on a 2,000-device fleet kept the first
-request from answering at all. Of the 601 lock blocks in server/cgi-bin it was the only one that waited on
-the network.
+request from answering at all. Of the 601 lock blocks in server/cgi-bin it was the only one with a network
+call written inside it, and running every scheduled sweep with a check for network calls made under a lock
+found no other.
 
 It also stopped on a bad hostname. `socket.getaddrinfo('nas..lan')` raises UnicodeEncodeError, which is not
 an OSError, so it escaped the probe, aborted the locked update and saved nothing for any device. The

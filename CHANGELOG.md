@@ -161,8 +161,8 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   heartbeat and device edit for 12 to 24 s once a minute. The hosts are pinged together
   (32 at a time) and the lock is taken once to write the answers; a device that
   was deleted, re-addressed or switched to manual during the sweep keeps its own
-  state. Of 601 lock blocks in the server this was the only one that waited on
-  the network.
+  state. A scan of the server's 601 lock blocks, and a run of all 74 scheduled
+  sweeps with a check for network calls made while a lock is held, found no other.
 - **The SNMP sweep asks every device at once.** It polled each SNMP device in turn
   and a device that does not answer costs 4 s (two attempts of 2 s), so 446
   unreachable devices took about half an hour per pass. The scheduler runs
