@@ -147,6 +147,24 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
 
 ### Under the hood
 
+- **A monitor sweep takes about as long as its slowest probe, not the sum of
+  all of them.** The Monitor page's "run now" and the background sweep ran every
+  ping, socket check and HTTP request one after another, so twelve unreachable
+  monitors made one page load wait 6 s. They run together now (eight at a time),
+  results keep their configured order, and the same twelve take 4 s, which is the
+  slowest single probe.
+- **The agentless ping sweep no longer holds the devices lock while it waits on
+  the network.** It pinged each agentless host in turn inside the lock, and a
+  host that is down waits out about four seconds, so six down hosts blocked every
+  heartbeat and device edit for 24 s once a minute. The hosts are pinged together
+  (32 at a time) and the lock is taken once to write the answers; a device that
+  was deleted, re-addressed or switched to manual during the sweep keeps its own
+  state. Of 601 lock blocks in the server this was the only one that waited on
+  the network.
+- **One malformed hostname no longer ends agentless monitoring for the fleet.** A
+  name such as `nas..lan` raised out of the ping probe, which aborted the sweep's
+  write for every agentless device on every run, with nothing logged. It now
+  counts as one failed probe, like a name that does not resolve.
 - About 190 test assertions that drive the dashboard's JavaScript were skipped
   in CI because the V8 engine they need was never installed. It is now.
 - A test could answer 405 depending on which test ran before it; per-request

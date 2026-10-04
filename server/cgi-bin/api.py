@@ -3099,6 +3099,40 @@ def _claim_cadence_slot(key, now):
         cfg_w[key] = int(now)
 
 
+# How many agentless hosts are pinged at once. A host that is down waits out its whole timeout (about four
+# seconds: the ping binary, then the socket probe), and the sweep used to wait it out for each device in turn
+# while holding the devices lock. With 40 agentless hosts and six of them down, every heartbeat and every
+# device edit queued behind a 24 second hold, once a minute. The probes run together now and the lock is taken
+# only to write the answers.
+AGENTLESS_PING_WORKERS = 32
+
+
+def _agentless_host(dev):
+    return dev.get('ip') or dev.get('hostname') or dev.get('host')
+
+
+def _ping_hosts(probes):
+    """{dev_id: bool} for `probes`, a list of (dev_id, host), pinged concurrently.
+
+    A probe that raises counts as down, the same as a name that does not resolve. socket.getaddrinfo raises
+    UnicodeEncodeError, not OSError, for a name with an empty or over-long label (`nas..lan`), the agentless
+    form stores whatever hostname it is given, and one such device used to end the whole sweep for every
+    other device on every run. Worker threads touch no storage, so none opens a connection of its own."""
+    def one(probe):
+        try:
+            return bool(_ping_host(probe[1]))
+        except Exception:
+            return False
+
+    if len(probes) <= 1:
+        return {p[0]: one(p) for p in probes}
+    import concurrent.futures as _cf
+    with _cf.ThreadPoolExecutor(max_workers=min(AGENTLESS_PING_WORKERS, len(probes)),
+                                thread_name_prefix='rp-ping') as ex:
+        answers = list(ex.map(one, probes))
+    return {p[0]: ok for p, ok in zip(probes, answers)}
+
+
 def run_agentless_reachability_if_due():
     """Ping every ICMP-mode agentless device once per AGENTLESS_PING_INTERVAL
     and flip its `reachable` bit, firing device_offline / device_online on
@@ -3108,6 +3142,10 @@ def run_agentless_reachability_if_due():
     CONFIG_FILE under `last_agentless_ping`. check_offline_webhooks skips
     agentless devices, so this is the only place agentless up/down is
     decided — no double-firing.
+
+    The pings run with no lock held; the devices lock is taken once afterwards to write the answers. A
+    device that was deleted, switched to manual or given another host while its probe was in flight is
+    skipped, because the answer describes something that is no longer there.
     """
     _ro = _config_ro()   # v5.8.0 (PERF): no-deepcopy not-due gate
     now = int(time.time())
@@ -3115,10 +3153,9 @@ def run_agentless_reachability_if_due():
     interval = max(30, int(_ro.get('agentless_ping_interval', AGENTLESS_PING_INTERVAL)))
     if (now - last) < interval:
         return
-    devs = load(DEVICES_FILE)
-    targets = [did for did, d in devs.items()
-               if d.get('agentless') and d.get('reachability', 'icmp') != 'manual'
-               and (d.get('ip') or d.get('hostname') or d.get('host'))]
+    targets = [(did, _agentless_host(d)) for did, d in _load_ro(DEVICES_FILE).items()
+              if d.get('agentless') and d.get('reachability', 'icmp') != 'manual'
+              and _agentless_host(d)]
     if not targets:
         # v6.4.3 (PERF): claim the slot on the NOTHING-TO-DO path too.
         # The not-due gate above reads the marker this call sets — so on
@@ -3139,16 +3176,19 @@ def run_agentless_reachability_if_due():
                                 or AGENTLESS_PING_FAIL_THRESHOLD)
     except (TypeError, ValueError):
         _ping_fail_thresh = AGENTLESS_PING_FAIL_THRESHOLD
+    answers = _ping_hosts(targets)     # no lock held while this waits on the network
     transitions = []   # (dev_id, name, online_bool) → fire webhook after the lock
     states = []        # (dev_id, name, online_bool) for EVERY probed device
     with _LockedUpdate(DEVICES_FILE) as store:
-        for dev_id in targets:
+        for dev_id, probed_host in targets:
             dev = store.get(dev_id)
             if not dev:
                 continue
-            host = dev.get('ip') or dev.get('hostname') or dev.get('host')
+            if (not dev.get('agentless') or dev.get('reachability', 'icmp') == 'manual'
+                    or _agentless_host(dev) != probed_host):
+                continue
             was_reachable = bool(dev.get('reachable', True))
-            if _ping_host(host):
+            if answers[dev_id]:
                 dev['reachable'] = True
                 dev['reach_fails'] = 0
                 dev['last_seen'] = now            # so "last seen" reflects the probe
