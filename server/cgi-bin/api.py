@@ -65825,17 +65825,27 @@ def _sbom_format_from_query():
     return 'cyclonedx'
 
 
-def _build_sbom_doc(dev_id, dev, fmt):
+def _sbom_stores():
+    """(packages, cve findings, cve ignore list, containers) as shared read-only views.
+
+    The fleet ZIP builds one SBOM per host, and each build used to load() these four fleet-sized stores
+    itself: four deep copies per host, so the cost grew with the square of the fleet and GET /api/sbom did
+    not answer within 60 s on 2,000 hosts. The builders only read them (apply_ignore_list copies each
+    finding before it marks one)."""
+    return (_load_ro(PACKAGES_FILE) or {}, _load_ro(CVE_FINDINGS_FILE) or {},
+            _load_ro(CVE_IGNORE_FILE) or {}, _load_ro(CONTAINERS_FILE) or {})
+
+
+def _build_sbom_doc(dev_id, dev, fmt, stores=None):
     """Assemble one device's SBOM dict. Shared by the per-host download and the
-    fleet ZIP so the two never drift."""
-    pkg_store = load(PACKAGES_FILE)
-    findings_all = load(CVE_FINDINGS_FILE)
-    ignore_data = load(CVE_IGNORE_FILE)
+    fleet ZIP so the two never drift. The fleet ZIP passes `stores` (see _sbom_stores)
+    so the stores are read once for all hosts."""
+    pkg_store, findings_all, ignore_data, containers_all = stores if stores is not None else _sbom_stores()
     pkg_entry = pkg_store.get(dev_id) or {}
     findings = (findings_all.get(dev_id) or {}).get('findings') or []
     findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
     # v3.14.0: include running container images as SBOM components.
-    containers = ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items') or []
+    containers = (containers_all.get(dev_id) or {}).get('items') or []
     dev = dict(dev); dev['id'] = dev_id
     if fmt == 'spdx':
         return sbom_mod.build_spdx(dev, pkg_entry, findings,
@@ -65937,9 +65947,10 @@ def handle_sbom_fleet():
     import io, zipfile
     buf = io.BytesIO()
     used = set()
+    stores = _sbom_stores()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for dev_id, dev in sorted(devices.items(), key=lambda x: (x[1].get('name', '') or '').lower()):
-            doc = _build_sbom_doc(dev_id, dev, fmt)
+            doc = _build_sbom_doc(dev_id, dev, fmt, stores)
             fn = sbom_mod.filename_for(dict(dev, id=dev_id), fmt)
             # de-dup filenames (two hosts named the same) by suffixing the id
             if fn in used:
