@@ -167,6 +167,15 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   name such as `nas..lan` raised out of the ping probe, which aborted the sweep's
   write for every agentless device on every run, with nothing logged. It now
   counts as one failed probe, like a name that does not resolve.
+- **Seven lists and sweeps copied a whole store once per row.** On a synthetic
+  fleet of 2,000 devices: the backup-jobs list took 9.7 s for 70 jobs and takes
+  0.1 s; the fleet SBOM download did not answer within 60 s and takes 1.9 s;
+  export went from 11.1 s to 6.8 s; the maintenance list made 24,012 store reads
+  for six windows and makes 12; the ticket list made 231 copies of the
+  configuration for 74 tickets and makes none; the schedule and cron-backup sweeps
+  copied the fleet for every job that came due; a role scoped to a smart group
+  copied the group store for every device. Each was found by counting store reads
+  per request, and each has a test that fails on the old code.
 - About 190 test assertions that drive the dashboard's JavaScript were skipped
   in CI because the V8 engine they need was never installed. It is now.
 - A test could answer 405 depending on which test ran before it; per-request
