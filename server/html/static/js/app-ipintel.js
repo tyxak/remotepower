@@ -80,6 +80,33 @@ function _ipiStatus(a) {
   return parts.join(' · ');
 }
 
+// The status cell for display. _ipiStatus() above is the plain string the table sorts
+// on; this is the same sentence with every fixed phrase in a span of its own, because
+// the language engine translates whole text nodes and a joined sentence is not one.
+// The reasons come from ip_intel.py and ip_intel_handlers.py in English; anything this
+// does not recognise (a provider's own error text) is shown unchanged.
+function _ipiPhrase(text) { return `<span>${escHtml(text)}</span>`; }
+function _ipiReason(why) {
+  const score = /^score (\d+) is below (\d+)$/.exec(why);
+  if (score) return `${_ipiPhrase('score below threshold')} (${score[1]} &lt; ${score[2]})`;
+  const rep = /^not reported: (.+)$/.exec(why);
+  if (rep) return `${_ipiPhrase('not reported:')} ${_ipiPhrase(rep[1])}`;
+  return _ipiPhrase(why);
+}
+function _ipiStatusHtml(a) {
+  const parts = [];
+  for (const p of Object.keys(a.reported || {})) {
+    parts.push(`${_ipiPhrase('reported to')} ${escHtml(p === 'abuseipdb' ? 'AbuseIPDB' : 'SniffCat')}`);
+  }
+  const blocked = new Set((_ipiData.blocks || []).filter(b => b.ip === a.ip).map(b => b.device_id));
+  if (blocked.size) parts.push(`${_ipiPhrase('blocked on')} ${blocked.size}`);
+  const why = (a.devices || []).map(d => d.not_blocked).filter(Boolean);
+  if (!blocked.size && why.length) parts.push(`${_ipiPhrase('not blocked:')} ${_ipiReason(why[0])}`);
+  const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
+  if (errs.length) parts.push(errs.map(([p, e]) => `${escHtml(p)}: ${_ipiReason(e)}`).join(', '));
+  return parts.join(' · ');
+}
+
 function _ipiRenderAttackers() {
   const tb = document.getElementById('ipintel-att-tbody');
   if (!tb || !_ipiData) return;
@@ -113,7 +140,7 @@ function _ipiRenderAttackers() {
       <td>${escHtml(a.isp || '')}</td>
       <td>${hosts}</td>
       <td>${escHtml(timeAgo(a.last_seen))}</td>
-      <td class="hint fs-11">${escHtml(_ipiStatus(a))}</td>
+      <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
       <td>${btn}</td>
     </tr>`;
   }).join('');

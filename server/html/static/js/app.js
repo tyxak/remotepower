@@ -1940,9 +1940,13 @@ async function openSitemap() {
 }
 
 
-async function openDocViewer(path, title) {
+async function openDocViewer(href, title) {
   const modal = document.getElementById('doc-viewer-modal');
   if (!modal) return false;
+  // `docs/x.md#anchor`: fetch the file, then scroll to the heading.
+  const hash = href.indexOf('#');
+  const path = hash < 0 ? href : href.slice(0, hash);
+  const frag = hash < 0 ? '' : href.slice(hash + 1);
   const body = document.getElementById('doc-viewer-body');
   const raw = document.getElementById('doc-viewer-raw');
   document.getElementById('doc-viewer-title').textContent = title || 'Documentation';
@@ -1956,7 +1960,14 @@ async function openDocViewer(path, title) {
     const text = await r.text();
     // renderMarkdown escapes first and transforms on safe ground, so this is
     // the same sink the KB already uses.
-    body.innerHTML = renderMarkdown(text);
+    body.innerHTML = renderMarkdown(text, { docs: true });
+    body.scrollTop = 0;
+    if (frag) {
+      let id = frag;
+      try { id = decodeURIComponent(frag); } catch (_e) { /* keep the raw fragment */ }
+      const target = document.getElementById('doc-' + id);
+      if (target) target.scrollIntoView({ block: 'start' });
+    }
   } catch (e) {
     body.innerHTML = '<div class="empty-state">Could not load this page in the app. '
       + '<a class="c-accent" href="' + escAttr(path) + '" target="_blank" rel="noopener">Open the raw file</a> instead.</div>';
@@ -1968,12 +1979,20 @@ async function openDocViewer(path, title) {
 // (new tab / new window / middle button) is left alone — an operator asking for
 // a tab should get a tab.
 document.addEventListener('click', (e) => {
+  // An in-page anchor inside a rendered doc scrolls the viewer instead of the SPA.
+  const anchor = e.target.closest && e.target.closest('a[data-doc-anchor]');
+  if (anchor) {
+    e.preventDefault();
+    const target = document.getElementById(anchor.dataset.docAnchor);
+    if (target) target.scrollIntoView({ block: 'start' });
+    return;
+  }
   const a = e.target.closest && e.target.closest('a[href^="docs/"]');
   if (!a || e.defaultPrevented) return;
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
   if (a.getAttribute('target') === '_blank') return;
   const href = a.getAttribute('href') || '';
-  if (!/\.md$/i.test(href)) return;
+  if (!/\.md(#[^#\s]*)?$/i.test(href)) return;
   e.preventDefault();
   openDocViewer(href, (a.textContent || '').trim() || 'Documentation');
 });
@@ -3430,7 +3449,7 @@ function _registerDevicesMinimalTable() {
         <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
-        <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
+        <td class="dev-os-cell fs-12" title="${escAttr(d.os || '')}">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
         <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${_signedBadge(d)}${patchHtml}</td>
         <td class="dev-lastseen-cell hint" title="${escAttr(_absTs(d.last_seen))}">${lastSeen}</td>
@@ -8684,7 +8703,7 @@ function _renderRisk() {
     const level = _riskLevel(r.score);
     const color = _riskColor(level);
     const factors = (r.factors || []).slice(0, 4).map(f =>
-      `<span class="pill" data-color="var(--muted)" title="${escAttr(f.detail || '')}">${escHtml(f.kind.replace(/_/g, ' '))} +${f.points}</span>`).join(' ') || '<span class="hint">—</span>';
+      `<span class="pill" data-color="var(--muted)" title="${escAttr(f.detail || '')}"><span>${escHtml(_RISK_KIND_LABEL[f.kind] || f.kind.replace(/_/g, ' '))}</span> +${f.points}</span>`).join(' ') || '<span class="hint">—</span>';
     return `<tr>
       <td class="fw-500 pointer" data-action="openDeviceDrawer" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}" tabindex="0">${escHtml(r.device_name)}</td>
       <td><span class="fw-600" data-color="${color}">${r.score}</span>/100</td>
@@ -9503,6 +9522,25 @@ function _setRiskCuts(g) { if (g && typeof g.critical === 'number') _RISK_CUTS =
 let _HW_BANDS = { thermal_hot: 75, thermal_crit: 85, gpu_hot: 85, wear_warn: 80, wear_high: 90,
                   disk_forecast_crit: 7, disk_forecast_warn: 21 };
 function _setHwBands(b) { if (b && typeof b === 'object') Object.assign(_HW_BANDS, b); }
+// The chip label for each risk factor kind. One text node per label, so the
+// language engine can translate it; the points follow in their own node.
+const _RISK_KIND_LABEL = {
+  offline: 'Offline', cve_critical: 'Critical CVEs', cve_high: 'High CVEs',
+  pending_updates: 'Pending updates', exposed_world: 'World-reachable services',
+  policy_violation: 'Policy violations', expiry_expired: 'Expired contracts',
+  expiry_soon: 'Expiring soon', mount_issue: 'Mount issues', reboot_required: 'Reboot required',
+  firewall_off: 'No firewall', storage_degraded: 'Degraded storage', smart_failure: 'SMART failure',
+  kernel_outdated: 'Outdated kernel', failed_units: 'Failed services', os_eol: 'OS end of life',
+  os_eol_soon: 'OS end of life soon', overheating: 'Overheating', config_drift: 'Config drift',
+  clock_skew: 'Clock skew', gateway_down: 'Gateway down', oom_recent: 'Recent OOM kill',
+  av_bad: 'Malware found', cve_kev: 'Known exploited CVEs', image_cves: 'Container image CVEs',
+  backup_stale: 'Stale backup', secrets_exposed: 'Exposed secrets', patch_sla_breach: 'Patch SLA breached',
+  encryption_off: 'Disk not encrypted', ssh_weak: 'Weak SSH settings', autoupdate_off: 'Auto-updates off',
+  secure_boot_off: 'Secure Boot off', canary_not_armed: 'Canary not armed',
+  files_quarantined: 'Files quarantined', timer_failed: 'Failed timer',
+  custom_check_failed: 'Custom check failing', brute_force: 'Under brute force',
+  known_attacker: 'Known attacker',
+};
 function _riskLevel(s) {
   const c = _RISK_CUTS;
   return s >= c.critical ? 'critical' : s >= c.high ? 'high' : s >= c.medium ? 'medium' : 'low';
@@ -16097,9 +16135,50 @@ document.addEventListener('keydown', e => {
 // (links, tables, images) falls through as escaped text on purpose —
 // keeps the implementation tiny and avoids the bigger attack surface
 // of a real Markdown lib.
+//
+// opts.docs is the documentation viewer, which renders the product's own docs
+// and so gets two things the model/KB callers do not: links, and an id on
+// every heading so `docs/x.md#anchor` and `[text](#anchor)` have somewhere to
+// land. A link is rendered only for a same-folder `.md` target, an in-page
+// `#anchor`, or http(s) (through _safeHttpHref); any other target, such as
+// `../README.md`, `mailto:` or `javascript:`, is shown as its text.
 
-function renderMarkdown(text) {
+// GitHub's anchor for one heading's text. tests/test_v710_docs_internal_links.py
+// holds the same rule in Python, and tests/test_v710_doc_viewer_markdown.py runs
+// both over every heading in docs/ and requires them to agree.
+function _mdSlug(h) {
+  h = String(h).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '').replace(/`/g, '').trim().toLowerCase();
+  const [word, flag] = _mdWord();
+  return h.replace(new RegExp('[^' + word + '\\- ]', 'g' + flag), '').replace(/ /g, '-');
+}
+
+// The characters an anchor may keep: letters, digits and _. Browsers have Unicode
+// property escapes; an engine without them falls back to the ASCII \w.
+function _mdWord() {
+  try { new RegExp('\\p{L}', 'u'); return ['\\p{L}\\p{N}_', 'u']; } catch (_e) { return ['\\w', '']; }
+}
+
+// The ids of a document's headings in order, outside code fences, with GitHub's
+// -1/-2 for a repeated heading. `doc-` keeps them clear of the app's own ids.
+function _mdHeadingIds(text) {
+  const seen = {}, out = [];
+  let fence = false;
+  for (const ln of String(text).split('\n')) {
+    if (/^\s*```/.test(ln)) { fence = !fence; continue; }
+    if (fence) continue;
+    const m = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(ln);
+    if (!m) continue;
+    const slug = _mdSlug(m[1]);
+    const n = seen[slug] || 0;
+    seen[slug] = n + 1;
+    out.push('doc-' + (n ? slug + '-' + n : slug));
+  }
+  return out;
+}
+
+function renderMarkdown(text, opts) {
   if (!text) return '';
+  const docs = !!(opts && opts.docs);
   // Step 1: HTML-escape everything. After this, every transform
   // operates on safe ground.
   let html = escHtml(String(text));
@@ -16130,12 +16209,23 @@ function renderMarkdown(text) {
   });
 
   // Headers — only at the start of a line. The big-three are enough.
-  html = html.replace(/^### +(.+)$/gm,
-    '<div class="isl-516">$1</div>');
-  html = html.replace(/^## +(.+)$/gm,
-    '<div class="isl-517">$1</div>');
-  html = html.replace(/^# +(.+)$/gm,
-    '<div class="isl-518">$1</div>');
+  if (docs) {
+    // One pass, so each heading takes the next id from _mdHeadingIds; h4-h6 are
+    // anchors too (GitHub gives them ids) and render like an h3.
+    const ids = _mdHeadingIds(text);
+    let hi = 0;
+    html = html.replace(/^(#{1,6}) +(.+)$/gm, (_m, hashes, t) => {
+      const cls = hashes.length === 1 ? 'isl-518' : hashes.length === 2 ? 'isl-517' : 'isl-516';
+      return `<div class="${cls}" id="${escAttr(ids[hi++] || '')}">${t}</div>`;
+    });
+  } else {
+    html = html.replace(/^### +(.+)$/gm,
+      '<div class="isl-516">$1</div>');
+    html = html.replace(/^## +(.+)$/gm,
+      '<div class="isl-517">$1</div>');
+    html = html.replace(/^# +(.+)$/gm,
+      '<div class="isl-518">$1</div>');
+  }
 
   // Bold (**foo**) and italic (*foo*). Run bold first so we don't
   // eat the inner asterisks of bold inside italic.
@@ -16144,6 +16234,30 @@ function renderMarkdown(text) {
   // Same with underscores — some models prefer those.
   html = html.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+
+  // Links (docs viewer only). The text was escaped above, and a target that
+  // reaches an href is either a name matched by the pattern below, a slug of
+  // letters/digits/_/-, or a URL that _safeHttpHref has reduced to http(s).
+  if (docs) {
+    const [word, flag] = _mdWord();
+    const inPage = new RegExp('^#([' + word + '\\-]+)$', flag);
+    const otherDoc = new RegExp('^([A-Za-z0-9_.\\-]+\\.md)(#[' + word + '\\-]+)?$', flag);
+    html = html.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, label, target) => {
+      const t = target.replace(/&amp;/g, '&');
+      let mm;
+      if ((mm = inPage.exec(t))) {
+        return `<a class="c-accent" href="#" data-doc-anchor="doc-${escAttr(mm[1])}">${label}</a>`;
+      }
+      if ((mm = otherDoc.exec(t))) {
+        return `<a class="c-accent" href="docs/${escAttr(mm[1])}${escAttr(mm[2] || '')}">${label}</a>`;
+      }
+      // _safeHttpHref resolves a relative path against the page, so a `../README.md` would pass it;
+      // only an absolute http(s) URL is a link here.
+      const safe = /^https?:\/\//i.test(t) ? _safeHttpHref(t) : '';
+      if (safe) return `<a class="c-accent" href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      return label;
+    });
+  }
 
   // Tables (GFM pipe syntax). v7.0.0: no table support existed, so every doc
   // table rendered as literal `|` — 80 of 138 doc pages have one. Runs before

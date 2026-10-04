@@ -91,6 +91,10 @@ visible is selected, indeterminate on a partial selection.
   active, so "why didn't that page me?" has a visible answer.
 - **Page-aware help** — `?` ends with a "This page" section: the current
   page's guide link and its specific keys.
+- **Guides open in place** — a page's Documentation link opens the guide in a
+  viewer over the page, so a half-filled form stays where it was. Links
+  between guides and `#section` links work inside the viewer, and links to
+  other sites open in a new tab.
 
 ## Charts
 
