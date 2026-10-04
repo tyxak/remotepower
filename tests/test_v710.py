@@ -190,6 +190,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_due_job_sweeps_read_the_fleet_once.py",
         "tests/test_v710_smart_scope_reads_groups_once.py",
         "tests/test_v710_no_load_in_loop.py",
+        "tests/test_v710_snmp_sweep_concurrent.py",
     )
 
     def test_every_guard_file_exists(self):

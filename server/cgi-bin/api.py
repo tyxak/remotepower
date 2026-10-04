@@ -62921,9 +62921,82 @@ def _snmp_os_label(entry):
     return sd[:48]
 
 
-def _do_snmp_poll(dev_id, dev):
+# How many SNMP devices are polled at once by the sweep. A device that does not answer costs its whole
+# timeout (two attempts of 2 s each, 4 s in all, and nothing more is asked of it), and the sweep used to wait
+# that out for each device in turn: 446 unreachable devices took about half an hour per pass, and the
+# scheduler runs its sweeps one after another, so offline detection and every alert behind it waited as well.
+SNMP_POLL_WORKERS = 32
+
+
+def _snmp_collect(host, community, port):
+    """The network half of one device's poll: every SNMP request the sweep makes to it, and nothing else.
+
+    Touches no storage, so the sweep can run many of these at once on worker threads (a worker has a cold
+    per-request cache and would open a storage connection of its own). Raises, like poll_system, when the
+    device does not answer; the extras are best-effort and fall back to empty."""
+    import snmp as snmp_mod
+    result = snmp_mod.poll_system(host, community, port=port, timeout=2.0)
+    # v3.2.0 follow-up: gather the lightweight extras alongside
+    # sys-group. Each is a small bounded walk (max 24-64 entries) +
+    # a few scalars — total adds 0.5-1.5 s per device per sweep.
+    try:
+        processors = snmp_mod.poll_processors(host, community, port=port, timeout=2.0)
+    except Exception:
+        processors = []
+    try:
+        storage = snmp_mod.poll_hr_storage(host, community, port=port, timeout=2.0)
+    except Exception:
+        storage = []
+    sys_obj = result.get('sysObjectID') or ''
+    vendor = {}
+    if sys_obj.startswith('1.3.6.1.4.1.14988'):
+        try:
+            vendor = snmp_mod.poll_mikrotik(host, community, port=port, timeout=2.0)
+        except Exception:
+            vendor = {}
+    # UCD-SNMP — present on net-snmp boxes (Linux, FreeBSD/OPNsense),
+    # empty on Mikrotik/proprietary. Cheap (single GET of ~12 OIDs).
+    try:
+        ucd = snmp_mod.poll_ucd_snmp(host, community, port=port, timeout=2.0)
+    except Exception:
+        ucd = {}
+    # v3.3.4: Synology DSM health. Probed unconditionally (one cheap GET
+    # of the system scalars) — DSM runs net-snmp so its sysObjectID
+    # doesn't identify it; poll_synology returns {} for non-Synology and
+    # only then walks the disk/RAID tables.
+    try:
+        synology = snmp_mod.poll_synology(host, community, port=port, timeout=2.0)
+    except Exception:
+        synology = {}
+    return {'result': result, 'processors': processors, 'storage': storage, 'vendor': vendor,
+            'ucd': ucd, 'synology': synology}
+
+
+def _snmp_collect_all(targets):
+    """{dev_id: collected dict, or the exception the device raised} for `targets`, a list of
+    (dev_id, (host, community, port)), collected concurrently (see SNMP_POLL_WORKERS)."""
+    def one(item):
+        host, community, port = item[1]
+        try:
+            return _snmp_collect(host, community, port)
+        except Exception as e:
+            return e
+
+    if len(targets) <= 1:
+        return {t[0]: one(t) for t in targets}
+    import concurrent.futures as _cf
+    with _cf.ThreadPoolExecutor(max_workers=min(SNMP_POLL_WORKERS, len(targets)),
+                                thread_name_prefix='rp-snmp') as ex:
+        done = list(ex.map(one, targets))
+    return {t[0]: d for t, d in zip(targets, done)}
+
+
+def _do_snmp_poll(dev_id, dev, collected=None):
     """Poll one device and update SNMP_DATA_FILE. Returns the per-device
     result dict that was stored (or the error record on failure).
+
+    `collected` is what _snmp_collect returned for this device (or the exception it raised), when the sweep
+    has already done the network half for every device at once; without it the request is made here.
 
     Doesn't raise — failures are recorded in the same dict under
     `last_error` so the UI can display them and the operator can debug
@@ -62955,40 +63028,15 @@ def _do_snmp_poll(dev_id, dev):
     prev_fails = int(prev.get('consecutive_fails', 0))
 
     try:
-        import snmp as snmp_mod
-        result = snmp_mod.poll_system(host, community, port=port, timeout=2.0)
-        # v3.2.0 follow-up: gather the lightweight extras alongside
-        # sys-group. Each is a small bounded walk (max 24-64 entries) +
-        # a few scalars — total adds 0.5-1.5 s per device per sweep.
-        try:
-            processors = snmp_mod.poll_processors(host, community, port=port, timeout=2.0)
-        except Exception:
-            processors = []
-        try:
-            storage = snmp_mod.poll_hr_storage(host, community, port=port, timeout=2.0)
-        except Exception:
-            storage = []
-        sys_obj = result.get('sysObjectID') or ''
-        vendor = {}
-        if sys_obj.startswith('1.3.6.1.4.1.14988'):
-            try:
-                vendor = snmp_mod.poll_mikrotik(host, community, port=port, timeout=2.0)
-            except Exception:
-                vendor = {}
-        # UCD-SNMP — present on net-snmp boxes (Linux, FreeBSD/OPNsense),
-        # empty on Mikrotik/proprietary. Cheap (single GET of ~12 OIDs).
-        try:
-            ucd = snmp_mod.poll_ucd_snmp(host, community, port=port, timeout=2.0)
-        except Exception:
-            ucd = {}
-        # v3.3.4: Synology DSM health. Probed unconditionally (one cheap GET
-        # of the system scalars) — DSM runs net-snmp so its sysObjectID
-        # doesn't identify it; poll_synology returns {} for non-Synology and
-        # only then walks the disk/RAID tables.
-        try:
-            synology = snmp_mod.poll_synology(host, community, port=port, timeout=2.0)
-        except Exception:
-            synology = {}
+        if collected is None:
+            collected = _snmp_collect(host, community, port)
+        elif isinstance(collected, BaseException):
+            raise collected
+        result = collected['result']
+        processors = collected['processors']
+        storage = collected['storage']
+        vendor = collected['vendor']
+        synology = collected['synology']
         now = int(time.time())
         entry = {
             'host':         host,
@@ -63139,9 +63187,12 @@ def run_snmp_polls_if_due():
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
     _claim_cadence_slot('last_snmp_poll', now)
+    # The requests go out together; what each device answered is then applied one device at a time, since
+    # that half writes the SNMP store, the metric history and the alerts.
+    collected = _snmp_collect_all([(did, _device_snmp_target(d)) for did, d in targets])
     for dev_id, dev in targets:
         try:
-            _do_snmp_poll(dev_id, dev)
+            _do_snmp_poll(dev_id, dev, collected.get(dev_id))
         except Exception as e:
             sys.stderr.write(f'[remotepower] snmp poll failed for {dev_id}: {e}\n')
 

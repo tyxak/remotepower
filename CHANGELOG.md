@@ -163,6 +163,13 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   was deleted, re-addressed or switched to manual during the sweep keeps its own
   state. Of 601 lock blocks in the server this was the only one that waited on
   the network.
+- **The SNMP sweep asks every device at once.** It polled each SNMP device in turn
+  and a device that does not answer costs 4 s (two attempts of 2 s), so 446
+  unreachable devices took about half an hour per pass. The scheduler runs
+  its sweeps one after another, so offline detection and every alert behind it
+  waited too. The requests go out 32 at a time and each answer is applied one
+  device at a time, as before: same stored record, same failure count, same
+  alerts.
 - **One malformed hostname no longer ends agentless monitoring for the fleet.** A
   name such as `nas..lan` raised out of the ping probe, which aborted the sweep's
   write for every agentless device on every run, with nothing logged. It now
