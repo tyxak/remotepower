@@ -91,7 +91,7 @@ signed, so clicking one acts on the alert without a login. Their address was
 the Host header of whichever request fired the alert, and the shipped nginx
 configuration passes any Host through. Alerts fire inside agent heartbeats,
 inbound webhooks, failed sign-ins and the maintenance sweeps that run on
-ordinary requests, so a request with a forged Host could produce a genuine
+ordinary requests, so a request with a forged Host could produce a real
 email from your own server whose links pointed at someone else's site — with a
 working signature for that alert attached. That is a convincing phishing email,
 and a way to silence the alert it describes.

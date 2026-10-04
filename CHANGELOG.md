@@ -129,7 +129,7 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   edit roles, or rewrite a playbook another tenant runs. Install-wide state is
   the platform operator's now, gated where requests are routed.
 - **Signed links in alert emails took their address from the request**, so a
-  forged Host header could put a genuine email in an operator's inbox linking
+  forged Host header could put a real email in an operator's inbox linking
   to someone else's site with a working signature attached.
 - **A crafted SSH user name could make threat intel blame an address of the
   attacker's choosing**, and reporting did not honour the never-block rules.

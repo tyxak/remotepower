@@ -9207,7 +9207,7 @@ def _alert_email_ack_block(event, payload, cfg):
     # their address must never come from a request. It used to be this
     # request's Host header — and alerts fire inside heartbeats, inbound
     # webhooks, failed logins and sweeps that ride any incoming request, so a
-    # forged Host put a genuine email from this server in an operator's inbox
+    # forged Host put a real email from this server in an operator's inbox
     # linking to an attacker's site with a valid capability attached. The
     # canonical public URL from Settings, or no links.
     base = _public_base_url(cfg)
