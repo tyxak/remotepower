@@ -63142,7 +63142,13 @@ def _do_snmp_poll(dev_id, dev, collected=None):
     # current) but never clobber an agent/operator-provided os.
     try:
         os_label = _snmp_os_label(entry)
-        if os_label and (dev.get('agentless') or not (dev.get('os') or '').strip()):
+        # `dev` is the snapshot the sweep started from. A device whose label already matches needs no write at
+        # all, and taking the lock re-reads and rewrites the WHOLE fleet store: once per SNMP device per sweep,
+        # for a value that almost never changes (446 devices on a 2,000-device fleet: minutes of fleet
+        # rewrites per pass, with every heartbeat queued behind them). The block re-checks against the
+        # stored record, so a device edited meanwhile is still corrected on the next pass.
+        if (os_label and (dev.get('agentless') or not (dev.get('os') or '').strip())
+                and dev.get('os') != os_label):
             with _LockedUpdate(DEVICES_FILE) as dstore:
                 d = dstore.get(dev_id)
                 if (d is not None and (d.get('agentless') or not (d.get('os') or '').strip())

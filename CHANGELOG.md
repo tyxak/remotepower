@@ -170,6 +170,11 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   waited too. The requests go out 32 at a time and each answer is applied one
   device at a time, as before: same stored record, same failure count, same
   alerts.
+- **The SNMP sweep stopped rewriting the whole fleet for every device.** After
+  each poll it took the devices lock to refresh the device's OS column from the
+  SNMP description, which reads and rewrites the entire fleet store, once per
+  SNMP device per pass, even when the label had not changed. It now takes the lock
+  only for a device whose label differs from the record.
 - **One malformed hostname no longer ends agentless monitoring for the fleet.** A
   name such as `nas..lan` raised out of the ping probe, which aborted the sweep's
   write for every agentless device on every run, with nothing logged. It now

@@ -7,8 +7,13 @@ behind the SNMP sweep waited for it too. The network half is now `_snmp_collect`
 threads, and `_do_snmp_poll` applies each device's answer (store write, thresholds, metric history, alerts) in
 the calling thread, exactly as before.
 
+The apply half also took the devices lock for every device on every pass, to refresh the OS column from
+the SNMP description, and that lock re-reads and rewrites the whole fleet store. It now takes it only for a
+device whose label actually differs from the record.
+
 This drives the real sweep with stand-in SNMP requests that wait, so what is measured is elapsed time, what is
-stored per device, which alerts fire, and that a worker never reads the storage backend itself.
+stored per device, which alerts fire, how often the devices lock is taken, and that a worker never reads the
+storage backend itself.
 """
 import importlib.util
 import os
@@ -163,6 +168,53 @@ class TestWorkersNeverTouchTheStorageBackend(_Base):
         self.assertTrue(callers, 'the sweep read no stores at all: the spy saw nothing')
         self.assertGreater(len(self.threads), 1, 'the requests did not run on worker threads, so this proved nothing')
         self.assertEqual({threading.current_thread().name}, set(callers), sorted(set(callers)))
+
+
+class TestTheOsColumnIsWrittenOnlyWhenItChanges(_Base):
+
+    def devices_lock_entries(self):
+        api = self.api
+        entered = []
+        real = api._LockedUpdate
+
+        def spy(path, non_blocking=False):
+            if path == api.DEVICES_FILE:
+                entered.append(path)
+            return real(path, non_blocking)
+
+        api._LockedUpdate = spy
+        try:
+            self.sweep()
+        finally:
+            api._LockedUpdate = real
+        return len(entered)
+
+    def test_the_first_pass_fills_the_column_and_the_second_takes_no_lock(self):
+        self.seed(6)
+        self.assertEqual(6, self.devices_lock_entries(), 'control: each device needs its OS column filled once')
+        devs = self.api.load(self.api.DEVICES_FILE)
+        self.assertEqual({'switch 192.0.2.%d' % (i + 1) for i in range(6)}, {d['os'] for d in devs.values()})
+        self.assertEqual(0, self.devices_lock_entries(), 'the labels already match: the fleet store must not be rewritten')
+
+    def test_a_label_that_changed_is_written_again(self):
+        self.seed(3)
+        self.devices_lock_entries()
+        devs = self.api.load(self.api.DEVICES_FILE)
+        devs['sw01']['os'] = 'something else'
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self.assertEqual(1, self.devices_lock_entries())
+        self.assertEqual('switch 192.0.2.2', self.api.load(self.api.DEVICES_FILE)['sw01']['os'])
+
+    def test_an_operator_set_os_on_a_device_with_an_agent_is_never_overwritten(self):
+        self.seed(2)
+        devs = self.api.load(self.api.DEVICES_FILE)
+        devs['sw00']['agentless'] = False
+        devs['sw00']['os'] = 'Operator OS'
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self.devices_lock_entries()
+        after = self.api.load(self.api.DEVICES_FILE)
+        self.assertEqual('Operator OS', after['sw00']['os'])
+        self.assertEqual('switch 192.0.2.2', after['sw01']['os'])
 
 
 if __name__ == '__main__':
