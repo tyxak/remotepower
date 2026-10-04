@@ -166,6 +166,18 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_demo_snapshot.py",
         "tests/test_tenant_instance_gate.py",
         "tests/test_agent_ws_no_redirect.py",
+        # the translation and interface audit of this release
+        "tests/test_v710_i18n_glue.py",
+        "tests/test_v710_i18n_subtitle_keys.py",
+        "tests/test_v710_i18n_text_node_cap.py",
+        "tests/test_v710_edge_space.py",
+        "tests/test_v710_prevent_default_flag.py",
+        "tests/test_v710_doc_viewer_markdown.py",
+        "tests/test_v710_ipintel_status.py",
+        "tests/test_v710_risk_kind_labels.py",
+        "tests/test_v710_topbar_fits_phone.py",
+        "tests/test_v710_docs_internal_links.py",
+        "tests/test_v710_internals_counts.py",
     )
 
     def test_every_guard_file_exists(self):

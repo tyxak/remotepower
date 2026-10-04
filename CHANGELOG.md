@@ -75,6 +75,32 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
   than its card.
 - The **Threat intel** and **SSH gateway** pages use the standard table and
   form layout, and table headers no longer wrap.
+- **The top bar fits a phone.** Its controls were wider than a 390 px screen,
+  so every page scrolled sideways.
+- **Guides open at their section.** `docs/x.md#section` links, links between
+  guides and in-page anchors work in the documentation viewer; a pointer with a
+  section used to unload the app.
+- **Risk factors read as words** ("Known exploited CVEs", not "cve kev"), and
+  the **Threat intel** status column is translated.
+
+### Translations
+
+- **Settings reads as sentences in all six languages.** About 220 paragraphs
+  that were translated one fragment at a time are translated whole, so the word
+  order is right in German, Hindi and Arabic. About 1,700 more strings, found by
+  walking every page, Settings pane and dialog, are translated as well.
+- **Three subtitles that showed English in every language now translate**
+  (Risk, the secret findings on the Exposure page, Container image updates), and
+  so does the compliance remediation line. The dictionary key is the browser's
+  own serialisation of the subtitle, and two of the three carried markup that
+  serialises differently from the source.
+- **A translation no longer prints attached to a tag.** A text node written
+  `, then connect with` straight after a code span stays glued in every
+  language, so a translation that began with a word printed against the tag.
+  Eleven such nodes in German, French, Spanish, Hindi and Arabic are fixed, and
+  a test keeps them fixed.
+- **French sets a space before `;`, `:`, `!` and `?`** even where the English
+  had none.
 
 ### Web server
 
@@ -128,6 +154,17 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
 - `docs/features.md` is a feature table again: the version tags older than the
   last three releases and the "it used to…" history are gone (that history is
   here).
+- A bare `data-prevent-default` attribute was read as false by the click
+  dispatcher, so 31 of 40 sites ran the browser's own link navigation after the
+  app's. It now tests for the attribute.
+- Gates: subtitle keys are checked against the browser's own innerHTML rather
+  than the source text; new tests cover glued translations, the documentation
+  viewer's anchors, the Threat intel phrases, risk labels and the phone-width
+  top bar. Each was shown failing before it was committed.
+- Four statements in the docs that no longer matched the code are corrected
+  (the webhook SSRF setting is on by default, monitor history keeps 300 results,
+  backup jobs cap at 200).
+
 
 ## v7.0.3 — "C4useMatters" — 2026-09-10
 

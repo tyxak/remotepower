@@ -6,6 +6,7 @@ Flat-file storage in /var/lib/remotepower/
 """
 
 import contextlib
+import contextvars
 import copy
 import os
 import re
@@ -25445,6 +25446,20 @@ def _edge_refusal_detail(code, headers):
     return None
 
 
+# Set by _run_monitor_probes for the probes it fans out to threads. A worker thread starts with a cold
+# per-request cache, so a probe that read allow_internal_monitors itself would open a storage connection
+# of its own to fetch one boolean. A context variable, not an argument, so the probe functions keep the
+# signatures their callers (and the tests that stand in for them) already use.
+_MON_ALLOW_INTERNAL = contextvars.ContextVar('rp_monitor_allow_internal', default=None)
+
+
+def _allow_internal_monitors():
+    v = _MON_ALLOW_INTERNAL.get()
+    if v is not None:
+        return v
+    return bool(_config_ro().get('allow_internal_monitors', False))
+
+
 def _run_one_monitor_check(mtype, target, label, m):
     """Run a single resolved monitor check (target already sanitised) and return
     a result dict. Shared by host-targeted and tag/group-expanded checks."""
@@ -25497,7 +25512,7 @@ def _run_one_monitor_check(mtype, target, label, m):
         host, _, port_s = target.partition(':')
         try:
             port = int(port_s)
-            _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
+            _allow_internal = _allow_internal_monitors()
             with socket.create_connection((host, port), timeout=3) as _s:
                 try:
                     _peer = _s.getpeername()[0]
@@ -25552,7 +25567,7 @@ def _run_one_monitor_check(mtype, target, label, m):
                 target, method='GET' if (bm or ej) else 'HEAD',
                 headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
             ctx = _get_ssl_context()
-            _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
+            _allow_internal = _allow_internal_monitors()
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
                                         ssl_ctx=ctx, no_redirect=True)
             t0 = time.monotonic()
@@ -25696,7 +25711,7 @@ def _run_http_flow(m):
     if not steps:
         return False, 'no steps configured'
     ctx = _get_ssl_context()
-    allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
+    allow_internal = _allow_internal_monitors()
     jar = _cj.CookieJar()
     opener = _ssrf_safe_opener(allow_loopback=allow_internal, ssl_ctx=ctx,
                                no_redirect=True, cookiejar=jar)
@@ -25764,6 +25779,38 @@ def _run_http_flow(m):
 _MON_FANOUT_SEP = ' · '
 
 
+# How many monitor probes run at once. Each is a ping, a socket or one HTTP request that spends nearly all
+# its time waiting, so a sweep of N monitors took the SUM of their timeouts (12 unreachable seeded monitors:
+# six seconds for one page load); together it takes about the slowest one.
+_MONITOR_PROBE_WORKERS = 8
+
+
+def _run_monitor_probes(items):
+    """Run the probes in `items` and return the results in the same order.
+
+    `items` mixes finished result dicts (a blocked target, a tag with no devices) with probes still to run,
+    given as (mtype, target, label, monitor) tuples. The probes run concurrently; a finished dict stays where
+    it was. The one config value a probe needs is read here, once, because a worker thread has a cold
+    per-request cache and would otherwise open its own storage connection to read it."""
+    probes = [i for i in items if isinstance(i, tuple)]
+    if not probes:
+        return list(items)
+    token = _MON_ALLOW_INTERNAL.set(bool(_config_ro().get('allow_internal_monitors', False)))
+    try:
+        if len(probes) == 1:
+            done = [_run_one_monitor_check(*probes[0])]
+        else:
+            import concurrent.futures as _cf
+            ctx = contextvars.copy_context()      # carries the value above into the workers
+            with _cf.ThreadPoolExecutor(max_workers=min(_MONITOR_PROBE_WORKERS, len(probes)),
+                                        thread_name_prefix='rp-probe') as ex:
+                done = list(ex.map(lambda p: ctx.copy().run(_run_one_monitor_check, *p), probes))
+    finally:
+        _MON_ALLOW_INTERNAL.reset(token)
+    it = iter(done)
+    return [next(it) if isinstance(i, tuple) else i for i in items]
+
+
 def _execute_monitor_checks(monitors):
     """Run every configured monitor and return the result list.
 
@@ -25826,8 +25873,7 @@ def _execute_monitor_checks(monitors):
                 if st is None:
                     continue
                 matched += 1
-                results.append(_run_one_monitor_check(
-                    mtype, st, f"{label}{_MON_FANOUT_SEP}{d.get('name', did)}", m))
+                results.append((mtype, st, f"{label}{_MON_FANOUT_SEP}{d.get('name', did)}", m))
             if matched == 0:
                 results.append({'label': label, 'type': mtype,
                                 'target': f'{tkind}:{tval}', 'ok': True,
@@ -25843,8 +25889,8 @@ def _execute_monitor_checks(monitors):
                 'checked': int(time.time()),
             })
             continue
-        results.append(_run_one_monitor_check(mtype, target, label, m))
-    return results
+        results.append((mtype, target, label, m))
+    return _run_monitor_probes(results)
 
 
 def _persist_monitor_results(results):
