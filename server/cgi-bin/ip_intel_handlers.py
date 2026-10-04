@@ -191,6 +191,10 @@ def _ip_intel_http(req):
     r = urllib.request.Request(req['url'], data=req.get('body'), method=req['method'])
     for k, v in (req.get('headers') or {}).items():
         r.add_header(k, v)
+    # Without this urllib sends `Python-urllib/3.x`, which SniffCat's Cloudflare
+    # refuses with a 403 (error 1010) before the key is looked at.
+    if not r.has_header('User-agent'):
+        r.add_header('User-Agent', f'RemotePower/{A.SERVER_VERSION}')
     opener = A._ssrf_safe_opener(allow_loopback=False, no_redirect=True)
     try:
         with opener.open(r, timeout=8) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- fixed https provider bases in ip_intel.py

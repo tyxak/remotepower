@@ -108,6 +108,7 @@ settings or run a manual lookup, which spends the install's daily quota.
 |---|---|
 | No attackers appear | Brute-force detection is off, the threshold is never reached, or the host's sshd/web logs aren't being watched. |
 | `API key rejected` | The key is wrong or was revoked. Paste it again. |
+| `refused by the provider (HTTP 403)` | The service or its firewall refused the request. This is not a verdict on your key; a wrong key shows as `API key rejected`. Try again later, and check the service's status page if it keeps happening. |
 | `rate limited` | The service's daily or per-minute limit was hit. RemotePower tries again on the next attack. |
 | `not blocked: score 40 is below 90` | The address isn't bad enough for your threshold. |
 | `not blocked: on the never-block list` | The address is one of yours, on an allow-list, or someone recently signed in from it. |

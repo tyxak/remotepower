@@ -204,8 +204,12 @@ def _error(status, body):
         msg = msg or body.get('message') or body.get('error') or ''
     if status == 429:
         return {'ok': False, 'error': 'rate limited', 'rate_limited': True}
-    if status in (401, 403):
+    if status == 401:
         return {'ok': False, 'error': 'API key rejected', 'auth': True}
+    if status == 403:
+        # A 403 can be the provider refusing the key or its firewall refusing
+        # the request, and nothing here can tell which, so it names neither.
+        return {'ok': False, 'error': 'refused by the provider (HTTP 403)'}
     return {'ok': False, 'error': _short(msg or f'HTTP {status}', 160)}
 
 
