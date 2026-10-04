@@ -76,8 +76,11 @@ def _ticket_sla_policy(ttype=None):
     ttype ('incident'/'request'/'change') resolves against the
     ``ticket_sla_by_type`` config override first -- a type's rule need only
     set the priorities it wants to override; unset priorities fall through to
-    the type-agnostic ``ticket_sla`` policy this always returns."""
-    raw = (A.load(A.CONFIG_FILE) or {}).get('ticket_sla') or {}
+    the type-agnostic ``ticket_sla`` policy this always returns.
+
+    Reads the config without copying it: the list asks once per ticket, and a
+    copy of the whole config three times a ticket made 74 tickets cost 231 copies."""
+    raw = (A._config_ro() or {}).get('ticket_sla') or {}
     out = dict(A.TICKET_SLA_DEFAULT_HOURS)
     for k in (1, 2, 3, 4):
         try:
@@ -87,7 +90,7 @@ def _ticket_sla_policy(ttype=None):
         except (TypeError, ValueError):
             pass
     if ttype and ttype in A.TICKET_TYPES:
-        by_type = (A.load(A.CONFIG_FILE) or {}).get('ticket_sla_by_type') or {}
+        by_type = (A._config_ro() or {}).get('ticket_sla_by_type') or {}
         type_raw = by_type.get(ttype) or {}
         for k in (1, 2, 3, 4):
             try:
@@ -120,7 +123,7 @@ def _business_hours_cfg():
     """W2-29: business-hours calendar for SLA clocks. {enabled, tz_offset_min,
     weekly: {'0'..'6': [[startMin,endMin],...]}, holidays: ['YYYY-MM-DD']}.
     weekday 0=Monday..6=Sunday. Absent/disabled → wall-clock SLA (unchanged)."""
-    c = (A.load(A.CONFIG_FILE) or {}).get('ticket_business_hours')
+    c = (A._config_ro() or {}).get('ticket_business_hours')
     return c if isinstance(c, dict) and c.get('enabled') else None
 
 
