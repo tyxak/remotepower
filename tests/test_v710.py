@@ -175,6 +175,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_doc_viewer_markdown.py",
         "tests/test_v710_ipintel_status.py",
         "tests/test_v710_ipintel_user_agent.py",
+        "tests/test_v710_nav_gap_e2e.py",
         "tests/test_v710_risk_kind_labels.py",
         "tests/test_v710_topbar_fits_phone.py",
         "tests/test_v710_docs_internal_links.py",

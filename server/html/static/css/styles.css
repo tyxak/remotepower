@@ -4146,6 +4146,9 @@ button, a, [role="button"],
    the row .nav-btn used to lay out alone. */
 .nav-item { display: flex; align-items: center; }
 .nav-item .nav-btn { width: auto; flex: 1 1 auto; min-width: 0; }
+/* A module- or role-gated entry hides its button, not the wrapper, and the wrapper
+   still holds the favorites star: a hidden entry left an empty row in the menu. */
+.nav-item:has(> .nav-btn.d-none) { display: none; }
 .nav-star {
   flex-shrink: 0; display: inline-flex; align-items: center;
   justify-content: center; width: 22px; height: 22px; border-radius: 6px;
