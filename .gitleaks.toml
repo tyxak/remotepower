@@ -44,6 +44,7 @@ paths = [
   '''tests/test_v560_rag_secret\.py''',  # deliberately holds FAKE secret-named values
   '''tests/test_v622_rag_contacts\.py''',  # FAKE inline secrets that assert the scripts-RAG scrubber redacts them
                                          # to test the CMDB->RAG secret-exclusion denylist
+  '''tests/test_v710_export_does_not_copy_stores\.py''',  # a FAKE API key and config secrets that assert the export redacts them
 ]
 
 # Example-token regexes used across docs/CLI help (placeholder credentials), the
