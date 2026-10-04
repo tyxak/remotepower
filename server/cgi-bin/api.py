@@ -12566,8 +12566,12 @@ def _run_automation_rules(event, payload, cfg):
         if sevs and sev not in sevs:
             continue
         dm = match.get('device_match') or {}
+        # Only the device that fired the event is ever looked up in this map (the matcher and the tenant
+        # gate below both do `.get(dev_id)`), so it holds just that one device. Loading the whole fleet
+        # here, once per event, was most of the cost of an alert: a storm of 446 offline devices on a
+        # 2,000-device fleet spent 83 s of CPU copying the fleet.
         if (dm.get('group') or dm.get('tags')) and devices_cache is None:
-            devices_cache = load(DEVICES_FILE) or {}
+            devices_cache = {dev_id: device_get(dev_id) or {}} if dev_id else {}
         # SEC (v7.0.2): confine a tenant's rule to that tenant's devices. This
         # fires from fire_webhook with no request context, so the gate stamped
         # on the rule at create time is the only tenancy signal available —
@@ -12578,7 +12582,7 @@ def _run_automation_rules(event, payload, cfg):
         _rgate = rule.get('tenant_gate')
         if _rgate is not None:
             if devices_cache is None:
-                devices_cache = load(DEVICES_FILE) or {}
+                devices_cache = {dev_id: device_get(dev_id) or {}} if dev_id else {}
             if _device_tenant(devices_cache.get(dev_id) or {}) != _rgate:
                 continue
         if not _device_matches_rule(dm, dev_id, devices_cache):
@@ -67194,8 +67198,9 @@ def in_maintenance(event, payload):
     dev_group = ''
     _maint_dev = {}
     if dev_id:
-        devices = load(DEVICES_FILE)
-        _maint_dev = devices.get(dev_id) or {}
+        # One device, not the fleet: this runs for every suppressible event, and copying the whole device
+        # store to read one record's group was a fixed cost of every alert.
+        _maint_dev = device_get(dev_id) or {}
         dev_group = (_maint_dev.get('group') or '')
 
     for w in windows:
