@@ -61,6 +61,21 @@ The installer:
 Then open **TCP 2222** in the server's firewall. That is the only new port,
 and it is on the RemotePower server, not on your fleet.
 
+**Installed from a package, or by hand?** The server package ships the
+application but not the gateway, so `install-server.sh` is not the way in.
+From an unpacked 7.1.0 release run:
+
+```
+sudo packaging/install-sshgw.sh
+```
+
+It installs the daemon and its service, creates the shared secret once and gives
+it to both sides, and starts the gateway. It is safe to run again, for example
+after an upgrade. `--port 22` and `--public-host gw.example.com` set the port
+and the name people connect to. It does not open a firewall port or edit your
+nginx configuration, and it prints what is left, which is the same list as
+below. Your RemotePower server must already be 7.1.0 or newer.
+
 The gateway creates its own host key the first time it starts. To find its
 fingerprint so you can check it on your first connection:
 
