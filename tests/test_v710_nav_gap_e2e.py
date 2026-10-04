@@ -14,18 +14,24 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / 'tests'))
-try:
+from e2e_harness import browser_available, SKIP_REASON  # noqa: E402
+import browser_required  # noqa: E402
+
+# RP_BROWSER_REQUIRE has to be folded into the CLASS condition: a class-level
+# skipUnless never reaches setUpClass, so skip_or_fail alone cannot see a
+# missing browser.
+_GATE = browser_available() or browser_required.required()
+
+if browser_available():
     from playwright.sync_api import sync_playwright
-except ImportError:  # pragma: no cover
-    sync_playwright = None
-import browser_required
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestHiddenNavEntryLeavesNoRow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if sync_playwright is None:
-            browser_required.skip_or_fail('playwright not installed')
+        if not browser_available():
+            browser_required.skip_or_fail(SKIP_REASON)
         if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
             raise unittest.SkipTest('layout is backend-agnostic')
         seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
