@@ -621,6 +621,15 @@
     gap: 10px;
     flex-shrink: 0;
   }
+  /* A 390px phone shares the bar with the menu button and the breadcrumb. The
+     control cluster is six 46px buttons (seven when quiet hours are on) and a
+     10px gap, 320-376px, so the whole document scrolled sideways on every page.
+     Tighter padding and gaps bring it to about 250px. */
+  @media (max-width: 480px) {
+    .header-inner { padding: 0 10px; gap: 8px; }
+    .header-right { gap: 2px; }
+    header .btn-icon, header .theme-btn { padding-left: 8px; padding-right: 8px; }
+  }
   .status-bar {
     font-size: 12px;
     color: var(--muted);
