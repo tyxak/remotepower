@@ -7099,8 +7099,11 @@ def _smart_group_match(dev, rules, dev_id=None, drift_ids=None):
 
 
 def _smart_group_rules(name):
-    """Stored rules for a smart group by name, or None."""
-    g = (load(SMART_GROUPS_FILE) or {}).get(name)
+    """Stored rules for a smart group by name, or None.
+
+    A shared read-only view: _device_in_scope asks once per device for a role scoped to a smart group, and
+    each load() copied the whole store, members lists included. Both callers only read the rules."""
+    g = (_load_ro(SMART_GROUPS_FILE) or {}).get(name)
     return g.get('rules') if isinstance(g, dict) else None
 
 
