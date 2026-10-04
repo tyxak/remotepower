@@ -630,7 +630,16 @@ def _backup_job_targets(job):
     return [str(d)] if d else []
 
 
-def _backup_job_visible(job):
+def _backup_visibility_view():
+    """(every device, the devices this caller may see) — the two sets a job's visibility is judged against.
+
+    It runs the role-scope and tenant filters over the whole fleet, so a list handler builds it ONCE and
+    passes it to every job. Both are read-only views: callers only test membership in them."""
+    devs = A._load_ro(A.DEVICES_FILE) or {}
+    return devs, A._scope_filter_devices(devs)
+
+
+def _backup_job_visible(job, view=None):
     """v6.3.0 SECURITY: a backup job is device-keyed (device_ids), so — like the
     alerts store (v6.1.1) — list/update/delete must tenant/scope-gate it, not just
     RBAC. The /api/backup-jobs routes are NOT under /api/devices/<id>/, so main()'s
@@ -639,9 +648,12 @@ def _backup_job_visible(job):
     _scope_filter_devices — a no-op for a superadmin / non-tenant admin). A job
     whose targets were all deleted is manageable only by a fully-unrestricted
     caller. run/restore/archives already re-filter via _resolve_targets /
-    _scope_block_device; this closes list/update/delete."""
-    devs = A.load(A.DEVICES_FILE) or {}
-    allowed = A._scope_filter_devices(devs)
+    _scope_block_device; this closes list/update/delete.
+
+    `view` is _backup_visibility_view()'s result. The list handler passes it so that 70 jobs on a
+    2,000-device fleet cost one filter pass instead of 70, each of which re-read and copied the fleet
+    (9.7 s for a 29 KB answer)."""
+    devs, allowed = view if view is not None else _backup_visibility_view()
     known = [t for t in _backup_job_targets(job) if t in devs]
     if known:
         return all(t in allowed for t in known)
@@ -1037,7 +1049,8 @@ def handle_backup_jobs_list():
     # SECURITY: jobs are device-keyed — show only jobs whose targets the caller may
     # see (else a viewer / other-tenant admin reads every tenant's destinations and
     # legacy command text, which can embed secrets). run/restore/archives re-filter.
-    jobs = [j for j in A._backup_jobs_load()['jobs'] if _backup_job_visible(j)]
+    view = _backup_visibility_view()
+    jobs = [j for j in A._backup_jobs_load()['jobs'] if _backup_job_visible(j, view)]
     for j in jobs:
         try:
             j['status'] = _backup_job_status(j)
