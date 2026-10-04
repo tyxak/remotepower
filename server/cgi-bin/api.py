@@ -54009,15 +54009,20 @@ def handle_export():
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         # v3.12.0: iterate logical files via the backend seam (not glob), so the
         # ZIP is complete under SQLite too. Every entry is written as
-        # re-serialised JSON via load(), which is also the SQLite→JSON rollback
+        # re-serialised JSON, which is also the SQLite→JSON rollback
         # representation.
+        #
+        # Stores are read with _load_ro: this loop only serialises them, and
+        # load() deep-copied each of the ~170 stores first. That copy was most of
+        # the time, 10.7 s for a 22 MB export on a 2,000-device fleet. config.json
+        # keeps load() because the secret scrub below edits it in place.
         for name in backend_iter_files():
             if name in exclude:
                 continue
             f = DATA_DIR / name
             if name == 'apikeys.json':
                 # Redact key values in backup
-                raw = load(f)
+                raw = _load_ro(f)
                 redacted = {kid: {**v, 'key': '(redacted)'}
                             for kid, v in raw.items()}
                 zf.writestr('apikeys.json', json.dumps(redacted, indent=2))
@@ -54039,7 +54044,7 @@ def handle_export():
                     _redact_nonname_config_secrets(raw, mask=True)  # + the non-name-caught set (URLs w/ creds, cloud secret_key, …)
                 zf.writestr('config.json', json.dumps(raw, indent=2))
             else:
-                zf.writestr(name, json.dumps(load(f), indent=2))
+                zf.writestr(name, json.dumps(_load_ro(f), indent=2))
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
     print("Status: 200 OK"); print("Content-Type: application/zip")
     print(f"Content-Disposition: attachment; filename=remotepower-backup-{ts}.zip")
