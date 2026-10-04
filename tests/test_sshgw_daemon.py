@@ -239,6 +239,18 @@ class TestGatewayEndToEnd(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncssh.PermissionDenied):
             await self.jump(username='bob')
 
+    async def test_a_refused_key_is_logged_with_account_and_fingerprint(self):
+        """A refusal used to leave nothing in the journal, so "wrong account name"
+        and "key never added" could not be told apart."""
+        stranger = asyncssh.generate_private_key('ssh-ed25519')
+        with self.assertLogs('sshgw', level='INFO') as cm:
+            with self.assertRaises(asyncssh.PermissionDenied):
+                await self.jump(key=stranger, username='bob')
+        text = '\n'.join(cm.output)
+        self.assertIn('refused key ' + stranger.get_fingerprint('sha256'), text)
+        self.assertIn('for bob', text)
+        self.assertIn('key not authorized', text)
+
     async def test_a_login_asks_the_api_once_per_key(self):
         """asyncssh validates the accepted key twice (offer, then signature).
         The second answer comes from the connection's own record."""
@@ -281,7 +293,9 @@ class TestGatewayEndToEnd(unittest.IsolatedAsyncioTestCase):
         async with await self.jump() as gw:
             r = await gw.run('id')
         self.assertEqual(r.exit_status, 1)
-        self.assertIn('ProxyJump alice@gw.test:2222', r.stdout)
+        for line in ('Host rp-gateway', 'HostName gw.test', 'Port 2222', 'User alice',
+                     'Host *.rp', 'ProxyJump rp-gateway'):
+            self.assertIn(line, r.stdout)
 
     async def test_agent_with_a_bad_token_gets_no_tunnel(self):
         url = f'ws://127.0.0.1:{self.ws_port}/api/sshgw/tunnel?device_id=d1'

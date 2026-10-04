@@ -111,9 +111,22 @@ or more. Each key can belong to only one account.
 The page shows a ready-made block for `~/.ssh/config`:
 
 ```
+Host rp-gateway
+    HostName gw.example.com
+    Port 2222
+    User alice
+    # If you have more than one key, name the one you added on the page:
+    # IdentityFile ~/.ssh/id_ed25519
+    # IdentitiesOnly yes
+
 Host *.rp
-    ProxyJump alice@gw.example.com:2222
+    ProxyJump rp-gateway
 ```
+
+The gateway has its own `Host` entry on purpose. Options written under `Host *.rp`
+apply to the server you are reaching, not to the gateway you jump through, so an
+`IdentityFile` there would never be offered to the gateway. `User` is your
+RemotePower account name, not your login on the server.
 
 After that, every server is `<name>.rp`:
 
@@ -173,7 +186,7 @@ runs in a container, because a container's loopback isn't the host's sshd.
 
 | You see | Meaning |
 |---|---|
-| `Permission denied (publickey)` at the gateway | The key isn't registered on that account, or the user name in the jump line isn't your RemotePower user name. |
+| `Permission denied (publickey)` at the gateway | One of three things: the key isn't registered on that account, the user name isn't your RemotePower account name, or ssh offered a different key than the one you registered (it tries your default keys unless the gateway's `Host` entry names one with `IdentityFile`). The gateway's journal says which account and key fingerprint it refused: `journalctl -u remotepower-sshgw \| grep refused`. Compare the fingerprint with the list on the SSH gateway page. |
 | `channel open failed: no device named "x"` | No server you're allowed to reach has that name, or it isn't opted in. |
 | `… is not connected to the gateway` | The server is allowed, but its agent hasn't opened a tunnel. Check that the agent is online, has `websockets` installed, and that `/etc/remotepower/sshgw-disabled` doesn't exist. |
 | `sshd is not reachable on local port 22` | The tunnel works, but nothing listens on that port on the server. Start sshd, or set `RP_SSHGW_PORT`. |

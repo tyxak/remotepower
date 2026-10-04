@@ -19,7 +19,14 @@ function _sshgwConfigText(st) {
   const port = (st && st.public_port) || 2222;
   const user = (st && st.username) || 'you';
   const suffix = (st && st.target_suffix) || '.rp';
-  return `Host *${suffix}\n    ProxyJump ${user}@${host}${port === 22 ? '' : ':' + port}\n`;
+  // The gateway is its own Host entry: options under `Host *.rp` apply to the
+  // server being reached, never to the jump host, so an IdentityFile written
+  // there would not be offered to the gateway.
+  return `Host rp-gateway\n    HostName ${host}\n` + (port === 22 ? '' : `    Port ${port}\n`) +
+    `    User ${user}\n` +
+    `    # If you have more than one key, name the one you added on this page:\n` +
+    `    # IdentityFile ~/.ssh/id_ed25519\n    # IdentitiesOnly yes\n\n` +
+    `Host *${suffix}\n    ProxyJump rp-gateway\n`;
 }
 
 function _sshgwWire() {

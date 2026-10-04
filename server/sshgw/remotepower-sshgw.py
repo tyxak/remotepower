@@ -554,6 +554,11 @@ class GatewaySSHServer(_SSHServer):
                 return False
             res = await self.gw.api.authorize(username, fp, '', self.client_ip)
             self._answers[pair] = bool(res.get('ok'))
+            if not self._answers[pair]:
+                # The fingerprint is what the SSH gateway page lists for each key,
+                # so an operator can tell "wrong account name" from "key not added".
+                log.info('refused key %s for %s from %s: %s', fp, username,
+                         self.client_ip, res.get('error') or 'not authorized')
         if self._answers[pair]:
             # asyncssh asks once without a signature and once with; the last
             # key accepted before auth completes is the one that signed. The
@@ -680,8 +685,13 @@ class Gateway:
                 'Jump through it to reach a host:\r\n\r\n'
                 f'  ssh -J {username}@{host}{port} root@web01{sshgw.TARGET_SUFFIX}\r\n\r\n'
                 'or add to ~/.ssh/config:\r\n\r\n'
+                '  Host rp-gateway\r\n'
+                f'      HostName {host}\r\n'
+                + (f'      Port {port[1:]}\r\n' if port else '') +
+                f'      User {username}\r\n'
+                '      # with several keys, add: IdentityFile <the key you registered>\r\n\r\n'
                 f'  Host *{sshgw.TARGET_SUFFIX}\r\n'
-                f'      ProxyJump {username}@{host}{port}\r\n')
+                '      ProxyJump rp-gateway\r\n')
 
     def session_finished(self, session):
         cb = getattr(session, 'on_close', None)
