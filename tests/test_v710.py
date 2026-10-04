@@ -178,6 +178,9 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_topbar_fits_phone.py",
         "tests/test_v710_docs_internal_links.py",
         "tests/test_v710_internals_counts.py",
+        # sweeps that waited on the network one host at a time
+        "tests/test_v710_monitor_probes_concurrent.py",
+        "tests/test_v710_agentless_ping_concurrent.py",
     )
 
     def test_every_guard_file_exists(self):
