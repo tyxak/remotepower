@@ -1645,7 +1645,9 @@ def process_backup_jobs():
         # v6.4.2: catch-up window, not an exact-minute match (see _cron_due_since).
         if not A._cron_due_since(job['cron'], now, job.get('last_fired_minute')):
             continue
-        devices = A.load(A.DEVICES_FILE)
+        # A read-only view: this runs once per DUE job and only looks devices up, so the copy
+        # load() makes of the whole fleet was paid again for every job due in the same minute.
+        devices = A._load_ro(A.DEVICES_FILE)
         try:
             _bc = _backup_job_command(job)   # v6.3.0: generated for file jobs
         except ValueError as _e:

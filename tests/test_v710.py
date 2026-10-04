@@ -187,6 +187,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v710_tickets_list_loads_config_once.py",
         "tests/test_v710_sbom_fleet_reads_stores_once.py",
         "tests/test_v710_export_does_not_copy_stores.py",
+        "tests/test_v710_due_job_sweeps_read_the_fleet_once.py",
     )
 
     def test_every_guard_file_exists(self):

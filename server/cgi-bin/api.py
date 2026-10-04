@@ -36806,7 +36806,10 @@ def process_schedule():
                 changed = True
                 continue
             if _validate_id(dev_id):
-                devices = load(DEVICES_FILE)
+                # Read-only views of the fleet, scripts and containers: this runs once per DUE job, and
+                # fleet-wide schedules make hundreds due in the same minute, each of which used to copy
+                # the whole fleet. `cmds` below stays a private copy; it is edited before it is persisted.
+                devices = _load_ro(DEVICES_FILE)
                 if dev_id in devices:
                     # v3.14.0: wake-on-LAN can't be queued (the host is down) —
                     # the server sends the magic packet directly when due.
@@ -36848,7 +36851,7 @@ def process_schedule():
                             queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
                     elif is_script:
                         sid = command[7:]
-                        scripts_data = load(SCRIPTS_FILE)
+                        scripts_data = _load_ro(SCRIPTS_FILE)
                         body = next((s.get('body', '') for s in scripts_data.get('scripts', [])
                                      if s.get('id') == sid), None)
                         if not body:
@@ -36873,7 +36876,7 @@ def process_schedule():
                     # this container (docker vs podman), not from a guess.
                     elif is_creq:
                         cname = command.split(':', 1)[1].strip()
-                        _items = ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}
+                        _items = ((_load_ro(CONTAINERS_FILE) or {}).get(dev_id) or {}
                                   ).get('items', []) or []
                         _rt = next((c.get('runtime') for c in _items
                                     if isinstance(c, dict) and c.get('name') == cname
