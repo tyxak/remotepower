@@ -222,11 +222,11 @@ The semgrep count looks large because this run used the audit rule sets, which
 flag every use of a pattern rather than an unsafe one: each `innerHTML`
 assignment (the dashboard escapes what it interpolates, and tests drive the
 renderers with hostile input), each `subprocess` call (argument lists, apart
-from two deliberate shells: the agent's command channel, where running a shell
+from two shells that are meant to be shells: the agent's command channel, where running a shell
 command is the feature, and a secret-helper command the operator sets in the
 server's environment — neither takes request data). The rest are false
 positives — `ipaddress`
-properties read as un-called methods, deliberate NaN checks, intended implicit
+properties read as un-called methods, NaN checks written on purpose, intended implicit
 string concatenation — and one protocol-mandated cipher mode (AES-CFB is what
 SNMPv3 privacy specifies).
 
