@@ -8360,6 +8360,7 @@
     "Servers": { "zh": "服务器", "hi": "सर्वर", "es": "Servidores", "ar": "الخوادم", "de": "Server", "fr": "Serveurs" },
     "Sessions": { "zh": "会话", "hi": "सत्र", "es": "Sesiones", "ar": "الجلسات", "de": "Sitzungen", "fr": "Sessions" },
     "Your keys": { "zh": "你的密钥", "hi": "आपकी कुंजियाँ", "es": "Tus claves", "ar": "مفاتيحك", "de": "Ihre Schlüssel", "fr": "Vos clés" },
+    "Allow SSH": { "zh": "允许 SSH", "hi": "SSH की अनुमति दें", "es": "Permitir SSH", "ar": "السماح بـ SSH", "de": "SSH erlauben", "fr": "Autoriser SSH" },
     "Last session": { "zh": "上次会话", "hi": "पिछला सत्र", "es": "Última sesión", "ar": "آخر جلسة", "de": "Letzte Sitzung", "fr": "Dernière session" },
     "Last used": { "zh": "上次使用", "hi": "अंतिम उपयोग", "es": "Último uso", "ar": "آخر استخدام", "de": "Zuletzt verwendet", "fr": "Dernière utilisation" },
     "Transferred": { "zh": "传输量", "hi": "स्थानांतरित", "es": "Transferido", "ar": "المنقول", "de": "Übertragen", "fr": "Transféré" },
