@@ -40,6 +40,7 @@ async function loadIpIntel() {
   _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], settings: {}};
   _ipiAdmin = !!_ipiData.is_admin;
   document.getElementById('ipintel-settings-card').hidden = !_ipiAdmin;
+  document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
   if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
   _ipiRenderAttackers();
