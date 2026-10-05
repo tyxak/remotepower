@@ -61,10 +61,23 @@ DEFAULTS = {
     'report_min_count': 10,       # failed attempts seen before reporting
     'cache_hours': 24,            # how long a lookup answer is reused
     'daily_lookup_budget': 900,   # per provider; AbuseIPDB's free tier is 1000
+    'daily_report_budget': 900,   # per provider; reports have their own daily limit
+    'report_comment': '',         # '' = the default text below
     'never_block': [],            # extra CIDRs that are never blocked
 }
 
 _MAX_COMMENT = 1000
+_MIN_COMMENT = 10             # SniffCat refuses anything shorter
+_TEMPLATE_MAX = 300
+
+# What a report says unless the operator writes their own. {what}, {count} and
+# {minutes} are the only placeholders: counts and the kind of attack, never a
+# host name or a user name, because the text is public on both services.
+REPORT_COMMENT_DEFAULT = ('{what} brute force: {count} failed attempts within '
+                          '{minutes} minutes (reported by RemotePower)')
+COMMENT_PLACEHOLDERS = ('what', 'count', 'minutes')
+_PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
+_CTRL_RE = re.compile(r'[\x00-\x1f\x7f]+')
 _BLOCK_MARKER = 'rp-ipintel'
 
 
@@ -261,14 +274,43 @@ def attack_kind(unit):
     return 'other'
 
 
-def report_comment(kind, count, window_s):
+def _render_comment(template, what, count, mins):
+    values = {'what': what, 'count': str(count), 'minutes': str(mins)}
+    return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), template)
+
+
+def clean_comment_template(text):
+    """One line, no control characters, trimmed. Applied before the template is
+    checked or stored, so what is validated is what is saved."""
+    return _CTRL_RE.sub(' ', str(text or '')).strip()
+
+
+def comment_template_error(template):
+    """None when the template is usable, else a sentence saying what is wrong."""
+    t = clean_comment_template(template)
+    if len(t) > _TEMPLATE_MAX:
+        return f'The report message can be at most {_TEMPLATE_MAX} characters'
+    unknown = sorted({n for n in _PLACEHOLDER_RE.findall(t) if n not in COMMENT_PLACEHOLDERS})
+    if unknown:
+        return ('Unknown placeholder {' + unknown[0] + '}. You can use '
+                + ', '.join('{' + n + '}' for n in COMMENT_PLACEHOLDERS))
+    if len(_render_comment(t, 'SSH', 1, 1)) < _MIN_COMMENT:
+        return f'The report message must be at least {_MIN_COMMENT} characters (SniffCat refuses shorter ones)'
+    return None
+
+
+def report_comment(kind, count, window_s, template=None):
     """What a report says. Counts and the kind of attack only: no hostnames,
     usernames, paths or log lines, because the comment is public on both
-    services and the attacked machine is ours."""
+    services and the attacked machine is ours. `template` is the operator's own
+    wording; an unusable one falls back to the default rather than failing a
+    report."""
     what = {'ssh': 'SSH', 'web': 'web login'}.get(kind, 'login')
     mins = max(1, int(window_s or 0) // 60)
-    return (f'{what} brute force: {int(count)} failed attempts within {mins} '
-            f'minutes (reported by RemotePower)')
+    t = clean_comment_template(template)
+    if not t or comment_template_error(t):
+        t = REPORT_COMMENT_DEFAULT
+    return _render_comment(t, what, int(count), mins)[:_MAX_COMMENT]
 
 
 # ── blocking ───────────────────────────────────────────────────────────────────

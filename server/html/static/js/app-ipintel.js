@@ -56,6 +56,10 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-ttl', s.block_ttl_hours ?? 24);
   set('ipintel-max-hour', s.block_max_per_hour ?? 20);
   set('ipintel-report-min', s.report_min_count ?? 10);
+  set('ipintel-lookup-budget', s.daily_lookup_budget ?? 900);
+  set('ipintel-report-budget', s.daily_report_budget ?? 900);
+  set('ipintel-cache-hours', s.cache_hours ?? 24);
+  set('ipintel-comment', s.report_comment || '');
   set('ipintel-never', (s.never_block || []).join('\n'));
   for (const [p, isSet] of [['abuseipdb', s.abuseipdb_key_set], ['sniffcat', s.sniffcat_key_set]]) {
     const el = document.getElementById(`ipintel-${p}-key`);
@@ -64,7 +68,9 @@ function _ipiFillSettings(s, budget) {
   const b = document.getElementById('ipintel-budget');
   if (b) {
     const cap = s.daily_lookup_budget ?? 900;
-    b.textContent = `Lookups today: AbuseIPDB ${budget.abuseipdb || 0} / ${cap}, SniffCat ${budget.sniffcat || 0} / ${cap}`;
+    const rcap = s.daily_report_budget ?? 900;
+    b.textContent = `Lookups today: AbuseIPDB ${budget.abuseipdb || 0} / ${cap}, SniffCat ${budget.sniffcat || 0} / ${cap}. ` +
+      `Reports today: AbuseIPDB ${budget['report:abuseipdb'] || 0} / ${rcap}, SniffCat ${budget['report:sniffcat'] || 0} / ${rcap}`;
   }
 }
 
@@ -182,6 +188,10 @@ async function saveIpIntelSettings() {
     block_ttl_hours: v('ipintel-ttl').value,
     block_max_per_hour: v('ipintel-max-hour').value,
     report_min_count: v('ipintel-report-min').value,
+    daily_lookup_budget: v('ipintel-lookup-budget').value,
+    daily_report_budget: v('ipintel-report-budget').value,
+    cache_hours: v('ipintel-cache-hours').value,
+    report_comment: v('ipintel-comment').value,
     never_block: v('ipintel-never').value,
   };
   // Keys are write-only: only send one the admin actually typed.

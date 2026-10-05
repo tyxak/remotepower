@@ -527,6 +527,7 @@ builtins = [
     "handle_sshgw_devices",
     "handle_sshgw_keys",
     "handle_sshgw_sessions",
+    "handle_sshgw_sessions_clear",
     "handle_sshgw_status",
     "handle_suppressions",
     "handle_taxonomy_group_delete",

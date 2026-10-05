@@ -32,6 +32,8 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
 - **Off by default.** `install-server.sh --with-sshgw` installs it; it is the
   only sidecar that listens on a public port. A host can refuse the tunnel
   whatever the server says. See `docs/sshgw.md`.
+- **Clear sessions.** Admins get a button on the SSH gateway page to empty the
+  session list. The audit log keeps its record.
 - **In Docker:** the image carries the gateway. Set `RP_WITH_SSHGW=1` and publish
   port 2222; the container creates the shared secret and the host key in the
   data volume. Both are off until you ask. See the Docker steps in `docs/sshgw.md`.
@@ -60,6 +62,11 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
 - **Security → Threat intel** lists the attackers with their score, country,
   network, the hosts each one attacked and what happened, plus the active
   blocks with Unblock. See `docs/ip-intel.md`.
+- **You write the report message, and you set the API limits.** The comment sent
+  with each report is a template with `{what}`, `{count}` and `{minutes}`; there is
+  no placeholder for a host name. Lookups per day, reports per day and how long a
+  lookup is reused are settings on the page. Reports now have their own daily
+  limit, like lookups.
 
 ### Attacks and access reach every surface
 

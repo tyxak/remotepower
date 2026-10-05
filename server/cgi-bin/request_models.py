@@ -2651,6 +2651,8 @@ if _AVAILABLE:
         report_min_count: Any = None
         cache_hours: Any = None
         daily_lookup_budget: Any = None
+        daily_report_budget: Any = None
+        report_comment: Any = None
         never_block: Any = None
         abuseipdb_api_key: str = ''
         sniffcat_api_key: str = ''

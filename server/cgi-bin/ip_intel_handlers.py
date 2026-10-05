@@ -221,6 +221,16 @@ def _budget_left(st, pol, today):
     return {p: max(0, cap - int(b.get(p, 0))) for p in ip_intel.PROVIDERS}
 
 
+def _report_budget_left(st, pol, today):
+    """{provider: reports still allowed today}. Reports are counted under
+    `report:<provider>` in the same daily record as lookups."""
+    b = st.get('budget') if isinstance(st.get('budget'), dict) else {}
+    if b.get('day') != today:
+        b = {'day': today}
+    cap = int(pol.get('daily_report_budget') or 0)
+    return {p: max(0, cap - int(b.get('report:' + p, 0))) for p in ip_intel.PROVIDERS}
+
+
 def _add_spend(st, today, spent):
     b = st.get('budget') if isinstance(st.get('budget'), dict) else {}
     if b.get('day') != today:
@@ -336,6 +346,7 @@ def run_ip_intel_if_due():
                 blocks.pop(dev_id, None)
         st['blocks'] = blocks
         allowance = _budget_left(st, pol, today)
+        report_allowance = _report_budget_left(st, pol, today)
         atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
         plan = []
         for item in batch:
@@ -381,11 +392,17 @@ def run_ip_intel_if_due():
             p['report_err'] = {prov: f'not reported: {nb}' for prov in ip_intel.PROVIDERS
                                if pol['keys'].get(prov)}
             continue
-        comment = ip_intel.report_comment(p['kind'], item.get('count'), item.get('window_s'))
+        comment = ip_intel.report_comment(p['kind'], item.get('count'), item.get('window_s'),
+                                          pol.get('report_comment'))
         for prov in ip_intel.PROVIDERS:
             key = pol['keys'].get(prov)
             if not key or now - int(p['reported'].get(prov) or 0) < REPORT_EVERY_S:
                 continue
+            if report_allowance.get(prov, 0) <= 0:
+                p['report_err'][prov] = 'not reported: the daily report limit is used up'
+                continue
+            report_allowance[prov] -= 1
+            spent['report:' + prov] = spent.get('report:' + prov, 0) + 1
             build, parse = ip_intel.REPORT[prov]
             res = parse(*A._ip_intel_http(
                 build(ip, key, ip_intel.CATEGORIES[p['kind']][prov], comment)))
@@ -466,6 +483,7 @@ def run_ip_intel_if_due():
 
 def _settings_view(pol):
     out = {k: pol[k] for k in ip_intel.DEFAULTS}
+    out['report_comment'] = pol.get('report_comment') or ip_intel.REPORT_COMMENT_DEFAULT
     out['abuseipdb_key_set'] = bool(pol['keys'].get('abuseipdb'))
     out['sniffcat_key_set'] = bool(pol['keys'].get('sniffcat'))
     return out
@@ -540,13 +558,25 @@ def handle_ip_intel_settings():
                 changed.append(f'{k}={pol[k]}')
         for k, lo, hi in (('block_min_score', 1, 100), ('block_ttl_hours', 1, 24 * 90),
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
-                          ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000)):
+                          ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
+                          ('daily_report_budget', 0, 1000000)):
             if body.get(k) not in (None, ''):
                 try:
                     pol[k] = max(lo, min(hi, int(body[k])))
                 except (TypeError, ValueError):
                     A.respond(400, {'error': f'{k} must be a number'})
                 changed.append(f'{k}={pol[k]}')
+        if body.get('report_comment') is not None:
+            text = ip_intel.clean_comment_template(body['report_comment'])
+            if not text or text == ip_intel.REPORT_COMMENT_DEFAULT:
+                pol.pop('report_comment', None)       # blank, or the default text, stores nothing
+                changed.append('report_comment=default')
+            else:
+                bad = ip_intel.comment_template_error(text)
+                if bad:
+                    A.respond(400, {'error': bad})
+                pol['report_comment'] = text
+                changed.append('report_comment=custom')
         if body.get('never_block') is not None:
             raw = body['never_block']
             items = raw if isinstance(raw, list) else str(raw).replace(',', '\n').splitlines()

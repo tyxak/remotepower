@@ -250,6 +250,13 @@ the audit log next to logins, refusals and key changes.
 The session is encrypted end to end, so the gateway cannot record keystrokes
 or output. If you need a recorded session, use the web terminal.
 
+**Clear sessions.** Admins see a **Clear sessions** button above the list on the
+SSH gateway page. It empties the list, after you confirm. It does not touch the
+audit log, which keeps its own line for every connection and refusal, so the
+record of who connected stays. Clearing also resets the "sessions in the last
+24 hours" figure. An admin who can see only part of the fleet, or a tenant
+admin, clears only the sessions they could see.
+
 ## Turning it off
 
 | To stop… | Do this |

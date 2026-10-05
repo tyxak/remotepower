@@ -372,6 +372,37 @@ def handle_sshgw_sessions():
     A.respond(200, {'ok': True, 'sessions': out[:500]})
 
 
+def handle_sshgw_sessions_clear():
+    """DELETE /api/sshgw/sessions — admin. Empties the session list the page
+    shows. The audit log keeps its `sshgw_open` and `sshgw_denied` lines, so
+    clearing hides history from this card without erasing who connected.
+
+    Rows are removed only for what the caller could see in the list. An admin
+    scoped to part of the fleet, or a tenant admin, leaves the rest alone; rows
+    whose device no longer exists go only to an unscoped platform admin."""
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    actor = A.require_admin_auth()
+    _require_module()
+    everything = A._load_ro(A.DEVICES_FILE) or {}
+    visible = A._scope_filter_devices(everything)
+    unscoped = A._caller_scope() is None and not (A._tenancy_enforced() and not A._caller_is_superadmin())
+    removed = 0
+    with A._LockedUpdate(A.SSHGW_SESSIONS_FILE) as store:
+        rows = store.get('sessions') if isinstance(store.get('sessions'), list) else []
+        keep = []
+        for r in rows:
+            did = r.get('device_id') if isinstance(r, dict) else None
+            gone = bool(did) and did not in everything
+            if not isinstance(r, dict) or not did or did in visible or (gone and unscoped):
+                removed += 1
+            else:
+                keep.append(r)
+        store['sessions'] = keep
+    A.audit_log(actor, 'sshgw_sessions_cleared', f'removed={removed}')
+    A.respond(200, {'ok': True, 'removed': removed})
+
+
 # ── daemon endpoints ───────────────────────────────────────────────────────────
 
 def handle_sshgw_agent_check():

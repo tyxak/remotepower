@@ -47,15 +47,45 @@ All three are off until you turn them on. You'll find everything under
    key itself.
 3. Save.
 
-Lookups are capped at 900 per service per day, to stay under AbuseIPDB's free
-limit. The page shows how many have been used today.
+### Limits on API use
+
+Each service has its own daily limits, and you set them on the same page:
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Lookups per day (each service)** | 900 | Stops asking a service once it has been asked this many times today. |
+| **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. |
+| **Reuse a lookup for (hours)** | 24 | How long an answer is kept before the same address is asked about again. |
+| **Report after attempts** | 10 | How many failed attempts an address needs before it is reported. |
+
+The defaults stay under AbuseIPDB's free plan of 1,000 a day. Days run in UTC.
+When a limit is reached, RemotePower stops until the next day and says so in the
+address's row. Use `0` to switch lookups or reports off for that service. The
+page shows how many have been used today.
+
+### The report message
+
+The comment in each report is yours to write: **Report message** on the same
+page. It can use three placeholders:
+
+| Placeholder | Becomes |
+|---|---|
+| `{what}` | `SSH` or `web login` |
+| `{count}` | the number of failed attempts |
+| `{minutes}` | the time window, in minutes |
+
+For example, `{what} brute force: {count} attempts in {minutes} minutes` is sent
+as `SSH brute force: 42 attempts in 10 minutes`. It needs at least 10
+characters, because SniffCat refuses anything shorter, and at most 300. There
+is no placeholder for a host name, so one can't end up in a public report by
+accident. Don't type one. Clear the box to go back to the default.
 
 ## What leaves your network
 
 | Action | What is sent |
 |---|---|
 | Lookup | The attacking address. |
-| Report | The attacking address, the attack categories, and a one-line comment such as "SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)". |
+| Report | The attacking address, the attack categories, and a one-line comment. The default reads "SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
 
 Hostnames, user names, log lines and your own addresses are never sent.
 

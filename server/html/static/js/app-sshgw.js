@@ -91,6 +91,9 @@ async function loadSshgw() {
   const sessCard = document.getElementById('sshgw-sessions-card');
   _sshgwSessions = (s && Array.isArray(s.sessions)) ? s.sessions : [];
   if (sessCard) sessCard.hidden = !(s && Array.isArray(s.sessions));
+  // Clearing is for admins; auditors can read the list but not empty it.
+  const sessTools = document.getElementById('sshgw-sess-tools');
+  if (sessTools) sessTools.hidden = !(_sshgwStatus && _sshgwStatus.is_admin);
   _sshgwRenderKeys();
   _sshgwRenderDevices();
   _sshgwRenderSessions();
@@ -211,6 +214,15 @@ async function deleteSshgwKey(fp, user) {
   const r = await api('DELETE', '/sshgw/keys', body).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Could not remove the key', 'error'); return; }
   toast('Key removed', 'success');
+  loadSshgw();
+}
+
+async function clearSshgwSessions() {
+  const ok = await uiConfirm({title: 'Clear sessions', message: 'Remove every session from this list? The audit log keeps the record of who connected.', confirmText: 'Clear', danger: true});
+  if (!ok) return;
+  const r = await api('DELETE', '/sshgw/sessions').catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Could not clear the sessions', 'error'); return; }
+  toast(`Cleared ${r.removed || 0} sessions`, 'success');
   loadSshgw();
 }
 

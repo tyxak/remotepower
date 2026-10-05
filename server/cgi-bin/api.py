@@ -1112,6 +1112,7 @@ sshgw_handlers_mod.bind(globals())
 for _ss_name in (
         '_sshgw_is_linux', 'handle_sshgw_keys', 'handle_sshgw_status',
         'handle_sshgw_devices', 'handle_device_sshgw', 'handle_sshgw_sessions',
+        'handle_sshgw_sessions_clear',
         'handle_sshgw_agent_check', 'handle_sshgw_authorize', 'handle_sshgw_audit',
 ):
     globals()[_ss_name] = getattr(sshgw_handlers_mod, _ss_name)
@@ -71424,6 +71425,7 @@ def _build_exact_routes():
         ('DELETE', '/api/sshgw/keys'): handle_sshgw_keys,
         ('GET', '/api/sshgw/devices'): handle_sshgw_devices,
         ('GET', '/api/sshgw/sessions'): handle_sshgw_sessions,
+        ('DELETE', '/api/sshgw/sessions'): handle_sshgw_sessions_clear,
         ('POST', '/api/sshgw/agent-check'): handle_sshgw_agent_check,
         ('POST', '/api/sshgw/authorize'): handle_sshgw_authorize,
         ('POST', '/api/sshgw/audit'): handle_sshgw_audit,
