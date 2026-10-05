@@ -32,6 +32,9 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
 - **Off by default.** `install-server.sh --with-sshgw` installs it; it is the
   only sidecar that listens on a public port. A host can refuse the tunnel
   whatever the server says. See `docs/sshgw.md`.
+- **In Docker:** the image carries the gateway. Set `RP_WITH_SSHGW=1` and publish
+  port 2222; the container creates the shared secret and the host key in the
+  data volume. Both are off until you ask. See the Docker steps in `docs/sshgw.md`.
 - **Server status shows the gateway.** A new **SSH gateway** row says whether
   the daemon is answering on this server and how many opted-in hosts have a
   tunnel up, like the rows for the push daemon and the satellites.

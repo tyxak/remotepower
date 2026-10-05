@@ -84,10 +84,29 @@ after an upgrade. `--port 22` and `--public-host gw.example.com` set the port
 and the name people connect to. Your RemotePower server must already be 7.1.0
 or newer.
 
-Neither route opens a firewall port. Open **TCP 2222** yourself. That is the
-only new port, and it is on the RemotePower server, not on your fleet.
+**Running RemotePower in Docker?** The image carries the gateway. It is off
+until you ask for it:
 
-The gateway is not part of the Docker image.
+1. In `docker-compose.yml`, uncomment `RP_WITH_SSHGW: "1"` and the
+   `"${RP_SSHGW_PORT:-2222}:2222"` port mapping, then run
+   `docker compose up -d`. Publishing the port is a separate step on purpose:
+   it is the one public SSH port, and nothing should open it by accident.
+2. The container creates the shared secret and the gateway's host key in the
+   data volume (`/var/lib/remotepower/sshgw`), so both survive a rebuild. To
+   use a secret you manage yourself, set `RP_SSHGW_SECRET` instead.
+3. Read the host key fingerprint from the container's log:
+   `docker logs remotepower 2>&1 | grep 'host key fingerprint'`.
+4. The image's nginx already has the tunnel route (step 2 below), so skip that
+   step. If something sits in front of the container, such as a reverse proxy,
+   it must pass `/api/sshgw/tunnel` through with WebSocket upgrade, like the
+   route in step 2.
+5. Carry on from step 3. In **Server status** the **SSH gateway** row reads
+   **Running** once the container is up. If you mapped a different host port
+   with `RP_SSHGW_PORT`, put that port on the SSH gateway page.
+
+Whichever way you installed, nothing here opens a firewall port for you. Open
+**TCP 2222** (or the port you chose) yourself. That is the only new port, and it
+is on the RemotePower server, not on your fleet.
 
 The gateway creates its own host key the first time it starts. Note its
 fingerprint now, so you can check it on your first connection:

@@ -271,6 +271,29 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     echo ""
 fi
 
+# ── SSH gateway secret (opt-in: RP_WITH_SSHGW=1) ─────────────────────────────
+# The gateway is the one sidecar that listens on a public port, so it is off by
+# default. The daemon and the app server share one secret. It is created once in
+# the data volume (or taken from RP_SSHGW_SECRET) and exported HERE, before
+# gunicorn starts, because the app reads RP_SSHGW_SECRET from its environment.
+# The daemon itself starts further down. See docs/sshgw.md.
+SSHGW_ON=0
+SSHGW_DIR="$DATA_DIR/sshgw"
+if [ "${RP_WITH_SSHGW:-0}" = "1" ] || [ "${RP_WITH_SSHGW:-0}" = "true" ]; then
+    SSHGW_ON=1
+    mkdir -p "$SSHGW_DIR"
+    chmod 700 "$SSHGW_DIR"
+    if [ -z "${RP_SSHGW_SECRET:-}" ]; then
+        if [ ! -s "$SSHGW_DIR/secret" ]; then
+            ( umask 077; openssl rand -hex 32 > "$SSHGW_DIR/secret" )
+        fi
+        RP_SSHGW_SECRET="$(tr -d '[:space:]' < "$SSHGW_DIR/secret")"
+    fi
+    ( umask 077; printf '%s' "$RP_SSHGW_SECRET" > "$SSHGW_DIR/secret" )
+    export RP_SSHGW_SECRET
+    echo "[*] SSH gateway enabled (RP_WITH_SSHGW)"
+fi
+
 # ── Persistent gunicorn/Flask app tier (v6.1.0+, the only server) ────────────
 # server/cgi-bin/wsgi.py is a real Flask app; nginx's shipped location snippets
 # (docker/nginx-docker-locations.conf, nginx-docker-tls.conf) already proxy_pass
@@ -302,6 +325,19 @@ if [ "${RP_WITH_PUSH:-1}" = "1" ] || [ "${RP_WITH_PUSH:-1}" = "true" ]; then
     RP_DATA_DIR=/var/lib/remotepower RP_CGI_BIN=/var/www/remotepower/cgi-bin \
         python3 /usr/local/bin/remotepower-push &
     echo "[+] push daemon started (pid $!)"
+fi
+
+# ── SSH gateway daemon (opt-in; the secret was set up above) ─────────────────
+# SSH on 0.0.0.0:2222 (publish it with a `ports:` mapping), agent tunnels on
+# 127.0.0.1:8767 behind nginx's /api/sshgw/tunnel. The host key lives in the
+# data volume, so the fingerprint people verify survives a container rebuild.
+if [ "$SSHGW_ON" = "1" ]; then
+    echo "[*] Starting the SSH gateway on 0.0.0.0:2222 (agent tunnels on 127.0.0.1:8767)"
+    RP_CGI_BIN=/var/www/remotepower/cgi-bin \
+    SSHGW_SECRET_FILE="$SSHGW_DIR/secret" \
+    SSHGW_HOST_KEY="$SSHGW_DIR/ssh_host_ed25519_key" \
+        python3 /usr/local/bin/remotepower-sshgw --verbose &
+    echo "[+] SSH gateway started (pid $!); host key fingerprint is in these logs"
 fi
 
 # First-greeting to the logs — the address to open.

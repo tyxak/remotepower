@@ -18,7 +18,8 @@ RUN apt-get update -qq && \
         nginx procps xmlsec1 openssl iputils-ping && \
     # websockets (v7.0.2): the push daemon docker/entrypoint.sh starts by
     # default exits 2 without it — the image shipped without it entirely.
-    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn flask pydantic 'psycopg[binary]' websockets && \
+    # asyncssh (v7.1.0): only the opt-in SSH gateway (RP_WITH_SSHGW=1) imports it.
+    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn flask pydantic 'psycopg[binary]' websockets 'asyncssh>=2.14.2' && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories
@@ -43,6 +44,8 @@ COPY client/remotepower-agent-mac.py /var/www/remotepower/agent/remotepower-agen
 # Agent push (wake-nudge) daemon — started idle by the entrypoint so the push
 # channel is a single Settings toggle (push_enabled). See docs/push.md.
 COPY server/push/remotepower-push.py /usr/local/bin/remotepower-push
+# The SSH gateway daemon (v7.1.0). Not started unless RP_WITH_SSHGW=1; see docs/sshgw.md.
+COPY server/sshgw/remotepower-sshgw.py /usr/local/bin/remotepower-sshgw
 # `rp` — omd/checkmk-style node control. In the container (no systemd) `rp status`
 # and `rp doctor` work via port/process probes; lifecycle is `docker restart`.
 COPY server/rp                       /usr/local/bin/rp
@@ -54,6 +57,7 @@ RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
               /var/www/remotepower/agent/remotepower-agent \
               /usr/local/bin/remotepower-push \
+              /usr/local/bin/remotepower-sshgw \
               /usr/local/bin/rp && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \
@@ -85,6 +89,8 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
 
 EXPOSE 8080 8443
+# 2222 is the SSH gateway (RP_WITH_SSHGW=1). It is only published if you map it.
+EXPOSE 2222
 
 VOLUME ["/var/lib/remotepower"]
 
