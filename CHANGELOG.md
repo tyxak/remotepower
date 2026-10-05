@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v7.1.0 — "G4tewayMatters" — unreleased
+## v7.1.0 — "G4tewayMatters" — 2026-10-05
 
 A release about the front door. Hosts can now be reached with your own SSH
 client through one gateway, with no inbound port open on the host. The
