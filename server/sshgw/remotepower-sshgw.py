@@ -142,6 +142,17 @@ MAX_UNAUTH_PER_IP = 10
 log = logging.getLogger('sshgw')
 
 
+def _q(value, limit=64):
+    """A client-supplied string made safe for a log line: truncated, quoted, with
+    control characters (a newline most of all) escaped. The SSH user name and the
+    requested target are chosen by whoever connects. Written raw, a user name of
+    `x from 203.0.113.9` makes any log reader attribute the line to that address,
+    and one with a newline forges a whole line such as a login by `admin`. So the
+    real client address always comes first in these lines and what the client typed
+    comes last, inside quotes."""
+    return repr(str(value)[:limit])
+
+
 def _find_cgi_bin():
     """Locate the server's cgi-bin (for sshgw.py) across dev and installed
     layouts. Mirrors the push and webterm daemons."""
@@ -557,8 +568,8 @@ class GatewaySSHServer(_SSHServer):
             if not self._answers[pair]:
                 # The fingerprint is what the SSH gateway page lists for each key,
                 # so an operator can tell "wrong account name" from "key not added".
-                log.info('refused key %s for %s from %s: %s', fp, username,
-                         self.client_ip, res.get('error') or 'not authorized')
+                log.info('refused key from %s: key %s user %s reason %s', self.client_ip, fp,
+                         _q(username), _q(res.get('error') or 'not authorized', 200))
         if self._answers[pair]:
             # asyncssh asks once without a signature and once with; the last
             # key accepted before auth completes is the one that signed. The
@@ -573,7 +584,7 @@ class GatewaySSHServer(_SSHServer):
         if self._pending:
             self._pending = False
             self.gw.login_finished(self.client_ip)
-        log.info('login %s from %s key %s', self.username, self.client_ip, self.fingerprint)
+        log.info('login from %s: user %s key %s', self.client_ip, _q(self.username), self.fingerprint)
 
     def session_requested(self):
         return _UsageSession(self.gw.usage_text(self.username))
@@ -591,11 +602,12 @@ class GatewaySSHServer(_SSHServer):
         res = await self.gw.api.authorize(self.username, self.fingerprint,
                                           dest_host, self.client_ip)
         if not res.get('ok'):
-            log.info('denied %s → %s: %s', self.username, dest_host, res.get('error'))
+            log.info('denied from %s: user %s target %s reason %s', self.client_ip,
+                     _q(self.username), _q(dest_host), _q(res.get('error'), 200))
             self.denied += 1
             if self.denied >= MAX_DENIED_PER_CONN and self.conn is not None:
-                log.warning('closing %s from %s after %d refused channels',
-                            self.username, self.client_ip, self.denied)
+                log.warning('closing connection from %s after %d refused channels (user %s)',
+                            self.client_ip, self.denied, _q(self.username))
                 self.conn.close()
             raise asyncssh.ChannelOpenError(
                 asyncssh.OPEN_ADMINISTRATIVELY_PROHIBITED,
@@ -620,8 +632,8 @@ class GatewaySSHServer(_SSHServer):
             raise asyncssh.ChannelOpenError(asyncssh.OPEN_CONNECT_FAILED, str(e)) from None
         self.streams += 1
         session.on_close = self._stream_closed
-        log.info('stream %s: %s → %s (%s)', meta['session_id'], self.username,
-                 device_id, dest_host)
+        log.info('stream %s from %s: user %s → device %s (target %s)', meta['session_id'],
+                 self.client_ip, _q(self.username), device_id, _q(dest_host))
         return session
 
     def _stream_closed(self):

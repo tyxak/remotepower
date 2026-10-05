@@ -33,7 +33,7 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
-- [security-review-7.1.0.md](security-review-7.1.0.md) — ten issues, among
+- [security-review-7.1.0.md](security-review-7.1.0.md) — eleven issues, among
   them a tenant admin able to change install-wide state on multi-tenant
   installs, signed alert-email links that took their address from the request,
   a crafted SSH user name that could make threat intel blame an address of the

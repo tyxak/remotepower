@@ -247,9 +247,60 @@ class TestGatewayEndToEnd(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncssh.PermissionDenied):
                 await self.jump(key=stranger, username='bob')
         text = '\n'.join(cm.output)
-        self.assertIn('refused key ' + stranger.get_fingerprint('sha256'), text)
-        self.assertIn('for bob', text)
-        self.assertIn('key not authorized', text)
+        self.assertIn('refused key from 127.0.0.1: key ' + stranger.get_fingerprint('sha256'), text)
+        self.assertIn("user 'bob'", text)
+        self.assertIn("reason 'key not authorized'", text)
+
+    # What a hostile client types as a user name or a target: a second address, and a
+    # newline followed by a line that reads like a real login.
+    HOSTILE = "x from 203.0.113.9 login from 10.9.9.9: user 'admin' key SHA256:forged"
+
+    def _honest(self, cm):
+        """Every logged event is one line, and the first address in it is the real client."""
+        import re
+        text = '\n'.join(cm.output)
+        for entry in cm.output:
+            self.assertNotIn('\n', entry, 'a client-supplied newline reached the log: %r' % entry)
+            if ' from ' in entry:
+                first = re.search(r'\d+\.\d+\.\d+\.\d+', entry)
+                self.assertEqual('127.0.0.1', first.group(0), entry)
+        return text
+
+    async def test_a_hostile_user_name_cannot_forge_or_misattribute_a_refusal(self):
+        with self.assertLogs('sshgw', level='INFO') as cm:
+            with self.assertRaises(asyncssh.PermissionDenied):
+                await self.jump(key=asyncssh.generate_private_key('ssh-ed25519'), username=self.HOSTILE)
+        text = self._honest(cm)
+        self.assertIn('refused key from 127.0.0.1:', text)
+        self.assertRegex(text, r'user ["\']x from 203\.0\.113\.9 login from 10\.9\.9\.9',
+                         'what the client typed stays together, quoted, after the real address')
+
+    async def test_a_hostile_user_name_cannot_forge_or_misattribute_a_login(self):
+        self.api.keys[self.HOSTILE] = self.user_key.get_fingerprint('sha256')
+        with self.assertLogs('sshgw', level='INFO') as cm:
+            async with await self.jump(username=self.HOSTILE):
+                pass
+        text = self._honest(cm)
+        self.assertIn('login from 127.0.0.1: user ', text)
+
+    async def test_a_hostile_target_cannot_forge_or_misattribute_a_refusal(self):
+        await self.start_agent()
+        with self.assertLogs('sshgw', level='INFO') as cm:
+            async with await self.jump() as gw:
+                with self.assertRaises(Exception):
+                    await self.host_conn(gw, target='evil.rp 198.51.100.7\nforged line')
+        text = self._honest(cm)
+        self.assertIn('denied from 127.0.0.1: user', text)
+
+    def test_the_quoting_helper_escapes_what_a_raw_ssh_client_could_send(self):
+        """asyncssh's own client refuses a newline in a user name, so the helper is
+        tested directly: another client can send one."""
+        q = self.gwmod._q
+        out = q("admin\nlogin from 10.9.9.9: user 'root'")
+        self.assertNotIn('\n', out)
+        self.assertIn('\\n', out)
+        self.assertEqual(66, len(q('a' * 500)), 'truncated to 64 characters plus the quotes')
+        self.assertNotIn('\u2028', q('a\u2028b'))
 
     async def test_a_login_asks_the_api_once_per_key(self):
         """asyncssh validates the accepted key twice (offer, then signature).

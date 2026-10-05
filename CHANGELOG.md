@@ -137,7 +137,7 @@ release's changes. It is written up in `docs/security-review-7.1.0.md`.
 
 ### Security
 
-Ten issues, all caught before release, all fixed here. The full write-up is in
+Eleven issues, all caught before release, all fixed here. The full write-up is in
 `docs/security-review-7.1.0.md`; the short version:
 
 - **A tenant admin could change install-wide state** on a multi-tenant
@@ -154,6 +154,9 @@ Ten issues, all caught before release, all fixed here. The full write-up is in
   device token in a header.
 - **The SSH gateway capped key offers and unauthenticated connections** per
   connection and per address, as OpenSSH does.
+- **The gateway's log lines quote what a client types.** A user name such as
+  `x from 203.0.113.9` could make a log reader blame that address, and a line break
+  could forge a line. The real address now comes first and the client's text last.
 - Smaller: enrolment and inbound webhook tokens across tenants, manual block
   and unblock checking permissions last, and the web-server findings above.
 

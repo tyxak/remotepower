@@ -62,7 +62,7 @@ holds long-form docs that don't fit there.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
 - **[security-review-7.1.0.md](security-review-7.1.0.md)** — the v7.1.0
-  pass: ten issues from a whole-project review plus the shipped web-server
+  pass: eleven issues from a whole-project review plus the shipped web-server
   configuration under nmap, nikto, nuclei and wapiti. A tenant admin could
   change state that belongs to the whole install; signed alert-email links took
   their address from the request; a crafted SSH user name could make threat

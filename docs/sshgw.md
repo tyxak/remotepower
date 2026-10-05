@@ -275,6 +275,14 @@ runs in a container, because a container's loopback isn't the host's sshd.
   from the server (`RP_SSHGW_PORT` in the agent's environment, default 22),
   never from the gateway. You can't use the tunnel to reach other ports or
   other machines on that network.
+- **The journal is safe to parse.** Every gateway log line that includes something
+  a client typed (the user name, the server name) puts the real client address
+  first and the client's text last, in quotes, with line breaks escaped. A filter
+  for fail2ban or CrowdSec should match the address right after `from `, anchor
+  the pattern at the start of the line, and never match a later `from`. RemotePower
+  doesn't ship a filter yet. Test one with `fail2ban-regex` against a failed login
+  before you rely on it. Failed logins read `refused key from <address>: key
+  <fingerprint> user '<name>' reason '…'`.
 - **Failed logins are throttled.** After 20 failed logins in 10 minutes from
   one address, the gateway refuses that address for 10 minutes.
 - **Login attempts are capped, like OpenSSH's `MaxAuthTries` and

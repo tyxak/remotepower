@@ -1,6 +1,6 @@
 # Security review — v7.1.0
 
-Every release gets a review before it ships. This one found **ten** issues
+Every release gets a review before it ships. This one found **eleven** issues
 worth reporting, all **caught before release** and all fixed in the release they
 are described in. None came from the field.
 
@@ -46,6 +46,7 @@ ships. That bar is met.
 | 8 | Inbound webhook tokens were listed and revoked across tenants | Low | Server |
 | 9 | Manual block and unblock read the device store before authenticating | Low | Server |
 | 10 | The shipped nginx configuration disclosed its version and answered 200 for every path | Low | Web server |
+| 11 | The gateway's log lines carried the client's user name and target unquoted | Low | SSH gateway |
 
 ## The pattern worth naming
 
@@ -205,6 +206,25 @@ shipped HTTPS block and only means anything there), no
 `Cross-Origin-Embedder-Policy` (the dashboard is already isolated with
 `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`), and
 technology fingerprints that match product names in the interface text.
+
+## 11. The gateway's log lines could be forged or misattributed
+
+The gateway logs every login, refusal and channel, and two of the things in those
+lines are typed by whoever connects: the SSH user name and the server name they
+ask for. They were written into the line as they arrived. A user name of
+`x from 203.0.113.9` made a log reader, such as fail2ban, CrowdSec or a person
+searching the journal, read the line as coming from that address. This is the
+same shape as finding 3, one layer later, in the gateway's own log. A user name
+or target with a line break could also forge a line that reads like a real login
+by `admin`.
+
+It was found while checking what a live instance's logs would let a log reader
+conclude, and before anything parsed those lines. Every such line now starts with
+the real client address and ends with what the client typed, in quotes, cut to 64
+characters, with line breaks and other control characters escaped. The tests
+connect with hostile user names and targets and check that every event is one
+line whose first address is the real one. Other clients than the test client can
+send a line break in a user name, so the escaping is also tested directly.
 
 ## What the scans found
 
