@@ -163,10 +163,14 @@ High, so it uses the agent's existing SHA-256 helper.
 
 ## What this review did not cover
 
-- **The rest of the project.** The dynamic scans (nmap, nikto, nuclei, wapiti
-  against the shipped web-server configuration) and CodeQL are part of the
-  pre-release gate for a production release and were not re-run for this test
-  build.
+- **The rest of the project, and the usual release gate.** This release was cut
+  without the pre-release gate: no CodeQL scan, no CI run, no dynamic scans
+  (nmap, nikto, nuclei, wapiti against the shipped web-server configuration) and
+  no run of the test suite inside the packaged tarball. All of that is still owed
+  before `main` is promoted. The full test suite passed on both storage backends
+  on an earlier commit of this release (14,145 tests on JSON, 14,084 on SQLite).
+  The last changes, SniffCat's repeat reply, the wording of the standard report
+  text and the documentation, were checked with the tests around them instead.
 - **A production host's real logs.** Each parser was built from the documented
   format of its tool and exercised with realistic fixtures for every layout,
   including the odd ones. It has not yet read a live host's logs. The Log sources

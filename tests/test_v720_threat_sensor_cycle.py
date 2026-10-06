@@ -255,7 +255,7 @@ class TestOperatorPaths(_Host):
         self.assertEqual(len(d['web']), 20)
 
 
-# ── one pass over a tviweb01-shaped host ───────────────────────────────────────
+# ── one pass over a typical nginx, ModSecurity and fail2ban edge host ──────────
 
 class TestOnePass(_Host):
     def setUp(self):

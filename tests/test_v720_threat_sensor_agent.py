@@ -585,7 +585,7 @@ def audit_native(e, ip, uid, ua='sqlmap/1.7', status=403, blocked=True, rules=Tr
                      '[msg "Inbound Anomaly Score Exceeded (Total Score: 5)"] [tag "anomaly-evaluation"] '
                      f'[hostname "example.com"] [uri "/index.php"] [unique_id "{uid}"]\n')
     action = 'Action: Intercepted (phase 2)\n' if blocked else ''
-    return (f'--{uid}-A--\n{stamp} {uid}.1 {ip} 54321 10.0.0.4 443\n'
+    return (f'--{uid}-A--\n{stamp} {uid}.1 {ip} 54321 192.0.2.10 443\n'
             f'--{uid}-B--\nGET {uri} HTTP/1.1\nHost: example.com\nUser-Agent: {ua}\nAccept: */*\n\n'
             f'--{uid}-F--\nHTTP/1.1 {status}\nContent-Length: 146\nContent-Type: text/html\n\n'
             f'--{uid}-E--\n<html><body>a response body that must never be read or kept</body></html>\n\n'

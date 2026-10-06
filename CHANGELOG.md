@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v7.2.0 — "Ev1denceMatters" — unreleased (test)
+## v7.2.0 — "Ev1denceMatters" — 2026-10-06
 
 A release about evidence. Threat intel used to learn about an attacker from
 failed SSH logins and a handful of web patterns, and every report it filed said
