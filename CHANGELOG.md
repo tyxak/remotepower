@@ -47,6 +47,13 @@ agent summarising logs an attacker can write to — and says so. It is in
   and path traversal: 41 attempts within 10 minutes, seen by web server log and
   WAF (reported by RemotePower)`. Nothing an attacker typed can reach a public
   report. The message template gains `{attack}` and `{seen_by}`.
+- **The standard message no longer says "brute force" for everything.** The
+  Settings box showed `{what} brute force: {count} failed attempts within
+  {minutes} minutes`, which was wrong for most of what the logs find. There is
+  now one standard text, the one above, so "brute force" appears only when that
+  is what the address did. The web counter's own reports say `web login attempts
+  and refused requests`, because it counts any 401 or 403. An old default posted
+  back by a stale Settings page is read as the standard text.
 - **When an address is reported.** fail2ban banned it, a CrowdSec scenario
   raised a ban on this host, the WAF refused it three times, or it made your
   threshold of hostile requests. What it does adds up for a day, so a slow

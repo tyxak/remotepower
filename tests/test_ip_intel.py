@@ -80,7 +80,7 @@ class TestProviders(unittest.TestCase):
 
     def test_comment_carries_no_host_details(self):
         c = ip_intel.report_comment('ssh', 42, 600)
-        self.assertEqual(c, 'SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)')
+        self.assertEqual(c, 'SSH brute force: 42 attempts within 10 minutes, seen by system log (reported by RemotePower)')
         self.assertGreaterEqual(len(c), 10)     # SniffCat's minimum
 
     def test_only_public_addresses(self):

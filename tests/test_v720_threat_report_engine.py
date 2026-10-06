@@ -170,12 +170,12 @@ class TestOneReportPerAddress(_Engine):
         self.assertTrue({'16', '21', '18', '22'} <= set(cats), cats)
         self.assertTrue(self.abuse_form()['comment'][0].startswith('SQL injection:'))
 
-    def test_the_older_counter_alone_says_what_it_always_said(self):
+    def test_the_older_counter_alone_says_what_it_counted(self):
         self.attack(count=40)
         self.sweep()
         self.assertEqual(self.abuse_form()['categories'], ['18,22'])
         self.assertEqual(self.abuse_form()['comment'][0],
-                         'SSH brute force: 40 failed attempts within 10 minutes (reported by RemotePower)')
+                         'SSH brute force: 40 attempts within 10 minutes, seen by system log (reported by RemotePower)')
 
 
 class TestWhenAnAddressIsReported(_Engine):

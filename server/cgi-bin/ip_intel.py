@@ -88,14 +88,23 @@ _TEMPLATE_MAX = 300
 #   {minutes}  the time window
 #   {attack}   'SQL injection and path traversal'   (fixed phrases only)
 #   {seen_by}  'web server log and WAF'             (fixed phrases only)
-# REPORT_COMMENT_DEFAULT is for an address seen only by the brute-force counter;
-# REPORT_COMMENT_EVIDENCE_DEFAULT for one the host's logs could describe.
-REPORT_COMMENT_DEFAULT = ('{what} brute force: {count} failed attempts within '
-                          '{minutes} minutes (reported by RemotePower)')
-REPORT_COMMENT_EVIDENCE_DEFAULT = ('{attack}: {count} attempts within {minutes} minutes, '
-                                   'seen by {seen_by} (reported by RemotePower)')
+# One standard text for every report. {attack} names what was seen, so "brute
+# force" is in the message only when that is what happened. The address that only
+# the brute-force counter knows fills {attack} and {seen_by} from the two tables
+# below; one the host's logs described fills them from threat_evidence.
+REPORT_COMMENT_DEFAULT = ('{attack}: {count} attempts within {minutes} minutes, '
+                          'seen by {seen_by} (reported by RemotePower)')
+# Earlier defaults. Each called every report "brute force", which most of what the
+# logs find is not. None of them is ever stored (saving a default stores nothing),
+# but a Settings page opened before an upgrade can still post one back, and it has
+# to read as "the default" rather than become the operator's own wording.
+RETIRED_COMMENT_DEFAULTS = (
+    '{what} brute force: {count} failed attempts within {minutes} minutes (reported by RemotePower)',
+)
 COMMENT_PLACEHOLDERS = ('what', 'count', 'minutes', 'attack', 'seen_by')
-_LEGACY_ATTACK = {'ssh': 'SSH brute force', 'web': 'web login brute force'}
+# The brute-force counter counts failed SSH logins, and on the web it counts POSTs
+# to wp-login.php and xmlrpc.php plus ANY 401 or 403, which is not only logins.
+_LEGACY_ATTACK = {'ssh': 'SSH brute force', 'web': 'web login attempts and refused requests'}
 _LEGACY_SEEN_BY = {'ssh': 'system log', 'web': 'web server log'}
 _PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
 _CTRL_RE = re.compile(r'[\x00-\x1f\x7f]+')
@@ -361,6 +370,12 @@ def clean_comment_template(text):
     return _CTRL_RE.sub(' ', str(text or '')).strip()
 
 
+def is_default_comment(text):
+    """Blank, the standard text, or a wording that used to be the standard text."""
+    t = clean_comment_template(text)
+    return not t or t == REPORT_COMMENT_DEFAULT or t in RETIRED_COMMENT_DEFAULTS
+
+
 # The shortest text each placeholder can ever become, so a template is only
 # accepted when even its shortest rendering clears SniffCat's minimum.
 _SHORTEST = {
@@ -394,10 +409,10 @@ def report_comment(kind, count, window_s, template=None):
     what = {'ssh': 'SSH', 'web': 'web login'}.get(kind, 'login')
     mins = max(1, int(window_s or 0) // 60)
     t = clean_comment_template(template)
-    if not t or comment_template_error(t):
+    if is_default_comment(t) or comment_template_error(t):
         t = REPORT_COMMENT_DEFAULT
     return _render_comment(t, what, int(count), mins,
-                           _LEGACY_ATTACK.get(kind, 'login brute force'),
+                           _LEGACY_ATTACK.get(kind, 'failed logins'),
                            _LEGACY_SEEN_BY.get(kind, 'system log'))[:_MAX_COMMENT]
 
 
@@ -406,8 +421,8 @@ def evidence_comment(ev, template=None):
     threat_evidence's fixed phrases and from numbers, so nothing the attacker
     typed can reach a public report; `template` is the operator's wording."""
     t = clean_comment_template(template)
-    if not t or comment_template_error(t):
-        t = REPORT_COMMENT_EVIDENCE_DEFAULT
+    if is_default_comment(t) or comment_template_error(t):
+        t = REPORT_COMMENT_DEFAULT
     mins = max(1, threat_evidence.window_seconds(ev) // 60)
     return _render_comment(t, threat_evidence.what_word(ev), threat_evidence.hostile_count(ev),
                            mins, threat_evidence.attack_phrase(ev),

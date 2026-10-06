@@ -273,8 +273,11 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
         for doc in ("docs/ip-intel.md", "docs/v7.2.0.md", "CHANGELOG.md"):
             self.assertTrue(text in _flat(doc), f"{doc} does not show the report the code writes: {text!r}")
 
-    def test_the_older_default_is_still_what_the_guide_says(self):
+    def test_the_standard_text_and_what_the_counters_send_are_what_the_guide_says(self):
+        self.says(ip_intel.REPORT_COMMENT_DEFAULT)
         self.says(ip_intel.report_comment("ssh", 42, 600))
+        self.says(ip_intel.report_comment("web", 25, 300))
+        self.assertNotIn("brute", ip_intel.REPORT_COMMENT_DEFAULT)
 
     def test_the_placeholders_the_guide_names_exist(self):
         for ph in ip_intel.COMMENT_PLACEHOLDERS:

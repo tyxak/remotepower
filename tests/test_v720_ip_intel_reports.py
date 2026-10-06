@@ -51,14 +51,16 @@ class TestPlaceholders(unittest.TestCase):
         self.assertIsNone(ip_intel.comment_template_error('{attack}'))
         self.assertIsNone(ip_intel.comment_template_error('{what} abc {count} {minutes}'))
 
-    def test_the_older_report_still_says_what_it_said_and_takes_the_new_placeholders(self):
-        self.assertEqual(ip_intel.report_comment('ssh', 42, 600),
-                         'SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)')
+    def test_the_counters_reports_name_what_they_count_and_take_the_new_placeholders(self):
+        self.assertEqual(ip_intel.report_comment('ssh', 42, 600), 'SSH brute force: 42 attempts within 10 minutes, seen by system log (reported by RemotePower)')
+        self.assertEqual(ip_intel.report_comment('web', 25, 300),
+                         'web login attempts and refused requests: 25 attempts within 5 minutes, '
+                         'seen by web server log (reported by RemotePower)')
         t = '{attack}, {count} tries in {minutes}m, seen by {seen_by}'
         self.assertEqual(ip_intel.report_comment('ssh', 42, 600, t),
                          'SSH brute force, 42 tries in 10m, seen by system log')
         self.assertEqual(ip_intel.report_comment('web', 5, 120, t),
-                         'web login brute force, 5 tries in 2m, seen by web server log')
+                         'web login attempts and refused requests, 5 tries in 2m, seen by web server log')
 
 
 class TestEvidenceComment(unittest.TestCase):
@@ -106,6 +108,41 @@ class TestEvidenceComment(unittest.TestCase):
             'first': NOW - 60, 'last': NOW}, now=NOW)
         for t in (None, '{what} {attack} {seen_by} {count} {minutes}'):
             self.assertNotIn(marker.lower(), ip_intel.evidence_comment(e, t).lower())
+
+
+class TestTheStandardText(unittest.TestCase):
+    """The standard text used to be "{what} brute force: {count} failed attempts
+    within {minutes} minutes". The Settings box showed it and every report started
+    from it, but most of what the logs find is not brute force, and the web
+    counter counts more than logins (any 401 or 403)."""
+
+    BRUTE = {'ssh_brute', 'login_brute', 'mail_brute', 'ftp_brute', 'service_brute'}
+
+    def test_the_standard_text_claims_no_kind_of_attack(self):
+        for word in ('brute', 'failed', 'login'):
+            self.assertNotIn(word, ip_intel.REPORT_COMMENT_DEFAULT)
+
+    def test_only_a_brute_force_class_is_called_brute_force(self):
+        for cls, info in te.CLASSES.items():
+            self.assertEqual('brute force' in info['phrase'], cls in self.BRUTE, cls)
+
+    def test_a_report_of_something_else_does_not_say_brute_force(self):
+        for kw in (SQLI, dict(src={'web': 12}, tok={'web': {'req:scanner': 12}}),
+                   dict(src={'waf': 4}, tok={'waf': {'crs:944150': 4}})):
+            self.assertNotIn('brute force', ip_intel.evidence_comment(ev(**kw)), kw)
+        self.assertIn('SSH brute force', ip_intel.evidence_comment(ev(ban=['sshd'])))
+
+    def test_the_web_counter_does_not_claim_logins_it_cannot_tell(self):
+        self.assertNotIn('brute', ip_intel.report_comment('web', 25, 300))
+        self.assertNotIn('brute', ip_intel.report_comment('other', 5, 120))
+
+    def test_the_old_default_reads_as_the_standard_text(self):
+        old = ip_intel.RETIRED_COMMENT_DEFAULTS[0]
+        for same in (old, '  ' + old + '\n', '', None, ip_intel.REPORT_COMMENT_DEFAULT):
+            self.assertTrue(ip_intel.is_default_comment(same), repr(same))
+        self.assertFalse(ip_intel.is_default_comment('{attack}, {count} tries here'))
+        self.assertEqual(ip_intel.evidence_comment(ev(**SQLI), old), ip_intel.evidence_comment(ev(**SQLI)))
+        self.assertEqual(ip_intel.report_comment('ssh', 42, 600, old), ip_intel.report_comment('ssh', 42, 600))
 
 
 class TestProviderOutcomes(unittest.TestCase):

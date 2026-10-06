@@ -102,12 +102,12 @@ The categories follow what was seen:
 | Attack tools and scanners | 19, 21 | 5, 21 |
 
 Mail, FTP, other services, request flooding and port scans have their own
-categories too. The default message names the attack and where it was seen,
-for example `SQL injection and path traversal: 41 attempts within 10 minutes,
-seen by web server log and WAF (reported by RemotePower)`. You can write your
-own; besides `{what}`, `{count}` and `{minutes}` it can use `{attack}` and
-`{seen_by}`. For a report built from the logs, AbuseIPDB also gets the time the
-attack happened.
+categories too. The standard message is the same for every report and names the
+attack and where it was seen, for example `SQL injection and path traversal: 41
+attempts within 10 minutes, seen by web server log and WAF (reported by
+RemotePower)`, so it says "brute force" only when that is what happened. You can
+write your own (see [The report message](#the-report-message)). For a report
+built from the logs, AbuseIPDB also gets the time the attack happened.
 
 An address is reported once per service per sweep, however many hosts or logs
 saw it. If a service answers that it was reported moments ago, RemotePower
@@ -175,27 +175,47 @@ page shows how many have been used today.
 
 ### The report message
 
-The comment in each report is yours to write: **Report message** on the same
-page. It can use three placeholders:
+Every report carries the standard text unless you write your own in **Report
+message** on the same page. The standard text is the same for all of them and
+names what was seen:
+
+`{attack}: {count} attempts within {minutes} minutes, seen by {seen_by} (reported by RemotePower)`
+
+A report built from the logs reads `SQL injection and path traversal: 41
+attempts within 10 minutes, seen by web server log and WAF (reported by
+RemotePower)`. One from the SSH counter reads `SSH brute force: 42 attempts
+within 10 minutes, seen by system log (reported by RemotePower)`. One from the
+web counter, which counts WordPress login posts and any 401 or 403, reads `web
+login attempts and refused requests: 25 attempts within 5 minutes, seen by web
+server log (reported by RemotePower)`.
+
+Your own text can use five placeholders:
 
 | Placeholder | Becomes |
 |---|---|
-| `{what}` | `SSH` or `web login` |
-| `{count}` | the number of failed attempts |
+| `{attack}` | what was seen, in fixed words: `SQL injection`, `path traversal`, `SSH brute force` |
+| `{seen_by}` | which logs saw it: `web server log and WAF` |
+| `{count}` | the number of attempts |
 | `{minutes}` | the time window, in minutes |
+| `{what}` | a short noun: `SSH`, `web login`, `web` or `login` |
 
-For example, `{what} brute force: {count} attempts in {minutes} minutes` is sent
-as `SSH brute force: 42 attempts in 10 minutes`. It needs at least 10
-characters, because SniffCat refuses anything shorter, and at most 300. There
-is no placeholder for a host name, so one can't end up in a public report by
-accident. Don't type one. Clear the box to go back to the default.
+For example, `{attack}, {count} attempts in {minutes} minutes` is sent as `SQL
+injection, 41 attempts in 10 minutes`. It needs at least 10 characters, because
+SniffCat refuses anything shorter, and at most 300. There is no placeholder for
+a host name, so one can't end up in a public report by accident. Don't type
+one. Clear the box to go back to the standard text.
+
+Before 7.2.0 the box showed `{what} brute force: {count} failed attempts within
+{minutes} minutes (reported by RemotePower)` as the default, which called every
+report brute force. A Settings page still open from then is read as the standard
+text when you save it, not stored as your own wording.
 
 ## What leaves your network
 
 | Action | What is sent |
 |---|---|
 | Lookup | The attacking address. |
-| Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The default reads "SSH brute force: 42 failed attempts within 10 minutes (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
+| Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The standard text reads "SQL injection and path traversal: 41 attempts within 10 minutes, seen by web server log and WAF (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
 
 Hostnames, user names, log lines and your own addresses are never sent.
 

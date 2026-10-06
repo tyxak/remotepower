@@ -764,7 +764,8 @@ def _web_is_proxied(sensors, dev_id):
 
 def _settings_view(pol):
     out = {k: pol[k] for k in ip_intel.DEFAULTS}
-    out['report_comment'] = pol.get('report_comment') or ip_intel.REPORT_COMMENT_DEFAULT
+    stored = pol.get('report_comment')
+    out['report_comment'] = ip_intel.REPORT_COMMENT_DEFAULT if ip_intel.is_default_comment(stored) else stored
     out['sensor_enabled'] = bool(pol.get('sensor_enabled'))
     out['sensor_paths'] = list(pol.get('sensor_paths') or [])
     out['abuseipdb_key_set'] = bool(pol['keys'].get('abuseipdb'))
@@ -906,7 +907,7 @@ def handle_ip_intel_settings():
                 changed.append(f'{k}={pol[k]}')
         if body.get('report_comment') is not None:
             text = ip_intel.clean_comment_template(body['report_comment'])
-            if not text or text == ip_intel.REPORT_COMMENT_DEFAULT:
+            if ip_intel.is_default_comment(text):
                 pol.pop('report_comment', None)       # blank, or the default text, stores nothing
                 changed.append('report_comment=default')
             else:

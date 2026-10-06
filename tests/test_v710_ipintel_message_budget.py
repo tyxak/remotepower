@@ -21,14 +21,16 @@ import ip_intel  # noqa: E402
 from test_ip_intel import _Case, ATTACKER  # noqa: E402
 
 SECOND = '185.220.101.8'
-DEFAULT = 'SSH brute force: 40 failed attempts within 10 minutes (reported by RemotePower)'
+DEFAULT = 'SSH brute force: 40 attempts within 10 minutes, seen by system log (reported by RemotePower)'
 
 
 class TestTemplate(unittest.TestCase):
-    def test_default_wording_is_unchanged(self):
+    def test_the_standard_wording(self):
         self.assertEqual(DEFAULT, ip_intel.report_comment('ssh', 40, 600))
         self.assertEqual(DEFAULT, ip_intel.report_comment('ssh', 40, 600, ''))
-        self.assertIn('web login brute force', ip_intel.report_comment('web', 3, 120))
+        web = ip_intel.report_comment('web', 3, 120)
+        self.assertIn('web login attempts and refused requests', web)
+        self.assertNotIn('brute force', web, 'the web counter counts any 401 or 403, not only logins')
 
     def test_placeholders_render(self):
         t = '{what}: {count} tries in {minutes} min, handled automatically'
@@ -140,6 +142,20 @@ class TestSettingsHandler(_Case):
             self.assertEqual(400, st, bad)
             self.assertIn('error', d)
         self.assertEqual('{what} first version here', self._view()['report_comment'])
+
+    def test_an_old_default_posted_back_by_a_stale_page_stores_nothing(self):
+        old = ip_intel.RETIRED_COMMENT_DEFAULTS[0]
+        st, d = self._save(report_comment=old)
+        self.assertEqual(200, st, d)
+        self.assertNotIn('report_comment', self.api.load(self.api.CONFIG_FILE).get('ip_intel', {}))
+        self.assertEqual(ip_intel.REPORT_COMMENT_DEFAULT, self._view()['report_comment'])
+
+    def test_a_stored_old_default_is_shown_and_used_as_the_standard_text(self):
+        cfg = self.api.load(self.api.CONFIG_FILE) or {}
+        cfg.setdefault('ip_intel', {})['report_comment'] = ip_intel.RETIRED_COMMENT_DEFAULTS[0]
+        self.api.save(self.api.CONFIG_FILE, cfg)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(ip_intel.REPORT_COMMENT_DEFAULT, self._view()['report_comment'])
 
     def test_blank_or_the_default_text_goes_back_to_the_default(self):
         self._save(report_comment='{what} custom wording {count}')
