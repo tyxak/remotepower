@@ -14,7 +14,8 @@ this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy);
 `mailbox_paths` (mail spools);
 `host_config_desired` (users/sudoers/motd apply); `push_enabled` (push relay);
-`sshgw_enabled` (SSH gateway tunnel); `mdns_enabled`; `force_iac_collect`;
+`sshgw_enabled` (SSH gateway tunnel); `threat_sensor` (log sensor, Linux logs);
+`mdns_enabled`; `force_iac_collect`;
 `guard_actions` (Integrity Guard check types are Linux-only);
 `harvest_dns_creds` / `force_acme_rescan` (acme.sh).
 Everything else the server sends is honoured here — when closing one of these,
@@ -56,6 +57,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'host_config_desired',                # users/sudoers/motd apply
     'push_enabled',
     'sshgw_enabled',                      # SSH gateway tunnel (Linux agent only)
+    'threat_sensor',                      # log sensor: Linux web/WAF/fail2ban/CrowdSec logs
     'mdns_enabled',
     'force_iac_collect',
     'guard_actions',                      # Integrity Guard types are Linux-only

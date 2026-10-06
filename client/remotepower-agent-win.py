@@ -30,6 +30,7 @@ container-image CVEs); `du_scan_*` / `force_du_scan` (no `du` on Windows;
 macOS has it since v6.4.1); `mailbox_paths` (Unix mail
 spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
 push relay channel); `sshgw_enabled` (the SSH gateway tunnel to a local sshd);
+`threat_sensor` (the log sensor reads Linux web server, WAF and fail2ban logs);
 `mdns_enabled`; `force_iac_collect`; `guard_actions`
 (Integrity Guard check types are Linux-only); `harvest_dns_creds` /
 `force_acme_rescan` (acme.sh). Everything else the server sends is honoured
@@ -80,6 +81,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'host_config_desired',                # users/sudoers/motd apply
     'push_enabled',                       # the push relay channel
     'sshgw_enabled',                      # SSH gateway tunnel (Linux agent only)
+    'threat_sensor',                      # log sensor: Linux web/WAF/fail2ban/CrowdSec logs
     'mdns_enabled',
     'force_iac_collect',
     'guard_actions',                      # Integrity Guard types are Linux-only
