@@ -5276,6 +5276,17 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .fw-600 { font-weight: 600; }
 .fw-500 { font-weight: 500; }
 .badge-sm { font-size: 11px; padding: 3px 10px; }
+
+/* v7.2.0: Threat intel — what the logs showed about an address. 11px and 12px are
+   the design's own stops; colours are the theme tokens, so every theme and the
+   light set get a legible chip without a rule of their own. */
+.ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
+  border: 1px solid var(--hair); border-radius: 999px; background: var(--surface2); color: var(--text); }
+.ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
+.ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
+.ipi-facts dt { color: var(--muted); }
+.ipi-facts dd { margin: 0; overflow-wrap: anywhere; }
+.ipi-comment { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .badge-xs { font-size: 11px; padding: 3px 8px; }
 .cell-pad { padding: 6px 4px; }
 .cell-padl { padding: 6px 16px 6px 0; }

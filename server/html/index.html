@@ -6614,11 +6614,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th scope="col" data-col="country">Country</th>
                 <th scope="col" data-col="isp">Network</th>
                 <th scope="col" data-col="hosts">Hosts attacked</th>
+                <th scope="col" data-col="evidence">Evidence</th>
                 <th scope="col" data-col="last_seen">Last seen</th>
                 <th scope="col" data-col="status">Status</th>
                 <th scope="col"><span class="visually-hidden">Actions</span></th>
               </tr></thead>
-              <tbody id="ipintel-att-tbody"><tr><td colspan="9" class="hint">Loading…</td></tr></tbody>
+              <tbody id="ipintel-att-tbody"><tr><td colspan="10" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -6639,6 +6640,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <tbody id="ipintel-blk-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
+        </div>
+
+        <div class="dash-card mt-16">
+          <div class="section-title">Log sources</div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="ipintel-src-thead"><tr>
+                <th scope="col" data-col="host">Host</th>
+                <th scope="col" data-col="kind">Source</th>
+                <th scope="col" data-col="path">Log</th>
+                <th scope="col" data-col="fmt">Format</th>
+                <th scope="col" data-col="lines">Lines read</th>
+                <th scope="col" data-col="parsed">Understood</th>
+                <th scope="col" data-col="events">Hostile</th>
+                <th scope="col" data-col="at">Last report</th>
+                <th scope="col" data-col="state">State</th>
+              </tr></thead>
+              <tbody id="ipintel-src-tbody"><tr><td colspan="9" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div id="ipintel-src-notes" class="mt-8"></div>
         </div>
 
         <div class="dash-card mt-16" id="ipintel-lookup-card" hidden>
@@ -6689,6 +6711,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
+        <div class="dash-card mt-16" id="ipintel-sensor-card" hidden>
+          <div class="section-title">Log sensor</div>
+          <p class="hint mb-12">Linux agents can read your web server, WAF, fail2ban and CrowdSec logs and tell RemotePower what they say about each address: what it tried, how often, and who already banned it. Reports are then worded from that evidence. Only counts and attack types leave the host, never log lines, paths or host names. Off until you turn it on.</p>
+          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-sensor"> Read web server, WAF, fail2ban and CrowdSec logs on Linux hosts</label></div>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-sensor-paths">Extra log files (one path per line, under /var/log)</label>
+            <textarea id="ipintel-sensor-paths" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+            <p class="hint">Standard nginx, Apache, ModSecurity and fail2ban logs are found from the server's own configuration. Add a path only for something else.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
+          </div>
+        </div>
+
         <div class="dash-card mt-16" id="ipintel-limits-card" hidden>
           <div class="section-title">Limits and report message</div>
           <div class="settings-row isl-57">
@@ -6709,7 +6745,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="form-group">
             <label class="form-label" for="ipintel-comment">Report message</label>
             <textarea id="ipintel-comment" class="form-input ff-mono" rows="2" maxlength="300" spellcheck="false"></textarea>
-            <p class="hint">Sent to AbuseIPDB and SniffCat with every report, and public on both. Placeholders: <code>{what}</code> (SSH or web login), <code>{count}</code> (failed attempts) and <code>{minutes}</code>. Host names are never available to it. At least 10 characters. Clear the box to go back to the default.</p>
+            <p class="hint">Sent to AbuseIPDB and SniffCat with every report, and public on both. Placeholders: <code>{what}</code> (SSH or web login), <code>{count}</code> (failed attempts), <code>{minutes}</code>, <code>{attack}</code> (for example SQL injection) and <code>{seen_by}</code> (which logs saw it). Host names are never available to it. At least 10 characters. Clear the box to go back to the default.</p>
           </div>
           <div class="form-group">
             <label class="form-label" for="ipintel-never">Never block or report (one address or network per line)</label>

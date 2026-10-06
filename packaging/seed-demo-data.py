@@ -961,8 +961,79 @@ def build_ip_intel() -> dict:
         else:
             for x in devs.values():
                 x['not_blocked'] = f'score {score} is below 90'
+        # What the hosts' logs showed. Every attacker that went for a web server
+        # carries the day's evidence, a few were banned by fail2ban or CrowdSec,
+        # and the ones already reported keep what was said to each service, so the
+        # page's Evidence column, its details row and the report text all have
+        # something to render.
+        web_attack = any(x['unit'] == 'nginx.access' for x in devs.values())
+        if web_attack or i % 4 == 0:
+            mix = rng.choice([
+                (['sqli', 'traversal'], 'SQL injection and path traversal'),
+                (['probe', 'scanner'], 'probing for exposed files and admin pages and vulnerability scanning'),
+                (['login_brute'], 'login brute force'),
+                (['rce'], 'remote code execution attempts (CVE-2021-44228)'),
+                (['ssh_brute'], 'SSH brute force')])
+            n = rng.randint(12, 380)
+            tok = {'web': {f'req:{c}': max(3, n - 7 * k) for k, c in enumerate(mix[0]) if c != 'ssh_brute'}}
+            src = {'web': n}
+            ev = {'ip': ip, 'first': seen - 1800, 'last': seen, 'src': src, 'tok': tok,
+                  'ans': rng.choice([0, 0, 2, 5]), 'blk': n - 3, 'ban': [], 'dec': 0,
+                  'cve': ['CVE-2021-44228'] if 'rce' in mix[0] else []}
+            if 'ssh_brute' in mix[0]:
+                ev.update(src={'f2b': 4}, tok={'f2b': {'jail:sshd': 4}}, ban=['sshd'], ans=0, blk=0)
+            elif rng.random() < 0.5:
+                ev['src']['waf'] = rng.randint(3, 40)
+                ev['tok']['waf'] = {'crs:942100': ev['src']['waf'], 'crstag:attack-sqli': ev['src']['waf']}
+            if rng.random() < 0.35:
+                ev['ban'] = ['nginx-blocked']
+                ev['src']['f2b'] = 2
+                ev['tok']['f2b'] = {'jail:nginx-blocked': 2}
+            if att['reported']:
+                att['ev_reported'] = {'at': seen, 'ev': ev}
+                text = f"{mix[1]}: {n} attempts within 30 minutes, seen by web server log (reported by RemotePower)"
+                att['report_log'] = [
+                    {'at': seen, 'prov': 'abuseipdb', 'cats': [16, 21] if 'sqli' in mix[0] else [21], 'comment': text, 'ok': True},
+                    {'at': seen, 'prov': 'sniffcat', 'cats': [12, 21] if 'sqli' in mix[0] else [21], 'comment': text, 'ok': True}]
+            else:
+                att['ev'] = ev
+                att['errors'] = {'abuseipdb': f'not reported: {min(9, n)} of 10 attempts so far',
+                                 'sniffcat': f'not reported: {min(9, n)} of 10 attempts so far'}
         attackers[ip] = att
-    return {'attackers': attackers, 'blocks': blocks, 'queue': [],
+    # Each Linux host's sensor, in every state the page can show: reading well, a
+    # quiet log, one the agent may not read, a layout it could not understand, a
+    # configured file that is not there, and a host whose web server logs the proxy.
+    def _src(kind, path, state='ok', lines=0, parsed=None, events=0, fmt='', proxied=None):
+        r = {'kind': kind, 'path': path, 'state': state, 'lines': lines,
+             'parsed': lines if parsed is None else parsed, 'events': events}
+        if fmt:
+            r['fmt'] = fmt
+        if proxied is not None:
+            r['proxied'] = proxied
+        return r
+    sensors = {}
+    for k, d in enumerate(linux):
+        web = [_src('web', '/var/log/nginx/access.log', lines=2400 + 37 * k, events=60 + k, fmt='custom',
+                    proxied=(k % 3 == 0)),
+               _src('err', '/var/log/nginx/error.log', lines=310, events=4, fmt='nginx'),
+               _src('f2b', '/var/log/fail2ban.log', lines=88, events=9),
+               _src('waf', '/var/log/modsec_audit.log', lines=41, events=12, fmt='native')]
+        if k % 5 == 1:
+            web.append(_src('web', '/var/log/nginx/blocked.log', state='idle', fmt='combined'))
+        if k % 5 == 2:
+            web.append(_src('waf', '/var/log/modsec_audit.log.1', state='denied'))
+        if k % 5 == 3:
+            web.append(_src('web', '/var/log/nginx/request-length.log', state='unparsed',
+                            lines=900, parsed=0, fmt='generic'))
+        if k % 5 == 4:
+            web.append(_src('web', '/var/log/nginx/old-site.access.log', state='missing'))
+        if k % 6 == 0:
+            web.append(_src('cs', 'cscli', lines=7, events=3))
+        sensors[d['id']] = {
+            'at': now() - rng.randint(20, 600), 'sources': web, 'events': 6 + k, 'dropped': 0,
+            'throttled': 0, 'ignored': ({'cloudflare': 412} if k % 3 == 0 else {}),
+            'hour': {'h': now() // 3600, 'n': 6 + k}}
+    return {'attackers': attackers, 'blocks': blocks, 'queue': [], 'sensors': sensors,
             'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                        'abuseipdb': 18, 'sniffcat': 18},
             'last_sweep': now()}
@@ -2659,7 +2730,7 @@ def build_config() -> dict:
         # Threat intel: lookups and auto-block on, so the page shows scores,
         # reports and blocks. No provider keys: the demo never calls out.
         'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
-                     'block_enabled': True},
+                     'block_enabled': True, 'sensor_enabled': True},
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).

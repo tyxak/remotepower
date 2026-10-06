@@ -772,10 +772,61 @@ def _settings_view(pol):
     return out
 
 
+def _evidence_view(att):
+    """What the logs showed about one address, for the page: the classes it was
+    seen doing, the sources that saw it, the rule ids and CVE ids, and who had
+    already decided on it. From the day's ledger, or from what the last report
+    was made of when the ledger has just been started over. None when the logs
+    said nothing (an address only the brute-force counter knows)."""
+    ev = att.get('ev') if isinstance(att.get('ev'), dict) else None
+    sent = False
+    if ev is None:
+        rep = att.get('ev_reported')
+        ev = rep.get('ev') if isinstance(rep, dict) and isinstance(rep.get('ev'), dict) else None
+        sent = ev is not None
+    if not ev:
+        return None
+    src, tok = ev.get('src') or {}, ev.get('tok') or {}
+    seen = []
+    for fam in threat_evidence.SOURCES:
+        if src.get(fam) or tok.get(fam) or (fam == 'f2b' and ev.get('ban')) or (fam == 'cs' and ev.get('dec')):
+            seen.append({'id': fam, 'n': int(src.get(fam) or 0)})
+    rules = {}
+    for toks in tok.values():
+        for t_, c in toks.items():
+            if t_.startswith('crs:') and threat_evidence.crs_class(t_[4:]):
+                rules[t_[4:]] = max(rules.get(t_[4:], 0), int(c))
+    return {
+        'classes': [{'id': c, 'n': n} for c, n in threat_evidence.dominant(ev, 5)],
+        'sources': seen,
+        'rules': [r for r, _n in sorted(rules.items(), key=lambda kv: -kv[1])[:5]],
+        'cves': list(ev.get('cve') or [])[:3], 'jails': list(ev.get('ban') or [])[:4],
+        'ans': int(ev.get('ans') or 0), 'blk': int(ev.get('blk') or 0),
+        'confirmed': threat_evidence.confirmed_by(ev),
+        'first': ev.get('first'), 'last': ev.get('last'), 'sent': sent,
+    }
+
+
+def _sensor_rows(st, visible):
+    """Each visible host's sensor health: what its agent reads, and whether it
+    could. Hosts the caller cannot see are not listed."""
+    rows = []
+    for dev_id, rec in (st.get('sensors') if isinstance(st.get('sensors'), dict) else {}).items():
+        if dev_id not in visible or not isinstance(rec, dict):
+            continue
+        rows.append({'device_id': dev_id, 'name': (visible[dev_id] or {}).get('name') or dev_id,
+                     'at': rec.get('at'), 'sources': list(rec.get('sources') or []),
+                     'events': rec.get('events'), 'dropped': rec.get('dropped'),
+                     'throttled': rec.get('throttled'), 'ignored': dict(rec.get('ignored') or {})})
+    rows.sort(key=lambda r: str(r['name']).lower())
+    return rows
+
+
 def handle_ip_intel():
     """GET /api/ip-intel — settings (keys as booleans), recent attackers with
-    their reputation, active blocks and today's lookup budget. Attackers and
-    blocks are limited to devices the caller can see."""
+    their reputation and what the logs showed, active blocks, each host's log
+    sensor, and today's lookup budget. Attackers, blocks and sensors are limited
+    to devices the caller can see."""
     A.require_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
@@ -804,6 +855,8 @@ def handle_ip_intel():
             'usage': v.get('usage', ''), 'providers': v.get('providers', {}),
             'checked_at': a.get('checked_at'), 'reported': a.get('reported', {}),
             'errors': a.get('errors', {}),
+            'evidence': _evidence_view(a),
+            'report_log': [e for e in (a.get('report_log') or []) if isinstance(e, dict)][-3:],
         })
     attackers.sort(key=lambda r: int(r.get('last_seen') or 0), reverse=True)
     rows = []
@@ -819,6 +872,8 @@ def handle_ip_intel():
     A.respond(200, {'ok': True, 'is_admin': is_admin,
                     'settings': _settings_view(pol) if is_admin else {},
                     'attackers': attackers[:1000], 'blocks': rows,
+                    'sensor_enabled': bool(pol.get('sensor_enabled')),
+                    'sensors': _sensor_rows(st, visible),
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 
 

@@ -9,6 +9,35 @@
 let _ipiData = null;
 let _ipiAdmin = false;
 let _ipiWired = false;
+const _ipiOpen = new Set();
+
+// What the logs showed. The class ids and the wording match threat_evidence.CLASSES on
+// the server (tests/test_v720_ipintel_page.py keeps the two in step), and every phrase
+// is put in a span of its own so the language engine can translate it.
+const _IPI_CLASS = {
+  ssh_brute: 'SSH brute force', login_brute: 'login brute force', sqli: 'SQL injection',
+  xss: 'cross-site scripting', traversal: 'path traversal', rce: 'remote code execution attempts',
+  probe: 'probing for exposed files and admin pages', scanner: 'vulnerability scanning',
+  flood: 'request flooding', bad_bot: 'unwanted web crawling',
+  waf: 'requests blocked by a web application firewall', mail_brute: 'mail login brute force',
+  ftp_brute: 'FTP brute force', service_brute: 'service login brute force', port_scan: 'port scanning',
+};
+const _IPI_SOURCE = {
+  web: 'Web server log', err: 'Web server error log', waf: 'WAF audit log',
+  f2b: 'fail2ban log', cs: 'CrowdSec alerts',
+};
+const _IPI_STATE = {
+  ok: 'Reading', idle: 'Quiet', missing: 'File missing', denied: 'No permission',
+  unparsed: 'Not understood', unsupported: 'Cannot be read', error: 'Error',
+};
+const _IPI_STATE_CLASS = {
+  ok: 'c-green', idle: 'hint', missing: 'c-amber', denied: 'c-red',
+  unparsed: 'c-amber', unsupported: 'c-amber', error: 'c-red',
+};
+const _IPI_FMT = {
+  combined: 'Standard', custom: "From the server's config", json: 'JSON',
+  generic: 'Guessed', native: 'ModSecurity native',
+};
 
 function _ipiScoreClass(s) {
   if (s == null) return 'hint';
@@ -20,6 +49,13 @@ function _ipiWire() {
   _ipiWired = true;
   const att = document.getElementById('ipintel-att-tbody');
   if (att) att.addEventListener('click', (ev) => {
+    const t = ev.target.closest('button[data-ipi-toggle]');
+    if (t) {
+      const ip = t.dataset.ipiToggle;
+      if (_ipiOpen.has(ip)) _ipiOpen.delete(ip); else _ipiOpen.add(ip);
+      _ipiRenderAttackers();
+      return;
+    }
     const b = ev.target.closest('button[data-ip][data-dev]');
     if (b) blockIpIntel(b.dataset.dev, b.dataset.ip);
   });
@@ -35,16 +71,19 @@ function _ipiWire() {
 async function loadIpIntel() {
   tableCtl.wireSortOnly('ipintel-att-thead', 'ipintel-att', () => _ipiRenderAttackers());
   tableCtl.wireSortOnly('ipintel-blk-thead', 'ipintel-blk', () => _ipiRenderBlocks());
+  tableCtl.wireSortOnly('ipintel-src-thead', 'ipintel-src', () => _ipiRenderSources());
   _ipiWire();
   const d = await api('GET', '/ip-intel').catch(() => null);
-  _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], settings: {}};
+  _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], sensors: [], settings: {}};
   _ipiAdmin = !!_ipiData.is_admin;
   document.getElementById('ipintel-settings-card').hidden = !_ipiAdmin;
+  document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
   if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
   _ipiRenderAttackers();
   _ipiRenderBlocks();
+  _ipiRenderSources();
 }
 
 function _ipiFillSettings(s, budget) {
@@ -53,6 +92,8 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-lookup', s.lookup_enabled);
   chk('ipintel-report', s.report_enabled);
   chk('ipintel-block', s.block_enabled);
+  chk('ipintel-sensor', s.sensor_enabled);
+  set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
   set('ipintel-min-score', s.block_min_score ?? 90);
   set('ipintel-ttl', s.block_ttl_hours ?? 24);
   set('ipintel-max-hour', s.block_max_per_hour ?? 20);
@@ -97,7 +138,11 @@ function _ipiReason(why) {
   const score = /^score (\d+) is below (\d+)$/.exec(why);
   if (score) return `${_ipiPhrase('score below threshold')} (${score[1]} &lt; ${score[2]})`;
   const rep = /^not reported: (.+)$/.exec(why);
-  if (rep) return `${_ipiPhrase('not reported:')} ${_ipiPhrase(rep[1])}`;
+  if (rep) {
+    const few = /^(\d+) of (\d+) attempts so far$/.exec(rep[1]);
+    if (few) return `${_ipiPhrase('not reported:')} ${few[1]} / ${few[2]} ${_ipiPhrase('attempts so far')}`;
+    return `${_ipiPhrase('not reported:')} ${_ipiPhrase(rep[1])}`;
+  }
   return _ipiPhrase(why);
 }
 function _ipiStatusHtml(a) {
@@ -114,20 +159,73 @@ function _ipiStatusHtml(a) {
   return parts.join(' · ');
 }
 
+function _ipiClassName(id) { return _IPI_CLASS[id] || String(id); }
+
+// Plain text for filtering: what the logs showed, in the words the page uses.
+function _ipiEvidenceText(a) {
+  const e = a.evidence;
+  if (!e) return '';
+  return [(e.classes || []).map(c => _ipiClassName(c.id)).join(' '), (e.jails || []).join(' '),
+    (e.cves || []).join(' '), (e.rules || []).join(' ')].join(' ');
+}
+
+function _ipiEvidenceWeight(a) {
+  const e = a.evidence;
+  return e ? (e.classes || []).reduce((n, c) => n + (c.n || 0), 0) : 0;
+}
+
+function _ipiEvidenceHtml(a) {
+  const e = a.evidence;
+  if (!e) return '<span class="hint">—</span>';
+  const chips = (e.classes || []).slice(0, 3).map(c =>
+    `<span class="ipi-chip">${_ipiPhrase(_ipiClassName(c.id))} <span class="hint">×${escHtml(String(c.n))}</span></span>`).join('');
+  const notes = [];
+  if (e.confirmed) notes.push(`${_ipiPhrase('confirmed by')} ${escHtml(e.confirmed)}`);
+  if (e.ans) notes.push(`<span class="c-amber">${_ipiPhrase('answered')} ${escHtml(String(e.ans))}</span>`);
+  const open = _ipiOpen.has(a.ip);
+  return `${chips}${notes.length ? `<div class="hint fs-11">${notes.join(' · ')}</div>` : ''}` +
+    `<button class="btn-icon" data-ipi-toggle="${escAttr(a.ip)}" aria-expanded="${open}">${_ipiPhrase(open ? 'Hide details' : 'Details')}</button>`;
+}
+
+function _ipiProviderName(p) { return p === 'abuseipdb' ? 'AbuseIPDB' : p === 'sniffcat' ? 'SniffCat' : String(p); }
+
+// The detail row: where the address was seen, which rules fired, and exactly what was sent
+// to each service. Everything dynamic is escaped; the comment is public text RemotePower
+// built from fixed phrases and numbers, shown as sent.
+function _ipiDetailHtml(a) {
+  const e = a.evidence || {};
+  const facts = [];
+  const seen = (e.sources || []).map(s =>
+    `${_ipiPhrase(_IPI_SOURCE[s.id] || s.id)}${s.n ? ' ×' + escHtml(String(s.n)) : ''}`);
+  if (e.ans) seen.push(`${_ipiPhrase('answered')} ${escHtml(String(e.ans))}`);
+  if (e.blk) seen.push(`${_ipiPhrase('refused')} ${escHtml(String(e.blk))}`);
+  if (seen.length) facts.push([_ipiPhrase('Seen in'), seen.join(' · ')]);
+  const ids = [].concat(e.rules || [], e.cves || [], e.jails || []).map(x => `<code>${escHtml(x)}</code>`);
+  if (ids.length) facts.push([_ipiPhrase('Rules'), ids.join(' ')]);
+  for (const r of a.report_log || []) {
+    const body = r.error
+      ? `<span class="c-red">${_ipiReason(r.error)}</span>`
+      : `${_ipiPhrase('categories')} ${escHtml((r.cats || []).join(', '))} · ${escHtml(timeAgo(r.at))}`;
+    facts.push([`${_ipiPhrase('reported to')} ${escHtml(_ipiProviderName(r.prov))}`,
+      `${body}<code class="ipi-comment">${escHtml(r.comment || '')}</code>`]);
+  }
+  return `<dl class="ipi-facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+}
+
 function _ipiRenderAttackers() {
   const tb = document.getElementById('ipintel-att-tbody');
   if (!tb || !_ipiData) return;
   const q = ((document.getElementById('ipintel-filter') || {}).value || '').trim().toLowerCase();
   let rows = _ipiData.attackers || [];
-  if (q) rows = rows.filter(a => `${a.ip} ${a.country} ${a.isp} ${(a.devices || []).map(d => d.name).join(' ')}`
+  if (q) rows = rows.filter(a => `${a.ip} ${a.country} ${a.isp} ${(a.devices || []).map(d => d.name).join(' ')} ${_ipiEvidenceText(a)}`
     .toLowerCase().includes(q));
   rows = tableCtl.sortRows('ipintel-att', rows, a => ({
     ip: a.ip, score: a.score ?? -1, reports: a.reports || 0, country: a.country || '',
-    isp: a.isp || '', hosts: (a.devices || []).length, last_seen: a.last_seen || 0,
-    status: _ipiStatus(a),
+    isp: a.isp || '', hosts: (a.devices || []).length, evidence: _ipiEvidenceWeight(a),
+    last_seen: a.last_seen || 0, status: _ipiStatus(a),
   }));
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="9" class="hint">${escHtml('No attackers recorded yet.')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="10" class="hint">${escHtml('No attackers recorded yet.')}</td></tr>`;
     return;
   }
   const blocked = new Set((_ipiData.blocks || []).map(b => `${b.device_id}|${b.ip}`));
@@ -146,11 +244,62 @@ function _ipiRenderAttackers() {
       <td>${escHtml(a.country || '')}</td>
       <td>${escHtml(a.isp || '')}</td>
       <td>${hosts}</td>
+      <td>${_ipiEvidenceHtml(a)}</td>
       <td>${escHtml(timeAgo(a.last_seen))}</td>
       <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
       <td>${btn}</td>
-    </tr>`;
+    </tr>${_ipiOpen.has(a.ip) ? `<tr class="ipi-detail"><td colspan="10">${_ipiDetailHtml(a)}</td></tr>` : ''}`;
   }).join('');
+}
+
+function _ipiRenderSources() {
+  const tb = document.getElementById('ipintel-src-tbody');
+  const notes = document.getElementById('ipintel-src-notes');
+  if (!tb || !_ipiData) return;
+  let rows = [];
+  for (const h of _ipiData.sensors || []) {
+    for (const s of h.sources || []) rows.push(Object.assign({host: h.name, at: h.at}, s));
+  }
+  rows = tableCtl.sortRows('ipintel-src', rows, r => ({
+    host: r.host || '', kind: r.kind || '', path: r.path || '', fmt: r.fmt || '',
+    lines: r.lines || 0, parsed: r.lines ? (r.parsed || 0) / r.lines : 1, events: r.events || 0,
+    at: r.at || 0, state: r.state || '',
+  }));
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="9" class="hint">${escHtml(_ipiData.sensor_enabled
+      ? 'No host has reported its logs yet. Agents pick the setting up on their next heartbeat.'
+      : 'The log sensor is off. An administrator can turn it on under Log sensor.')}</td></tr>`;
+  } else {
+    tb.innerHTML = rows.map(r => `<tr>
+      <td>${escHtml(r.host)}</td>
+      <td>${_ipiPhrase(_IPI_SOURCE[r.kind] || r.kind)}</td>
+      <td class="ff-mono fs-11">${escHtml(r.path)}</td>
+      <td>${r.fmt ? _ipiPhrase(_IPI_FMT[r.fmt] || r.fmt) : ''}</td>
+      <td>${escHtml(String(r.lines || 0))}</td>
+      <td>${escHtml(String(r.parsed || 0))}</td>
+      <td>${escHtml(String(r.events || 0))}</td>
+      <td>${escHtml(timeAgo(r.at))}</td>
+      <td class="${_IPI_STATE_CLASS[r.state] || 'hint'}">${_ipiPhrase(_IPI_STATE[r.state] || r.state || '')}</td>
+    </tr>`).join('');
+  }
+  if (!notes) return;
+  const out = [];
+  let behindCloudflare = false;
+  for (const h of _ipiData.sensors || []) {
+    const cf = (h.ignored || {}).cloudflare;
+    if (cf) {
+      behindCloudflare = true;
+      out.push(`<p class="hint">${escHtml(h.name)}: ${_ipiPhrase('requests from Cloudflare addresses were ignored')} (${escHtml(String(cf))})</p>`);
+    }
+    if (h.throttled) {
+      out.push(`<p class="hint">${escHtml(h.name)}: ${_ipiPhrase('over the hourly limit, some addresses were skipped')} (${escHtml(String(h.throttled))})</p>`);
+    }
+  }
+  // Said once, after the hosts it applies to, not once for each.
+  if (behindCloudflare) {
+    out.push(`<p class="hint">${_ipiPhrase("Your web server is logging Cloudflare, not the visitor. Restore the visitor's address (nginx real_ip_header, Apache mod_remoteip) and they will be counted.")}</p>`);
+  }
+  notes.innerHTML = out.join('');
 }
 
 function _ipiRenderBlocks() {
@@ -185,6 +334,8 @@ async function saveIpIntelSettings() {
     lookup_enabled: v('ipintel-lookup').checked,
     report_enabled: v('ipintel-report').checked,
     block_enabled: v('ipintel-block').checked,
+    sensor_enabled: v('ipintel-sensor').checked,
+    sensor_paths: v('ipintel-sensor-paths').value,
     block_min_score: v('ipintel-min-score').value,
     block_ttl_hours: v('ipintel-ttl').value,
     block_max_per_hour: v('ipintel-max-hour').value,
