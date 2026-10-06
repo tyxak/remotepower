@@ -102,6 +102,10 @@ DECLARED = {
     # The SSH gateway tunnel: only the Linux agent carries it, and the server
     # refuses to opt a non-Linux device in (handle_device_sshgw → 409).
     'sshgw_enabled':        ('linux',),
+    # v7.2.0: the threat sensor reads Linux web server, WAF, fail2ban and
+    # CrowdSec log layouts. Only the Linux agent carries it, and the server sends
+    # the key to Linux agents alone (threat_sensor_config_for).
+    'threat_sensor':        ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

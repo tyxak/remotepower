@@ -1130,9 +1130,24 @@ for _ii_name in (
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
         'handle_ip_intel_block', 'handle_ip_intel_unblock',
         'ip_intel_annotate', 'ip_intel_by_device',
+        'ip_intel_policy', 'ip_intel_note_evidence',
 ):
     globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
 del _ii_name
+
+# v7.2.0: the threat sensor's intake. Linux agents send summaries of what their
+# web server, WAF, fail2ban and CrowdSec logs say about source addresses; they
+# join Threat intel's queue (ip_intel_note_evidence) and go through its sweep.
+_tsn_spec = _tk_ilu.spec_from_file_location(
+    'threat_sensor_handlers', Path(__file__).parent / 'threat_sensor_handlers.py')
+threat_sensor_handlers_mod = _tk_ilu.module_from_spec(_tsn_spec)
+_tsn_spec.loader.exec_module(threat_sensor_handlers_mod)
+threat_sensor_handlers_mod.bind(globals())
+for _tsn_name in (
+        'handle_threat_events', 'threat_sensor_config_for',
+):
+    globals()[_tsn_name] = getattr(threat_sensor_handlers_mod, _tsn_name)
+del _tsn_name
 
 # v7.0.0: Autonomous remediation loop — policy, shadow receipts, blast radius.
 _ao_spec = _tk_ilu.spec_from_file_location(
@@ -6193,6 +6208,10 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/logs',
     '/api/packages',
     '/api/compose/fetch',
+    # v7.2.0: the threat sensor's summaries, authenticated by the device token
+    # in the body like /api/logs. Without this, turning the allowlist on would
+    # silence the sensor on every host with a dynamic address.
+    '/api/threat-events',
     # W1-31: customers click the CSAT survey link from arbitrary IPs; the HMAC
     # signature is the capability, so exempt it from the operator IP allowlist.
     '/api/tickets/csat',
@@ -20615,6 +20634,11 @@ _HEARTBEAT_PASSTHROUGH_FIELDS = {
     # `harvest_dns_creds` directive in the response builder below; without this
     # row the read there was dead and the agent was never told to harvest.
     'dns_harvest_pending': lambda: False,
+    # v7.2.0: read AFTER the lock by threat_sensor_config_for(saved_dev), which
+    # offers the log sensor to Linux agents only. Without it saved_dev carried no
+    # OS, _device_os_family defaulted every host to Linux, and a Windows agent was
+    # handed a setting it cannot honour.
+    'os':               str,
 }
 
 
@@ -23097,6 +23121,11 @@ def handle_heartbeat():
     # opted in, both checked on every heartbeat.
     if saved_dev.get('sshgw_enabled') and _module_on('sshgw'):
         common_resp['sshgw_enabled'] = True
+    # v7.2.0: the threat sensor. Linux agents only, and only while Threat intel
+    # has it switched on; a host that stops receiving the key stops reading logs.
+    _tsn_cfg = threat_sensor_config_for({'os': saved_dev.get('os', '')})
+    if _tsn_cfg:
+        common_resp['threat_sensor'] = _tsn_cfg
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -71152,6 +71181,7 @@ def _build_exact_routes():
         ('GET', '/api/links'): handle_links_list,
         ('POST', '/api/links'): handle_link_add,
         ('POST', '/api/logs'): handle_log_submit,
+        ('POST', '/api/threat-events'): handle_threat_events,
         ('GET', '/api/logs/rules/global'): handle_log_rules_global_list,
         ('POST', '/api/logs/rules/global'): handle_log_rules_global_add,
         ('GET', '/api/logs/tail'): handle_log_tail,

@@ -90,6 +90,7 @@ EXEMPT = {
     'handle_heartbeat':        'agent-self (device-token auth)',
     'handle_packages_submit':  'agent-self (device-token auth)',
     'handle_log_submit':       'agent-self (device-token auth)',
+    'handle_threat_events':    'agent-self (device-token auth)',
     'handle_scap_report':      'agent-self (device-token auth)',
     'handle_compose_fetch':    'agent-self (device-token auth; stack must match caller)',
     'handle_enroll_register':  'agent-self (one-time PIN / enroll token; re-enroll gated by device-token)',

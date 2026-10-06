@@ -72,6 +72,8 @@ DEFAULTS = {
     'daily_report_budget': 900,   # per provider; reports have their own daily limit
     'report_comment': '',         # '' = the default text below
     'never_block': [],            # extra CIDRs that are never blocked
+    'sensor_enabled': False,      # Linux agents read web server, WAF, fail2ban and CrowdSec logs
+    'sensor_paths': [],           # extra log files for them, each under /var/log
 }
 
 _MAX_COMMENT = 1000
@@ -479,6 +481,30 @@ def unblock_command(ip):
         '&& firewall-cmd --reload; '
         f'else while {ipt} -D INPUT -s {ip} -j DROP -m comment --comment {m} 2>/dev/null; '
         'do :; done; fi')
+
+
+SENSOR_PATH_MAX = 20
+_SENSOR_PATH_RE = re.compile(r'^/var/log/[A-Za-z0-9._@+/-]{1,280}$')
+
+
+def clean_sensor_paths(raw):
+    """(paths, error) for the extra log files an operator names. Each is an
+    absolute path under /var/log with no `..` in it: the agent checks again
+    against the real file (a symlink out of /var/log is refused there), so this
+    is the first of two walls and the one that gives a useful message."""
+    items = raw if isinstance(raw, list) else str(raw or '').replace(',', '\n').splitlines()
+    out = []
+    for it in items:
+        it = str(it).strip()
+        if not it:
+            continue
+        if not _SENSOR_PATH_RE.match(it) or '..' in it.split('/'):
+            return out, f'Not a log file under /var/log: {it[:60]}'
+        if it not in out:
+            out.append(it)
+    if len(out) > SENSOR_PATH_MAX:
+        return out, f'At most {SENSOR_PATH_MAX} extra log files'
+    return out, None
 
 
 _KEY_RE = re.compile(r'^[A-Za-z0-9._~+/=-]{8,256}$')

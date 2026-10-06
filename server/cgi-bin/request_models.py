@@ -2645,6 +2645,8 @@ if _AVAILABLE:
         lookup_enabled: Any = None
         report_enabled: Any = None
         block_enabled: Any = None
+        sensor_enabled: Any = None
+        sensor_paths: Any = None
         block_min_score: Any = None
         block_ttl_hours: Any = None
         block_max_per_hour: Any = None
@@ -2663,6 +2665,20 @@ if _AVAILABLE:
                               mode='before')(_coerce_str_loose)
         _v1 = field_validator('clear_abuseipdb_key', 'clear_sniffcat_key',
                               mode='before')(_coerce_bool_loose)
+
+    class ThreatEventsRequest(BaseModel):
+        """handle_threat_events POST, sent by a Linux agent. threat_evidence
+        validates every event again; this only refuses a body that is not shaped
+        like one. `at` and `dropped` are the agent's own bookkeeping."""
+        model_config = ConfigDict(extra='ignore')
+        device_id: str = ''
+        token: str = ''
+        at: Any = None
+        sources: Any = None
+        events: Any = None
+        dropped: Any = None
+
+        _v0 = field_validator('device_id', 'token', mode='before')(_coerce_str_loose)
 
     class IpIntelLookupRequest(BaseModel):
         """handle_ip_intel_lookup POST."""

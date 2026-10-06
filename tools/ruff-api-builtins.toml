@@ -534,6 +534,7 @@ builtins = [
     "handle_taxonomy_group_merge",
     "handle_taxonomy_group_rename",
     "handle_taxonomy_list",
+    "handle_threat_events",
     "handle_threshold_preview",
     "handle_ticket_attachment",
     "handle_ticket_autoreply",
@@ -580,6 +581,8 @@ builtins = [
     "ip_intel_annotate",
     "ip_intel_by_device",
     "ip_intel_note_attack",
+    "ip_intel_note_evidence",
+    "ip_intel_policy",
     "process_backup_jobs",
     "record_config_revision",
     "rule_acked",
@@ -602,4 +605,5 @@ builtins = [
     "run_ticket_sla_if_due",
     "run_tls_scan_if_due",
     "run_vpn_stats_if_due",
+    "threat_sensor_config_for",
 ]

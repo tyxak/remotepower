@@ -60,6 +60,7 @@ import urllib.parse
 import urllib.request
 
 import ip_intel
+import threat_evidence
 
 QUEUE_CAP = 500            # pending addresses kept between sweeps
 ATTACKER_CAP = 5000        # addresses remembered
@@ -86,6 +87,11 @@ def _any_enabled(pol):
                 or pol.get('block_enabled'))
 
 
+def ip_intel_policy():
+    """The operator's policy with the API keys resolved. Read-only."""
+    return _policy()
+
+
 # ── the heartbeat-side hook ────────────────────────────────────────────────────
 
 def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
@@ -96,7 +102,7 @@ def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
         if not _any_enabled(pol):
             return
         ip = ip_intel.parse_ip(ip)
-        if not ip or not ip_intel.is_public(ip):
+        if not ip or not ip_intel.is_public(ip) or threat_evidence.infra_reason(ip):
             return
         now = int(time.time())
         with A._LockedUpdate(A.IPINTEL_FILE) as st:
@@ -108,6 +114,81 @@ def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
     except Exception:  # nosec B110
         # Never let enrichment break brute-force detection.
         pass
+
+
+# ── the threat sensor's side of the queue ──────────────────────────────────────
+
+SENSOR_EVENTS_PER_HOUR = 3000       # accepted from one host in an hour
+SENSOR_STATUS_KEEP_S = 30 * 86400   # a host that has not reported for a month is forgotten
+
+
+def _queue_priority(item):
+    """How much an entry deserves to stay when the queue is full: an address a
+    ban engine already decided on, then the others by how much they did."""
+    ev = item.get('evidence') if isinstance(item, dict) else None
+    if isinstance(ev, dict):
+        return (1_000_000 if threat_evidence.confirmed_by(ev) else 0) + threat_evidence.hostile_count(ev)
+    return 500_000 + int((item or {}).get('count') or 0)      # the brute-force counter's own
+
+
+def _trim_queue(q):
+    """The queue at QUEUE_CAP entries, keeping the ones that matter and the
+    original order. Plain "keep the newest" let a flood of one-hit addresses push
+    out an address that had been banned a minute earlier."""
+    if len(q) <= QUEUE_CAP:
+        return q
+    keep = sorted(range(len(q)), key=lambda i: (-_queue_priority(q[i]), -i))[:QUEUE_CAP]
+    return [q[i] for i in sorted(keep)]
+
+
+def ip_intel_note_evidence(dev_id, events, status=None, now=None):
+    """Queue what a host's logs said about each address and record the host's
+    sensor status, under one lock. `events` are threat_evidence summaries that
+    have already been validated. An address already waiting for this host has the
+    new evidence added to its entry, so a minute-by-minute attack is one entry,
+    not sixty. Returns {'queued': n, 'throttled': n}."""
+    now = int(now or time.time())
+    status = status if isinstance(status, dict) else {}
+    queued = throttled = 0
+    with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        sensors = st.get('sensors') if isinstance(st.get('sensors'), dict) else {}
+        rec = sensors.get(dev_id) if isinstance(sensors.get(dev_id), dict) else {}
+        hour = now // 3600
+        used = int((rec.get('hour') or {}).get('n') or 0) if (rec.get('hour') or {}).get('h') == hour else 0
+        q = st.get('queue') if isinstance(st.get('queue'), list) else []
+        index = {(x.get('ip'), x.get('device_id')): i for i, x in enumerate(q)
+                 if isinstance(x, dict) and isinstance(x.get('evidence'), dict)}
+        for ev in events:
+            if used >= SENSOR_EVENTS_PER_HOUR:
+                throttled += 1
+                continue
+            used += 1
+            queued += 1
+            key = (ev['ip'], dev_id)
+            if key in index:
+                item = q[index[key]]
+                item['evidence'] = threat_evidence.merge(item['evidence'], ev)
+                item['count'] = threat_evidence.hostile_count(item['evidence'])
+                item['window_s'] = threat_evidence.window_seconds(item['evidence'])
+                item['at'] = now
+            else:
+                q.append({'ip': ev['ip'], 'device_id': dev_id, 'unit': 'threat-sensor',
+                          'count': threat_evidence.hostile_count(ev),
+                          'window_s': threat_evidence.window_seconds(ev), 'at': now, 'evidence': ev})
+                index[key] = len(q) - 1
+        st['queue'] = _trim_queue(q)
+        sensors[dev_id] = {
+            'at': now, 'sources': list(status.get('sources') or []),
+            'events': queued, 'throttled': throttled,
+            'dropped': int(status.get('dropped') or 0),
+            'ignored': dict(status.get('ignored') or {}),
+            'hour': {'h': hour, 'n': used},
+        }
+        for d in [d for d, r in sensors.items()
+                  if isinstance(r, dict) and now - int(r.get('at') or 0) > SENSOR_STATUS_KEEP_S]:
+            sensors.pop(d, None)
+        st['sensors'] = sensors
+    return {'queued': queued, 'throttled': throttled}
 
 
 # ── what other surfaces read ───────────────────────────────────────────────────
@@ -484,6 +565,8 @@ def run_ip_intel_if_due():
 def _settings_view(pol):
     out = {k: pol[k] for k in ip_intel.DEFAULTS}
     out['report_comment'] = pol.get('report_comment') or ip_intel.REPORT_COMMENT_DEFAULT
+    out['sensor_enabled'] = bool(pol.get('sensor_enabled'))
+    out['sensor_paths'] = list(pol.get('sensor_paths') or [])
     out['abuseipdb_key_set'] = bool(pol['keys'].get('abuseipdb'))
     out['sniffcat_key_set'] = bool(pol['keys'].get('sniffcat'))
     return out
@@ -552,7 +635,7 @@ def handle_ip_intel_settings():
     changed = []
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
-        for k in ('lookup_enabled', 'report_enabled', 'block_enabled'):
+        for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')
@@ -577,6 +660,12 @@ def handle_ip_intel_settings():
                     A.respond(400, {'error': bad})
                 pol['report_comment'] = text
                 changed.append('report_comment=custom')
+        if body.get('sensor_paths') is not None:
+            paths, bad = ip_intel.clean_sensor_paths(body['sensor_paths'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['sensor_paths'] = paths
+            changed.append(f'sensor_paths={len(paths)}')
         if body.get('never_block') is not None:
             raw = body['never_block']
             items = raw if isinstance(raw, list) else str(raw).replace(',', '\n').splitlines()
