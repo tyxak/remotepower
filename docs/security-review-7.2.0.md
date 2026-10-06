@@ -71,7 +71,7 @@ few fixed shapes. The server rebuilds each address's summary from those and
 drops everything else, including a token with a stray newline (finding 3). A
 fuzz test fills every string field with attacker text, some shaped like valid
 tokens, and asserts that none of it reaches a report's words; it was also run
-against a deliberately leaky version of the code and fails there.
+against a leaky version of the code and fails there.
 
 **The report is public.** It is filed under the operator's account on two
 services, so what it says is built only from the vocabulary's own phrases and
