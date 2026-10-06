@@ -474,6 +474,21 @@ def merge(a, b):
     return out
 
 
+def slim(ev, tokens=8):
+    """A copy small enough to keep per address for a day: the biggest few tokens
+    per source and the first few jails and CVE ids. What a report needs (classes,
+    counts, sources) survives; the long tail does not."""
+    out = dict(blank(ev.get("ip", "")), **{k: v for k, v in ev.items() if k in blank()})
+    out["tok"] = {
+        fam: dict(sorted(t.items(), key=lambda kv: -kv[1])[:tokens])
+        for fam, t in (ev.get("tok") or {}).items()
+        if t
+    }
+    out["ban"] = list(ev.get("ban") or [])[:4]
+    out["cve"] = list(ev.get("cve") or [])[:3]
+    return out
+
+
 # ── reading evidence ───────────────────────────────────────────────────────────
 
 

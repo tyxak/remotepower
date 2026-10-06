@@ -384,6 +384,122 @@ def _store_ro():
     return (A._load_ro(A.IPINTEL_FILE) or {}) if A.backend_exists(A.IPINTEL_FILE) else {}
 
 
+NET_PER_SWEEP = 25          # addresses per sweep that cost a network call
+SWEEP_MAX = 500             # addresses per sweep in all: the ones that cost nothing are free
+LEDGER_S = 86400            # how long an address's evidence is kept before it starts over
+REPORT_LOG_KEEP = 3         # what was sent, kept per address so the page can show it
+
+
+def _fresh_ledger(att, now):
+    ev = (att or {}).get('ev')
+    if isinstance(ev, dict) and now - int(ev.get('first') or now) <= LEDGER_S:
+        return ev
+    return None
+
+
+def _entry_evidence(group):
+    """The evidence in a group's queue entries, added together, or None."""
+    ev = None
+    for p in group:
+        e = p['item'].get('evidence')
+        if isinstance(e, dict):
+            ev = threat_evidence.merge(ev, e)
+    return ev
+
+
+def _may_report(item, att, pol, now):
+    """Could this entry lead to a report? Decided without the network, so the
+    sweep can ration the work that does need it."""
+    if not pol.get('report_enabled'):
+        return False
+    att = att or {}
+    need = int(pol['report_min_count'])
+    ev = item.get('evidence')
+    if isinstance(ev, dict):
+        ledger = _fresh_ledger(att, now)
+        ok, _why = threat_evidence.qualifies(threat_evidence.merge(ledger, ev) if ledger else ev, need)
+    else:
+        ok = int(item.get('count') or 0) >= need
+    if not ok:
+        return False
+    reported, retry = att.get('reported') or {}, att.get('retry') or {}
+    return any(pol['keys'].get(p) and now - int(reported.get(p) or 0) >= REPORT_EVERY_S
+               and now >= int(retry.get(p) or 0) for p in ip_intel.PROVIDERS)
+
+
+def _needs_network(item, att, pol, now):
+    att = att or {}
+    fresh = (now - int(att.get('checked_at') or 0)) < int(pol['cache_hours']) * 3600
+    if (pol.get('lookup_enabled') or pol.get('block_enabled')) and not (fresh and att.get('verdict')):
+        return True
+    return _may_report(item, att, pol, now)
+
+
+def _claim_batch(queue, atts, pol, now):
+    """(batch, rest): the queue entries this sweep handles, in the order to handle
+    them. The brute-force counter's entries keep their place at the front, first
+    come first served; the sensor's follow, strongest first, so when a day's lookup
+    and report allowance runs short it goes to the addresses that earned it. Work
+    that costs a network call is rationed to NET_PER_SWEEP addresses; entries that
+    cost nothing (already looked up, nothing to report) are taken freely."""
+    def key(i):
+        item = queue[i]
+        if isinstance(item, dict) and isinstance(item.get('evidence'), dict):
+            return (1, -_queue_priority(item), i)
+        return (0, 0, i)
+    order = sorted(range(len(queue)), key=key)
+    taken, net = [], 0
+    for i in order:
+        item = queue[i]
+        if isinstance(item, dict):
+            att = atts.get(ip_intel.parse_ip(item.get('ip')) or '')
+            if _needs_network(item, att, pol, now):
+                if net >= NET_PER_SWEEP:
+                    continue
+                net += 1
+        taken.append(i)
+        if len(taken) >= SWEEP_MAX:
+            break
+    gone = set(taken)
+    return ([queue[i] for i in taken],
+            [q for i, q in enumerate(queue) if i not in gone])
+
+
+def _report_plan(group, pol):
+    """(plan, why_not) for one address: what to report and how to say it, or the
+    reason there is nothing to report yet. `group` is every queue entry for the
+    address in this sweep, so one address is one report however many hosts or
+    detectors saw it."""
+    own = _entry_evidence(group)
+    ledger = group[0].get('ledger')
+    ev = threat_evidence.merge(ledger, own) if (own and ledger) else (own or ledger)
+    legacy = [p for p in group if not isinstance(p['item'].get('evidence'), dict)]
+    need = int(pol['report_min_count'])
+    ev_ok, ev_why = threat_evidence.qualifies(ev, need) if ev else (False, '')
+    lead = max(legacy, key=lambda p: int(p['item'].get('count') or 0)) if legacy else None
+    legacy_n = int(lead['item'].get('count') or 0) if lead else 0
+    legacy_ok = lead is not None and legacy_n >= need
+    if not (ev_ok or legacy_ok):
+        return None, (ev_why if ev else f'{legacy_n} of {need} attempts so far')
+    kind = ip_intel.attack_kind(lead['item'].get('unit')) if legacy_ok else None
+    cats = {}
+    for prov in ip_intel.PROVIDERS:
+        c = list(threat_evidence.categories(ev, prov)) if ev_ok else []
+        if legacy_ok:
+            c += [x for x in ip_intel.CATEGORIES[kind][prov] if x not in c]
+        cats[prov] = c
+    if ev_ok:
+        comment = ip_intel.evidence_comment(ev, pol.get('report_comment'))
+        label = '+'.join(c for c, _n in threat_evidence.dominant(ev, 3)) or 'other'
+        when = int(ev.get('last') or 0) or None
+    else:
+        comment = ip_intel.report_comment(kind, legacy_n, lead['item'].get('window_s'),
+                                          pol.get('report_comment'))
+        label, when = kind, None
+    return {'cats': cats, 'comment': comment, 'label': label, 'when': when,
+            'ev': ev if ev_ok else None}, ''
+
+
 def run_ip_intel_if_due():
     """Cadence sweep. Three phases, so no lock is held across a network call:
 
@@ -393,6 +509,12 @@ def run_ip_intel_if_due():
       3. under the store lock: record the answers and decide blocks.
 
     Commands and audit lines go out after the lock is released.
+
+    An address is looked up once and reported once per sweep however many hosts
+    or detectors saw it. What it was reported FOR comes from the evidence the
+    hosts' logs gave (several sources agreeing), or from the brute-force
+    counter's own entry; an address is reported when a ban engine decided on it,
+    the WAF refused it repeatedly, or it did enough on its own.
     """
     pol = _policy()
     now = int(time.time())
@@ -412,7 +534,6 @@ def run_ip_intel_if_due():
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         st['last_sweep'] = now
         queue = st.get('queue') if isinstance(st.get('queue'), list) else []
-        batch, st['queue'] = queue[:PER_SWEEP], queue[PER_SWEEP:]
         blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
         for dev_id, per in list(blocks.items()):
             if not isinstance(per, dict):
@@ -429,6 +550,7 @@ def run_ip_intel_if_due():
         allowance = _budget_left(st, pol, today)
         report_allowance = _report_budget_left(st, pol, today)
         atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+        batch, st['queue'] = _claim_batch(queue, atts, pol, now)
         plan = []
         for item in batch:
             ip = ip_intel.parse_ip(item.get('ip')) if isinstance(item, dict) else None
@@ -443,6 +565,8 @@ def run_ip_intel_if_due():
                           and not (fresh and a.get('verdict')),
                 'cached': a.get('verdict'),
                 'reported': dict(a.get('reported') or {}),
+                'retry': dict(a.get('retry') or {}),
+                'ledger': _fresh_ledger(a, now),
             })
 
     # ── phase 2 ──
@@ -450,56 +574,85 @@ def run_ip_intel_if_due():
     looked = {}          # ip -> (verdict, errors): one lookup per address per sweep
     devices = A._load_ro(A.DEVICES_FILE) or {}
     protected = None
+    groups = {}
     for p in plan:
-        ip, item = p['ip'], p['item']
-        if p['lookup'] and ip not in looked:
-            looked[ip] = _fetch_verdict(ip, pol, allowance, spent)
-        p['verdict'] = (looked.get(ip) or (None, {}))[0] or p['cached']
-        p['kind'] = ip_intel.attack_kind(item.get('unit'))
-        p['report_ok'], p['report_err'] = {}, {}
-        if not pol['report_enabled'] or (p['verdict'] or {}).get('whitelisted'):
+        groups.setdefault(p['ip'], []).append(p)
+        if p['lookup'] and p['ip'] not in looked:
+            looked[p['ip']] = _fetch_verdict(p['ip'], pol, allowance, spent)
+        p['verdict'] = (looked.get(p['ip']) or (None, {}))[0] or p['cached']
+        p['report_ok'], p['report_err'], p['report_retry'], p['report_log'] = {}, {}, {}, []
+        ev = p['item'].get('evidence')
+        p['kind'] = ('web' if threat_evidence.web_only(ev) else 'other') if isinstance(ev, dict) \
+            else ip_intel.attack_kind(p['item'].get('unit'))
+    for ip, group in groups.items():
+        lead = group[0]                  # the address's one report is recorded once, on this entry
+        if not pol['report_enabled'] or (lead['verdict'] or {}).get('whitelisted'):
             continue
-        if int(item.get('count') or 0) < int(pol['report_min_count']):
+        keyed = [prov for prov in ip_intel.PROVIDERS if pol['keys'].get(prov)]
+        if not keyed:
+            continue
+        report, why = _report_plan(group, pol)
+        if report is None:
+            # Said only for a service it has not been reported to today: an
+            # address reported this morning is not "not reported".
+            lead['report_err'] = {prov: f'not reported: {why}' for prov in keyed
+                                  if now - int(lead['reported'].get(prov) or 0) >= REPORT_EVERY_S}
             continue
         # A report is public and filed under the operator's account, so the
         # addresses that may never be blocked may never be reported either:
-        # the fleet's own, the operator's allow-list, recent login sources.
-        # A misconfigured script failing logins from the office is not an
-        # attacker, and a public report naming it is hard to take back.
+        # the fleet's own, the operator's allow-list, recent login sources, and
+        # a proxy's edge. A misconfigured script failing logins from the office
+        # is not an attacker, and a public report naming it is hard to take back.
         if protected is None:
             protected = _protected_networks(pol, devices)
         nb = ip_intel.never_block_reason(ip, protected)
         if nb:
-            p['report_err'] = {prov: f'not reported: {nb}' for prov in ip_intel.PROVIDERS
-                               if pol['keys'].get(prov)}
+            lead['report_err'] = {prov: f'not reported: {nb}' for prov in keyed}
             continue
-        comment = ip_intel.report_comment(p['kind'], item.get('count'), item.get('window_s'),
-                                          pol.get('report_comment'))
-        for prov in ip_intel.PROVIDERS:
-            key = pol['keys'].get(prov)
-            if not key or now - int(p['reported'].get(prov) or 0) < REPORT_EVERY_S:
+        for prov in keyed:
+            key = pol['keys'][prov]
+            if now - int(lead['reported'].get(prov) or 0) < REPORT_EVERY_S:
                 continue
+            if now < int(lead['retry'].get(prov) or 0):
+                continue                 # a service said 429 a moment ago; let its window pass
             if report_allowance.get(prov, 0) <= 0:
-                p['report_err'][prov] = 'not reported: the daily report limit is used up'
+                lead['report_err'][prov] = 'not reported: the daily report limit is used up'
                 continue
             report_allowance[prov] -= 1
             spent['report:' + prov] = spent.get('report:' + prov, 0) + 1
             build, parse = ip_intel.REPORT[prov]
             res = parse(*A._ip_intel_http(
-                build(ip, key, ip_intel.CATEGORIES[p['kind']][prov], comment)))
+                build(ip, key, report['cats'][prov], report['comment'], timestamp=report['when'])))
+            entry = {'at': now, 'prov': prov, 'cats': list(report['cats'][prov]),
+                     'comment': report['comment']}
             if res.get('ok'):
-                p['reported'][prov] = now
-                p['report_ok'][prov] = now
+                lead['report_ok'][prov] = now
+                entry['ok'] = True
                 commands.append((None, None, 'ip_intel_report',
-                                 f"ip={ip} provider={prov} kind={p['kind']}"))
+                                 f"ip={ip} provider={prov} kind={report['label']}"))
+            elif res.get('duplicate'):
+                # It was reported moments ago (often by fail2ban on the same host,
+                # under the same key). That report exists, so this one is done.
+                lead['report_ok'][prov] = now
+                lead['report_err'][prov] = res.get('error')
+                entry['ok'] = True
+                entry['duplicate'] = True
             else:
-                p['report_err'][prov] = res.get('error')
+                lead['report_err'][prov] = res.get('error')
+                entry['error'] = res.get('error')
+                if res.get('rate_limited'):
+                    lead['report_retry'][prov] = now + ip_intel.REPORT_RETRY_S[prov]
+            lead['report_log'].append(entry)
+        if lead['report_ok']:
+            lead['archived'] = report['ev']
 
     # ── phase 3 ──
+    sensors = st_ro.get('sensors') if isinstance(st_ro.get('sensors'), dict) else {}
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         _add_spend(st, today, spent)
         atts = st.setdefault('attackers', {})
         blocks = st.setdefault('blocks', {})
+        done = set()
         for p in plan:
             ip, dev_id, item, verdict = p['ip'], p['dev_id'], p['item'], p['verdict']
             att = atts.setdefault(ip, {})
@@ -511,13 +664,46 @@ def run_ip_intel_if_due():
                 att['errors'] = errs
                 if v:
                     att['verdict'] = v
-            if p['report_ok']:
-                att.setdefault('reported', {}).update(p['report_ok'])
-            if p['report_err']:
-                att.setdefault('errors', {}).update(p['report_err'])
+            first_of_address = ip not in done
+            done.add(ip)
+            if first_of_address:
+                if p['report_ok']:
+                    att.setdefault('reported', {}).update(p['report_ok'])
+                    for prov in p['report_ok']:         # an old reason no longer applies
+                        if prov not in p['report_err']:
+                            (att.get('errors') or {}).pop(prov, None)
+                if p['report_err']:
+                    att.setdefault('errors', {}).update(p['report_err'])
+                if p['report_retry']:
+                    att.setdefault('retry', {}).update(p['report_retry'])
+                if p['report_log']:
+                    att['report_log'] = (list(att.get('report_log') or []) + p['report_log'])[-REPORT_LOG_KEEP:]
+                # The evidence ledger: everything the logs said about this address
+                # in the last day, added up across sweeps, so a slow attacker still
+                # adds up. A report starts it over; what it said is kept to show.
+                new = _entry_evidence(groups[ip])
+                cur = _fresh_ledger(att, now)
+                if new:
+                    cur = threat_evidence.slim(threat_evidence.merge(cur, new))
+                # A report starts the ledger over, but only once every service it
+                # is meant for has been told: if one took it and the other was
+                # busy, the evidence stays so the other can still be sent it.
+                told = att.get('reported') or {}
+                everyone = all(now - int(told.get(prov) or 0) < REPORT_EVERY_S
+                               for prov in ip_intel.PROVIDERS if pol['keys'].get(prov))
+                if p.get('archived') and cur and everyone:
+                    att['ev_reported'] = {'at': now, 'ev': cur}
+                    cur = None
+                att['ev'] = cur
+                if cur is None:
+                    att.pop('ev', None)
             seen = att.setdefault('devices', {})
-            seen[dev_id] = {'count': int(item.get('count') or 0),
-                            'unit': str(item.get('unit') or '')[:64],
+            ev = item.get('evidence')
+            prior = seen.get(dev_id) if isinstance(seen.get(dev_id), dict) else {}
+            count = int(item.get('count') or 0)
+            if isinstance(ev, dict) and now - int(prior.get('at') or 0) <= LEDGER_S:
+                count += int(prior.get('count') or 0)        # a running total for the day
+            seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
             dev = devices.get(dev_id)
@@ -526,6 +712,9 @@ def run_ip_intel_if_due():
                 ok, why = False, 'host is not a Linux agent'
             if ok and ip in (blocks.get(dev_id) or {}):
                 ok, why = False, 'already blocked'
+            if ok and isinstance(ev, dict) and threat_evidence.web_only(ev) \
+                    and _web_is_proxied(sensors, dev_id):
+                ok, why = False, 'web attacks arrive through a proxy'
             if ok:
                 if protected is None:
                     protected = _protected_networks(pol, devices)
@@ -558,6 +747,17 @@ def run_ip_intel_if_due():
             elif res.get('approval_required'):
                 detail += ' awaiting-approval'
         A.audit_log('ip-intel', action, detail[:500])
+
+
+def _web_is_proxied(sensors, dev_id):
+    """True when the host's web logs say visitors arrive through a proxy that
+    restores their address. A host firewall rule drops packets from the visitor's
+    address, which a proxied visitor's packets never carry, so such a rule would
+    sit in the firewall and block nothing."""
+    rec = (sensors or {}).get(dev_id)
+    return bool(isinstance(rec, dict) and any(
+        isinstance(s, dict) and s.get('kind') == 'web' and s.get('proxied')
+        for s in rec.get('sources') or []))
 
 
 # ── endpoints ──────────────────────────────────────────────────────────────────
