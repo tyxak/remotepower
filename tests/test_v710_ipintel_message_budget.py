@@ -1,7 +1,7 @@
 """Threat intel: the report message is the operator's to write, and the API usage limits are settable.
 
 Reports went out with one fixed sentence and only the lookup limit could be changed
-(not from the page). The message is now a template with three placeholders, none
+(not from the page). The message is now a template with placeholders, none
 of which can carry a host name; reports have their own daily limit like lookups do;
 and the settings handler takes all of it.
 """
@@ -35,7 +35,9 @@ class TestTemplate(unittest.TestCase):
         self.assertEqual('SSH: 40 tries in 10 min, handled automatically',
                          ip_intel.report_comment('ssh', 40, 600, t))
 
-    def test_only_the_three_placeholders_exist_so_a_host_cannot_leak_in(self):
+    def test_only_the_named_placeholders_exist_so_a_host_cannot_leak_in(self):
+        # v7.2.0: five of them now (what, count, minutes, attack, seen_by), still
+        # all counts or fixed phrases; none can name a host, a user or an address.
         for bad in ('{hostname} attacked', 'attack on {device} x{count}', '{ip} {count} tries here'):
             self.assertIsNotNone(ip_intel.comment_template_error(bad), bad)
         self.assertIsNone(ip_intel.comment_template_error('{what} brute force, {count} attempts'))

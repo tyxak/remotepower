@@ -21,20 +21,28 @@ API facts this module relies on (checked against each service's docs):
     GET  /check?ipAddress=&maxAgeInDays=     header `Key`
          -> {"data": {"abuseConfidenceScore", "totalReports", "countryCode",
                       "isp", "usageType", "domain", "isWhitelisted", ...}}
-    POST /report  form: ip, categories="18,22", comment (<= 1024 chars)
-         The same address may be reported once per 15 minutes.
+    POST /report  form: ip, categories="18,22", comment (<= 1024 chars),
+                       timestamp (optional, ISO 8601: when the attack happened)
+         The same address may be reported once per 15 minutes; a repeat is
+         refused with HTTP 429 and "You can only report the same IP address
+         once in 15 minutes."
 
   SniffCat v1    https://api.sniffcat.com/api/v1
     GET  /check?ip=                          header `X-Secret-Token`
          -> {"success", "status", "abuseConfidenceScore"}
     POST /report  JSON: {ip, categories: [..], comment (>= 10 chars)}
-         The same address may be reported once per 20 minutes.
+         The same address may be reported once per 20 minutes. A repeat and a
+         rate limit share one answer, HTTP 429, so the two cannot be told apart.
+         There is no timestamp field.
 """
 
 import ipaddress
 import json
 import re
+import time
 import urllib.parse
+
+import threat_evidence
 
 PROVIDERS = ('abuseipdb', 'sniffcat')
 
@@ -70,12 +78,23 @@ _MAX_COMMENT = 1000
 _MIN_COMMENT = 10             # SniffCat refuses anything shorter
 _TEMPLATE_MAX = 300
 
-# What a report says unless the operator writes their own. {what}, {count} and
-# {minutes} are the only placeholders: counts and the kind of attack, never a
-# host name or a user name, because the text is public on both services.
+# What a report says unless the operator writes their own. The placeholders are
+# counts and the kind of attack, never a host name or a user name, because the
+# text is public on both services:
+#   {what}     'SSH', 'web login', 'web' ...        (short noun)
+#   {count}    attempts seen
+#   {minutes}  the time window
+#   {attack}   'SQL injection and path traversal'   (fixed phrases only)
+#   {seen_by}  'web server log and WAF'             (fixed phrases only)
+# REPORT_COMMENT_DEFAULT is for an address seen only by the brute-force counter;
+# REPORT_COMMENT_EVIDENCE_DEFAULT for one the host's logs could describe.
 REPORT_COMMENT_DEFAULT = ('{what} brute force: {count} failed attempts within '
                           '{minutes} minutes (reported by RemotePower)')
-COMMENT_PLACEHOLDERS = ('what', 'count', 'minutes')
+REPORT_COMMENT_EVIDENCE_DEFAULT = ('{attack}: {count} attempts within {minutes} minutes, '
+                                   'seen by {seen_by} (reported by RemotePower)')
+COMMENT_PLACEHOLDERS = ('what', 'count', 'minutes', 'attack', 'seen_by')
+_LEGACY_ATTACK = {'ssh': 'SSH brute force', 'web': 'web login brute force'}
+_LEGACY_SEEN_BY = {'ssh': 'system log', 'web': 'web server log'}
 _PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
 _CTRL_RE = re.compile(r'[\x00-\x1f\x7f]+')
 _BLOCK_MARKER = 'rp-ipintel'
@@ -149,19 +168,60 @@ def abuseipdb_parse_check(status, body):
     }
 
 
-def abuseipdb_report_request(ip, key, categories, comment):
-    form = urllib.parse.urlencode({
-        'ip': ip, 'categories': ','.join(str(int(c)) for c in categories),
-        'comment': comment[:_MAX_COMMENT]}).encode()
+def iso_utc(epoch, now=None):
+    """`2026-10-05T12:00:00+00:00` for a moment in the last day, else None. A
+    time in the future or older than a day is left out so the service stamps the
+    report itself rather than refusing it."""
+    try:
+        t = int(epoch)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    now = int(now or time.time())
+    if t > now or now - t > 86400:
+        return None
+    return time.strftime('%Y-%m-%dT%H:%M:%S+00:00', time.gmtime(t))
+
+
+def abuseipdb_report_request(ip, key, categories, comment, timestamp=None):
+    """`timestamp` (epoch seconds) says when the attack happened. It is sent
+    only when given and recent; the service stamps the report with its own time
+    otherwise."""
+    fields = {'ip': ip, 'categories': ','.join(str(int(c)) for c in categories),
+              'comment': comment[:_MAX_COMMENT]}
+    when = iso_utc(timestamp)
+    if when:
+        fields['timestamp'] = when
     return {'method': 'POST', 'url': f'{ABUSEIPDB_BASE}/report',
             'headers': {'Key': key, 'Accept': 'application/json',
                         'Content-Type': 'application/x-www-form-urlencoded'},
-            'body': form}
+            'body': urllib.parse.urlencode(fields).encode()}
+
+
+# AbuseIPDB's refusal of a repeat: 429, "You can only report the same IP address
+# (`x`) once in 15 minutes." Its daily limit is also a 429, with a different
+# sentence, so the text is what tells them apart.
+_DUPLICATE_RE = re.compile(r'once (?:in|every) \d+ minutes', re.I)
+
+
+def _detail(body):
+    """The provider's own sentence for an error, or ''."""
+    if not isinstance(body, dict):
+        return ''
+    errs = body.get('errors')
+    msg = ''
+    if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+        msg = str(errs[0].get('detail') or '')
+    return msg or str(body.get('message') or body.get('error') or '')
 
 
 def abuseipdb_parse_report(status, body):
     if status == 200:
         return {'ok': True}
+    if status == 429 and _DUPLICATE_RE.search(_detail(body)):
+        # Someone reported it moments ago, often fail2ban on the same host
+        # under the same key. The report exists; this is not a failure.
+        return {'ok': False, 'duplicate': True, 'rate_limited': True,
+                'error': 'already reported a moment ago'}
     return _error(status, body)
 
 
@@ -183,7 +243,9 @@ def sniffcat_parse_check(status, body):
             'reports': _int(body.get('count'))}
 
 
-def sniffcat_report_request(ip, key, categories, comment):
+def sniffcat_report_request(ip, key, categories, comment, timestamp=None):
+    """`timestamp` is accepted so both services are called alike and is not
+    sent: SniffCat's report has no such field."""
     payload = {'ip': ip, 'categories': [int(c) for c in categories],
                'comment': comment[:_MAX_COMMENT]}
     return {'method': 'POST', 'url': f'{SNIFFCAT_BASE}/report',
@@ -195,7 +257,17 @@ def sniffcat_report_request(ip, key, categories, comment):
 def sniffcat_parse_report(status, body):
     if status == 200 and not (isinstance(body, dict) and body.get('success') is False):
         return {'ok': True}
+    if status == 429:
+        # "Submission rate limit exceeded or repeated report for the same IP":
+        # one answer for both, so the message says both.
+        return {'ok': False, 'rate_limited': True,
+                'error': 'rate limited or already reported'}
     return _error(status, body)
+
+
+# How long to leave an address alone after a service answered 429 to its
+# report: a little over the service's repeat window.
+REPORT_RETRY_S = {'abuseipdb': 16 * 60, 'sniffcat': 21 * 60}
 
 
 CHECK = {
@@ -209,12 +281,7 @@ REPORT = {
 
 
 def _error(status, body):
-    msg = ''
-    if isinstance(body, dict):
-        errs = body.get('errors')
-        if isinstance(errs, list) and errs and isinstance(errs[0], dict):
-            msg = errs[0].get('detail') or ''
-        msg = msg or body.get('message') or body.get('error') or ''
+    msg = _detail(body)
     if status == 429:
         return {'ok': False, 'error': 'rate limited', 'rate_limited': True}
     if status == 401:
@@ -274,8 +341,9 @@ def attack_kind(unit):
     return 'other'
 
 
-def _render_comment(template, what, count, mins):
-    values = {'what': what, 'count': str(count), 'minutes': str(mins)}
+def _render_comment(template, what, count, mins, attack='', seen_by=''):
+    values = {'what': what, 'count': str(count), 'minutes': str(mins),
+              'attack': attack, 'seen_by': seen_by}
     return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), template)
 
 
@@ -283,6 +351,15 @@ def clean_comment_template(text):
     """One line, no control characters, trimmed. Applied before the template is
     checked or stored, so what is validated is what is saved."""
     return _CTRL_RE.sub(' ', str(text or '')).strip()
+
+
+# The shortest text each placeholder can ever become, so a template is only
+# accepted when even its shortest rendering clears SniffCat's minimum.
+_SHORTEST = {
+    'what': 'SSH',
+    'attack': min((c['phrase'] for c in threat_evidence.CLASSES.values()), key=len),
+    'seen_by': min(threat_evidence.SOURCE_PHRASE.values(), key=len),
+}
 
 
 def comment_template_error(template):
@@ -294,7 +371,8 @@ def comment_template_error(template):
     if unknown:
         return ('Unknown placeholder {' + unknown[0] + '}. You can use '
                 + ', '.join('{' + n + '}' for n in COMMENT_PLACEHOLDERS))
-    if len(_render_comment(t, 'SSH', 1, 1)) < _MIN_COMMENT:
+    if len(_render_comment(t, _SHORTEST['what'], 1, 1, _SHORTEST['attack'],
+                           _SHORTEST['seen_by'])) < _MIN_COMMENT:
         return f'The report message must be at least {_MIN_COMMENT} characters (SniffCat refuses shorter ones)'
     return None
 
@@ -310,7 +388,22 @@ def report_comment(kind, count, window_s, template=None):
     t = clean_comment_template(template)
     if not t or comment_template_error(t):
         t = REPORT_COMMENT_DEFAULT
-    return _render_comment(t, what, int(count), mins)[:_MAX_COMMENT]
+    return _render_comment(t, what, int(count), mins,
+                           _LEGACY_ATTACK.get(kind, 'login brute force'),
+                           _LEGACY_SEEN_BY.get(kind, 'system log'))[:_MAX_COMMENT]
+
+
+def evidence_comment(ev, template=None):
+    """The same for an address the host's logs described. Every word comes from
+    threat_evidence's fixed phrases and from numbers, so nothing the attacker
+    typed can reach a public report; `template` is the operator's wording."""
+    t = clean_comment_template(template)
+    if not t or comment_template_error(t):
+        t = REPORT_COMMENT_EVIDENCE_DEFAULT
+    mins = max(1, threat_evidence.window_seconds(ev) // 60)
+    return _render_comment(t, threat_evidence.what_word(ev), threat_evidence.hostile_count(ev),
+                           mins, threat_evidence.attack_phrase(ev),
+                           threat_evidence.seen_by(ev))[:_MAX_COMMENT]
 
 
 # ── blocking ───────────────────────────────────────────────────────────────────
@@ -337,6 +430,11 @@ def never_block_reason(ip, protected):
     and the configured never-block list."""
     if not is_public(ip):
         return 'not a public address'
+    if threat_evidence.infra_reason(ip):
+        # The reason is the constant below, not infra_reason()'s own sentence,
+        # so every string this function can return is visible to the test that
+        # checks each one has a translation.
+        return 'a Cloudflare edge address'
     if in_any(ip, protected):
         return 'on the never-block list'
     return ''
