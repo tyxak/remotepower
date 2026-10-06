@@ -2,6 +2,94 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.2.0 — "Ev1denceMatters" — unreleased (test)
+
+A release about evidence. Threat intel used to learn about an attacker from
+failed SSH logins and a handful of web patterns, and every report it filed said
+the same thing: brute force. It can now read what your hosts' own logs say about
+each address, and a report says what the address actually did, once per
+address, to each service.
+
+The security review for this release is scoped to the new trust boundary — an
+agent summarising logs an attacker can write to — and says so. It is in
+`docs/security-review-7.2.0.md`.
+
+### Log sensor
+
+- **Linux agents read your web server, WAF, fail2ban and CrowdSec logs.**
+  nginx and Apache access and error logs, ModSecurity's audit log (native and
+  JSON), fail2ban's log, and the alerts CrowdSec's own scenarios raised on the
+  host, AppSec included. Read-only, once a minute, in a thread of its own, so a
+  slow or broken log cannot delay a heartbeat.
+- **The logs are found from the web server's own configuration.** nginx
+  `access_log`, `log_format` and `error_log`, Apache `CustomLog`, `LogFormat`
+  and `ErrorLog`, and ModSecurity's `SecAuditLog`. Each line parser is built
+  from the server's own format string, so a custom layout is read as written.
+  Stock paths cover a host with no configuration. A log the agent cannot read
+  or understand is reported as such instead of counting nothing.
+- **Only counts and fixed labels leave the host.** Per address: how many
+  hostile requests, which kinds, which WAF rules, which CVE ids the logs named,
+  which jails banned it. Never log lines, request paths, host names or user
+  names. The server keeps what is on its fixed list and drops the rest.
+- **Off by default.** **Security → Threat intel → Log sensor** has the switch and
+  the extra log files (up to 20, each a file under `/var/log`). Linux agents
+  only; Windows and macOS agents are never offered it.
+
+### Reports
+
+- **Categories follow what was seen.** SQL injection is 16 and 21 at AbuseIPDB
+  and 12 and 21 at SniffCat; path traversal adds SniffCat's 16; code execution
+  attempts, scanners, mail, FTP and port scans have theirs. SSH brute force is
+  unchanged.
+- **One report per address, per service, per sweep.** Two hosts, or the
+  brute-force counter and a log, seeing the same address are one report.
+- **The words come from fixed phrases and numbers.** For example `SQL injection
+  and path traversal: 41 attempts within 10 minutes, seen by web server log and
+  WAF (reported by RemotePower)`. Nothing an attacker typed can reach a public
+  report. The message template gains `{attack}` and `{seen_by}`.
+- **When an address is reported.** fail2ban banned it, a CrowdSec scenario
+  raised a ban on this host, the WAF refused it three times, or it made your
+  threshold of hostile requests. What it does adds up for a day, so a slow
+  attacker still counts. Community-list entries and decisions made by hand are
+  never evidence. The page says why an address has not been reported yet.
+- **A repeat is an answer, not a failure.** AbuseIPDB's "once in 15 minutes"
+  counts as reported (often fail2ban on the same host, same key). SniffCat's
+  single 429 for both a repeat and a rate limit is shown as that and backed off
+  past its 20-minute window instead of retried every minute.
+- **AbuseIPDB gets when the attack happened** for reports built from the logs.
+- **The day's allowance goes to the address that earned it.** Network work is
+  limited to 25 addresses a sweep, a ban engine's decisions first; entries that
+  cost nothing are all taken at once. A full queue keeps what matters instead of
+  the newest.
+
+### Threat intel page
+
+- **Evidence column and a Details row**: the classes with counts, who already
+  decided on the address, how many of its probes the server answered, the WAF
+  rule ids, CVE ids and jails, and exactly what was sent to each service.
+- **Log sources**: every log each host's agent reads, its format, how much was
+  understood, and its state. Hosts whose web server logs Cloudflare instead of
+  the visitor are named, with how to fix it.
+- **Log sensor** settings card (admins).
+
+### Safeguards and fixes
+
+- **Cloudflare's edge addresses are never queued, looked up or reported**, on
+  the legacy path too: a server that does not restore the visitor's address logs
+  the proxy, and a report would have blamed it.
+- **A web attack arriving through a proxy is not blocked on the host.** The
+  visitor's address is not the packet's source behind a proxy, so the rule would
+  have sat in the firewall and matched nothing.
+- **A host can add at most 3,000 addresses an hour** and an agent sends at most
+  300 at a time, so a compromised host cannot spend the day's reports on
+  invented sources. The new endpoint authenticates with the device token, like
+  `/api/logs`, and is exempt from the UI IP allowlist for the same reason.
+- **Two hosts reporting the same attacker in the same sweep filed two reports to
+  each service.** There is one now.
+- **The heartbeat's saved device snapshot carried no OS**, so a feature gated to
+  Linux agents would have been offered to every host. `os` is in the heartbeat
+  contract table and read explicitly.
+
 ## v7.1.0 — "G4tewayMatters" — 2026-10-05
 
 A release about the front door. Hosts can now be reached with your own SSH

@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.1.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.2.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,16 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
+  say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
+  fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat
+  now says what the address actually did instead of "brute force": SQL
+  injection, path traversal, scanning, with the time it happened, once per
+  address however many hosts or logs saw it. An address qualifies when fail2ban
+  or CrowdSec already banned it, the WAF refused it three times, or it reached
+  your threshold. Only counts and fixed labels leave the host. The page shows
+  the evidence, what was sent, and any log the agent could not read; Cloudflare
+  addresses are never reported. Off until you turn it on.
 - **v7.1.0 "G4tewayMatters"** — the front door. Reach any opted-in Linux host
   with your own `ssh` client through one gateway, over a tunnel the host opens
   outward, so no inbound port is open on the host; every connection is checked
@@ -237,24 +247,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   full width on top of it. Between 721 and 768 pixels wide the Collapse button
   appeared and did nothing. Adds a per-browser option to keep hiding the sidebar
   while alerts are open.
-- **v7.0.0 "Aut0nomyMatters"** — autonomous remediation, designed so you grade it
-  before it can act. Every tenant starts off. You move one to shadow, where the
-  loop reaches a real verdict and writes a receipt without touching anything, and
-  you read those for a few weeks first. It acts on precedent from your own
-  incident memory — what closed this exact signature on this fleet before — not
-  on a model's improvisation, and before acting it works out what goes dark:
-  monitors, containers, watched services and network neighbours, discounted when
-  the host has healthy siblings. That blast-radius preview stands on its own
-  whether or not autonomy is on. An event maps to an ordered ladder of actions,
-  so which remedy runs is your decision, and commands go out in the same grammar
-  an operator's own actions use, inheriting maintenance mode, quarantine, audit
-  mode and the approval queue. Destructive actions require a backup proven
-  recoverable by a restore drill that restored and verified, not one that merely
-  ran. The rest of the release repaired the guardrails: six were reporting
-  success while measuring nothing, and fixing them surfaced real defects behind
-  them, including an encryption-at-rest compliance control that could never pass
-  on a Linux fleet and an SSO login that could become a cross-tenant platform
-  operator.
 
 ## Security
 

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.1.0-38">
+<link rel="stylesheet" href="static/css/styles.css?v=7.2.0-39">
 
 </head>
 <body>
@@ -4765,7 +4765,18 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.1.0 g4tewaymatters gateway ssh gateway jump host proxyjump ssh -j bastion tunnel no inbound port public key keys sessions threat intel ip intel abuseipdb sniffcat reputation brute force attackers block auto-block report never block allow-list advisory risk data explorer usb logged-in users report threats remote access typography font size body size heading size alert actions more menu nginx put 403 dashboard public url alert email links security review tenancy platform operator websocket redirect translations languages german french spanish arabic hindi chinese settings paragraphs phone mobile top bar overflow documentation viewer guides anchors risk factors performance big fleet 2000 devices sbom backup jobs export monitors agentless ping lock">
+          <details class="doc-card" open data-keywords="release notes changelog v7.2.0 ev1dencematters evidence threat intel log sensor logs nginx apache modsecurity waf owasp crs audit log fail2ban crowdsec appsec abuseipdb sniffcat report reports categories sql injection path traversal scanner timestamp duplicate repeat once per address ledger cloudflare real ip proxy log sources evidence column details why not reported linux agent">
+            <summary><strong>What's new — v7.2.0 &ldquo;Ev1denceMatters&rdquo;</strong> &mdash; threat intel reads your web server, WAF, fail2ban and CrowdSec logs, and a report says what the address actually did.</summary>
+            <div class="doc-body">
+              <p><strong>The log sensor.</strong> Switch it on under <strong>Security &rarr; Threat intel &rarr; Log sensor</strong>. Linux agents then read nginx and Apache logs, ModSecurity&rsquo;s audit log, fail2ban&rsquo;s log and CrowdSec&rsquo;s alerts, found from your web server&rsquo;s own configuration, and tell RemotePower what each address did. Only counts and fixed labels leave the host: no log lines, paths or host names. It is off until you turn it on.</p>
+              <p><strong>Reports say what happened.</strong> SQL injection is filed as SQL injection and path traversal as path traversal, with the time it happened for AbuseIPDB, and once per address however many hosts or logs saw it. An address qualifies when fail2ban or CrowdSec already banned it, the WAF refused it three times, or it reached your threshold. A repeat the service refuses counts as reported.</p>
+              <p><strong>You can see why.</strong> The attackers table has an <strong>Evidence</strong> column with a <strong>Details</strong> row showing what was sent to each service, and a <strong>Log sources</strong> card lists every log each host reads, so a log the agent cannot read says so instead of looking like a quiet night.</p>
+              <p><strong>Safeguards.</strong> Cloudflare&rsquo;s addresses are never reported, a web attack arriving through a proxy is not blocked on the host, and one host can add at most 3,000 addresses an hour.</p>
+              <p><strong>Security review.</strong> Scoped to the new trust boundary: eight issues, all caught before release. See <a href="docs/security-review-7.2.0.md" class="c-accent">security-review-7.2.0.md</a>.</p>
+              <p class="hint">See <code>docs/v7.2.0.md</code> and <code>docs/ip-intel.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v7.1.0 g4tewaymatters gateway ssh gateway jump host proxyjump ssh -j bastion tunnel no inbound port public key keys sessions threat intel ip intel abuseipdb sniffcat reputation brute force attackers block auto-block report never block allow-list advisory risk data explorer usb logged-in users report threats remote access typography font size body size heading size alert actions more menu nginx put 403 dashboard public url alert email links security review tenancy platform operator websocket redirect translations languages german french spanish arabic hindi chinese settings paragraphs phone mobile top bar overflow documentation viewer guides anchors risk factors performance big fleet 2000 devices sbom backup jobs export monitors agentless ping lock">
             <summary><strong>What's new — v7.1.0 &ldquo;G4tewayMatters&rdquo;</strong> &mdash; reach hosts with your own SSH client through one gateway, look up and block the addresses attacking them, and see both wherever a host is described.</summary>
             <div class="doc-body">
               <p><strong>The SSH gateway.</strong> Add a key on <strong>Access &rarr; SSH gateway</strong>, copy the <code>~/.ssh/config</code> block it gives you, and <code>ssh web01.rp</code> works from your laptop. Each opted-in Linux host opens a tunnel outward to the gateway, so there is no inbound port on the host, and the gateway forwards to nothing but that host&rsquo;s own sshd. Every login and every connection is asked of RemotePower &mdash; your permission, scope and tenant, the host&rsquo;s opt-in &mdash; and every session is recorded. Off by default; see <a href="docs/sshgw.md" class="c-accent">the guide</a>.</p>
@@ -4792,20 +4803,6 @@
               <p><strong>Signals you already collect, put to work.</strong> The Data Explorer can ask about installed packages, listening ports, watched services, containers and the alerts inbox; a socket carries its exposure scope and a unit its flapping flag. The risk score reads five more signals: Secure Boot off, a canary the agent could not place, quarantined files, failed timers and your own custom checks. The compliance checklist takes OpenSCAP results, the sudo trail, the regulated-data inventory and DMARC as evidence, and a scan that never ran reads Not assessed. Prometheus exports ten more metric families plus your custom metrics. The VNC console runs noVNC 1.7.0, and the Jellyfin connector works with Jellyfin 10.12.</p>
               <p><strong>Isolation that was not isolating.</strong> The Needs-Attention digest reads about two dozen stores, and the helper that keeps its tests from contaminating each other derived that list from one function body. Six stores are reached through helpers it calls, so those six stayed pointed at a shared directory while the list read as complete. The guard walks the call graph now — a population derived from one function body is what went stale, not the rule.</p>
               <p class="hint">See <code>docs/v7.0.3.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v7.0.2 prec3dentmatters autonomy autonomous remediation refused everything no_precedent low_confidence precedent incident memory prior fix operator fix mitigation verified automation rule remediation verified require_precedent only act where this fleet has fixed the same thing before no_verified_backup requires_backup destructive restore drill backup precondition restart_networking gateway unreachable maintenance window change window gate_exec _exec_gated only inside a maintenance window did nothing shadow verdict receipts clear receipts delete receipt audited tenant scoped remount_all enable_autoupdates enable_av_realtime enable_gatekeeper shutdown_host ups critical battery graceful shutdown zpool scrub device name unit container process mount pool missing_parameter alias readonly_fs paths wuauserv windows update service twenty-six action classes allow-list ladder fleet singleton no device_id resolver_unhealthy wan_down mailflow_delayed restart_resolver removed acknowledged alert acked_at backup_state restore drill drill_status tenant isolation multi-tenancy tenancy_enforced instance settings automation rule tenant_gate saved script library shared scripts maintenance window global scope cross-tenant secure boot uefi secure_boot efi firmware unsigned kernel dkms zfs nvidia virtualbox mok enrolled key secure_boot_checks opt-in tamper protection uac pending reboot auto security update posture pill unsigned agent update release signature downgrade gzip bomb decompression scap report replay signed command canary decoy audit mode read-only tagged command shell comment mitigate acme activity feed routing kmip wrong page duplicate translation keys i18n dupe permitted actions card width filter ask ai brief redaction hostname accessibility axe skipped toast not visible invisible toast success message restart self-update systemd path unit cron windows macos file manager folder download mailbox watch push daemon websockets postgres psycopg openapi wrong url box overflow accumulator panel api key tenant autopatch tenant ups dependency inherited credentials portal csp syslog flood regex budget config drift drifted file drift binding checks row risk needs attention smart group blast radius pre-flight preflight what breaks if i restart containers watched services gdpr article 15 article 17 subject access erasure data protection request alert wall full screen alertwall wall display ops room never refreshed frozen snapshot auto-refresh countdown demo seeder demo went dark offline five minutes reseed sqlite gate storage backend eslint no-undef undefined global proxmox snapshot rollback exit code rc 127 remediation_failed receipt outcome precedent shown proxmox backup vzdump guest snapshot recoverable restore drill metric_critical snapshot_stale zfs snapshot inodes memory swap ladder maintenance window site tag smart group blank target server-provided labels event_registry notifications table translated six languages one-click link alert email expired seven days enrollment token revoke web terminal ticket single use fix button gate quarantined audit mode file integrity baseline quarantine command signing channels">
-            <summary><strong>What's new — v7.0.2 &ldquo;Prec3dentMatters&rdquo;</strong> &mdash; the autonomy loop refused every single thing it looked at, and each reason was a gate naming a cause it did not have.</summary>
-            <div class="doc-body">
-              <p><strong>Precedent could not accumulate.</strong> The loop acts only where your fleet has fixed the same thing before — and it counted an incident as a prior fix only if the record carried a <em>recommended action</em>, a field filled by AI triage and nothing else. With no AI provider configured, which is the default, confidence came out at zero however many incidents you had resolved. Worse than neutral: a resolution note you write counts double an AI-authored one, so it counted double toward the denominator and nothing toward the numerator. A fleet whose incidents people fix scored <em>lower</em> than a fleet with no memory at all.</p>
-              <p><strong>Nothing recorded a fix that worked.</strong> Two sweeps already computed exactly that and kept only the failure half: press <strong>Fix</strong> on an alert and if the alert stayed open you were told, and if it cleared, nothing happened. An automation rule&rsquo;s remediation was verified the same way and remembered just as little. Both record it now, and so do this loop&rsquo;s own verified actions. If you would rather not wait for two of them, <strong>Only act where this fleet has fixed the same thing before</strong> is now a checkbox — on by default, and unticking it accepts the curated command catalog as the plan.</p>
-              <p><strong>&ldquo;Only inside a maintenance window&rdquo; had never been evaluated.</strong> The check called a function that does not exist, behind a guard that skipped it when absent, so the ticked box did nothing. It now honours change-gated maintenance windows — and holds nothing on a host no such window covers.</p>
-              <p><strong>Two mappings aimed at the wrong thing.</strong> When an alert did not name the unit, container, process, mount point or pool, the loop fell back to the alert&rsquo;s <code>name</code> field — which every alert here uses for the <em>device</em>. An overdue scrub on <code>web01</code> built <code>zpool scrub web01</code>. That fallback is gone: an alert that does not say which thing broke now refuses with <code>missing_parameter</code>.</p>
-              <p><strong>Two more things it can do, and five it will no longer pretend to.</strong> Real-time malware protection and Gatekeeper can be switched back on. Five actions were removed, four of them added earlier in this same cycle — an adversarial review asked of each whether the alert that triggers it names a host, and whether the command can fix the state that fired it. <code>restart_resolver</code> and <code>flush_dns_cache</code> hang off a server-side DNS check that names no host; <code>enable_autoupdates</code> exits 0 having changed nothing in the state that fires it; <code>mount -a</code> skips filesystems that are already mounted, which is the stalled case the alert usually means; and the UPS shutdown targeted the machine reporting the UPS rather than the ones depending on it, routing around a path this product already has and gates on two separate opt-ins. Three more mappings went the same way, including the controller's own disk watchdog, which had the whole six-rung disk ladder attached to it.</p>
-              <p><strong>Maintenance windows can target a site, a tag or a smart group</strong> — every other targeting surface here already took that vocabulary, so patching one customer&rsquo;s site on a Saturday could not be expressed without a window per device. A blank target is rejected rather than matching nothing. And <strong>a Proxmox backup counts as recoverable</strong>: a restore drill is the strongest evidence and most fleets do not run one, so a recent vzdump archive or snapshot of the guest a host <em>is</em> now satisfies the backup precondition, judged against your own staleness thresholds.</p>
-              <p><strong>A pre-release audit of the whole project</strong> — not just this release's changes — found thirty-six issues, all fixed before release. Four ways one tenant could reach another: instance settings a tenant admin could rewrite, automation rules that carried no tenant and could run a saved script as root anywhere, a script library shared by everyone, and a <em>global</em> maintenance window that silenced every other tenant's alerts. On the agents: macOS would install an <strong>unsigned</strong> update, a report upload was capped at 30&nbsp;MB <em>compressed</em> (which bounds nothing), a signed command could be replayed while fresh, and planting a decoy file honoured neither audit mode nor signed commands. Objects created before this release keep their existing reach where assigning an owner would have been a guess, so review anything shared if you run multiple tenants.</p>
-              <p><strong>And the tests had been overstating what they proved.</strong> The SQLite gate stopped testing SQLite about a quarter of the way in, because one test cleared the backend setting and never put it back — 9,324 of 12,836 results ran on the file backend inside the run that exists to exercise SQLite. The JavaScript undefined-global check had never parsed a byte, and once sighted it immediately found a Proxmox snapshot rollback that succeeded and reported &ldquo;Failed&rdquo;. Both now carry a control that fails when they measure nothing. The <strong>demo instance</strong> also went dark five minutes after every seed, so a public demo showed most of its fleet dead within minutes.</p>
-              <p class="hint">See <code>docs/v7.0.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v7.0.1 c0llapsematters sidebar collapse rail auto-hide v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -12132,36 +12129,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.1.0-38"></script>
+<script defer src="static/js/app.js?v=7.2.0-39"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-cmdb.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-containers.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-network.js?v=7.1.0-38"></script>
+<script defer src="static/js/app-calendar.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-cmdb.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-containers.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-network.js?v=7.2.0-39"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-compliance.js?v=7.1.0-38"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-compliance.js?v=7.2.0-39"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-dns.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-drift.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-cve.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-firewall.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-backups.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-iac.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-proxmox.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-virt.js?v=7.1.0-38"></script>
+<script defer src="static/js/app-ai.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-dns.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-drift.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-cve.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-firewall.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-backups.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-iac.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-proxmox.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-virt.js?v=7.2.0-39"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-remote.js?v=7.1.0-38"></script>
-<script defer src="static/js/app-tickets.js?v=7.1.0-38"></script>
+<script defer src="static/js/app-logs.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-remote.js?v=7.2.0-39"></script>
+<script defer src="static/js/app-tickets.js?v=7.2.0-39"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.1.0-38"></script>
+<script defer src="static/js/app-self.js?v=7.2.0-39"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12171,6 +12168,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.1.0-38"></script>
+<script defer src="static/js/sw-register.js?v=7.2.0-39"></script>
 </body>
 </html>

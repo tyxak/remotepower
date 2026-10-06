@@ -61,6 +61,12 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.2.0.md](security-review-7.2.0.md)** — the v7.2.0 review,
+  scoped to the new log sensor rather than the whole project: an agent
+  summarising logs an attacker can write to, and a server turning that into
+  public reports. Eight issues, all caught before release, among them a SQL
+  pattern that matched an ordinary search and a request with raw spaces that was
+  cut at its first word.
 - **[security-review-7.1.0.md](security-review-7.1.0.md)** — the v7.1.0
   pass: eleven issues from a whole-project review plus the shipped web-server
   configuration under nmap, nikto, nuclei and wapiti. A tenant admin could
@@ -77,9 +83,10 @@ holds long-form docs that don't fit there.
   redirect; and the API reference returning 403 on every install because a
   regular-expression rule in the web-server configuration outranked the API
   prefix.
-- **[security-review-7.0.2.md](security-review-7.0.2.md)** — the v7.0.2
-  pre-release review: thirty-six issues, a whole-project pass rather than a
-  diff, and two guards found to be blind.
+- **[v7.2.0.md](v7.2.0.md)** — "Ev1denceMatters": threat intel reads your web
+  server, WAF, fail2ban and CrowdSec logs, and reports say what the address
+  actually did, once per address. Counts and fixed labels only leave the host;
+  the page shows the evidence, what was sent and which logs could not be read.
 - **[v7.1.0.md](v7.1.0.md)** — "G4tewayMatters": the front door. Reach hosts
   with your own SSH client through one gateway and no inbound port; look up,
   report and block the addresses brute-forcing them; and see both wherever a
@@ -91,15 +98,6 @@ holds long-form docs that don't fit there.
   wire; eleven places set a minimum TLS version where they meant to raise one,
   so a host hardened to TLS 1.3 was handed a context that would still speak 1.2;
   and a test helper reported isolation it was not providing.
-- **[v7.0.2.md](v7.0.2.md)** — "Prec3dentMatters": the autonomy loop refused
-  every single thing it looked at. Precedent could not accumulate (a fleet whose
-  incidents people fix scored lower than one with no memory at all), nothing
-  recorded a fix that worked, the maintenance-window gate called a function that
-  does not exist, and `no_verified_backup` was refusing actions a backup has
-  nothing to do with. Two more actions and five removed, receipts you can clear,
-  and a whole-project audit that found thirty-six security issues, config drift
-  bound to the ten features that read it, and two gates that had been reporting
-  success while measuring nothing.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

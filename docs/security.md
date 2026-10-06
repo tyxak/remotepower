@@ -33,6 +33,9 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.2.0.md](security-review-7.2.0.md) — scoped to the log sensor:
+  eight issues in an agent that reads logs an attacker can write to, and the
+  server that turns them into public reports, all caught before release.
 - [security-review-7.1.0.md](security-review-7.1.0.md) — eleven issues, among
   them a tenant admin able to change install-wide state on multi-tenant
   installs, signed alert-email links that took their address from the request,
@@ -45,8 +48,6 @@ are kept:
   operator's SSH password to a host it had not verified, two agent channels
   that ran commands in read-only mode, and an API token that could ride a
   redirect.
-- [security-review-7.0.2.md](security-review-7.0.2.md) — thirty-six issues from
-  a whole-project pass, and two guards found to be measuring nothing.
 
 Each review found real defects, and every one of them was fixed before the
 release went out.

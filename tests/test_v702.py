@@ -85,16 +85,13 @@ class TestVersionBumps(unittest.TestCase):
                  if l.startswith("## v")][0]
         self.assertTrue(first.startswith(f'## v{api.SERVER_VERSION} — "'), first)
 
-    def test_version_doc_still_exists_inside_the_keep_three_window(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
-
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary",
-                     "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_version_doc_left_the_keep_three_window(self):
+        """v7.2.0 pushed v7.0.2 out of the three kept version docs, and its
+        security review out of the three kept reviews. Their history stays in
+        CHANGELOG.md."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(),
+                         f"docs/v{V}.md should have been removed at the v7.2.0 bump")
+        self.assertFalse((_ROOT / f"docs/security-review-{V}.md").exists())
 
     def test_gen_wiki_carries_a_codename(self):
         """gen-wiki.py's Home line hardcodes the codename. Which one it is
@@ -125,24 +122,16 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
         self.assertEqual(cards[0], api.SERVER_VERSION,
                          "the new release leads")
-        # This release still has a card, and it still carries its own codename
-        # in the doc-search keywords.
-        self.assertIn(V, cards)
-        # The sneaky non-visible surface: the doc-search keyword attribute. A
-        # visible-text rename never touches it, so doc search stops matching.
-        head = html[:html.index(f"What's new — v{V}")]
-        kw = head[head.rindex('data-keywords="'):]
-        self.assertIn(CODENAME.lower(), kw.lower(),
-                      "data-keywords must carry the codename for doc search")
+        self.assertNotIn(V, cards, "v7.0.2 left the three kept cards at v7.2.0")
 
     def test_no_dangling_links_to_the_dropped_version_doc(self):
-        dropped = "v7.0.0.md"
-        for rel in ("README.md", "docs/README.md", "server/html/index.html",
-                    "docs/features.md"):
-            p = _ROOT / rel
-            if p.exists():
-                self.assertNotIn(dropped, p.read_text(),
-                                 f"{rel} still links the deleted {dropped}")
+        for dropped in ("v7.0.0.md", "v7.0.2.md", "security-review-7.0.2.md"):
+            for rel in ("README.md", "docs/README.md", "docs/security.md",
+                        "server/html/index.html", "docs/features.md"):
+                p = _ROOT / rel
+                if p.exists():
+                    self.assertNotIn(dropped, p.read_text(),
+                                     f"{rel} still links the deleted {dropped}")
 
     def test_the_all_pages_map_count_is_derived_from_the_sidebar(self):
         """The product map is built from the sidebar DOM, so the number quoted
