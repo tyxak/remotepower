@@ -155,6 +155,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v720_threat_intake.py",
         "tests/test_v720_threat_report_engine.py",
         "tests/test_v720_ipintel_page.py",
+        "tests/test_v720_threat_sensor_wire.py",
     )
 
     def test_every_guard_file_exists(self):

@@ -29,6 +29,12 @@ Medium ships — is met for what was reviewed.
   before the server accepts them, a half-written audit transaction consumed, a
   path outside `/var/log` accepted, a report per host instead of per address,
   and the evidence ledger cleared after one service took a report, among others.
+- **The whole path over real HTTP**: the agent's own sensor thread, reading real
+  files, against a real gunicorn stack, with the result read back the way the page
+  reads it (`tests/test_v720_threat_sensor_wire.py`). Authentication by device token,
+  the gates in front of the handlers and the setting that reaches the agent in a
+  heartbeat are only visible from there. It found no defect. It did show one blind
+  spot in its own checks, which a direct post of a Cloudflare address now covers.
 - **A real browser** against the seeded stack at desktop and phone width: no
   console, page or network errors, no page overflow, the new table capped.
 
