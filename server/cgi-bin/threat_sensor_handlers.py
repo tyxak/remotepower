@@ -98,7 +98,7 @@ def threat_sensor_config_for(dev):
         if not isinstance(dev, dict) or dev.get('agentless') or A._device_os_family(dev) != 'linux':
             return None
         return {'enabled': True, 'paths': list(pol.get('sensor_paths') or [])[:20]}
-    except Exception:  # nosec B110
+    except Exception:
         return None            # the heartbeat must never fail over an optional feature
 
 

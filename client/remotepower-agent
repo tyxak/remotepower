@@ -12705,8 +12705,7 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
         try:
             now = int(time.time())
             events, sources, dropped, new_state = collect_threat_events(cfg, state, now)
-            sig = hashlib.sha1(json.dumps(
-                [[s['kind'], s['path'], s['state']] for s in sources]).encode()).hexdigest()[:16]
+            sig = _stable_hash([[s['kind'], s['path'], s['state']] for s in sources])
             report = bool(events) or sig != state.get('sig') \
                 or now - int(state.get('status_at') or 0) >= THREAT_STATUS_EVERY_S
             outcome = _ts_submit(creds, events, sources, dropped, now) if report else 'ok'
