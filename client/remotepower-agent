@@ -25,6 +25,9 @@ import stat
 import tempfile
 import threading
 import asyncio
+import calendar
+import ipaddress
+import shlex
 from pathlib import Path
 from urllib import request, error, parse as urlparse
 import http.client as _http_client
@@ -11205,6 +11208,1524 @@ def _stable_hash(value):
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Threat sensor (v7.2.0)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Reads the web server, WAF, fail2ban and CrowdSec logs on THIS host and sends the
+# server a summary per source address: counts, and tokens from a fixed vocabulary
+# (server/cgi-bin/threat_evidence.py owns it). Log lines, request paths, host
+# names and user names never leave the host. The server decides what a summary is
+# worth, so what this code decides is only WHAT was seen.
+#
+# It runs in a thread of its own: a slow or broken log can never delay a
+# heartbeat. Linux only: the server sends `threat_sensor` to Linux agents and to
+# nothing else. Every path is read through host_path(), so a containerized agent
+# reads its Docker host's logs.
+#
+# What it will not do: execute, follow or interpret anything in a log. Lines are
+# matched against fixed patterns and dropped; an attacker controls every byte of
+# a request line, so nothing here builds a command, a path or a pattern from one.
+
+THREAT_EVERY_S = 60               # a pass at most this often
+THREAT_STATUS_EVERY_S = 600       # a quiet pass still reports source health this often
+THREAT_FIRST_READ = 2_000_000     # a log seen for the first time is read from its last 2 MB
+THREAT_READ_CAP = 8_000_000       # bytes of one log per pass
+THREAT_WINDOW = 1_000_000         # bytes parsed between budget checks
+THREAT_BUDGET_S = 5.0             # parsing time per pass; the rest waits for the next one
+THREAT_LOOKBACK_S = 6 * 3600      # older lines are not evidence
+THREAT_MAX_EVENTS = 300           # addresses per submission
+THREAT_MIN_HITS = 3               # hostile requests before a plain web address is sent
+THREAT_MAX_LINE = 8192
+THREAT_DISCOVER_S = 600
+THREAT_CONF_FILES = 150
+THREAT_CONF_BYTES = 1_000_000
+THREAT_STATE_FILE = STATE_DIR / 'threat-sensor-state.json'
+THREAT_LOG_ROOT = '/var/log'
+
+_TS_MONTHS = {m: i for i, m in enumerate(
+    ('jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'), 1)}
+
+
+# ── addresses and times ────────────────────────────────────────────────────────
+
+def _ts_ip(value):
+    """The address as a string when it is globally routable unicast, else None.
+    Private, loopback and reserved sources are somebody's own network."""
+    s = str(value or '').strip().strip('[]')
+    if not s or len(s) > 45:
+        return None
+    try:
+        a = ipaddress.ip_address(s)
+    except ValueError:
+        return None
+    if getattr(a, 'ipv4_mapped', None):
+        a = a.ipv4_mapped
+    if not a.is_global or a.is_multicast:
+        return None
+    return str(a)
+
+
+def _ts_clock_ok(d, hh, mm, ss):
+    """True for a day and a time of day that exist. calendar.timegm and mktime
+    both accept 99:00:00 and carry it into the next day instead of refusing."""
+    try:
+        return 1 <= int(d) <= 31 and 0 <= int(hh) < 24 and 0 <= int(mm) < 60 and 0 <= int(ss) < 62
+    except (TypeError, ValueError):
+        return False
+
+
+def _ts_mktime(y, mo, d, hh, mm, ss):
+    """Epoch for a LOCAL wall-clock time (logs without a zone are in the host's)."""
+    if not (mo and 1 <= int(mo) <= 12 and _ts_clock_ok(d, hh, mm, ss)):
+        return 0
+    try:
+        return int(time.mktime((int(y), int(mo), int(d), int(hh), int(mm), int(ss), 0, 0, -1)))
+    except (ValueError, OverflowError):
+        return 0
+
+
+_TS_TIME_LOCAL_RE = re.compile(
+    r'(\d{1,2})/([A-Za-z]{3})/(\d{4}):(\d\d):(\d\d):(\d\d)(?: ([+-])(\d\d)(\d\d))?')
+_TS_ISO_RE = re.compile(
+    r'(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:[.,]\d+)?(Z|[+-]\d\d:?\d\d)?')
+_TS_NGX_ERR_TIME_RE = re.compile(r'(\d{4})/(\d\d)/(\d\d) (\d\d):(\d\d):(\d\d)')
+_TS_APC_ERR_TIME_RE = re.compile(
+    r'\[\w{3} (\w{3}) (\d{1,2}) (\d\d):(\d\d):(\d\d)(?:\.\d+)? (\d{4})\]')
+_TS_CTIME_RE = re.compile(
+    r'\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d\d):(\d\d):(\d\d)\s+(\d{4})')
+
+
+def _ts_time_local(s):
+    """`05/Oct/2026:12:00:00 +0200` (nginx $time_local, Apache %t) -> epoch, or 0.
+    The month is read from a table, not strptime: %b follows the locale."""
+    m = _TS_TIME_LOCAL_RE.match(str(s or '').strip().lstrip('['))
+    if not m:
+        return 0
+    mo = _TS_MONTHS.get(m.group(2).lower())
+    if not mo or not _ts_clock_ok(m.group(1), m.group(4), m.group(5), m.group(6)):
+        return 0
+    try:
+        t = calendar.timegm((int(m.group(3)), mo, int(m.group(1)),
+                             int(m.group(4)), int(m.group(5)), int(m.group(6))))
+    except (ValueError, OverflowError):
+        return 0
+    if m.group(7):
+        off = int(m.group(8)) * 3600 + int(m.group(9)) * 60
+        t -= off if m.group(7) == '+' else -off
+    return t
+
+
+def _ts_time_iso(s, local=False):
+    """`2026-10-05T12:00:00Z` / `+02:00` / no zone -> epoch, or 0. A time with no
+    zone is the host's local time when `local`, else UTC."""
+    m = _TS_ISO_RE.match(str(s or '').strip())
+    if not m:
+        return 0
+    y, mo, d, hh, mi, ss, tz = m.groups()
+    if not (1 <= int(mo) <= 12 and _ts_clock_ok(d, hh, mi, ss)):
+        return 0
+    if not tz and local:
+        return _ts_mktime(y, mo, d, hh, mi, ss)
+    try:
+        t = calendar.timegm((int(y), int(mo), int(d), int(hh), int(mi), int(ss)))
+    except (ValueError, OverflowError):
+        return 0
+    if tz and tz != 'Z':
+        sign = 1 if tz[0] == '+' else -1
+        digits = tz[1:].replace(':', '')
+        t -= sign * (int(digits[:2]) * 3600 + int(digits[2:4]) * 60)
+    return t
+
+
+def _ts_time_ctime(s):
+    """`Mon Oct  5 12:00:00 2026` (ModSecurity's JSON audit stamp), local time."""
+    m = _TS_CTIME_RE.search(str(s or ''))
+    if not m:
+        return 0
+    mo = _TS_MONTHS.get(m.group(1).lower())
+    return _ts_mktime(m.group(6), mo, m.group(2), m.group(3), m.group(4), m.group(5)) if mo else 0
+
+
+# ── what a hostile request looks like ──────────────────────────────────────────
+#
+# Conservative on purpose. A request that matches here is counted against its
+# source address and may, with enough of them, end up in a public report, so the
+# patterns name things a legitimate visitor does not ask for. The cost of a miss
+# is one fewer report; the cost of a false match is a report about a customer.
+# Anything that real sites serve (an admin tool, /cgi-bin/, /server-status) only
+# counts when the server REFUSED it: an operator reaching their own phpMyAdmin
+# gets a page, a scanner probing for one gets a 404.
+
+_TS_RE_TRAVERSAL = re.compile(
+    r'\.\./|\.\.\\|\.\.;/|/etc/(?:passwd|shadow|group|hosts)\b|/proc/self/|c:\\windows|'
+    r'boot\.ini|win\.ini|php://(?:filter|input)|file:///|expect://', re.I)
+
+_TS_RE_SQLI = re.compile(
+    r"union(?:\s|\+|/\*.{0,40}?\*/)+(?:all(?:\s|\+)+)?select(?:\s|\+|/\*.{0,40}?\*/)+"
+    r"(?:null|\d|@@|\*|[\w.]+\(|[\w.`\"]+(?:\s|\+)*,)|"
+    r"select(?:\s|\+|/\*.{0,40}?\*/)+(?:\*|@@\w+|user\(|version\(|database\(|char\(|concat\()|"
+    r"information_schema|\bor(?:\s|\+)+\d+(?:\s|\+)*=(?:\s|\+)*\d+|"
+    r"'(?:\s|\+)*or(?:\s|\+)*'?\d|sleep\((?:\s)*\d|benchmark\(|waitfor(?:\s|\+)+delay|"
+    r"load_file\(|into(?:\s|\+)+(?:out|dump)file|xp_cmdshell|"
+    r";(?:\s|\+)*(?:drop|insert|update|delete)(?:\s|\+)|extractvalue\(|updatexml\(|pg_sleep\(", re.I)
+
+_TS_RE_XSS = re.compile(
+    r'<script|</script|javascript:|vbscript:|onerror\s*=|onload\s*=|onmouseover\s*=|'
+    r'<svg[\s/>]|<iframe|alert\s*\(|document\.cookie', re.I)
+
+_TS_RE_RCE = re.compile(
+    r'\$\{jndi:|\$\{(?:\w+:)+|\$\{env:|/bin/(?:ba)?sh\b|;\s*(?:wget|curl|nc|bash|sh)\s|'
+    r'\|\s*(?:sh|bash)\b|\b(?:cmd|powershell)(?:\.exe)?\s*(?:/c|-c|-enc)|base64\s*-d|'
+    r'\beval\s*\(|\bassert\s*\(|\bpassthru\s*\(|shell_exec\s*\(|\bsystem\s*\(|\bpopen\s*\(|'
+    r'allow_url_include|auto_prepend_file|\(\)\s*\{\s*:\s*;\s*\}|class\.module\.classloader|'
+    r'/vendor/phpunit/.{0,80}eval-stdin\.php|/_ignition/execute-solution|'
+    r'/actuator/(?:env|heapdump|gateway|jolokia)|/solr/.{0,60}(?:dataimport|runexecutablelistener)|'
+    r'/containers/json|/api/jsonws/invoke|/hudson/script|/script\?script=|/boaform/|/hnap1|'
+    r'/gponform/|/setup\.cgi|/cgi-bin/luci|/ecp/current/exporttool|'
+    r'/autodiscover/autodiscover\.json\?.{0,40}@|/mgmt/tm/util/bash|/vpns/portal/scripts|'
+    r'/wls-wsat/|/_async/asyncresponseservice|/uddiexplorer/|/ws_utc/', re.I)
+
+# Sensitive files and leftovers nobody legitimately requests, whatever the answer.
+_TS_RE_PROBE = re.compile(
+    r'/\.(?:env|git|svn|hg|ds_store|aws|ssh|bash_history|htpasswd|npmrc|docker|kube|vscode|idea|'
+    r'gitlab-ci\.yml|travis\.yml)(?:[/.?]|$)|'
+    r'/wp-config(?:\.php)?(?:\.|~|$)|'
+    r'\.(?:bak|old|orig|save|swp|sql|dump)(?:$|\?)|'
+    r'/(?:backup|backups|db|dump|database|site|www|wwwroot|web|public_html|html|htdocs)\.'
+    r'(?:zip|tar|tgz|gz|7z|rar|sql)(?:$|\?)|'
+    r'/composer\.(?:json|lock)(?:$|\?)|/wp-admin/(?:setup-config|install)\.php|'
+    r'/wp-content/plugins/[^/]+/(?:readme|changelog)\.txt|[?&]author=\d+(?:$|&)|'
+    r'/(?:id_rsa|id_dsa|authorized_keys)(?:$|\?)|/(?:sftp|ftp)-config\.json|/\.dockerenv|'
+    r'/phpunit\.xsd', re.I)
+
+# Things a real site may serve: only a refusal marks the visitor as probing.
+_TS_RE_PROBE_REFUSED = re.compile(
+    r'/(?:phpmyadmin\d*|pma|myadmin|mysqladmin|dbadmin|adminer|sqlmanager|websql)'
+    r'(?:/(?:index\.php)?)?(?:$|\?)|'
+    r'/(?:phpinfo|info|test|i|pi|php)\.php(?:$|\?)|/server-(?:status|info)(?:$|[/?])|'
+    r'/cgi-bin/|/jmx-console|/admin/config\.php|/manager/html|/actuator(?:$|[/?])|'
+    r'/_profiler|/debug/default/view|/telescope(?:$|[/?])|/solr/', re.I)
+
+_TS_RE_LOGIN = re.compile(
+    r'/(?:wp-login\.php|xmlrpc\.php|administrator/index\.php|user/login|users/sign_in|'
+    r'admin/login(?:\.php)?|admin\.php|login(?:\.php|\.aspx|\.jsp|\.do)?|signin|'
+    r'j_security_check|auth/login|api/auth/login|api/login|account/login)(?:$|\?|/)', re.I)
+
+# Attack tools by name. Research crawlers (Shodan, Censys) and generic HTTP
+# clients are left out: reporting those is a policy choice, not detection.
+_TS_RE_SCANNER_UA = re.compile(
+    r'sqlmap|nikto|nessus|openvas|acunetix|netsparker|wpscan|nmap(?:\s|/|$)|masscan|zgrab|'
+    r'gobuster|dirbuster|dirb/|feroxbuster|ffuf|wfuzz|nuclei|burp(?:suite)?|havij|jaeles|hydra|'
+    r'metasploit|w3af|skipfish|arachni|whatweb|l9explore|l9tcpid', re.I)
+
+_TS_ANSWERABLE = ('probe', 'rce', 'sqli', 'traversal', 'xss')
+
+
+def _ts_decode(uri):
+    """The request target, percent-decoded up to twice (attackers double-encode)
+    and lowercased. Bounded: a long target is cut before any pattern sees it."""
+    s = str(uri or '')[:2048]
+    for _ in range(2):
+        try:
+            d = urlparse.unquote(s)
+        except Exception:
+            break
+        if d == s:
+            break
+        s = d
+    return s.lower()
+
+
+def _ts_classify(method, uri, status, ua=''):
+    """The kinds of hostile request this was: a tuple of 0-2 of 'rce', 'sqli',
+    'traversal', 'xss', 'login', 'probe', 'flood' (one, the most serious) and
+    'scanner' (when the User-Agent names an attack tool)."""
+    method = str(method or '').upper()
+    try:
+        status = int(status or 0)
+    except (TypeError, ValueError):
+        status = 0
+    u = _ts_decode(uri)
+    kind = None
+    if _TS_RE_RCE.search(u):
+        kind = 'rce'
+    elif _TS_RE_SQLI.search(u):
+        kind = 'sqli'
+    elif _TS_RE_TRAVERSAL.search(u):
+        kind = 'traversal'
+    elif _TS_RE_XSS.search(u):
+        kind = 'xss'
+    elif method == 'POST' and _TS_RE_LOGIN.match(u) and not 300 <= status < 400:
+        kind = 'login'
+    elif _TS_RE_PROBE.search(u):
+        kind = 'probe'
+    elif method == 'CONNECT' or u.startswith(('http://', 'https://', 'ftp://')):
+        kind = 'probe'     # asking this server to proxy: probing for an open proxy
+    elif status in (400, 403, 404, 405, 410, 444) and _TS_RE_PROBE_REFUSED.search(u):
+        kind = 'probe'
+    elif status == 429:
+        kind = 'flood'
+    kinds = [kind] if kind else []
+    if ua and _TS_RE_SCANNER_UA.search(str(ua)[:300]):
+        kinds.append('scanner')
+    return tuple(kinds)
+
+
+# ── finding the logs: the web server's own configuration ──────────────────────
+#
+# The log files and their line layout are whatever the server's config says they
+# are, so the config is read rather than guessed at. nginx's `access_log` and
+# `log_format`, Apache's `CustomLog` and `LogFormat`, and ModSecurity's
+# `SecAuditLog` name the files; the format strings are turned into line parsers
+# further down, which is how a custom layout is read without anyone teaching the
+# agent about it.
+
+def _ts_nginx_statements(text):
+    """[(directive, [args])] for every directive in an nginx-style config, however
+    deeply nested. Quotes, escapes and comments are honoured; blocks are walked
+    into and not kept, because only the directives matter."""
+    out, cur, i, n = [], [], 0, len(text)
+    while i < n and len(out) < 20000:
+        c = text[i]
+        if c in ' \t\r\n':
+            i += 1
+        elif c == '#':
+            while i < n and text[i] != '\n':
+                i += 1
+        elif c in '{}':
+            cur = []
+            i += 1
+        elif c == ';':
+            if cur:
+                out.append((cur[0], cur[1:]))
+            cur = []
+            i += 1
+        elif c in '\'"':
+            j, buf = i + 1, []
+            while j < n and text[j] != c:
+                if text[j] == '\\' and j + 1 < n and text[j + 1] in '\\\'"':
+                    buf.append(text[j + 1])
+                    j += 2
+                else:
+                    buf.append(text[j])
+                    j += 1
+            cur.append(''.join(buf))
+            i = j + 1
+        else:
+            j = i
+            while j < n and text[j] not in ' \t\r\n;{}\'"':
+                j += 1
+            cur.append(text[i:j])
+            i = j
+    return out
+
+
+def _ts_apache_statements(text):
+    """[(directive, [args])] from an Apache-style config (also ModSecurity's)."""
+    out = []
+    joined = text.replace('\\\r\n', ' ').replace('\\\n', ' ')
+    for raw in joined.split('\n')[:20000]:
+        line = raw.strip()
+        if not line or line.startswith(('#', '<')):
+            continue
+        try:
+            parts = shlex.split(line, comments=True)
+        except ValueError:
+            continue
+        if parts:
+            out.append((parts[0], parts[1:]))
+    return out
+
+
+_TS_INCLUDES = ('include', 'includeoptional', 'modsecurity_rules_file')
+_TS_APACHE_KEYWORDS = ('customlog', 'errorlog', 'logformat', 'include', 'secauditlog',
+                       'remoteipheader')
+
+
+def _ts_conf_statements(roots):
+    """[(directive, args, kind)] from each (path, kind) root and what it includes,
+    kind being 'nginx' or 'apache'. ModSecurity's files are Apache syntax whichever
+    server includes them. Bounded in files, size and depth."""
+    seen, out, files = set(), [], 0
+    queue = [(p, k, 0, d) for p, k, d in roots]
+    while queue and files < THREAT_CONF_FILES:
+        path, kind, depth, base = queue.pop(0)
+        if path in seen:
+            continue
+        seen.add(path)
+        text = _safe_read(path, THREAT_CONF_BYTES)
+        if not text:
+            continue
+        # A rule set is thousands of lines that name nothing we want.
+        if kind == 'apache' and depth and not any(k in text.lower() for k in _TS_APACHE_KEYWORDS):
+            continue
+        files += 1
+        for name, args in (_ts_nginx_statements(text) if kind == 'nginx'
+                           else _ts_apache_statements(text)):
+            out.append((name, args, kind))
+            low = name.lower()
+            if args and depth < 5 and low in _TS_INCLUDES:
+                pat = args[0]
+                if not pat.startswith('/'):
+                    pat = os.path.join(base, pat)
+                for m in sorted(host_glob(pat))[:60]:
+                    if m not in seen:
+                        queue.append((m, 'apache' if low == 'modsecurity_rules_file' else kind,
+                                      depth + 1, base))
+    return out
+
+
+_TS_NGX_COMBINED = ('$remote_addr - $remote_user [$time_local] "$request" $status '
+                    '$body_bytes_sent "$http_referer" "$http_user_agent"')
+_TS_APC_COMBINED = '%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"'
+_TS_APC_FORMATS = {
+    'common': '%h %l %u %t "%r" %>s %b',
+    'combined': _TS_APC_COMBINED,
+}
+
+
+def _ts_expand_path(target, apache_root=''):
+    """A log path from a config, with the variables a path may carry turned into
+    wildcards, as the list of files that exist for it."""
+    t = str(target or '').replace('${APACHE_LOG_DIR}', '/var/log/apache2')
+    if (t.startswith(('|', '"|', '/dev/')) or t.lower().startswith(('syslog', 'stderr', 'stdout'))):
+        return []
+    if not t.startswith('/'):
+        t = os.path.join(apache_root or '/etc/apache2', t)
+    t = re.sub(r'\$\{?\w+\}?|%\{[^}]*\}\w|%[A-Za-z]', '*', t)
+    if '*' in t or '?' in t or '[' in t:
+        return sorted(host_glob(t))[:30]
+    return [t]
+
+
+def _ts_log_sources(stmts, apache_root=''):
+    """From the directives: (access logs [(path, spec)], error logs [(path, kind)],
+    ModSecurity audit log path or '', whether a proxy's real address is restored).
+    A spec says how to read the lines: {'kind': 'nginx'|'apache', 'format': str,
+    'json': bool}."""
+    ngx_formats = {'combined': {'fmt': _TS_NGX_COMBINED, 'json': False}}
+    apc_formats = dict(_TS_APC_FORMATS)
+    access, errors, audit, proxied = [], [], '', False
+    for name, args, kind in stmts:
+        low = name.lower()
+        if kind == 'nginx':
+            if low == 'log_format' and len(args) >= 2:
+                ngx_formats[args[0]] = {
+                    'fmt': ''.join(a for a in args[1:] if not a.startswith('escape=')),
+                    'json': 'escape=json' in args[1:]}
+            elif low == 'access_log' and args and args[0] != 'off':
+                fname = args[1] if len(args) > 1 and '=' not in args[1] and args[1] != 'gzip' else 'combined'
+                access.append((args[0], ('nginx', fname)))
+            elif low == 'error_log' and args:
+                errors.append((args[0], 'nginx'))
+            elif low in ('real_ip_header', 'set_real_ip_from'):
+                proxied = True
+        else:
+            if low == 'logformat' and len(args) >= 2:
+                apc_formats[args[1]] = args[0]
+            elif low == 'customlog' and args:
+                access.append((args[0], ('apache', args[1] if len(args) > 1 else 'common')))
+            elif low == 'errorlog' and args:
+                errors.append((args[0], 'apache'))
+            elif low in ('remoteipheader', 'remoteiptrustedproxy'):
+                proxied = True
+            elif low == 'secauditlog' and args:
+                audit = args[0]
+    specs = []
+    for target, (kind, fname) in access:
+        if kind == 'nginx':
+            f = ngx_formats.get(fname) or ngx_formats['combined']
+            spec = {'kind': 'nginx', 'format': f['fmt'], 'json': f['json']}
+        else:
+            fmt = apc_formats.get(fname) or (fname if '%' in fname else _TS_APC_COMBINED)
+            spec = {'kind': 'apache', 'format': fmt, 'json': False}
+        specs.append((target, spec))
+    return specs, errors, audit, proxied
+
+
+_TS_DEFAULT_ACCESS = (
+    ('/var/log/nginx/access.log', {'kind': 'nginx', 'format': _TS_NGX_COMBINED, 'json': False}),
+    ('/var/log/apache2/access.log', {'kind': 'apache', 'format': _TS_APC_COMBINED, 'json': False}),
+    ('/var/log/apache2/other_vhosts_access.log', {
+        'kind': 'apache', 'json': False,
+        'format': '%v:%p %h %l %u %t "%r" %>s %O "%{Referer}i" "%{User-Agent}i"'}),
+    ('/var/log/httpd/access_log', {'kind': 'apache', 'format': _TS_APC_COMBINED, 'json': False}),
+)
+_TS_DEFAULT_ERRORS = (
+    ('/var/log/nginx/error.log', 'nginx'), ('/var/log/apache2/error.log', 'apache'),
+    ('/var/log/httpd/error_log', 'apache'),
+)
+_TS_DEFAULT_AUDIT = (
+    '/var/log/modsec_audit.log', '/var/log/modsecurity/modsec_audit.log',
+    '/var/log/apache2/modsec_audit.log', '/var/log/httpd/modsec_audit.log',
+    '/var/log/nginx/modsec_audit.log',
+)
+
+
+def _ts_exists(path):
+    try:
+        return os.path.exists(host_path(path))
+    except (OSError, ValueError):
+        return False
+
+
+def _ts_operator_path(p):
+    """An extra log path the SERVER asked for, or None. It must be a regular file
+    that really lives under /var/log: this is the one path in the sensor that
+    arrives over the network, so it is held to the narrowest rule."""
+    if not isinstance(p, str) or not p.startswith('/') or '\x00' in p or len(p) > 300:
+        return None
+    root = os.path.realpath(host_path(THREAT_LOG_ROOT))
+    real = os.path.realpath(host_path(p))
+    if not (real == root or real.startswith(root + os.sep)) or not os.path.isfile(real):
+        return None
+    return unhost_path(real)
+
+
+def _ts_kind_of(path):
+    """Which reader an operator-supplied file needs, from its name."""
+    n = os.path.basename(path).lower()
+    if 'modsec' in n or 'audit' in n:
+        return 'waf'
+    if 'fail2ban' in n:
+        return 'f2b'
+    if 'error' in n:
+        return 'err'
+    return 'web'
+
+
+def _ts_f2b_logtarget():
+    """fail2ban's log file, or '' when it logs somewhere a file reader cannot go."""
+    for conf in ('/etc/fail2ban/fail2ban.local', '/etc/fail2ban/fail2ban.conf'):
+        m = re.search(r'^\s*logtarget\s*=\s*(\S+)', _safe_read(conf, 200_000), re.M)
+        if m:
+            v = m.group(1)
+            return v if v.startswith('/') else ''
+    return '/var/log/fail2ban.log'
+
+
+def _ts_discover(cfg, now):
+    """What there is to read on this host. The caller caches it for
+    THREAT_DISCOVER_S: configs change rarely and reading them is not free."""
+    roots = []
+    if _ts_exists('/etc/nginx/nginx.conf'):
+        roots.append(('/etc/nginx/nginx.conf', 'nginx', '/etc/nginx'))
+    apache_root = ''
+    for root, conf in (('/etc/apache2', '/etc/apache2/apache2.conf'),
+                       ('/etc/httpd', '/etc/httpd/conf/httpd.conf')):
+        if _ts_exists(conf):
+            roots.append((conf, 'apache', root))
+            apache_root = root
+            break
+    for p in ('/etc/modsecurity/modsecurity.conf', '/etc/nginx/modsec/modsecurity.conf',
+              '/etc/modsecurity.d/modsecurity.conf'):
+        if _ts_exists(p):
+            roots.append((p, 'apache', '/etc/nginx'))
+    specs, errors, audit, proxied = _ts_log_sources(_ts_conf_statements(roots), apache_root)
+
+    web, err, waf, f2b, seen = [], [], [], [], set()
+
+    def add(bucket, entry):
+        key = os.path.realpath(host_path(entry['path']))
+        if key not in seen:
+            seen.add(key)
+            bucket.append(entry)
+
+    for target, spec in specs:
+        for p in _ts_expand_path(target, apache_root):
+            add(web, {'path': p, 'spec': spec, 'configured': True})
+    for target, kind in errors:
+        for p in _ts_expand_path(target, apache_root):
+            add(err, {'path': p, 'kind': kind, 'configured': True})
+    if audit:
+        for p in _ts_expand_path(audit, apache_root):
+            add(waf, {'path': p, 'configured': True})
+    # What a stock install has, when the config did not say. Only files that exist
+    # are listed, so a host without Apache is not reported as missing Apache.
+    for p, spec in _TS_DEFAULT_ACCESS:
+        if _ts_exists(p):
+            add(web, {'path': p, 'spec': spec, 'configured': False})
+    for p, kind in _TS_DEFAULT_ERRORS:
+        if _ts_exists(p):
+            add(err, {'path': p, 'kind': kind, 'configured': False})
+    for p in _TS_DEFAULT_AUDIT:
+        if _ts_exists(p):
+            add(waf, {'path': p, 'configured': False})
+    target = _ts_f2b_logtarget()
+    if target:
+        if _ts_exists(target):
+            add(f2b, {'path': target, 'configured': True})
+    elif _which('fail2ban-client'):
+        f2b.append({'path': '', 'configured': True, 'unsupported': True})
+    for p in list((cfg or {}).get('paths') or [])[:20]:
+        real = _ts_operator_path(p)
+        if not real:
+            continue
+        kind = _ts_kind_of(real)
+        if kind == 'web':
+            add(web, {'path': real, 'spec': None, 'configured': True})
+        elif kind == 'err':
+            add(err, {'path': real, 'kind': 'nginx' if 'nginx' in real else 'apache', 'configured': True})
+        elif kind == 'waf':
+            add(waf, {'path': real, 'configured': True})
+        else:
+            add(f2b, {'path': real, 'configured': True})
+    return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b,
+            'cs': bool(_which('cscli')) and not IN_CONTAINER, 'proxied': bool(proxied)}
+
+
+# ── turning a log format into a line parser ───────────────────────────────────
+#
+# Each `$variable` (nginx) or `%x` (Apache) becomes the pattern for what it
+# prints, and the text between them is matched literally. Only the pieces the
+# sensor needs get a name: the client address, the time, the request, the status
+# and the User-Agent; everything else is matched and dropped. A format that does
+# not print an address, a status and a request cannot be read, and says so.
+
+_TS_QUOTED = r'(?:[^"\\]|\\.)*'
+_TS_NGX_VAR = re.compile(r'\$(?:\{(\w+)\}|(\w+))')
+_TS_NGX_VARS = {
+    'remote_addr': ('ip', r'[0-9A-Fa-f:.]{2,45}'),
+    'time_local': ('ts', r'[^\]"]+'),
+    'time_iso8601': ('ts', r'\S+'),
+    'request': ('req', _TS_QUOTED),
+    'request_method': ('method', r'[A-Za-z]+'),
+    'request_uri': ('uri', r'\S*'),
+    'uri': ('uri', r'\S*'),
+    'status': ('status', r'\d{3}'),
+    'http_user_agent': ('ua', _TS_QUOTED),
+}
+_TS_NGX_NUMERIC = frozenset((
+    'body_bytes_sent', 'bytes_sent', 'request_length', 'request_time', 'connection',
+    'connection_requests', 'pid', 'msec', 'server_port', 'remote_port'))
+_TS_APC_DIRECTIVE = re.compile(r'%(?:!?\d{3}(?:,\d{3})*)?[<>]?(?:\{([^}]*)\})?([A-Za-z%])')
+
+
+def _ts_unknown_pattern(prev_lit, next_lit, name=''):
+    """What an unknown variable may print, judged from what surrounds it."""
+    if name.startswith('http_') and (prev_lit.endswith('"') or next_lit.startswith('"')):
+        return _TS_QUOTED
+    first = next_lit[:1]
+    if first == ' ':
+        return r'\S*'
+    if first in ('"', ']', "'"):
+        return r'[^"\]]*'
+    return r'.*?' if next_lit else r'.*'
+
+
+def _ts_named(group, pat, seen):
+    """A named group the first time `group` appears, a plain one after (Python
+    refuses a name used twice)."""
+    if group and group not in seen:
+        seen.add(group)
+        return f'(?P<{group}>{pat})'
+    return f'(?:{pat})'
+
+
+def _ts_ngx_regex(fmt):
+    """Compiled line pattern for an nginx log_format string, or None when it
+    cannot identify who asked for what."""
+    parts, pos = [], 0
+    for m in _TS_NGX_VAR.finditer(fmt):
+        parts.append(('lit', fmt[pos:m.start()]))
+        parts.append(('var', m.group(1) or m.group(2)))
+        pos = m.end()
+    parts.append(('lit', fmt[pos:]))
+    seen, out = set(), []
+    for i, (kind, val) in enumerate(parts):
+        if kind == 'lit':
+            out.append(re.escape(val))
+            continue
+        prev_lit = parts[i - 1][1] if i else ''
+        next_lit = parts[i + 1][1] if i + 1 < len(parts) else ''
+        group, pat = _TS_NGX_VARS.get(val, (None, None))
+        if pat is None:
+            pat = r'\S+' if val in _TS_NGX_NUMERIC else _ts_unknown_pattern(prev_lit, next_lit, val)
+        out.append(_ts_named(group, pat, seen))
+    if not ({'ip', 'status'} <= seen and ('req' in seen or {'method', 'uri'} <= seen)):
+        return None
+    try:
+        return re.compile('^' + ''.join(out))
+    except re.error:
+        return None
+
+
+def _ts_apc_regex(fmt):
+    """The same for an Apache LogFormat string."""
+    parts, pos = [], 0
+    for m in _TS_APC_DIRECTIVE.finditer(fmt):
+        parts.append(('lit', fmt[pos:m.start()]))
+        parts.append(('var', (m.group(2), m.group(1) or '')))
+        pos = m.end()
+    parts.append(('lit', fmt[pos:]))
+    seen, out = set(), []
+    for i, (kind, val) in enumerate(parts):
+        if kind == 'lit':
+            out.append(re.escape(val))
+            continue
+        letter, param = val
+        prev_lit = parts[i - 1][1] if i else ''
+        next_lit = parts[i + 1][1] if i + 1 < len(parts) else ''
+        quoted = prev_lit.endswith('"')
+        if letter == '%':
+            out.append(re.escape('%'))
+        elif letter in ('a', 'h'):
+            out.append(_ts_named('ip', r'[0-9A-Fa-f:.]{2,45}', seen))
+        elif letter == 't':
+            out.append(r'\[' + _ts_named('ts', r'[^\]]+', seen) + r'\]')
+        elif letter == 'r':
+            out.append(_ts_named('req', _TS_QUOTED, seen))
+        elif letter == 's':
+            out.append(_ts_named('status', r'\d{3}', seen))
+        elif letter == 'i' and param.lower() == 'user-agent':
+            out.append(_ts_named('ua', _TS_QUOTED, seen))
+        elif letter in ('i', 'e', 'n', 'C', 'o'):
+            out.append(_TS_QUOTED if quoted else r'\S*')
+        elif letter == 'q':
+            out.append(r'\S*')
+        else:
+            out.append(r'\S+')
+    if not ({'ip', 'status', 'req'} <= seen):
+        return None
+    try:
+        return re.compile('^' + ''.join(out))
+    except re.error:
+        return None
+
+
+def _ts_split_request(req):
+    """(METHOD, target) from a logged request line. The target is everything
+    between the method and a trailing HTTP/x.y, spaces included: a payload sent
+    as `GET /?id=1 union select ... HTTP/1.1` with raw spaces is still looked at
+    whole, not cut at its first word."""
+    parts = str(req or '').split(' ')
+    if len(parts) < 2 or not parts[0].isalpha() or len(parts[0]) > 10:
+        return '', ''
+    end = len(parts) - 1 if len(parts) >= 3 and parts[-1].startswith('HTTP/') else len(parts)
+    return parts[0].upper(), ' '.join(parts[1:end])[:2048]
+
+
+def _ts_record(g):
+    """The few fields the sensor uses, from a parsed line's named groups."""
+    method, uri = str(g.get('method') or ''), str(g.get('uri') or '')
+    req = g.get('req')
+    if req is not None and not uri:
+        method, uri = _ts_split_request(req)
+    try:
+        status = int(g.get('status') or 0)
+    except (TypeError, ValueError):
+        status = 0
+    stamp = str(g.get('ts') or '')
+    return {'ip': g.get('ip'), 'ts': _ts_time_local(stamp) or _ts_time_iso(stamp),
+            'method': method.upper(), 'uri': uri, 'status': status,
+            'ua': str(g.get('ua') or '')}
+
+
+_TS_GENERIC_RE = re.compile(r'"([A-Za-z]{3,10} [^"]{1,2048}?)" (\d{3})(?=\s|$)')
+
+
+def _ts_generic_access(line):
+    """A tolerant reader for a layout nothing else matched: the quoted request
+    line, the status after it, the first thing before it that is an address, and
+    the last quoted field as the User-Agent."""
+    m = _TS_GENERIC_RE.search(line)
+    if not m:
+        return None
+    head = line[:m.start()]
+    ip = None
+    for tok in head.split()[:6]:
+        try:
+            ipaddress.ip_address(tok.strip('[]'))
+        except ValueError:
+            continue
+        ip = tok.strip('[]')
+        break
+    if not ip:
+        return None
+    stamp = re.search(r'\[([^\]]+)\]', head)
+    quoted = re.findall(r'"([^"]*)"', line[m.end():])
+    method, uri = _ts_split_request(m.group(1))
+    return {'ip': ip, 'ts': _ts_time_local(stamp.group(1)) if stamp else 0,
+            'method': method, 'uri': uri, 'status': int(m.group(2)),
+            'ua': quoted[-1] if quoted else ''}
+
+
+def _ts_json_access(line):
+    """One access-log record per line, as nginx writes with `escape=json`."""
+    if not line.startswith('{'):
+        return None
+    try:
+        d = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(d, dict):
+        return None
+
+    def get(*keys):
+        for k in keys:
+            if d.get(k) not in (None, ''):
+                return d[k]
+        return ''
+    stamp = str(get('time_iso8601', '@timestamp', 'time', 'timestamp', 'time_local'))
+    rec = _ts_record({
+        'ip': str(get('remote_addr', 'client_ip', 'clientip', 'ip', 'remoteip', 'src_ip')),
+        'req': get('request'), 'method': get('request_method', 'method', 'verb'),
+        'uri': get('request_uri', 'uri', 'path', 'url'),
+        'status': get('status', 'response_code', 'http_status'),
+        'ua': get('http_user_agent', 'user_agent', 'ua', 'agent'), 'ts': stamp})
+    return rec if rec['ip'] and rec['status'] else None
+
+
+_TS_RX_CACHE = {}
+_TS_COMBINED_RE = _ts_ngx_regex(_TS_NGX_COMBINED)
+
+
+def _ts_access_parser(spec):
+    """(name, parse) for a log. `parse(line)` gives a record or None. The server's
+    own format comes first, so a custom layout is read as it is written; the
+    standard combined layout and a tolerant reader cover whatever it misses."""
+    spec = spec if isinstance(spec, dict) else None
+    if spec and (spec.get('json') or str(spec.get('format') or '').lstrip().startswith('{')):
+        return 'json', _ts_json_access
+    own = None
+    if spec and spec.get('format'):
+        key = (spec.get('kind'), spec['format'])
+        if key not in _TS_RX_CACHE:
+            _TS_RX_CACHE[key] = (_ts_apc_regex(spec['format']) if spec.get('kind') == 'apache'
+                                 else _ts_ngx_regex(spec['format']))
+        own = _TS_RX_CACHE[key]
+    name = 'generic'
+    if own is not None:
+        standard = spec['format'] in (_TS_NGX_COMBINED, _TS_APC_COMBINED)
+        name = 'combined' if standard else 'custom'
+
+    def parse(line):
+        for rx in (own, _TS_COMBINED_RE):
+            if rx is not None:
+                m = rx.match(line)
+                if m:
+                    return _ts_record(m.groupdict())
+        return _ts_json_access(line) if line.startswith('{') else None
+    return name, parse
+
+
+# ── what each kind of log is scanned for ──────────────────────────────────────
+
+class _TsAgg:
+    """Per-address evidence for one pass.
+
+    Counts are kept per (source family, log file), and an address's number for a
+    family is the LARGEST of its files, never the sum: the same hostile request is
+    often written to a global log and a per-site one, and by the WAF as well. A
+    request the WAF logs as five rule matches is one transaction (`tx`), so only
+    the first match counts as an event and the rest only add their tokens."""
+
+    def __init__(self, now):
+        self.now = int(now)
+        self.acc = {}                  # (family, file, ip) -> counters
+        self.bans = {}                 # ip -> [fail2ban jails]
+        self.decs = {}                 # ip -> CrowdSec decisions
+        self.cves = {}                 # ip -> [CVE ids]
+        self._tx = {}
+        self._tx_tok = set()
+
+    def hit(self, fam, fkey, ip, ts, tokens=(), n=1, ans=0, blk=0, tx=None):
+        if tx is not None:
+            if len(self._tx) > 200_000:
+                self._tx.clear()
+                self._tx_tok.clear()
+            key = (fam, fkey, tx)
+            seen = self._tx.get(key, 0)           # bit 1: counted, 2: refused, 4: answered
+            if seen & 1:
+                n = 0
+            if seen & 2:
+                blk = 0
+            if seen & 4:
+                ans = 0
+            self._tx[key] = seen | 1 | (2 if blk else 0) | (4 if ans else 0)
+            fresh = []
+            for t in tokens:
+                if (fam, fkey, tx, t) not in self._tx_tok:
+                    self._tx_tok.add((fam, fkey, tx, t))
+                    fresh.append(t)
+            tokens = fresh
+        a = self.acc.setdefault((fam, fkey, ip), {'n': 0, 'tok': {}, 'first': 0, 'last': 0,
+                                                  'ans': 0, 'blk': 0})
+        a['n'] += n
+        a['ans'] += ans
+        a['blk'] += blk
+        for t in tokens:
+            if len(a['tok']) < 64 or t in a['tok']:
+                a['tok'][t] = a['tok'].get(t, 0) + 1
+        ts = int(ts or self.now)
+        a['first'] = min(a['first'] or ts, ts)
+        a['last'] = max(a['last'], ts)
+
+    def ban(self, ip, jail):
+        lst = self.bans.setdefault(ip, [])
+        if jail not in lst and len(lst) < 8:
+            lst.append(jail)
+
+    def decision(self, ip):
+        self.decs[ip] = self.decs.get(ip, 0) + 1
+
+    def add_cves(self, ip, cves):
+        lst = self.cves.setdefault(ip, [])
+        for c in cves:
+            if c not in lst and len(lst) < 5:
+                lst.append(c)
+
+    def family_events(self, fam, fkey):
+        return sum(a['n'] for (f, k, _ip), a in self.acc.items() if f == fam and k == fkey)
+
+    def events(self):
+        """([summary per address], addresses left out). Left out: a plain web
+        address under THREAT_MIN_HITS, and whatever is beyond THREAT_MAX_EVENTS."""
+        per = {}
+        for (fam, _fkey, ip), a in self.acc.items():
+            e = per.setdefault(ip, {'ip': ip, 'first': 0, 'last': 0, 'src': {}, 'tok': {},
+                                    'ans': 0, 'blk': 0, 'ban': [], 'dec': 0, 'cve': []})
+            e['src'][fam] = max(e['src'].get(fam, 0), a['n'])
+            tk = e['tok'].setdefault(fam, {})
+            for t, c in a['tok'].items():
+                tk[t] = max(tk.get(t, 0), c)
+            e['ans'] = max(e['ans'], a['ans'])
+            e['blk'] = max(e['blk'], a['blk'])
+            e['first'] = min(e['first'] or a['first'], a['first']) if a['first'] else e['first']
+            e['last'] = max(e['last'], a['last'])
+        for ip, jails in self.bans.items():
+            e = per.setdefault(ip, {'ip': ip, 'first': self.now, 'last': self.now, 'src': {},
+                                    'tok': {}, 'ans': 0, 'blk': 0, 'ban': [], 'dec': 0, 'cve': []})
+            e['ban'] = list(jails)
+        for ip, n in self.decs.items():
+            if ip in per:
+                per[ip]['dec'] = n
+        for ip, cves in self.cves.items():
+            if ip in per:
+                per[ip]['cve'] = list(cves)
+
+        def strong(e):
+            return bool(e['ban'] or e['dec'] or e['src'].get('waf') or e['src'].get('cs'))
+        keep = [e for e in per.values()
+                if strong(e) or max(list(e['src'].values()) or [0]) >= THREAT_MIN_HITS]
+        keep.sort(key=lambda e: (bool(e['ban'] or e['dec']), sum(e['src'].values())), reverse=True)
+        dropped = (len(per) - len(keep)) + max(0, len(keep) - THREAT_MAX_EVENTS)
+        out = keep[:THREAT_MAX_EVENTS]
+        for e in out:
+            e['tok'] = {f: dict(sorted(t.items(), key=lambda kv: -kv[1])[:24])
+                        for f, t in e['tok'].items() if t}
+        return out, dropped
+
+
+def _ts_scan_access(lines, parse, agg, fkey, now):
+    """(lines, parsed) after counting every hostile request in an access log."""
+    n = parsed = 0
+    floor, ceil = now - THREAT_LOOKBACK_S, now + 300
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        if len(line) > THREAT_MAX_LINE:
+            line = line[:THREAT_MAX_LINE]
+        rec = parse(line) or _ts_generic_access(line)
+        if not rec:
+            continue
+        parsed += 1
+        kinds = _ts_classify(rec['method'], rec['uri'], rec['status'], rec['ua'])
+        if not kinds:
+            continue
+        ip = _ts_ip(rec['ip'])
+        ts = min(rec['ts'] or now, ceil)
+        if not ip or ts < floor:
+            continue
+        status = rec['status']
+        agg.hit('web', fkey, ip, ts, ['req:' + k for k in kinds], 1,
+                ans=1 if 200 <= status < 300 and kinds[0] in _TS_ANSWERABLE else 0,
+                blk=1 if status >= 400 else 0)
+    return n, parsed
+
+
+_TS_MS_ID_RE = re.compile(r'\[id "(\d{3,9})"\]')
+_TS_MS_TAG_RE = re.compile(r'\[tag "(attack-[a-z0-9-]{1,40})"\]')
+_TS_MS_UID_RE = re.compile(r'\[unique_id "([A-Za-z0-9@_.:=-]{6,64})"\]')
+_TS_CVE_RE = re.compile(r'CVE-\d{4}-\d{4,7}', re.I)
+
+
+def _ts_modsec_message(text):
+    """(tokens, CVE ids, refused) from one ModSecurity message. The rule id and
+    the attack tags are the vocabulary; the message text is read for a CVE id and
+    for the words that say the request was refused, and nothing else."""
+    toks = ['crs:' + i for i in _TS_MS_ID_RE.findall(text)]
+    toks += ['crstag:' + t for t in _TS_MS_TAG_RE.findall(text)]
+    cves = sorted({c.upper() for c in _TS_CVE_RE.findall(text)})[:3]
+    return toks, cves, 'Access denied' in text
+
+
+def _ts_modsec_emit(tx, agg, fkey, now):
+    """Count one finished ModSecurity transaction. One with no rule message is
+    not a WAF event: the audit log also records plain 4xx and 5xx answers."""
+    if not tx['msgs']:
+        return False
+    ip = _ts_ip(tx['ip'])
+    ts = min(tx['ts'] or now, now + 300)
+    if not ip or ts < now - THREAT_LOOKBACK_S:
+        return False
+    toks, cves, refused = [], [], bool(tx['blocked'])
+    for text in tx['msgs']:
+        t, c, b = _ts_modsec_message(text)
+        toks += t
+        cves += c
+        refused = refused or b
+    status = tx['status'] or (403 if refused else 0)
+    toks += ['req:' + k for k in _ts_classify(tx['method'], tx['uri'], status, tx['ua'])]
+    agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx['id'])
+    if cves:
+        agg.add_cves(ip, cves)
+    return True
+
+
+_TS_AUD_BOUNDARY_RE = re.compile(r'^--([0-9A-Za-z]{4,})-([A-Z])--\s*$')
+_TS_AUD_A_RE = re.compile(r'^\[([^\]]+)\]\s+\S+\s+(\S+)\s+\d+\s+\S+\s+\d+')
+
+
+def _ts_scan_modsec_native(lines, agg, fkey, now):
+    """(transactions, usable) for ModSecurity's native serial audit log: parts A
+    (client and time), B (request line and User-Agent), F (status) and H (rule
+    messages); every other part, bodies included, is skipped line by line and
+    never held."""
+    tx, part, n, parsed = None, None, 0, 0
+    for line in lines:
+        m = _TS_AUD_BOUNDARY_RE.match(line)
+        if m:
+            tid, part = m.group(1), m.group(2)
+            if part == 'A':
+                tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
+                      'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
+                n += 1
+            elif part == 'Z':
+                if tx and tx['id'] == tid and tx['ip']:
+                    parsed += 1
+                    _ts_modsec_emit(tx, agg, fkey, now)
+                tx = part = None
+            continue
+        if tx is None or not line:
+            continue
+        if part == 'A' and not tx['ip']:
+            a = _TS_AUD_A_RE.match(line)
+            if a:
+                tx['ts'] = _ts_time_local(a.group(1))
+                tx['ip'] = a.group(2)
+        elif part == 'B':
+            if not tx['seen_b']:
+                tx['seen_b'] = True
+                tx['method'], tx['uri'] = _ts_split_request(line[:4200])
+            elif line[:11].lower() == 'user-agent:':
+                tx['ua'] = line[11:300].strip()
+        elif part == 'F':
+            if not tx['seen_f']:
+                tx['seen_f'] = True
+                bits = line.split(' ', 2)
+                if len(bits) >= 2 and bits[1].isdigit():
+                    tx['status'] = int(bits[1])
+        elif part == 'H':
+            if line.startswith('Message: '):
+                if len(tx['msgs']) < 40:
+                    tx['msgs'].append(line[9:3000])
+            elif line.startswith('Action: Intercepted'):
+                tx['blocked'] = True
+    return n, parsed
+
+
+def _ts_scan_modsec_json(lines, agg, fkey, now):
+    """(transactions, usable) for ModSecurity's JSON audit log: one object a line."""
+    n = parsed = 0
+    for line in lines:
+        if not line.startswith('{'):
+            continue
+        n += 1
+        try:
+            d = json.loads(line[:400_000])
+        except ValueError:
+            continue
+        t = d.get('transaction') if isinstance(d, dict) else None
+        if not isinstance(t, dict):
+            continue
+        req = t.get('request') if isinstance(t.get('request'), dict) else {}
+        resp = t.get('response') if isinstance(t.get('response'), dict) else {}
+        headers = req.get('headers') if isinstance(req.get('headers'), dict) else {}
+        ua = next((str(v) for k, v in headers.items() if str(k).lower() == 'user-agent'), '')
+        try:
+            status = int(resp.get('http_code') or 0)
+        except (TypeError, ValueError):
+            status = 0
+        msgs = []
+        for m in (t.get('messages') if isinstance(t.get('messages'), list) else [])[:40]:
+            if not isinstance(m, dict):
+                continue
+            det = m.get('details') if isinstance(m.get('details'), dict) else {}
+            parts = [str(m.get('message') or '')[:600]]
+            if str(det.get('ruleId') or '').isdigit():
+                parts.append(f'[id "{det["ruleId"]}"]')
+            for tag in (det.get('tags') if isinstance(det.get('tags'), list) else [])[:20]:
+                parts.append(f'[tag "{tag}"]')
+            msgs.append(' '.join(parts))
+        tx = {'id': str(t.get('unique_id') or f'j{n}'), 'ip': str(t.get('client_ip') or ''),
+              'ts': _ts_time_ctime(t.get('time_stamp')), 'method': str(req.get('method') or '').upper(),
+              'uri': str(req.get('uri') or ''), 'ua': ua, 'status': status, 'msgs': msgs,
+              'blocked': status in (403, 406, 444)}
+        if tx['ip']:
+            parsed += 1
+            _ts_modsec_emit(tx, agg, fkey, now)
+    return n, parsed
+
+
+_TS_NGX_ERR_RE = re.compile(r'^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d) \[(\w+)\] \d+#\d+: ')
+_TS_NGX_CLIENT_RE = re.compile(r', client: ([0-9A-Fa-f:.]+)(?:,|$)')
+_TS_NGX_REQUEST_RE = re.compile(r', request: "((?:[^"\\]|\\.)*)"')
+_TS_APC_ERR_RE = re.compile(r'^\[\w{3} \w{3} \d{1,2} \d\d:\d\d:\d\d(?:\.\d+)? \d{4}\] ')
+_TS_APC_CLIENT_RE = re.compile(r'\[client ([0-9A-Fa-f:.]+?)(?::\d{1,5})?\]')
+_TS_APC_FILE_RE = re.compile(r'(?:File does not exist|script not found or unable to stat): (\S+)')
+_TS_NGX_FILE_RE = re.compile(r'open\(\) "([^"]{1,300})" failed \(2: No such file')
+
+
+def _ts_request_line(req):
+    return _ts_split_request(req)
+
+
+def _ts_scan_nginx_error(lines, agg, fkey, now):
+    """(lines, parsed) for nginx's error log: ModSecurity's connector, rate-limit
+    trips, failed basic-auth logins, requests refused by a `deny`, and probes for
+    files that are not there."""
+    n = parsed = 0
+    floor = now - THREAT_LOOKBACK_S
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        line = line[:THREAT_MAX_LINE]
+        m = _TS_NGX_ERR_RE.match(line)
+        if not m:
+            continue
+        parsed += 1
+        cm = _TS_NGX_CLIENT_RE.search(line)
+        ip = _ts_ip(cm.group(1)) if cm else None
+        if not ip:
+            continue
+        t = _TS_NGX_ERR_TIME_RE.match(m.group(1))
+        ts = min((_ts_mktime(*t.groups()) if t else 0) or now, now + 300)
+        if ts < floor:
+            continue
+        rm = _TS_NGX_REQUEST_RE.search(line)
+        method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
+        if 'ModSecurity:' in line:
+            toks, cves, refused = _ts_modsec_message(line)
+            um = _TS_MS_UID_RE.search(line)
+            tx = um.group(1) if um else f'{ts}:{uri}'
+            status = 403 if refused else 0
+            toks += ['req:' + k for k in _ts_classify(method, uri, status)]
+            agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx)
+            if cves:
+                agg.add_cves(ip, cves)
+        elif 'limiting requests' in line or 'limiting connections' in line:
+            agg.hit('err', fkey, ip, ts, ['req:flood'], 1, blk=1)
+        elif (' was not found in "' in line or ': password mismatch' in line) and 'user "' in line:
+            agg.hit('err', fkey, ip, ts, ['req:login'], 1, blk=1)
+        elif 'access forbidden by rule' in line:
+            kinds = _ts_classify(method, uri, 403) or ('probe',)
+            agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+        else:
+            fm = _TS_NGX_FILE_RE.search(line)
+            target = fm.group(1) if fm else (uri if 'Primary script unknown' in line else '')
+            kinds = _ts_classify(method or 'GET', target, 404) if target else ()
+            if kinds:
+                agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+    return n, parsed
+
+
+def _ts_apache_client(line):
+    m = _TS_APC_CLIENT_RE.search(line)
+    if not m:
+        return None
+    return _ts_ip(m.group(1))
+
+
+def _ts_scan_apache_error(lines, agg, fkey, now):
+    """(lines, parsed) for Apache's error log: mod_security, failed logins, denied
+    requests and probes for files that are not there."""
+    n = parsed = 0
+    floor = now - THREAT_LOOKBACK_S
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        line = line[:THREAT_MAX_LINE]
+        m = _TS_APC_ERR_TIME_RE.match(line)
+        if not m or not _TS_APC_ERR_RE.match(line):
+            continue
+        parsed += 1
+        ip = _ts_apache_client(line)
+        if not ip:
+            continue
+        mo = _TS_MONTHS.get(m.group(1).lower())
+        ts = min((_ts_mktime(m.group(6), mo, m.group(2), m.group(3), m.group(4), m.group(5))
+                  if mo else 0) or now, now + 300)
+        if ts < floor:
+            continue
+        if 'ModSecurity:' in line:
+            toks, cves, refused = _ts_modsec_message(line)
+            um = _TS_MS_UID_RE.search(line)
+            agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0,
+                    tx=um.group(1) if um else f'{ts}:{ip}')
+            if cves:
+                agg.add_cves(ip, cves)
+        elif ('AH01617' in line or 'AH01618' in line or 'authentication failure for' in line
+              or 'Password Mismatch' in line):
+            agg.hit('err', fkey, ip, ts, ['req:login'], 1, blk=1)
+        elif 'AH01630' in line or 'client denied by server configuration' in line:
+            fm = _TS_APC_FILE_RE.search(line)
+            kinds = _ts_classify('GET', fm.group(1), 403) if fm else ()
+            agg.hit('err', fkey, ip, ts, ['req:' + k for k in (kinds or ('probe',))], 1, blk=1)
+        else:
+            fm = _TS_APC_FILE_RE.search(line)
+            kinds = _ts_classify('GET', fm.group(1), 404) if fm else ()
+            if kinds:
+                agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+    return n, parsed
+
+
+_TS_F2B_RE = re.compile(
+    r'^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d)(?:[,.]\d+)?\s+\S+\s+\[\d+\]:\s+[A-Z]+\s+'
+    r'\[([^\]]{1,60})\]\s+(Found|Ban|Unban|Restore Ban|Already banned)\s+([0-9A-Fa-f:.]+)')
+_TS_JAIL_NAME_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,39}')
+
+
+def _ts_scan_f2b(lines, agg, fkey, now):
+    """(lines, parsed) for fail2ban's own log: each `Found` is a failure it saw and
+    each `Ban` is a decision it made. A restored or lifted ban is not new evidence."""
+    n = parsed = 0
+    floor = now - THREAT_LOOKBACK_S
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        m = _TS_F2B_RE.match(line[:600])
+        if not m:
+            continue
+        parsed += 1
+        act, jail = m.group(3), m.group(2)
+        if act not in ('Found', 'Ban') or not _TS_JAIL_NAME_RE.fullmatch(jail):
+            continue
+        ip = _ts_ip(m.group(4))
+        ts = min(_ts_time_iso(m.group(1), local=True) or now, now + 300)
+        if not ip or ts < floor:
+            continue
+        agg.hit('f2b', fkey, ip, ts, ['jail:' + jail], 1)
+        if act == 'Ban':
+            agg.ban(ip, jail)
+    return n, parsed
+
+
+_TS_SCENARIO_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_./-]{0,95}')
+
+
+def _ts_cscli_alerts(text, agg, now, last_id):
+    """(alerts, usable, newest id) from `cscli alerts list -o json`. Only what
+    CrowdSec's own scenarios fired on THIS host counts: community-list entries
+    and a person's manual decisions are not evidence of an attack on us."""
+    try:
+        data = json.loads(text) if text.strip() not in ('', 'null') else []
+    except ValueError:
+        return 0, 0, last_id
+    if not isinstance(data, list):
+        return 0, 0, last_id
+    n = usable = 0
+    newest = last_id
+    floor = now - THREAT_LOOKBACK_S
+    for a in data[:500]:
+        if not isinstance(a, dict):
+            continue
+        n += 1
+        try:
+            aid = int(a.get('id') or 0)
+        except (TypeError, ValueError):
+            aid = 0
+        newest = max(newest, aid)
+        src = a.get('source') if isinstance(a.get('source'), dict) else {}
+        scenario = str(a.get('scenario') or '')
+        if not src or not scenario:
+            continue
+        usable += 1
+        if aid and aid <= last_id:
+            continue
+        if str(src.get('scope') or '').lower() != 'ip' or a.get('simulated'):
+            continue
+        if scenario.startswith('update :') or not _TS_SCENARIO_RE.fullmatch(scenario):
+            continue
+        ip = _ts_ip(src.get('ip') or src.get('value'))
+        decisions = [d for d in (a.get('decisions') if isinstance(a.get('decisions'), list) else [])
+                     if isinstance(d, dict)]
+        if decisions and not any(str(d.get('origin') or '') == 'crowdsec' for d in decisions):
+            continue
+        ts = min(_ts_time_iso(a.get('stop_at') or a.get('start_at') or a.get('created_at')) or now,
+                 now + 300)
+        if not ip or ts < floor:
+            continue
+        try:
+            events = max(1, min(1000, int(a.get('events_count') or 1)))
+        except (TypeError, ValueError):
+            events = 1
+        agg.hit('cs', 'cscli', ip, ts, ['cs:' + scenario], events)
+        if any(str(d.get('type') or '') == 'ban' and str(d.get('origin') or '') == 'crowdsec'
+               for d in decisions):
+            agg.decision(ip)
+        cves = sorted({c.upper() for c in _TS_CVE_RE.findall(scenario)})[:3]
+        if cves:
+            agg.add_cves(ip, cves)
+    return n, usable, newest
+
+
+def _ts_scan_cscli(agg, now, last_id):
+    """({source status}, newest alert id). Asks the local CrowdSec for the last
+    two hours of its own alerts; an alert is counted once, by id."""
+    cscli = _which('cscli')
+    if not cscli or IN_CONTAINER:
+        return {'state': 'missing', 'lines': 0, 'parsed': 0}, last_id
+    try:
+        r = subprocess.run([cscli, 'alerts', 'list', '-o', 'json', '--since', '2h', '--limit', '300'],
+                           capture_output=True, text=True, timeout=25)
+    except Exception:
+        return {'state': 'error', 'lines': 0, 'parsed': 0}, last_id
+    if r.returncode != 0:
+        return {'state': 'denied' if 'permission' in (r.stderr or '').lower() else 'error',
+                'lines': 0, 'parsed': 0}, last_id
+    n, usable, newest = _ts_cscli_alerts(r.stdout or '', agg, now, last_id)
+    state = 'unparsed' if n and not usable else ('ok' if n else 'idle')
+    return {'state': state, 'lines': n, 'parsed': usable}, newest
+
+
+# ── reading new lines, one pass, and the thread that runs them ────────────────
+
+_TS_AUDIT_END_RE = re.compile(rb'^--[0-9A-Za-z]{4,}-Z--[ \t\r]*\n', re.M)
+
+
+def _ts_read_log(path, st, audit=False):
+    """(lines, new position state, status) for what a log gained since `st`.
+    Never raises. status is 'ok', 'idle', 'missing', 'denied', 'unsupported' or
+    'error'.
+
+    A log seen for the first time is read from its last THREAT_FIRST_READ bytes.
+    A new inode (logrotate) or a file that shrank (copytruncate) starts again at
+    the top of the new file. Only whole lines are consumed: a line the writer has
+    not finished stays for the next pass. A ModSecurity audit log is consumed to
+    the end of its last COMPLETE transaction for the same reason. A single line
+    or transaction larger than the per-pass cap is skipped rather than allowed to
+    stall the reader forever."""
+    real = host_path(path)
+    try:
+        sb = os.stat(real)
+    except FileNotFoundError:
+        return [], dict(st), 'missing'
+    except PermissionError:
+        return [], dict(st), 'denied'
+    except OSError:
+        return [], dict(st), 'error'
+    if not stat.S_ISREG(sb.st_mode):
+        return [], {}, 'unsupported'
+    if not os.access(real, os.R_OK):
+        return [], dict(st), 'denied'
+    size, pos = sb.st_size, st.get('pos')
+    fresh = st.get('ino') != sb.st_ino or not isinstance(pos, int) or size < pos
+    start = max(0, size - THREAT_FIRST_READ) if fresh else pos
+    if start >= size:
+        return [], {'ino': sb.st_ino, 'pos': size if fresh else start}, 'idle'
+    try:
+        with open(real, 'rb') as f:
+            f.seek(start)
+            data = f.read(min(size - start, THREAT_READ_CAP))
+    except PermissionError:
+        return [], dict(st), 'denied'
+    except OSError:
+        return [], dict(st), 'error'
+    if audit and data.lstrip()[:1] != b'{':
+        ends = [m.end() for m in _TS_AUDIT_END_RE.finditer(data)]
+        cut = ends[-1] if ends else 0
+    else:
+        cut = data.rfind(b'\n') + 1
+    if cut == 0:
+        if len(data) < THREAT_READ_CAP:
+            return [], {'ino': sb.st_ino, 'pos': start}, 'idle'
+        cut = len(data)
+    chunk = data[:cut]
+    if fresh and start > 0 and not audit:
+        nl = chunk.find(b'\n')           # we landed mid-line: drop the fragment
+        chunk = chunk[nl + 1:] if nl != -1 else b''
+    lines = chunk.decode('utf-8', 'replace').split('\n')
+    return lines, {'ino': sb.st_ino, 'pos': start + cut}, ('ok' if chunk.strip() else 'idle')
+
+
+def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
+    """One pass over every log this host has. Returns (events, sources, dropped,
+    new_state). `state` is left as it was, so a submission that fails can simply be
+    tried again from the same place."""
+    now = int(now or time.time())
+    state = state if isinstance(state, dict) else {}
+    old_files = state.get('files') if isinstance(state.get('files'), dict) else {}
+    psig = sorted(str(p) for p in ((cfg or {}).get('paths') or []))
+    disc = state.get('disc') if isinstance(state.get('disc'), dict) else None
+    if not disc or disc.get('psig') != psig or now - int(disc.get('at') or 0) >= THREAT_DISCOVER_S:
+        disc = _ts_discover(cfg or {}, now)
+        disc['psig'] = psig
+    agg, sources, new_files = _TsAgg(now), [], {}
+    deadline = time.monotonic() + float(budget_s)
+
+    def note(kind, path, state_, n=0, parsed=0, events=0, fmt='', proxied=None):
+        s = {'kind': kind, 'path': str(path)[:300], 'state': state_, 'lines': n,
+             'parsed': parsed, 'events': events}
+        if fmt:
+            s['fmt'] = fmt
+        if proxied is not None:
+            s['proxied'] = bool(proxied)
+        sources.append(s)
+
+    def one(kind, entry, fams, scan, audit=False):
+        path = entry.get('path') or ''
+        if entry.get('unsupported') or not path:
+            note(kind, path or 'fail2ban', 'unsupported')
+            return
+        if time.monotonic() > deadline:                 # out of time: next pass
+            new_files[path] = old_files.get(path) or {}
+            note(kind, path, 'idle')
+            return
+        lines, new, status = _ts_read_log(path, old_files.get(path) or {}, audit)
+        new_files[path] = new if status in ('ok', 'idle') else (old_files.get(path) or {})
+        if status not in ('ok', 'idle'):
+            note(kind, path, status)
+            return
+        n, parsed, fmt = scan(lines, path)
+        events = sum(agg.family_events(f, path) for f in fams)
+        note(kind, path, 'unparsed' if n >= 20 and parsed * 2 < n else status, n, parsed, events,
+             fmt, proxied=disc.get('proxied') if kind == 'web' else None)
+
+    for e in disc.get('web') or []:
+        name, parse = _ts_access_parser(e.get('spec'))
+
+        def scan_web(lines, fkey, parse=parse, name=name):
+            n, parsed = _ts_scan_access(lines, parse, agg, fkey, now)
+            return n, parsed, name
+        one('web', e, ('web',), scan_web)
+
+    for e in disc.get('err') or []:
+        fn = _ts_scan_apache_error if e.get('kind') == 'apache' else _ts_scan_nginx_error
+
+        def scan_err(lines, fkey, fn=fn, kind=e.get('kind') or 'nginx'):
+            n, parsed = fn(lines, agg, fkey, now)
+            return n, parsed, kind
+        one('err', e, ('err', 'waf'), scan_err)
+
+    for e in disc.get('waf') or []:
+        def scan_waf(lines, fkey):
+            first = next((ln for ln in lines if ln.strip()), '')
+            if first.startswith('{'):
+                n, parsed = _ts_scan_modsec_json(lines, agg, fkey, now)
+                return n, parsed, 'json'
+            n, parsed = _ts_scan_modsec_native(lines, agg, fkey, now)
+            return n, parsed, 'native'
+        one('waf', e, ('waf',), scan_waf, audit=True)
+
+    for e in disc.get('f2b') or []:
+        def scan_f2b(lines, fkey):
+            n, parsed = _ts_scan_f2b(lines, agg, fkey, now)
+            return n, parsed, ''
+        one('f2b', e, ('f2b',), scan_f2b)
+
+    cs_last = int(state.get('cs_last_id') or 0)
+    if disc.get('cs'):
+        info, cs_last = _ts_scan_cscli(agg, now, cs_last)
+        note('cs', 'cscli', info['state'], info['lines'], info['parsed'],
+             agg.family_events('cs', 'cscli'))
+
+    events, dropped = agg.events()
+    new_state = {'files': new_files, 'disc': disc, 'cs_last_id': cs_last,
+                 'status_at': state.get('status_at', 0), 'sig': state.get('sig', '')}
+    return events, sources, dropped, new_state
+
+
+def _ts_state_load():
+    try:
+        d = json.loads(THREAT_STATE_FILE.read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ts_state_save(state):
+    try:
+        tmp = THREAT_STATE_FILE.with_suffix('.tmp')
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(state, f)
+        os.replace(str(tmp), str(THREAT_STATE_FILE))
+    except Exception as e:
+        log.debug(f'threat sensor: could not save state: {e}')
+
+
+def _ts_submit(creds, events, sources, dropped, now):
+    """'ok', 'retry' (try again from the same place) or 'drop' (the server refused
+    it for good, so keep going rather than send the same refusal every minute)."""
+    payload = {'device_id': creds['device_id'], 'token': creds['token'], 'at': int(now),
+               'sources': sources, 'events': events, 'dropped': int(dropped)}
+    try:
+        http_post(f"{creds['server_url']}/api/threat-events", payload, timeout=20)
+        return 'ok'
+    except error.HTTPError as e:
+        if e.code in (408, 425, 429) or e.code >= 500:
+            return 'retry'
+        log.warning(f'threat sensor: the server refused a submission (HTTP {e.code}); it is dropped')
+        return 'drop'
+    except Exception as e:
+        log.debug(f'threat sensor: submission failed: {e}')
+        return 'retry'
+
+
+def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first_wait=5):
+    """Background thread: one pass every `every` seconds until stop_event is set.
+    `holder['cfg']` is the server's latest `threat_sensor` setting. A failed pass
+    only costs a delay, and the offsets move only once the server has the result."""
+    state = _ts_state_load()
+    fails, first = 0, True
+    log.info('threat sensor: started')
+    while not stop_event.is_set():
+        wait = first_wait if first else (every if not fails else min(600, every * (2 ** min(fails, 4))))
+        first = False
+        if stop_event.wait(wait):
+            break
+        cfg = holder.get('cfg')
+        if not isinstance(cfg, dict) or not cfg.get('enabled'):
+            continue
+        try:
+            now = int(time.time())
+            events, sources, dropped, new_state = collect_threat_events(cfg, state, now)
+            sig = hashlib.sha1(json.dumps(
+                [[s['kind'], s['path'], s['state']] for s in sources]).encode()).hexdigest()[:16]
+            report = bool(events) or sig != state.get('sig') \
+                or now - int(state.get('status_at') or 0) >= THREAT_STATUS_EVERY_S
+            outcome = _ts_submit(creds, events, sources, dropped, now) if report else 'ok'
+            if outcome in ('ok', 'drop'):
+                # This thread owns the reporting clock, so what the collector
+                # returned for these two keys does not matter.
+                new_state['status_at'] = now if report else state.get('status_at', 0)
+                new_state['sig'] = sig if report else state.get('sig', '')
+                state = new_state
+                _ts_state_save(state)
+                fails = 0
+            else:
+                fails += 1
+        except Exception as e:
+            fails += 1
+            log.debug(f'threat sensor: pass failed: {type(e).__name__}: {e}')
+    log.info('threat sensor: stopped')
+
+
 def heartbeat(creds, interval=POLL_INTERVAL):
     global _FORCE_CHECK_EVAL   # a rebaseline (guard action) forces the next sysinfo report
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
@@ -11237,6 +12758,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # advertising it, so opting a device out closes the path promptly.
     _sshgw_stop_event = None
     _sshgw_warned_no_ws = False
+    # v7.2.0: the threat sensor reads this host's web, WAF, fail2ban and CrowdSec
+    # logs in a thread of its own while the server sends `threat_sensor`, and stops
+    # when it stops. `_threat_holder['cfg']` carries the latest setting to it.
+    _threat_stop = None
+    _threat_holder = {}
 
     # v2.7.0: log source expansion state
     _auto_watch_detected = detect_auto_watch_units()
@@ -12180,6 +13706,24 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 _sshgw_stop_event.set()
                 _sshgw_stop_event = None
                 log.info('sshgw: gateway turned off by the server; closing tunnel')
+            # v7.2.0: threat sensor. A busy (202) response carries no settings at
+            # all, so its silence must not read as "turn it off".
+            if resp.get('busy') is not True:
+                _tsc = resp.get('threat_sensor')
+                if isinstance(_tsc, dict) and _tsc.get('enabled'):
+                    _threat_holder['cfg'] = _tsc
+                    if _threat_stop is None:
+                        _threat_stop = threading.Event()
+                        threading.Thread(
+                            target=_threat_sensor_thread,
+                            args=({'server_url': server, 'device_id': dev_id, 'token': token},
+                                  _threat_holder, _threat_stop),
+                            daemon=True, name='threat-sensor').start()
+                elif _threat_stop is not None:
+                    _threat_stop.set()
+                    _threat_stop = None
+                    _threat_holder.clear()
+                    log.info('threat sensor: turned off by the server')
             # W3-19: live high-res view — when armed, burst 1 s metric samples
             # for a bounded window so the operator's Live tab updates in near
             # real time. Bounded (≤30 iterations) so command processing resumes
