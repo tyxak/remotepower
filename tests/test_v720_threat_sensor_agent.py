@@ -277,6 +277,7 @@ class TestClassifier(_Agent):
             ('GET', '/wp-json/wp/v2/users/me', 200), ('GET', '/wp-json/wp/v2/posts?per_page=10', 200),
             ('GET', '/wp-login.php', 200), ('GET', '/wp-login.php?redirect_to=%2Fwp-admin%2F', 200),
             ('POST', '/wp-login.php', 302), ('POST', '/login', 303), ('POST', '/api/orders', 201),
+            ('POST', '/api/login', 200), ('POST', '/api/auth/login', 200),
             ('POST', '/wp-admin/admin-ajax.php', 200), ('GET', '/wp-admin/', 302),
             ('GET', '/download/release-1.2.tar.gz', 200), ('GET', '/files/report.zip', 200),
             ('GET', '/images/photo.jpg', 200), ('GET', '/products/item?id=42&color=red', 200),
@@ -297,6 +298,16 @@ class TestClassifier(_Agent):
         self.assertEqual(self.kinds('POST', '/wp-login.php', 403), ('login',))
         self.assertEqual(self.kinds('POST', '/wp-login.php', 302), ())
         self.assertEqual(self.kinds('GET', '/wp-login.php', 200), ())
+
+    def test_a_login_api_failed_only_when_it_answered_with_an_error(self):
+        """A JSON login API answers a right password and a wrong one alike: 200,
+        with a body saying which. RemotePower's own /api/login does, and a visitor
+        who signed in to it was recorded as login brute force."""
+        for uri in ('/api/login', '/api/auth/login', '/API/Login?next=/'):
+            for status in (200, 201, 204):
+                self.assertEqual(self.kinds('POST', uri, status), (), (uri, status))
+            for status in (400, 401, 403, 429):
+                self.assertEqual(self.kinds('POST', uri, status), ('login',), (uri, status))
 
     def test_attack_tools_are_named_by_user_agent(self):
         for ua in ('sqlmap/1.7.2#stable (https://sqlmap.org)', 'Mozilla/5.00 (Nikto/2.5.0) (Evasions:None)',
@@ -342,6 +353,26 @@ class TestAccessScan(_Agent):
         self.assertEqual(e['tok']['web'], {'req:probe': 7, 'req:sqli': 3})
         self.assertEqual((e['ans'], e['blk']), (2, 8), 'answered 2xx vs refused')
         self.assertEqual(e['last'] - e['first'] >= 0, True)
+
+    def test_a_visitor_who_signs_in_to_remotepower_is_not_a_brute_forcer(self):
+        """A demo visitor: the page, one sign-in, and a CSP report the host's WAF
+        refused. The refusal is WAF evidence and is sent; the sign-in is not a
+        login attempt, so the address is not shown as login brute force."""
+        lines = [combined(A6, NOW - 60 + i, f'{req} HTTP/2.0', status) for i, (req, status) in enumerate((
+            ('GET /', 200), ('GET /static/js/app.js?v=7.2.0-40', 200), ('GET /manifest.json', 200),
+            ('GET /sw.js', 200), ('GET /favicon.ico', 404), ('POST /api/login', 200),
+            ('POST /api/csp-report', 403)))]
+        waf = (f'{ts_nginx_err(NOW - 54)} [error] 1234#1234: *77 ModSecurity: Access denied with code 403 '
+               f'(phase 1). [id "920420"] [msg "Request content type is not allowed by policy"] '
+               f'[tag "attack-protocol"] [uri "/api/csp-report"] [unique_id "1790000006.1"], client: {A6}, '
+               f'server: demo.example, request: "POST /api/csp-report HTTP/2.0", host: "demo.example"')
+        agg = self.agent._TsAgg(NOW)
+        self.agent._ts_scan_access(lines, self.agent._ts_access_parser(None)[1], agg,
+                                   '/var/log/nginx/access.log', NOW)
+        self.agent._ts_scan_nginx_error([waf], agg, '/var/log/nginx/error.log', NOW)
+        e = {x['ip']: x for x in agg.events()[0]}[A6]
+        self.assertEqual(e['src'], {'waf': 1})
+        self.assertFalse(any('req:login' in t for t in e['tok'].values()), e['tok'])
 
     def test_a_plain_address_under_the_minimum_is_left_out_and_counted(self):
         lines = self.lines(A1, 2) + self.lines(A2, 5)

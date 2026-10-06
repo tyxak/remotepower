@@ -11455,7 +11455,13 @@ def _ts_classify(method, uri, status, ua=''):
         kind = 'traversal'
     elif _TS_RE_XSS.search(u):
         kind = 'xss'
-    elif method == 'POST' and _TS_RE_LOGIN.match(u) and not 300 <= status < 400:
+    # A form login answers a wrong password with the form again (200) and a right
+    # one with a redirect, so a POST that was not redirected failed. A JSON login
+    # API answers both with 200 and says which in the body, which the log does not
+    # keep: RemotePower's own /api/login does, and every visitor who signed in to it
+    # was counted as a brute-forcer. There only an error status is a failure.
+    elif method == 'POST' and _TS_RE_LOGIN.match(u) and (
+            status >= 400 if u.startswith('/api/') else not 300 <= status < 400):
         kind = 'login'
     elif _TS_RE_PROBE.search(u):
         kind = 'probe'
