@@ -115,6 +115,9 @@ class TestProviderOutcomes(unittest.TestCase):
                                'status': 429}]}
     SNIFF_429 = {'success': False, 'status': 429,
                  'message': 'Submission rate limit exceeded or repeated report for the same IP'}
+    # The body SniffCat returned for a repeat, as it appears in a live fail2ban log.
+    SNIFF_DUP = {'success': False, 'status': 429,
+                 'message': 'You can only report this IP once every 20 minutes. Try again in 426 seconds.'}
 
     def test_abuseipdb_repeat_is_a_duplicate_not_a_failure(self):
         r = ip_intel.abuseipdb_parse_report(429, self.ABUSE_DUP)
@@ -132,6 +135,17 @@ class TestProviderOutcomes(unittest.TestCase):
         r = ip_intel.sniffcat_parse_report(429, self.SNIFF_429)
         self.assertEqual((r['ok'], r['rate_limited'], r.get('duplicate')), (False, True, None))
         self.assertEqual(r['error'], 'rate limited or already reported')
+
+    def test_a_sniffcat_repeat_that_says_so_is_a_duplicate(self):
+        r = ip_intel.sniffcat_parse_report(429, self.SNIFF_DUP)
+        self.assertEqual((r['ok'], r.get('duplicate'), r['rate_limited']), (False, True, True))
+        self.assertEqual(r['error'], 'already reported a moment ago')
+
+    def test_a_sniffcat_429_with_no_such_sentence_stays_ambiguous(self):
+        for body in (self.SNIFF_429, {}, {'message': 'Too many requests'}, 'rate limited', None):
+            r = ip_intel.sniffcat_parse_report(429, body)
+            self.assertFalse(r.get('duplicate'), body)
+            self.assertEqual(r['error'], 'rate limited or already reported', body)
 
     def test_success_and_the_other_errors_are_as_before(self):
         self.assertTrue(ip_intel.abuseipdb_parse_report(200, {})['ok'])

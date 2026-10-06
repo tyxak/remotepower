@@ -333,6 +333,19 @@ class TestTheServicesAnswers(_Engine):
         self.assertFalse(any(a_[1] == 'ip_intel_report' and 'abuseipdb' in a_[2] for a_ in self.audit),
                          'a repeat is not a report we made')
 
+    def test_a_sniffcat_repeat_that_says_so_is_an_answer_too(self):
+        dup = (429, {'success': False, 'status': 429,
+                     'message': 'You can only report this IP once every 20 minutes. Try again in 426 seconds.'})
+        self.answer_with(sniff=dup)
+        self.feed(web(n=12))
+        self.sweep()
+        a = self.att()
+        self.assertIn('sniffcat', a['reported'], 'it was reported moments ago; that report exists')
+        self.assertEqual(a['errors']['sniffcat'], 'already reported a moment ago')
+        self.assertNotIn('sniffcat', a.get('retry') or {})
+        self.assertTrue([e for e in a['report_log'] if e['prov'] == 'sniffcat'][0]['duplicate'])
+        self.assertIn('abuseipdb', a['reported'])
+
     def test_a_rate_limit_backs_off_past_the_services_repeat_window(self):
         self.answer_with(sniff=(429, {'success': False, 'message': 'Submission rate limit exceeded or repeated report'}))
         self.feed(web(n=12))

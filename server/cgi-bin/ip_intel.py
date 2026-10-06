@@ -260,8 +260,14 @@ def sniffcat_parse_report(status, body):
     if status == 200 and not (isinstance(body, dict) and body.get('success') is False):
         return {'ok': True}
     if status == 429:
-        # "Submission rate limit exceeded or repeated report for the same IP":
-        # one answer for both, so the message says both.
+        # A repeat says so in words: "You can only report this IP once every 20
+        # minutes. Try again in 426 seconds." (copied from a live fail2ban log).
+        # It is the same sentence shape AbuseIPDB uses, so the same test reads it.
+        if _DUPLICATE_RE.search(_detail(body)):
+            return {'ok': False, 'duplicate': True, 'rate_limited': True,
+                    'error': 'already reported a moment ago'}
+        # Anything else is "Submission rate limit exceeded or repeated report for
+        # the same IP": one status for both, so the message says both.
         return {'ok': False, 'rate_limited': True,
                 'error': 'rate limited or already reported'}
     return _error(status, body)

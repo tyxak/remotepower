@@ -251,7 +251,7 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `refused by the provider (HTTP 403)` | The service or its firewall refused the request. This is not a verdict on your key; a wrong key shows as `API key rejected`. Try again later, and check the service's status page if it keeps happening. |
 | `rate limited` | The service's daily or per-minute limit was hit. RemotePower tries again on the next attack. |
 | `already reported a moment ago` | The service had the same address from you minutes earlier, often from fail2ban. Nothing is wrong. |
-| `rate limited or already reported` | SniffCat gives one answer for both. RemotePower waits a little over 20 minutes before asking again. |
+| `rate limited or already reported` | SniffCat uses one status for its own limit and for a repeat, and only a repeat says so in words (that case shows as `already reported a moment ago`). When the message does not say, RemotePower cannot tell which it was, and waits a little over 20 minutes before asking again. |
 | `not reported: 4 / 10 attempts so far` | The logs show the address, but not enough yet. See [When an address is reported](#when-an-address-is-reported). |
 | `not reported: nothing recognisable in the logs` | Only a jail such as `recidive` named it, so there is no honest category to report it under. |
 | Log sources: `File missing` | The configuration names a log that does not exist yet. |

@@ -53,9 +53,11 @@ agent summarising logs an attacker can write to — and says so. It is in
   attacker still counts. Community-list entries and decisions made by hand are
   never evidence. The page says why an address has not been reported yet.
 - **A repeat is an answer, not a failure.** AbuseIPDB's "once in 15 minutes"
-  counts as reported (often fail2ban on the same host, same key). SniffCat's
-  single 429 for both a repeat and a rate limit is shown as that and backed off
-  past its 20-minute window instead of retried every minute.
+  counts as reported (often fail2ban on the same host, same key), and so does
+  SniffCat's "once every 20 minutes" (the sentence is copied from a live
+  fail2ban log). Its other 429s share a status with its rate limit, so they are
+  shown as "rate limited or already reported" and backed off past the 20-minute
+  window instead of retried every minute.
 - **AbuseIPDB gets when the attack happened** for reports built from the logs.
 - **The day's allowance goes to the address that earned it.** Network work is
   limited to 25 addresses a sweep, a ban engine's decisions first; entries that
