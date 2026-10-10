@@ -201,6 +201,8 @@ class TestRuleTables(unittest.TestCase):
         reachable = set(te._REQ_KINDS.values()) | set(te._CRS_TAGS.values())
         reachable |= {c for c, _ in te._JAIL_RULES} | {c for c, _ in te._CS_RULES}
         reachable |= {te.crs_class(i) for i in range(900000, 1000000, 1000)} - {None}
+        # v7.3.0: the edge feeds reach classes through their own token kinds.
+        reachable |= (set(te.TRAP_KINDS.values()) | set(te.CF_KINDS.values())) - {None}
         self.assertEqual(set(te.CLASSES) - reachable, set(), 'a class no token can produce')
         for name, c in te.CLASSES.items():
             self.assertTrue(c['abuseipdb'] and c['sniffcat'], name)
@@ -278,10 +280,18 @@ class TestEvidenceMath(unittest.TestCase):
                  'probe': 'req:probe', 'scanner': 'req:scanner', 'flood': 'req:flood',
                  'bad_bot': 'jail:apache-badbots', 'waf': 'crs:920350',
                  'mail_brute': 'jail:postfix', 'ftp_brute': 'jail:proftpd',
-                 'service_brute': 'jail:mysqld-auth', 'port_scan': 'jail:portscan'}
+                 'service_brute': 'jail:mysqld-auth', 'port_scan': 'jail:portscan',
+                 # v7.3.0: the three only the edge can say (a server feed, not an agent)
+                 'canary': 'trap:canary', 'decoy_login': 'trap:decoylogin', 'ddos': 'cf:ddos'}
         self.assertEqual(set(token), set(te.CLASSES), 'a class with no token in this test')
         for cls, tok in token.items():
-            e = ev(tok={'web': {tok: 5}})
+            fam = tok.split(':', 1)[0]
+            if fam in ('trap', 'cf'):
+                e = te.normalize_event({'ip': ATTACKER, 'first': NOW - 600, 'last': NOW,
+                                        'tok': {fam: {tok: 5}}}, now=NOW,
+                                       families=te.EDGE_SOURCES)
+            else:
+                e = ev(tok={'web': {tok: 5}})
             self.assertEqual(list(te.classes(e)), [cls], cls)
             for prov, ids in (('abuseipdb', ABUSEIPDB_IDS), ('sniffcat', SNIFFCAT_IDS)):
                 got = te.categories(e, prov)

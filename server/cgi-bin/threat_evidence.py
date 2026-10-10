@@ -35,16 +35,24 @@ Evidence shape (all keys optional on input, always present on output):
      'cve': ['CVE-2021-44228']}
 
 Source families are `web` (access logs), `err` (web server error logs),
-`waf` (ModSecurity), `f2b` (fail2ban) and `cs` (CrowdSec). The same hostile
-request shows up in several of them, so the number used in a report is the
-LARGEST family count, never the sum.
+`waf` (ModSecurity), `f2b` (fail2ban), `cs` (CrowdSec) and `fw` (the host's
+firewall log); these come from an agent. `cf` (Cloudflare's own firewall events)
+and `trap` (the edge honeypot's hits) come from the server's edge feeds and are
+never accepted from an agent. The same hostile request shows up in several of
+them, so the number used in a report is the LARGEST family count, never the sum.
+The honeypot's own decision (it banned the address) rides in `trp`.
 """
 
 import ipaddress
 import re
 import time
 
-SOURCES = ("web", "err", "waf", "f2b", "cs")
+# What an agent may send, and what the server's edge feeds may produce. The two
+# sets do not overlap: an agent is root on a machine an attacker may already be
+# on, so it cannot claim that Cloudflare or the honeypot decided anything.
+AGENT_SOURCES = ("web", "err", "waf", "f2b", "cs", "fw")
+EDGE_SOURCES = ("cf", "trap")
+SOURCES = AGENT_SOURCES + EDGE_SOURCES
 
 # Words for "seen by ...". The access log and the error log are both "the web
 # server log" to a reader, so the two share a phrase and it is said once.
@@ -54,16 +62,22 @@ SOURCE_PHRASE = {
     "waf": "WAF",
     "f2b": "fail2ban",
     "cs": "CrowdSec",
+    "fw": "firewall log",
+    "cf": "Cloudflare WAF",
+    "trap": "edge honeypot",
 }
 
 # Attack classes. `abuseipdb` and `sniffcat` are the category ids each service
 # defines (checked against their documentation); `weight` orders classes by how
 # much they should speak for the address when several apply.
-#   AbuseIPDB: 5 FTP brute-force, 14 port scan, 15 hacking, 16 SQL injection,
-#              18 brute-force, 19 bad web bot, 21 web app attack, 22 SSH
-#   SniffCat:  4 port scan, 5 mass scanner, 11 hacking, 12 SQL injection,
-#              13 command injection, 15 bad web bot, 16 path traversal,
-#              17 brute-force, 18 SSH/SFTP, 19 FTP, 20 email, 21 HTTP/HTTPS
+#   AbuseIPDB: 4 DDoS, 5 FTP brute-force, 14 port scan, 15 hacking,
+#              16 SQL injection, 18 brute-force, 19 bad web bot (its text names
+#              crawlers that ignore robots.txt and user-agent spoofing),
+#              21 web app attack, 22 SSH
+#   SniffCat:  3 DDoS, 4 port scan, 5 mass scanner, 11 hacking, 12 SQL injection,
+#              13 command injection, 15 bad web bot (ignores robots.txt or
+#              impersonates a user agent), 16 path traversal, 17 brute-force,
+#              18 SSH/SFTP, 19 FTP, 20 email, 21 HTTP/HTTPS
 CLASSES = {
     "ssh_brute": {
         "phrase": "SSH brute force",
@@ -135,6 +149,26 @@ CLASSES = {
         "weight": 2,
     },
     "port_scan": {"phrase": "port scanning", "abuseipdb": (14,), "sniffcat": (4,), "weight": 2},
+    # The three below are what the edge honeypot and Cloudflare can say that a
+    # host's own logs cannot.
+    "canary": {
+        "phrase": "using a credential planted in a decoy file",
+        "abuseipdb": (15, 21),
+        "sniffcat": (11, 21),
+        "weight": 6,
+    },
+    "decoy_login": {
+        "phrase": "signing in to a decoy service",
+        "abuseipdb": (18, 21),
+        "sniffcat": (17, 21),
+        "weight": 3,
+    },
+    "ddos": {
+        "phrase": "HTTP request flooding",
+        "abuseipdb": (4,),
+        "sniffcat": (3, 21),
+        "weight": 3,
+    },
 }
 
 # `{what}` in a report message, kept compatible with the older placeholder
@@ -147,7 +181,8 @@ _WHAT = {
     "service_brute": "login",
     "port_scan": "port",
 }
-_WEB_CLASSES = ("sqli", "xss", "traversal", "rce", "probe", "scanner", "flood", "bad_bot", "waf")
+_WEB_CLASSES = ("sqli", "xss", "traversal", "rce", "probe", "scanner", "flood", "bad_bot", "waf",
+                "canary", "decoy_login", "ddos")
 
 WAF_MIN_BLOCKS = 3  # blocked requests that count as evidence on their own
 _MAX_COUNT = 1_000_000
@@ -158,6 +193,36 @@ _MAX_AGE_S = 7 * 86400
 _SKEW_S = 300
 
 # ── tokens ─────────────────────────────────────────────────────────────────────
+
+# trap kind -> attack class. A kind that maps to None is recorded by the
+# honeypot to be read and is not evidence of anything: a login cookie holder
+# asking the author list, the deploy tool's own probe, an odd client.
+TRAP_KINDS = {
+    "bait": "probe",              # loot and RCE probe paths (/.env, /.git/, ...)
+    "robots": "bad_bot",          # followed a path only robots.txt names
+    "login": "probe",             # admin and login pages the site does not have
+    "private": "probe",           # recon against the private host names
+    "impostor": "bad_bot",        # claimed to be a search crawler from the wrong network
+    "wpprobe": "probe",           # WordPress disclosure files
+    "wpenum": "probe",            # WordPress user enumeration
+    "mazeentry": "probe",         # opened a fake backup directory
+    "maze": "probe",              # walked the fake backup mirror
+    "mazeloot": "probe",          # asked for a dump file inside it
+    "gitdump": "probe",           # dumped the fake .git
+    "canary": "canary",           # used a credential the honeypot handed out
+    "decoy": "probe",             # a decoy host name only DNS brute force finds
+    "decoylogin": "decoy_login",  # tried to sign in there
+}
+
+# Cloudflare mechanism -> attack class, for the event kinds that count.
+CF_KINDS = {
+    "waf": "waf",           # managed rules: a signature fired
+    "custom": "waf",        # the operator's own rule refused it
+    "ratelimit": "flood",
+    "ddos": "ddos",
+    "bot": "bad_bot",       # Bot Fight Mode / Bot Management / Browser Integrity Check
+    "ua": "bad_bot",        # a user-agent block rule
+}
 
 _REQ_KINDS = {
     "sqli": "sqli",
@@ -178,6 +243,13 @@ _TOKEN_RE = {
     "crstag": re.compile(r"crstag:(attack-[a-z0-9-]{1,40})"),
     "jail": re.compile(r"jail:([A-Za-z0-9][A-Za-z0-9_.-]{0,39})"),
     "cs": re.compile(r"cs:([A-Za-z0-9][A-Za-z0-9_./-]{0,95})"),
+    # The firewall log: `scan` is one source address that tried several ports or
+    # many packets, decided by the agent. A blocked packet on its own is noise.
+    "fw": re.compile(r"fw:(scan)"),
+    # Cloudflare's firewall events, by the mechanism that refused the request.
+    "cf": re.compile(r"cf:(waf|custom|ratelimit|ddos|bot|ua)"),
+    # What the edge honeypot's hit was, by the trap that caught it.
+    "trap": re.compile(r"trap:(" + "|".join(sorted(TRAP_KINDS)) + r")"),
 }
 _JAIL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
@@ -348,6 +420,12 @@ def token_class(token):
         return jail_class(val)
     if kind == "cs":
         return scenario_class(val)
+    if kind == "fw":
+        return "port_scan"
+    if kind == "cf":
+        return CF_KINDS.get(val)
+    if kind == "trap":
+        return TRAP_KINDS.get(val)
     return None
 
 
@@ -395,13 +473,17 @@ def blank(ip=""):
         "blk": 0,
         "ban": [],
         "dec": 0,
+        "trp": 0,
         "cve": [],
     }
 
 
-def normalize_event(raw, now=None):
-    """One address's summary from an agent, reduced to the vocabulary, or None
-    when there is nothing usable (not an address, or no evidence at all)."""
+def normalize_event(raw, now=None, families=AGENT_SOURCES):
+    """One address's summary, reduced to the vocabulary, or None when there is
+    nothing usable (not an address, or no evidence at all). `families` is what
+    the sender may speak for: an agent's summary is read with AGENT_SOURCES, the
+    server's edge feeds with EDGE_SOURCES, so a family it may not claim is
+    dropped here rather than trusted."""
     if not isinstance(raw, dict):
         return None
     ip = public_ip(raw.get("ip"))
@@ -412,12 +494,12 @@ def normalize_event(raw, now=None):
     first, last = _ts(raw.get("first"), now), _ts(raw.get("last"), now)
     ev["first"], ev["last"] = (first, last) if first <= last else (last, first)
     src = raw.get("src") if isinstance(raw.get("src"), dict) else {}
-    for fam in SOURCES:
+    for fam in families:
         n = _count(src.get(fam))
         if n:
             ev["src"][fam] = n
     tok = raw.get("tok") if isinstance(raw.get("tok"), dict) else {}
-    for fam in SOURCES:
+    for fam in families:
         d = tok.get(fam)
         if not isinstance(d, dict):
             continue
@@ -429,12 +511,16 @@ def normalize_event(raw, now=None):
         if out:
             ev["tok"][fam] = dict(sorted(out.items(), key=lambda kv: -kv[1])[:_MAX_TOKENS])
     ev["ans"], ev["blk"] = _count(raw.get("ans")), _count(raw.get("blk"))
-    ev["dec"] = _count(raw.get("dec"))
-    jails = raw.get("ban") if isinstance(raw.get("ban"), list) else []
-    ev["ban"] = _uniq(j for j in jails if isinstance(j, str) and _JAIL_RE.fullmatch(j))[:_MAX_JAILS]
+    if "cs" in families:
+        ev["dec"] = _count(raw.get("dec"))
+    if "f2b" in families:
+        jails = raw.get("ban") if isinstance(raw.get("ban"), list) else []
+        ev["ban"] = _uniq(j for j in jails if isinstance(j, str) and _JAIL_RE.fullmatch(j))[:_MAX_JAILS]
+    if "trap" in families:
+        ev["trp"] = _count(raw.get("trp"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []
     ev["cve"] = _uniq(c for c in cves if isinstance(c, str) and _CVE_RE.fullmatch(c))[:_MAX_CVES]
-    if not (ev["src"] or ev["tok"] or ev["ban"] or ev["dec"]):
+    if not (ev["src"] or ev["tok"] or ev["ban"] or ev["dec"] or ev["trp"]):
         return None
     return ev
 
@@ -469,6 +555,7 @@ def merge(a, b):
     out["ans"] = min(_MAX_COUNT, _count(a.get("ans")) + _count(b.get("ans")))
     out["blk"] = min(_MAX_COUNT, _count(a.get("blk")) + _count(b.get("blk")))
     out["dec"] = min(_MAX_COUNT, _count(a.get("dec")) + _count(b.get("dec")))
+    out["trp"] = min(_MAX_COUNT, _count(a.get("trp")) + _count(b.get("trp")))
     out["ban"] = _uniq(list(a.get("ban") or []) + list(b.get("ban") or []))[:_MAX_JAILS]
     out["cve"] = _uniq(list(a.get("cve") or []) + list(b.get("cve") or []))[:_MAX_CVES]
     return out
@@ -535,11 +622,15 @@ def dominant(ev, limit=3):
 
 
 def confirmed_by(ev):
-    """Who already decided this address is hostile: 'fail2ban', 'CrowdSec' or ''."""
+    """Who already decided this address is hostile: 'fail2ban', 'CrowdSec', 'the
+    edge honeypot' or ''. A honeypot decision is its own ban (the address
+    tripped a trap that has no innocent visitor), not a count of hits."""
     if ev.get("ban"):
         return "fail2ban"
     if _count(ev.get("dec")):
         return "CrowdSec"
+    if _count(ev.get("trp")):
+        return "the edge honeypot"
     return ""
 
 
@@ -557,6 +648,9 @@ def qualifies(ev, min_count):
     waf = _count((ev.get("src") or {}).get("waf"))
     if waf >= WAF_MIN_BLOCKS:
         return True, f"blocked by the WAF {waf} times"
+    cf = _count((ev.get("src") or {}).get("cf"))
+    if cf >= WAF_MIN_BLOCKS:
+        return True, f"blocked by Cloudflare {cf} times"
     n, need = hostile_count(ev), max(1, int(min_count or 1))
     if n >= need:
         return True, f"{n} hostile requests"
@@ -603,6 +697,8 @@ def seen_by(ev):
             saw = saw or ev.get("ban")
         if fam == "cs":
             saw = saw or ev.get("dec")
+        if fam == "trap":
+            saw = saw or ev.get("trp")
         if saw:
             fams.append(fam)
     return _join(_uniq(SOURCE_PHRASE[f] for f in fams))
