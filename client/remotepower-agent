@@ -11235,6 +11235,8 @@ THREAT_BUDGET_S = 5.0             # parsing time per pass; the rest waits for th
 THREAT_LOOKBACK_S = 6 * 3600      # older lines are not evidence
 THREAT_MAX_EVENTS = 300           # addresses per submission
 THREAT_MIN_HITS = 3               # hostile requests before a plain web address is sent
+THREAT_FW_PORTS = 4               # distinct ports one address tried before it counts as a scan
+THREAT_FW_PACKETS = 15            # or this many blocked packets, to one port or several
 THREAT_MAX_LINE = 8192
 THREAT_DISCOVER_S = 600
 THREAT_CONF_FILES = 150
@@ -11293,6 +11295,7 @@ _TS_APC_ERR_TIME_RE = re.compile(
     r'\[\w{3} (\w{3}) (\d{1,2}) (\d\d):(\d\d):(\d\d)(?:\.\d+)? (\d{4})\]')
 _TS_CTIME_RE = re.compile(
     r'\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d\d):(\d\d):(\d\d)\s+(\d{4})')
+_TS_SYSLOG_RE = re.compile(r'([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d\d):(\d\d):(\d\d)\s')
 
 
 def _ts_time_local(s):
@@ -11344,6 +11347,24 @@ def _ts_time_ctime(s):
         return 0
     mo = _TS_MONTHS.get(m.group(1).lower())
     return _ts_mktime(m.group(6), mo, m.group(2), m.group(3), m.group(4), m.group(5)) if mo else 0
+
+
+def _ts_time_syslog(s, now):
+    """`Oct 10 22:50:38` (the traditional syslog stamp, which has no year and is
+    in the host's local time) -> epoch, or 0. The year is the current one, or the
+    last one when that would put the line more than a day in the future (a log
+    written on 31 December and read on 1 January)."""
+    m = _TS_SYSLOG_RE.match(str(s or ''))
+    if not m:
+        return 0
+    mo = _TS_MONTHS.get(m.group(1).lower())
+    if not mo or not _ts_clock_ok(m.group(2), m.group(3), m.group(4), m.group(5)):
+        return 0
+    year = time.localtime(now).tm_year
+    t = _ts_mktime(year, mo, m.group(2), m.group(3), m.group(4), m.group(5))
+    if t and t > now + 86400:
+        t = _ts_mktime(year - 1, mo, m.group(2), m.group(3), m.group(4), m.group(5))
+    return t
 
 
 # ── what a hostile request looks like ──────────────────────────────────────────
@@ -11666,6 +11687,11 @@ _TS_DEFAULT_AUDIT = (
     '/var/log/apache2/modsec_audit.log', '/var/log/httpd/modsec_audit.log',
     '/var/log/nginx/modsec_audit.log',
 )
+# The firewall's own log: UFW writes one, and a host whose rules LOG to the kernel
+# has them in kern.log. The second is read only when there is no ufw.log, so a
+# host that has both is not read twice.
+_TS_DEFAULT_FW = ('/var/log/ufw.log',)
+_TS_FALLBACK_FW = ('/var/log/kern.log',)
 
 
 def _ts_exists(path):
@@ -11695,6 +11721,8 @@ def _ts_kind_of(path):
         return 'waf'
     if 'fail2ban' in n:
         return 'f2b'
+    if any(w in n for w in ('ufw', 'kern', 'firewall', 'iptables', 'netfilter', 'nftables')):
+        return 'fw'
     if 'error' in n:
         return 'err'
     return 'web'
@@ -11729,7 +11757,7 @@ def _ts_discover(cfg, now):
             roots.append((p, 'apache', '/etc/nginx'))
     specs, errors, audit, proxied = _ts_log_sources(_ts_conf_statements(roots), apache_root)
 
-    web, err, waf, f2b, seen = [], [], [], [], set()
+    web, err, waf, f2b, fw, seen = [], [], [], [], [], set()
 
     def add(bucket, entry):
         key = os.path.realpath(host_path(entry['path']))
@@ -11757,6 +11785,13 @@ def _ts_discover(cfg, now):
     for p in _TS_DEFAULT_AUDIT:
         if _ts_exists(p):
             add(waf, {'path': p, 'configured': False})
+    for p in _TS_DEFAULT_FW:
+        if _ts_exists(p):
+            add(fw, {'path': p, 'configured': False})
+    if not fw:
+        for p in _TS_FALLBACK_FW:
+            if _ts_exists(p):
+                add(fw, {'path': p, 'configured': False})
     target = _ts_f2b_logtarget()
     if target:
         if _ts_exists(target):
@@ -11774,9 +11809,11 @@ def _ts_discover(cfg, now):
             add(err, {'path': real, 'kind': 'nginx' if 'nginx' in real else 'apache', 'configured': True})
         elif kind == 'waf':
             add(waf, {'path': real, 'configured': True})
+        elif kind == 'fw':
+            add(fw, {'path': real, 'configured': True})
         else:
             add(f2b, {'path': real, 'configured': True})
-    return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b,
+    return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b, 'fw': fw,
             'cs': bool(_which('cscli')) and not IN_CONTAINER, 'proxied': bool(proxied)}
 
 
@@ -12066,6 +12103,18 @@ class _TsAgg:
         ts = int(ts or self.now)
         a['first'] = min(a['first'] or ts, ts)
         a['last'] = max(a['last'], ts)
+
+    def bulk(self, fam, fkey, ip, first, last, token, n):
+        """`n` events of one kind for an address, counted by a scan that has
+        already applied its own threshold (the firewall reader's)."""
+        a = self.acc.setdefault((fam, fkey, ip), {'n': 0, 'tok': {}, 'first': 0, 'last': 0,
+                                                  'ans': 0, 'blk': 0})
+        a['n'] += n
+        a['blk'] += n
+        a['tok'][token] = a['tok'].get(token, 0) + n
+        first, last = int(first or self.now), int(last or self.now)
+        a['first'] = min(a['first'] or first, first)
+        a['last'] = max(a['last'], last)
 
     def ban(self, ip, jail):
         lst = self.bans.setdefault(ip, [])
@@ -12402,6 +12451,66 @@ def _ts_scan_apache_error(lines, agg, fkey, now):
 _TS_F2B_RE = re.compile(
     r'^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d)(?:[,.]\d+)?\s+\S+\s+\[\d+\]:\s+[A-Z]+\s+'
     r'\[([^\]]{1,60})\]\s+(Found|Ban|Unban|Restore Ban|Already banned)\s+([0-9A-Fa-f:.]+)')
+_TS_FW_FIELD_RE = re.compile(r'\b(IN|OUT|SRC|PROTO|DPT)=(\S*)')
+_TS_FW_BAD_RE = re.compile(r'BLOCK|DROP|REJECT|DENY|DENIED|INVALID', re.I)
+_TS_FW_OK_RE = re.compile(r'ALLOW|ACCEPT|AUDIT', re.I)
+_TS_FW_MAX_ADDRS = 5000          # addresses kept per pass
+
+
+def _ts_scan_firewall(lines, agg, fkey, now):
+    """(lines, parsed) for a firewall log: netfilter's LOG records, which UFW
+    writes as `[UFW BLOCK] IN=eth0 OUT= ... SRC=a.b.c.d ... PROTO=TCP DPT=22`.
+
+    One blocked packet is background noise on any public address, so nothing is
+    counted for it. An address is reported as a scan only when, within one pass,
+    it tried THREAT_FW_PORTS different ports or had THREAT_FW_PACKETS packets
+    refused. Only INBOUND refusals count (an interface in IN=, none in OUT=), from
+    a public source; an allowed, audited or outbound record is not hostile.
+    """
+    n = parsed = 0
+    floor, ceil = now - THREAT_LOOKBACK_S, now + 300
+    seen = {}                       # ip -> [packets, {ports}, first, last]
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        head = line[:THREAT_MAX_LINE]
+        ts = _ts_time_iso(head[:40]) or _ts_time_syslog(head[:20], now)
+        if not ts:
+            continue
+        parsed += 1                 # a stamped line is a log line this reader understands
+        if ' IN=' not in head or ' SRC=' not in head:
+            continue
+        f, start = {}, head.find(' IN=')
+        for m in _TS_FW_FIELD_RE.finditer(head):
+            f.setdefault(m.group(1), m.group(2))
+        # The rule's own prefix is what sits between `kernel:` and `IN=`; the host
+        # name before it is not read, so a machine called `blockhost` is not a verdict.
+        k = head.find('kernel:')
+        prefix = head[k + 7:start] if 0 <= k < start else head[max(0, start - 40):start]
+        if not f.get('IN') or f.get('OUT'):
+            continue
+        if _TS_FW_OK_RE.search(prefix) or not _TS_FW_BAD_RE.search(prefix):
+            continue
+        ip = _ts_ip(f.get('SRC'))
+        ts = min(ts, ceil)
+        if not ip or ts < floor:
+            continue
+        rec = seen.get(ip)
+        if rec is None:
+            if len(seen) >= _TS_FW_MAX_ADDRS:
+                continue
+            rec = seen[ip] = [0, set(), ts, ts]
+        rec[0] += 1
+        if f.get('DPT', '').isdigit() and len(rec[1]) < 64:
+            rec[1].add(int(f['DPT']))
+        rec[2], rec[3] = min(rec[2], ts), max(rec[3], ts)
+    for ip, (packets, ports, first, last) in seen.items():
+        if len(ports) >= THREAT_FW_PORTS or packets >= THREAT_FW_PACKETS:
+            agg.bulk('fw', fkey, ip, first, last, 'fw:scan', packets)
+    return n, parsed
+
+
 _TS_JAIL_NAME_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,39}')
 
 
@@ -12643,6 +12752,12 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
             n, parsed = _ts_scan_f2b(lines, agg, fkey, now)
             return n, parsed, ''
         one('f2b', e, ('f2b',), scan_f2b)
+
+    for e in disc.get('fw') or []:
+        def scan_fw(lines, fkey):
+            n, parsed = _ts_scan_firewall(lines, agg, fkey, now)
+            return n, parsed, ''
+        one('fw', e, ('fw',), scan_fw)
 
     cs_last = int(state.get('cs_last_id') or 0)
     if disc.get('cs'):
