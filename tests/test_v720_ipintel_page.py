@@ -52,6 +52,9 @@ def node(script, timeout=30):
         esc, esca, 'const _ipiOpen = new Set();',
         _const('_IPI_CLASS'), _const('_IPI_SOURCE'), _const('_IPI_STATE'), _const('_IPI_STATE_CLASS'),
         _const('_IPI_FMT'),
+        # v7.3.0: the edge feeds' tables, so the phrase population can read them
+        _const('_IPI_FEED'), _const('_IPI_FEED_STATE'), _const('_IPI_ASIDE'), _const('_IPI_CHECK'),
+        _const('_IPI_CHECK_STATE'),
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: ""});',
         'const document = {getElementById: el};',
         'const tableCtl = {sortRows: (name, rows, fn) => rows};',
@@ -75,7 +78,8 @@ class TestVocabularyMatchesTheServer(unittest.TestCase):
 
     def test_sources(self):
         self.assertEqual(set(self.table('_IPI_SOURCE')), set(te.SOURCES))
-        self.assertEqual(set(self.table('_IPI_SOURCE')), set(tsh._SOURCE_KINDS))
+        # an agent reports a state per LOG; the edge families are the server's own feeds
+        self.assertEqual(set(tsh._SOURCE_KINDS), set(te.AGENT_SOURCES))
 
     def test_states_and_their_colours(self):
         self.assertEqual(set(self.table('_IPI_STATE')), set(tsh._SOURCE_STATES))
@@ -98,7 +102,8 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
 
     def population(self):
         words = set()
-        for name in ('_IPI_CLASS', '_IPI_SOURCE', '_IPI_STATE', '_IPI_FMT'):
+        for name in ('_IPI_CLASS', '_IPI_SOURCE', '_IPI_STATE', '_IPI_FMT', '_IPI_FEED',
+                     '_IPI_FEED_STATE', '_IPI_ASIDE', '_IPI_CHECK', '_IPI_CHECK_STATE'):
             words |= set(node(f'console.log(JSON.stringify(Object.values({name})));'))
         for m in re.finditer(r"_ipiPhrase\('((?:[^'\\]|\\.)+)'\)|_ipiPhrase\(\"((?:[^\"\\]|\\.)+)\"\)", _JS):
             words.add((m.group(1) or m.group(2)).replace("\\'", "'"))

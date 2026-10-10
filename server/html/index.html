@@ -6722,6 +6722,64 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
+        <div class="dash-card mt-16" id="ipintel-edge-card" hidden>
+          <div class="section-title">Edge sources</div>
+          <p class="hint mb-12">RemotePower can read Cloudflare's firewall events and your honeypot Worker's log, and report what they show the same way it reports what your hosts' logs show. It only reads, with a read-only token, and nothing here blocks anything. Off until you turn it on.</p>
+          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-edge"> Read Cloudflare's firewall events and the honeypot's log</label></div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="ipintel-edge-token">Cloudflare API token (read-only)</label>
+              <input type="password" id="ipintel-edge-token" class="form-input mw-380" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-edge-account">Account id</label>
+              <input type="text" id="ipintel-edge-account" class="form-input mw-380 ff-mono" maxlength="32" spellcheck="false" autocomplete="off">
+            </div>
+          </div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-edge-cf"> Firewall events</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-edge-trap"> Honeypot Worker log</label></div>
+          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-edge-lists"> Count refusals by a rule that also blocks an IP list</label></div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label" for="ipintel-edge-zones">Zones (one id per line, blank for all)</label>
+              <textarea id="ipintel-edge-zones" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-edge-workers">Worker names (one per line)</label>
+              <textarea id="ipintel-edge-workers" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-edge-minutes">Read every (minutes)</label>
+              <input type="number" id="ipintel-edge-minutes" class="form-input isl-80" min="5" max="1440">
+            </div>
+          </div>
+          <p class="hint">Leave the zones empty to read every zone the token can see. The account id is only needed for the honeypot's log, which Cloudflare keeps for about three days.</p>
+          <div class="toolbar">
+            <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
+            <button class="btn-icon" data-action="testIpIntelEdge">Test connection</button>
+          </div>
+          <div id="ipintel-edge-test" class="mt-8 scroll-cap" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="dash-card mt-16" id="ipintel-edge-status-card" hidden>
+          <div class="section-title">Edge feeds</div>
+          <p class="hint mb-12">What each feed read the last time, and what was set aside and why. Challenges, country and network rules, IP access rules and rules that also block an IP list are not evidence of an attack and are never reported.</p>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="ipintel-edge-thead"><tr>
+                <th scope="col">Feed</th>
+                <th scope="col">State</th>
+                <th scope="col">Last read</th>
+                <th scope="col">Events read</th>
+                <th scope="col">Counted</th>
+                <th scope="col">Set aside</th>
+              </tr></thead>
+              <tbody id="ipintel-edge-tbody"></tbody>
+            </table>
+          </div>
+          <div id="ipintel-edge-notes" class="mt-8"></div>
+        </div>
+
         <div class="dash-card mt-16" id="ipintel-limits-card" hidden>
           <div class="section-title">Limits and report message</div>
           <div class="settings-row isl-57">

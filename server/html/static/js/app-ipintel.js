@@ -21,10 +21,44 @@ const _IPI_CLASS = {
   flood: 'request flooding', bad_bot: 'unwanted web crawling',
   waf: 'requests blocked by a web application firewall', mail_brute: 'mail login brute force',
   ftp_brute: 'FTP brute force', service_brute: 'service login brute force', port_scan: 'port scanning',
+  canary: 'using a credential planted in a decoy file', decoy_login: 'signing in to a decoy service',
+  ddos: 'HTTP request flooding',
 };
 const _IPI_SOURCE = {
   web: 'Web server log', err: 'Web server error log', waf: 'WAF audit log',
-  f2b: 'fail2ban log', cs: 'CrowdSec alerts',
+  f2b: 'fail2ban log', cs: 'CrowdSec alerts', fw: 'Firewall log',
+  cf: 'Cloudflare firewall events', trap: 'Edge honeypot',
+};
+// The edge feeds (Cloudflare's firewall events and the honeypot's log): what each is
+// called, how its state reads, why a line was set aside, and what a connection test
+// tried. The keys match what edge_intel_handlers.py and edge_evidence.py send
+// (tests/test_v730_edge_page.py derives both sides and compares them).
+const _IPI_FEED = {
+  cf: 'Cloudflare firewall events', trap: 'Edge honeypot',
+};
+const _IPI_FEED_STATE = {
+  ok: 'Reading', no_access: 'No permission', error: 'Error',
+  no_account: 'Needs an account id', no_zones: 'No zones found',
+  off: 'Off', waiting: 'Waiting for the first read',
+};
+const _IPI_FEED_STATE_CLASS = {
+  ok: 'c-green', no_access: 'c-red', error: 'c-red', no_account: 'c-amber', no_zones: 'c-amber',
+  off: 'hint', waiting: 'hint',
+};
+const _IPI_ASIDE = {
+  not_a_refusal: 'challenges and log-only actions',
+  not_an_attack_source: 'country, network and security-level rules',
+  list_rule: 'a rule that also blocks an IP list',
+  not_public: 'private or invalid addresses',
+  cloudflare_address: "Cloudflare's own addresses",
+  own_or_shared_address: 'your own or shared addresses',
+  not_evidence: 'lines the honeypot logs only to be read',
+};
+const _IPI_CHECK = {
+  zones: 'Zones', firewall: 'Firewall events', rules: 'Custom rules', trap: 'Honeypot log',
+};
+const _IPI_CHECK_STATE = {
+  ok: 'Works', no_access: 'The token cannot read this', error: 'Failed', skipped: 'Skipped',
 };
 const _IPI_STATE = {
   ok: 'Reading', idle: 'Quiet', missing: 'File missing', denied: 'No permission',
@@ -80,10 +114,15 @@ async function loadIpIntel() {
   document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
+  // The edge feeds belong to the instance: only the operator is sent their state.
+  const edge = !!(_ipiAdmin && _ipiData.edge);
+  document.getElementById('ipintel-edge-card').hidden = !edge;
+  document.getElementById('ipintel-edge-status-card').hidden = !edge;
   if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
   _ipiRenderAttackers();
   _ipiRenderBlocks();
   _ipiRenderSources();
+  _ipiRenderEdge();
 }
 
 function _ipiFillSettings(s, budget) {
@@ -103,6 +142,16 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-cache-hours', s.cache_hours ?? 24);
   set('ipintel-comment', s.report_comment || '');
   set('ipintel-never', (s.never_block || []).join('\n'));
+  chk('ipintel-edge', s.edge_enabled);
+  chk('ipintel-edge-cf', s.edge_cf_events);
+  chk('ipintel-edge-trap', s.edge_trap);
+  chk('ipintel-edge-lists', s.edge_count_list_rules);
+  set('ipintel-edge-account', s.edge_account_id || '');
+  set('ipintel-edge-zones', (s.edge_zone_ids || []).join('\n'));
+  set('ipintel-edge-workers', (s.edge_workers || []).join('\n'));
+  set('ipintel-edge-minutes', s.edge_poll_minutes ?? 10);
+  const et = document.getElementById('ipintel-edge-token');
+  if (et) { et.value = ''; et.placeholder = s.edge_token_set ? '••••••••  (saved — leave blank to keep)' : ''; }
   for (const [p, isSet] of [['abuseipdb', s.abuseipdb_key_set], ['sniffcat', s.sniffcat_key_set]]) {
     const el = document.getElementById(`ipintel-${p}-key`);
     if (el) { el.value = ''; el.placeholder = isSet ? '••••••••  (saved — leave blank to keep)' : ''; }
@@ -180,7 +229,10 @@ function _ipiEvidenceHtml(a) {
   const chips = (e.classes || []).slice(0, 3).map(c =>
     `<span class="ipi-chip">${_ipiPhrase(_ipiClassName(c.id))} <span class="hint">×${escHtml(String(c.n))}</span></span>`).join('');
   const notes = [];
-  if (e.confirmed) notes.push(`${_ipiPhrase('confirmed by')} ${escHtml(e.confirmed)}`);
+  if (e.confirmed) {
+    const who = e.confirmed === 'the edge honeypot' ? _ipiPhrase('the edge honeypot') : escHtml(e.confirmed);
+    notes.push(`${_ipiPhrase('confirmed by')} ${who}`);
+  }
   if (e.ans) notes.push(`<span class="c-amber">${_ipiPhrase('answered')} ${escHtml(String(e.ans))}</span>`);
   const open = _ipiOpen.has(a.ip);
   return `${chips}${notes.length ? `<div class="hint fs-11">${notes.join(' · ')}</div>` : ''}` +
@@ -232,7 +284,8 @@ function _ipiRenderAttackers() {
   tb.innerHTML = rows.map(a => {
     const hosts = (a.devices || []).map(d =>
       `${escHtml(d.name)} <span class="hint">(${escHtml(String(d.count || 0))})</span>`).join(', ');
-    const target = (a.devices || []).find(d => !blocked.has(`${d.device_id}|${a.ip}`));
+    const target = (a.devices || []).find(d => !String(d.device_id).startsWith('edge:')
+      && !blocked.has(`${d.device_id}|${a.ip}`));
     const btn = target
       ? `<button class="btn-icon" data-ip="${escAttr(a.ip)}" data-dev="${escAttr(target.device_id)}" aria-label="Block on host"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> Block</button>`
       : '';
@@ -328,6 +381,75 @@ function _ipiRenderBlocks() {
   }).join('');
 }
 
+// The edge feeds' last turn: what each read, what it counted and what it set aside, and
+// why. Every word is from a fixed table; the one free-text field is Cloudflare's own
+// error sentence, escaped.
+function _ipiRenderEdge() {
+  const tb = document.getElementById('ipintel-edge-tbody');
+  const notes = document.getElementById('ipintel-edge-notes');
+  if (!tb || !_ipiData || !_ipiData.edge) return;
+  const e = _ipiData.edge;
+  const rows = [];
+  for (const feed of ['cf', 'trap']) {
+    const f = e[feed] || {};
+    const on = e.enabled && f.state;
+    const key = !e.enabled ? 'off' : (f.state || 'waiting');
+    const state = _IPI_FEED_STATE[key] || key;
+    const cls = _IPI_FEED_STATE_CLASS[key] || 'hint';
+    const aside = Object.entries(f.ignored || {}).filter(([, n]) => n)
+      .map(([k, n]) => `${_ipiPhrase(_IPI_ASIDE[k] || k)} ×${escHtml(String(n))}`).join(', ');
+    rows.push(`<tr>
+      <td>${_ipiPhrase(_IPI_FEED[feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
+      <td class="${cls}">${_ipiPhrase(state)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}</td>
+      <td>${on && f.at ? escHtml(timeAgo(f.at)) : ''}</td>
+      <td>${escHtml(String(f.rows ?? f.hits ?? 0))}</td>
+      <td>${escHtml(String(f.kept || 0))}</td>
+      <td class="hint fs-11">${aside}</td>
+    </tr>`);
+  }
+  tb.innerHTML = rows.join('');
+  if (!notes) return;
+  const out = [];
+  if (e.cf && e.cf.rules_unreadable) {
+    out.push(`<p class="hint">${_ipiPhrase('Rules could not be read, so a rule that also blocks an IP list cannot be told apart.')}</p>`);
+  }
+  for (const feed of ['cf', 'trap']) {
+    if ((e[feed] || {}).truncated) {
+      out.push(`<p class="hint">${_ipiPhrase(_IPI_FEED[feed])}: ${_ipiPhrase('More events than one read can hold; some were not counted.')}</p>`);
+    }
+  }
+  notes.innerHTML = out.join('');
+}
+
+async function testIpIntelEdge() {
+  const out = document.getElementById('ipintel-edge-test');
+  if (!out) return;
+  out.textContent = '…';
+  const body = {};
+  const tok = document.getElementById('ipintel-edge-token').value.trim();
+  const acct = document.getElementById('ipintel-edge-account').value.trim();
+  if (tok) body.token = tok;
+  if (acct) body.account_id = acct;
+  const r = await api('POST', '/ip-intel/edge-test', body).catch(() => null);
+  if (!r || r.error) { out.textContent = (r && r.error) || 'Test failed'; return; }
+  const lines = [];
+  for (const [k, c] of Object.entries(r.checks || {})) {
+    const cls = c.state === 'ok' ? 'c-green' : c.state === 'skipped' ? 'hint' : 'c-red';
+    let more = '';
+    if (k === 'zones' && c.state === 'ok') {
+      more = ` · ${escHtml(String(c.n))} ${_ipiPhrase('zones')}${(c.names || []).length ? ': ' + (c.names || []).map(escHtml).join(', ') : ''}`;
+    } else if (k === 'rules' && c.state === 'ok') {
+      more = (c.rules || []).map(x =>
+        `<div class="hint fs-11"><code>${escHtml(x.id)}</code> ${escHtml(x.d || '')}${x.k ? ` — ${_ipiPhrase('also blocks an IP list')}` : ''}</div>`).join('');
+    } else if (c.error && c.state !== 'ok') {
+      more = ` · ${escHtml(c.error)}`;
+    }
+    lines.push(`<div><span class="${cls}">${_ipiPhrase(_IPI_CHECK_STATE[c.state] || c.state)}</span> ` +
+      `${_ipiPhrase(_IPI_CHECK[k] || k)}${more}</div>`);
+  }
+  out.innerHTML = lines.join('');
+}
+
 async function saveIpIntelSettings() {
   const v = id => document.getElementById(id);
   const body = {
@@ -351,6 +473,20 @@ async function saveIpIntelSettings() {
   const sk = v('ipintel-sniffcat-key').value.trim();
   if (ak) body.abuseipdb_api_key = ak;
   if (sk) body.sniffcat_api_key = sk;
+  if (v('ipintel-edge')) {
+    Object.assign(body, {
+      edge_enabled: v('ipintel-edge').checked,
+      edge_cf_events: v('ipintel-edge-cf').checked,
+      edge_trap: v('ipintel-edge-trap').checked,
+      edge_count_list_rules: v('ipintel-edge-lists').checked,
+      edge_account_id: v('ipintel-edge-account').value.trim(),
+      edge_zone_ids: v('ipintel-edge-zones').value,
+      edge_workers: v('ipintel-edge-workers').value,
+      edge_poll_minutes: v('ipintel-edge-minutes').value,
+    });
+    const et = v('ipintel-edge-token').value.trim();
+    if (et) body.edge_cloudflare_token = et;
+  }
   if (body.block_enabled && !(_ipiData.settings || {}).block_enabled) {
     const ok = await uiConfirm({title: 'Turn on auto-block', message: 'Hosts will drop traffic from addresses that reach the score you set, for the hours you set. Your fleet, your allow-list and recent RemotePower logins are never blocked. Continue?', confirmText: 'Turn on'});
     if (!ok) return;

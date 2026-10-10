@@ -49,7 +49,7 @@ import threat_evidence
 
 MAX_EVENTS = 300
 MAX_SOURCES = 40
-_SOURCE_KINDS = ('web', 'err', 'waf', 'f2b', 'cs')
+_SOURCE_KINDS = ('web', 'err', 'waf', 'f2b', 'cs', 'fw')
 _SOURCE_STATES = ('ok', 'idle', 'missing', 'denied', 'unparsed', 'unsupported', 'error')
 _SOURCE_FMTS = ('combined', 'custom', 'json', 'generic', 'native', 'nginx', 'apache')
 _PATH_RE = re.compile(r'(?:/[A-Za-z0-9._@+:/-]{1,299}|cscli|fail2ban)')

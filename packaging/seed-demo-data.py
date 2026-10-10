@@ -1000,6 +1000,62 @@ def build_ip_intel() -> dict:
                 att['errors'] = {'abuseipdb': f'not reported: {min(9, n)} of 10 attempts so far',
                                  'sniffcat': f'not reported: {min(9, n)} of 10 attempts so far'}
         attackers[ip] = att
+    # The edge feeds (v7.3.0): what Cloudflare refused and what the honeypot Worker
+    # caught are queued under two ids that are not hosts. A few addresses were
+    # banned by the honeypot and reported at once, one used a credential the
+    # honeypot had handed out, and one is Cloudflare's own refusals, still counting.
+    edge_rows = (
+        ('edge:trap', {'src': {'trap': 3}, 'tok': {'trap': {'trap:bait': 2, 'trap:robots': 1}}, 'trp': 1},
+         'probing for exposed files and admin pages and unwanted web crawling', 3, True),
+        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:canary': 1}}, 'trp': 1},
+         'using a credential planted in a decoy file', 1, True),
+        ('edge:trap', {'src': {'trap': 2}, 'tok': {'trap': {'trap:login': 2}}, 'trp': 1},
+         'probing for exposed files and admin pages', 2, True),
+        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:impostor': 1}}, 'trp': 0},
+         '', 1, False),
+        ('edge:cloudflare', {'src': {'cf': 14}, 'tok': {'cf': {'req:probe': 9, 'cf:custom': 5}}, 'blk': 14},
+         'probing for exposed files and admin pages', 14, True),
+        ('edge:cloudflare', {'src': {'cf': 2}, 'tok': {'cf': {'cf:waf': 2}}, 'blk': 2},
+         '', 2, False),
+    )
+    for k, (dev, base, phrase, n, reported) in enumerate(edge_rows):
+        ip = f'192.0.2.{20 + k}'
+        seen = now() - rng.randint(300, 86400)
+        ev = dict({'ip': ip, 'first': seen - 600, 'last': seen, 'ans': 0, 'blk': 0, 'ban': [],
+                   'dec': 0, 'trp': 0, 'cve': []}, **base)
+        att = {'first_seen': seen - 600, 'last_seen': seen, 'checked_at': seen,
+               'devices': {dev: {'count': n, 'unit': 'edge-feed', 'at': seen,
+                                 'not_blocked': 'edge sources are only reported'}},
+               'verdict': {'score': 88 if reported else 21, 'reports': 40 if reported else 1,
+                           'country': rng.choice(['NL', 'RU', 'US']), 'isp': rng.choice(isps),
+                           'usage': 'Data Center/Web Hosting/Transit',
+                           'providers': {'abuseipdb': {'score': 88 if reported else 21, 'reports': 12},
+                                         'sniffcat': {'score': 70 if reported else 10, 'reports': 3}}},
+               'reported': {'abuseipdb': seen, 'sniffcat': seen} if reported else {}, 'errors': {}}
+        if reported:
+            att['ev_reported'] = {'at': seen, 'ev': ev}
+            text = (f"{phrase}: {n} attempts within 10 minutes, seen by "
+                    f"{'edge honeypot' if dev == 'edge:trap' else 'Cloudflare WAF'} (reported by RemotePower)")
+            cats = [15, 21] if 'credential' in phrase else [21]
+            att['report_log'] = [
+                {'at': seen, 'prov': 'abuseipdb', 'cats': cats, 'comment': text, 'ok': True},
+                {'at': seen, 'prov': 'sniffcat', 'cats': [11, 21] if 'credential' in phrase else [21],
+                 'comment': text, 'ok': True}]
+        else:
+            att['ev'] = ev
+            att['errors'] = {'abuseipdb': f'not reported: {n} of 10 attempts so far',
+                             'sniffcat': f'not reported: {n} of 10 attempts so far'}
+        attackers[ip] = att
+    edge = {
+        'polled': now() - 240, 'at': now() - 240,
+        'cf': {'state': 'ok', 'at': now() - 240, 'rows': 38, 'kept': 16,
+               'ignored': {'not_an_attack_source': 112, 'not_a_refusal': 57, 'list_rule': 9},
+               'zones': [{'name': 'demo.example'}, {'name': 'shop.demo.example'}],
+               'rules_unreadable': False, 'truncated': False},
+        'trap': {'state': 'ok', 'at': now() - 240, 'hits': 17, 'kept': 12,
+                 'ignored': {'not_evidence': 4, 'own_or_shared_address': 1},
+                 'workers': ['trap-sink'], 'truncated': False},
+    }
     # Each Linux host's sensor, in every state the page can show: reading well, a
     # quiet log, one the agent may not read, a layout it could not understand, a
     # configured file that is not there, and a host whose web server logs the proxy.
@@ -1034,6 +1090,7 @@ def build_ip_intel() -> dict:
             'throttled': 0, 'ignored': ({'cloudflare': 412} if k % 3 == 0 else {}),
             'hour': {'h': now() // 3600, 'n': 6 + k}}
     return {'attackers': attackers, 'blocks': blocks, 'queue': [], 'sensors': sensors,
+            'edge': edge,
             'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                        'abuseipdb': 18, 'sniffcat': 18},
             'last_sweep': now()}
@@ -2730,7 +2787,11 @@ def build_config() -> dict:
         # Threat intel: lookups and auto-block on, so the page shows scores,
         # reports and blocks. No provider keys: the demo never calls out.
         'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
-                     'block_enabled': True, 'sensor_enabled': True},
+                     'block_enabled': True, 'sensor_enabled': True,
+                     # v7.3.0 edge feeds: on, with no token, so the page shows its state
+                     # and nothing ever calls out.
+                     'edge_enabled': True, 'edge_account_id': 'd' * 32,
+                     'edge_workers': ['trap-sink']},
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).
