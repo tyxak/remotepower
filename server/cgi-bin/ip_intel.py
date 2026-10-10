@@ -74,7 +74,23 @@ DEFAULTS = {
     'never_block': [],            # extra CIDRs that are never blocked
     'sensor_enabled': False,      # Linux agents read web server, WAF, fail2ban and CrowdSec logs
     'sensor_paths': [],           # extra log files for them, each under /var/log
+    # The edge feeds (v7.3.0): the server reads Cloudflare's firewall events and
+    # the honeypot Worker's log with a read-only API token and queues what they
+    # say like a host's sensor does. Reporting only; nothing here blocks.
+    'edge_enabled': False,
+    'edge_cf_events': True,       # Cloudflare firewall events (needs Zone: Analytics: Read)
+    'edge_trap': True,            # the honeypot Worker's log (needs Workers Observability: Read)
+    'edge_account_id': '',        # 32 hex digits; needed for the Worker's log
+    'edge_zone_ids': [],          # empty = every zone the token can read
+    'edge_workers': ['trap-sink'],
+    'edge_poll_minutes': 10,
+    'edge_count_list_rules': False,   # count refusals by a rule that also blocks an IP list
 }
+
+# The edge feeds queue their evidence under these ids, which are not hosts: there
+# is nothing to block them on, and only the operator who set the feeds up sees
+# them. The `edge:` prefix is not a shape a device id can have.
+EDGE_DEVICES = {'edge:cloudflare': 'Cloudflare edge', 'edge:trap': 'Edge honeypot'}
 
 _MAX_COMMENT = 1000
 _MIN_COMMENT = 10             # SniffCat refuses anything shorter
@@ -529,6 +545,48 @@ def clean_sensor_paths(raw):
 
 
 _KEY_RE = re.compile(r'^[A-Za-z0-9._~+/=-]{8,256}$')
+_CF_TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{20,256}$')
+_HEX32_RE = re.compile(r'^[0-9a-f]{32}$')
+_WORKER_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$')
+
+
+def valid_cf_token(token):
+    """A Cloudflare API token: letters, digits, `_` and `-`, a plausible length."""
+    return isinstance(token, str) and bool(_CF_TOKEN_RE.match(token))
+
+
+def clean_cf_ids(raw, limit=50):
+    """(ids, error) for zone ids typed one per line or separated by commas."""
+    items = raw if isinstance(raw, list) else str(raw or '').replace(',', '\n').split()
+    out = []
+    for it in items:
+        it = str(it).strip().lower()
+        if not it:
+            continue
+        if not _HEX32_RE.match(it):
+            return out, f'Not a Cloudflare zone id (32 hex digits): {it[:40]}'
+        if it not in out:
+            out.append(it)
+    if len(out) > limit:
+        return out, f'At most {limit} zones'
+    return out, None
+
+
+def clean_workers(raw, limit=3):
+    """(names, error) for Worker script names, one per line or comma separated."""
+    items = raw if isinstance(raw, list) else str(raw or '').replace(',', '\n').split()
+    out = []
+    for it in items:
+        it = str(it).strip()
+        if not it:
+            continue
+        if not _WORKER_NAME_RE.match(it):
+            return out, f'Not a Worker name: {it[:40]}'
+        if it not in out:
+            out.append(it)
+    if len(out) > limit:
+        return out, f'At most {limit} Workers'
+    return out, None
 
 
 def valid_api_key(key):

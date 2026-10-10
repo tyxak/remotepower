@@ -2660,10 +2660,21 @@ if _AVAILABLE:
         sniffcat_api_key: str = ''
         clear_abuseipdb_key: bool = False
         clear_sniffcat_key: bool = False
+        # v7.3.0: the edge feeds (Cloudflare firewall events, the honeypot's log)
+        edge_enabled: Any = None
+        edge_cf_events: Any = None
+        edge_trap: Any = None
+        edge_count_list_rules: Any = None
+        edge_account_id: Any = None
+        edge_zone_ids: Any = None
+        edge_workers: Any = None
+        edge_poll_minutes: Any = None
+        edge_cloudflare_token: str = ''
+        clear_edge_token: bool = False
 
-        _v0 = field_validator('abuseipdb_api_key', 'sniffcat_api_key',
+        _v0 = field_validator('abuseipdb_api_key', 'sniffcat_api_key', 'edge_cloudflare_token',
                               mode='before')(_coerce_str_loose)
-        _v1 = field_validator('clear_abuseipdb_key', 'clear_sniffcat_key',
+        _v1 = field_validator('clear_abuseipdb_key', 'clear_sniffcat_key', 'clear_edge_token',
                               mode='before')(_coerce_bool_loose)
 
     class ThreatEventsRequest(BaseModel):
@@ -2679,6 +2690,15 @@ if _AVAILABLE:
         dropped: Any = None
 
         _v0 = field_validator('device_id', 'token', mode='before')(_coerce_str_loose)
+
+    class IpIntelEdgeTestRequest(BaseModel):
+        """handle_ip_intel_edge_test POST. `token` is optional: without it the
+        stored token is tested, with it the typed one is, before it is saved."""
+        model_config = ConfigDict(extra='ignore')
+        token: str = ''
+        account_id: str = ''
+
+        _v0 = field_validator('token', 'account_id', mode='before')(_coerce_str_loose)
 
     class IpIntelLookupRequest(BaseModel):
         """handle_ip_intel_lookup POST."""
@@ -2982,6 +3002,7 @@ else:
     SshgwAgentCheckRequest = None
     SshgwAuditRequest = None
     IpIntelSettingsRequest = None
+    IpIntelEdgeTestRequest = None
     IpIntelLookupRequest = None
     IpIntelBlockRequest = None
 

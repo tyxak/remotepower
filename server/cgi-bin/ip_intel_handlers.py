@@ -79,6 +79,7 @@ def _policy():
         pol.update({k: stored[k] for k in ip_intel.DEFAULTS if k in stored})
     pol['keys'] = {'abuseipdb': str(cfg.get('abuseipdb_api_key') or ''),
                    'sniffcat': str(cfg.get('sniffcat_api_key') or '')}
+    pol['edge_token'] = str(cfg.get('edge_cloudflare_token') or '')
     return pol
 
 
@@ -141,42 +142,44 @@ def _trim_queue(q):
     return [q[i] for i in sorted(keep)]
 
 
-def ip_intel_note_evidence(dev_id, events, status=None, now=None):
-    """Queue what a host's logs said about each address and record the host's
-    sensor status, under one lock. `events` are threat_evidence summaries that
-    have already been validated. An address already waiting for this host has the
-    new evidence added to its entry, so a minute-by-minute attack is one entry,
-    not sixty. Returns {'queued': n, 'throttled': n}."""
+def _note_evidence_into(st, dev_id, events, status=None, now=None):
+    """The queueing half of ip_intel_note_evidence, over a store dict the caller
+    already holds the lock on, so a caller that has more to write (the edge
+    feeds' cursor) can do both in one transaction. The edge ids are queued
+    without the per-host hourly allowance and without a sensor record: they are
+    not hosts, and their volume is bounded by the read itself."""
     now = int(now or time.time())
     status = status if isinstance(status, dict) else {}
+    edge = dev_id in ip_intel.EDGE_DEVICES
     queued = throttled = 0
-    with A._LockedUpdate(A.IPINTEL_FILE) as st:
-        sensors = st.get('sensors') if isinstance(st.get('sensors'), dict) else {}
-        rec = sensors.get(dev_id) if isinstance(sensors.get(dev_id), dict) else {}
-        hour = now // 3600
-        used = int((rec.get('hour') or {}).get('n') or 0) if (rec.get('hour') or {}).get('h') == hour else 0
-        q = st.get('queue') if isinstance(st.get('queue'), list) else []
-        index = {(x.get('ip'), x.get('device_id')): i for i, x in enumerate(q)
-                 if isinstance(x, dict) and isinstance(x.get('evidence'), dict)}
-        for ev in events:
-            if used >= SENSOR_EVENTS_PER_HOUR:
-                throttled += 1
-                continue
-            used += 1
-            queued += 1
-            key = (ev['ip'], dev_id)
-            if key in index:
-                item = q[index[key]]
-                item['evidence'] = threat_evidence.merge(item['evidence'], ev)
-                item['count'] = threat_evidence.hostile_count(item['evidence'])
-                item['window_s'] = threat_evidence.window_seconds(item['evidence'])
-                item['at'] = now
-            else:
-                q.append({'ip': ev['ip'], 'device_id': dev_id, 'unit': 'threat-sensor',
-                          'count': threat_evidence.hostile_count(ev),
-                          'window_s': threat_evidence.window_seconds(ev), 'at': now, 'evidence': ev})
-                index[key] = len(q) - 1
-        st['queue'] = _trim_queue(q)
+    sensors = st.get('sensors') if isinstance(st.get('sensors'), dict) else {}
+    rec = sensors.get(dev_id) if isinstance(sensors.get(dev_id), dict) else {}
+    hour = now // 3600
+    used = int((rec.get('hour') or {}).get('n') or 0) if (rec.get('hour') or {}).get('h') == hour else 0
+    q = st.get('queue') if isinstance(st.get('queue'), list) else []
+    index = {(x.get('ip'), x.get('device_id')): i for i, x in enumerate(q)
+             if isinstance(x, dict) and isinstance(x.get('evidence'), dict)}
+    for ev in events:
+        if not edge and used >= SENSOR_EVENTS_PER_HOUR:
+            throttled += 1
+            continue
+        used += 1
+        queued += 1
+        key = (ev['ip'], dev_id)
+        if key in index:
+            item = q[index[key]]
+            item['evidence'] = threat_evidence.merge(item['evidence'], ev)
+            item['count'] = threat_evidence.hostile_count(item['evidence'])
+            item['window_s'] = threat_evidence.window_seconds(item['evidence'])
+            item['at'] = now
+        else:
+            q.append({'ip': ev['ip'], 'device_id': dev_id,
+                      'unit': 'edge-feed' if edge else 'threat-sensor',
+                      'count': threat_evidence.hostile_count(ev),
+                      'window_s': threat_evidence.window_seconds(ev), 'at': now, 'evidence': ev})
+            index[key] = len(q) - 1
+    st['queue'] = _trim_queue(q)
+    if not edge:
         sensors[dev_id] = {
             'at': now, 'sources': list(status.get('sources') or []),
             'events': queued, 'throttled': throttled,
@@ -189,6 +192,16 @@ def ip_intel_note_evidence(dev_id, events, status=None, now=None):
             sensors.pop(d, None)
         st['sensors'] = sensors
     return {'queued': queued, 'throttled': throttled}
+
+
+def ip_intel_note_evidence(dev_id, events, status=None, now=None):
+    """Queue what a host's logs said about each address and record the host's
+    sensor status, under one lock. `events` are threat_evidence summaries that
+    have already been validated. An address already waiting for this host has the
+    new evidence added to its entry, so a minute-by-minute attack is one entry,
+    not sixty. Returns {'queued': n, 'throttled': n}."""
+    with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        return _note_evidence_into(st, dev_id, events, status, now)
 
 
 # ── what other surfaces read ───────────────────────────────────────────────────
@@ -245,6 +258,8 @@ def ip_intel_by_device(now=None):
             continue
         score = (a.get('verdict') or {}).get('score') if isinstance(a.get('verdict'), dict) else None
         for did, seen in (a.get('devices') or {}).items():
+            if did in ip_intel.EDGE_DEVICES:
+                continue                 # not a host: nothing to score or block
             if not isinstance(seen, dict) or now - int(seen.get('at') or 0) > RECENT_S:
                 continue
             rec = out.setdefault(did, {'attackers': 0, 'known_bad': 0,
@@ -277,9 +292,13 @@ def _ip_intel_http(req):
     if not r.has_header('User-agent'):
         r.add_header('User-Agent', f'RemotePower/{A.SERVER_VERSION}')
     opener = A._ssrf_safe_opener(allow_loopback=False, no_redirect=True)
+    # A provider's answer is small. Cloudflare's grouped events and Worker logs
+    # are not, so a request can ask for a longer wait and a larger read (capped).
+    timeout = max(1, min(60, int(req.get('timeout') or 8)))
+    cap = max(65536, min(8_000_000, int(req.get('max_bytes') or 262144)))
     try:
-        with opener.open(r, timeout=8) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- fixed https provider bases in ip_intel.py
-            raw = resp.read(262144)
+        with opener.open(r, timeout=timeout) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- fixed https provider bases in ip_intel.py and edge_evidence.py
+            raw = resp.read(cap)
             status = resp.status
     except urllib.error.HTTPError as e:
         status, raw = e.code, e.read(65536)
@@ -706,6 +725,8 @@ def run_ip_intel_if_due():
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
+            if dev_id in ip_intel.EDGE_DEVICES:
+                ok, why = False, 'edge sources are reported, not blocked'
             dev = devices.get(dev_id)
             if ok and (not isinstance(dev, dict) or dev.get('agentless')
                        or A._device_os_family(dev) != 'linux'):
@@ -770,6 +791,9 @@ def _settings_view(pol):
     out['sensor_paths'] = list(pol.get('sensor_paths') or [])
     out['abuseipdb_key_set'] = bool(pol['keys'].get('abuseipdb'))
     out['sniffcat_key_set'] = bool(pol['keys'].get('sniffcat'))
+    out['edge_token_set'] = bool(pol.get('edge_token'))
+    out['edge_zone_ids'] = list(pol.get('edge_zone_ids') or [])
+    out['edge_workers'] = list(pol.get('edge_workers') or [])
     return out
 
 
@@ -790,7 +814,8 @@ def _evidence_view(att):
     src, tok = ev.get('src') or {}, ev.get('tok') or {}
     seen = []
     for fam in threat_evidence.SOURCES:
-        if src.get(fam) or tok.get(fam) or (fam == 'f2b' and ev.get('ban')) or (fam == 'cs' and ev.get('dec')):
+        if src.get(fam) or tok.get(fam) or (fam == 'f2b' and ev.get('ban')) \
+                or (fam == 'cs' and ev.get('dec')) or (fam == 'trap' and ev.get('trp')):
             seen.append({'id': fam, 'n': int(src.get(fam) or 0)})
     rules = {}
     for toks in tok.values():
@@ -836,6 +861,13 @@ def handle_ip_intel():
     pol = _policy()
     visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     st = _store_ro()
+    # The edge feeds belong to the instance, not to a host: only the operator who
+    # set them up sees what they queued.
+    operator = is_admin and (not A._tenancy_enforced() or A._caller_is_superadmin())
+    if operator:
+        visible = dict(visible)
+        for did, name in ip_intel.EDGE_DEVICES.items():
+            visible[did] = {'name': name}
     blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
     attackers = []
     for ip, a in (st.get('attackers') or {}).items():
@@ -875,6 +907,7 @@ def handle_ip_intel():
                     'attackers': attackers[:1000], 'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
                     'sensors': _sensor_rows(st, visible),
+                    'edge': A.edge_intel_status(st, pol) if operator else None,
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 
 
@@ -891,14 +924,15 @@ def handle_ip_intel_settings():
     changed = []
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
-        for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled'):
+        for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled',
+                  'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')
         for k, lo, hi in (('block_min_score', 1, 100), ('block_ttl_hours', 1, 24 * 90),
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
                           ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
-                          ('daily_report_budget', 0, 1000000)):
+                          ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440)):
             if body.get(k) not in (None, ''):
                 try:
                     pol[k] = max(lo, min(hi, int(body[k])))
@@ -922,6 +956,24 @@ def handle_ip_intel_settings():
                 A.respond(400, {'error': bad})
             pol['sensor_paths'] = paths
             changed.append(f'sensor_paths={len(paths)}')
+        if body.get('edge_account_id') is not None:
+            acct = str(body['edge_account_id']).strip().lower()
+            if acct and not ip_intel.clean_cf_ids([acct], 1)[0]:
+                A.respond(400, {'error': 'The account id is 32 hex digits'})
+            pol['edge_account_id'] = acct
+            changed.append('edge_account_id=' + ('set' if acct else 'cleared'))
+        if body.get('edge_zone_ids') is not None:
+            ids, bad = ip_intel.clean_cf_ids(body['edge_zone_ids'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['edge_zone_ids'] = ids
+            changed.append(f'edge_zone_ids={len(ids)}')
+        if body.get('edge_workers') is not None:
+            names, bad = ip_intel.clean_workers(body['edge_workers'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['edge_workers'] = names or list(ip_intel.DEFAULTS['edge_workers'])
+            changed.append(f"edge_workers={len(pol['edge_workers'])}")
         if body.get('never_block') is not None:
             raw = body['never_block']
             items = raw if isinstance(raw, list) else str(raw).replace(',', '\n').splitlines()
@@ -936,6 +988,15 @@ def handle_ip_intel_settings():
             pol['never_block'] = nets
             changed.append(f'never_block={len(nets)}')
         cfg['ip_intel'] = pol
+        if body.get('clear_edge_token'):
+            cfg.pop('edge_cloudflare_token', None)
+            changed.append('edge_cloudflare_token=cleared')
+        elif body.get('edge_cloudflare_token'):
+            tok = str(body['edge_cloudflare_token']).strip()
+            if not ip_intel.valid_cf_token(tok):
+                A.respond(400, {'error': 'The Cloudflare API token has an unexpected format'})
+            cfg['edge_cloudflare_token'] = tok
+            changed.append('edge_cloudflare_token=set')
         for prov in ip_intel.PROVIDERS:
             name = f'{prov}_api_key'
             if body.get(f'clear_{prov}_key'):

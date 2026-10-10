@@ -1130,10 +1130,24 @@ for _ii_name in (
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
         'handle_ip_intel_block', 'handle_ip_intel_unblock',
         'ip_intel_annotate', 'ip_intel_by_device',
-        'ip_intel_policy', 'ip_intel_note_evidence',
+        'ip_intel_policy', 'ip_intel_note_evidence', '_note_evidence_into',
 ):
     globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
 del _ii_name
+
+# v7.3.0: the edge feeds for Threat intel. The server reads Cloudflare's firewall
+# events and the honeypot Worker's log with a read-only token and queues what they
+# say; the sweep, the evidence and the reports are Threat intel's own.
+_ei_spec = _tk_ilu.spec_from_file_location(
+    'edge_intel_handlers', Path(__file__).parent / 'edge_intel_handlers.py')
+edge_intel_handlers_mod = _tk_ilu.module_from_spec(_ei_spec)
+_ei_spec.loader.exec_module(edge_intel_handlers_mod)
+edge_intel_handlers_mod.bind(globals())
+for _ei_name in (
+        'run_edge_intel_if_due', 'edge_intel_status', 'handle_ip_intel_edge_test',
+):
+    globals()[_ei_name] = getattr(edge_intel_handlers_mod, _ei_name)
+del _ei_name
 
 # v7.2.0: the threat sensor's intake. Linux agents send summaries of what their
 # web server, WAF, fail2ban and CrowdSec logs say about source addresses; they
@@ -71464,6 +71478,7 @@ def _build_exact_routes():
         ('POST', '/api/ip-intel/lookup'): handle_ip_intel_lookup,
         ('POST', '/api/ip-intel/block'): handle_ip_intel_block,
         ('POST', '/api/ip-intel/unblock'): handle_ip_intel_unblock,
+        ('POST', '/api/ip-intel/edge-test'): handle_ip_intel_edge_test,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,
         ('POST', '/api/kmip/config'): handle_kmip_config,
@@ -72788,6 +72803,7 @@ def main():
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
+    _safe(run_edge_intel_if_due, 'run_edge_intel_if_due')   # v7.3.0 Cloudflare events + honeypot log
     _safe(run_ip_intel_if_due, 'run_ip_intel_if_due')   # AbuseIPDB / SniffCat
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
     _safe(run_flow_export_check_if_due, 'run_flow_export_check_if_due')  # v6.4.3 exporter went silent
