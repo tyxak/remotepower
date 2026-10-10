@@ -194,7 +194,7 @@ class TestTheSweep(_Edge):
         self.assertEqual(by[SECOND]['sniffcat']['categories'], [15])
         self.assertEqual(by[SECOND]['abuseipdb']['categories'], ['19'])
         text = by[SECOND]['sniffcat']['comment']
-        self.assertEqual(text, 'unwanted web crawling: 1 attempts within 1 minutes, seen by edge '
+        self.assertEqual(text, 'unwanted web crawling: 1 attempt within 1 minute, seen by edge '
                                'honeypot (reported by RemotePower)')
 
     def test_cloudflare_refusals_report_after_three_like_the_waf(self):
@@ -326,6 +326,8 @@ class TestSettings(_Edge):
         self.assertEqual(cfg['edge_cloudflare_token'], 'NEWtoken_' + 'y' * 30)
         self.assertTrue(self.api._SECRET_KEY_RE.search('edge_cloudflare_token'),
                         'the config reader scrubs it by name')
+        self.assertTrue(self.api._is_config_secret_name('edge_cloudflare_token'),
+                        'and the at-rest encryption walk picks it up by name too')
         # an empty value keeps the stored token, and clearing removes it
         self.save(edge_cloudflare_token='')
         self.assertTrue(self.api.load(self.api.CONFIG_FILE).get('edge_cloudflare_token'))

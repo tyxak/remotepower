@@ -377,6 +377,13 @@ def attack_kind(unit):
 def _render_comment(template, what, count, mins, attack='', seen_by=''):
     values = {'what': what, 'count': str(count), 'minutes': str(mins),
               'attack': attack, 'seen_by': seen_by}
+    if template == REPORT_COMMENT_DEFAULT:
+        # The standard text is ours, so it can be grammatical: "1 attempt within
+        # 1 minute". An operator's own wording is left exactly as they wrote it.
+        template = (template.replace('{count} attempts', '{count} attempt' if count == 1
+                                     else '{count} attempts')
+                    .replace('{minutes} minutes', '{minutes} minute' if mins == 1
+                             else '{minutes} minutes'))
     return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), template)
 
 

@@ -495,3 +495,41 @@ class TestEndpoints(_Case):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestTheStandardTextIsGrammatical(unittest.TestCase):
+    """v7.3.0: a one-hit report from the honeypot says `1 attempt within 1 minute`.
+    The standard text is the project's own, so it is worded properly; an operator's
+    template is rendered exactly as written."""
+
+    def test_singular_and_plural(self):
+        for count, secs, want in (
+            (1, 30, 'SSH brute force: 1 attempt within 1 minute, seen by system log (reported by RemotePower)'),
+            (2, 60, 'SSH brute force: 2 attempts within 1 minute, seen by system log (reported by RemotePower)'),
+            (1, 600, 'SSH brute force: 1 attempt within 10 minutes, seen by system log (reported by RemotePower)'),
+            (42, 600, 'SSH brute force: 42 attempts within 10 minutes, seen by system log (reported by RemotePower)'),
+        ):
+            self.assertEqual(ip_intel.report_comment('ssh', count, secs), want)
+
+    def test_an_operators_own_wording_is_left_alone(self):
+        t = '{attack}, {count} attempts in {minutes} minutes'
+        self.assertEqual(ip_intel.report_comment('ssh', 1, 30, t), 'SSH brute force, 1 attempts in 1 minutes')
+
+
+class TestTheStandardTextIsGrammatical(unittest.TestCase):
+    """v7.3.0: a one-hit report from the honeypot says `1 attempt within 1 minute`.
+    The standard text is the project's own, so it is worded properly; an operator's
+    template is rendered exactly as written."""
+
+    def test_singular_and_plural(self):
+        for count, secs, want in (
+            (1, 30, 'SSH brute force: 1 attempt within 1 minute, seen by system log (reported by RemotePower)'),
+            (2, 60, 'SSH brute force: 2 attempts within 1 minute, seen by system log (reported by RemotePower)'),
+            (1, 600, 'SSH brute force: 1 attempt within 10 minutes, seen by system log (reported by RemotePower)'),
+            (42, 600, 'SSH brute force: 42 attempts within 10 minutes, seen by system log (reported by RemotePower)'),
+        ):
+            self.assertEqual(ip_intel.report_comment('ssh', count, secs), want)
+
+    def test_an_operators_own_wording_is_left_alone(self):
+        t = '{attack}, {count} attempts in {minutes} minutes'
+        self.assertEqual(ip_intel.report_comment('ssh', 1, 30, t), 'SSH brute force, 1 attempts in 1 minutes')

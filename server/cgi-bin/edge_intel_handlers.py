@@ -56,6 +56,7 @@ TRAP_WINDOW_S = 3 * 86400     # Workers Logs keep about three days
 LAG_S = 90                    # events take a moment to show up in analytics
 RULE_ZONES = 12               # zones whose rules are kept
 RULES_PER_ZONE = 60
+RULES_BUDGET_S = 20           # time one poll spends reading rules; the rest wait for the next
 FEEDS = (('cf', 'edge:cloudflare'), ('trap', 'edge:trap'))
 
 
@@ -105,11 +106,18 @@ def _poll_cf(token, pol, edge, now):
     # rules cannot be read is still counted; the page says so.
     rules, cache, unreadable = {}, {}, False
     old = edge.get('rules') if isinstance(edge.get('rules'), dict) else {}
+    started = time.monotonic()
     for z in zones[:RULE_ZONES]:
         got = old.get(z['id']) if isinstance(old.get(z['id']), dict) else None
         if got and now - int(got.get('at') or 0) < RULES_TTL_S:
             rules[z['id']] = got.get('r') or {}
             cache[z['id']] = got
+            continue
+        if time.monotonic() - started > RULES_BUDGET_S:
+            unreadable = True             # a slow answer must not hold the poll up
+            if got:
+                rules[z['id']] = got.get('r') or {}
+                cache[z['id']] = got
             continue
         res = edge_evidence.parse_rules(*A._ip_intel_http(edge_evidence.rules_request(token, z['id'])))
         if res['ok']:

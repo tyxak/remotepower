@@ -333,8 +333,8 @@ class TestTrapEvents(unittest.TestCase):
         evs, _ = ee.trap_events([dict(self.hit(), path=EVIL, ua=EVIL, note=EVIL)], now=NOW)
         self.assertNotIn('DROP', json.dumps(evs))
         text = ip_intel.evidence_comment(evs[0])
-        self.assertEqual(text, 'probing for exposed files and admin pages: 1 attempts within 1 '
-                               'minutes, seen by edge honeypot (reported by RemotePower)')
+        self.assertEqual(text, 'probing for exposed files and admin pages: 1 attempt within 1 '
+                               'minute, seen by edge honeypot (reported by RemotePower)')
 
 
 if __name__ == '__main__':
