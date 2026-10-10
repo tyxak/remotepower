@@ -50,9 +50,7 @@ import ip_intel
 POLL_MIN_S = 300              # never poll Cloudflare more often than this
 ZONES_TTL_S = 6 * 3600        # the zone list is kept this long
 RULES_TTL_S = 3600            # so are a zone's custom rules
-FIRST_LOOKBACK_S = 6 * 3600   # a first read goes back this far, like the host sensor
-MAX_WINDOW_S = 23 * 3600      # Cloudflare answers for less than a day at a time
-TRAP_WINDOW_S = 3 * 86400     # Workers Logs keep about three days
+LOOKBACK_S = 6 * 3600         # a read never goes back further, like the host sensor: older is not evidence
 LAG_S = 90                    # events take a moment to show up in analytics
 RULE_ZONES = 12               # zones whose rules are kept
 RULES_PER_ZONE = 60
@@ -97,7 +95,7 @@ def _poll_cf(token, pol, edge, now):
         if refused:
             return dict(_fail(refused), at=now)
         return {'state': 'no_zones', 'at': now}
-    since = max(int(edge.get('cf_to') or 0) or now - FIRST_LOOKBACK_S, now - MAX_WINDOW_S)
+    since = max(int(edge.get('cf_to') or 0), now - LOOKBACK_S)
     until = now - LAG_S
     out = {'state': 'ok', 'at': now, 'zones': [{'name': z.get('name') or z['id'][:8]} for z in zones],
            'zone_list': zones, 'zones_at': now if refused is None else int(edge.get('zones_at') or 0)}
@@ -153,7 +151,7 @@ def _poll_trap(token, pol, edge, now):
         return {'state': 'no_account', 'at': now}
     workers = [w for w in (pol.get('edge_workers') or []) if edge_evidence.valid_worker(w)]
     workers = workers[:edge_evidence.MAX_WORKERS] or list(ip_intel.DEFAULTS['edge_workers'])
-    since = max(int(edge.get('trap_to') or 0) or now - FIRST_LOOKBACK_S, now - TRAP_WINDOW_S)
+    since = max(int(edge.get('trap_to') or 0), now - LOOKBACK_S)
     until = now - 5
     if until - since < 30:
         return {'state': 'ok', 'at': now, 'skipped': True, 'workers': workers}
@@ -209,6 +207,9 @@ def run_edge_intel_if_due():
         for feed, dev in FEEDS:
             r = got.get(feed)
             if r is None:
+                # Switched off: say so, rather than keep showing the last read as
+                # though it were still being made.
+                edge[feed] = {'state': 'off', 'at': now}
                 continue
             events = r.pop('events', None) or []
             if events:

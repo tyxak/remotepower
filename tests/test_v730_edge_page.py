@@ -78,11 +78,12 @@ class TestTheWordsMatchTheServer(unittest.TestCase):
         self.assertGreaterEqual(len(written), 5, written)
         shown = set(table('_IPI_FEED_STATE'))
         self.assertEqual(written - shown, set(), 'a state the page cannot say')
-        self.assertEqual(shown - written, {'off', 'waiting'}, 'what the page adds for itself')
+        self.assertEqual(shown - written, {'waiting'}, 'what the page adds for itself')
         self.assertEqual(set(table('_IPI_FEED_STATE_CLASS')), shown)
 
     def test_every_reason_a_line_is_set_aside_has_words(self):
-        reasons = set(re.findall(r"drop\('([a-z_]+)'", _EVIDENCE))
+        # edge_evidence.py is black-formatted, so its quotes are double
+        reasons = set(re.findall(r"drop\([\"']([a-z_]+)[\"']", _EVIDENCE))
         self.assertGreaterEqual(len(reasons), 6, reasons)
         self.assertEqual(set(table('_IPI_ASIDE')), reasons)
 

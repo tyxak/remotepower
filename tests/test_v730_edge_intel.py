@@ -140,12 +140,29 @@ class TestOffMeansOff(_Edge):
 
     def test_each_feed_has_its_own_switch(self):
         self.policy(edge_trap=False)
-        self.poll()
+        st = self.poll()
         self.assertTrue(self.cf_calls and all('telemetry' not in c['url'] for c in self.cf_calls))
+        self.assertEqual(st['edge']['trap']['state'], 'off')
+        self.assertEqual(st['edge']['cf']['state'], 'ok')
         self.cf_calls.clear()
         self.policy(edge_trap=True, edge_cf_events=False)
-        self.poll()
+        st = self.poll(at=T + 700)
         self.assertTrue(self.cf_calls and all('graphql' not in c['url'] for c in self.cf_calls))
+        self.assertEqual(st['edge']['cf']['state'], 'off', 'the last read is not shown as if still made')
+        self.assertEqual(st['edge']['trap']['state'], 'ok')
+
+    def test_a_long_pause_does_not_replay_old_evidence(self):
+        """A read goes back six hours at most, so a feed switched on again after
+        two days does not count two days of hits as fresh."""
+        st = self.poll()
+        self.assertEqual(st['edge']['cf_to'], T - 90)
+        self.cf_calls.clear()
+        self.poll(at=T + 2 * 86400)
+        q = json.loads([c for c in self.cf_calls if c['url'].endswith('/graphql')][0]['body'])['query']
+        since = re.search(r'datetime_geq: "([^"]+)"', q).group(1)
+        import calendar
+        import time as _t
+        self.assertEqual(calendar.timegm(_t.strptime(since, '%Y-%m-%dT%H:%M:%SZ')), T + 2 * 86400 - 6 * 3600)
 
     def test_the_poll_interval_is_kept(self):
         self.poll()

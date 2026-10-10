@@ -241,9 +241,9 @@ as a self-test, are not evidence.
    shows as exactly that.
 4. Tick the switch and save.
 
-RemotePower reads every ten minutes (every five at the fastest). The first read
-goes back six hours. Cloudflare keeps the honeypot's log for about three days, so
-a pause longer than that loses what it held.
+RemotePower reads every ten minutes (every five at the fastest). A read never
+goes back further than six hours, as with the host logs, so a pause longer than
+that loses what it held. An unticked feed shows as off.
 
 ### If other scripts report the same things
 
