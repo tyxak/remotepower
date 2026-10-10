@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.2.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,13 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.3.0 "Edg3Matters"** — threat intel reads the edge. RemotePower can read
+  Cloudflare's firewall events and your honeypot Worker's log with a read-only
+  token and report what they show, with the evidence: only refusals that mean an
+  attack count, and an address your honeypot banned is reported at once. Linux
+  agents can also read UFW's log. Nothing here blocks anything, so banning stays
+  with what you already use, and RemotePower can be the one place that reports.
+  Off until you turn it on.
 - **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
   say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
   fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat
@@ -241,12 +248,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   The catalog is 26 action classes now: two added, five dropped because the alert
   that triggers them names no host, or the command cannot fix what fired it.
   Receipts can be cleared, per row or in bulk.
-- **v7.0.1 "C0llapseMatters"** — the sidebar collapses when you ask it to. Open
-  alerts held it open in every mode, including a manual collapse with auto-hide
-  switched off, so page content slid to the rail margin while the menu stayed
-  full width on top of it. Between 721 and 768 pixels wide the Collapse button
-  appeared and did nothing. Adds a per-browser option to keep hiding the sidebar
-  while alerts are open.
 
 ## Security
 

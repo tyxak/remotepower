@@ -36,7 +36,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '7.2.0'
+VERSION      = '7.3.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -12466,6 +12466,11 @@ def _ts_scan_firewall(lines, agg, fkey, now):
     it tried THREAT_FW_PORTS different ports or had THREAT_FW_PACKETS packets
     refused. Only INBOUND refusals count (an interface in IN=, none in OUT=), from
     a public source; an allowed, audited or outbound record is not hostile.
+
+    Only TCP counts. The source address of an unsolicited packet is whatever the
+    sender wrote, and UDP and ICMP are what reflection attacks forge: a report
+    built on them would name the victim of a spoofed flood. A TCP scan can be
+    forged too, but not by accident and not cheaply.
     """
     n = parsed = 0
     floor, ceil = now - THREAT_LOOKBACK_S, now + 300
@@ -12488,7 +12493,7 @@ def _ts_scan_firewall(lines, agg, fkey, now):
         # name before it is not read, so a machine called `blockhost` is not a verdict.
         k = head.find('kernel:')
         prefix = head[k + 7:start] if 0 <= k < start else head[max(0, start - 40):start]
-        if not f.get('IN') or f.get('OUT'):
+        if not f.get('IN') or f.get('OUT') or f.get('PROTO') != 'TCP':
             continue
         if _TS_FW_OK_RE.search(prefix) or not _TS_FW_BAD_RE.search(prefix):
             continue

@@ -82,6 +82,14 @@ class TestWhatIsAScan(unittest.TestCase):
             ev, _, _ = scan(self.agent, [rec(A1, p, tag=tag) for p in sweep])
             self.assertIn(A1, ev, tag)
 
+    def test_only_tcp_counts_because_the_rest_is_what_a_flood_forges(self):
+        sweep = (22, 23, 80, 443, 3389, 5900)
+        for proto in ('UDP', 'ICMP', 'GRE', 'ESP'):
+            ev, _, _ = scan(self.agent, [rec(A1, p, proto=proto) for p in sweep] * 5)
+            self.assertEqual(ev, {}, proto)
+        ev, _, _ = scan(self.agent, [rec(A1, p, proto='TCP') for p in sweep])
+        self.assertIn(A1, ev)
+
     def test_nobody_private_or_malformed_is_a_source(self):
         sweep = (22, 23, 80, 443, 3389, 5900)
         for src in ('10.0.0.9', '192.168.1.5', '127.0.0.1', '169.254.1.1', '224.0.0.1', 'not-an-ip', ''):

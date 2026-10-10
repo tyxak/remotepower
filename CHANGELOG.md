@@ -2,6 +2,84 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v7.3.0 — "Edg3Matters" — unreleased (test)
+
+A release about the edge. Threat intel learned about an attacker from your own
+hosts' logs. Cloudflare refuses requests before they reach a host, and a honeypot
+Worker catches scanners that no host log ever sees, and neither told RemotePower.
+Now both do, so RemotePower can be the one place that reports, with the evidence
+behind each report.
+
+Banning is not touched. Nothing in this release blocks anything on its own:
+whatever you already use to ban (ModSecurity, CrowdSec, fail2ban, Cloudflare
+rules, scripts) keeps doing it.
+
+The security review for this release is scoped to what is new: a stored
+Cloudflare token, two feeds the server reads from outside, and a firewall-log
+reader in the agent. It is in `docs/security-review-7.3.0.md`.
+
+### Edge sources
+
+- **RemotePower reads Cloudflare's firewall events and your honeypot Worker's
+  log.** The server calls `api.cloudflare.com` with a read-only token, every ten
+  minutes (every five at the fastest), and queues what it finds through the same
+  evidence, lookup and report path your hosts' logs use. Off until you turn it
+  on, under **Security → Threat intel → Edge sources**. Nothing about your hosts
+  is sent.
+- **Only a refusal that means an attack counts.** A block by managed rules, your
+  own custom rules, rate limiting, HTTP DDoS protection or a bot product counts.
+  Challenges, country and ASN rules, the security level, IP access rules (a ban
+  somebody else already decided) and rules that also block an IP list are set
+  aside, and the page says how many of each and why. Three refusals qualify an
+  address, like three WAF refusals on a host.
+- **The honeypot's ban is a decision.** An address the Worker banned is reported
+  at once, like one fail2ban banned. Decoys named only in `robots.txt` and
+  crawlers impersonating a search engine are filed as bad web bots, which is how
+  both services define them. Two classes are new: a credential the honeypot
+  handed out being used, and signing in to a decoy service.
+- **Nothing a visitor typed is fetched.** Cloudflare's events are read as counts
+  grouped by address, mechanism and rule, with no path and no user agent. From
+  the Worker's log only the trap, the address, the Worker's own decision and the
+  time are read.
+- **Test connection** tries each thing the feeds need, with the stored token or
+  one you typed, and says which permission is missing. It lists the zone's custom
+  rules and marks the ones that also block an IP list.
+- **Edge sources are never blocked.** They have no host to block them on. The
+  Block button is absent and the page says they are only reported.
+
+### Firewall log
+
+- **Linux agents read UFW's log**, or `kern.log` when there is none. One refused
+  packet is noise, so an address counts as a scan when, within a minute, it tried
+  four ports or had fifteen packets refused. Inbound TCP only: the source of a
+  UDP or ICMP packet is what a flood forges. The firewall has to log for this to
+  see anything; a log that stays empty reads as quiet on the Log sources card.
+
+### Reports
+
+- **One hit reads as one hit.** The standard text says `1 attempt within 1
+  minute` instead of `1 attempts within 1 minutes`. A template you wrote is
+  rendered as you wrote it.
+
+### Under the hood
+
+- **An agent cannot claim the edge.** The vocabulary has two sets of families,
+  and a summary is read with its sender's. A compromised agent cannot say that
+  Cloudflare or the honeypot banned an address.
+- **A poll's evidence and its cursor are one transaction**, so a crash cannot
+  replay a window, and a feed that cannot read does not move its cursor.
+- **The demo carries edge attackers and feed state**, so the rendered gates
+  measure the new cards.
+
+### Upgrading
+
+Hard-reload the dashboard once (service-worker cache
+`remotepower-shell-v7.3.0-42`). Nothing changes until you turn the edge feeds on.
+The agent's firewall-log reader runs only where the log sensor is on. If scripts
+report Cloudflare events or UFW blocks to the same services, stop them once the
+feeds here work, so each address is one report; a report the service refuses as
+a repeat is counted as done, so nothing breaks while both run.
+
 ## v7.2.0 — "Ev1denceMatters" — 2026-10-06
 
 A release about evidence. Threat intel used to learn about an attacker from

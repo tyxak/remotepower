@@ -15,7 +15,9 @@ All three are off until you turn them on. You'll find everything under
 
 If you also run a web server, a WAF, fail2ban or CrowdSec, the
 [log sensor](#the-log-sensor) lets RemotePower read what those logs say about
-each address, so a report says what the address actually did.
+each address, so a report says what the address actually did. If you run
+Cloudflare or a honeypot, [edge sources](#edge-sources) bring in what they saw
+too.
 
 ## How it works
 
@@ -52,6 +54,7 @@ reads these, read-only, once a minute:
 | ModSecurity audit log (native or JSON) | Which rules fired, and whether the WAF blocked the request |
 | fail2ban's log | Which addresses it saw failing, which it banned, and in which jail |
 | CrowdSec | The alerts its own scenarios raised on this host, including AppSec |
+| Firewall log (UFW, kernel `LOG` records) | Addresses the firewall refused on several ports, or many times, within a minute |
 
 The agent finds the files from the web server's own configuration (nginx
 `access_log` and `error_log`, Apache `CustomLog` and `ErrorLog`, ModSecurity's
@@ -59,6 +62,22 @@ The agent finds the files from the web server's own configuration (nginx
 a custom format works without setup. A host with no configuration is covered by
 the standard paths. Add anything else under **Extra log files**: up to 20,
 each a file under `/var/log`.
+
+### The firewall log
+
+The agent reads `/var/log/ufw.log`, or `/var/log/kern.log` when there is no
+UFW log, for records the firewall wrote when it refused a packet. One refused
+packet means nothing on a public address, so an address only counts as a scan
+when, within one minute, it tried **four different ports** or had **fifteen
+packets** refused. Only inbound TCP refusals count. Allowed and audited records,
+outbound packets, private source addresses, and UDP and ICMP are ignored. The
+source address of an unsolicited packet is whatever the sender wrote, and UDP
+and ICMP are what a flood forges, so a report built on them could name its
+victim.
+
+The firewall has to log for this to see anything. With UFW that is `ufw logging
+low`. A host whose firewall is off, or does not log, shows its log as quiet on
+the **Log sources** card, which is true.
 
 The sensor is off by default and works on Linux agents only. It does nothing
 to the logs it reads and runs in its own thread, so a slow or broken log can
@@ -144,6 +163,96 @@ host would not match it.
 - Network work is limited to 25 addresses a sweep, strongest first, so a short
   daily allowance goes to the addresses that earned it.
 
+## Edge sources
+
+Your hosts are not the only place an attack shows up. Cloudflare refuses
+requests before they reach your server, and a honeypot catches scanners that no
+host log ever sees. RemotePower can read both and report what they show, the same
+way it reports what your hosts' logs show.
+
+It only reads. Nothing here blocks anything: banning stays with whatever you
+already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules.
+Off until you turn it on, under **Security → Threat intel → Edge sources**.
+
+| Source | What you get |
+|---|---|
+| Cloudflare firewall events | The requests Cloudflare refused, by address, with the mechanism that refused them |
+| Honeypot Worker log | The traps a visitor tripped, and whether your Worker banned the address |
+
+RemotePower asks Cloudflare for counts grouped by address, mechanism and rule.
+The request path and the user agent are never fetched, so nothing a visitor typed
+can reach a report.
+
+### What counts
+
+Only a **refusal** by a mechanism that means "this looked like an attack":
+
+| Counts | Does not count |
+|---|---|
+| Managed rules, your own custom rules (action block), rate limiting rules, HTTP DDoS protection, Bot Fight Mode, Bot Management, Browser Integrity Check, user-agent block rules | Challenges and log-only actions, country and ASN rules, the security level, IP access rules, and rules that also block an IP list |
+
+The last two are left out for a reason. An IP access rule is a ban that
+fail2ban, CrowdSec or your honeypot already decided on, so counting the requests
+it blocks would report the same address again. A rule that also blocks an IP
+list refuses addresses for being on a community blocklist, which is not
+something they did to you. The **Test connection** button lists your custom
+rules and marks the ones that name an IP list. If you want them counted anyway,
+tick **Count refusals by a rule that also blocks an IP list**.
+
+Three refusals by Cloudflare qualify an address, like three WAF refusals on a
+host. A weaker mechanism (Bot Fight Mode, Browser Integrity Check, a user-agent
+rule) only counts towards **Report after attempts**.
+
+### The honeypot
+
+The honeypot Worker logs every trap hit with its own decision. RemotePower reads
+those lines and files each trap under an attack class:
+
+| Trap | Filed as |
+|---|---|
+| Loot and exploit paths, fake admin pages, private host names, a fake backup tree | Probing for exposed files and admin pages |
+| A path only `robots.txt` names | Unwanted web crawling (a bot that ignores `robots.txt`) |
+| A crawler claiming to be a search engine from the wrong network | Unwanted web crawling (user-agent spoofing) |
+| A credential the honeypot handed out being used | Using a credential planted in a decoy file |
+| Signing in to a decoy service | Signing in to a decoy service |
+
+A report from the honeypot reads, for example, `using a credential planted in a
+decoy file: 1 attempt within 1 minute, seen by edge honeypot (reported by
+RemotePower)`. One built from Cloudflare's events reads `probing for exposed
+files and admin pages: 8 attempts within 10 minutes, seen by Cloudflare WAF
+(reported by RemotePower)`.
+
+The Worker's own ban counts as a decision, like fail2ban's. An address it banned
+is reported at once. Hits it only counted wait for **Report after attempts**.
+Addresses the Worker never bans (yours, Cloudflare's shared ones, countries you
+exempt) are not reported on its word alone. Lines it logs only to be read, such
+as a self-test, are not evidence.
+
+### Set up the edge feeds
+
+1. Create a **read-only** API token in Cloudflare, for all zones of the account,
+   with these permissions:
+   - Zone: Zone (read), Analytics (read) and Zone WAF (read, to see your rules)
+   - Account: Workers Observability (read), for the honeypot's log
+2. **Security → Threat intel → Edge sources**: paste the token and the account id
+   (the 32 hex digits in your dashboard's address). Leave **Zones** empty to read
+   every zone the token can see.
+3. Press **Test connection**. Each check says what works. A missing permission
+   shows as exactly that.
+4. Tick the switch and save.
+
+RemotePower reads every ten minutes (every five at the fastest). The first read
+goes back six hours. Cloudflare keeps the honeypot's log for about three days, so
+a pause longer than that loses what it held.
+
+### If other scripts report the same things
+
+Scripts that report Cloudflare events or UFW blocks to AbuseIPDB or SniffCat
+report on their own, usually every hour or two. The services refuse a second
+report of the same address within 15 and 20 minutes, and RemotePower counts that
+as already reported, so nothing breaks. When the feeds here work, stop those
+scripts, so each address is one report with all the evidence. Keep whatever bans.
+
 ## Set it up
 
 1. Create API keys:
@@ -214,6 +323,7 @@ text when you save it, not stored as your own wording.
 
 | Action | What is sent |
 |---|---|
+| Edge read | A request to `api.cloudflare.com` with your read-only token, once every few minutes. Nothing about your hosts. |
 | Lookup | The attacking address. |
 | Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The standard text reads "SQL injection and path traversal: 41 attempts within 10 minutes, seen by web server log and WAF (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
 
@@ -278,5 +388,10 @@ settings or run a manual lookup, which spends the install's daily quota.
 | Log sources: `No permission` | The agent cannot read the file. It runs as root normally, so check how it was started. |
 | Log sources: `Not understood` | Most lines did not match the log's format. Check the `log_format` and that it prints the address, the request and the status. |
 | Log sources: `Cannot be read` | fail2ban logs to syslog or the journal, or ModSecurity writes one file per transaction. Log to a single file. |
+| Edge feeds: `No permission` | The token cannot read that. **Test connection** shows which check failed; add the permission listed under [Set up the edge feeds](#set-up-the-edge-feeds). |
+| Edge feeds: `Needs an account id` | The honeypot's log is read through the account. Paste the account id. |
+| Edge feeds: `No zones found` | The token sees no zone. Check it is for all zones of the account, or list the zones you want. |
+| Edge feeds: events set aside as `a rule that also blocks an IP list` | Expected: those rules are not evidence. See [What counts](#what-counts). |
+| `not blocked: edge sources are only reported` | Edge sources have no host to block them on. Whatever bans them (Cloudflare, CrowdSec, fail2ban) does it. |
 | `not blocked: score 40 is below 90` | The address isn't bad enough for your threshold. |
 | `not blocked: on the never-block list` | The address is one of yours, on an allow-list, or someone recently signed in from it. |

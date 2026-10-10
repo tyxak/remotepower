@@ -61,6 +61,12 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.3.0.md](security-review-7.3.0.md)** — the v7.3.0 review,
+  scoped to what is new rather than the whole project: a stored Cloudflare token,
+  two feeds the server reads from outside and turns into public reports, and a
+  firewall-log reader. Six issues, all caught before release, among them an agent
+  that could have claimed the honeypot's decision and challenges that would have
+  been counted as attacks.
 - **[security-review-7.2.0.md](security-review-7.2.0.md)** — the v7.2.0 review,
   scoped to the new log sensor rather than the whole project: an agent
   summarising logs an attacker can write to, and a server turning that into
@@ -74,15 +80,11 @@ holds long-form docs that don't fit there.
   their address from the request; a crafted SSH user name could make threat
   intel blame someone else; the agent's WebSocket channels followed redirects
   with the device token; and nginx refused every dashboard edit sent with PUT.
-- **[security-review-7.0.3.md](security-review-7.0.3.md)** — the v7.0.3
-  "C4useMatters" pass: fourteen issues, again a whole-project review rather than
-  a diff. Three ways one tenant could reach another; a browser terminal that
-  sent the operator's SSH password to a host it had not verified, while the
-  fingerprints to verify it with were already on file; two agent channels that
-  ran commands as root in read-only mode; an API token that could ride a
-  redirect; and the API reference returning 403 on every install because a
-  regular-expression rule in the web-server configuration outranked the API
-  prefix.
+- **[v7.3.0.md](v7.3.0.md)** — "Edg3Matters": threat intel reads Cloudflare's
+  firewall events and your honeypot Worker's log, and the host firewall's log.
+  Only refusals that mean an attack count; an address your honeypot banned is
+  reported at once; nothing a visitor typed is fetched. Reporting only: banning
+  stays with what you already use.
 - **[v7.2.0.md](v7.2.0.md)** — "Ev1denceMatters": threat intel reads your web
   server, WAF, fail2ban and CrowdSec logs, and reports say what the address
   actually did, once per address. Counts and fixed labels only leave the host;
@@ -92,12 +94,6 @@ holds long-form docs that don't fit there.
   report and block the addresses brute-forcing them; and see both wherever a
   host is described. One body size and one heading size, alert rows on one
   line, and dashboard edits saved with PUT working on a standard nginx install.
-- **[v7.0.3.md](v7.0.3.md)** — "C4useMatters": three failures that named the
-  wrong cause. A monitor read a bot challenge at the edge as "host down", after
-  identifying itself as Python and putting an older TLS version back on the
-  wire; eleven places set a minimum TLS version where they meant to raise one,
-  so a host hardened to TLS 1.3 was handed a context that would still speak 1.2;
-  and a test helper reported isolation it was not providing.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

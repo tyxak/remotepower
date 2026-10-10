@@ -67,12 +67,26 @@ class TestRequests(unittest.TestCase):
     def test_the_firewall_query_asks_for_groups_not_paths(self):
         body = json.loads(ee.firewall_request('t', [ZONE, 'bad', ZONE], NOW - 600, NOW, 99999999)['body'])
         q = body['query']
+        self.assertEqual(set(body), {'query'}, 'literals only: no typed variables')
         self.assertIn('firewallEventsAdaptiveGroups', q)
         for field in ('clientRequestPath', 'clientRequestQuery', 'userAgent', 'clientRequestHTTPHost'):
             self.assertNotIn(field, q)
-        self.assertEqual(body['variables']['zoneTags'], [ZONE, ZONE])
-        self.assertEqual(body['variables']['limit'], ee.MAX_ROWS)
-        self.assertTrue(body['variables']['since'].endswith('Z'))
+        self.assertIn('zoneTag_in: ["%s", "%s"]' % (ZONE, ZONE), q)
+        self.assertIn('limit: %d' % ee.MAX_ROWS, q)
+        self.assertIn('datetime_geq: "2026-', q)
+        self.assertEqual(q.count('{'), q.count('}'))
+
+    def test_nothing_in_the_query_can_come_from_outside(self):
+        """Zone ids are filtered to 32 hex digits, and the times and the limit are
+        numbers we format, so a hostile id or limit cannot reach the query text."""
+        evil = ZONE[:10] + '"]) { evil } #' + ZONE[10:]
+        body = json.loads(ee.firewall_request('t', [evil, ZONE], NOW - 600, NOW, 7)['body'])
+        self.assertNotIn('evil', body['query'])
+        self.assertIn('limit: 7,', body['query'])
+        with self.assertRaises(ValueError):
+            ee.firewall_request('t', [evil], NOW - 600, NOW)
+        with self.assertRaises((TypeError, ValueError)):
+            ee.firewall_request('t', [ZONE], NOW - 600, NOW, '7) { evil }')
 
     def test_the_trap_query_is_the_shape_the_operators_own_scripts_use(self):
         body = json.loads(ee.trap_request('t', ACCT, 'trap-sink', 1000, 2000, 50)['body'])

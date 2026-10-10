@@ -181,8 +181,20 @@ _WHAT = {
     "service_brute": "login",
     "port_scan": "port",
 }
-_WEB_CLASSES = ("sqli", "xss", "traversal", "rce", "probe", "scanner", "flood", "bad_bot", "waf",
-                "canary", "decoy_login", "ddos")
+_WEB_CLASSES = (
+    "sqli",
+    "xss",
+    "traversal",
+    "rce",
+    "probe",
+    "scanner",
+    "flood",
+    "bad_bot",
+    "waf",
+    "canary",
+    "decoy_login",
+    "ddos",
+)
 
 WAF_MIN_BLOCKS = 3  # blocked requests that count as evidence on their own
 _MAX_COUNT = 1_000_000
@@ -198,30 +210,30 @@ _SKEW_S = 300
 # honeypot to be read and is not evidence of anything: a login cookie holder
 # asking the author list, the deploy tool's own probe, an odd client.
 TRAP_KINDS = {
-    "bait": "probe",              # loot and RCE probe paths (/.env, /.git/, ...)
-    "robots": "bad_bot",          # followed a path only robots.txt names
-    "login": "probe",             # admin and login pages the site does not have
-    "private": "probe",           # recon against the private host names
-    "impostor": "bad_bot",        # claimed to be a search crawler from the wrong network
-    "wpprobe": "probe",           # WordPress disclosure files
-    "wpenum": "probe",            # WordPress user enumeration
-    "mazeentry": "probe",         # opened a fake backup directory
-    "maze": "probe",              # walked the fake backup mirror
-    "mazeloot": "probe",          # asked for a dump file inside it
-    "gitdump": "probe",           # dumped the fake .git
-    "canary": "canary",           # used a credential the honeypot handed out
-    "decoy": "probe",             # a decoy host name only DNS brute force finds
+    "bait": "probe",  # loot and RCE probe paths (/.env, /.git/, ...)
+    "robots": "bad_bot",  # followed a path only robots.txt names
+    "login": "probe",  # admin and login pages the site does not have
+    "private": "probe",  # recon against the private host names
+    "impostor": "bad_bot",  # claimed to be a search crawler from the wrong network
+    "wpprobe": "probe",  # WordPress disclosure files
+    "wpenum": "probe",  # WordPress user enumeration
+    "mazeentry": "probe",  # opened a fake backup directory
+    "maze": "probe",  # walked the fake backup mirror
+    "mazeloot": "probe",  # asked for a dump file inside it
+    "gitdump": "probe",  # dumped the fake .git
+    "canary": "canary",  # used a credential the honeypot handed out
+    "decoy": "probe",  # a decoy host name only DNS brute force finds
     "decoylogin": "decoy_login",  # tried to sign in there
 }
 
 # Cloudflare mechanism -> attack class, for the event kinds that count.
 CF_KINDS = {
-    "waf": "waf",           # managed rules: a signature fired
-    "custom": "waf",        # the operator's own rule refused it
+    "waf": "waf",  # managed rules: a signature fired
+    "custom": "waf",  # the operator's own rule refused it
     "ratelimit": "flood",
     "ddos": "ddos",
-    "bot": "bad_bot",       # Bot Fight Mode / Bot Management / Browser Integrity Check
-    "ua": "bad_bot",        # a user-agent block rule
+    "bot": "bad_bot",  # Bot Fight Mode / Bot Management / Browser Integrity Check
+    "ua": "bad_bot",  # a user-agent block rule
 }
 
 _REQ_KINDS = {
@@ -515,7 +527,9 @@ def normalize_event(raw, now=None, families=AGENT_SOURCES):
         ev["dec"] = _count(raw.get("dec"))
     if "f2b" in families:
         jails = raw.get("ban") if isinstance(raw.get("ban"), list) else []
-        ev["ban"] = _uniq(j for j in jails if isinstance(j, str) and _JAIL_RE.fullmatch(j))[:_MAX_JAILS]
+        ev["ban"] = _uniq(j for j in jails if isinstance(j, str) and _JAIL_RE.fullmatch(j))[
+            :_MAX_JAILS
+        ]
     if "trap" in families:
         ev["trp"] = _count(raw.get("trp"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []

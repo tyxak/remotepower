@@ -33,6 +33,9 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds:
+  six issues in a stored Cloudflare token, two feeds the server reads from
+  outside and a firewall-log reader, all caught before release.
 - [security-review-7.2.0.md](security-review-7.2.0.md) — scoped to the log sensor:
   eight issues in an agent that reads logs an attacker can write to, and the
   server that turns them into public reports, all caught before release.
@@ -43,11 +46,6 @@ are kept:
   attacker's choosing, and the agent's WebSocket channels following redirects
   with the device token. Also a functional bug the web-server scans turned up:
   the shipped nginx configuration refused every dashboard edit sent with PUT.
-- [security-review-7.0.3.md](security-review-7.0.3.md) — fourteen issues: three
-  ways one tenant could reach another, a browser terminal that sent the
-  operator's SSH password to a host it had not verified, two agent channels
-  that ran commands in read-only mode, and an API token that could ride a
-  redirect.
 
 Each review found real defects, and every one of them was fixed before the
 release went out.

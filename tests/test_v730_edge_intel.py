@@ -10,6 +10,7 @@ host, and what reaches a provider is the fixed vocabulary.
 """
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -232,22 +233,24 @@ class TestTheSweep(_Edge):
     def test_the_same_window_is_not_read_twice(self):
         self.poll()
         first = [c for c in self.cf_calls if c['url'].endswith('/graphql')]
-        v1 = json.loads(first[0]['body'])['variables']
+        w1 = re.search(r'datetime_geq: "([^"]+)", datetime_lt: "([^"]+)"', json.loads(first[0]['body'])['query'])
         self.cf_calls.clear()
         st = self.poll(at=T + 700)
-        v2 = json.loads([c for c in self.cf_calls if c['url'].endswith('/graphql')][0]['body'])['variables']
-        self.assertEqual(v2['since'], v1['until'])
+        q2 = json.loads([c for c in self.cf_calls if c['url'].endswith('/graphql')][0]['body'])['query']
+        w2 = re.search(r'datetime_geq: "([^"]+)", datetime_lt: "([^"]+)"', q2)
+        self.assertEqual(w2.group(1), w1.group(2))
         self.assertEqual(st['edge']['cf_to'], T + 700 - 90)
         t2 = json.loads([c for c in self.cf_calls if c['url'].endswith('/telemetry/query')][0]['body'])
         self.assertEqual(t2['timeframe']['from'], (T - 5) * 1000)
 
     def test_a_first_read_goes_back_six_hours_not_a_day(self):
         self.poll()
-        v = json.loads([c for c in self.cf_calls if c['url'].endswith('/graphql')][0]['body'])['variables']
-        self.assertTrue(v['since'].startswith('2026-09-21T'))
+        q = json.loads([c for c in self.cf_calls if c['url'].endswith('/graphql')][0]['body'])['query']
+        since = re.search(r'datetime_geq: "([^"]+)"', q).group(1)
+        self.assertTrue(since.startswith('2026-09-21T'))
         import calendar
         import time as _t
-        got = calendar.timegm(_t.strptime(v['since'], '%Y-%m-%dT%H:%M:%SZ'))
+        got = calendar.timegm(_t.strptime(since, '%Y-%m-%dT%H:%M:%SZ'))
         self.assertEqual(got, T - 6 * 3600)
 
     def test_rules_are_read_once_an_hour(self):
