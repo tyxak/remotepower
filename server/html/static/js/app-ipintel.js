@@ -106,6 +106,7 @@ async function loadIpIntel() {
   tableCtl.wireSortOnly('ipintel-att-thead', 'ipintel-att', () => _ipiRenderAttackers());
   tableCtl.wireSortOnly('ipintel-blk-thead', 'ipintel-blk', () => _ipiRenderBlocks());
   tableCtl.wireSortOnly('ipintel-src-thead', 'ipintel-src', () => _ipiRenderSources());
+  tableCtl.wireSortOnly('ipintel-edge-thead', 'ipintel-edge', () => _ipiRenderEdge());
   _ipiWire();
   const d = await api('GET', '/ip-intel').catch(() => null);
   _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], sensors: [], settings: {}};
@@ -389,25 +390,29 @@ function _ipiRenderEdge() {
   const notes = document.getElementById('ipintel-edge-notes');
   if (!tb || !_ipiData || !_ipiData.edge) return;
   const e = _ipiData.edge;
-  const rows = [];
-  for (const feed of ['cf', 'trap']) {
+  const rows = ['cf', 'trap'].map(feed => {
     const f = e[feed] || {};
+    const aside = Object.entries(f.ignored || {}).filter(([, n]) => n);
+    return {feed, f, key: !e.enabled ? 'off' : (f.state || 'waiting'), aside,
+      asideN: aside.reduce((n, [, c]) => n + c, 0)};
+  });
+  const sorted = tableCtl.sortRows('ipintel-edge', rows, r => ({
+    feed: _IPI_FEED[r.feed], state: _IPI_FEED_STATE[r.key] || r.key, at: r.f.at || 0,
+    read: r.f.rows ?? r.f.hits ?? 0, kept: r.f.kept || 0, aside: r.asideN,
+  }));
+  tb.innerHTML = sorted.map(r => {
+    const f = r.f;
     const on = e.enabled && f.state;
-    const key = !e.enabled ? 'off' : (f.state || 'waiting');
-    const state = _IPI_FEED_STATE[key] || key;
-    const cls = _IPI_FEED_STATE_CLASS[key] || 'hint';
-    const aside = Object.entries(f.ignored || {}).filter(([, n]) => n)
-      .map(([k, n]) => `${_ipiPhrase(_IPI_ASIDE[k] || k)} ×${escHtml(String(n))}`).join(', ');
-    rows.push(`<tr>
-      <td>${_ipiPhrase(_IPI_FEED[feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
-      <td class="${cls}">${_ipiPhrase(state)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}</td>
+    const asideHtml = r.aside.map(([k, n]) => `${_ipiPhrase(_IPI_ASIDE[k] || k)} ×${escHtml(String(n))}`).join(', ');
+    return `<tr>
+      <td>${_ipiPhrase(_IPI_FEED[r.feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
+      <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}</td>
       <td>${on && f.at ? escHtml(timeAgo(f.at)) : ''}</td>
       <td>${escHtml(String(f.rows ?? f.hits ?? 0))}</td>
       <td>${escHtml(String(f.kept || 0))}</td>
-      <td class="hint fs-11">${aside}</td>
-    </tr>`);
-  }
-  tb.innerHTML = rows.join('');
+      <td class="hint fs-11">${asideHtml}</td>
+    </tr>`;
+  }).join('');
   if (!notes) return;
   const out = [];
   if (e.cf && e.cf.rules_unreadable) {

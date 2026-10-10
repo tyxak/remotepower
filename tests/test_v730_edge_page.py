@@ -51,6 +51,7 @@ def node(script, timeout=30):
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: ""});',
         'const document = {getElementById: el};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
+        'const tableCtl = {sortRows: (name, rows, fn) => rows};',
         'let _ipiData = null;',
         srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderEdge'),
         srcpin.js_function(_JS, '_ipiEvidenceHtml'), srcpin.js_function(_JS, '_ipiClassName'),

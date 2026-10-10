@@ -4768,8 +4768,8 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.3.0 edg3matters edge cloudflare firewall events honeypot worker trap sink workers logs threat intel abuseipdb sniffcat report reports edge sources token read-only test connection ufw firewall log port scan canary decoy bad bot robots.txt cf-sniffcat ufw-sniffcat only reported never blocked list rule ip access rule challenge">
             <summary><strong>What's new — v7.3.0 &ldquo;Edg3Matters&rdquo;</strong> &mdash; threat intel reads Cloudflare's firewall events and your honeypot Worker's log, and the host firewall's log.</summary>
             <div class="doc-body">
-              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Off until you turn it on. It only reads: nothing here blocks anything, and banning stays with what you already use.</p>
-              <p><strong>What counts.</strong> Only a refusal by a mechanism that means an attack. Challenges, country and ASN rules, IP access rules (a ban somebody else decided) and rules that also block an IP list are set aside, and the <strong>Edge feeds</strong> card says how many and why. An address your honeypot banned is reported at once.</p>
+              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. It only reads: nothing here blocks anything, and banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules.</p>
+              <p><strong>What counts.</strong> Only a refusal by a mechanism that means an attack. Challenges, country and ASN rules, IP access rules (a ban somebody else decided) and rules that also block an IP list are set aside, and the <strong>Edge feeds</strong> card says how many and why. An IP access rule is a ban that fail2ban, CrowdSec or your honeypot already decided on, and a rule that also blocks an IP list refuses addresses for being on a community blocklist, so counting either would report the same address again. An address your honeypot banned is reported at once, like one fail2ban banned.</p>
               <p><strong>Nothing a visitor typed is fetched.</strong> Events come back as counts grouped by address, mechanism and rule, with no path and no user agent. <strong>Test connection</strong> tries each check and names a missing permission.</p>
               <p><strong>The firewall log.</strong> Linux agents with the log sensor on read UFW&rsquo;s log. An address counts as a scan at four ports or fifteen packets within a minute, inbound TCP only.</p>
               <p><strong>Reports.</strong> One hit reads <code>1 attempt within 1 minute</code>.</p>
@@ -6764,12 +6764,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
               <thead id="ipintel-edge-thead"><tr>
-                <th scope="col">Feed</th>
-                <th scope="col">State</th>
-                <th scope="col">Last read</th>
-                <th scope="col">Events read</th>
-                <th scope="col">Counted</th>
-                <th scope="col">Set aside</th>
+                <th scope="col" data-col="feed">Feed</th>
+                <th scope="col" data-col="state">State</th>
+                <th scope="col" data-col="at">Last read</th>
+                <th scope="col" data-col="read">Events read</th>
+                <th scope="col" data-col="kept">Counted</th>
+                <th scope="col" data-col="aside">Set aside</th>
               </tr></thead>
               <tbody id="ipintel-edge-tbody"></tbody>
             </table>
