@@ -430,8 +430,16 @@ class TestSeeder(unittest.TestCase):
         self.assertGreaterEqual(len(with_ev), 5)
         for a in with_ev:
             ev = a.get('ev') or a['ev_reported']['ev']
-            self.assertIsNotNone(te.normalize_event(dict(ev, ip='185.220.101.7'), now=int(time.time())),
-                                 'the demo evidence must be something the server would accept')
+            # an edge feed's evidence is read with the server's own families, a host's
+            # with an agent's: each must be accepted by the reader that would meet it
+            edge = any(str(dev).startswith('edge:') for dev in a.get('devices', {}))
+            fams = te.EDGE_SOURCES if edge else te.AGENT_SOURCES
+            self.assertIsNotNone(
+                te.normalize_event(dict(ev, ip='185.220.101.7'), now=int(time.time()), families=fams),
+                'the demo evidence must be something the server would accept')
+        self.assertTrue(any(str(dev).startswith('edge:') for a in d['attackers'].values()
+                            for dev in a.get('devices', {})), 'the demo carries edge attackers')
+        self.assertTrue(d['edge']['cf']['state'] and d['edge']['trap']['state'])
         states = {s['state'] for r in d['sensors'].values() for s in r['sources']}
         self.assertTrue({'ok', 'idle', 'denied', 'unparsed', 'missing'} <= states, states)
         self.assertTrue(any((r.get('ignored') or {}).get('cloudflare') for r in d['sensors'].values()))
