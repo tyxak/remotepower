@@ -122,6 +122,7 @@ _TRAP_TOKEN = {
 
 MAX_ROWS = 10000
 MAX_EVENTS = 2500  # single events one zone's read carries, as cf-sniffcat's default
+TRAP_LINES = 1000  # log lines one Worker's read carries
 MAX_ZONES = 50
 MAX_WORKERS = 3
 _WORKER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}")
@@ -242,13 +243,7 @@ def events_request(token, zone_ids, since, until, limit=MAX_EVENTS):
     }
 
 
-def events_limit(zone_count):
-    """How many single events to ask each zone for, so that however many zones are
-    read together the answer stays well inside the response cap."""
-    return max(100, min(MAX_EVENTS, 20000 // max(1, int(zone_count))))
-
-
-def trap_request(token, account_id, worker, since_ms, until_ms, limit=1000):
+def trap_request(token, account_id, worker, since_ms, until_ms, limit=TRAP_LINES):
     """The honeypot Worker's `trap hit` log lines in a window, from Workers
     Observability. One Worker per request; the filter shape is the one the
     operator's own report scripts already use against this API."""
@@ -465,8 +460,10 @@ def _log_object(event):
     return merged
 
 
-def parse_trap(status, body):
-    """{'ok': True, 'hits': [{kind, ip, action, at}], 'truncated': bool}."""
+def parse_trap(status, body, limit=TRAP_LINES):
+    """{'ok': True, 'hits': [{kind, ip, action, at}], 'truncated': bool}. A read that
+    came back with as many lines as it asked for is flagged, because the Worker may
+    have logged more than that in the window."""
     if status != 200 or not isinstance(body, dict) or body.get("success") is False:
         return _cf_error(status, body)
     res = body.get("result")
@@ -493,7 +490,7 @@ def parse_trap(status, body):
                 ),
             }
         )
-    return {"ok": True, "hits": hits, "truncated": len(events) >= 2000}
+    return {"ok": True, "hits": hits, "truncated": len(events) >= limit}
 
 
 def _epoch(value):

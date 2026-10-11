@@ -237,17 +237,12 @@ as a self-test, are not evidence.
 
 ### Set up the edge feeds
 
-1. Create a **read-only** API token in Cloudflare, for all zones of the account,
-   with these permissions:
-   - Zone: Zone (read), Analytics (read) and Zone WAF (read, to see your rules)
-   - Account: Workers Observability (read), for the honeypot's log
-2. **Security → Threat intel → Edge sources**: paste the token and the account id
-   (the 32 hex digits in your dashboard's address). Leave **Zones** empty to read
-   every zone the token can see.
-3. Press **Test connection**. Each check says what works. A missing permission
-   shows as exactly that, and a zone Cloudflare refuses is named, with how the
-   others were read.
-4. Tick the switch and save.
+[Edge sources: Cloudflare](edge-sources.md) is the step-by-step guide: the token
+and its permissions, the account id, Test connection, what each card shows and
+what to do when Cloudflare refuses a read. In short: create a read-only token
+(Zone: Zone, Analytics and Zone WAF; Account: Workers Observability, for the
+honeypot's log), paste it with your account id under **Security → Threat intel →
+Edge sources**, press **Test connection**, and tick the switch.
 
 RemotePower reads every ten minutes (every five at the fastest). A read never
 goes back further than six hours, as with the host logs, so a pause longer than

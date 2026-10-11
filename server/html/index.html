@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-45">
+<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-46">
 
 </head>
 <body>
@@ -4768,7 +4768,7 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.3.0 edg3matters edge cloudflare firewall events honeypot worker trap sink workers logs threat intel abuseipdb sniffcat report reports edge sources token read-only test connection ufw firewall log port scan canary decoy bad bot robots.txt cf-sniffcat ufw-sniffcat only reported never blocked list rule ip access rule challenge">
             <summary><strong>What's new — v7.3.0 &ldquo;Edg3Matters&rdquo;</strong> &mdash; threat intel reads Cloudflare's firewall events and your honeypot Worker's log, and the host firewall's log.</summary>
             <div class="doc-body">
-              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. It only reads: nothing here blocks anything, and banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules.</p>
+              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. It only reads: nothing here blocks anything, and banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Step by step: <a href="docs/edge-sources.md" class="c-accent">Edge sources: Cloudflare</a>.</p>
               <p><strong>What counts.</strong> Only a refusal by a mechanism that means an attack. Challenges, country and ASN rules, IP access rules (a ban somebody else decided) and rules that also block an IP list are set aside, and the <strong>Edge feeds</strong> card says how many and why. An IP access rule is a ban that fail2ban, CrowdSec or your honeypot already decided on, and a rule that also blocks an IP list refuses addresses for being on a community blocklist, so counting either would report the same address again. An address your honeypot banned is reported at once, like one fail2ban banned.</p>
               <p><strong>Nothing a visitor typed is fetched.</strong> Events come back as counts grouped by address, mechanism and rule or, on a plan with no grouped view, as single events that carry only the address, the action, the source and the rule. No path and no user agent come back either way. <strong>Test connection</strong> tries each check and names a missing permission.</p>
               <p><strong>The firewall log.</strong> Linux agents with the log sensor on read UFW&rsquo;s log. An address counts as a scan at four ports or fifteen packets within a minute, inbound TCP only.</p>
@@ -6721,7 +6721,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card mt-16" id="ipintel-edge-card" hidden>
           <div class="section-title">Edge sources</div>
-          <p class="hint mb-12">RemotePower can read Cloudflare's firewall events and your honeypot Worker's log, and report what they show the same way it reports what your hosts' logs show. It only reads, with a read-only token, and nothing here blocks anything. Off until you turn it on.</p>
+          <p class="hint mb-12">RemotePower can read Cloudflare's firewall events and your honeypot Worker's log, and report what they show the same way it reports what your hosts' logs show. It only reads, with a read-only token, and nothing here blocks anything. Off until you turn it on. <a href="docs/edge-sources.md" class="c-accent">Documentation</a></p>
           <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-edge"> Read Cloudflare's firewall events and the honeypot's log, and use them for reporting</label></div>
           <div class="settings-row isl-57">
             <div class="form-group">
@@ -12184,36 +12184,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.3.0-45"></script>
+<script defer src="static/js/app.js?v=7.3.0-46"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-cmdb.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-containers.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-network.js?v=7.3.0-45"></script>
+<script defer src="static/js/app-calendar.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-cmdb.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-containers.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-network.js?v=7.3.0-46"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-compliance.js?v=7.3.0-45"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-compliance.js?v=7.3.0-46"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-dns.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-drift.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-cve.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-firewall.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-backups.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-iac.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-proxmox.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-virt.js?v=7.3.0-45"></script>
+<script defer src="static/js/app-ai.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-dns.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-drift.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-cve.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-firewall.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-backups.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-iac.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-proxmox.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-virt.js?v=7.3.0-46"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-remote.js?v=7.3.0-45"></script>
-<script defer src="static/js/app-tickets.js?v=7.3.0-45"></script>
+<script defer src="static/js/app-logs.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-remote.js?v=7.3.0-46"></script>
+<script defer src="static/js/app-tickets.js?v=7.3.0-46"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.3.0-45"></script>
+<script defer src="static/js/app-self.js?v=7.3.0-46"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12223,6 +12223,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.3.0-45"></script>
+<script defer src="static/js/sw-register.js?v=7.3.0-46"></script>
 </body>
 </html>

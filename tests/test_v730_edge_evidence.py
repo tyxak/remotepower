@@ -158,6 +158,18 @@ class TestParsers(unittest.TestCase):
             {'zoneTag': ZONE, 'firewallEventsAdaptiveGroups': groups}]}}})
         self.assertTrue(r['truncated'])
 
+    def test_a_full_page_of_honeypot_lines_is_flagged(self):
+        """The request asks for TRAP_LINES lines, so that is where "came back full"
+        is. It used to be compared with 2,000 while the request asked for 1,000, and
+        the note could never appear."""
+        line = {'msg': 'trap hit', 'kind': 'bait', 'ip': ATK, 'action': 'banned', 'at': '2026-09-21T10:00:00Z'}
+        full = {'success': True, 'result': {'events': [line] * ee.TRAP_LINES}}
+        self.assertTrue(ee.parse_trap(200, full)['truncated'])
+        short = {'success': True, 'result': {'events': [line] * (ee.TRAP_LINES - 1)}}
+        self.assertFalse(ee.parse_trap(200, short)['truncated'])
+        body = json.loads(ee.trap_request('t', ACCT, 'trap-sink', 1000, 2000)['body'])
+        self.assertEqual(body['limit'], ee.TRAP_LINES, 'the request and the flag read one constant')
+
     def test_trap_lines_in_every_wrapper_the_api_uses(self):
         line = {'msg': 'trap hit', 'kind': 'bait', 'ip': ATK, 'action': 'banned',
                 'at': '2026-10-10T20:00:00.000Z'}
@@ -277,14 +289,6 @@ class TestSingleEvents(unittest.TestCase):
         full = [ev()] * 5
         self.assertTrue(ee.parse_events(200, events_body(full), limit=5)['truncated'])
         self.assertFalse(ee.parse_events(200, events_body(full), limit=6)['truncated'])
-
-    def test_the_limit_keeps_many_zones_inside_the_response_cap(self):
-        self.assertEqual(ee.events_limit(1), ee.MAX_EVENTS)
-        self.assertEqual(ee.events_limit(4), ee.MAX_EVENTS)
-        self.assertEqual(ee.events_limit(0), ee.MAX_EVENTS)
-        self.assertEqual(ee.events_limit(50), 400)
-        for n in range(1, ee.MAX_ZONES + 1):
-            self.assertLessEqual(ee.events_limit(n) * n, 20000, n)
 
     def test_a_dataset_refusal_names_the_zone_and_is_not_called_a_permission(self):
         msg = ("zone '%s' does not have access to the path. Refer to this page for more details about "

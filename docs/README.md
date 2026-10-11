@@ -181,6 +181,9 @@ holds long-form docs that don't fit there.
  manager, and host user / SSH-key / firewall management from the drawer.
 - **[ip-intel.md](ip-intel.md)** — Threat intel: look up, report and block
  brute-force sources with AbuseIPDB and SniffCat.
+- **[edge-sources.md](edge-sources.md)** — Edge sources: set up the Cloudflare
+ token and feeds that let Threat intel read what Cloudflare refused, step by
+ step, with troubleshooting.
 - **[sshgw.md](sshgw.md)** — SSH gateway: reach hosts with your own SSH client
  through one gateway, with no inbound port on the host, public-key login and a
  per-session audit trail.

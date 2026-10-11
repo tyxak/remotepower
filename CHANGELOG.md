@@ -49,6 +49,9 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
   fields only. There is no path and no user agent either way. From
   the Worker's log only the trap, the address, the Worker's own decision and the
   time are read.
+- **A setup guide.** `docs/edge-sources.md` walks through the Cloudflare token,
+  the account id, Test connection, what each card shows, and what to do when
+  Cloudflare refuses a read. The same page is linked from the card.
 - **Test connection** tries each thing the feeds need, with the stored token or
   one you typed, and says which permission is missing. It lists the zone's custom
   rules and marks the ones that also block an IP list.
@@ -82,6 +85,8 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 - **An agent cannot claim the edge.** The vocabulary has two sets of families,
   and a summary is read with its sender's. A compromised agent cannot say that
   Cloudflare or the honeypot banned an address.
+- **The honeypot read says when it came back full.** It asked for 1,000 lines
+  and flagged a full page at 2,000, so the note could never appear.
 - **A poll's evidence and its cursor are one transaction**, so a crash cannot
   replay a window, and a feed that cannot read does not move its cursor.
 - **The demo carries edge attackers and feed state**, so the rendered gates
@@ -92,7 +97,7 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-45`). Nothing changes until you turn the edge feeds on.
+`remotepower-shell-v7.3.0-46`). Nothing changes until you turn the edge feeds on.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as
