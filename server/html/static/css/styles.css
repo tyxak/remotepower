@@ -5279,9 +5279,10 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 
 /* v7.2.0: Threat intel — what the logs showed about an address. 11px and 12px are
    the design's own stops; colours are the theme tokens, so every theme and the
-   light set get a legible chip without a rule of their own. */
+   light set get a legible chip without a rule of their own. The corners are square:
+   a chip here is a label, and the round shape is what marks a status pill. */
 .ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
-  border: 1px solid var(--hair); border-radius: 999px; background: var(--surface2); color: var(--text); }
+  border: 1px solid var(--hair); border-radius: 0; background: var(--surface2); color: var(--text); }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
 .ipi-facts dt { color: var(--muted); }

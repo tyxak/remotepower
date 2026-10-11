@@ -449,5 +449,35 @@ class TestSeeder(unittest.TestCase):
                              'every seeded source passes the server\'s own sanitiser')
 
 
+class TestTheEvidenceChipIsSquare(unittest.TestCase):
+    """A chip in the Evidence column is a label, not a state, so its corners are square.
+
+    The round shape belongs to the status pills; an evidence chip that is also a pill
+    reads as another status, and it was reported as a visual fault ("path traversal x27
+    has rounded edges"). The scan reads every rule that names the chip, so a later
+    override cannot bring the radius back.
+    """
+
+    CSS = re.sub(r'/\*.*?\*/', '', (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text(), flags=re.S)
+
+    def chip_rules(self):
+        return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r'([^{}]+)\{([^{}]*)\}', self.CSS)
+                if '.ipi-chip' in m.group(1)]
+
+    def test_the_scan_finds_the_chip_rule(self):
+        # without this, a scan that matched nothing would pass for the wrong reason
+        rules = self.chip_rules()
+        self.assertTrue(rules, 'no rule in styles.css names .ipi-chip')
+        self.assertTrue(any('border:' in body for _sel, body in rules), 'the rule that draws the chip was not read')
+
+    def test_no_rule_gives_the_chip_a_radius(self):
+        offenders = []
+        for sel, body in self.chip_rules():
+            r = re.search(r'border-radius\s*:\s*([^;]+)', body)
+            if r and r.group(1).strip() not in ('0', '0px'):
+                offenders.append((sel, r.group(1).strip()))
+        self.assertEqual(offenders, [], 'an evidence chip has square corners; the round shape is for status pills')
+
+
 if __name__ == '__main__':
     unittest.main()
