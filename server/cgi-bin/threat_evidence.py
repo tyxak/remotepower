@@ -648,12 +648,16 @@ def confirmed_by(ev):
     return ""
 
 
-def qualifies(ev, min_count):
+def qualifies(ev, min_count, cf_min=None):
     """(True, why) when the evidence is enough to report, else (False, why not).
     Enough means ANY of: fail2ban banned it, a CrowdSec scenario decided on it,
-    the WAF refused it WAF_MIN_BLOCKS times, or it made `min_count` hostile
-    requests. An address with no class is never reportable: a report needs an
-    honest category."""
+    the WAF refused it WAF_MIN_BLOCKS times, Cloudflare refused it `cf_min`
+    times, or it made `min_count` hostile requests. An address with no class is
+    never reportable: a report needs an honest category.
+
+    `cf_min` is the operator's setting for the edge. A refusal there is a block
+    their own rules or Cloudflare's already made, which a host's WAF count is
+    not, so it can be lower than WAF_MIN_BLOCKS; left out, it is the same."""
     if not classes(ev):
         return False, "nothing recognisable in the logs"
     who = confirmed_by(ev)
@@ -663,12 +667,23 @@ def qualifies(ev, min_count):
     if waf >= WAF_MIN_BLOCKS:
         return True, f"blocked by the WAF {waf} times"
     cf = _count((ev.get("src") or {}).get("cf"))
-    if cf >= WAF_MIN_BLOCKS:
+    try:
+        cf_need = max(1, int(cf_min)) if cf_min else WAF_MIN_BLOCKS
+    except (TypeError, ValueError):
+        cf_need = WAF_MIN_BLOCKS
+    if cf >= cf_need:
         return True, f"blocked by Cloudflare {cf} times"
     n, need = hostile_count(ev), max(1, int(min_count or 1))
     if n >= need:
         return True, f"{n} hostile requests"
-    return False, f"{n} of {need} attempts so far"
+    # Nothing qualifies yet. Name the route that is nearest, so an address with
+    # two WAF refusals is not told it needs ten requests.
+    routes = [(need - n, f"{n} of {need} attempts so far")]
+    if waf:
+        routes.append((WAF_MIN_BLOCKS - waf, f"{waf} of {WAF_MIN_BLOCKS} WAF refusals so far"))
+    if cf:
+        routes.append((cf_need - cf, f"{cf} of {cf_need} Cloudflare refusals so far"))
+    return False, min(routes, key=lambda r: r[0])[1]
 
 
 def categories(ev, provider, limit=6):

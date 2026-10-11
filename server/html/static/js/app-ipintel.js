@@ -152,6 +152,7 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-edge-zones', (s.edge_zone_ids || []).join('\n'));
   set('ipintel-edge-workers', (s.edge_workers || []).join('\n'));
   set('ipintel-edge-minutes', s.edge_poll_minutes ?? 10);
+  set('ipintel-edge-report-after', s.edge_report_after ?? 1);
   const et = document.getElementById('ipintel-edge-token');
   if (et) { et.value = ''; et.placeholder = s.edge_token_set ? '••••••••  (saved — leave blank to keep)' : ''; }
   for (const [p, isSet] of [['abuseipdb', s.abuseipdb_key_set], ['sniffcat', s.sniffcat_key_set]]) {
@@ -192,6 +193,11 @@ function _ipiReason(why) {
   if (rep) {
     const few = /^(\d+) of (\d+) attempts so far$/.exec(rep[1]);
     if (few) return `${_ipiPhrase('not reported:')} ${few[1]} / ${few[2]} ${_ipiPhrase('attempts so far')}`;
+    const refs = /^(\d+) of (\d+) (WAF|Cloudflare) refusals so far$/.exec(rep[1]);
+    if (refs) {
+      const what = refs[3] === 'WAF' ? _ipiPhrase('WAF refusals so far') : _ipiPhrase('Cloudflare refusals so far');
+      return `${_ipiPhrase('not reported:')} ${refs[1]} / ${refs[2]} ${what}`;
+    }
     return `${_ipiPhrase('not reported:')} ${_ipiPhrase(rep[1])}`;
   }
   return _ipiPhrase(why);
@@ -491,6 +497,7 @@ async function saveIpIntelSettings() {
       edge_zone_ids: v('ipintel-edge-zones').value,
       edge_workers: v('ipintel-edge-workers').value,
       edge_poll_minutes: v('ipintel-edge-minutes').value,
+      edge_report_after: v('ipintel-edge-report-after').value,
     });
     const et = v('ipintel-edge-token').value.trim();
     if (et) body.edge_cloudflare_token = et;

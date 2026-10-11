@@ -2669,6 +2669,7 @@ if _AVAILABLE:
         edge_zone_ids: Any = None
         edge_workers: Any = None
         edge_poll_minutes: Any = None
+        edge_report_after: Any = None
         edge_cloudflare_token: str = ''
         clear_edge_token: bool = False
 

@@ -141,6 +141,7 @@ class TestTheFieldsAreTheCard(unittest.TestCase):
         self.assertEqual(self.cell('**Count refusals')[-1], tick(d['edge_count_list_rules']))
         self.assertEqual(self.cell('The switch at the top')[-1], tick(d['edge_enabled']))
         self.assertEqual(self.cell('**Read every')[-1], str(d['edge_poll_minutes']))
+        self.assertEqual(self.cell('**Report after Cloudflare refusals**')[-1], str(d['edge_report_after']))
         self.assertEqual(self.cell('**Worker names**')[-1], '`%s`' % d['edge_workers'][0])
         self.assertEqual(d['edge_zone_ids'], [])
         self.assertEqual(self.cell('**Zones**')[-1], 'empty')
@@ -152,7 +153,7 @@ class TestTheFieldsAreTheCard(unittest.TestCase):
         self.assertGreaterEqual(len(labels), 8, labels)
         for label in labels:
             short = re.split(r' \(', label)[0] if label.startswith(('Zones', 'Worker names')) else label
-            self.assertIn(short, self.guide, 'the card has a field the guide does not name: ' + label)
+            self.assertTrue(short in self.guide, 'the card has a field the guide does not name: ' + label)
 
     def test_the_switch_is_worded_as_on_the_card(self):
         m = re.search(r'id="ipintel-edge"> (.*?)</label>', _HTML)

@@ -418,6 +418,44 @@ class TestCloudflareEvents(unittest.TestCase):
         self.assertEqual(te.categories(e, 'abuseipdb'), [21])
 
 
+class TestTheEdgeThreshold(unittest.TestCase):
+    """How many Cloudflare refusals qualify an address is the operator's number; the
+    reason an address has not qualified names the nearest route, not always ten."""
+
+    def cf(self, n):
+        return {'src': {'cf': n}, 'tok': {'cf': {'req:probe': n}}}
+
+    def test_left_out_it_is_the_wafs_three(self):
+        self.assertFalse(te.qualifies(self.cf(2), 100)[0])
+        self.assertEqual(te.qualifies(self.cf(3), 100), (True, 'blocked by Cloudflare 3 times'))
+
+    def test_the_operator_sets_it(self):
+        self.assertEqual(te.qualifies(self.cf(1), 100, 1), (True, 'blocked by Cloudflare 1 times'))
+        self.assertFalse(te.qualifies(self.cf(4), 100, 5)[0])
+        self.assertTrue(te.qualifies(self.cf(5), 100, 5)[0])
+
+    def test_junk_is_the_default_not_a_crash(self):
+        for junk in ('soon', [], {}, 0, None):
+            self.assertFalse(te.qualifies(self.cf(2), 100, junk)[0], junk)
+            self.assertTrue(te.qualifies(self.cf(3), 100, junk)[0], junk)
+        self.assertTrue(te.qualifies(self.cf(1), 100, -4)[0], 'a negative number is the lowest, 1')
+
+    def test_the_reason_names_the_nearest_route(self):
+        self.assertEqual(te.qualifies(self.cf(1), 10, 3), (False, '1 of 3 Cloudflare refusals so far'))
+        # ten hostile requests are further away than three refusals ...
+        self.assertEqual(te.qualifies(self.cf(2), 10, 3), (False, '2 of 3 Cloudflare refusals so far'))
+        # ... but not when the general count is nearly there
+        self.assertEqual(te.qualifies(self.cf(1), 2, 3), (False, '1 of 2 attempts so far'))
+        waf = {'src': {'waf': 2}, 'tok': {'waf': {'crs:942100': 2}}}
+        self.assertEqual(te.qualifies(waf, 10), (False, '2 of 3 WAF refusals so far'))
+
+    def test_a_weak_mechanism_does_not_use_the_edge_number(self):
+        """Bot Fight Mode and Browser Integrity Check count towards the general
+        total only, so a threshold of 1 does not report every challenged scanner."""
+        weak = {'src': {}, 'tok': {'cf': {'cf:bot': 1}}}
+        self.assertEqual(te.qualifies(weak, 10, 1), (False, '1 of 10 attempts so far'))
+
+
 class TestTrapEvents(unittest.TestCase):
     def hit(self, kind='bait', action='banned', ip=ATK, at=NOW - 30):
         return {'kind': kind, 'ip': ip, 'action': action, 'at': at}

@@ -85,6 +85,7 @@ DEFAULTS = {
     'edge_workers': ['trap-sink'],
     'edge_poll_minutes': 10,
     'edge_count_list_rules': False,   # count refusals by a rule that also blocks an IP list
+    'edge_report_after': 1,       # Cloudflare refusals by an attack mechanism before an address is reported
 }
 
 # The edge feeds queue their evidence under these ids, which are not hosts: there

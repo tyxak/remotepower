@@ -30,8 +30,14 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
   own custom rules, rate limiting, HTTP DDoS protection or a bot product counts.
   Challenges, country and ASN rules, the security level, IP access rules (a ban
   somebody else already decided) and rules that also block an IP list are set
-  aside, and the page says how many of each and why. Three refusals qualify an
-  address, like three WAF refusals on a host.
+  aside, and the page says how many of each and why.
+- **An address is reported after one Cloudflare refusal.** A refusal at the edge
+  is a block your own rules or Cloudflare's already made, so it does not wait for
+  three like a host's WAF does. **Report after Cloudflare refusals** on the card
+  sets it, from 1 to 50. The reason an address has not been reported names the
+  nearest route (`1 of 3 Cloudflare refusals so far`) and no longer says ten
+  attempts are needed. Lowering the number reports addresses counted in the last
+  day on the next sweep, without waiting for their next hit.
 - **The honeypot's ban is a decision.** An address the Worker banned is reported
   at once, like one fail2ban banned. Decoys named only in `robots.txt` and
   crawlers impersonating a search engine are filed as bad web bots, which is how
@@ -97,7 +103,7 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-46`). Nothing changes until you turn the edge feeds on.
+`remotepower-shell-v7.3.0-47`). Nothing changes until you turn the edge feeds on.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as

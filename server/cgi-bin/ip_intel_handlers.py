@@ -433,10 +433,15 @@ def _may_report(item, att, pol, now):
         return False
     att = att or {}
     need = int(pol['report_min_count'])
+    cf_min = pol.get('edge_report_after')
     ev = item.get('evidence')
     if isinstance(ev, dict):
         ledger = _fresh_ledger(att, now)
-        ok, _why = threat_evidence.qualifies(threat_evidence.merge(ledger, ev) if ledger else ev, need)
+        ok, _why = threat_evidence.qualifies(
+            threat_evidence.merge(ledger, ev) if ledger else ev, need, cf_min)
+    elif item.get('_catchup'):
+        ledger = _fresh_ledger(att, now)
+        ok = bool(ledger) and threat_evidence.qualifies(ledger, need, cf_min)[0]
     else:
         ok = int(item.get('count') or 0) >= need
     if not ok:
@@ -494,7 +499,8 @@ def _report_plan(group, pol):
     ev = threat_evidence.merge(ledger, own) if (own and ledger) else (own or ledger)
     legacy = [p for p in group if not isinstance(p['item'].get('evidence'), dict)]
     need = int(pol['report_min_count'])
-    ev_ok, ev_why = threat_evidence.qualifies(ev, need) if ev else (False, '')
+    ev_ok, ev_why = (threat_evidence.qualifies(ev, need, pol.get('edge_report_after'))
+                     if ev else (False, ''))
     lead = max(legacy, key=lambda p: int(p['item'].get('count') or 0)) if legacy else None
     legacy_n = int(lead['item'].get('count') or 0) if lead else 0
     legacy_ok = lead is not None and legacy_n >= need
@@ -517,6 +523,47 @@ def _report_plan(group, pol):
         label, when = kind, None
     return {'cats': cats, 'comment': comment, 'label': label, 'when': when,
             'ev': ev if ev_ok else None}, ''
+
+
+CATCHUP_MAX = 50           # ledger-only addresses one sweep takes up
+
+
+def _ledger_catchup(st, pol, now):
+    """Queue entries for addresses whose evidence ledger now qualifies and that a
+    service they are meant for has not been told about. The ledger adds up what
+    the logs said over a day; without this, an address that crosses a threshold
+    the operator has just lowered would wait for its next hit to be reported.
+    The entries are made here and dropped from the queue the sweep keeps."""
+    if not pol.get('report_enabled'):
+        return []
+    keyed = [prov for prov in ip_intel.PROVIDERS if pol['keys'].get(prov)]
+    if not keyed:
+        return []
+    need = int(pol['report_min_count'])
+    cf_min = pol.get('edge_report_after')
+    out = []
+    atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+    for ip, att in atts.items():
+        if not isinstance(att, dict):
+            continue
+        ev = _fresh_ledger(att, now)
+        if not ev:
+            continue
+        told, retry = att.get('reported') or {}, att.get('retry') or {}
+        if not any(now - int(told.get(p) or 0) >= REPORT_EVERY_S and now >= int(retry.get(p) or 0)
+                   for p in keyed):
+            continue
+        if not threat_evidence.qualifies(ev, need, cf_min)[0]:
+            continue
+        devs = att.get('devices') if isinstance(att.get('devices'), dict) else {}
+        dev = next(iter(devs), '')
+        if not dev:
+            continue
+        out.append({'ip': ip, 'device_id': dev, 'unit': 'ledger', 'count': 0, 'window_s': 0,
+                    'at': now, '_catchup': True})
+        if len(out) >= CATCHUP_MAX:
+            break
+    return out
 
 
 def run_ip_intel_if_due():
@@ -544,7 +591,7 @@ def run_ip_intel_if_due():
     has_expired = any(isinstance(b, dict) and int(b.get('until') or 0) <= now
                       for per in (st_ro.get('blocks') or {}).values() if isinstance(per, dict)
                       for b in per.values())
-    if not st_ro.get('queue') and not has_expired:
+    if not st_ro.get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now):
         return
 
     commands = []        # (dev_id or None, command or None, audit action, detail)
@@ -569,7 +616,8 @@ def run_ip_intel_if_due():
         allowance = _budget_left(st, pol, today)
         report_allowance = _report_budget_left(st, pol, today)
         atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
-        batch, st['queue'] = _claim_batch(queue, atts, pol, now)
+        batch, rest = _claim_batch(list(queue) + _ledger_catchup(st, pol, now), atts, pol, now)
+        st['queue'] = [q for q in rest if not (isinstance(q, dict) and q.get('_catchup'))]
         plan = []
         for item in batch:
             ip = ip_intel.parse_ip(item.get('ip')) if isinstance(item, dict) else None
@@ -675,8 +723,10 @@ def run_ip_intel_if_due():
         for p in plan:
             ip, dev_id, item, verdict = p['ip'], p['dev_id'], p['item'], p['verdict']
             att = atts.setdefault(ip, {})
-            att.setdefault('first_seen', now)
-            att['last_seen'] = now
+            catchup = bool(item.get('_catchup'))
+            if not catchup:
+                att.setdefault('first_seen', now)
+                att['last_seen'] = now
             if ip in looked:
                 v, errs = looked[ip]
                 att['checked_at'] = now
@@ -716,6 +766,8 @@ def run_ip_intel_if_due():
                 att['ev'] = cur
                 if cur is None:
                     att.pop('ev', None)
+            if catchup:
+                continue      # the ledger was reported; nothing was seen, so no sighting or block
             seen = att.setdefault('devices', {})
             ev = item.get('evidence')
             prior = seen.get(dev_id) if isinstance(seen.get(dev_id), dict) else {}
@@ -932,7 +984,8 @@ def handle_ip_intel_settings():
         for k, lo, hi in (('block_min_score', 1, 100), ('block_ttl_hours', 1, 24 * 90),
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
                           ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
-                          ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440)):
+                          ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440),
+                          ('edge_report_after', 1, 50)):
             if body.get(k) not in (None, ''):
                 try:
                     pol[k] = max(lo, min(hi, int(body[k])))

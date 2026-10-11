@@ -104,6 +104,7 @@ Open **Security → Threat intel** and scroll to the **Edge sources** card.
 | **Zones** | One zone id per line. Leave it empty to read every zone the token can see. The Zone ID is on each zone's Overview page. | empty |
 | **Worker names** | The Workers whose log to read, one per line, up to three. | `trap-sink` |
 | **Read every (minutes)** | How often to read, from 5 to 1,440. | 10 |
+| **Report after Cloudflare refusals** | How many refusals by an attack mechanism an address needs before it is reported, from 1 to 50. | 1 |
 | The switch at the top, **Read Cloudflare's firewall events and the honeypot's log, and use them for reporting** | Tick it last, after Test connection works. | unticked |
 
 Paste the token and the account id first and press **Save**. The switch can stay unticked while you test.
@@ -210,12 +211,17 @@ A Free plan allows five custom rules for each zone, which is why a list is often
 
 Edge evidence takes the same report path as your hosts' logs.
 
-- Three refusals by Cloudflare qualify an address, like three WAF refusals on a
-  host.
+- An address is reported after **Report after Cloudflare refusals** refusals by
+  Cloudflare, which is 1 unless you change it. The refusal is a block your own
+  rules or Cloudflare's already made. A host's WAF needs three.
 - Bot Fight Mode, Browser Integrity Check and user-agent rules are weaker
   signals. They only count towards **Report after attempts**, which is 10 unless
   you changed it.
-- An address your honeypot Worker banned is reported at once.
+- An address your honeypot Worker banned, or that fail2ban or CrowdSec decided
+  on, is reported at once.
+- An address that has not qualified yet shows the nearest route in its status,
+  for example `not reported: 1 of 3 Cloudflare refusals so far`. When you lower
+  the number, addresses counted in the last day are reported on the next sweep.
 - The daily limits and the wording of the report are the ones on the Providers
   card: see [Limits on API use](ip-intel.md#limits-on-api-use) and
   [The report message](ip-intel.md#the-report-message).

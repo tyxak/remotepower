@@ -236,7 +236,8 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
         self.assertEqual(h.LOOKBACK_S, 6 * 3600)
         self.says("A read never goes back further than six hours")
         self.assertEqual(te.WAF_MIN_BLOCKS, 3)
-        self.says("Three refusals by Cloudflare qualify an address")
+        self.assertEqual(ip_intel.DEFAULTS["edge_report_after"], 1)
+        self.says("An address is reported after **Report after Cloudflare refusals** refusals by")
         self.assertEqual(ee.MAX_ZONES, 50)
 
     def test_the_documented_mechanisms_are_the_counted_ones(self):

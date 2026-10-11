@@ -366,6 +366,100 @@ class TestWhenAFeedFails(_Edge):
         self.assertIsNotNone(orig)
 
 
+class TestTheReportThreshold(_Edge):
+    """An address is reported after `edge_report_after` Cloudflare refusals, 1 by
+    default. It used to be three, copied from a host's WAF, and an address with one
+    custom-rule refusal sat at "1 of 10 attempts so far" while cf-sniffcat, which the
+    operator stopped for this, would have reported it."""
+
+    def one_refusal(self, count=1):
+        self.graphql = graphql(group(ATTACKER, count=count))
+        self.trap = {'success': True, 'result': {'events': []}}
+
+    def reported(self):
+        return {json.loads(c['body'])['ip'] for c in self.reports() if 'sniffcat' in c['url']}
+
+    def sweep_at(self, at):
+        """The report sweep at the test's own clock. The shared sweep() runs at the
+        real one, so evidence that poll() stamped at T would look days old to it and
+        the day's ledger would have expired."""
+        st = self.api.load(self.api.IPINTEL_FILE) or {}
+        st['last_sweep'] = 0
+        self.api.save(self.api.IPINTEL_FILE, st)
+        self.api._LOAD_CACHE.clear()
+        with mock.patch('time.time', return_value=at):
+            self.api.run_ip_intel_if_due()
+        self.api._LOAD_CACHE.clear()
+        return self.api.load(self.api.IPINTEL_FILE)
+
+    def test_one_refusal_is_reported_by_default(self):
+        self.one_refusal()
+        self.poll()
+        self.sweep()
+        self.assertEqual(self.reported(), {ATTACKER})
+
+    def test_the_operators_number_holds_and_adds_up_across_reads(self):
+        self.policy(edge_report_after=3)
+        self.one_refusal()
+        self.poll()
+        st = self.sweep_at(T + 10)
+        self.assertEqual(self.reported(), set())
+        self.assertEqual(st['attackers'][ATTACKER]['errors']['sniffcat'],
+                         'not reported: 1 of 3 Cloudflare refusals so far')
+        self.one_refusal(count=2)
+        self.poll(at=T + 700)
+        self.sweep_at(T + 710)
+        self.assertEqual(self.reported(), {ATTACKER}, 'one plus two is three')
+
+    def test_a_weak_mechanism_is_not_reported_on_one(self):
+        self.graphql = graphql(group(ATTACKER, source='botFight', rule='', count=1))
+        self.trap = {'success': True, 'result': {'events': []}}
+        self.poll()
+        st = self.sweep()
+        self.assertEqual(self.reported(), set())
+        self.assertEqual(st['attackers'][ATTACKER]['errors']['sniffcat'],
+                         'not reported: 1 of 10 attempts so far')
+
+    def test_lowering_the_number_reports_what_was_already_counted(self):
+        """No new hit is needed: the ledger holding the day's evidence is looked at."""
+        self.policy(edge_report_after=3)
+        self.one_refusal()
+        self.poll()
+        self.sweep_at(T + 10)
+        self.assertEqual(self.reported(), set())
+        before = self.api.load(self.api.IPINTEL_FILE)['attackers'][ATTACKER]
+        self.policy(edge_report_after=1)
+        st = self.sweep_at(T + 20)             # nothing was polled: nothing new was seen
+        self.assertEqual(self.reported(), {ATTACKER})
+        self.assertEqual(st['attackers'][ATTACKER]['last_seen'], before['last_seen'],
+                         'catching up is not a sighting')
+        self.assertFalse(st.get('queue'), 'the entry made for it is not kept')
+        n = len(self.reports())
+        self.sweep_at(T + 30)
+        self.assertEqual(len(self.reports()), n, 'and it is reported once')
+
+    def test_the_catch_up_leaves_blocks_and_hosts_alone(self):
+        self.policy(edge_report_after=3, block_enabled=True, block_min_score=1)
+        self.one_refusal()
+        self.poll()
+        self.sweep_at(T + 10)
+        self.policy(edge_report_after=1)
+        st = self.sweep_at(T + 20)
+        self.assertEqual(self.reported(), {ATTACKER}, 'it was caught up, so this checks something')
+        self.assertEqual(st.get('blocks') or {}, {})
+        for dev in ('d1', 'd2', 'd3'):
+            self.assertEqual([c for c in self.queued(dev) if 'rp-ipintel' in c], [], dev)
+
+    def test_nothing_is_caught_up_when_reporting_is_off(self):
+        self.policy(edge_report_after=3)
+        self.one_refusal()
+        self.poll()
+        self.sweep_at(T + 10)
+        self.policy(edge_report_after=1, report_enabled=False)
+        self.sweep_at(T + 20)
+        self.assertEqual(self.reported(), set())
+
+
 class TestAZoneWithoutTheGroupedView(_Edge):
     """A Free zone is refused `firewallEventsAdaptiveGroups` with "zone '...' does not
     have access to the path", and reads `firewallEventsAdaptive` fine: it is the
@@ -514,6 +608,13 @@ class TestSettings(_Edge):
         self.assertEqual((s['edge_cf_events'], s['edge_count_list_rules']), (False, True))
         st, d = self.save(edge_workers=[])
         self.assertEqual(d['settings']['edge_workers'], ['trap-sink'])
+
+    def test_the_report_threshold_is_clamped_and_validated(self):
+        self.assertEqual(self.save(edge_report_after=0)[1]['settings']['edge_report_after'], 1)
+        self.assertEqual(self.save(edge_report_after=999)[1]['settings']['edge_report_after'], 50)
+        self.assertEqual(self.save(edge_report_after='soon')[0], 400)
+        st, page = self.call(self.api.handle_ip_intel, 'GET')
+        self.assertEqual(page['settings']['edge_report_after'], 50)
 
     def test_only_an_admin_changes_it(self):
         st, _ = self.call(self.api.handle_ip_intel_settings, 'POST', {'edge_enabled': True}, role='viewer')
