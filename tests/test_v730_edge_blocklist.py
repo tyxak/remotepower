@@ -163,6 +163,8 @@ class TestTheSources(unittest.TestCase):
         self.assertEqual(r['headers']['Key'], 'K' * 40)
         self.assertIn('confidenceMinimum=75', r['url'])
         self.assertIn('limit=8000', r['url'])
+        self.assertIn('limit=%d' % eb.ABUSEIPDB_MAX_LIMIT, eb.abuseipdb_request('k', 75, 10 ** 7)['url'],
+                      'a limit past what one read can hold is brought back to it')
         self.assertNotIn('K' * 40, r['url'])
         self.assertIn('confidenceMinimum=25', eb.abuseipdb_request('k', 1, 5)['url'], 'its floor is 25')
         self.assertIn('confidenceMinimum=100', eb.abuseipdb_request('k', 900, 5)['url'])
@@ -186,6 +188,7 @@ class TestTheSources(unittest.TestCase):
             self.assertIn(part, r['url'])
         self.assertIn('confidenceMin=30', eb.sniffcat_request('k', 1, 5)['url'], 'its floor is 30')
         self.assertIn('limit=10', eb.sniffcat_request('k', 80, 1)['url'])
+        self.assertIn('limit=%d' % eb.SNIFFCAT_MAX_LIMIT, eb.sniffcat_request('k', 80, 10 ** 7)['url'])
         body = {'success': True, 'status': 200, 'meta': {'count': 3},
                 'reports': [{'ip': '45.155.205.1', 'abuse': 100}, {'ip': '192.168.0.1'}, {'ip': '45.155.205.1'}]}
         self.assertEqual(eb.sniffcat_parse(200, body), {'ok': True, 'ips': ['45.155.205.1']})
@@ -195,6 +198,35 @@ class TestTheSources(unittest.TestCase):
         self.assertTrue(got['no_quota'])
         self.assertIn('no blacklist quota', got['error'])
         self.assertTrue(eb.sniffcat_parse(429, {})['rate_limited'])
+
+
+class TestWhatOneReadCanHold(unittest.TestCase):
+    def test_the_settings_ceilings_are_the_request_builders(self):
+        """The handler clamps the settings with literal numbers; the request
+        builders clamp with the module's. They must be one number."""
+        src = (Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'ip_intel_handlers.py').read_text()
+        self.assertIn("('edgelist_abuseipdb_limit', 100, %d)" % eb.ABUSEIPDB_MAX_LIMIT, src)
+        self.assertIn("('edgelist_sniffcat_limit', 10, %d)" % eb.SNIFFCAT_MAX_LIMIT, src)
+
+    def test_an_answer_cut_off_at_the_read_limit_says_so(self):
+        for parse, who in ((eb.abuseipdb_parse, 'AbuseIPDB'), (eb.sniffcat_parse, 'SniffCat')):
+            r = parse(200, None)
+            self.assertFalse(r['ok'])
+            self.assertEqual(r['error'], f"{who}'s answer could not be read; try a lower limit")
+
+    def test_a_full_answer_at_the_ceiling_fits_in_one_read(self):
+        """A body of the most entries a setting allows, at the entry sizes the services
+        send, must be under the 8 MB the seam reads."""
+        import json
+        abuse = json.dumps({'data': [{'ipAddress': '203.0.113.%d' % (i % 250), 'abuseConfidenceScore': 100,
+                                      'lastReportedAt': '2026-10-11T09:30:00+00:00'}
+                                     for i in range(eb.ABUSEIPDB_MAX_LIMIT)]})
+        sniff = json.dumps({'success': True, 'reports': [
+            {'ip': '203.0.113.%d' % (i % 250), 'categories': [18, 21], 'abuseConfidenceScore': 100,
+             'reportedAt': '2026-10-11T09:30:00+00:00', 'comment': 'x' * 60}
+            for i in range(eb.SNIFFCAT_MAX_LIMIT)]})
+        self.assertLess(len(abuse), 8_000_000)
+        self.assertLess(len(sniff), 8_000_000)
 
 
 class TestCloudflareLists(unittest.TestCase):

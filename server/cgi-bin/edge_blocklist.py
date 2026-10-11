@@ -50,6 +50,11 @@ CALLS_PER_DAY = 4  # one blacklist download per source and read; AbuseIPDB's bas
 STALE_SOURCE_S = 3 * 86400  # a source that did not answer is read from its last copy this long
 SHRINK_FLOOR = 0.5
 SHRINK_MIN_ITEMS = 200
+# A read is capped at 8 MB. A blacklist entry is about 100 bytes of JSON at AbuseIPDB and
+# about 250 at SniffCat, so these are the most one read can hold. A longer answer would be
+# cut off and fail to parse, so the setting stops here.
+ABUSEIPDB_MAX_LIMIT = 50_000
+SNIFFCAT_MAX_LIMIT = 30_000
 OWN_SCORE_DEFAULT = 75
 
 
@@ -155,6 +160,9 @@ def _source_error(status, body, who):
     d = _detail(body)
     if status == 0:
         return {"ok": False, "error": "unreachable"}
+    if status == 200 and body is None:
+        # a 200 whose body did not parse: the answer was cut off at the read limit
+        return {"ok": False, "error": f"{who}'s answer could not be read; try a lower limit"}
     if status == 429:
         return {"ok": False, "rate_limited": True, "error": f"{who} says the daily limit is used up"}
     if status == 401:
@@ -171,7 +179,8 @@ def abuseipdb_request(key, confidence, limit):
     base tier, which answers with its own floor instead of an error; `limit` is
     capped by the plan the same quiet way."""
     q = urllib.parse.urlencode(
-        {"confidenceMinimum": max(25, min(100, int(confidence))), "limit": max(1, min(500000, int(limit)))}
+        {"confidenceMinimum": max(25, min(100, int(confidence))),
+         "limit": max(1, min(ABUSEIPDB_MAX_LIMIT, int(limit)))}
     )
     return {
         "method": "GET",
@@ -197,7 +206,7 @@ def sniffcat_request(key, confidence, limit):
     `limit` runs 10 to 100,000."""
     q = urllib.parse.urlencode(
         {"type": "json", "confidenceMin": max(30, min(100, int(confidence))),
-         "limit": max(10, min(100000, int(limit)))}
+         "limit": max(10, min(SNIFFCAT_MAX_LIMIT, int(limit)))}
     )
     return {
         "method": "GET",

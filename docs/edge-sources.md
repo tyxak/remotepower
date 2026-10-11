@@ -348,9 +348,9 @@ Open **Security → Threat intel** and scroll to the **Edge blocklist** card. Th
 | **Found addresses: score of at least** | The lowest score a found address needs, from 1 to 100. A reported address is included whatever it scored. | 75 |
 | **Found addresses: seen within (days)** | How recently a found address must have attacked, from 1 to 365. | 14 |
 | **AbuseIPDB: confidence of at least** | From 25 to 100. AbuseIPDB applies its own floor on a free key and may send fewer. | 75 |
-| **AbuseIPDB: most addresses** | From 100 to 100,000. AbuseIPDB's free plan sends up to 10,000. | 8,000 |
+| **AbuseIPDB: most addresses** | From 100 to 50,000. AbuseIPDB's free plan sends up to 10,000. | 8,000 |
 | **SniffCat: confidence of at least** | From 30 to 100. | 80 |
-| **SniffCat: most addresses** | From 10 to 100,000. | 2,000 |
+| **SniffCat: most addresses** | From 10 to 30,000. | 2,000 |
 | **Update every (hours)** | How often the list is made to match, from 1 to 168. | 6 |
 | **Most entries in the list** | The most the list may hold, from 100 to 500,000. | 10,000 |
 | **Always include** | One address or network per line. | empty |

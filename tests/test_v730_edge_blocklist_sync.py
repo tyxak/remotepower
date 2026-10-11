@@ -395,6 +395,25 @@ class TestWhatItWillNotDoUnasked(_Lists):
         self.assertEqual(el['last']['state'], 'ok')
         self.assertEqual(self.lists[self.lid]['items'], held[:120])
 
+    def test_a_slow_read_stops_at_its_budget_and_still_writes_the_whole_list(self):
+        held = ips('185.250', 150)
+        self.lists[self.lid]['items'] = list(held)
+        self.page = 3
+        self.abuse = list(held)
+        ticks = iter(range(0, 10 ** 6, 30))          # 30 s of reading for every look at the clock
+        mod = self.api.edge_blocklist_handlers_mod
+        real = mod._mono
+        mod._mono = lambda: next(ticks)
+        try:
+            el = self.tick()
+        finally:
+            mod._mono = real
+        pages = [c for c in self.cf if c['method'] == 'GET' and '/items' in c['url']]
+        self.assertLess(len(pages), 10, 'the read stopped at its budget, not at the end of the list')
+        self.assertEqual(el['last']['state'], 'ok')
+        self.assertEqual(el['last']['current'], 150, 'the size is what Cloudflare says, not what was read')
+        self.assertEqual(sorted(self.lists[self.lid]['items']), sorted(held))
+
     def test_a_source_that_answers_nothing_cannot_empty_the_list(self):
         self.abuse = []
         el = self.tick()

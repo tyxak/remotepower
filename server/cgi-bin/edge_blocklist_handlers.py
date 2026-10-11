@@ -59,6 +59,7 @@ SYNC_MIN_S = 3600             # a scheduled sync never runs more often than hour
 PENDING_RECHECK_S = 300       # a bulk operation Cloudflare has not finished is looked at this often
 PENDING_GIVE_UP_S = 3600      # and given up on after this long
 OP_WAIT_S = 20                # how long one request waits for Cloudflare's bulk operation
+READ_BUDGET_S = 60            # and the most it spends paging through the list's items
 OP_STEP_S = 2
 SAMPLE = 20                   # added and removed entries shown on the page
 
@@ -66,6 +67,10 @@ _FETCH = {
     'abuseipdb': (edge_blocklist.abuseipdb_request, edge_blocklist.abuseipdb_parse, 'AbuseIPDB'),
     'sniffcat': (edge_blocklist.sniffcat_request, edge_blocklist.sniffcat_parse, 'SniffCat'),
 }
+
+
+def _mono():
+    return time.monotonic()
 
 
 def _store_ro():
@@ -147,6 +152,7 @@ def _items_now(token, acct, list_id):
     neither trusts the entries as the whole list nor skips a write because they
     match."""
     out, cursor, complete = [], '', False
+    deadline = _mono() + READ_BUDGET_S
     for _ in range(edge_blocklist.MAX_PAGES):
         r = edge_blocklist.parse_items(*A._ip_intel_http(
             edge_blocklist.items_request(token, acct, list_id, cursor)))
@@ -156,6 +162,8 @@ def _items_now(token, acct, list_id):
         cursor = r['cursor']
         if not cursor or not r['ips']:
             complete = True
+            break
+        if _mono() > deadline:        # a slow Cloudflare must not hold the sweep for minutes
             break
     return out, '', complete
 
