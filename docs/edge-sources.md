@@ -182,6 +182,8 @@ An edge address has no **Block** button. It was seen at the edge and by none of 
 
 To block such addresses on your hosts as well, tick **Also block addresses found at the edge on every Linux agent** under Threat intel (it needs automatic blocking on). Each address that passes the same score and never-block checks gets the block on every Linux agent, for the block lifetime you set, up to 100 hosts per sweep. It stops direct connections to your servers; a visitor who comes through Cloudflare is stopped by the edge list. It stays off on a multi-tenant install.
 
+With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned.
+
 ## Free plans
 
 Asked for the grouped view of the firewall events, a Free zone answers `zone '…' does not have access to the path`. RemotePower does not need to know your plan. It asks for the grouped view, and when Cloudflare refuses it, it asks the same zone for its events one at a time and groups them itself.

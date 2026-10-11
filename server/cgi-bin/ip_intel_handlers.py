@@ -60,6 +60,7 @@ import urllib.parse
 import urllib.request
 
 import edge_blocklist
+import edge_evidence
 import ip_intel
 import threat_evidence
 
@@ -781,6 +782,13 @@ def run_ip_intel_if_due():
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
+            if ok and _edge_ban_ready(pol):
+                # What is blocked on a host is banned at the edge too, so a
+                # visitor arriving through Cloudflare is stopped as well.
+                if protected is None:
+                    protected = _protected_networks(pol, devices)
+                if not ip_intel.never_block_reason(ip, protected):
+                    _ban_at_edge(st, pol, ip, now)
             fanned = False
             if dev_id in ip_intel.EDGE_DEVICES:
                 # The edge has no host of its own. With the operator's say-so the
@@ -856,6 +864,34 @@ def run_ip_intel_if_due():
             elif res.get('approval_required'):
                 detail += ' awaiting-approval'
         A.audit_log('ip-intel', action, detail[:500])
+
+
+EDGE_AUTOBAN_PER_HOUR = 50     # automatic edge bans per hour: a cap on a runaway
+
+
+def _edge_ban_ready(pol):
+    """True when the Edge blocklist is on and able to write: automatic blocks
+    are then banned at the edge as well."""
+    return bool(pol.get('edgelist_enabled') and pol.get('edge_list_token')
+                and edge_evidence.valid_id(pol.get('edge_account_id')))
+
+
+def _ban_at_edge(st, pol, ip, now):
+    """Put `ip` in the stored edge bans for the block lifetime, which the next
+    sync of the Cloudflare list carries. An address already banned is left alone."""
+    key = edge_blocklist.canonical(ip)
+    bans = st.get('edgeban') if isinstance(st.get('edgeban'), dict) else {}
+    st['edgeban'] = bans
+    if not key or int((bans.get(key) or {}).get('until') or 0) > now:
+        return
+    recent = sum(1 for b in bans.values() if isinstance(b, dict) and b.get('by') == 'auto'
+                 and now - int(b.get('at') or 0) < 3600)
+    if recent >= EDGE_AUTOBAN_PER_HOUR:
+        return
+    bans[key] = {'at': now, 'until': now + int(pol['block_ttl_hours']) * 3600, 'by': 'auto'}
+    el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
+    el['attempt'] = 0                      # due now, as a ban by hand is
+    st['edgelist'] = el
 
 
 def _web_is_proxied(sensors, dev_id):

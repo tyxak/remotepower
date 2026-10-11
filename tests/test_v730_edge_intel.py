@@ -297,6 +297,50 @@ class TestTheSweep(_Edge):
             self.assertEqual(st['blocks'][dev][SECOND]['kind'], 'edge')
         self.assertNotIn('not_blocked', st['attackers'][SECOND]['devices']['edge:trap'])
 
+    def test_an_automatic_block_is_banned_at_the_edge_too(self):
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
+                    edge_account_id='a' * 32, block_ttl_hours=6)
+        self.list_token()
+        self.poll()
+        st = self.sweep()
+        ban = (st.get('edgeban') or {}).get(SECOND)
+        self.assertTrue(ban, 'the address is in the stored edge bans')
+        self.assertEqual(ban['by'], 'auto')
+        self.assertEqual(ban['until'] - ban['at'], 6 * 3600)
+
+    def list_token(self):
+        cfg = self.api.load(self.api.CONFIG_FILE)
+        cfg['edge_list_token'] = 'tok'
+        self.api.save(self.api.CONFIG_FILE, cfg)
+        self.api._LOAD_CACHE.clear()
+
+    def test_a_cloudflare_address_is_never_banned_at_the_edge(self):
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
+                    edge_account_id='a' * 32)
+        self.list_token()
+        self.trap = {'success': True, 'result': {'events': [dict(trap_line('104.16.0.9', kind='ban'))]}}
+        self.poll()
+        st = self.sweep()
+        bans = st.get('edgeban') or {}
+        self.assertNotIn('104.16.0.9', bans)
+        self.assertIn(ATTACKER, bans, 'control: another address in the same sweep was banned')
+
+    def test_an_address_on_the_never_block_list_is_not_banned_at_the_edge(self):
+        # the sweep's own check, which sits after the feed's: Cloudflare's ranges
+        # are dropped before this point, so a protected address is the way to reach it
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
+                    edge_account_id='a' * 32, never_block=[SECOND])
+        self.list_token()
+        self.poll()
+        bans = self.sweep().get('edgeban') or {}
+        self.assertNotIn(SECOND, bans)
+        self.assertIn(ATTACKER, bans, 'control: another address in the same sweep was banned')
+
+    def test_no_edge_ban_while_the_edge_blocklist_cannot_write(self):
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True)
+        self.poll()
+        self.assertEqual(self.sweep().get('edgeban') or {}, {})
+
     def test_the_fleet_switch_is_off_by_default(self):
         self.policy(block_enabled=True, block_min_score=1, report_enabled=False)
         self.poll()
