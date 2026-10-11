@@ -10,13 +10,15 @@ Worker catches scanners that no host log ever sees, and neither told RemotePower
 Now both do, so RemotePower can be the one place that reports, with the evidence
 behind each report.
 
-Banning is not touched. Nothing in this release blocks anything on its own:
-whatever you already use to ban (ModSecurity, CrowdSec, fail2ban, Cloudflare
-rules, scripts) keeps doing it.
+Reading does not ban anything: whatever you already use to ban (ModSecurity,
+CrowdSec, fail2ban, Cloudflare rules, scripts) keeps doing it. The one thing this
+release writes is an optional Cloudflare IP list, which does nothing until a rule
+of yours uses it.
 
 The security review for this release is scoped to what is new: a stored
-Cloudflare token, two feeds the server reads from outside, and a firewall-log
-reader in the agent. It is in `docs/security-review-7.3.0.md`.
+Cloudflare token, two feeds the server reads from outside, a firewall-log reader
+in the agent, and a second token that can edit lists with a sync that writes one.
+It is in `docs/security-review-7.3.0.md`.
 
 ### Edge sources
 
@@ -58,11 +60,50 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 - **A setup guide.** `docs/edge-sources.md` walks through the Cloudflare token,
   the account id, Test connection, what each card shows, and what to do when
   Cloudflare refuses a read. The same page is linked from the card.
+- **A Remove token button.** The stored Cloudflare token can be removed from the
+  card; before, it took an API call.
 - **Test connection** tries each thing the feeds need, with the stored token or
   one you typed, and says which permission is missing. It lists the zone's custom
   rules and marks the ones that also block an IP list.
 - **Edge sources are never blocked.** They have no host to block them on. The
   Block button is absent and the page says they are only reported.
+
+### Edge blocklist
+
+- **RemotePower can keep a Cloudflare IP list up to date.** It builds one list
+  from your own entries, the addresses it found itself, AbuseIPDB's blacklist and
+  SniffCat's blacklist, and makes a Cloudflare account list match it, so a rule
+  that says `ip.src in $your_list` keeps blocking what they report. That is the
+  work a list-keeping script such as Cloudflare-WAF-Expressions does, inside
+  RemotePower. It writes the list and nothing else: it never creates, edits or
+  deletes a rule, and never touches another list. Off until you turn it on, under
+  **Security → Threat intel → Edge blocklist**.
+- **A token of its own.** The feeds' token only reads. This one needs **Account
+  Filter Lists: Edit**, is stored apart, is never sent back to the browser, and
+  has a **Remove token** button. The guide says to restrict it by address.
+- **A list it did not create is left alone.** The card says `Needs to be taken
+  over`, **Preview** shows what taking it over would change and writes nothing,
+  and **Sync now** asks before it replaces anything.
+- **Your own addresses never go in.** The fleet, the allow-list, recent
+  RemotePower logins, the never-block list, Cloudflare's own addresses and private
+  addresses are left out, and so is a network that overlaps one of them. Nothing
+  wider than /16 (IPv4) or /32 (IPv6) is accepted.
+- **It will not empty or halve the list unasked.** A sync that would is held, and
+  so is one where a source failed and has no copy under three days old. **Sync
+  anyway** goes ahead when you mean it.
+- **It stays inside the account's room.** The list stops at **Most entries in the
+  list**, less the items your other lists use, and the card says how many entries
+  were left out for lack of room.
+- **Downloads are rationed.** Each blacklist is downloaded at most four times a
+  day, because AbuseIPDB's base plan allows five. The last copy is used in
+  between and when a download fails, for up to three days.
+- **One change at a time.** Cloudflare applies a replace in the background and
+  takes one per account. RemotePower waits up to 20 seconds, then looks again every
+  five minutes, and never starts a second.
+- **A card that says what happened.** State, how many entries the list holds and
+  should hold, what a sync added and removed (the first 20 of each), where each
+  source's addresses came from, and what was left out and why. It is translated
+  into the six languages.
 
 ### Firewall log
 
@@ -103,7 +144,9 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-47`). Nothing changes until you turn the edge feeds on.
+`remotepower-shell-v7.3.0-48`). Nothing changes until you turn the edge feeds on,
+and nothing is written to Cloudflare until you turn the blocklist on, give it a
+token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as

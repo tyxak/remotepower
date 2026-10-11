@@ -2,9 +2,11 @@
 
 Cloudflare refuses many attacks before they reach your server, so your host logs never see them. Edge sources lets RemotePower read those refusals from the Cloudflare API and report the addresses behind them to AbuseIPDB and SniffCat, the same way it reports what your hosts' logs show.
 
-It only reads, with a read-only token. Nothing here blocks anything: banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. It stays off until you turn it on.
+Reading is all Edge sources does, with a read-only token. It does not block anything: banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. It stays off until you turn it on.
 
-On this page: [Before you start](#before-you-start) · [How it works](#how-it-works) · [Step 1: Create the API token](#step-1-create-the-api-token) · [Step 2: Find your account id](#step-2-find-your-account-id) · [Step 3: Enter it in RemotePower](#step-3-enter-it-in-remotepower) · [Step 4: Test the connection](#step-4-test-the-connection) · [Step 5: Switch it on](#step-5-switch-it-on) · [What you see](#what-you-see) · [Free plans](#free-plans) · [Rules that also block an IP list](#rules-that-also-block-an-ip-list) · [Reporting](#reporting) · [Limits](#limits) · [Security](#security) · [Troubleshooting](#troubleshooting) · [The honeypot Worker log](#the-honeypot-worker-log) · [Turn it off](#turn-it-off)
+If you also want RemotePower to keep a Cloudflare IP list up to date for your own rules to use, that is the [Edge blocklist](#edge-blocklist). It is separate, off until you turn it on, and uses a token of its own.
+
+On this page: [Before you start](#before-you-start) · [How it works](#how-it-works) · [Step 1: Create the API token](#step-1-create-the-api-token) · [Step 2: Find your account id](#step-2-find-your-account-id) · [Step 3: Enter it in RemotePower](#step-3-enter-it-in-remotepower) · [Step 4: Test the connection](#step-4-test-the-connection) · [Step 5: Switch it on](#step-5-switch-it-on) · [What you see](#what-you-see) · [Free plans](#free-plans) · [Rules that also block an IP list](#rules-that-also-block-an-ip-list) · [Reporting](#reporting) · [Limits](#limits) · [Security](#security) · [Troubleshooting](#troubleshooting) · [The honeypot Worker log](#the-honeypot-worker-log) · [Edge blocklist](#edge-blocklist) · [Turn it off](#turn-it-off)
 
 ## Before you start
 
@@ -107,7 +109,7 @@ Open **Security → Threat intel** and scroll to the **Edge sources** card.
 | **Report after Cloudflare refusals** | How many refusals by an attack mechanism an address needs before it is reported, from 1 to 50. | 1 |
 | The switch at the top, **Read Cloudflare's firewall events and the honeypot's log, and use them for reporting** | Tick it last, after Test connection works. | unticked |
 
-Paste the token and the account id first and press **Save**. The switch can stay unticked while you test.
+Paste the token and the account id first and press **Save**. The switch can stay unticked while you test. **Remove token** deletes the stored token.
 
 ## Step 4: Test the connection
 
@@ -299,6 +301,142 @@ RemotePower reads the Worker's log through Workers Observability. The Worker has
 
 The table of what each kind is filed as is under [The honeypot](ip-intel.md#the-honeypot).
 
+## Edge blocklist
+
+Edge sources reads. The Edge blocklist writes, in one place: a Cloudflare IP list. RemotePower builds the list from the sources you choose and keeps it up to date, so a rule of yours that says `ip.src in $remotepower_blocklist` keeps blocking what those sources report.
+
+RemotePower writes the list and nothing else. It never creates, edits or deletes a rule, and it never touches another list. The rules that use the list stay yours.
+
+It is off until you turn it on, and it needs a second token that can edit lists. The token from [step 1](#step-1-create-the-api-token) only reads and cannot do this.
+
+### What goes in the list
+
+| Source | What goes in |
+|---|---|
+| Your own entries | The addresses and networks you type under **Always include**. |
+| Found by RemotePower | Addresses RemotePower reported, or that scored high, and were seen lately. |
+| AbuseIPDB | AbuseIPDB's blacklist, downloaded with the key saved under Providers. |
+| SniffCat | SniffCat's blacklist, downloaded with the key saved under Providers. |
+
+When the list is full, entries are taken in that order: yours first, SniffCat's last. An address that two sources offer is kept once.
+
+### Step 1: Create a token that can edit lists
+
+Make a second token and keep the first one read-only.
+
+1. In the Cloudflare dashboard open **Manage Account → Account API Tokens**, click **Create Token**, then **Create Custom Token → Get started**.
+2. Name it, for example `remotepower-edge-lists`.
+3. Under **Permissions** add one row: **Account**, **Account Filter Lists**, **Edit**.
+4. Under **Account Resources** choose **Include**, then your account.
+5. Under **Client IP Address Filtering** add the public address of your RemotePower server, so the token works from nowhere else.
+6. Click **Continue to summary**, then **Create Token**, and copy the token. Cloudflare shows it once.
+
+A leaked list token can change your lists: it can take an attacker off your blocklist or put your own visitors on it. Treat it like a password and give it no other row.
+
+### Step 2: Enter it in RemotePower
+
+Open **Security → Threat intel** and scroll to the **Edge blocklist** card. The account id is the one under **Edge sources**, so set it there first.
+
+| Field | What to enter | Default |
+|---|---|---|
+| **Keep a Cloudflare IP list up to date** | Tick it last, after Preview looks right. | unticked |
+| **Cloudflare API token (can edit lists)** | Paste the token. RemotePower stores it and never shows it again. Leave the field empty to keep the stored one. | empty |
+| **List name** | Lower-case letters, digits and underscores, starting with a letter. RemotePower creates the list if it does not exist. | `remotepower_blocklist` |
+| **Addresses RemotePower found** | Tick to include what RemotePower found itself. | ticked |
+| **AbuseIPDB's blacklist** | Tick to include AbuseIPDB's blacklist. | ticked |
+| **SniffCat's blacklist** | Tick to include SniffCat's blacklist. | ticked |
+| **Found addresses: score of at least** | The lowest score a found address needs, from 1 to 100. A reported address is included whatever it scored. | 75 |
+| **Found addresses: seen within (days)** | How recently a found address must have attacked, from 1 to 365. | 14 |
+| **AbuseIPDB: confidence of at least** | From 25 to 100. AbuseIPDB applies its own floor on a free key and may send fewer. | 75 |
+| **AbuseIPDB: most addresses** | From 100 to 100,000. AbuseIPDB's free plan sends up to 10,000. | 8,000 |
+| **SniffCat: confidence of at least** | From 30 to 100. | 80 |
+| **SniffCat: most addresses** | From 10 to 100,000. | 2,000 |
+| **Update every (hours)** | How often the list is made to match, from 1 to 168. | 6 |
+| **Most entries in the list** | The most the list may hold, from 100 to 500,000. | 10,000 |
+| **Always include** | One address or network per line. | empty |
+
+Fill the card in and press **Save** first. **Preview** and **Sync now** use what is saved. **Remove token** deletes the stored token and stops the updates.
+
+### Step 3: Preview, then sync
+
+Press **Preview**. It reads the list from Cloudflare and the sources, and shows what a sync would change. It writes nothing to Cloudflare, and it may download a blacklist, which counts towards that source's four downloads a day.
+
+Read the card, then tick the switch at the top, press **Save**, and press **Sync now**. After that the schedule keeps the list in step.
+
+### Use the list in a rule
+
+RemotePower does not create a rule. In your zone's custom rules add one that uses the list, with the expression `(ip.src in $remotepower_blocklist)` and the action **Block**. Use the name you gave the list. A Free plan allows five custom rules for each zone, so many people add the list to a rule they already have.
+
+### Take over a list that already exists
+
+A list that RemotePower did not create is left alone. The card says `Needs to be taken over`, and **Preview** shows what taking it over would change.
+
+If another tool updates that list, such as a script on a schedule, stop it first. Two tools writing one list undo each other's work. Then press **Sync now**: RemotePower asks, replaces everything in the list with what your sources say, and marks it as managed by RemotePower. From then on the schedule keeps it.
+
+### What it will not do
+
+| Guard | What happens |
+|---|---|
+| A list RemotePower did not create | Left alone until you take it over. |
+| Your own addresses | Never added: your hosts, the RemotePower server, your allow-list, recent RemotePower logins, your never-block list, Cloudflare's own addresses and private addresses. A network that overlaps one of them is left out whole. |
+| A range wider than /16 for IPv4 or /32 for IPv6 | Refused when you type it, and left out when a source sends it. |
+| A sync that would empty the list or cut it by more than half | Held. The card says why, and **Sync anyway** goes ahead when you mean it. The halving check applies to lists of 200 entries or more. |
+| A source that did not answer | The sync uses that source's last copy for up to three days. With no copy, the sync is held. |
+| More entries than there is room for | The list is cut at **Most entries in the list**, less what your account's other lists use. The card says how many were left out. |
+| Downloads | Each blacklist is downloaded at most four times a day, and its last copy is reused in between. |
+| One change at a time | Cloudflare applies a change in the background and takes one at a time. RemotePower waits up to 20 seconds and then looks again every five minutes. |
+
+### What the card shows
+
+The status under the buttons shows the last sync, or the last preview when it is newer.
+
+| State | What it means |
+|---|---|
+| `Up to date` | The list matches the sources. |
+| `Preview` | What a sync would do. Nothing was written. |
+| `Held` | A guard stopped the sync. The line after it says which. |
+| `Needs to be taken over` | A list with that name exists and RemotePower did not create it. |
+| `Needs setup` | A token or the account id is missing, or the list name is not allowed. |
+| `Being applied` | Cloudflare has the change and has not finished it. |
+| `Error` | Cloudflare refused or failed. The line after it says what Cloudflare said. |
+| `Waiting for the first sync` | The switch is on and nothing has run yet. |
+
+The lines under the state are these:
+
+| Label | What it shows |
+|---|---|
+| **List** | The list's name, and whether RemotePower manages it. |
+| **In the list now** | How many entries the list holds in Cloudflare. |
+| **Should hold** | How many entries the sources and your settings ask for. |
+| **Added** | How many a sync would add, and below, the first 20. |
+| **Removed** | How many a sync would remove, and below, the first 20. |
+| **Room in the account** | How many entries the list may hold, after the account's other lists. |
+| **Left out for lack of room** | Entries cut because the list was full. |
+| **Left out as protected** | Entries left out because they are yours or Cloudflare's. |
+| **In the list from** | How many entries came from each source. |
+
+Under those, each blacklist shows how many addresses it sent, when, and whether it was downloaded or read from its last copy.
+
+### Troubleshooting the blocklist
+
+| What you see | Why | What to do |
+|---|---|---|
+| `Add a Cloudflare token that can edit lists.` | No list token is saved. | Create one ([step 1](#step-1-create-a-token-that-can-edit-lists)) and paste it. |
+| `Add the Cloudflare account id under Edge sources.` | The account id is empty. | Enter it on the Edge sources card. |
+| `The list name may use lower-case letters, digits and underscores.` | The name has a capital, a space or another character. | Use only lower-case letters, digits and underscores. |
+| `A list with this name exists and is not an IP list.` | The name belongs to a list of another kind. | Choose another name. |
+| `A list with this name exists and RemotePower did not create it.` | You pointed RemotePower at a list that is already there. | See [Take over a list that already exists](#take-over-a-list-that-already-exists). |
+| `The list would shrink by more than half.` | The sources now say far less than the list holds. A key may have lapsed, or a threshold changed. | Check the sources. Press **Sync anyway** if the smaller list is right. |
+| `Nothing would be left in the list.` | The sources would leave the list empty. | Check the sources. Press **Sync anyway** to empty it on purpose. |
+| `No source is switched on, so nothing would be left in the list.` | Every source is unticked and **Always include** is empty. | Tick a source, or press **Sync anyway** to empty the list. |
+| `A source did not answer and has no recent copy.` | A blacklist could not be downloaded, and there is no copy under three days old. The line under it names the source and says why. | Fix the key, wait out a daily limit, or untick the source. |
+| `The token cannot edit lists:` followed by Cloudflare's sentence | Cloudflare refused the token. | Check **Account → Account Filter Lists → Edit** and the token's account and address limits. |
+| `Cloudflare's list limit is reached. Delete a list you no longer use, or give the name of an existing list.` | The account cannot hold another list. | Delete a list you do not use, or enter the name of one you have. |
+| `Cloudflare is still working on the last change.` or `Cloudflare is still applying the change.` | Cloudflare applies a change in the background. | Nothing. RemotePower looks again in five minutes. |
+| `Cloudflare did not finish the change in an hour.` or `Cloudflare could not apply the change.` | Cloudflare gave up on the change. | Press **Sync now** to try again. |
+| `Cloudflare did not answer.` | The request failed without a reason from Cloudflare. | Press **Sync now** again later. |
+| **Left out for lack of room** is not 0 | The list is at its ceiling, and other lists use part of the account's items. | Raise **Most entries in the list**, or free items in other lists. |
+
 ## Turn it off
 
 - **Stop reading.** Untick the switch at the top of the card and press **Save**.
@@ -306,5 +444,11 @@ The table of what each kind is filed as is under [The honeypot](ip-intel.md#the-
   **Firewall events** or **Honeypot Worker log**.
 - **Revoke the access.** Delete the token in Cloudflare. That is the step that
   ends it.
-- **Remove the stored copy.** The page has no button for it. An administrator can
-  send `{"clear_edge_token": true}` to `POST /api/ip-intel/settings`.
+- **Remove the stored copy.** Press **Remove token** on the Edge sources card. An
+  administrator can also send `{"clear_edge_token": true}` to
+  `POST /api/ip-intel/settings`.
+- **Stop the blocklist.** Untick **Keep a Cloudflare IP list up to date** and press
+  **Save**. The list in Cloudflare stays as it is. Take it out of your rules and
+  delete it in Cloudflare if you want it gone.
+- **Remove the list token.** Press **Remove token** on the Edge blocklist card,
+  then delete the token in Cloudflare.

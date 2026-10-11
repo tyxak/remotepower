@@ -86,7 +86,7 @@ def _why(res):
         return 'Cloudflare is still working on the last change.'
     if res.get('auth'):
         return 'The token cannot edit lists: ' + str(res.get('error') or 'refused')
-    return str(res.get('error') or 'Cloudflare did not answer')[:200]
+    return str(res.get('error') or 'Cloudflare did not answer.')[:200]
 
 
 # ── the sources ────────────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ def _sync(pol, now, mode='apply', force=False):
 
     held = ''
     if failed:
-        held = '; '.join(f'{n}: {e}' for n, e in sorted(failed.items()))
+        held = 'A source did not answer and has no recent copy.'
     elif not got and not (pol.get('edgelist_always') or own) and size_now:
         held = 'No source is switched on, so nothing would be left in the list.'
     else:
@@ -468,8 +468,6 @@ def handle_edge_list_sync():
     actor = _operator()
     body = A._read_valid(A.request_models.EdgeListActionRequest)
     pol = A.ip_intel_policy()
-    if not pol.get('edge_list_token'):
-        A.respond(409, {'error': 'Add a Cloudflare token that can edit lists first'})
     now = int(time.time())
     pend = _pending(pol, _el(_store_ro()), now)
     if pend and pend[0] == 'pending':

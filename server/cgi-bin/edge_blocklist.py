@@ -31,6 +31,7 @@ import urllib.parse
 
 import edge_evidence
 import ip_intel
+import threat_evidence
 
 CF_API = "https://api.cloudflare.com/client/v4"
 
@@ -42,6 +43,7 @@ MAX_PAGES = 40
 MAX_ALWAYS = 1000
 MIN_V4_PREFIX = 16
 MIN_V6_PREFIX = 32
+_CLOUDFLARE_NETS = tuple(ipaddress.ip_network(c) for c in threat_evidence.CLOUDFLARE_RANGES)
 
 SOURCES = ("always", "own", "abuseipdb", "sniffcat")
 CALLS_PER_DAY = 4  # one blacklist download per source and read; AbuseIPDB's base tier allows five
@@ -124,6 +126,9 @@ def protected_reason(canon, protected):
         return ip_intel.never_block_reason(str(net.network_address), protected)
     if not is_public(canon):
         return "not a public address"
+    for c in _CLOUDFLARE_NETS:
+        if c.version == net.version and c.overlaps(net):
+            return "a Cloudflare edge address"
     for p in protected or []:
         if p.version == net.version and p.overlaps(net):
             return "on the never-block list"
@@ -292,9 +297,9 @@ def hold_reason(current_n, desired_n):
     that lapsed or a typo in a threshold all look like "the list should be much
     smaller"; none of them should empty a list that rules depend on."""
     if current_n > 0 and desired_n == 0:
-        return "nothing would be left in the list"
+        return "Nothing would be left in the list."
     if current_n >= SHRINK_MIN_ITEMS and desired_n < current_n * SHRINK_FLOOR:
-        return f"the list would shrink from {current_n} to {desired_n} entries"
+        return "The list would shrink by more than half."
     return ""
 
 

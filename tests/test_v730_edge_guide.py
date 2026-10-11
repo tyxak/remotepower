@@ -16,6 +16,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / 'server' / 'cgi-bin'))
 
+import edge_blocklist as eb  # noqa: E402
+import edge_blocklist_handlers as ebh  # noqa: E402
 import edge_evidence as ee  # noqa: E402
 import edge_intel_handlers as eh  # noqa: E402
 import ip_intel  # noqa: E402
@@ -159,6 +161,12 @@ class TestTheFieldsAreTheCard(unittest.TestCase):
         m = re.search(r'id="ipintel-edge"> (.*?)</label>', _HTML)
         self.assertIn(m.group(1), self.guide)
 
+    def test_the_remove_token_button_is_on_the_card_and_in_the_guide(self):
+        card = _HTML[_HTML.index('id="ipintel-edge-card"'):_HTML.index('id="ipintel-edge-status-card"')]
+        self.assertRegex(card, r'data-action="clearIpIntelEdgeToken"[^>]*>.*?Remove token</button>')
+        self.assertIn('**Remove token**', _section(self.guide, 'Step 3: Enter it in RemotePower'))
+        self.assertIn('**Remove token**', _section(self.guide, 'Turn it off'))
+
 
 class TestThePermissionRows(unittest.TestCase):
     # what each request needs, written once: a new request builder fails the first test
@@ -238,6 +246,133 @@ class TestTheHoneypotContract(unittest.TestCase):
         for action in ee._TRAP_DECIDED + ee._TRAP_SKIPPED:
             self.assertIn('`%s`' % action, part, action)
         self.assertIn('`trap hit`', part)
+
+
+def _js_array(name):
+    m = re.search(r'^const %s = \[(.*?)^\];' % re.escape(name), _JS, re.S | re.M)
+    assert m, name
+    return [(a or b).replace("\\'", "'")
+            for a, b in re.findall(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"", m.group(1))]
+
+
+class TestTheBlocklistSection(unittest.TestCase):
+    """The Edge blocklist half of the guide, held to the same standard: every number
+    and default comes from the module that ships, and the words are the card's."""
+
+    def setUp(self):
+        self.guide = _guide()
+        self.sec = _section(self.guide, 'Edge blocklist')
+        self.tables = _tables(self.sec)
+
+    def table_with(self, header_first_cell):
+        for t in _tables(self.sec):
+            pass
+        for block in re.split(r'\n(?=### )', self.sec):
+            for t in _tables(block):
+                if t and t[0] and t[0][0].replace('**', '').startswith(header_first_cell):
+                    return t
+        self.fail('no table with a row starting "%s"' % header_first_cell)
+
+    def test_the_sources_are_the_ones_the_page_names(self):
+        rows = _table(self.sec.split('### What goes in the list')[1])
+        self.assertEqual({r[0] for r in rows}, set(_js_table('_IPI_LIST_SRC').values()))
+        self.assertEqual(set(eb.SOURCES), set(_js_table('_IPI_LIST_SRC')), 'the code has a source the page does not name')
+
+    def test_the_states_are_the_pages(self):
+        rows = _table(self.sec.split('### What the card shows')[1])
+        self.assertEqual({_ticks(r[0])[0] for r in rows}, set(_js_table('_IPI_LIST_STATE').values()))
+
+    def test_the_labels_under_the_state_are_words_the_page_prints(self):
+        part = self.sec.split('The lines under the state are these:')[1]
+        labels = {r[0].replace('**', '') for r in _table(part)}
+        words = set(_js_table('_IPI_LIST_WORD').values())
+        self.assertGreaterEqual(len(labels), 8, labels)
+        self.assertEqual(labels - words, set(), 'the guide names a line the page does not print')
+
+    def test_every_reason_the_server_gives_is_in_the_troubleshooting_table(self):
+        trouble = self.sec.split('### Troubleshooting the blocklist')[1]
+        for sentence in _js_array('_IPI_LIST_WHY'):
+            self.assertTrue(sentence in trouble, 'the page can say it and the guide does not: ' + sentence)
+
+    def test_the_defaults_and_the_ranges_are_the_codes(self):
+        fields = {r[0].replace('**', ''): r for r in _table(self.sec.split('### Step 2: Enter it in RemotePower')[1])}
+        d = ip_intel.DEFAULTS
+        tick = lambda v: 'ticked' if v else 'unticked'   # noqa: E731
+        by_label = {
+            'Keep a Cloudflare IP list up to date': 'edgelist_enabled',
+            'Addresses RemotePower found': 'edgelist_own', "AbuseIPDB's blacklist": 'edgelist_abuseipdb',
+            "SniffCat's blacklist": 'edgelist_sniffcat',
+        }
+        for label, key in by_label.items():
+            self.assertEqual(fields[label][-1], tick(d[key]), label)
+        numbers = {
+            'Found addresses: score of at least': 'edgelist_own_score',
+            'Found addresses: seen within (days)': 'edgelist_own_days',
+            'AbuseIPDB: confidence of at least': 'edgelist_abuseipdb_conf',
+            'AbuseIPDB: most addresses': 'edgelist_abuseipdb_limit',
+            'SniffCat: confidence of at least': 'edgelist_sniffcat_conf',
+            'SniffCat: most addresses': 'edgelist_sniffcat_limit',
+            'Update every (hours)': 'edgelist_hours', 'Most entries in the list': 'edgelist_max',
+        }
+        for label, key in numbers.items():
+            row = fields[label]
+            self.assertEqual(row[-1], _n(d[key]), label)
+            lo, hi = re.search(r"\('%s', (\d+), (\d+)\)" % key, _IPI_HANDLERS).groups()
+            self.assertIn('%s to %s' % (_n(int(lo)), _n(int(hi))), row[1], label)
+        self.assertEqual(fields['List name'][-1], '`%s`' % d['edgelist_name'])
+        self.assertTrue(eb.valid_name(d['edgelist_name']))
+        self.assertEqual(fields['Always include'][-1], 'empty')
+        self.assertEqual(d['edgelist_always'], [])
+        self.assertEqual(fields['Cloudflare API token (can edit lists)'][-1], 'empty')
+
+    def test_every_field_on_the_card_is_in_the_guide(self):
+        card = _HTML[_HTML.index('id="ipintel-edgelist-card"'):_HTML.index('id="ipintel-limits-card"')]
+        labels = [re.sub(r'<[^>]+>', '', m).strip() for m in re.findall(r'<label[^>]*>(.*?)</label>', card, re.S)]
+        self.assertGreaterEqual(len(labels), 14, labels)
+        for label in labels:
+            short = label.replace(' (one address or network per line)', '')
+            self.assertTrue(short in self.sec, 'the card has a field the guide does not name: ' + label)
+        for button in re.findall(r'<button[^>]*data-action="[A-Za-z]+"[^>]*>(?:<svg.*?</svg>)?\s*([A-Za-z ]+)</button>', card, re.S):
+            self.assertTrue(button.strip() in self.sec, 'a button the guide does not name: ' + button)
+
+    def test_the_numbers_in_the_guards_are_the_codes(self):
+        guards = {r[0]: r[1] for r in _table(self.sec.split('### What it will not do')[1])}
+        self.assertEqual(eb.CALLS_PER_DAY, 4)
+        self.assertIn('at most four times a day', guards['Downloads'])
+        self.assertEqual(eb.STALE_SOURCE_S, 3 * 86400)
+        self.assertIn('three days', guards['A source that did not answer'])
+        self.assertIn('%d entries or more' % eb.SHRINK_MIN_ITEMS,
+                      guards['A sync that would empty the list or cut it by more than half'])
+        self.assertEqual(eb.SHRINK_FLOOR, 0.5)
+        self.assertIn('%d seconds' % ebh.OP_WAIT_S, guards['One change at a time'])
+        self.assertEqual(ebh.PENDING_RECHECK_S, 300)
+        self.assertIn('every five minutes', guards['One change at a time'])
+        wide = guards['A range wider than /%d for IPv4 or /%d for IPv6' % (eb.MIN_V4_PREFIX, eb.MIN_V6_PREFIX)]
+        self.assertTrue(wide)
+        self.assertEqual(ebh.SAMPLE, 20)
+        self.assertIn('first 20', self.sec)
+
+    def test_the_token_row_is_the_one_the_requests_need(self):
+        steps = self.sec.split('### Step 1: Create a token that can edit lists')[1].split('### Step 2')[0]
+        self.assertIn('**Account**, **Account Filter Lists**, **Edit**', steps)
+        for req in (eb.lists_request('t', 'a' * 32), eb.create_request('t', 'a' * 32, 'x', 'd'),
+                    eb.replace_request('t', 'a' * 32, 'b' * 32, [])):
+            self.assertIn('/accounts/', req['url'])
+            self.assertIn('/rules/lists', req['url'])
+        self.assertEqual({'GET', 'POST', 'PUT'}, {
+            eb.lists_request('t', 'a' * 32)['method'], eb.create_request('t', 'a' * 32, 'x', 'd')['method'],
+            eb.replace_request('t', 'a' * 32, 'b' * 32, [])['method']})
+
+    def test_the_switch_is_worded_as_on_the_card(self):
+        m = re.search(r'id="ipintel-edgelist"> (.*?)</label>', _HTML)
+        self.assertIn(m.group(1), self.sec)
+
+    def test_the_guide_says_it_writes_and_does_not_say_it_only_reads(self):
+        intro = self.guide.split('On this page:')[0]
+        self.assertNotIn('Nothing here blocks anything', self.guide)
+        self.assertNotIn('It only reads', self.guide)
+        self.assertIn('[Edge blocklist](#edge-blocklist)', intro)
+        self.assertIn('[Edge blocklist](#edge-blocklist)', self.guide.split('\n\n')[3], 'the contents line links it')
 
 
 class TestTheVoice(unittest.TestCase):

@@ -173,9 +173,11 @@ requests before they reach your server, and a honeypot catches scanners that no
 host log ever sees. RemotePower can read both and report what they show, the same
 way it reports what your hosts' logs show.
 
-It only reads. Nothing here blocks anything: banning stays with whatever you
-already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules.
-Off until you turn it on, under **Security → Threat intel → Edge sources**.
+Reading does not block anything: banning stays with whatever you already use,
+such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Off until you
+turn it on, under **Security → Threat intel → Edge sources**. The
+[edge blocklist](#the-edge-blocklist) below is a separate card, with its own
+switch and its own token.
 
 | Source | What you get |
 |---|---|
@@ -256,6 +258,20 @@ RemotePower reads every ten minutes (every five at the fastest). A read never
 goes back further than six hours, as with the host logs, so a pause longer than
 that loses what it held. An unticked feed shows as off.
 
+### The edge blocklist
+
+Edge sources reads. The edge blocklist writes one thing: a Cloudflare IP list. It
+builds the list from the sources you pick (your own entries, the addresses
+RemotePower found, AbuseIPDB's blacklist and SniffCat's blacklist) and keeps it
+up to date, so a rule of yours that says `ip.src in $your_list` keeps blocking
+what they report. RemotePower never creates or edits a rule.
+
+It is off until you turn it on, and it needs a second token that can edit lists
+(Account Filter Lists: Edit). A list it did not create is left alone until you
+tell it to take the list over. Its guards, the sources' settings and what to do
+when it holds a sync are in
+[Edge sources: Cloudflare](edge-sources.md#edge-blocklist).
+
 ### If other scripts report the same things
 
 Scripts that report Cloudflare events or UFW blocks to AbuseIPDB or SniffCat
@@ -335,6 +351,8 @@ text when you save it, not stored as your own wording.
 | Action | What is sent |
 |---|---|
 | Edge read | A request to `api.cloudflare.com` with your read-only token, once every few minutes. Nothing about your hosts. |
+| Blocklist sync | Requests to `api.cloudflare.com` with your list token: the list's name, its entries, and a comment on each entry saying which source it came from. Nothing about your hosts. |
+| Blacklist download | A request to AbuseIPDB and to SniffCat with your key, at most four a day for each. Nothing about your hosts. |
 | Lookup | The attacking address. |
 | Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The standard text reads "SQL injection and path traversal: 41 attempts within 10 minutes, seen by web server log and WAF (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
 

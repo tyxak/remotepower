@@ -85,6 +85,16 @@ class TestWhatIsNeverIncluded(unittest.TestCase):
         # one of Cloudflare's own ranges: a list entry would cut the proxy off
         self.assertTrue(eb.protected_reason('104.16.0.1', []))
 
+    def test_a_range_over_cloudflares_is_kept_out_whole_too(self):
+        """The single-address check knew Cloudflare's ranges; the range branch did
+        not, so a range the operator typed that covered them went through."""
+        self.assertEqual(eb.protected_reason('104.16.0.0/16', []), 'a Cloudflare edge address')
+        self.assertEqual(eb.protected_reason('104.0.0.0/16', []), '', 'a neighbour that does not overlap')
+        self.assertEqual(eb.protected_reason('2606:4700::/32', []), 'a Cloudflare edge address')
+        got = eb.build(['104.16.0.0/16', '185.220.0.0/16'], [], [], [], 100, [])
+        self.assertEqual([e for e, _s in got['items']], ['185.220.0.0/16'])
+        self.assertEqual(got['dropped'], {'protected': 1})
+
     def test_build_drops_them_and_counts_them(self):
         got = eb.build(['185.220.101.7'], ['93.184.216.20', '45.155.205.1'], ['151.101.1.7', '89.248.165.2'],
                        [], 100, OFFICE)
@@ -123,8 +133,8 @@ class TestTheChoice(unittest.TestCase):
     def test_diff_and_the_guards(self):
         self.assertEqual(eb.diff(['a', 'b', 'c'], ['b', 'c', 'd']), (['d'], ['a']))
         self.assertEqual(eb.hold_reason(0, 0), '')
-        self.assertEqual(eb.hold_reason(5000, 0), 'nothing would be left in the list')
-        self.assertIn('shrink from 9000 to 4000', eb.hold_reason(9000, 4000))
+        self.assertEqual(eb.hold_reason(5000, 0), 'Nothing would be left in the list.')
+        self.assertEqual(eb.hold_reason(9000, 4000), 'The list would shrink by more than half.')
         self.assertEqual(eb.hold_reason(9000, 4500), '', 'half is the line')
         self.assertEqual(eb.hold_reason(100, 10), '', 'a small list may be rebuilt freely')
         self.assertEqual(eb.hold_reason(0, 5000), '')

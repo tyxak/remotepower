@@ -109,7 +109,7 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
     HINTS = (
         "RemotePower can read Cloudflare's firewall events and your honeypot Worker's log, and report what they "
         "show the same way it reports what your hosts' logs show. It only reads, with a read-only token, and "
-        "nothing here blocks anything. Off until you turn it on.",
+        "nothing in this card blocks anything. Off until you turn it on.",
         "Leave the zones empty to read every zone the token can see. The account id is only needed for the "
         "honeypot's log, which Cloudflare keeps for about three days.",
         'What each feed read the last time, and what was set aside and why. Challenges, country and network '

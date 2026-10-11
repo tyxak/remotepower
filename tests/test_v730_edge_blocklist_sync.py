@@ -366,7 +366,8 @@ class TestWhatItWillNotDoUnasked(_Lists):
         self.abuse = self.big[:100]
         el = self.tick()
         self.assertEqual(el['last']['state'], 'held')
-        self.assertIn('shrink from 1000 to 100', el['last']['why'])
+        self.assertEqual(el['last']['why'], 'The list would shrink by more than half.')
+        self.assertEqual((el['last']['current'], el['last']['size']), (1000, 100), 'the numbers are in the result')
         self.assertEqual(len(self.lists[self.lid]['items']), 1000)
         self.assertEqual(self.writes(), [])
         st, d = self.call(self.api.handle_edge_list_sync, {'force': True}, at=T + 10)
@@ -405,9 +406,11 @@ class TestWhatItWillNotDoUnasked(_Lists):
         el = self.tick()
         self.assertEqual(el['last']['state'], 'held')
         self.assertIn('abuseipdb', el['last']['failed'])
-        # the reason names the source that failed, not "no source is switched on"
-        self.assertIn('abuseipdb', el['last']['why'])
+        # the reason says a source failed, not "no source is switched on"; which one
+        # is in `failed`, with its own sentence
+        self.assertIn('did not answer', el['last']['why'])
         self.assertNotIn('switched on', el['last']['why'])
+        self.assertTrue(el['last']['failed']['abuseipdb'])
         self.assertEqual(self.writes(), [])
 
     def test_a_source_that_fails_is_read_from_its_last_copy(self):
@@ -535,6 +538,18 @@ class TestTheEndpointsAndSettings(_Lists):
             st, _ = self.call(fn, role='viewer')
             self.assertIn(st, (401, 403))
             self.assertEqual(self.call(fn, method='GET')[0], 405)
+
+    def test_sync_now_with_no_token_answers_in_place_and_calls_nothing(self):
+        cfg = self.api.load(self.api.CONFIG_FILE)
+        cfg.pop('edge_list_token')
+        self.api.save(self.api.CONFIG_FILE, cfg)
+        self.api._LOAD_CACHE.clear()
+        st, d = self.call(self.api.handle_edge_list_sync, {})
+        self.assertEqual(st, 200, 'an answer the page can show, not an error status')
+        self.assertEqual((d['result']['state'], d['result']['why']),
+                         ('needs_setup', 'Add a Cloudflare token that can edit lists.'))
+        self.assertEqual(self.cf, [])
+        self.assertEqual([a for a in self.audit if a[1] == 'edge_list_sync'], [], 'nothing happened to audit')
 
     def test_the_token_is_written_never_read_back_and_never_audited(self):
         def save(**b):

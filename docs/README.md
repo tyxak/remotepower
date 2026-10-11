@@ -63,10 +63,11 @@ holds long-form docs that don't fit there.
  matrix, organized by attacker goal rather than by feature.
 - **[security-review-7.3.0.md](security-review-7.3.0.md)** — the v7.3.0 review,
   scoped to what is new rather than the whole project: a stored Cloudflare token,
-  two feeds the server reads from outside and turns into public reports, and a
-  firewall-log reader. Six issues, all caught before release, among them an agent
-  that could have claimed the honeypot's decision and challenges that would have
-  been counted as attacks.
+  two feeds the server reads from outside and turns into public reports, a
+  firewall-log reader, and a second token that can edit lists with a sync that
+  writes one. Nine issues, all caught before release, among them an agent that
+  could have claimed the honeypot's decision and challenges that would have been
+  counted as attacks.
 - **[security-review-7.2.0.md](security-review-7.2.0.md)** — the v7.2.0 review,
   scoped to the new log sensor rather than the whole project: an agent
   summarising logs an attacker can write to, and a server turning that into

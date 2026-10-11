@@ -33,9 +33,10 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
-- [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds:
-  six issues in a stored Cloudflare token, two feeds the server reads from
-  outside and a firewall-log reader, all caught before release.
+- [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds
+  and the blocklist: nine issues in a stored Cloudflare token, two feeds the server
+  reads from outside, a firewall-log reader and a second token that can edit lists,
+  all caught before release.
 - [security-review-7.2.0.md](security-review-7.2.0.md) — scoped to the log sensor:
   eight issues in an agent that reads logs an attacker can write to, and the
   server that turns them into public reports, all caught before release.

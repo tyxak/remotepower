@@ -203,9 +203,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   Cloudflare's firewall events and your honeypot Worker's log with a read-only
   token and report what they show, with the evidence: only refusals that mean an
   attack count, and an address your honeypot banned is reported at once. Linux
-  agents can also read UFW's log. Nothing here blocks anything, so banning stays
-  with what you already use, and RemotePower can be the one place that reports.
-  Off until you turn it on.
+  agents can also read UFW's log. Reading blocks nothing, so banning stays with
+  what you already use. RemotePower can also keep a Cloudflare IP list up to date
+  from AbuseIPDB, SniffCat and what it found itself, with a token of its own, for
+  your rules to use. Off until you turn it on.
 - **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
   say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
   fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat

@@ -61,6 +61,70 @@ const _IPI_CHECK_STATE = {
   ok: 'Works', no_access: 'The token cannot read this', refused: 'Cloudflare refused this read',
   error: 'Failed', skipped: 'Skipped',
 };
+// The edge blocklist: the Cloudflare IP list RemotePower keeps up to date. The states and
+// the reasons match what edge_blocklist_handlers.py and edge_blocklist.py send
+// (tests/test_v730_edge_blocklist_page.py derives both sides and compares them).
+const _IPI_LIST_STATE = {
+  ok: 'Up to date', preview: 'Preview', held: 'Held', needs_adopt: 'Needs to be taken over',
+  needs_setup: 'Needs setup', pending: 'Being applied', error: 'Error', waiting: 'Waiting for the first sync',
+};
+const _IPI_LIST_STATE_CLASS = {
+  ok: 'c-green', preview: 'c-accent', held: 'c-amber', needs_adopt: 'c-amber', needs_setup: 'c-amber',
+  pending: 'c-amber', error: 'c-red', waiting: 'hint',
+};
+const _IPI_LIST_SRC = {
+  always: 'Your own entries', own: 'Found by RemotePower', abuseipdb: 'AbuseIPDB', sniffcat: 'SniffCat',
+};
+// The other fixed words the status prints, in one table so the language gate reads one place.
+const _IPI_LIST_WORD = {
+  off: 'Off', list: 'List', missing: 'Does not exist yet', managed: 'Managed by RemotePower',
+  foreign: 'Not created by RemotePower', current: 'In the list now', should: 'Should hold',
+  added: 'Added', removed: 'Removed', room: 'Room in the account', trimmed: 'Left out for lack of room',
+  protected: 'Left out as protected', from: 'In the list from', addresses: 'addresses',
+  copy: 'saved copy', downloaded: 'downloaded', sync_anyway: 'Sync anyway',
+  token_prefix: 'The token cannot edit lists:', preview_failed: 'Preview failed', sync_failed: 'Sync failed',
+};
+const _IPI_LIST_DIALOG = {
+  adopt: {
+    title: 'Take over this list',
+    message: 'A list with this name exists and RemotePower did not create it. Syncing replaces everything in it with what your sources say, and marks it as managed by RemotePower. Stop any other tool that updates it first, or the two will keep undoing each other.',
+    confirm: 'Take over and sync',
+  },
+  force: {
+    title: 'Sync anyway',
+    message: 'RemotePower held this sync because it would empty or halve the list, or because a source did not answer. Syncing anyway replaces the list with what the sources say now.',
+    confirm: 'Sync anyway',
+  },
+  token: {
+    title: 'Remove token',
+    message: 'RemotePower stops updating the list until you add a token again. The list in Cloudflare is left as it is.',
+    confirm: 'Remove',
+  },
+};
+const _IPI_EDGE_DIALOG = {
+  token: {
+    title: 'Remove token',
+    message: 'RemotePower stops reading Cloudflare until you add a token again. Nothing in Cloudflare changes.',
+    confirm: 'Remove',
+  },
+};
+const _IPI_LIST_WHY = [
+  'Add a Cloudflare token that can edit lists.',
+  'Add the Cloudflare account id under Edge sources.',
+  'The list name may use lower-case letters, digits and underscores.',
+  'A list with this name exists and is not an IP list.',
+  'A list with this name exists and RemotePower did not create it.',
+  "Cloudflare's list limit is reached. Delete a list you no longer use, or give the name of an existing list.",
+  'Cloudflare is still working on the last change.',
+  'Cloudflare is still applying the change.',
+  'Cloudflare did not finish the change in an hour.',
+  'Cloudflare could not apply the change.',
+  'Cloudflare did not answer.',
+  'A source did not answer and has no recent copy.',
+  'No source is switched on, so nothing would be left in the list.',
+  'Nothing would be left in the list.',
+  'The list would shrink by more than half.',
+];
 const _IPI_STATE = {
   ok: 'Reading', idle: 'Quiet', missing: 'File missing', denied: 'No permission',
   unparsed: 'Not understood', unsupported: 'Cannot be read', error: 'Error',
@@ -120,11 +184,14 @@ async function loadIpIntel() {
   const edge = !!(_ipiAdmin && _ipiData.edge);
   document.getElementById('ipintel-edge-card').hidden = !edge;
   document.getElementById('ipintel-edge-status-card').hidden = !edge;
+  // The list RemotePower keeps in Cloudflare belongs to the instance as well.
+  document.getElementById('ipintel-edgelist-card').hidden = !(_ipiAdmin && _ipiData.edge_list);
   if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
   _ipiRenderAttackers();
   _ipiRenderBlocks();
   _ipiRenderSources();
   _ipiRenderEdge();
+  _ipiRenderEdgeList();
 }
 
 function _ipiFillSettings(s, budget) {
@@ -155,6 +222,26 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-edge-report-after', s.edge_report_after ?? 1);
   const et = document.getElementById('ipintel-edge-token');
   if (et) { et.value = ''; et.placeholder = s.edge_token_set ? '••••••••  (saved — leave blank to keep)' : ''; }
+  const ec = document.getElementById('ipintel-edge-clear');
+  if (ec) ec.hidden = !s.edge_token_set;
+  chk('ipintel-edgelist', s.edgelist_enabled);
+  set('ipintel-edgelist-name', s.edgelist_name || '');
+  chk('ipintel-edgelist-own', s.edgelist_own);
+  chk('ipintel-edgelist-abuseipdb', s.edgelist_abuseipdb);
+  chk('ipintel-edgelist-sniffcat', s.edgelist_sniffcat);
+  set('ipintel-edgelist-own-score', s.edgelist_own_score ?? 75);
+  set('ipintel-edgelist-own-days', s.edgelist_own_days ?? 14);
+  set('ipintel-edgelist-abuseipdb-conf', s.edgelist_abuseipdb_conf ?? 75);
+  set('ipintel-edgelist-abuseipdb-limit', s.edgelist_abuseipdb_limit ?? 8000);
+  set('ipintel-edgelist-sniffcat-conf', s.edgelist_sniffcat_conf ?? 80);
+  set('ipintel-edgelist-sniffcat-limit', s.edgelist_sniffcat_limit ?? 2000);
+  set('ipintel-edgelist-hours', s.edgelist_hours ?? 6);
+  set('ipintel-edgelist-max', s.edgelist_max ?? 10000);
+  set('ipintel-edgelist-always', (s.edgelist_always || []).join('\n'));
+  const lt = document.getElementById('ipintel-edgelist-token');
+  if (lt) { lt.value = ''; lt.placeholder = s.edge_list_token_set ? '••••••••  (saved — leave blank to keep)' : ''; }
+  const lc = document.getElementById('ipintel-edgelist-clear');
+  if (lc) lc.hidden = !s.edge_list_token_set;
   for (const [p, isSet] of [['abuseipdb', s.abuseipdb_key_set], ['sniffcat', s.sniffcat_key_set]]) {
     const el = document.getElementById(`ipintel-${p}-key`);
     if (el) { el.value = ''; el.placeholder = isSet ? '••••••••  (saved — leave blank to keep)' : ''; }
@@ -433,6 +520,151 @@ function _ipiRenderEdge() {
   notes.innerHTML = out.join('');
 }
 
+// The newer of the last sync and the last preview: a preview is what a sync would do, so
+// it is shown until something real happens after it.
+function _ipiListCurrent(el) {
+  const last = el.last || {}, pre = el.preview || {};
+  return (pre.at || 0) > (last.at || 0) ? pre : last;
+}
+
+function _ipiListNeedsAdopt(el) {
+  const cur = _ipiListCurrent(el);
+  return !!(cur.needs_adopt || cur.state === 'needs_adopt');
+}
+
+function _ipiListSrc(k) {
+  const name = _IPI_LIST_SRC[k] || k;
+  return (k === 'abuseipdb' || k === 'sniffcat') ? escHtml(name) : _ipiPhrase(name);
+}
+
+// A reason from the server. One of them ends in Cloudflare's own sentence, which is
+// shown escaped after the fixed words.
+function _ipiListWhy(why) {
+  const pre = _IPI_LIST_WORD.token_prefix;
+  const text = String(why);
+  if (text.startsWith(pre + ' ')) return `${_ipiPhrase(pre)} ${escHtml(text.slice(pre.length + 1))}`;
+  return _ipiPhrase(text);
+}
+
+// The list's last turn. Every fixed phrase is a span of its own; the free text is a
+// provider's or Cloudflare's own sentence, escaped.
+function _ipiRenderEdgeList() {
+  const box = document.getElementById('ipintel-edgelist-status');
+  const el = _ipiData && _ipiData.edge_list;
+  if (!box || !el) return;
+  const W = _IPI_LIST_WORD;
+  const cur = _ipiListCurrent(el);
+  const fact = (label, v) => `${_ipiPhrase(label)} ${escHtml(String(v ?? 0))}`;
+  const out = [];
+  if (!cur.state) {
+    out.push(`<div class="hint">${_ipiPhrase(el.enabled ? _IPI_LIST_STATE.waiting : W.off)}</div>`);
+    box.innerHTML = out.join('');
+    return;
+  }
+  const st = cur.state;
+  out.push(`<div><span class="${_IPI_LIST_STATE_CLASS[st] || 'hint'}">${_ipiPhrase(_IPI_LIST_STATE[st] || st)}</span>` +
+    `${cur.at ? ` · ${escHtml(timeAgo(cur.at))}` : ''}${cur.why ? ` · ${_ipiListWhy(cur.why)}` : ''}</div>`);
+  if (cur.needs_adopt && st !== 'needs_adopt') {
+    out.push(`<div class="hint">${_ipiPhrase(_IPI_LIST_WHY[4])}</div>`);
+  }
+  const l = cur.list || {};
+  if (l.name) {
+    const who = !l.exists ? W.missing : l.managed ? W.managed : W.foreign;
+    out.push(`<div class="hint fs-11">${_ipiPhrase(W.list)} <code>${escHtml(l.name)}</code> · ${_ipiPhrase(who)}</div>`);
+  }
+  if (cur.size != null) {
+    out.push(`<div class="hint fs-11">${[fact(W.current, cur.current), fact(W.should, cur.size),
+      fact(W.added, cur.added), fact(W.removed, cur.removed)].join(' · ')}</div>`);
+    const room = [fact(W.room, cur.capacity)];
+    if (cur.trimmed) room.push(fact(W.trimmed, cur.trimmed));
+    if ((cur.dropped || {}).protected) room.push(fact(W.protected, cur.dropped.protected));
+    out.push(`<div class="hint fs-11">${room.join(' · ')}</div>`);
+    const kept = cur.kept || {};
+    out.push(`<div class="hint fs-11">${_ipiPhrase(W.from)}: ` +
+      ['always', 'own', 'abuseipdb', 'sniffcat'].map(k => `${_ipiListSrc(k)} ${escHtml(String(kept[k] || 0))}`).join(' · ') + '</div>');
+  }
+  for (const [k, s] of Object.entries(cur.sources || {})) {
+    out.push(`<div class="hint fs-11">${_ipiListSrc(k)}: ${escHtml(String(s.n || 0))} ${_ipiPhrase(W.addresses)}` +
+      `${s.at ? ` · ${escHtml(timeAgo(s.at))}` : ''} · ${_ipiPhrase(s.from === 'copy' ? W.copy : W.downloaded)}` +
+      `${s.error ? ` · ${escHtml(s.error)}` : ''}</div>`);
+  }
+  for (const [k, e] of Object.entries(cur.failed || {})) {
+    out.push(`<div class="hint fs-11"><span class="c-red">${_ipiListSrc(k)}</span>: ${escHtml(String(e))}</div>`);
+  }
+  for (const [label, rows, sign] of [[W.added, cur.added_sample, '+'], [W.removed, cur.removed_sample, '\u2212']]) {
+    if (rows && rows.length) {
+      out.push(`<div class="hint fs-11 mt-8">${_ipiPhrase(label)}</div>` +
+        `<div class="ff-mono fs-11">${rows.map(x => `${sign} ${escHtml(String(x))}`).join('<br>')}</div>`);
+    }
+  }
+  if (st === 'held' && cur.can_force) {
+    out.push(`<div class="mt-8"><button class="btn-icon" data-action="syncIpIntelListForce">` +
+      `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg> ` +
+      `${_ipiPhrase(W.sync_anyway)}</button></div>`);
+  }
+  box.innerHTML = out.join('');
+}
+
+async function previewIpIntelList() {
+  const box = document.getElementById('ipintel-edgelist-status');
+  if (!box || !_ipiData || !_ipiData.edge_list) return;
+  box.textContent = '…';
+  const r = await api('POST', '/ip-intel/edge-list/preview', {}).catch(() => null);
+  if (!r || r.error) { box.textContent = (r && r.error) || _IPI_LIST_WORD.preview_failed; return; }
+  _ipiData.edge_list.preview = r.result;
+  _ipiRenderEdgeList();
+}
+
+async function _ipiSyncList(opts) {
+  const box = document.getElementById('ipintel-edgelist-status');
+  if (!box || !_ipiData || !_ipiData.edge_list) return;
+  box.textContent = '…';
+  const r = await api('POST', '/ip-intel/edge-list/sync', opts).catch(() => null);
+  if (!r || r.error) { box.textContent = (r && r.error) || _IPI_LIST_WORD.sync_failed; return; }
+  _ipiData.edge_list.last = r.result;
+  _ipiData.edge_list.pending = !!r.result.op;
+  _ipiRenderEdgeList();
+}
+
+async function syncIpIntelList() {
+  const el = (_ipiData || {}).edge_list || {};
+  const adopt = _ipiListNeedsAdopt(el);
+  if (adopt) {
+    const d = _IPI_LIST_DIALOG.adopt;
+    const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+    if (!ok) return;
+  }
+  await _ipiSyncList(adopt ? {adopt: true} : {});
+}
+
+async function syncIpIntelListForce() {
+  const d = _IPI_LIST_DIALOG.force;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+  if (!ok) return;
+  const el = (_ipiData || {}).edge_list || {};
+  await _ipiSyncList({force: true, adopt: _ipiListNeedsAdopt(el)});
+}
+
+async function clearIpIntelEdgeToken() {
+  const d = _IPI_EDGE_DIALOG.token;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+  if (!ok) return;
+  const r = await api('POST', '/ip-intel/settings', {clear_edge_token: true}).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Could not save', 'error'); return; }
+  toast('Saved', 'success');
+  loadIpIntel();
+}
+
+async function clearIpIntelListToken() {
+  const d = _IPI_LIST_DIALOG.token;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+  if (!ok) return;
+  const r = await api('POST', '/ip-intel/settings', {clear_edge_list_token: true}).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Could not save', 'error'); return; }
+  toast('Saved', 'success');
+  loadIpIntel();
+}
+
 async function testIpIntelEdge() {
   const out = document.getElementById('ipintel-edge-test');
   if (!out) return;
@@ -501,6 +733,26 @@ async function saveIpIntelSettings() {
     });
     const et = v('ipintel-edge-token').value.trim();
     if (et) body.edge_cloudflare_token = et;
+  }
+  if (v('ipintel-edgelist')) {
+    Object.assign(body, {
+      edgelist_enabled: v('ipintel-edgelist').checked,
+      edgelist_name: v('ipintel-edgelist-name').value.trim(),
+      edgelist_own: v('ipintel-edgelist-own').checked,
+      edgelist_abuseipdb: v('ipintel-edgelist-abuseipdb').checked,
+      edgelist_sniffcat: v('ipintel-edgelist-sniffcat').checked,
+      edgelist_own_score: v('ipintel-edgelist-own-score').value,
+      edgelist_own_days: v('ipintel-edgelist-own-days').value,
+      edgelist_abuseipdb_conf: v('ipintel-edgelist-abuseipdb-conf').value,
+      edgelist_abuseipdb_limit: v('ipintel-edgelist-abuseipdb-limit').value,
+      edgelist_sniffcat_conf: v('ipintel-edgelist-sniffcat-conf').value,
+      edgelist_sniffcat_limit: v('ipintel-edgelist-sniffcat-limit').value,
+      edgelist_hours: v('ipintel-edgelist-hours').value,
+      edgelist_max: v('ipintel-edgelist-max').value,
+      edgelist_always: v('ipintel-edgelist-always').value,
+    });
+    const lt = v('ipintel-edgelist-token').value.trim();
+    if (lt) body.edge_list_token = lt;
   }
   if (body.block_enabled && !(_ipiData.settings || {}).block_enabled) {
     const ok = await uiConfirm({title: 'Turn on auto-block', message: 'Hosts will drop traffic from addresses that reach the score you set, for the hours you set. Your fleet, your allow-list and recent RemotePower logins are never blocked. Continue?', confirmText: 'Turn on'});

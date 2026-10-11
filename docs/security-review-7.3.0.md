@@ -4,9 +4,10 @@ Like the one before it, this review does not cover the whole project, and says
 so. It covers what is new in this release and changes who can influence what:
 **a Cloudflare token the server stores and uses, two feeds the server reads from
 outside (Cloudflare's firewall events and a honeypot Worker's log) and turns into
-public reports, and an agent reader for the host firewall's log.**
+public reports, an agent reader for the host firewall's log, and a second token
+that can edit lists, with a sync that writes a list in the operator's account.**
 
-It found **six** issues worth reporting. All were **caught before release**, by
+It found **nine** issues worth reporting. All were **caught before release**, by
 reading the design against the threat model and then by the tests written for the
 feature, and all are fixed in this release. None came from the field. The bar this
 project holds itself to, that nothing Critical, High or Medium ships, is met for
@@ -20,6 +21,9 @@ what was reviewed.
 - **The vocabulary change**: two new families, the honeypot's decision field and
   three new classes in `threat_evidence.py`, and who may send which.
 - **The token**: how it is stored, scrubbed, redacted in exports and used.
+- **The blocklist**: `edge_blocklist.py` (requests, parsers and the choice of what
+  goes in the list) and `edge_blocklist_handlers.py` (the sync, the two endpoints
+  and what the page reads), and the second token that can edit lists.
 - **The firewall-log reader** in the Linux agent.
 - **The Threat intel page**, for what it prints from Cloudflare's answers.
 - **Static analysis on the changed files**: bandit (no issue in the two new
@@ -42,6 +46,9 @@ what was reviewed.
 | 4 | UDP and ICMP firewall records name the victim of a spoofed flood | Medium: a public report about the victim | Agent |
 | 5 | The host name before a firewall record decided its verdict | Low: a machine called `blockhost` | Agent |
 | 6 | A slow Cloudflare could hold the sweep up | Low: availability | Server |
+| 7 | A missing list id could reach a URL as the text `None` | Low: a request to a path that does not exist | Server |
+| 8 | A range typed under Always include was not checked against Cloudflare's ranges | Low: an entry covering Cloudflare's own addresses | Server |
+| 9 | The shrink guard measured what was read, not what the list holds | Medium: a read that stopped early let a large list be replaced unasked | Server |
 
 ## The trust boundary
 
@@ -59,6 +66,33 @@ that come from outside are a zone id and an account id, and both are checked to 
 32 hex digits before they are used; a Worker name is checked against Cloudflare's
 own naming rule. The GraphQL query takes no variables: the zone ids, the times
 and the limit are validated and written into it, and a test feeds it a hostile id.
+
+**The list token.** The second token can edit lists, so it is the one that can do
+harm: a leaked copy could take an attacker off the blocklist or put visitors on
+it. It is stored apart from the read token, write-only on the page, never
+returned, scrubbed from `GET /api/config`, and removable from the page. The guide
+tells the operator to give it one permission and an address restriction. The audit
+line names the change and not the value.
+
+**Where the sync writes.** Three requests change anything, all to
+`/accounts/{id}/rules/lists` on `api.cloudflare.com`: create a list, set its
+description, and replace its items. The account id and the list id are 32 hex
+digits and the list name is checked against Cloudflare's own rule before they
+are used. RemotePower never creates, edits or deletes a rule and never writes to
+another list. A list it did not create is read and left alone until an
+administrator asks it to take the list over, and the replace carries a marker in
+the description so a later sync knows the list is its own.
+
+**What goes in.** Entries come from the operator's own list, RemotePower's own
+findings and two blacklists, and each passes the same checks: a public address, not
+wider than /16 or /32, and not one of the fleet's, the allow-list's, recent
+RemotePower logins', the never-block list's or Cloudflare's. A source that fails
+holds the sync unless it has a copy under three days old, so a lapsed key cannot
+silently turn the list into the smaller set the other sources make.
+
+**What goes with it.** The sync sends the list's name, its entries and a comment on
+each entry naming the source. The blacklists are downloaded with the operator's
+own key, at most four times a day for each.
 
 **What comes back is data.** Cloudflare's firewall events are asked for as groups
 of address, action, source and rule, so no path, query string or user agent is
@@ -134,6 +168,30 @@ Reading a zone's rules costs one call per zone. With Cloudflare slow, twelve of
 them could have held the sweep for minutes. A poll now spends at most twenty
 seconds on rules and reads the rest on the next one.
 
+## 7. A missing list id
+
+A request builder took the list id from a parser and put it in the path. A parser
+that found no id returned `None`, and `None` became the text `None` in the URL.
+Cloudflare would have answered 404, but a value that is not 32 hex digits has no
+business in a path. Every id is now validated where the request is built, and a
+test builds a request with each id missing.
+
+## 8. A range over Cloudflare
+
+An address was checked against Cloudflare's ranges; a network was only checked
+against the operator's own addresses and lists. A range typed under **Always
+include** that covered Cloudflare's edge went through. A network that overlaps one
+of Cloudflare's ranges is now left out whole, like one that overlaps your fleet.
+
+## 9. The guard measured the wrong list
+
+A sync that would empty or halve the list is held until the operator asks. It
+measured the size of the list from the entries it had read, and the read stops
+after a fixed number of pages. A list that Cloudflare paged more finely than
+expected looked small, so a replacement that halved it would not have been held.
+The guard now measures the larger of what was read and what Cloudflare says the
+list holds, and a read that stopped early never skips a write.
+
 ## What this review did not cover
 
 - **The live Cloudflare API.** The GraphQL fields and the Workers Observability
@@ -145,5 +203,9 @@ seconds on rules and reads the rest on the next one.
   was added, with the query shape cf-sniffcat uses on the same zones.
 - **A production host's real logs and rules.** The firewall reader was run over
   realistic UFW and kernel records, not a live host's.
+- **The live Lists API.** The list requests, the asynchronous replace and the
+  bulk-operation status were written from Cloudflare's documentation and run
+  against an in-memory model of it. **Preview** is there so the first live run
+  changes nothing.
 - **The rest of the project.** The whole-project reviews are the earlier ones.
 - **Windows and macOS.** The agents there do not carry the sensor.

@@ -1089,8 +1089,32 @@ def build_ip_intel() -> dict:
             'at': now() - rng.randint(20, 600), 'sources': web, 'events': 6 + k, 'dropped': 0,
             'throttled': 0, 'ignored': ({'cloudflare': 412} if k % 3 == 0 else {}),
             'hour': {'h': now() // 3600, 'n': 6 + k}}
+    # The edge blocklist (v7.3.0): one sync that went through, so the page shows the
+    # list's counts, where each part came from, and what the last run changed. Keys
+    # are the ones edge_blocklist_handlers._record keeps.
+    listed = [f'198.51.100.{100 + i}' for i in range(0, 18, 3)] + [f'203.0.113.{40 + i}' for i in range(1, 18, 3)]
+    edgelist = {
+        'attempt': now() - 1500,
+        'last': {
+            'mode': 'apply', 'at': now() - 1500, 'state': 'ok', 'changed': True, 'created': False,
+            'list': {'name': 'remotepower_blocklist', 'id': _stable_hex('edgelist', 'demo', nbytes=16),
+                     'exists': True, 'items': 168, 'managed': True,
+                     'description': 'Managed by RemotePower. Sources: own, abuseipdb, sniffcat.'},
+            'capacity': 10000, 'size': 171, 'current': 168, 'added': len(listed), 'removed': 3, 'trimmed': 0,
+            'dropped': {'protected': 2},
+            'kept': {'always': 0, 'own': 9, 'abuseipdb': 118, 'sniffcat': 44},
+            'offered': {'always': 0, 'own': 9, 'abuseipdb': 118, 'sniffcat': 44},
+            'sources': {'abuseipdb': {'from': 'copy', 'at': now() - 9000, 'n': 120, 'error': ''},
+                        'sniffcat': {'from': 'download', 'at': now() - 1500, 'n': 44, 'error': ''}},
+            'failed': {}, 'added_sample': listed,
+            'removed_sample': ['198.51.100.200', '203.0.113.99', '198.51.100.201'],
+        },
+        'src': {'abuseipdb': {'at': now() - 9000, 'n': 120, 'ips': ''},
+                'sniffcat': {'at': now() - 1500, 'n': 44, 'ips': ''}},
+        'calls': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())), 'abuseipdb': 1, 'sniffcat': 1},
+    }
     return {'attackers': attackers, 'blocks': blocks, 'queue': [], 'sensors': sensors,
-            'edge': edge,
+            'edge': edge, 'edgelist': edgelist,
             'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                        'abuseipdb': 18, 'sniffcat': 18},
             'last_sweep': now()}
@@ -2791,7 +2815,10 @@ def build_config() -> dict:
                      # v7.3.0 edge feeds: on, with no token, so the page shows its state
                      # and nothing ever calls out.
                      'edge_enabled': True, 'edge_account_id': 'd' * 32,
-                     'edge_workers': ['trap-sink']},
+                     'edge_workers': ['trap-sink'],
+                     # the edge blocklist: on, with no token that can edit lists, so the
+                     # page shows a finished sync and nothing ever calls out
+                     'edgelist_enabled': True},
 
         # Host file manager — browse/read/edit host files from the device drawer
         # under an allow-listed set of roots (command-perm gated, audited).

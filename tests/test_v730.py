@@ -283,10 +283,12 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
     def test_the_review_numbers_match_its_table(self):
         raw = (_ROOT / "docs/security-review-7.3.0.md").read_text()
         rows = re.findall(r"^\| (\d+) \|", raw, re.M)
-        self.assertEqual(len(rows), 6)
-        self.assertIn("**six** issues", raw)
-        self.assertIn("six issues", (_ROOT / "docs/security.md").read_text())
-        self.assertIn("Six issues", (_ROOT / "docs/README.md").read_text())
+        words = {6: "six", 9: "nine"}
+        n = len(rows)
+        self.assertIn(n, words, "extend the word map for a new count")
+        self.assertIn("**%s** issues" % words[n], raw)
+        self.assertIn("%s issues" % words[n], (_ROOT / "docs/security.md").read_text())
+        self.assertIn("%s issues" % words[n].capitalize(), (_ROOT / "docs/README.md").read_text())
 
 
 if __name__ == "__main__":
