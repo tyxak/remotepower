@@ -125,9 +125,9 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
 
     def test_the_server_reason_and_the_confirmer_are_translated(self):
         rows = dict_rows()
-        for key in ('edge sources are only reported', 'the edge honeypot', 'Test failed'):
+        for key in ('no host to block it on', 'the edge honeypot', 'Test failed'):
             self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), key)
-        self.assertIn("'edge sources are only reported'", (
+        self.assertIn("'no host to block it on'", (
             _ROOT / 'server' / 'cgi-bin' / 'ip_intel_handlers.py').read_text())
 
     def test_the_class_phrases_the_edge_adds_are_translated(self):

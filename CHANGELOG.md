@@ -65,8 +65,9 @@ It is in `docs/security-review-7.3.0.md`.
 - **Test connection** tries each thing the feeds need, with the stored token or
   one you typed, and says which permission is missing. It lists the zone's custom
   rules and marks the ones that also block an IP list.
-- **Edge sources are never blocked.** They have no host to block them on. The
-  Block button is absent and the page says they are only reported.
+- **Edge addresses have no Block button.** They have no host to block them on, and
+  the row says so. The edge blocklist below is how one can reach a Cloudflare
+  rule.
 
 ### Edge blocklist
 

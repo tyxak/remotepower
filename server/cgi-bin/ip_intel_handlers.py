@@ -780,7 +780,7 @@ def run_ip_intel_if_due():
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
             if dev_id in ip_intel.EDGE_DEVICES:
-                ok, why = False, 'edge sources are only reported'
+                ok, why = False, 'no host to block it on'
             dev = devices.get(dev_id)
             if ok and (not isinstance(dev, dict) or dev.get('agentless')
                        or A._device_os_family(dev) != 'linux'):
