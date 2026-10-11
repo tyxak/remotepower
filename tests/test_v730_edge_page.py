@@ -99,7 +99,7 @@ class TestTheWordsMatchTheServer(unittest.TestCase):
 @unittest.skipUnless(HAVE_NODE, 'node not installed')
 class TestEveryPhraseIsTranslated(unittest.TestCase):
     STATIC_HTML = (
-        'Edge sources', 'Edge feeds', "Read Cloudflare's firewall events and the honeypot's log",
+        'Edge sources', 'Edge feeds', "Read Cloudflare's firewall events and the honeypot's log, and use them for reporting",
         'Cloudflare API token (read-only)', 'Account id', 'Firewall events', 'Honeypot Worker log',
         'Count refusals by a rule that also blocks an IP list',
         'Zones (one id per line, blank for all)', 'Worker names (one per line)',

@@ -84,7 +84,7 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-43`). Nothing changes until you turn the edge feeds on.
+`remotepower-shell-v7.3.0-44`). Nothing changes until you turn the edge feeds on.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as
