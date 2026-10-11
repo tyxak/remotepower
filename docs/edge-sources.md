@@ -405,7 +405,7 @@ The lines under the state are these:
 
 | Label | What it shows |
 |---|---|
-| **List** | The list's name, and whether RemotePower manages it. |
+| **List** | The list's name, whether RemotePower manages it, and how many entries it holds. |
 | **In the list now** | How many entries the list holds in Cloudflare. |
 | **Should hold** | How many entries the sources and your settings ask for. |
 | **Added** | How many a sync would add, and below, the first 20. |

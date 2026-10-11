@@ -56,8 +56,8 @@ def node(script, timeout=30):
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: "", checked: false, hidden: false});',
         'const document = {getElementById: el};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
-        'let _ipiData = null; const sent = []; const asked = []; let answer = true; let reply = {ok: true, result: {state: "ok"}};',
-        'async function api(m, p, body) { sent.push({m, p, body}); return reply; }',
+        'let _ipiData = null; const sent = []; const asked = []; let answer = true; let reply = {ok: true, result: {state: "ok"}}; let replies = null;',
+        'async function api(m, p, body) { sent.push({m, p, body}); return replies ? replies.shift() : reply; }',
         'async function uiConfirm(o) { asked.push(o); return answer; }',
         'function toast() {} function loadIpIntel() {}',
         srcpin.js_function(_JS, '_ipiPhrase'),
@@ -65,7 +65,7 @@ def node(script, timeout=30):
         srcpin.js_function(_JS, '_ipiListSrc'), srcpin.js_function(_JS, '_ipiListWhy'),
         srcpin.js_function(_JS, '_ipiRenderEdgeList'),
         'async ' + srcpin.js_function(_JS, 'previewIpIntelList'),
-        'async ' + srcpin.js_function(_JS, '_ipiSyncList'),
+        'async ' + srcpin.js_function(_JS, '_ipiSyncList'), 'async ' + srcpin.js_function(_JS, '_ipiConfirmAdopt'),
         'async ' + srcpin.js_function(_JS, 'syncIpIntelList'),
         'async ' + srcpin.js_function(_JS, 'syncIpIntelListForce'),
         'async ' + srcpin.js_function(_JS, 'clearIpIntelListToken'),
@@ -267,6 +267,17 @@ class TestWhatIsPrinted(unittest.TestCase):
         self.assertIn('<span>Not created by RemotePower</span>', h)
         self.assertEqual(h.count('A list with this name exists and RemotePower did not create it.'), 1)
 
+    def test_a_list_that_is_not_ours_says_how_many_entries_it_holds(self):
+        foreign = {'mode': 'apply', 'at': 100, 'state': 'needs_adopt',
+                   'why': 'A list with this name exists and RemotePower did not create it.',
+                   'list': {'name': 'tyxak_cf_waf', 'exists': True, 'managed': False, 'items': 9079}}
+        h = self.render({'enabled': True, 'last': foreign, 'preview': {}})
+        self.assertIn('<code>tyxak_cf_waf</code> · <span>Not created by RemotePower</span> · 9079 <span>entries</span>', h)
+        missing = dict(foreign, list={'name': 'new_list', 'exists': False, 'managed': False, 'items': 0})
+        h = self.render({'enabled': True, 'last': missing, 'preview': {}})
+        self.assertIn('<span>Does not exist yet</span>', h)
+        self.assertNotIn('<span>entries</span>', h, 'a list that is not there has no size to give')
+
     def test_the_newer_of_preview_and_sync_is_shown(self):
         pre = dict(self.LAST, mode='preview', at=200, state='preview', needs_adopt=True)
         h = self.render({'enabled': True, 'last': self.LAST, 'preview': pre})
@@ -336,6 +347,46 @@ class TestTheButtons(unittest.TestCase):
         self.assertIn('replaces everything in it', ask['message'])
         self.assertIn('Stop any other tool', ask['message'])
         self.assertEqual([s['body'] for s in got['sent']], [{'adopt': True}])
+
+    def test_the_first_press_asks_when_the_server_says_the_list_is_not_ours(self):
+        """With nothing on the page yet the button cannot know. The server leaves the
+        list alone and says so; the page then asks at once, and one press is enough."""
+        got = self.run_js(({'enabled': True, 'last': {}, 'preview': {}}, '''
+            replies = [{ok: true, result: {state: "needs_adopt", at: 5}},
+                       {ok: true, result: {state: "ok", at: 6, changed: true}}];'''),
+                          'syncIpIntelList()')
+        self.assertEqual([s['body'] for s in got['sent']], [{}, {'adopt': True}])
+        self.assertEqual(len(got['asked']), 1)
+        self.assertTrue(got['asked'][0]['danger'])
+        self.assertIn('replaces everything in it', got['asked'][0]['message'])
+        self.assertEqual(got['list']['last']['state'], 'ok')
+
+    def test_declining_at_that_point_leaves_the_list_alone(self):
+        got = self.run_js(({'enabled': True, 'last': {}, 'preview': {}}, '''
+            replies = [{ok: true, result: {state: "needs_adopt", at: 5}}]; answer = false;'''),
+                          'syncIpIntelList()')
+        self.assertEqual([s['body'] for s in got['sent']], [{}], 'nothing was sent after the refusal')
+        self.assertEqual(len(got['asked']), 1)
+        self.assertEqual(got['list']['last']['state'], 'needs_adopt')
+
+    def test_sync_anyway_keeps_its_force_flag_through_the_question(self):
+        got = self.run_js(({'enabled': True, 'last': {}, 'preview': {}}, '''
+            replies = [{ok: true, result: {state: "needs_adopt", at: 5}},
+                       {ok: true, result: {state: "ok", at: 6}}];'''),
+                          'syncIpIntelListForce()')
+        self.assertEqual([s['body'] for s in got['sent']],
+                         [{'force': True, 'adopt': False}, {'force': True, 'adopt': True}])
+        self.assertEqual(len(got['asked']), 2, 'the override, then the take-over')
+
+    def test_it_never_asks_twice_for_the_same_press(self):
+        """An adopt request cannot come back needs_adopt; if a server ever said so the
+        page must not loop."""
+        got = self.run_js(({'enabled': True, 'last': {}, 'preview': {}}, '''
+            replies = [{ok: true, result: {state: "needs_adopt", at: 5}},
+                       {ok: true, result: {state: "needs_adopt", at: 6}}];'''),
+                          'syncIpIntelList()')
+        self.assertEqual(len(got['sent']), 2)
+        self.assertEqual(len(got['asked']), 1)
 
     def test_declining_the_question_sends_nothing(self):
         got = self.run_js((self.FOREIGN, 'answer = false;'), 'syncIpIntelList()')

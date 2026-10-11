@@ -81,7 +81,7 @@ const _IPI_LIST_WORD = {
   foreign: 'Not created by RemotePower', current: 'In the list now', should: 'Should hold',
   added: 'Added', removed: 'Removed', room: 'Room in the account', trimmed: 'Left out for lack of room',
   protected: 'Left out as protected', from: 'In the list from', addresses: 'addresses',
-  copy: 'saved copy', downloaded: 'downloaded', sync_anyway: 'Sync anyway',
+  copy: 'saved copy', downloaded: 'downloaded', sync_anyway: 'Sync anyway', entries: 'entries',
   token_prefix: 'The token cannot edit lists:', preview_failed: 'Preview failed', sync_failed: 'Sync failed',
 };
 const _IPI_LIST_DIALOG = {
@@ -570,7 +570,8 @@ function _ipiRenderEdgeList() {
   const l = cur.list || {};
   if (l.name) {
     const who = !l.exists ? W.missing : l.managed ? W.managed : W.foreign;
-    out.push(`<div class="hint fs-11">${_ipiPhrase(W.list)} <code>${escHtml(l.name)}</code> · ${_ipiPhrase(who)}</div>`);
+    out.push(`<div class="hint fs-11">${_ipiPhrase(W.list)} <code>${escHtml(l.name)}</code> · ${_ipiPhrase(who)}` +
+      `${l.exists && l.items != null ? ` · ${escHtml(String(l.items))} ${_ipiPhrase(W.entries)}` : ''}</div>`);
   }
   if (cur.size != null) {
     out.push(`<div class="hint fs-11">${[fact(W.current, cur.current), fact(W.should, cur.size),
@@ -624,16 +625,23 @@ async function _ipiSyncList(opts) {
   _ipiData.edge_list.last = r.result;
   _ipiData.edge_list.pending = !!r.result.op;
   _ipiRenderEdgeList();
+  // The page did not know the list was not ours when the button was pressed. The server
+  // left it alone and said so, so ask now: one press is enough.
+  if (r.result.state === 'needs_adopt' && !opts.adopt && await _ipiConfirmAdopt()) {
+    await _ipiSyncList(Object.assign({}, opts, {adopt: true}));
+  }
+}
+
+// The take-over question, asked before a sync replaces a list RemotePower did not create.
+async function _ipiConfirmAdopt() {
+  const d = _IPI_LIST_DIALOG.adopt;
+  return uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
 }
 
 async function syncIpIntelList() {
   const el = (_ipiData || {}).edge_list || {};
   const adopt = _ipiListNeedsAdopt(el);
-  if (adopt) {
-    const d = _IPI_LIST_DIALOG.adopt;
-    const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
-    if (!ok) return;
-  }
+  if (adopt && !(await _ipiConfirmAdopt())) return;
   await _ipiSyncList(adopt ? {adopt: true} : {});
 }
 
