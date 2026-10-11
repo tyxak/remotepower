@@ -84,6 +84,8 @@ def _cmdb_clean_list(items, spec):
                 if s:
                     import ipaddress as _ipa
                     try:
+                        if '%' in s:
+                            raise ValueError('zone id')
                         s = str(_ipa.ip_address(s))
                     except ValueError:
                         return [], f'{f} must be a valid IP address or empty'
@@ -1184,6 +1186,8 @@ def handle_cmdb_update(dev_id: str) -> None:
         if nat:
             import ipaddress as _ipa
             try:
+                if '%' in nat:
+                    raise ValueError('zone id')
                 nat = str(_ipa.ip_address(nat))
             except ValueError:
                 A.respond(400, {'error': 'nat_ip must be a valid IPv4/IPv6 address or empty'})

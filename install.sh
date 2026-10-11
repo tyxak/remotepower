@@ -321,13 +321,17 @@ _copy_files() {
   for f in "$SRC"/docs/*.md; do [ -f "$f" ] && install -m644 "$f" "$(_p "$DATA")/docs/$(basename "$f")" || true; done
 }
 _gen_tls() { # self-signed via the proven tools/gen-ca.sh
-  local SRC="$1" tlsdir; tlsdir="$(_p "$RPETC")/tls"
+  local SRC="$1" tlsdir genlog; tlsdir="$(_p "$RPETC")/tls"
   install -d -m755 "$(_p "$RPETC")"
-  if bash "$SRC/tools/gen-ca.sh" --host "$HOST" --dir "$tlsdir" >/tmp/rp-genca.$$.log 2>&1; then
+  # mktemp, not /tmp/name.$$: this runs as root, and a PID is guessable, so a local
+  # user could pre-place a symlink there and have the redirect overwrite its target.
+  genlog="$(mktemp "${TMPDIR:-/tmp}/rp-genca.XXXXXX")" || { step_no "cannot create a temp file"; return 1; }
+  if bash "$SRC/tools/gen-ca.sh" --host "$HOST" --dir "$tlsdir" >"$genlog" 2>&1; then
+    rm -f "$genlog"
     CA_FP="$(openssl x509 -in "$tlsdir/ca.crt" -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//')"
     return 0
   fi
-  step_no "TLS cert generation failed"; sed 's/^/      /' /tmp/rp-genca.$$.log; return 1
+  step_no "TLS cert generation failed"; sed 's/^/      /' "$genlog"; rm -f "$genlog"; return 1
 }
 _render_tls_vhost() {
   cat <<NGINX

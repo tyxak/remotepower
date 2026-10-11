@@ -101,7 +101,11 @@ running instance in each review.
 
 ### Further hardening
 
-- Session tokens hashed at rest (above).
+- Session tokens hashed at rest (above), and the stored hash is never accepted as a bearer token or as an enrollment token: a leaked `tokens.json` yields nothing to present.
+- A sign-in's failure counter clears only after the whole sign-in has passed, second factor included, so TOTP codes cannot be guessed past the lockout. Every "type your password to confirm" prompt (step-up, the web terminal, SSH-gateway keys, signing, clearing the audit log, 2FA changes, a password change) shares a per-account lockout of its own.
+- Address checks refuse an IPv6 zone id (`fe80::1%eth0`): `ipaddress` accepts any text after the `%`, and the address reaches commands the agent runs as root.
+- The rate-limit store is bounded, so an unauthenticated caller cannot grow it, and 6-digit enrollment PINs share one server-wide guess budget on top of the per-address limit.
+- The customer portal's sign-in link is built only from the configured Portal public URL, never from the request's Host header; with none set, no link is sent.
 - OIDC token-exchange failures log only the HTTP status + OAuth error code, never the IdP response body (which can echo a client secret).
 - Webhook-host classification is anchored to the apex / a real subdomain, so look-alike hosts (`discord.com.attacker.tld`) aren't trusted.
 - AWS cloud-import validates the region against the AWS region shape, fetches through the anti-rebinding, no-redirect opener, and refuses any EC2 response carrying a DTD / entity declarations before parsing (XXE / entity-expansion hardening).

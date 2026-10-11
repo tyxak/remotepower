@@ -803,6 +803,7 @@ def handle_ticket_delete(tid):
 
 def handle_ticket_hours(tid):
     """GET /api/tickets/{id}/hours — hours logged to a ticket; POST — add hours."""
+    A.require_auth()      # before the lookup: a 404 first would say which tickets exist
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
     t = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
@@ -1235,7 +1236,7 @@ def handle_ticket_csat():
         exp = 0
     # Signature first, then the clock — the other order answers differently for
     # a well-formed expired link and a forged one.
-    if not A.hmac.compare_digest(sig, _csat_sig(tid, rating, exp)):
+    if not A._ct_token_eq(sig, _csat_sig(tid, rating, exp)):
         _csat_page('Invalid link', 'This survey link is not valid or has expired.')
     if exp <= int(time.time()):
         _csat_page('Survey closed',

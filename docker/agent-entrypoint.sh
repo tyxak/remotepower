@@ -30,17 +30,23 @@ install_ca() {
     [ -f /etc/remotepower/ca.crt ] && return 0
     host=$(printf '%s' "$RP_SERVER" | sed -E 's#^https?://##; s#/.*$##')
     log "Fetching CA from http://$host/ca.crt for fingerprint pinning…"
-    if ! curl -fsS "http://$host/ca.crt" -o /tmp/ca.crt; then
+    # A private temp file, not a fixed /tmp name: the fingerprint is checked on this
+    # file and the same file is then installed, so nobody else may be able to swap it.
+    ca_tmp=$(mktemp) || return 1
+    if ! curl -fsS "http://$host/ca.crt" -o "$ca_tmp"; then
+        rm -f "$ca_tmp"
         log "ERROR: could not fetch CA from http://$host/ca.crt"; return 1
     fi
-    got=$(openssl x509 -in /tmp/ca.crt -noout -fingerprint -sha256 2>/dev/null \
+    got=$(openssl x509 -in "$ca_tmp" -noout -fingerprint -sha256 2>/dev/null \
           | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f')
     want=$(printf '%s' "$RP_CA_FINGERPRINT" | sed 's/://g' | tr 'A-F' 'a-f')
     if [ -z "$got" ] || [ "$got" != "$want" ]; then
+        rm -f "$ca_tmp"
         log "ERROR: CA fingerprint mismatch (got '$got', want '$want') — refusing to trust"
         return 1
     fi
-    mv /tmp/ca.crt /etc/remotepower/ca.crt
+    chmod 644 "$ca_tmp"
+    mv "$ca_tmp" /etc/remotepower/ca.crt
     log "CA verified + installed at /etc/remotepower/ca.crt"
 }
 

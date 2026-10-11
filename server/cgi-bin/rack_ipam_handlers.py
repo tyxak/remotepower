@@ -355,6 +355,8 @@ def handle_ipam_subnet(sid):
             clean = {}
             for ip, label in list(body['reservations'].items())[:500]:
                 try:
+                    if '%' in str(ip):
+                        continue                   # a zone id is not part of an address
                     clean[str(_ipa.ip_address(str(ip)))] = A._sanitize_str(str(label), 128)
                 except ValueError:
                     continue

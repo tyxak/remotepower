@@ -76,6 +76,9 @@ def handle_device_ssh(dev_id):
     """GET /api/devices/<id>/ssh — redacted SSH config. PATCH — admin; save
     {enabled, username, port, password, private_key} (empty password/key
     preserves the stored one). For agentless management actions over SSH."""
+    # Authenticate first: a 400/404 ahead of the 401 tells an anonymous caller
+    # which device ids exist.
+    A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'})
     devs = A.load(A.DEVICES_FILE)

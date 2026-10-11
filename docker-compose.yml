@@ -60,6 +60,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # `default` for the browsers/agents and the scanner; `db` is the private network
+    # that reaches Postgres (see the postgres service).
+    networks:
+      - default
+      - db
     volumes:
       - remotepower_data:/var/lib/remotepower
     healthcheck:
@@ -92,6 +97,12 @@ services:
       # other containers on this compose network. Still, override for
       # anything beyond local/lab use: RP_PG_PASSWORD=... docker compose up -d
       POSTGRES_PASSWORD: "${RP_PG_PASSWORD:-remotepower-dev-changeme}"
+    # Only on the private `db` network, which only the app joins. The scanner runs a
+    # tool that reads attacker-influenced responses; with Postgres on the shared
+    # network it could reach the database using the well-known default password
+    # above, and the database holds every device token and session.
+    networks:
+      - db
     volumes:
       - remotepower_pg:/var/lib/postgresql/data
     healthcheck:
@@ -117,6 +128,10 @@ services:
       - remotepower
     volumes:
       - remotepower_data:/var/lib/remotepower:ro
+
+networks:
+  db:
+    internal: true      # no route out of it, and nothing but the app and Postgres on it
 
 volumes:
   remotepower_data:

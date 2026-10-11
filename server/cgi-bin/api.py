@@ -3517,6 +3517,22 @@ def hash_password(plain):
     return _pbkdf2_hash(plain)
 
 
+_DUMMY_PW_HASH = None
+
+
+def _dummy_password_hash():
+    """A real password hash that nobody knows the password of, made once per
+    process. A login for a name that does not exist verifies against this, so it
+    costs what verifying a real account costs. (It used to verify against a bare
+    SHA-256 hex string, which verify_password() rejects without hashing anything:
+    an unknown name came back about a bcrypt-time faster than a wrong password,
+    and the difference told an attacker which user names exist.)"""
+    global _DUMMY_PW_HASH
+    if _DUMMY_PW_HASH is None:
+        _DUMMY_PW_HASH = hash_password(secrets.token_urlsafe(24))
+    return _DUMMY_PW_HASH
+
+
 def _password_breached(plain):
     """v5.4.1 (D1): k-anonymity breach check against HaveIBeenPwned's range API.
     Only the first 5 chars of the SHA-1 are ever sent (the password never leaves
@@ -5579,7 +5595,12 @@ def _resolve_token_key(token, tokens):
     hk = _token_hash(token)
     if hk in tokens:
         return hk
-    if token in tokens:
+    # Legacy raw-keyed session. Never for a value shaped like an at-rest key
+    # (64 hex): the stored key IS sha256(bearer token), so accepting it here would
+    # let whoever reads tokens.json (a backup, a database dump, a support bundle)
+    # present the hash itself as the bearer token and be signed in. A real raw
+    # token (token_urlsafe(32), 43 chars) is never that shape.
+    if token in tokens and not _looks_hashed_key(token):
         return token
     return None
 
@@ -6101,11 +6122,13 @@ def _get_client_ip():
             return real_ip
     return remote
 
-def _check_login_ratelimit(username: str) -> bool:
-    """Return True if this login attempt is allowed, False if locked out."""
+def _check_login_ratelimit(username: str, bucket: str = 'login') -> bool:
+    """Return True if this login attempt is allowed, False if locked out.
+    `bucket` keeps the re-verification prompts ('reauth') apart from the sign-in
+    ('login'): the same ladder, but a locked prompt does not lock the sign-in."""
     rl = load(RATELIMIT_FILE)
     now = int(time.time())
-    key = f'login:{username}'
+    key = f'{bucket}:{username}'
     entry = rl.get(key, {'failures': [], 'locked_until': 0})
 
     # Purge old failures outside window
@@ -6121,7 +6144,7 @@ def _check_login_ratelimit(username: str) -> bool:
 # only on a successful login (handled in _clear_login_failures).
 _LOCKOUT_LADDER_S = [10, 60, 300, 1800, 7200]   # 10s, 1m, 5m, 30m, 2h
 
-def _record_login_failure(username: str):
+def _record_login_failure(username: str, bucket: str = 'login'):
     # v6.4.3 (SECURITY): counting failures is a read-modify-write and has to be
     # atomic, or the lockout it feeds does not count. Unlocked, N simultaneous
     # attempts all read the same snapshot, each appended one failure to it, and
@@ -6133,7 +6156,7 @@ def _record_login_failure(username: str):
     # limiters in this file already took the lock.
     with _LockedUpdate(RATELIMIT_FILE) as rl:
         now = int(time.time())
-        key = f'login:{username}'
+        key = f'{bucket}:{username}'
         entry = rl.get(key, {'failures': [], 'locked_until': 0})
         entry['failures'] = [t for t in entry['failures'] if now - t < LOGIN_FAIL_WINDOW]
         entry['failures'].append(now)
@@ -6146,12 +6169,93 @@ def _record_login_failure(username: str):
             entry['last_wait_s']    = wait
             entry['failures'] = []  # reset counter after lockout
         rl[key] = entry
+        _ratelimit_prune(rl, now)
 
-def _clear_login_failures(username: str):
+
+def _clear_login_failures(username: str, bucket: str = 'login'):
     # Same lock as the recorder: clearing on success must not race a failure
     # being recorded, or a lockout earned mid-flight is dropped.
     with _LockedUpdate(RATELIMIT_FILE) as rl:
-        rl.pop(f'login:{username}', None)
+        rl.pop(f'{bucket}:{username}', None)
+
+
+def reauth_check(username, password=None, stored_hash=None, totp_secret=None, totp_code=None):
+    """True when the signed-in caller has just proved who they are again, by their
+    password or a current TOTP code. This is the check behind every "type your
+    password to confirm" prompt (step-up, the web terminal, SSH-gateway keys, signing
+    the agent release, clearing the audit log, 2FA changes): the controls that are
+    there so that a stolen session alone is not enough.
+
+    A failed attempt counts toward a per-account lockout (the login ladder, in its
+    own bucket) and, while locked out, this answers 429 without testing anything.
+    Before this, these prompts could be guessed at without limit by whoever held a
+    session, which is the one thing they are meant to stop.
+
+    Nothing typed counts as no attempt: False, not a failure."""
+    pw = str(password or '')
+    code = str(totp_code or '').strip()
+    if not (pw and stored_hash) and not (code and totp_secret):
+        return False
+    if not _check_login_ratelimit(username, 'reauth'):
+        respond(429, {'error': 'Too many failed attempts — try again later'})
+    ok = False
+    if pw and stored_hash:
+        ok = verify_password(pw, stored_hash)
+    if not ok and code and totp_secret:
+        ok = code in _totp(totp_secret)
+    if ok:
+        _clear_login_failures(username, 'reauth')
+    else:
+        _record_login_failure(username, 'reauth')
+    return ok
+
+
+# Rate-limit entries are one key per (scope, address) or per user name in a single
+# document that every limited request reads and rewrites whole. Nothing used to
+# remove an entry that had gone quiet, so a caller who varied the key (a fresh user
+# name per failed login, a fresh address per request from an IPv6 block) grew the
+# document for ever, and every limited request after that cost more than the one
+# before. The sweep below drops what can no longer change a decision, and a cap
+# holds even when everything is recent.
+_RL_PRUNE_ABOVE = 2000      # entries before a sweep is worth its cost
+_RL_HARD_CAP = 20000        # entries kept after a sweep, however recent
+_RL_HITS_KEEP_S = 7200      # longer than the longest window any limiter uses (an hour)
+_RL_LOCKOUT_KEEP_S = 86400  # how long a quiet account's lockout ladder is remembered
+
+
+def _ratelimit_prune(rl, now):
+    """Bound the rate-limit document in place. A lockout still running is never
+    dropped; of the rest, the least recently active go first."""
+    if len(rl) <= _RL_PRUNE_ABOVE:
+        return
+    try:
+        locked, live = {}, {}
+        for k, e in list(rl.items()):
+            if not isinstance(e, dict):
+                continue
+            if 'failures' in e or 'locked_until' in e:          # a per-account lockout record
+                until = int(e.get('locked_until') or 0)
+                stamps = [int(t) for t in (e.get('failures') or []) if isinstance(t, (int, float))]
+                last = max(stamps + [until, 0])
+                if until > now:
+                    locked[k] = e
+                elif now - last < _RL_LOCKOUT_KEEP_S:
+                    live[k] = (last, e)
+            else:                                                # a sliding window of hits
+                hits = [int(t) for t in (e.get('hits') or []) if isinstance(t, (int, float))]
+                last = max(hits) if hits else 0
+                if now - last < _RL_HITS_KEEP_S:
+                    live[k] = (last, e)
+        room = max(0, _RL_HARD_CAP - len(locked))
+        if len(live) > room:
+            newest = sorted(live.items(), key=lambda kv: kv[1][0], reverse=True)[:room]
+            live = dict(newest)
+        keep = dict(locked)
+        keep.update({k: v[1] for k, v in live.items()})
+    except Exception:
+        return          # housekeeping only: a failure here must never change what a limiter decides
+    rl.clear()
+    rl.update(keep)
 
 
 def _ip_in_allowlist(ip: str, entries) -> bool:
@@ -6350,6 +6454,7 @@ def _ip_ratelimit(scope: str, ip: str, max_per_window: int, window: int = 60) ->
                 return False
             entry['hits'].append(now)
             rl[key] = entry
+            _ratelimit_prune(rl, now)
     except Exception:
         # Fail-open on lock errors — better to admit one extra request
         # than to lock out legitimate operators when the disk is wedged.
@@ -6935,15 +7040,8 @@ def handle_step_up_verify():
     user = users.get(username)
     if not user:
         respond(404, {'error': 'User not found'})
-    verified = False
-    pw_hash = user.get('password_hash')
-    if pw_hash and body.get('password'):
-        verified = verify_password(str(body.get('password', '')), pw_hash)
-    if not verified:
-        totp_secret = user.get('totp_secret')
-        code = str(body.get('totp_code', '')).strip()
-        if totp_secret and code:
-            verified = code in _totp(totp_secret)
+    verified = reauth_check(username, body.get('password'), user.get('password_hash'),
+                            user.get('totp_secret'), body.get('totp_code'))
     if not verified:
         respond(401, {'error': 'password or TOTP code did not verify'})
     tkey, entry, tokens = _step_up_token_entry()
@@ -10923,6 +11021,18 @@ def handle_portal_magic_link():
         respond(429, _CONSTANT)
     contact = _portal_enrolled_contact(email)
     if contact:
+        # SECURITY (host-header injection -> portal account takeover). The sign-in
+        # link is built ONLY from the operator's canonical portal URL. The save-time
+        # guard that requires it does not cover an install that enabled the portal
+        # before the guard existed, a restored backup or a config import, so this is
+        # checked where the link is made: with no URL set, no link is sent, rather
+        # than one built from the request's Host header (a forged Host would mail the
+        # real contact a link to the attacker's origin, carrying a live nonce).
+        base = (_config_ro().get('portal_base_url') or '').strip().rstrip('/')
+        if not base:
+            audit_log('portal', 'portal_magic_link_blocked',
+                      'no sign-in link sent: Settings -> Customer portal needs a Portal public URL')
+            respond(200, _CONSTANT)
         nonce = secrets.token_urlsafe(32)
         with _LockedUpdate(PORTAL_STATE_FILE) as st:
             nonces = st.setdefault('nonces', {})
@@ -10938,12 +11048,8 @@ def handle_portal_magic_link():
         # controllable Host header — a forged Host would otherwise put the nonce
         # into a link at an attacker origin whose page JS reads it from the URL
         # fragment and mints a session. portal_base_url is REQUIRED to enable the
-        # portal (handle_config_save guard), so it is set here. The backstop is
-        # _request_base_url() which is request-aware via _env() — correct under
-        # CGI, the threaded WSGI worker (host lives in the thread-local _RCTX, not
-        # os.environ) and the SCGI worker alike.
-        base = ((_config_ro().get('portal_base_url') or '').strip().rstrip('/')
-                or _request_base_url())
+        # portal (handle_config_save guard) and is re-checked above, so it is set
+        # here; there is no request-host fallback.
         link = f'{base}/portal#token={nonce}'
         _mail_body = ('Click to sign in to the support portal (valid 30 minutes):'
                       f'\n\n{link}\n')
@@ -14444,8 +14550,9 @@ def handle_login():
     users = load(USERS_FILE)
     user = users.get(username)
 
-    # Always do a dummy verify to prevent timing oracle on username existence
-    dummy_hash = hashlib.sha256(b'dummy').hexdigest()
+    # Always do a dummy verify to prevent timing oracle on username existence.
+    # The dummy has to be a hash verify_password() actually works through.
+    dummy_hash = _dummy_password_hash()
     stored = user.get('password_hash', dummy_hash) if user else dummy_hash
     valid = verify_password(password, stored) and bool(user)
 
@@ -14571,7 +14678,10 @@ def handle_login():
         time.sleep(0.3)
         respond(200, {'ok': False, 'sso_only': True})
 
-    _clear_login_failures(username)
+    # NOT cleared here: the password alone is not the login. Clearing on a correct
+    # password reset the counter on every attempt, so a caller holding the password
+    # could guess second-factor codes without ever reaching the lockout. It is
+    # cleared below, once the second factor has passed too.
     if ldap_user_info is None:
         # Only rehash on local auth — LDAP users have placeholder hashes
         maybe_rehash(username, password, stored)
@@ -14629,6 +14739,7 @@ def handle_login():
                       'password OK — passkey assertion required to finish')
             respond(200, {'ok': False, 'webauthn_required': True})
 
+    _clear_login_failures(username)       # password AND any second factor passed
     cleanup_tokens()
     audit_log(username, 'login', 'successful login')
     token = make_token()
@@ -16934,7 +17045,7 @@ def handle_billing_payment_webhook():
     cfg = _billing_cfg()
     expected = cfg.get('billing_webhook_secret', '')
     provided = _env('HTTP_X_RP_BILLING_SECRET', '')
-    if not expected or not provided or not hmac.compare_digest(expected, provided):
+    if not expected or not provided or not _ct_token_eq(provided, expected):
         respond(403, {'error': 'Billing webhook secret mismatch'})
     body = get_json_obj()
     _rm_ok, _rm_err = request_models.validate(request_models.BillingPaymentWebhookRequest, body)
@@ -19006,8 +19117,13 @@ def handle_device_fail2ban_action(dev_id):
         respond(400, {'error': 'invalid jail name'})
     if action in ('ban', 'unban'):
         import ipaddress
+        # An IPv6 zone id ("::1%x") is accepted by ipaddress and kept by str(),
+        # and `cmd` runs through the agent's shell: refuse any "%".
+        _raw_ip = str(body.get('ip', '')).strip()
         try:
-            ip = str(ipaddress.ip_address(str(body.get('ip', '')).strip()))
+            if '%' in _raw_ip:
+                raise ValueError('zone id')
+            ip = str(ipaddress.ip_address(_raw_ip))
         except ValueError:
             respond(400, {'error': 'invalid IP address'})
         verb = 'banip' if action == 'ban' else 'unbanip'
@@ -20478,7 +20594,11 @@ def handle_enroll_register():
         with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
             _purge_expired_enroll_tokens(tokens, now)
             # v5.4.1: look up by HASH (new) or the plaintext key (legacy).
-            _ekey = _eh if _eh in tokens else enroll_token
+            # The plaintext fallback is for pre-hashing entries only. A value
+            # shaped like a stored hash is never one: accepting it would let
+            # whoever can read the store enroll a device with the hash itself.
+            _ekey = _eh if _eh in tokens else (
+                '' if _looks_hashed_key(enroll_token) else enroll_token)
             meta = tokens.get(_ekey)
             if not meta:
                 respond(403, {'error': 'Invalid or expired enrollment token'})
@@ -20490,6 +20610,12 @@ def handle_enroll_register():
         # PIN path (existing flow).
         if not re.match(r'^\d{6}$', pin):
             respond(400, {'error': 'Invalid PIN format'})
+        # Six digits are the whole secret, and the limit above is per source address:
+        # a caller with a different address for every guess (any IPv6 /64) is never
+        # limited by it, and a PIN lives ten minutes. So guesses also share one
+        # server-wide budget. An enrolment token is not charged to it.
+        if not _ip_ratelimit('enroll_pin', 'all', 60, window=60):
+            respond(429, {'error': 'Too many enrollment attempts — retry in a minute'})
         now = int(time.time())
         # v5.8.0 (B3.1): PINs are stored hashed; look up by hash. Accept a legacy
         # plaintext-keyed entry too (pre-upgrade PINs mid-TTL) so an in-flight
@@ -20728,6 +20854,13 @@ _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
                          'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config')
 
 
+def _log_field(value, limit):
+    """One harmless token for a log line. The heartbeat's device id and version come
+    straight off an unauthenticated request body, so a newline in either would forge
+    whole lines in a file read to reconstruct what happened."""
+    return re.sub(r'[^A-Za-z0-9._+-]', '?', str(value))[:limit]
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -20752,7 +20885,7 @@ def handle_heartbeat():
         if _dcfg.get('debug_logging') or os.environ.get('RP_LOG_HEARTBEATS') == '1':
             import datetime as _dt
             _dbg = (f"[{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}] "
-                    f"heartbeat dev={dev_id} ver={body.get('version','?')}\n")
+                    f"heartbeat dev={_log_field(dev_id, 64)} ver={_log_field(body.get('version', '?'), 32)}\n")
             with open(DEBUG_LOG_FILE, 'a') as _df:
                 _df.write(_dbg)
     except Exception:
@@ -23674,10 +23807,16 @@ def _resolve_targets(body):
         raw = body['device_ids'][:100]  # cap at 100 targets
         ids = [str(d).strip() for d in raw if _validate_id(str(d).strip())]
     elif 'tag' in body:
+        # A tag or a group is looked up in the fleet. Every caller authorises the
+        # result next (require_perm), but an anonymous 400 ("no valid targets")
+        # versus a 401 told the caller which tag and group names exist, so the
+        # caller is authenticated before the fleet is searched.
+        require_auth()
         tag = re.sub(r'[^a-zA-Z0-9_\-/]', '', str(body['tag']))[:MAX_TAG_LEN]
         ids = ([did for did, dev in (load(DEVICES_FILE) or {}).items()
                 if tag in dev.get('tags', [])] if tag else [])
     elif 'group' in body:
+        require_auth()
         grp = re.sub(r'[^a-zA-Z0-9_\-/]', '', str(body['group']))[:MAX_GROUP_LEN]
         ids = ([did for did, dev in (load(DEVICES_FILE) or {}).items()
                 if dev.get('group', '') == grp] if grp else [])
@@ -27352,7 +27491,13 @@ def handle_monitor_run():
     Monitor page resets the background-run schedule, which is fine —
     the user just got fresh data.
     """
-    require_auth()
+    actor = require_auth()
+    # Any signed-in role may open the Monitor page, and each call runs every monitor
+    # synchronously (ping and http checks with their timeouts) and writes the
+    # results, so an unthrottled loop from a viewer account would hold the workers
+    # and flood the targets. Per user, well above any page-refresh cadence.
+    if not _ip_ratelimit('monitor_run', 'u:' + str(actor), 30, window=60):
+        respond(429, {'error': 'Monitors were just run — wait a moment and refresh'})
     cfg = load(CONFIG_FILE)
     monitors = cfg.get('monitors', [])
     results = _execute_monitor_checks(monitors)
@@ -30769,6 +30914,8 @@ def handle_config_save():
                 continue
             try:
                 import ipaddress as _ip
+                if '%' in s:
+                    raise ValueError('zone id')
                 if '/' in s:
                     _ip.ip_network(s, strict=False)
                 else:
@@ -32086,7 +32233,7 @@ def _scim_auth():
     tok = cfg.get('scim_token') or ''
     auth = _env('HTTP_AUTHORIZATION', '')
     presented = auth[7:].strip() if auth[:7].lower() == 'bearer ' else ''
-    if not tok or not secrets.compare_digest(presented, tok):
+    if not tok or not _ct_token_eq(presented, tok):
         _scim_error(401, 'invalid or missing SCIM bearer token')
 
 
@@ -32700,6 +32847,7 @@ def handle_user_passwd():
     # a password rotation could be silently reverted by any concurrent
     # writer holding an older snapshot of the whole users dict — including
     # a UI-prefs save, which every logged-in operator triggers constantly.
+    bad_old_password = False
     with _LockedUpdate(USERS_FILE) as users:
         _, requester_role = verify_token(get_token_from_request())
 
@@ -32715,26 +32863,35 @@ def handle_user_passwd():
 
         # Changing own password always requires old password
         if username == requester:
+            if not _check_login_ratelimit(username, 'reauth'):
+                respond(429, {'error': 'Too many failed attempts — try again later'})
             if not verify_password(old_pw, user['password_hash']):
-                respond(401, {'error': 'Old password incorrect'})
+                bad_old_password = True       # counted once the users lock is released
 
-        users[username]['password_hash'] = hash_password(new_pw)
-        users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
-        # v2.3.2: once the password is changed, clear the default-password
-        # warning flag so the UI banner stops showing.
-        #
-        # v6.4.2: but only for a SELF-change. An admin resetting someone else's
-        # password has just invented one and is about to send it over Slack or
-        # read it down the phone — the very case the flag exists for. Clearing it
-        # there meant the forgotten-password path ended with a shared secret the
-        # product never asked anyone to replace. Setting it makes the next login
-        # go through the existing change-password gate, which is already built:
-        # _enforce_password_change() runs pre-dispatch and the client already shows
-        # the banner. So this is one line, not a feature.
-        if username == requester:
-            users[username].pop('must_change_password', None)
-        else:
-            users[username]['must_change_password'] = True
+        if not bad_old_password:
+            users[username]['password_hash'] = hash_password(new_pw)
+            users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
+            # v2.3.2: once the password is changed, clear the default-password
+            # warning flag so the UI banner stops showing.
+            #
+            # v6.4.2: but only for a SELF-change. An admin resetting someone else's
+            # password has just invented one and is about to send it over Slack or
+            # read it down the phone — the very case the flag exists for. Clearing it
+            # there meant the forgotten-password path ended with a shared secret the
+            # product never asked anyone to replace. Setting it makes the next login
+            # go through the existing change-password gate, which is already built:
+            # _enforce_password_change() runs pre-dispatch and the client already shows
+            # the banner. So this is one line, not a feature.
+            if username == requester:
+                users[username].pop('must_change_password', None)
+            else:
+                users[username]['must_change_password'] = True
+
+    if bad_old_password:
+        _record_login_failure(username, 'reauth')
+        respond(401, {'error': 'Old password incorrect'})
+    if username == requester:
+        _clear_login_failures(username, 'reauth')
 
     # Invalidate all existing sessions for this user on password change
     tokens = load(TOKENS_FILE)
@@ -33185,14 +33342,25 @@ def handle_totp_regenerate_codes():
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.TotpRegenerateCodesRequest)
+    # A wrong password is counted OUTSIDE the users lock (the throttle has its own
+    # lock; nesting it here is what the lock rules forbid), so it is noted inside
+    # and answered after.
+    bad_password = False
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users: respond(404, {'error': 'User not found'})
         if not users[username].get('totp_secret'):
             respond(400, {'error': '2FA is not enabled'})
+        if not _check_login_ratelimit(username, 'reauth'):
+            respond(429, {'error': 'Too many failed attempts — try again later'})
         if not verify_password(body.get('password', ''), users[username].get('password_hash', '')):
-            respond(401, {'error': 'Password incorrect'})
-        plain, hashed = _generate_recovery_codes()
-        users[username]['recovery_codes'] = hashed
+            bad_password = True
+        else:
+            plain, hashed = _generate_recovery_codes()
+            users[username]['recovery_codes'] = hashed
+    if bad_password:
+        _record_login_failure(username, 'reauth')
+        respond(401, {'error': 'Password incorrect'})
+    _clear_login_failures(username, 'reauth')
     audit_log(username, 'totp_recovery_regenerated', 'recovery codes regenerated')
     respond(200, {'ok': True, 'recovery_codes': plain})
 
@@ -33203,13 +33371,21 @@ def handle_totp_disable():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.TotpDisableRequest)
     password = body.get('password', '')
+    bad_password = False        # counted after the users lock is released (see above)
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users: respond(404, {'error': 'User not found'})
+        if not _check_login_ratelimit(username, 'reauth'):
+            respond(429, {'error': 'Too many failed attempts — try again later'})
         if not verify_password(password, users[username].get('password_hash', '')):
-            respond(401, {'error': 'Password incorrect'})
-        users[username].pop('totp_secret', None)
-        users[username].pop('totp_pending', None)
-        users[username].pop('recovery_codes', None)   # v3.7.0
+            bad_password = True
+        else:
+            users[username].pop('totp_secret', None)
+            users[username].pop('totp_pending', None)
+            users[username].pop('recovery_codes', None)   # v3.7.0
+    if bad_password:
+        _record_login_failure(username, 'reauth')
+        respond(401, {'error': 'Password incorrect'})
+    _clear_login_failures(username, 'reauth')
     audit_log(username, 'totp_disabled', '2FA deactivated')
     respond(200, {'ok': True, 'message': '2FA has been disabled.'})
 
@@ -33567,7 +33743,7 @@ def handle_signing_sign():
     # authenticated admins (OIDC/LDAP, no local hash) are exempt but audited.
     _body = _read_valid(request_models.SigningSignRequest)
     _stored = ((load(USERS_FILE) or {}).get(actor) or {}).get('password_hash') or ''
-    if _stored and not verify_password(str(_body.get('password') or ''), _stored):
+    if _stored and not reauth_check(actor, _body.get('password'), _stored):
         respond(403, {'error': 'password required to sign the agent release'})
     gpg = shutil.which('gpg')
     fpr, pub = _signing_key_info()
@@ -33614,7 +33790,7 @@ def handle_signing_toggle():
         urec = (load(USERS_FILE) or {}).get(actor) or {}
         stored = urec.get('password_hash') or ''
         if stored:   # local-password admin → must re-verify
-            if not verify_password(str(body.get('password') or ''), stored):
+            if not reauth_check(actor, body.get('password'), stored):
                 respond(403, {'error': 'password required to disable signing enforcement'})
     with _LockedUpdate(CONFIG_FILE) as cfg:
         cfg['agent_signing_enabled'] = enabled
@@ -35110,7 +35286,7 @@ def _valid_tls_host(h):
     the certificate SAN."""
     import ipaddress
     h = (h or '').strip()
-    if not h or len(h) > 253:
+    if not h or len(h) > 253 or '%' in h:
         return False
     try:
         ipaddress.ip_address(h)
@@ -39113,6 +39289,10 @@ def _brute_src_ip(raw):
     # "[2001:db8::1]:22" — bracketed host with a port.
     if s.startswith('[') and ']' in s:
         s = s[1:s.index(']')]
+    # A zone id ("fe80::1%eth0") is the sender's interface, not part of the
+    # address, and `ipaddress` keeps whatever text follows the "%". The key
+    # becomes an alert field and a counter name, so keep the address only.
+    s = s.split('%', 1)[0]
     try:
         return str(ipaddress.ip_address(s))
     except ValueError:
@@ -54697,6 +54877,7 @@ def handle_scan_delete(scan_id):
     gets a 409 when it tries to report, since the record is gone."""
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
+    require_auth()        # before the lookup: a 404 first would say which scans exist
     scan_id = _sanitize_str(scan_id, 32)
     s0 = (load(SCANS_FILE) or {}).get(scan_id)
     if not isinstance(s0, dict):
@@ -54937,7 +55118,7 @@ def _classify_scan_target(s):
     # strip a :port suffix (but not part of an IPv6 literal)
     if s.count(':') == 1:
         s = s.split(':', 1)[0]
-    if not s:
+    if not s or '%' in s:
         return None, ''
     try:
         import ipaddress
@@ -58687,7 +58868,7 @@ def handle_audit_log_clear():
         respond(403, {'error': 'This account has no local password — you sign in via SSO or a passkey. '
                                'Clearing the audit log requires a local admin password: set one under '
                                'My Account, or use an admin account that has one.'})
-    if not verify_password(pw, stored):
+    if not reauth_check(actor, pw, stored):
         respond(403, {'error': 'Incorrect admin password.'})
     # v7.0.2: the archive is a PRECONDITION of the wipe, not a best effort.
     #
@@ -59717,7 +59898,7 @@ def handle_alert_act():
     # Verify the SIGNATURE first, then the deadline. Checking the clock first
     # would answer differently for a well-formed expired link and a forged one,
     # which tells an attacker when they have the key right.
-    if not hmac.compare_digest(sig, _alert_act_sig(aid, op, exp)):
+    if not _ct_token_eq(sig, _alert_act_sig(aid, op, exp)):
         _public_action_page('Invalid link', 'This action link is not valid or has expired.')
     if exp <= int(time.time()):
         _public_action_page('Link expired',
@@ -61074,7 +61255,7 @@ def handle_inbound_webhook(token_str):
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+        if _ct_token_eq(token_str, t.get('token', '')) and t.get('enabled', True):
             match = t
             break
     if not match:
@@ -61226,7 +61407,7 @@ def handle_inbound_webhook(token_str):
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
-                if hmac.compare_digest(t.get('token', ''), token_str):
+                if _ct_token_eq(token_str, t.get('token', '')):
                     t['last_seen'] = int(time.time())
                     t['hit_count'] = int(t.get('hit_count', 0)) + 1
                     break
@@ -61551,7 +61732,7 @@ def handle_syslog_in(token_str):
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+        if _ct_token_eq(token_str, t.get('token', '')) and t.get('enabled', True):
             match = t
             break
     if not match:
@@ -61644,7 +61825,7 @@ def handle_syslog_in(token_str):
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
-                if t.get('token') == token_str:
+                if _ct_token_eq(token_str, t.get('token', '')):
                     t['last_seen'] = now
                     t['hit_count'] = int(t.get('hit_count', 0)) + 1
                     break
@@ -61714,7 +61895,7 @@ def handle_snmp_trap_in(token_str):
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+        if _ct_token_eq(token_str, t.get('token', '')) and t.get('enabled', True):
             match = t
             break
     if not match:
@@ -61821,7 +62002,7 @@ def handle_snmp_trap_in(token_str):
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
-                if t.get('token') == token_str:
+                if _ct_token_eq(token_str, t.get('token', '')):
                     t['last_seen'] = now
                     t['hit_count'] = int(t.get('hit_count', 0)) + 1
                     break

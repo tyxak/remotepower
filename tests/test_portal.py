@@ -95,6 +95,11 @@ class TestPortalGate(_Base):
 
 class TestMagicLink(_Base):
     def test_constant_response_regardless_of_email(self):
+        # An enabled portal always has a canonical URL (handle_config_save requires
+        # one), and the sign-in link is built from nothing else.
+        api.save(api.CONFIG_FILE, {'portal_enabled': True,
+                                   'portal_base_url': 'https://portal.trusted.example'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
         api.smtp_notifier = type('X', (), {'send_email': staticmethod(lambda *a, **k: None)})
         api.method = lambda: 'POST'
         self._contact('ct_a', 'known@x.io', 's1')
@@ -271,6 +276,26 @@ class TestMagicLinkHostHeader(_Base):
         self.call(api.handle_portal_magic_link)
         self.assertIn('https://portal.trusted.example/portal#token=', sent.get('body', ''))
         self.assertNotIn('evil.attacker.tld', sent.get('body', ''))
+
+
+    def test_no_configured_url_sends_no_link_rather_than_one_from_the_host(self):
+        # An install that enabled the portal before the save-time guard existed (or
+        # restored a config without the URL) has portal_enabled and no
+        # portal_base_url. The link must not then be built from the request's Host:
+        # that mails the real contact a live sign-in nonce at the attacker's origin.
+        api.save(api.CONFIG_FILE, {'portal_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._contact('ct_a', 'a@x.io', 's1')
+        sent = []
+        api.smtp_notifier = type('X', (), {'send_email': staticmethod(
+            lambda cfg, to, subj, body, **k: sent.append(body))})
+        self._env_val['HTTP_HOST'] = 'evil.attacker.tld'
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'email': 'a@x.io'}
+        out = self.call(api.handle_portal_magic_link)
+        self.assertEqual(self._last.status, 200)             # same answer as any other address
+        self.assertEqual(sent, [])                           # and nothing was mailed
+        self.assertEqual((api.load(api.PORTAL_STATE_FILE) or {}).get('nonces') or {}, {})
 
 
 class TestReplyRateLimit(_Base):

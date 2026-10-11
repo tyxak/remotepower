@@ -467,6 +467,8 @@ def public_ip(value):
         a = ipaddress.ip_address(str(value or "").strip())
     except ValueError:
         return None
+    if getattr(a, "scope_id", None):
+        return None  # "2606:4700::1%anything" parses; the text after % is not an address
     if getattr(a, "ipv4_mapped", None):
         a = a.ipv4_mapped
     if not a.is_global or a.is_multicast:

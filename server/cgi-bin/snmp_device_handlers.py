@@ -45,6 +45,9 @@ def handle_device_snmp(dev_id):
     GET   → returns the device's SNMP config + latest polled data.
     PATCH → admin-only; saves SNMP config (community, port, enabled).
     """
+    # Authenticate first: a 400/404 ahead of the 401 tells an anonymous caller
+    # which device ids exist.
+    A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'})
     devs = A.load(A.DEVICES_FILE)

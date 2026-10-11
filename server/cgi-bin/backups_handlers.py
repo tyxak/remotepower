@@ -812,6 +812,7 @@ def handle_backup_job_run(job_id):
     with multiple, queue on all and return the count."""
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
+    A.require_auth()      # before the lookup: a 404 first would say which jobs exist
     data = A._backup_jobs_load()
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
     if not job:

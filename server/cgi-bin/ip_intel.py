@@ -148,9 +148,19 @@ _BLOCK_MARKER = 'rp-ipintel'
 # ── addresses ──────────────────────────────────────────────────────────────────
 
 def parse_ip(value):
-    """Normalised address string, or None. Hostnames are not looked up."""
+    """Normalised address string, or None. Hostnames are not looked up.
+
+    An IPv6 zone id ("fe80::1%eth0") is refused. `ipaddress` accepts anything
+    after the `%` (`2606:4700::1%$(id)` parses), keeps it in `str()`, and the
+    address then passes `is_public`. This string is interpolated into the
+    firewall command the agent runs as root, so the text after a `%` would be a
+    shell command. A zone id also names an interface on the sender's own link,
+    so it never belongs to an attacker reachable from the internet."""
+    s = str(value or '').strip()
+    if '%' in s:
+        return None
     try:
-        return str(ipaddress.ip_address(str(value or '').strip()))
+        return str(ipaddress.ip_address(s))
     except ValueError:
         return None
 
@@ -163,6 +173,8 @@ def is_public(ip):
         a = ipaddress.ip_address(ip)
     except ValueError:
         return False
+    if getattr(a, 'scope_id', None):
+        return False            # a zone id is link-local metadata, never a public source
     if getattr(a, 'ipv4_mapped', None):
         a = a.ipv4_mapped
     return bool(a.is_global) and not a.is_multicast

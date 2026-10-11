@@ -71,6 +71,10 @@ def valid_port(p) -> bool:
 
 
 def valid_cidr(s) -> bool:
+    # `ipaddress` accepts an IPv6 zone id ("2606::1%anything", even with a
+    # newline in it), and the value is written into a WireGuard config as is.
+    if "%" in str(s):
+        return False
     try:
         ipaddress.ip_network(str(s), strict=False)
         return True
@@ -79,6 +83,8 @@ def valid_cidr(s) -> bool:
 
 
 def valid_host_ip(s) -> bool:
+    if "%" in str(s):
+        return False
     try:
         ipaddress.ip_address(str(s))
         return True

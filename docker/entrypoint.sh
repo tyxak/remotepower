@@ -254,8 +254,12 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
         # mismatch even though it trusts the right CA. Harmless to include
         # even when the scanner is disabled.
         echo "[*] RP_TLS_SELFSIGNED set — generating self-signed CA + leaf for ${TLS_HOST} (+ remotepower)"
-        /usr/local/bin/rp-gen-ca --host "$TLS_HOST" --host remotepower --dir "$TLS_DIR" >/tmp/genca.log 2>&1 || {
-            echo "[!] cert generation failed:"; cat /tmp/genca.log; exit 1; }
+        # mktemp: a fixed /tmp name is writable by the unprivileged nginx/gunicorn user, who
+        # could pre-place a symlink and have this root redirect overwrite its target.
+        GENCA_LOG="$(mktemp)" || exit 1
+        /usr/local/bin/rp-gen-ca --host "$TLS_HOST" --host remotepower --dir "$TLS_DIR" >"$GENCA_LOG" 2>&1 || {
+            echo "[!] cert generation failed:"; cat "$GENCA_LOG"; rm -f "$GENCA_LOG"; exit 1; }
+        rm -f "$GENCA_LOG"
     fi
     chown -R www-data:www-data "$TLS_DIR" 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/remotepower-tls /etc/nginx/sites-enabled/remotepower

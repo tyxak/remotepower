@@ -637,7 +637,8 @@ class TestV342SettingsActions(unittest.TestCase):
     # ── sign requires admin password ─────────────────────────────────────────
     def test_sign_requires_password(self):
         body = py_function(self.API, 'handle_signing_sign')
-        self.assertIn('verify_password(', body)
+        # `reauth_check` is verify_password behind the per-account lockout
+        self.assertTrue('verify_password(' in body or 'reauth_check(' in body, body)
         self.assertIn('password required to sign', body)
         self.assertIn("api('POST', '/signing/sign', { password: pw })", self.APP)
 
@@ -1051,7 +1052,7 @@ class TestV342ReviewFixes(unittest.TestCase):
 
     def test_disable_signing_requires_password(self):
         body = py_function(self.API, 'handle_signing_toggle')
-        self.assertIn('verify_password', body)
+        self.assertTrue('verify_password' in body or 'reauth_check' in body, body)
         self.assertIn('if not enabled:', body)
         # Frontend prompts for the password on disable.
         self.assertIn('admin password', self.APP)

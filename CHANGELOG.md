@@ -171,6 +171,69 @@ It is in `docs/security-review-7.3.0.md`.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
 
+### Security
+
+A pass over the whole project, server, agents and containers, rather than over what
+is new in this release. It found the issues below. None came from the field, all
+are fixed here, and each has a test that fails without its fix.
+
+- **A session's stored hash was a working session.** `tokens.json` is keyed by the
+  SHA-256 of each bearer token so that a leaked copy (a backup, a database dump, a
+  support bundle) yields no usable session. A fallback for sessions from before that
+  change also looked the presented value up as a raw key, so the hash read from the
+  file, sent as the token, signed the reader in as that user. The enrolment-token
+  store had the same fallback and let a stored hash enrol a device. Both fallbacks
+  now refuse a value shaped like a stored hash.
+- **A correct password bought unlimited second-factor guesses.** The failure
+  counter was cleared as soon as the password was right, before the TOTP code was
+  looked at, so every attempt started again from zero and the lockout was never
+  reached. It now clears only once the whole sign-in has passed.
+- **A name that does not exist answered faster than a wrong password.** It was
+  checked against a stand-in that was not a real password hash, so no hashing
+  happened and the difference in response time told a caller which user names
+  exist. The stand-in is now a real hash.
+- **The "type your password to confirm" prompts could be guessed at without
+  limit.** Step-up, the web terminal, SSH-gateway keys, signing the agent release,
+  turning off signing enforcement, clearing the audit log, switching off 2FA,
+  regenerating recovery codes and changing a password are what stop a stolen
+  session on its own, and each could be tried as often as the caller liked. They
+  now share a lockout of their own (the sign-in ladder, in its own bucket, so a
+  locked prompt does not lock the sign-in).
+- **An IPv6 zone id reached a root shell.** `ipaddress` accepts anything after a
+  `%` (`2606:4700::1%$(id)` parses and still counts as a public address), and the
+  threat-intel block command interpolates the address into what the agent runs as
+  root. The address checks in threat intel, the edge list, WireGuard, the log
+  sensor, the fail2ban action, scan targets, the TLS host check and the CMDB and
+  IPAM fields now refuse a `%`.
+- **The customer portal's sign-in link fell back to the request's Host header** on
+  an install that enabled the portal without a Portal public URL (the save-time
+  check does not cover an older install, a restored backup or an imported
+  configuration). A forged Host mailed the real contact a live sign-in nonce at the
+  attacker's address. With no URL set, no link is sent.
+- **An unauthenticated caller could grow the rate-limit store for ever.** One
+  document holds every limiter's state, nothing removed a quiet entry, and each
+  limited request rewrote the whole document, so a fresh user name per failed login
+  or a fresh address per request slowed login and enrolment for everyone and filled
+  the disk. Entries that can no longer matter are dropped, a cap holds, and a
+  lockout still running is never the one evicted.
+- **A 6-digit enrolment PIN was limited per source address only**, which means
+  nothing to a caller with a different address for each guess. Guesses now also share
+  one server-wide budget; enrolment tokens are not charged to it.
+- **A 404 or 400 came before the 401** in the device SSH, SNMP, RouterOS and
+  OPNsense routes, ticket hours, scan delete, backup-job run and every route that
+  takes a tag or a group, so an anonymous caller could tell which ids, tags and
+  groups exist. Authentication comes first.
+- Smaller: a non-ASCII value in a signed alert-action link, a survey link, an inbound
+  webhook path, the billing secret or the SCIM token was a server error instead of a
+  refusal; the heartbeat's debug line wrote a device id and version straight from an
+  unauthenticated body, so a newline forged log lines; any signed-in role could run
+  every monitor again as often as it liked; a malformed or hostile SNMP answer
+  (an arc too large to print, a truncated datagram) was an IndexError or ValueError
+  where every caller expects an SnmpError; the installers wrote their logs and the
+  fetched CA to fixed names in `/tmp` as root; and in the compose file Postgres, with
+  its published fallback password, shared a network with the scanner. It is on a
+  private network that only the app joins.
+
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
@@ -181,6 +244,13 @@ The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as
 a repeat is counted as done, so nothing breaks while both run.
+
+Two things behave differently after the security fixes above. A customer portal
+that was enabled without a **Portal public URL** sends no sign-in email until one
+is set under Settings → Customer portal (it used to fall back to the request's
+Host header). And the "type your password to confirm" prompts, the second-factor
+check at sign-in and enrolment by PIN now lock out after repeated wrong answers,
+so a user who mistypes ten times waits ten seconds, then longer if they keep going.
 
 ## v7.2.0 — "Ev1denceMatters" — 2026-10-06
 

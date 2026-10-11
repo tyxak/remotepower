@@ -261,7 +261,19 @@ def _build_get_request(community, request_id, oids):
 
 
 def _parse_response(buf, expected_request_id):
-    """Parse a v2c SNMP response and return {oid: value}."""
+    """Parse a v2c SNMP response and return {oid: value}. A malformed answer
+    (truncated, an arc too large to print, a length that runs off the end) is an
+    SnmpError like any other failed poll, not an IndexError or ValueError that
+    the callers, which catch SnmpError, would let through."""
+    try:
+        return _parse_response_unchecked(buf, expected_request_id)
+    except SnmpError:
+        raise
+    except (IndexError, ValueError, OverflowError, struct.error, UnicodeError) as e:
+        raise SnmpError(f'malformed response ({type(e).__name__})')
+
+
+def _parse_response_unchecked(buf, expected_request_id):
     tag, body, _ = _decode_tlv(buf, 0)
     if tag != TAG_SEQUENCE:
         raise SnmpError(f'response not a SEQUENCE (tag=0x{tag:02x})')
@@ -283,7 +295,17 @@ def _parse_response(buf, expected_request_id):
 
 def _parse_pdu_body(pdu_body, expected_request_id):
     """Parse a GetResponse PDU *body* (request-id / error-status / varbinds)
-    into {oid: value}. Shared by the v2c and v3 response paths."""
+    into {oid: value}. Shared by the v2c and v3 response paths. Malformed input
+    is an SnmpError (see _parse_response)."""
+    try:
+        return _parse_pdu_body_unchecked(pdu_body, expected_request_id)
+    except SnmpError:
+        raise
+    except (IndexError, ValueError, OverflowError, struct.error, UnicodeError) as e:
+        raise SnmpError(f'malformed response ({type(e).__name__})')
+
+
+def _parse_pdu_body_unchecked(pdu_body, expected_request_id):
     inner = 0
     t, rid_bytes, inner = _decode_tlv(pdu_body, inner)
     if t != TAG_INTEGER:

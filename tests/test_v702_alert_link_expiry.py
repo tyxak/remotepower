@@ -168,7 +168,11 @@ class TestTheEndpointEnforcesIt(unittest.TestCase):
         """Answering differently for a well-formed expired link and a forged one
         tells an attacker when they have the key right."""
         body = srcpin.py_function((_CGI / 'api.py').read_text(), 'handle_alert_act')
-        self.assertLess(body.index('compare_digest'), body.index('Link expired'))
+        # the signature check is `_ct_token_eq` (compare_digest on bytes, which a
+        # non-ASCII value cannot turn into an exception) or compare_digest itself
+        checks = [i for i in (body.find('compare_digest'), body.find('_ct_token_eq')) if i >= 0]
+        self.assertTrue(checks, 'no constant-time signature check found')
+        self.assertLess(min(checks), body.index('Link expired'))
 
 
 class TestTheMintedLinkCarriesIt(unittest.TestCase):

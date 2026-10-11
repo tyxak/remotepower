@@ -11254,8 +11254,8 @@ def _ts_ip(value):
     """The address as a string when it is globally routable unicast, else None.
     Private, loopback and reserved sources are somebody's own network."""
     s = str(value or '').strip().strip('[]')
-    if not s or len(s) > 45:
-        return None
+    if not s or len(s) > 45 or '%' in s:
+        return None            # a zone id ("::1%x") parses, and its text is the log writer's
     try:
         a = ipaddress.ip_address(s)
     except ValueError:
@@ -11977,6 +11977,8 @@ def _ts_generic_access(line):
     head = line[:m.start()]
     ip = None
     for tok in head.split()[:6]:
+        if '%' in tok:
+            continue
         try:
             ipaddress.ip_address(tok.strip('[]'))
         except ValueError:

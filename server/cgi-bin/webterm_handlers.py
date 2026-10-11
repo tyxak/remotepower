@@ -131,10 +131,10 @@ def handle_webterm_auth():
     user = users.get(actor)
     if not user:
         A.respond(403, {'error': 'User no longer exists'})
-    if not A.verify_password(admin_password, user.get('password_hash', '')):
+    if not A.reauth_check(actor, admin_password, user.get('password_hash', '')):
         # Audit-log the failure so a brute-force attempt against this
-        # endpoint shows up. Real defence is the rate limiter on the
-        # CGI; this is just visibility.
+        # endpoint shows up. The defence is reauth_check above: failures count
+        # toward a per-account lockout, and this audit line is the visibility.
         A.audit_log(actor, 'webterm_auth_failed', f'device={dev_id}')
         A.respond(403, {'error': 'Admin password did not match'})
 

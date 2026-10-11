@@ -201,13 +201,8 @@ def handle_sshgw_keys():
         # credential that outlives it. Accounts with no local password and no
         # TOTP (SSO-only) have nothing to re-verify, matching require_step_up.
         if me.get('password_hash') or me.get('totp_secret'):
-            ok = False
-            pw = str(body.get('password') or '')
-            if me.get('password_hash') and pw:
-                ok = A.verify_password(pw, me['password_hash'])
-            code = str(body.get('totp_code') or '').strip()
-            if not ok and me.get('totp_secret') and code:
-                ok = code in A._totp(me['totp_secret'])
+            ok = A.reauth_check(actor, body.get('password'), me.get('password_hash'),
+                                me.get('totp_secret'), body.get('totp_code'))
             if not ok:
                 A.audit_log(actor, 'sshgw_key_add_failed', 'password/TOTP did not verify')
                 A.respond(403, {'error': 'Password or TOTP code did not verify'})

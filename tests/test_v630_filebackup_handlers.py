@@ -34,6 +34,7 @@ class _Base(unittest.TestCase):
         self.api.save(self.api.BACKUP_JOBS_FILE, {'jobs': []})
         self.api.audit_log = lambda *a, **k: None
         self.api.log_command = lambda *a, **k: None
+        self.api.require_auth = lambda *a, **k: 'admin'      # the run handler authenticates before its lookup
         self.api.require_admin_auth = lambda *a, **k: 'admin'
         self.api.require_perm = lambda *a, **k: 'admin'
         self.api._scope_block_device = lambda *a, **k: None

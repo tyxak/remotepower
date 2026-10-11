@@ -85,6 +85,9 @@ def handle_device_routeros(dev_id):
     """GET /api/devices/<id>/routeros — redacted config + (if enabled) a live
     RouterOS REST overview. PATCH — admin; save {enabled, username, password,
     port, verify} (empty password preserves the stored one). v7+ REST."""
+    # Authenticate first: a 400/404 ahead of the 401 tells an anonymous caller
+    # which device ids exist.
+    A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'})
     devs = A.load(A.DEVICES_FILE)
@@ -307,6 +310,9 @@ def handle_device_opnsense(dev_id):
     """GET /api/devices/<id>/opnsense — redacted config + (if enabled) a live
     overview. PATCH — admin; save {enabled, api_key, api_secret, port,
     verify} (empty api_secret preserves the stored one)."""
+    # Authenticate first: a 400/404 ahead of the 401 tells an anonymous caller
+    # which device ids exist.
+    A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'})
     devs = A.load(A.DEVICES_FILE)

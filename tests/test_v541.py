@@ -1152,7 +1152,10 @@ class TestEnrollmentTokenHashing(unittest.TestCase):
 
     def test_source_wiring(self):
         src = _apisrc_combined()
-        self.assertIn("_ekey = _eh if _eh in tokens else enroll_token", src)   # consume
+        # consume: the hash first, then the plaintext key a pre-hashing entry used, but
+        # never a value shaped like a stored hash (see test_token_hash_not_a_credential)
+        self.assertIn("_ekey = _eh if _eh in tokens else (", src)
+        self.assertIn("'' if _looks_hashed_key(enroll_token) else enroll_token)", src)
         self.assertIn("(m.get('prefix') or k).startswith(prefix)", src)        # revoke
         self.assertIn("(meta.get('prefix') or token[:8])", src)                # list
 

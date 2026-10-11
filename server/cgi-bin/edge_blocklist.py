@@ -70,8 +70,11 @@ def canonical(value):
     """The one spelling of an address or network, or None. A host route is the bare
     address, and an IPv6 address is the compressed form, so a list read back from
     Cloudflare compares equal to what was sent."""
+    text = str(value or "").strip()
+    if "%" in text:
+        return None  # a zone id parses ("2606::1%x") and survives str(); never a list entry
     try:
-        net = ipaddress.ip_network(str(value or "").strip(), strict=False)
+        net = ipaddress.ip_network(text, strict=False)
     except ValueError:
         return None
     if net.prefixlen == net.max_prefixlen:

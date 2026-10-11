@@ -639,7 +639,7 @@ def handle_itsm_callback(token_str):
         A.respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if A.hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+        if A._ct_token_eq(token_str, t.get('token', '')) and t.get('enabled', True):
             match = t
             break
     if not match:
