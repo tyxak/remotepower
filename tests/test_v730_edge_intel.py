@@ -284,6 +284,31 @@ class TestTheSweep(_Edge):
         seen = st['attackers'][SECOND]['devices']['edge:trap']
         self.assertEqual(seen['not_blocked'], 'seen at the edge only, so there is no host to block it on')
 
+    def test_the_fleet_switch_blocks_an_edge_address_on_every_linux_agent(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.poll()
+        st = self.sweep()
+        api = self.api
+        linux = [d for d, v in (api.load(api.DEVICES_FILE) or {}).items()
+                 if not v.get('agentless') and api._device_os_family(v) == 'linux']
+        self.assertTrue(linux, 'the fixture has Linux agents')
+        for dev in linux:
+            self.assertTrue([c for c in self.queued(dev) if 'rp-ipintel' in c], dev)
+            self.assertEqual(st['blocks'][dev][SECOND]['kind'], 'edge')
+        self.assertNotIn('not_blocked', st['attackers'][SECOND]['devices']['edge:trap'])
+
+    def test_the_fleet_switch_is_off_by_default(self):
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False)
+        self.poll()
+        self.assertEqual(self.sweep().get('blocks') or {}, {})
+
+    def test_the_fleet_switch_skips_a_tenanted_install(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        with mock.patch.object(self.api, '_tenancy_enforced', return_value=True):
+            self.poll()
+            st = self.sweep()
+        self.assertEqual(st.get('blocks') or {}, {})
+
     def test_the_same_window_is_not_read_twice(self):
         self.poll()
         first = [c for c in self.cf_calls if c['url'].endswith('/graphql')]

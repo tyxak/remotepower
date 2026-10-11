@@ -64,6 +64,7 @@ DEFAULTS = {
     'report_enabled': False,
     'block_enabled': False,
     'block_min_score': 90,        # merged confidence needed to block
+    'block_edge_hosts': False,    # also block edge-found addresses on every Linux agent
     'block_ttl_hours': 24,        # blocks lift themselves after this
     'block_max_per_hour': 20,     # per host; a cap on a runaway
     'report_min_count': 10,       # failed attempts seen before reporting

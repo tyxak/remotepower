@@ -227,6 +227,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-lookup', s.lookup_enabled);
   chk('ipintel-report', s.report_enabled);
   chk('ipintel-block', s.block_enabled);
+  chk('ipintel-block-edge-hosts', s.block_edge_hosts);
   chk('ipintel-sensor', s.sensor_enabled);
   set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
   set('ipintel-min-score', s.block_min_score ?? 90);
@@ -769,6 +770,7 @@ async function saveIpIntelSettings() {
     lookup_enabled: v('ipintel-lookup').checked,
     report_enabled: v('ipintel-report').checked,
     block_enabled: v('ipintel-block').checked,
+    block_edge_hosts: v('ipintel-block-edge-hosts').checked,
     sensor_enabled: v('ipintel-sensor').checked,
     sensor_paths: v('ipintel-sensor-paths').value,
     block_min_score: v('ipintel-min-score').value,

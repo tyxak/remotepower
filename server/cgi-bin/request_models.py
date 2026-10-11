@@ -2674,6 +2674,7 @@ if _AVAILABLE:
         clear_edge_token: bool = False
         edgelist_enabled: Any = None
         edgelist_own: Any = None
+        block_edge_hosts: Any = None
         edgelist_abuseipdb: Any = None
         edgelist_sniffcat: Any = None
         edgelist_name: Any = None

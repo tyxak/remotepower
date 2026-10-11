@@ -405,6 +405,7 @@ def _store_ro():
     return (A._load_ro(A.IPINTEL_FILE) or {}) if A.backend_exists(A.IPINTEL_FILE) else {}
 
 
+EDGE_FANOUT_PER_SWEEP = 100  # host blocks queued per sweep for edge-found addresses
 NET_PER_SWEEP = 25          # addresses per sweep that cost a network call
 SWEEP_MAX = 500             # addresses per sweep in all: the ones that cost nothing are free
 LEDGER_S = 86400            # how long an address's evidence is kept before it starts over
@@ -596,6 +597,7 @@ def run_ip_intel_if_due():
     if not st_ro.get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now):
         return
 
+    edge_fanout = 0      # host blocks queued this sweep for edge-found addresses
     commands = []        # (dev_id or None, command or None, audit action, detail)
 
     # ── phase 1 ──
@@ -779,8 +781,40 @@ def run_ip_intel_if_due():
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
+            fanned = False
             if dev_id in ip_intel.EDGE_DEVICES:
+                # The edge has no host of its own. With the operator's say-so the
+                # address is blocked on every Linux agent instead, which stops
+                # direct connections to the origin (a proxied visitor arrives from
+                # Cloudflare's addresses and is only stopped by the edge list).
+                # One tenant's edge data never blocks another tenant's hosts.
+                fan = ok and pol.get('block_edge_hosts') and not A._tenancy_enforced()
                 ok, why = False, 'seen at the edge only, so there is no host to block it on'
+                if fan:
+                    if protected is None:
+                        protected = _protected_networks(pol, devices)
+                    nb = ip_intel.never_block_reason(ip, protected)
+                    if nb:
+                        why = nb
+                    else:
+                        reached = 0
+                        for hid, hd in sorted(devices.items()):
+                            if edge_fanout >= EDGE_FANOUT_PER_SWEEP:
+                                break
+                            if (not isinstance(hd, dict) or hd.get('agentless')
+                                    or A._device_os_family(hd) != 'linux'
+                                    or ip in (blocks.get(hid) or {})
+                                    or _blocks_last_hour(blocks, hid, now) >= int(pol['block_max_per_hour'])):
+                                continue
+                            blocks.setdefault(hid, {})[ip] = {
+                                'at': now, 'until': now + int(pol['block_ttl_hours']) * 3600,
+                                'score': verdict.get('score'), 'by': 'auto', 'kind': 'edge'}
+                            commands.append((hid, 'exec:' + ip_intel.block_command(ip), 'ip_intel_block',
+                                             f"device={hid} ip={ip} score={verdict.get('score')} auto edge"))
+                            edge_fanout += 1
+                            reached += 1
+                        fanned = True
+                        why = '' if reached else 'already blocked on every host, or the hourly limit was reached'
             dev = devices.get(dev_id)
             if ok and (not isinstance(dev, dict) or dev.get('agentless')
                        or A._device_os_family(dev) != 'linux'):
@@ -804,7 +838,7 @@ def run_ip_intel_if_due():
                     'score': verdict.get('score'), 'by': 'auto', 'kind': p['kind']}
                 commands.append((dev_id, 'exec:' + ip_intel.block_command(ip), 'ip_intel_block',
                                  f"device={dev_id} ip={ip} score={verdict.get('score')} auto"))
-            elif pol['block_enabled']:
+            elif pol['block_enabled'] and not (fanned and not why):
                 seen[dev_id]['not_blocked'] = why
         if len(atts) > ATTACKER_CAP:
             oldest = sorted(atts, key=lambda k: int((atts[k] or {}).get('last_seen') or 0))
@@ -992,7 +1026,8 @@ def handle_ip_intel_settings():
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
         for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled',
                   'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules',
-                  'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat'):
+                  'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
+                  'block_edge_hosts'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')

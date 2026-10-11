@@ -167,13 +167,14 @@ It is in `docs/security-review-7.3.0.md`.
   replay a window, and a feed that cannot read does not move its cursor.
 - **The demo carries edge attackers and feed state**, so the rendered gates
   measure the new cards.
+- **Edge addresses can be blocked on every Linux agent.** A new switch next to automatic blocking blocks an address the edge feeds found on each Linux agent, with the same score, never-block and hourly limits. It is off by default and skipped on a multi-tenant install.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
 
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-51`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-52`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
