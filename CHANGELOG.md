@@ -125,6 +125,11 @@ It is in `docs/security-review-7.3.0.md`.
   every host block RemotePower made for the address.
 - **A ban leaves the list when it ends.** The sweep is due when a ban expires, so
   it does not wait for the next scheduled sync.
+- **A big fleet is done in steps.** Hosts are queued 20 at a time for up to 25
+  seconds, because every host's command can fire its own webhook. The record of a
+  block is written before its command, so a request that dies half way leaves a
+  record the expiry sweep lifts, never a rule nothing remembers; hosts not reached
+  are reported and a second **Ban** carries on.
 - **The table says what the list holds.** An address the last sync put in the list
   reads `in the edge blocklist`, one you banned reads `banned at the edge`, and an
   address the edge holds is no longer described as `not blocked`.

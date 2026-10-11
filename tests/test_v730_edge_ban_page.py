@@ -292,6 +292,11 @@ class TestTheRowAndTheDialog(unittest.TestCase):
         self.assertIn('2 <span>queued</span> · 1 <span>waiting for approval</span> · '
                       '1 <span>already blocked, time extended</span> · 3 <span>skipped: not a Linux agent you can reach</span>', h)
 
+    def test_hosts_that_were_not_reached_are_said_so(self):
+        r = self.apply({'hosts': True, 'which': 'all'},
+                       {'ok': True, 'hosts': {'queued': 40, 'deferred': 60, 'failed': []}})
+        self.assertIn('60 <span>not reached in time: ban again to continue</span>', r['result']['innerHTML'])
+
     def test_a_held_sync_gives_its_reason_in_the_words_of_the_card(self):
         r = self.apply({'edge': True}, {'ok': True, 'edge': {'state': 'held', 'why': 'The list would shrink by more than half.'}})
         self.assertIn('<span class="c-amber"><span>The list would shrink by more than half.</span></span>',

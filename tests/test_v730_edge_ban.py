@@ -212,6 +212,63 @@ class TestBanOnHosts(_Bans):
         self.assertIn('quarantined', d['hosts']['failed'][0]['error'])
         self.assertNotIn('d2', self.store().get('blocks', {}))
 
+    def many_hosts(self, n):
+        devs = {f'm{i}': {'name': f'm{i}', 'os': 'Ubuntu 24.04', 'token': 't', 'ip': f'10.2.0.{i + 1}'}
+                for i in range(n)}
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self.api._LOAD_CACHE.clear()
+        return sorted(devs)
+
+    def test_the_record_is_written_before_the_commands_so_a_crash_leaves_it(self):
+        """A request that dies half way must leave a record for every rule that may
+        exist: the expiry sweep lifts those, and nothing is left on a host that no
+        record remembers."""
+        ids = self.many_hosts(6)
+        mod = self.api.edge_blocklist_handlers_mod
+        mod.BAN_CHUNK = 2
+        real = self.api._queue_command_batch
+        calls = []
+
+        def dies_on_the_second_step(dev_ids, cmd, actor):
+            calls.append(list(dev_ids))
+            if len(calls) == 2:
+                raise RuntimeError('worker killed')
+            return real(dev_ids, cmd, actor)
+        self.api._queue_command_batch = dies_on_the_second_step
+        try:
+            with self.assertRaises(RuntimeError):
+                self.ban(hosts='all')
+        finally:
+            self.api._queue_command_batch = real
+            mod.BAN_CHUNK = 20
+        self.assertEqual(sorted(self.store()['blocks']), ids, 'every host has a record')
+
+    def test_a_budget_stops_new_steps_and_forgets_what_was_not_reached(self):
+        ids = self.many_hosts(7)
+        mod = self.api.edge_blocklist_handlers_mod
+        mod.BAN_CHUNK = 3
+        ticks = iter([0, 100, 200, 300])          # the second step starts after the budget
+        real = mod._mono
+        mod._mono = lambda: next(ticks)
+        try:
+            st, d = self.ban(hosts='all')
+        finally:
+            mod._mono = real
+            mod.BAN_CHUNK = 20
+        self.assertEqual(st, 200)
+        self.assertEqual((d['hosts']['queued'], d['hosts']['deferred'], d['hosts']['matched']), (3, 4, 7))
+        self.assertEqual([k for k in ids if self.queue(k)], ids[:3])
+        self.assertEqual(sorted(self.store()['blocks']), ids[:3], 'what was not reached has no record')
+        # asking again finishes the rest and extends the first three
+        ticks2 = iter(range(0, 1000, 1))
+        mod._mono = lambda: next(ticks2)
+        try:
+            st, d = self.ban(hosts='all', _at=T + 30)
+        finally:
+            mod._mono = real
+        self.assertEqual((d['hosts']['queued'], d['hosts']['extended'], d['hosts']['deferred']), (4, 3, 0))
+        self.assertEqual(sorted(self.store()['blocks']), ids)
+
     def test_four_eyes_parks_each_host_and_says_so(self):
         self.api._needs_approval = lambda kind, cfg=None: True
         self.api._park_for_approval = lambda *a, **k: 'conf-1'

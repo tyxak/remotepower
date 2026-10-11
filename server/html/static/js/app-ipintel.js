@@ -111,6 +111,7 @@ const _IPI_BAN_WORD = {
   edge_adopt: 'it goes in once the list has been taken over',
   host_queued: 'queued', host_approval: 'waiting for approval', host_extended: 'already blocked, time extended',
   host_skipped: 'skipped: not a Linux agent you can reach',
+  host_deferred: 'not reached in time: ban again to continue',
   seen_by: 'Hosts that saw it', of_hosts: 'Linux hosts in all',
   off_note: 'Turn on the Edge blocklist under Security → Threat intel → Edge blocklist to ban at the edge.',
   operator_note: 'Only the platform operator can ban at the edge.',
@@ -893,7 +894,8 @@ function _ipiBanResultHtml(d) {
   if (d.hosts) {
     const h = d.hosts, bits = [];
     for (const [n, word] of [[h.queued, B.host_queued], [h.approval, B.host_approval],
-                             [h.extended, B.host_extended], [h.skipped, B.host_skipped]]) {
+                             [h.extended, B.host_extended], [h.skipped, B.host_skipped],
+                             [h.deferred, B.host_deferred]]) {
       if (n) bits.push(`${escHtml(String(n))} ${_ipiPhrase(word)}`);
     }
     out.push(`<div>${_ipiPhrase(B.hosts_label)} ${bits.join(' · ') || '0'}</div>`);

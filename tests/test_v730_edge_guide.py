@@ -382,6 +382,7 @@ class TestTheBlocklistSection(unittest.TestCase):
         self.assertEqual(ebh.BAN_HOURS_MAX, 2160)
         part = self.sec.split('### Ban an address by hand')[1]
         self.assertIn('lasts 1 hour, 24 hours, 7, 30 or 90 days', part)
+        self.assertIn('steps of %d hosts for up to %d seconds' % (ebh.BAN_CHUNK, ebh.BAN_BUDGET_S), part)
 
     def test_the_phrases_the_table_shows_are_the_pages(self):
         part = self.sec.split('### What the Attackers table says about it')[1].split('###')[0]

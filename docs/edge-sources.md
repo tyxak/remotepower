@@ -384,7 +384,7 @@ The Attackers table on **Security → Threat intel** has a **Ban** button on eve
 
 The two stop different traffic. A visitor who reaches your sites through Cloudflare arrives from Cloudflare's addresses, so a rule on a host only stops connections that reach it directly, such as SSH, mail or the origin's own address. The edge ban is what stops proxied visitors, so an address seen only at the edge is usually an edge ban.
 
-The protections of a block apply: RemotePower will not ban your own hosts, your allow-list, recent RemotePower logins, your never-block list, Cloudflare's addresses or a private address. A ban lasts 1 hour, 24 hours, 7, 30 or 90 days, and leaves the list when it ends, without waiting for the next scheduled sync. **Unban** lifts the edge ban and every host block RemotePower made for the address. An address that AbuseIPDB's blacklist or another source also names stays in the list.
+The protections of a block apply: RemotePower will not ban your own hosts, your allow-list, recent RemotePower logins, your never-block list, Cloudflare's addresses or a private address. A big fleet is done in steps of 20 hosts for up to 25 seconds. The answer says how many were not reached, and pressing **Ban** again carries on and extends the hosts that already have it. A ban lasts 1 hour, 24 hours, 7, 30 or 90 days, and leaves the list when it ends, without waiting for the next scheduled sync. **Unban** lifts the edge ban and every host block RemotePower made for the address. An address that AbuseIPDB's blacklist or another source also names stays in the list.
 
 ### What the Attackers table says about it
 

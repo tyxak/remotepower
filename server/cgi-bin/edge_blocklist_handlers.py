@@ -555,6 +555,8 @@ def handle_edge_list_sync():
 BAN_HOURS_MAX = 24 * 90
 BAN_MAX_HOSTS = 500
 BAN_SHOWN = 20                # failures listed in an answer
+BAN_CHUNK = 20                # hosts queued per step
+BAN_BUDGET_S = 25             # a request stops starting new steps after this long
 
 
 def _caller_is_operator():
@@ -684,14 +686,13 @@ def handle_ip_intel_ban():
     blocks = store.get('blocks') if isinstance(store.get('blocks'), dict) else {}
     held = [d for d in ids if int(((blocks.get(d) or {}).get(ip) or {}).get('until') or 0) > now]
     todo = [d for d in ids if d not in held]
-    results = {}
-    if todo:
-        results = A._queue_command_batch(todo, 'exec:' + ip_intel.block_command(ip), actor) or {}
-    done = [d for d in todo if (results.get(d) or {}).get('ok')]
-    approval = [d for d in done if results[d].get('approval_required')]
 
+    # The record goes in BEFORE the commands, and what was not queued is taken out
+    # after. A request that dies half way (a slow webhook on every host is enough
+    # over a big fleet) then leaves a record for a rule that may exist, which the
+    # expiry sweep lifts, and never a rule on a host that nothing remembers.
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
-        for d in held + done:
+        for d in held + todo:
             st.setdefault('blocks', {}).setdefault(d, {})[ip] = {
                 'at': now, 'until': until, 'by': actor, 'kind': 'manual'}
         if want_edge:
@@ -699,15 +700,35 @@ def handle_ip_intel_ban():
             el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
             el['attempt'] = 0           # due now: the ban goes in the list at once
             st['edgelist'] = el
+    results, deferred = {}, []
+    if todo:
+        cmd = 'exec:' + ip_intel.block_command(ip)
+        started = _mono()
+        for i in range(0, len(todo), BAN_CHUNK):
+            if i and _mono() - started > BAN_BUDGET_S:
+                deferred = todo[i:]
+                break
+            results.update(A._queue_command_batch(todo[i:i + BAN_CHUNK], cmd, actor) or {})
+    done = [d for d in todo if (results.get(d) or {}).get('ok')]
+    approval = [d for d in done if results[d].get('approval_required')]
+    undone = [d for d in todo if d not in done]
+    if undone:
+        with A._LockedUpdate(A.IPINTEL_FILE) as st:
+            for d in undone:
+                per = (st.get('blocks') or {}).get(d)
+                if isinstance(per, dict):
+                    per.pop(ip, None)
+                    if not per:
+                        st['blocks'].pop(d, None)
     A.audit_log(actor, 'ip_intel_ban',
                 f"ip={ip} edge={int(want_edge)} hosts={len(done) + len(held)} approval={len(approval)} "
-                f"hours={hours}"[:300])
+                f"deferred={len(deferred)} hours={hours}"[:300])
 
     out = {'ok': True, 'ip': ip, 'until': until, 'edge': None, 'hosts': None}
     if which:
         out['hosts'] = {'queued': len(done) - len(approval), 'approval': len(approval), 'extended': len(held),
                         'failed': _shown(results, visible), 'skipped': len(skipped),
-                        'matched': len(ids)}
+                        'deferred': len(deferred), 'matched': len(ids)}
     if want_edge:
         _sync_now()
         out['edge'] = _edge_state()
