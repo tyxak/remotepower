@@ -302,7 +302,11 @@ def _cf_error(status, body):
             if "does not have access to the path" in msg.lower() or (
                 code == "authz" and isinstance(path, list) and len(path) >= 3
             ):
-                return {"ok": False, "dataset": True, "error": msg or "this zone cannot read that dataset"}
+                return {
+                    "ok": False,
+                    "dataset": True,
+                    "error": msg or "this zone cannot read that dataset",
+                }
             if (
                 code in ("authz", "10000", "9109")
                 or "authoriz" in msg.lower()

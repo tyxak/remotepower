@@ -112,8 +112,10 @@ def clean_entries(raw, limit=MAX_ALWAYS):
         if not is_public(c):
             return [], f"Not a public address: {text[:60]}"
         if too_wide(c):
-            return [], (f"Too wide: {text[:60]} (the widest allowed is /{MIN_V4_PREFIX} for IPv4 "
-                        f"and /{MIN_V6_PREFIX} for IPv6)")
+            return [], (
+                f"Too wide: {text[:60]} (the widest allowed is /{MIN_V4_PREFIX} for IPv4 "
+                f"and /{MIN_V6_PREFIX} for IPv6)"
+            )
         if c not in seen:
             seen.add(c)
             out.append(c)
@@ -151,8 +153,11 @@ def _detail(body):
                 return "".join(ch for ch in v if ch.isprintable())[:120]
         errs = body.get("errors")
         if isinstance(errs, list) and errs and isinstance(errs[0], dict):
-            return "".join(ch for ch in str(errs[0].get("detail") or errs[0].get("message") or "")
-                           if ch.isprintable())[:120]
+            return "".join(
+                ch
+                for ch in str(errs[0].get("detail") or errs[0].get("message") or "")
+                if ch.isprintable()
+            )[:120]
     return ""
 
 
@@ -164,13 +169,24 @@ def _source_error(status, body, who):
         # a 200 whose body did not parse: the answer was cut off at the read limit
         return {"ok": False, "error": f"{who}'s answer could not be read; try a lower limit"}
     if status == 429:
-        return {"ok": False, "rate_limited": True, "error": f"{who} says the daily limit is used up"}
+        return {
+            "ok": False,
+            "rate_limited": True,
+            "error": f"{who} says the daily limit is used up",
+        }
     if status == 401:
         return {"ok": False, "error": f"{who} rejected the API key"}
     if status == 403:
         if "quota" in d.lower():
-            return {"ok": False, "no_quota": True, "error": f"{who} has no blacklist quota for this key"}
-        return {"ok": False, "error": f"{who} refused the request (HTTP 403)" + (f": {d}" if d else "")}
+            return {
+                "ok": False,
+                "no_quota": True,
+                "error": f"{who} has no blacklist quota for this key",
+            }
+        return {
+            "ok": False,
+            "error": f"{who} refused the request (HTTP 403)" + (f": {d}" if d else ""),
+        }
     return {"ok": False, "error": d or f"{who} answered HTTP {status}"}
 
 
@@ -179,8 +195,10 @@ def abuseipdb_request(key, confidence, limit):
     base tier, which answers with its own floor instead of an error; `limit` is
     capped by the plan the same quiet way."""
     q = urllib.parse.urlencode(
-        {"confidenceMinimum": max(25, min(100, int(confidence))),
-         "limit": max(1, min(ABUSEIPDB_MAX_LIMIT, int(limit)))}
+        {
+            "confidenceMinimum": max(25, min(100, int(confidence))),
+            "limit": max(1, min(ABUSEIPDB_MAX_LIMIT, int(limit))),
+        }
     )
     return {
         "method": "GET",
@@ -205,8 +223,11 @@ def sniffcat_request(key, confidence, limit):
     """GET /blacklist as JSON. `confidenceMin` is required and runs 30 to 100;
     `limit` runs 10 to 100,000."""
     q = urllib.parse.urlencode(
-        {"type": "json", "confidenceMin": max(30, min(100, int(confidence))),
-         "limit": max(10, min(SNIFFCAT_MAX_LIMIT, int(limit)))}
+        {
+            "type": "json",
+            "confidenceMin": max(30, min(100, int(confidence))),
+            "limit": max(10, min(SNIFFCAT_MAX_LIMIT, int(limit))),
+        }
     )
     return {
         "method": "GET",
@@ -277,7 +298,12 @@ def build(always, own, abuse, sniff, capacity, protected):
     offered = {s: 0 for s in SOURCES}
     dropped = {"protected": 0}
     trimmed = 0
-    for source, entries in (("always", always), ("own", own), ("abuseipdb", abuse), ("sniffcat", sniff)):
+    for source, entries in (
+        ("always", always),
+        ("own", own),
+        ("abuseipdb", abuse),
+        ("sniffcat", sniff),
+    ):
         for e in entries or []:
             c = canonical(e)
             if not c or c in seen:
@@ -292,7 +318,13 @@ def build(always, own, abuse, sniff, capacity, protected):
                 continue
             items.append((c, source))
             kept[source] += 1
-    return {"items": items, "kept": kept, "offered": offered, "trimmed": trimmed, "dropped": dropped}
+    return {
+        "items": items,
+        "kept": kept,
+        "offered": offered,
+        "trimmed": trimmed,
+        "dropped": dropped,
+    }
 
 
 def diff(current, desired):
@@ -325,8 +357,10 @@ def capacity_for(setting, lists, own_id):
 
 def description(version, sources):
     names = ", ".join(sources) if sources else "none"
-    return (f"{MARKER} v{version}. Sources: {names}. "
-            "Do not edit manually: changes are overwritten on the next sync.")[:300]
+    return (
+        f"{MARKER} v{version}. Sources: {names}. "
+        "Do not edit manually: changes are overwritten on the next sync."
+    )[:300]
 
 
 def managed(desc):
@@ -356,8 +390,12 @@ def _ids(account, *rest):
 
 def lists_request(token, account):
     _ids(account)
-    return {"method": "GET", "url": f"{CF_API}/accounts/{account}/rules/lists", "headers": _headers(token),
-            "body": None}
+    return {
+        "method": "GET",
+        "url": f"{CF_API}/accounts/{account}/rules/lists",
+        "headers": _headers(token),
+        "body": None,
+    }
 
 
 def items_request(token, account, list_id, cursor=""):
@@ -365,23 +403,36 @@ def items_request(token, account, list_id, cursor=""):
     q = {"per_page": PER_PAGE}
     if cursor:
         q["cursor"] = str(cursor)[:200]
-    return {"method": "GET",
-            "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}/items?{urllib.parse.urlencode(q)}",
-            "headers": _headers(token), "body": None, "timeout": 25, "max_bytes": 4_000_000}
+    return {
+        "method": "GET",
+        "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}/items?{urllib.parse.urlencode(q)}",
+        "headers": _headers(token),
+        "body": None,
+        "timeout": 25,
+        "max_bytes": 4_000_000,
+    }
 
 
 def create_request(token, account, name, desc):
     _ids(account)
     if not valid_name(name):
         raise ValueError("invalid list name")
-    return {"method": "POST", "url": f"{CF_API}/accounts/{account}/rules/lists", "headers": _headers(token),
-            "body": json.dumps({"name": name, "kind": "ip", "description": desc[:500]}).encode()}
+    return {
+        "method": "POST",
+        "url": f"{CF_API}/accounts/{account}/rules/lists",
+        "headers": _headers(token),
+        "body": json.dumps({"name": name, "kind": "ip", "description": desc[:500]}).encode(),
+    }
 
 
 def describe_request(token, account, list_id, desc):
     _ids(account, list_id)
-    return {"method": "PUT", "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}",
-            "headers": _headers(token), "body": json.dumps({"description": desc[:500]}).encode()}
+    return {
+        "method": "PUT",
+        "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}",
+        "headers": _headers(token),
+        "body": json.dumps({"description": desc[:500]}).encode(),
+    }
 
 
 def replace_request(token, account, list_id, entries):
@@ -390,16 +441,24 @@ def replace_request(token, account, list_id, entries):
     an account at a time."""
     _ids(account, list_id)
     body = [{"ip": e, "comment": f"RemotePower: {src}"} for e, src in entries]
-    return {"method": "PUT", "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}/items",
-            "headers": _headers(token), "body": json.dumps(body).encode(), "timeout": 40,
-            "max_bytes": 1_000_000}
+    return {
+        "method": "PUT",
+        "url": f"{CF_API}/accounts/{account}/rules/lists/{list_id}/items",
+        "headers": _headers(token),
+        "body": json.dumps(body).encode(),
+        "timeout": 40,
+        "max_bytes": 1_000_000,
+    }
 
 
 def operation_request(token, account, operation_id):
     _ids(account, operation_id)
-    return {"method": "GET",
-            "url": f"{CF_API}/accounts/{account}/rules/lists/bulk_operations/{operation_id}",
-            "headers": _headers(token), "body": None}
+    return {
+        "method": "GET",
+        "url": f"{CF_API}/accounts/{account}/rules/lists/bulk_operations/{operation_id}",
+        "headers": _headers(token),
+        "body": None,
+    }
 
 
 def _failed(status, body):
@@ -425,13 +484,15 @@ def parse_lists(status, body):
     out = []
     for r in body.get("result") or []:
         if isinstance(r, dict) and edge_evidence.valid_id(r.get("id")):
-            out.append({
-                "id": r["id"],
-                "name": str(r.get("name") or "")[:60],
-                "kind": str(r.get("kind") or ""),
-                "description": str(r.get("description") or "")[:500],
-                "num_items": int(r.get("num_items") or 0),
-            })
+            out.append(
+                {
+                    "id": r["id"],
+                    "name": str(r.get("name") or "")[:60],
+                    "kind": str(r.get("kind") or ""),
+                    "description": str(r.get("description") or "")[:500],
+                    "num_items": int(r.get("num_items") or 0),
+                }
+            )
     return {"ok": True, "lists": out}
 
 
@@ -480,5 +541,8 @@ def parse_operation(status, body):
     state = str(res.get("status") or "").lower()
     if state not in ("pending", "running", "completed", "failed"):
         state = "pending"
-    return {"ok": True, "state": state, "error": "".join(
-        ch for ch in str(res.get("error") or "") if ch.isprintable())[:160]}
+    return {
+        "ok": True,
+        "state": state,
+        "error": "".join(ch for ch in str(res.get("error") or "") if ch.isprintable())[:160],
+    }

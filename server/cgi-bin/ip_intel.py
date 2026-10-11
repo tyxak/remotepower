@@ -420,7 +420,7 @@ def is_default_comment(text):
 # accepted when even its shortest rendering clears SniffCat's minimum.
 _SHORTEST = {
     'what': 'SSH',
-    'attack': min((c['phrase'] for c in threat_evidence.CLASSES.values()), key=len),
+    'attack': min((str(c['phrase']) for c in threat_evidence.CLASSES.values()), key=len),
     'seen_by': min(threat_evidence.SOURCE_PHRASE.values(), key=len),
 }
 
