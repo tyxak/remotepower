@@ -60,6 +60,14 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 - **One hit reads as one hit.** The standard text says `1 attempt within 1
   minute` instead of `1 attempts within 1 minutes`. A template you wrote is
   rendered as you wrote it.
+- **A sign-in to a JSON login API is not a failed login.** The log sensor counted
+  any POST to a login path that was not redirected as a failed login. A form login
+  redirects when it works, but a JSON login API answers a right password and a
+  wrong one alike with 200, and RemotePower's own `/api/login` does. Every visitor
+  who signed in to an instance was recorded as login brute force and, in enough
+  numbers, would have been reported. Under `/api/` only an error status (400 and
+  up) counts now; form logins keep the old rule. Present in 7.2.0: if the log
+  sensor is on, upgrade the agents.
 
 ### Under the hood
 
