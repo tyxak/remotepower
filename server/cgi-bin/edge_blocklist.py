@@ -327,6 +327,51 @@ def build(always, own, abuse, sniff, capacity, protected):
     }
 
 
+def active_bans(bans, now):
+    """{canonical address: until} for the operator's manual bans that have not expired.
+    `bans` is the store's {address: {'at', 'until', 'by'}}."""
+    out = {}
+    for ip, b in (bans or {}).items():
+        if not isinstance(b, dict):
+            continue
+        c = canonical(ip)
+        until = int(b.get("until") or 0)
+        if c and until > int(now):
+            out[c] = until
+    return out
+
+
+def membership(entries):
+    """(exact, networks) for the entries a list holds, so an address can be asked
+    about without scanning them each time."""
+    exact, nets = set(), []
+    for e in entries:
+        if "/" in e:
+            try:
+                nets.append(ipaddress.ip_network(e, strict=False))
+            except ValueError:
+                continue
+        else:
+            exact.add(e)
+    return exact, nets
+
+
+def is_listed(ip, exact, nets):
+    """True when `ip` is one of the entries or inside one of the networks."""
+    c = canonical(ip)
+    if not c:
+        return False
+    if c in exact:
+        return True
+    if not nets:
+        return False
+    try:
+        a = ipaddress.ip_address(c)
+    except ValueError:
+        return False
+    return any(n.version == a.version and a in n for n in nets)
+
+
 def diff(current, desired):
     """(added, removed) as sorted lists, for two collections of canonical entries."""
     cur, want = set(current), set(desired)

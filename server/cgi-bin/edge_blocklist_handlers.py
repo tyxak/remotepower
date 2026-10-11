@@ -209,7 +209,8 @@ def _sync(pol, now, mode='apply', force=False):
     token = pol.get('edge_list_token') or ''
     acct = pol.get('edge_account_id') or ''
     name = pol.get('edgelist_name') or ''
-    el = _el(_store_ro())
+    store = _store_ro()
+    el = _el(store)
     if not token:
         return dict(out, state='needs_setup', why='Add a Cloudflare token that can edit lists.')
     if not edge_evidence.valid_id(acct):
@@ -241,13 +242,19 @@ def _sync(pol, now, mode='apply', force=False):
     own = []
     if pol.get('edgelist_own'):
         own = edge_blocklist.own_candidates(
-            _store_ro().get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days'])
+            store.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days'])
+    # the operator's own entries: the ones typed into the settings and the bans made
+    # by hand, which expire; both are theirs, so both sit first
+    bans = edge_blocklist.active_bans(store.get('edgeban'), now)
+    always = list(pol.get('edgelist_always') or [])
+    always += [b for b in bans if b not in always]
     built = edge_blocklist.build(
-        pol.get('edgelist_always') or [], own,
+        always, own,
         (got.get('abuseipdb') or {}).get('ips') or [], (got.get('sniffcat') or {}).get('ips') or [],
         capacity, _protected(pol))
+    out['_listed'] = [e for e, _s in built['items']]
     out.update(kept=built['kept'], offered=built['offered'], trimmed=built['trimmed'],
-               dropped=built['dropped'], size=len(built['items']),
+               dropped=built['dropped'], size=len(built['items']), bans=len(bans),
                sources={n: {'from': g.get('from'), 'at': g.get('at'), 'n': len(g.get('ips') or []),
                             'error': g.get('error') or ''} for n, g in got.items()},
                failed=failed)
@@ -268,7 +275,7 @@ def _sync(pol, now, mode='apply', force=False):
     held = ''
     if failed:
         held = 'A source did not answer and has no recent copy.'
-    elif not got and not (pol.get('edgelist_always') or own) and size_now:
+    elif not got and not (always or own) and size_now:
         held = 'No source is switched on, so nothing would be left in the list.'
     else:
         held = edge_blocklist.hold_reason(size_now, len(built['items']))
@@ -338,7 +345,7 @@ def _pending(pol, el, now):
 
 _KEEP = ('mode', 'at', 'state', 'why', 'list', 'capacity', 'kept', 'offered', 'trimmed', 'dropped', 'size',
          'sources', 'failed', 'added', 'removed', 'current', 'added_sample', 'removed_sample', 'changed',
-         'created', 'can_force', 'needs_adopt', 'op', 'held', 'auth')
+         'created', 'can_force', 'needs_adopt', 'op', 'held', 'auth', 'bans')
 
 
 def _record(res, now, attempted=True):
@@ -361,6 +368,35 @@ def _record(res, now, attempted=True):
             elif res.get('state') in ('ok', 'error', 'held', 'needs_adopt', 'needs_setup'):
                 el.pop('op', None)
         st['edgelist'] = el
+        if res.get('mode') in ('apply', 'adopt'):
+            _prune_bans(st, now)
+            # The list now holds (or, with a change in flight, will hold) exactly what
+            # was built. A sync that was held, refused or only looked changed nothing,
+            # so it leaves the markers alone.
+            applied = res.get('state') == 'ok' or (res.get('state') == 'pending' and res.get('op'))
+            if applied and res.get('_listed') is not None:
+                _mark_listed(st, res['_listed'], now)
+
+
+def _prune_bans(st, now):
+    bans = st.get('edgeban')
+    if isinstance(bans, dict):
+        keep = {ip: b for ip, b in bans.items() if isinstance(b, dict) and int(b.get('until') or 0) > now}
+        if len(keep) != len(bans):
+            st['edgeban'] = keep
+
+
+def _mark_listed(st, listed, now):
+    """Stamp each recorded attacker that is in the list, and clear the stamp from the
+    ones that are not, so the Threat intel table can say which addresses the list
+    holds. Matching is by address, or by network for a range."""
+    exact, nets = edge_blocklist.membership(listed)
+    for ip, att in (st.get('attackers') or {}).items():
+        if isinstance(att, dict):
+            if edge_blocklist.is_listed(ip, exact, nets):
+                att['in_list'] = now
+            else:
+                att.pop('in_list', None)
 
 
 def _audit(actor, res):
@@ -382,6 +418,17 @@ def _audit(actor, res):
 
 # ── the sweep ──────────────────────────────────────────────────────────────────
 
+def _due(store, el, now, interval):
+    """True when the last attempt is older than `interval`, or a ban made by hand has
+    run out since it: an expired ban must leave the list when it expires, not at the
+    next scheduled sync hours later."""
+    attempt = int(el.get('attempt') or 0)
+    if now - attempt >= interval:
+        return True
+    bans = store.get('edgeban') if isinstance(store.get('edgeban'), dict) else {}
+    return any(isinstance(b, dict) and attempt < int(b.get('until') or 0) <= now for b in bans.values())
+
+
 def run_edge_blocklist_if_due():
     """Cadence sweep: make the Cloudflare list match what the sources say, when the
     operator has switched it on and given it a token that can edit lists. Claims
@@ -390,14 +437,15 @@ def run_edge_blocklist_if_due():
     if not (pol.get('edgelist_enabled') and pol.get('edge_list_token')):
         return
     now = int(time.time())
-    el = _el(_store_ro())
+    store = _store_ro()
+    el = _el(store)
     every = max(SYNC_MIN_S, int(pol['edgelist_hours']) * 3600)
     waiting = bool(el.get('op'))
-    if now - int(el.get('attempt') or 0) < (PENDING_RECHECK_S if waiting else every):
+    if not _due(store, el, now, PENDING_RECHECK_S if waiting else every):
         return
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         cur = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
-        if now - int(cur.get('attempt') or 0) < (PENDING_RECHECK_S if cur.get('op') else every):
+        if not _due(st, cur, now, PENDING_RECHECK_S if cur.get('op') else every):
             return                        # another worker took this one
         cur['attempt'] = now
         st['edgelist'] = cur
@@ -434,6 +482,8 @@ def edge_list_status(st, pol):
         'last': el.get('last') if isinstance(el.get('last'), dict) else {},
         'preview': el.get('preview') if isinstance(el.get('preview'), dict) else {},
         'pending': bool(el.get('op')),
+        'bans': len(edge_blocklist.active_bans(
+            (st or {}).get('edgeban'), int(time.time()))),
         'src': src,
         'calls': {k: v for k, v in calls.items() if k in ('day', 'abuseipdb', 'sniffcat')},
         'per_day': edge_blocklist.CALLS_PER_DAY,
@@ -485,3 +535,240 @@ def handle_edge_list_sync():
     _record(res, now)
     _audit(actor, res)
     A.respond(200, {'ok': True, 'result': _public(res)})
+
+
+# ── a ban by hand ──────────────────────────────────────────────────────────────
+#
+# One address, banned in the two places RemotePower can act: at the edge, which is
+# the Cloudflare list this module keeps, and on hosts, which is a firewall rule
+# queued to their agents (the same command a block uses). The two are separate
+# switches because they stop different traffic: a host rule only drops connections
+# that reach the host from the address itself, and a visitor proxied by Cloudflare
+# arrives from Cloudflare's addresses, so only the edge ban stops those.
+#
+# Nothing here is new power. The host half is `handle_ip_intel_block` for many hosts
+# at once, with its guards (the 'command' permission on each host, Linux agents only,
+# the never-block rules, four-eyes approval); the edge half writes the list the
+# operator already switched on, so it is operator-only and does nothing while the
+# Edge blocklist is off.
+
+BAN_HOURS_MAX = 24 * 90
+BAN_MAX_HOSTS = 500
+BAN_SHOWN = 20                # failures listed in an answer
+
+
+def _caller_is_operator():
+    """An administrator, and on a multi-tenant install only the platform operator:
+    the list is the instance's, not a tenant's."""
+    role = A.verify_token(A.get_token_from_request())[1]
+    return bool(A._resolve_role(role).get('admin')) and (
+        not A._tenancy_enforced() or A._caller_is_superadmin())
+
+
+def _edge_not_ready(pol):
+    """Why a ban at the edge cannot take effect, or ''."""
+    if not pol.get('edgelist_enabled'):
+        return 'The Edge blocklist is off. Turn it on under Security → Threat intel → Edge blocklist first.'
+    if not pol.get('edge_list_token'):
+        return 'The Edge blocklist has no token that can edit lists yet.'
+    if not edge_evidence.valid_id(pol.get('edge_account_id')):
+        return 'The Edge blocklist needs the Cloudflare account id under Edge sources.'
+    return ''
+
+
+def _ban_request():
+    # Authenticate before anything about the body or the fleet is read, as the block
+    # endpoint does, so a missing device and a forbidden one look the same.
+    A.require_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A._read_valid(A.request_models.IpIntelBanRequest)
+    ip = ip_intel.parse_ip(body.get('ip'))
+    if not ip:
+        A.respond(400, {'error': 'A valid ip is required'})
+    return body, ip
+
+
+def _which_hosts(raw):
+    """'all', 'seen', a list of device ids, or '' for none."""
+    if isinstance(raw, str):
+        raw = raw.strip().lower()
+        return raw if raw in ('all', 'seen') else ''
+    if isinstance(raw, list):
+        return [x for x in raw[:BAN_MAX_HOSTS] if isinstance(x, str) and A._validate_id(x)]
+    return ''
+
+
+def _host_targets(which, ip, store, visible):
+    """([device ids], [ids skipped]). Only Linux agents the caller can see: `visible`
+    already folds in the role's scope and the tenant."""
+    agents = {d for d, v in visible.items()
+              if isinstance(v, dict) and not v.get('agentless') and A._device_os_family(v) == 'linux'}
+    if which == 'all':
+        return sorted(agents)[:BAN_MAX_HOSTS], []
+    if which == 'seen':
+        seen = ((store.get('attackers') or {}).get(ip) or {}).get('devices') or {}
+        return [d for d in seen if d in agents][:BAN_MAX_HOSTS], []
+    if isinstance(which, list):
+        return [d for d in which if d in agents], [d for d in which if d not in agents]
+    return [], []
+
+
+def _shown(results, visible):
+    """The failures of a batch as [{'device_id', 'name', 'error'}], capped."""
+    out = []
+    for dev_id, r in results.items():
+        if not r.get('ok'):
+            out.append({'device_id': dev_id, 'name': (visible.get(dev_id) or {}).get('name') or dev_id,
+                        'error': str(r.get('error') or 'refused')[:160]})
+    return out[:BAN_SHOWN]
+
+
+def _edge_state():
+    """What the sync that just ran said, for the answer."""
+    A._invalidate_load_cache(A.IPINTEL_FILE)
+    last = _el(_store_ro()).get('last')
+    last = last if isinstance(last, dict) else {}
+    return {'state': last.get('state') or 'waiting', 'why': str(last.get('why') or '')[:200]}
+
+
+def _sync_now():
+    """Run the scheduled sync now, with the same claim and guards, so the answer can
+    say whether the address is in the list. A failure here is the sync's to record."""
+    A._invalidate_load_cache(A.IPINTEL_FILE)
+    try:
+        A.run_edge_blocklist_if_due()
+    except Exception:  # nosec B110
+        pass            # recorded by the sweep itself; the ban stays stored
+
+
+def handle_ip_intel_ban():
+    """POST /api/ip-intel/ban {ip, edge, hosts, hours} — ban an address by hand.
+
+    `edge` adds it to the Cloudflare list for `hours` (operator only, and only
+    while the Edge blocklist is on). `hosts` is 'all' (every Linux agent the caller
+    can see), 'seen' (the hosts that saw it) or a list of device ids; each gets the
+    block command, the same one a block queues. The never-block rules apply to
+    both, and so does four-eyes approval on the host half."""
+    body, ip = _ban_request()
+    want_edge = bool(body.get('edge'))
+    which = _which_hosts(body.get('hosts'))
+    if not want_edge and not which:
+        A.respond(400, {'error': 'Choose where to ban it: at the edge, on hosts, or both'})
+    pol = A.ip_intel_policy()
+    actor = None
+    if want_edge:
+        actor = A.require_admin_auth()
+        if not _caller_is_operator():
+            A.respond(403, {'error': 'Banning at the edge is for the platform operator.'})
+    devices = A._load_ro(A.DEVICES_FILE) or {}
+    why = ip_intel.never_block_reason(ip, A.ip_intel_handlers_mod._protected_networks(pol, devices))
+    if why:
+        A.respond(409, {'error': f'Not banning {ip}: {why}'})
+    if want_edge:
+        gap = _edge_not_ready(pol)
+        if gap:
+            A.respond(409, {'error': gap})
+    visible = A._scope_filter_devices(devices)
+    store = _store_ro()
+    ids, skipped = _host_targets(which, ip, store, visible) if which else ([], [])
+    if which:
+        actor = A.require_perm('command', ids or None)
+    try:
+        hours = max(1, min(BAN_HOURS_MAX, int(body.get('hours') or pol['block_ttl_hours'])))
+    except (TypeError, ValueError):
+        hours = int(pol['block_ttl_hours'])
+    now = int(time.time())
+    until = now + hours * 3600
+
+    blocks = store.get('blocks') if isinstance(store.get('blocks'), dict) else {}
+    held = [d for d in ids if int(((blocks.get(d) or {}).get(ip) or {}).get('until') or 0) > now]
+    todo = [d for d in ids if d not in held]
+    results = {}
+    if todo:
+        results = A._queue_command_batch(todo, 'exec:' + ip_intel.block_command(ip), actor) or {}
+    done = [d for d in todo if (results.get(d) or {}).get('ok')]
+    approval = [d for d in done if results[d].get('approval_required')]
+
+    with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        for d in held + done:
+            st.setdefault('blocks', {}).setdefault(d, {})[ip] = {
+                'at': now, 'until': until, 'by': actor, 'kind': 'manual'}
+        if want_edge:
+            st.setdefault('edgeban', {})[ip] = {'at': now, 'until': until, 'by': actor}
+            el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
+            el['attempt'] = 0           # due now: the ban goes in the list at once
+            st['edgelist'] = el
+    A.audit_log(actor, 'ip_intel_ban',
+                f"ip={ip} edge={int(want_edge)} hosts={len(done) + len(held)} approval={len(approval)} "
+                f"hours={hours}"[:300])
+
+    out = {'ok': True, 'ip': ip, 'until': until, 'edge': None, 'hosts': None}
+    if which:
+        out['hosts'] = {'queued': len(done) - len(approval), 'approval': len(approval), 'extended': len(held),
+                        'failed': _shown(results, visible), 'skipped': len(skipped),
+                        'matched': len(ids)}
+    if want_edge:
+        _sync_now()
+        out['edge'] = _edge_state()
+    A.respond(200, out)
+
+
+def handle_ip_intel_unban():
+    """POST /api/ip-intel/unban {ip, edge, hosts} — lift what a ban set. `edge`
+    takes the manual ban out of the list's next build (an address another source
+    names stays in); `hosts` is 'all' (every host that has a block on this address
+    and the caller can see), 'seen' or a list, and each gets the unblock command."""
+    body, ip = _ban_request()
+    want_edge = bool(body.get('edge'))
+    which = _which_hosts(body.get('hosts'))
+    if not want_edge and not which:
+        A.respond(400, {'error': 'Choose what to lift: the edge ban, the host blocks, or both'})
+    actor = None
+    if want_edge:
+        actor = A.require_admin_auth()
+        if not _caller_is_operator():
+            A.respond(403, {'error': 'Lifting an edge ban is for the platform operator.'})
+    visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
+    store = _store_ro()
+    blocks = store.get('blocks') if isinstance(store.get('blocks'), dict) else {}
+    ids = []
+    if which:
+        blocked_on = [d for d, per in blocks.items()
+                      if isinstance(per, dict) and ip in per and d in visible]
+        if which == 'all':
+            ids = blocked_on
+        elif which == 'seen':
+            seen = ((store.get('attackers') or {}).get(ip) or {}).get('devices') or {}
+            ids = [d for d in blocked_on if d in seen]
+        else:
+            ids = [d for d in which if d in blocked_on]
+        actor = A.require_perm('command', ids or None)
+    results = {}
+    if ids:
+        results = A._queue_command_batch(ids, 'exec:' + ip_intel.unblock_command(ip), actor) or {}
+    done = [d for d in ids if (results.get(d) or {}).get('ok')]
+    removed = False
+    with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        for d in done:
+            per = (st.get('blocks') or {}).get(d)
+            if isinstance(per, dict):
+                per.pop(ip, None)
+                if not per:
+                    st['blocks'].pop(d, None)
+        if want_edge and isinstance(st.get('edgeban'), dict) and ip in st['edgeban']:
+            st['edgeban'].pop(ip, None)
+            removed = True
+            el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
+            el['attempt'] = 0
+            st['edgelist'] = el
+    A.audit_log(actor, 'ip_intel_unban', f"ip={ip} edge={int(removed)} hosts={len(done)}"[:300])
+    out = {'ok': True, 'ip': ip, 'edge': None, 'hosts': None}
+    if which:
+        out['hosts'] = {'lifted': len(done), 'failed': _shown(results, visible)}
+    if want_edge:
+        out['edge'] = {'removed': removed}
+        if removed:
+            _sync_now()
+            out['edge'].update(_edge_state())
+    A.respond(200, out)

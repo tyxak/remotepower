@@ -1159,7 +1159,7 @@ _eb_spec.loader.exec_module(edge_blocklist_handlers_mod)
 edge_blocklist_handlers_mod.bind(globals())
 for _eb_name in (
         'run_edge_blocklist_if_due', 'edge_list_status', 'handle_edge_list_preview',
-        'handle_edge_list_sync',
+        'handle_edge_list_sync', 'handle_ip_intel_ban', 'handle_ip_intel_unban',
 ):
     globals()[_eb_name] = getattr(edge_blocklist_handlers_mod, _eb_name)
 del _eb_name
@@ -71496,6 +71496,8 @@ def _build_exact_routes():
         ('POST', '/api/ip-intel/edge-test'): handle_ip_intel_edge_test,
         ('POST', '/api/ip-intel/edge-list/preview'): handle_edge_list_preview,
         ('POST', '/api/ip-intel/edge-list/sync'): handle_edge_list_sync,
+        ('POST', '/api/ip-intel/ban'): handle_ip_intel_ban,
+        ('POST', '/api/ip-intel/unban'): handle_ip_intel_unban,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,
         ('POST', '/api/kmip/config'): handle_kmip_config,

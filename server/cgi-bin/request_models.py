@@ -2735,6 +2735,18 @@ if _AVAILABLE:
 
         _v0 = field_validator('ip', mode='before')(_coerce_str_loose)
 
+    class IpIntelBanRequest(BaseModel):
+        """handle_ip_intel_ban / _unban POST. `hosts` is 'all', 'seen' or a list of
+        device ids; it stays Any so a value the handler does not understand is read
+        as "no hosts" instead of failing the whole request."""
+        model_config = ConfigDict(extra='ignore')
+        ip: str = ''
+        edge: Any = None
+        hosts: Any = None
+        hours: Any = None
+
+        _v0 = field_validator('ip', mode='before')(_coerce_str_loose)
+
     class IpIntelBlockRequest(BaseModel):
         """handle_ip_intel_block / _unblock POST."""
         model_config = ConfigDict(extra='ignore')

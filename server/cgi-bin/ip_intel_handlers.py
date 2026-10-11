@@ -920,6 +920,11 @@ def handle_ip_intel():
     # The edge feeds belong to the instance, not to a host: only the operator who
     # set them up sees what they queued.
     operator = is_admin and (not A._tenancy_enforced() or A._caller_is_superadmin())
+    # How many Linux agents a ban "on every host" would reach, for the dialog.
+    ban_hosts = sum(1 for v in visible.values()
+                    if isinstance(v, dict) and not v.get('agentless') and A._device_os_family(v) == 'linux')
+    # What the operator banned by hand and has not lifted, and what the list holds.
+    bans = edge_blocklist.active_bans(st.get('edgeban'), int(time.time())) if operator else {}
     if operator:
         visible = dict(visible)
         for did, name in ip_intel.EDGE_DEVICES.items():
@@ -944,6 +949,9 @@ def handle_ip_intel():
             'usage': v.get('usage', ''), 'providers': v.get('providers', {}),
             'checked_at': a.get('checked_at'), 'reported': a.get('reported', {}),
             'errors': a.get('errors', {}),
+            'in_list': a.get('in_list') if operator else None,
+            'edge_ban': ({'until': bans[edge_blocklist.canonical(ip)]}
+                         if edge_blocklist.canonical(ip) in bans else None),
             'evidence': _evidence_view(a),
             'report_log': [e for e in (a.get('report_log') or []) if isinstance(e, dict)][-3:],
         })
@@ -965,6 +973,7 @@ def handle_ip_intel():
                     'sensors': _sensor_rows(st, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
+                    'ban_hosts': ban_hosts,
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 
 
