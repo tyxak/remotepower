@@ -6788,6 +6788,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-title">Edge blocklist</div>
           <p class="hint mb-12">RemotePower can keep one Cloudflare IP list up to date from the sources you pick, so a rule that uses the list keeps blocking what they report. It writes the list and nothing else; the rules that use it stay yours. It needs its own token, one that can edit lists, and it is off until you turn it on. <a href="docs/edge-sources.md#edge-blocklist" class="c-accent">Documentation</a></p>
           <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-edgelist"> Keep a Cloudflare IP list up to date</label></div>
+          <div class="mb-12">
           <div class="settings-row isl-57">
             <div class="form-group">
               <label class="form-label" for="ipintel-edgelist-token">Cloudflare API token (can edit lists)</label>
@@ -6799,9 +6800,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
           <p class="hint">The account id is the one under Edge sources. The list is created if it does not exist. A list that RemotePower did not create is left alone until you tell it to take the list over.</p>
+          </div>
+          <div class="mb-12">
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-edgelist-own"> Addresses RemotePower found</label></div>
           <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-edgelist-abuseipdb"> AbuseIPDB's blacklist</label></div>
-          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-edgelist-sniffcat"> SniffCat's blacklist</label></div>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="ipintel-edgelist-sniffcat"> SniffCat's blacklist</label></div>
+          </div>
+          <div class="mb-12">
           <div class="settings-row isl-57 mb-12">
             <div class="form-group">
               <label class="form-label" for="ipintel-edgelist-own-score">Found addresses: score of at least</label>
@@ -6820,7 +6825,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <input type="number" id="ipintel-edgelist-abuseipdb-limit" class="form-input isl-80" min="100" max="50000">
             </div>
           </div>
-          <div class="settings-row isl-57 mb-12">
+          <div class="settings-row isl-57">
             <div class="form-group">
               <label class="form-label" for="ipintel-edgelist-sniffcat-conf">SniffCat: confidence of at least</label>
               <input type="number" id="ipintel-edgelist-sniffcat-conf" class="form-input isl-80" min="30" max="100">
@@ -6837,6 +6842,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <label class="form-label" for="ipintel-edgelist-max">Most entries in the list</label>
               <input type="number" id="ipintel-edgelist-max" class="form-input isl-80" min="100" max="500000">
             </div>
+          </div>
           </div>
           <div class="form-group">
             <label class="form-label" for="ipintel-edgelist-always">Always include (one address or network per line)</label>

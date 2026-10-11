@@ -22,16 +22,16 @@ import edge_evidence as ee  # noqa: E402
 import edge_intel_handlers as eh  # noqa: E402
 import ip_intel  # noqa: E402
 
-_GUIDE_FILE = _ROOT / 'docs' / 'edge-sources.md'
+_GUIDE_PATH = _ROOT / 'docs' / 'edge-sources.md'
 _JS = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-ipintel.js').read_text()
 _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text()
 _IPI_HANDLERS = (_ROOT / 'server' / 'cgi-bin' / 'ip_intel_handlers.py').read_text()
 
 
 def _guide():
-    if not _GUIDE_FILE.exists():
+    if not _GUIDE_PATH.exists():
         raise unittest.SkipTest('docs excluded from this tree')
-    return _GUIDE_FILE.read_text()
+    return _GUIDE_PATH.read_text()
 
 
 def _section(text, title):
