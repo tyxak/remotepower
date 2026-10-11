@@ -69,6 +69,7 @@ CADENCE = (
     'run_ai_triage_if_due',              # v6.3.1 opt-in agentic auto-triage
     'run_remediation_verify_if_due',     # v6.3.1 auto-remediation verify loop
     'run_edge_intel_if_due',             # v7.3.0 Cloudflare firewall events + honeypot log
+    'run_edge_blocklist_if_due',         # v7.3.0 keeps the Cloudflare IP list in step
     'run_ip_intel_if_due',               # AbuseIPDB / SniffCat lookups, reports, blocks
     'run_flow_dep_check_if_due',         # v6.3.1 flow-verified service-dependency links
     'run_flow_export_check_if_due',      # v6.4.3 a NetFlow exporter stopped sending

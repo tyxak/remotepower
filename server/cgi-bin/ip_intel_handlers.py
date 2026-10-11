@@ -59,6 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import edge_blocklist
 import ip_intel
 import threat_evidence
 
@@ -80,6 +81,7 @@ def _policy():
     pol['keys'] = {'abuseipdb': str(cfg.get('abuseipdb_api_key') or ''),
                    'sniffcat': str(cfg.get('sniffcat_api_key') or '')}
     pol['edge_token'] = str(cfg.get('edge_cloudflare_token') or '')
+    pol['edge_list_token'] = str(cfg.get('edge_list_token') or '')
     return pol
 
 
@@ -844,6 +846,8 @@ def _settings_view(pol):
     out['abuseipdb_key_set'] = bool(pol['keys'].get('abuseipdb'))
     out['sniffcat_key_set'] = bool(pol['keys'].get('sniffcat'))
     out['edge_token_set'] = bool(pol.get('edge_token'))
+    out['edge_list_token_set'] = bool(pol.get('edge_list_token'))
+    out['edgelist_always'] = list(pol.get('edgelist_always') or [])
     out['edge_zone_ids'] = list(pol.get('edge_zone_ids') or [])
     out['edge_workers'] = list(pol.get('edge_workers') or [])
     return out
@@ -960,6 +964,7 @@ def handle_ip_intel():
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
                     'sensors': _sensor_rows(st, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
+                    'edge_list': A.edge_list_status(st, pol) if operator else None,
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 
 
@@ -977,7 +982,8 @@ def handle_ip_intel_settings():
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
         for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled',
-                  'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules'):
+                  'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules',
+                  'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')
@@ -985,7 +991,11 @@ def handle_ip_intel_settings():
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
                           ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
                           ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440),
-                          ('edge_report_after', 1, 50)):
+                          ('edge_report_after', 1, 50), ('edgelist_own_score', 1, 100),
+                          ('edgelist_own_days', 1, 365), ('edgelist_abuseipdb_conf', 25, 100),
+                          ('edgelist_abuseipdb_limit', 100, 100000), ('edgelist_sniffcat_conf', 30, 100),
+                          ('edgelist_sniffcat_limit', 10, 100000), ('edgelist_hours', 1, 168),
+                          ('edgelist_max', 100, 500000)):
             if body.get(k) not in (None, ''):
                 try:
                     pol[k] = max(lo, min(hi, int(body[k])))
@@ -1027,6 +1037,19 @@ def handle_ip_intel_settings():
                 A.respond(400, {'error': bad})
             pol['edge_workers'] = names or list(ip_intel.DEFAULTS['edge_workers'])
             changed.append(f"edge_workers={len(pol['edge_workers'])}")
+        if body.get('edgelist_name') is not None:
+            nm = str(body['edgelist_name']).strip()
+            if not edge_blocklist.valid_name(nm):
+                A.respond(400, {'error': 'The list name may use lower-case letters, digits and underscores, '
+                                         'and starts with a letter'})
+            pol['edgelist_name'] = nm
+            changed.append('edgelist_name=' + nm)
+        if body.get('edgelist_always') is not None:
+            entries, bad = edge_blocklist.clean_entries(body['edgelist_always'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['edgelist_always'] = entries
+            changed.append(f'edgelist_always={len(entries)}')
         if body.get('never_block') is not None:
             raw = body['never_block']
             items = raw if isinstance(raw, list) else str(raw).replace(',', '\n').splitlines()
@@ -1050,6 +1073,17 @@ def handle_ip_intel_settings():
                 A.respond(400, {'error': 'The Cloudflare API token has an unexpected format'})
             cfg['edge_cloudflare_token'] = tok
             changed.append('edge_cloudflare_token=set')
+        # the token that can EDIT lists is a second secret, kept apart so the one
+        # the feeds read with stays read-only
+        if body.get('clear_edge_list_token'):
+            cfg.pop('edge_list_token', None)
+            changed.append('edge_list_token=cleared')
+        elif body.get('edge_list_token'):
+            tok = str(body['edge_list_token']).strip()
+            if not ip_intel.valid_cf_token(tok):
+                A.respond(400, {'error': 'The Cloudflare API token has an unexpected format'})
+            cfg['edge_list_token'] = tok
+            changed.append('edge_list_token=set')
         for prov in ip_intel.PROVIDERS:
             name = f'{prov}_api_key'
             if body.get(f'clear_{prov}_key'):

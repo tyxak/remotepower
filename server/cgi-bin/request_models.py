@@ -2672,11 +2672,27 @@ if _AVAILABLE:
         edge_report_after: Any = None
         edge_cloudflare_token: str = ''
         clear_edge_token: bool = False
+        edgelist_enabled: Any = None
+        edgelist_own: Any = None
+        edgelist_abuseipdb: Any = None
+        edgelist_sniffcat: Any = None
+        edgelist_name: Any = None
+        edgelist_always: Any = None
+        edgelist_own_score: Any = None
+        edgelist_own_days: Any = None
+        edgelist_abuseipdb_conf: Any = None
+        edgelist_abuseipdb_limit: Any = None
+        edgelist_sniffcat_conf: Any = None
+        edgelist_sniffcat_limit: Any = None
+        edgelist_hours: Any = None
+        edgelist_max: Any = None
+        edge_list_token: str = ''
+        clear_edge_list_token: bool = False
 
         _v0 = field_validator('abuseipdb_api_key', 'sniffcat_api_key', 'edge_cloudflare_token',
-                              mode='before')(_coerce_str_loose)
+                              'edge_list_token', mode='before')(_coerce_str_loose)
         _v1 = field_validator('clear_abuseipdb_key', 'clear_sniffcat_key', 'clear_edge_token',
-                              mode='before')(_coerce_bool_loose)
+                              'clear_edge_list_token', mode='before')(_coerce_bool_loose)
 
     class ThreatEventsRequest(BaseModel):
         """handle_threat_events POST, sent by a Linux agent. threat_evidence
@@ -2691,6 +2707,17 @@ if _AVAILABLE:
         dropped: Any = None
 
         _v0 = field_validator('device_id', 'token', mode='before')(_coerce_str_loose)
+
+    class EdgeListActionRequest(BaseModel):
+        """handle_edge_list_preview / handle_edge_list_sync POST. `adopt` takes over a
+        list RemotePower did not create; `force` goes ahead of the guard against
+        emptying or halving the list."""
+        model_config = ConfigDict(extra='ignore')
+        adopt: bool = False
+        force: bool = False
+
+        _v0 = field_validator('adopt', 'force', mode='before')(_coerce_bool_loose)
+
 
     class IpIntelEdgeTestRequest(BaseModel):
         """handle_ip_intel_edge_test POST. `token` is optional: without it the

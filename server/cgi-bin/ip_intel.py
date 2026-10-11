@@ -86,6 +86,22 @@ DEFAULTS = {
     'edge_poll_minutes': 10,
     'edge_count_list_rules': False,   # count refusals by a rule that also blocks an IP list
     'edge_report_after': 1,       # Cloudflare refusals by an attack mechanism before an address is reported
+    # The edge blocklist (v7.3.0): RemotePower keeps one Cloudflare IP list in step with
+    # the sources below, with a token of its own that can edit lists. Off until asked for.
+    'edgelist_enabled': False,
+    'edgelist_name': 'remotepower_blocklist',
+    'edgelist_own': True,             # what RemotePower itself found
+    'edgelist_own_score': 75,         # ... that scored this or was reported,
+    'edgelist_own_days': 14,          # ... and was seen within this many days
+    'edgelist_abuseipdb': True,       # AbuseIPDB's blacklist, through the key already saved
+    'edgelist_abuseipdb_conf': 75,
+    'edgelist_abuseipdb_limit': 8000,
+    'edgelist_sniffcat': True,        # SniffCat's blacklist, through the key already saved
+    'edgelist_sniffcat_conf': 80,
+    'edgelist_sniffcat_limit': 2000,
+    'edgelist_always': [],            # the operator's own addresses and ranges
+    'edgelist_hours': 6,              # how often the list is made to match
+    'edgelist_max': 10000,            # the most the list may hold; the account's other lists come off it
 }
 
 # The edge feeds queue their evidence under these ids, which are not hosts: there

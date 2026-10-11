@@ -1149,6 +1149,21 @@ for _ei_name in (
     globals()[_ei_name] = getattr(edge_intel_handlers_mod, _ei_name)
 del _ei_name
 
+# v7.3.0: the edge blocklist. RemotePower keeps one Cloudflare IP list in step with
+# the sources the operator picks, with its own token that can edit lists, so the rules
+# that already say `ip.src in $name` keep working. Off until asked for.
+_eb_spec = _tk_ilu.spec_from_file_location(
+    'edge_blocklist_handlers', Path(__file__).parent / 'edge_blocklist_handlers.py')
+edge_blocklist_handlers_mod = _tk_ilu.module_from_spec(_eb_spec)
+_eb_spec.loader.exec_module(edge_blocklist_handlers_mod)
+edge_blocklist_handlers_mod.bind(globals())
+for _eb_name in (
+        'run_edge_blocklist_if_due', 'edge_list_status', 'handle_edge_list_preview',
+        'handle_edge_list_sync',
+):
+    globals()[_eb_name] = getattr(edge_blocklist_handlers_mod, _eb_name)
+del _eb_name
+
 # v7.2.0: the threat sensor's intake. Linux agents send summaries of what their
 # web server, WAF, fail2ban and CrowdSec logs say about source addresses; they
 # join Threat intel's queue (ip_intel_note_evidence) and go through its sweep.
@@ -71479,6 +71494,8 @@ def _build_exact_routes():
         ('POST', '/api/ip-intel/block'): handle_ip_intel_block,
         ('POST', '/api/ip-intel/unblock'): handle_ip_intel_unblock,
         ('POST', '/api/ip-intel/edge-test'): handle_ip_intel_edge_test,
+        ('POST', '/api/ip-intel/edge-list/preview'): handle_edge_list_preview,
+        ('POST', '/api/ip-intel/edge-list/sync'): handle_edge_list_sync,
         # v6.4.0: KMIP key-management server (kmip_handlers.py)
         ('GET', '/api/kmip/status'): handle_kmip_status,
         ('POST', '/api/kmip/config'): handle_kmip_config,
@@ -72804,6 +72821,7 @@ def main():
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
     _safe(run_edge_intel_if_due, 'run_edge_intel_if_due')   # v7.3.0 Cloudflare events + honeypot log
+    _safe(run_edge_blocklist_if_due, 'run_edge_blocklist_if_due')   # v7.3.0 the Cloudflare IP list
     _safe(run_ip_intel_if_due, 'run_ip_intel_if_due')   # AbuseIPDB / SniffCat
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
     _safe(run_flow_export_check_if_due, 'run_flow_export_check_if_due')  # v6.4.3 exporter went silent
