@@ -373,6 +373,29 @@ A list that RemotePower did not create is left alone. The card says `Needs to be
 
 If another tool updates that list, such as a script on a schedule, stop it first. Two tools writing one list undo each other's work. Then press **Sync now**: RemotePower asks, replaces everything in the list with what your sources say, and marks it as managed by RemotePower. From then on the schedule keeps it.
 
+### Ban an address by hand
+
+The Attackers table on **Security → Threat intel** has a **Ban** button on every row. It opens a dialog with two separate choices.
+
+| Choice | What it does |
+|---|---|
+| **At the edge: add it to the Cloudflare list** | Adds the address to your list for the time you pick and runs a sync at once, so the answer says whether it is in. It needs the switch above to be on and a token, and only the platform operator can use it. |
+| **On hosts: add a firewall rule** | Queues the same firewall rule a block uses (`ufw`, `firewalld` or `iptables`, whichever the host runs) to the hosts you pick: the ones that saw the address, or every Linux host. A host you cannot reach, or that is not a Linux agent, is skipped, and one that refuses is named with its reason. |
+
+The two stop different traffic. A visitor who reaches your sites through Cloudflare arrives from Cloudflare's addresses, so a rule on a host only stops connections that reach it directly, such as SSH, mail or the origin's own address. The edge ban is what stops proxied visitors, so an address seen only at the edge is usually an edge ban.
+
+The protections of a block apply: RemotePower will not ban your own hosts, your allow-list, recent RemotePower logins, your never-block list, Cloudflare's addresses or a private address. A ban lasts 1 hour, 24 hours, 7, 30 or 90 days, and leaves the list when it ends, without waiting for the next scheduled sync. **Unban** lifts the edge ban and every host block RemotePower made for the address. An address that AbuseIPDB's blacklist or another source also names stays in the list.
+
+### What the Attackers table says about it
+
+| Phrase | What it means |
+|---|---|
+| `in the edge blocklist` | The last sync put the address in your list. |
+| `banned at the edge` | You banned it by hand and the list holds it. |
+| `edge ban waiting for the next sync` | You banned it by hand and the list does not hold it yet: the sync was held, or the list has to be taken over first. |
+
+An address that the list holds is not shown as `not blocked`, because the edge is where it is blocked. The mark is for an operator, and only while the Edge blocklist is on.
+
 ### What it will not do
 
 | Guard | What happens |
@@ -385,6 +408,7 @@ If another tool updates that list, such as a script on a schedule, stop it first
 | More entries than there is room for | The list is cut at **Most entries in the list**, less what your account's other lists use. The card says how many were left out. |
 | Downloads | Each blacklist is downloaded at most four times a day, and its last copy is reused in between. |
 | One change at a time | Cloudflare applies a change in the background and takes one at a time. RemotePower waits up to 20 seconds and then looks again every five minutes. |
+| A ban by hand | Needs the platform operator for the edge and the **command** permission on each host. The never-block rules apply to both halves. |
 
 ### What the card shows
 

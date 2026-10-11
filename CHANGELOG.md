@@ -106,6 +106,29 @@ It is in `docs/security-review-7.3.0.md`.
   source's addresses came from, and what was left out and why. It is translated
   into the six languages.
 
+- **Ban an address by hand, at the edge and on hosts.** Every row of the Attackers
+  table has a **Ban** button. The dialog asks two separate questions, because the
+  two halves stop different traffic: **at the edge** adds the address to the
+  Cloudflare list for 1 hour to 90 days and runs a sync at once, so the answer says
+  whether it is in; **on hosts** queues the same firewall rule a block uses, to the
+  hosts that saw the address or to every Linux agent you can reach. A visitor
+  proxied by Cloudflare arrives from Cloudflare's addresses, so a host rule only
+  stops direct connections (SSH, mail, the origin's own address) and the edge ban
+  is what stops the rest; the dialog says so.
+- **The guards are the ones that exist.** The edge half is for the platform
+  operator and needs the Edge blocklist on with a token. The host half needs the
+  **command** permission on each host and is confined to the role's scope and the
+  tenant; a host that is not a Linux agent is skipped and one that refuses is named
+  with its reason; four-eyes approval parks each host. Your own hosts, the
+  allow-list, recent logins, the never-block list, Cloudflare's addresses and
+  private addresses are refused for both halves. **Unban** lifts the edge ban and
+  every host block RemotePower made for the address.
+- **A ban leaves the list when it ends.** The sweep is due when a ban expires, so
+  it does not wait for the next scheduled sync.
+- **The table says what the list holds.** An address the last sync put in the list
+  reads `in the edge blocklist`, one you banned reads `banned at the edge`, and an
+  address the edge holds is no longer described as `not blocked`.
+
 ### Firewall log
 
 - **Linux agents read UFW's log**, or `kern.log` when there is none. One refused
@@ -145,7 +168,7 @@ It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-50`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-51`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts

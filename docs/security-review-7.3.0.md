@@ -4,8 +4,9 @@ Like the one before it, this review does not cover the whole project, and says
 so. It covers what is new in this release and changes who can influence what:
 **a Cloudflare token the server stores and uses, two feeds the server reads from
 outside (Cloudflare's firewall events and a honeypot Worker's log) and turns into
-public reports, an agent reader for the host firewall's log, and a second token
-that can edit lists, with a sync that writes a list in the operator's account.**
+public reports, an agent reader for the host firewall's log, a second token
+that can edit lists, with a sync that writes a list in the operator's account, and
+a button that bans an address there and on hosts.**
 
 It found **nine** issues worth reporting. All were **caught before release**, by
 reading the design against the threat model and then by the tests written for the
@@ -22,8 +23,9 @@ what was reviewed.
   three new classes in `threat_evidence.py`, and who may send which.
 - **The token**: how it is stored, scrubbed, redacted in exports and used.
 - **The blocklist**: `edge_blocklist.py` (requests, parsers and the choice of what
-  goes in the list) and `edge_blocklist_handlers.py` (the sync, the two endpoints
-  and what the page reads), and the second token that can edit lists.
+  goes in the list) and `edge_blocklist_handlers.py` (the sync, its endpoints, the
+  ban and unban endpoints and what the page reads), and the second token that can
+  edit lists.
 - **The firewall-log reader** in the Linux agent.
 - **The Threat intel page**, for what it prints from Cloudflare's answers.
 - **Static analysis on the changed files**: bandit (no issue in the two new
@@ -93,6 +95,18 @@ silently turn the list into the smaller set the other sources make.
 **What goes with it.** The sync sends the list's name, its entries and a comment on
 each entry naming the source. The blacklists are downloaded with the operator's
 own key, at most four times a day for each.
+
+**A ban by hand.** `POST /api/ip-intel/ban` is two actions that already existed,
+behind one button. The host half is the manual block for many hosts: it needs the
+`command` permission on each target, the targets are only Linux agents inside the
+caller's role scope and tenant (a list of ids is filtered, not trusted), the
+never-block rules apply, and four-eyes approval parks each host as it parks a
+block. The edge half adds the address to the list the sync keeps, so it is limited
+to the platform operator and does nothing while the Edge blocklist is off. An
+address the operator banned is stored with an end time and leaves the list when it
+ends. The address is parsed as one address, never a range, and the same protected
+networks that stop a block stop a ban, so a ban cannot be used to cut off the
+fleet, the allow-list, a recent login or Cloudflare itself.
 
 **What comes back is data.** Cloudflare's firewall events are asked for as groups
 of address, action, source and rule, so no path, query string or user agent is

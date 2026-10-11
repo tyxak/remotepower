@@ -391,6 +391,26 @@ whitelist) is never blocked.
 Blocking needs a Linux agent. You can also block or unblock by hand from the
 page, which needs the **command** permission on that host.
 
+### Ban by hand
+
+**Ban** on a row opens a dialog that bans the address in the two places
+RemotePower can act: at the edge (the Cloudflare list the
+[edge blocklist](#the-edge-blocklist) keeps) and on hosts (the same firewall rule a
+block queues, to the hosts that saw it or to every Linux host). They are separate
+choices because they stop different traffic: a visitor proxied by Cloudflare
+arrives from Cloudflare's addresses, so a rule on a host only stops connections
+that reach it directly, and the edge ban is what stops the visitors behind the
+proxy. The edge half needs the edge blocklist on with a token and is for the
+platform operator; the host half needs the **command** permission on each host and
+is skipped for a host that is not a Linux agent you can reach.
+
+Nothing here lifts the protections above: your own hosts, your allow-list, recent
+logins, the never-block list, Cloudflare's addresses and private addresses are
+refused. A ban lasts 1 hour to 90 days. **Unban** lifts the edge ban and every host
+block RemotePower made for that address. The status column says
+`in the edge blocklist` for an address the last sync put in your list and
+`banned at the edge` for one you banned by hand.
+
 ## Who can see what
 
 | Role | Sees |

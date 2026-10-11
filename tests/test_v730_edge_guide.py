@@ -367,6 +367,29 @@ class TestTheBlocklistSection(unittest.TestCase):
         m = re.search(r'id="ipintel-edgelist"> (.*?)</label>', _HTML)
         self.assertIn(m.group(1), self.sec)
 
+    def test_the_ban_dialog_is_described_in_its_own_words(self):
+        part = self.sec.split('### Ban an address by hand')[1].split('### What it will not do')[0]
+        for label in re.findall(r'<label[^>]*><input type="checkbox" id="ipintel-ban-(?:edge|hosts)"> (.*?)</label>',
+                                _HTML):
+            self.assertTrue('**%s**' % label in part, 'the dialog has a choice the guide does not name: ' + label)
+        self.assertIn('**Ban**', part)
+        self.assertIn('**Unban**', part)
+
+    def test_the_durations_and_the_ceiling_are_the_dialogs(self):
+        modal = _HTML[_HTML.index('id="ipintel-ban-hours"'):]
+        opts = re.findall(r'<option value="(\d+)">(.*?)</option>', modal[:modal.index('</select>')])
+        self.assertEqual([int(v) for v, _t in opts], [1, 24, 168, 720, 2160])
+        self.assertEqual(ebh.BAN_HOURS_MAX, 2160)
+        part = self.sec.split('### Ban an address by hand')[1]
+        self.assertIn('lasts 1 hour, 24 hours, 7, 30 or 90 days', part)
+
+    def test_the_phrases_the_table_shows_are_the_pages(self):
+        part = self.sec.split('### What the Attackers table says about it')[1].split('###')[0]
+        rows = _table(part)
+        shown = {_ticks(r[0])[0] for r in rows}
+        words = _js_table('_IPI_BAN_WORD')
+        self.assertEqual(shown, {words['in_list'], words['edge_ban'], words['edge_wait']})
+
     def test_the_guide_says_it_writes_and_does_not_say_it_only_reads(self):
         intro = self.guide.split('On this page:')[0]
         self.assertNotIn('Nothing here blocks anything', self.guide)

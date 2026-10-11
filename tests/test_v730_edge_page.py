@@ -47,7 +47,7 @@ def node(script, timeout=30):
         esc, esca,
         _const('_IPI_FEED'), _const('_IPI_FEED_STATE'), _const('_IPI_FEED_STATE_CLASS'),
         _const('_IPI_ASIDE'), _const('_IPI_CHECK'), _const('_IPI_CHECK_STATE'),
-        _const('_IPI_CLASS'), _const('_IPI_SOURCE'),
+        _const('_IPI_CLASS'), _const('_IPI_SOURCE'), _const('_IPI_BAN_WORD'),
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: ""});',
         'const document = {getElementById: el};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
@@ -56,6 +56,7 @@ def node(script, timeout=30):
         srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderEdge'),
         srcpin.js_function(_JS, '_ipiReason'), srcpin.js_function(_JS, '_ipiStatus'),
         srcpin.js_function(_JS, '_ipiStatusHtml'), srcpin.js_function(_JS, '_ipiNotBlockedReason'),
+        srcpin.js_function(_JS, '_ipiEdgeState'),
         srcpin.js_function(_JS, '_ipiEvidenceHtml'), srcpin.js_function(_JS, '_ipiClassName'),
         'const _ipiOpen = new Set();'])
     out = subprocess.run(['node', '-e', prelude + '\n' + script], capture_output=True, text=True, timeout=timeout)

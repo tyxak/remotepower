@@ -5284,6 +5284,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
   border: 1px solid var(--hair); border-radius: 0; background: var(--surface2); color: var(--text); }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
+/* v7.3.0: the row's buttons (Block, Ban, Unban) wrap instead of overflowing the cell. */
+.ipi-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
 .ipi-facts dt { color: var(--muted); }
 .ipi-facts dd { margin: 0; overflow-wrap: anywhere; }

@@ -101,6 +101,28 @@ const _IPI_LIST_DIALOG = {
     confirm: 'Remove',
   },
 };
+// A ban by hand (v7.3.0): one address, at the edge and on hosts. The fixed words are a
+// table so the language gate reads one place (tests/test_v730_edge_ban_page.py).
+const _IPI_BAN_WORD = {
+  in_list: 'in the edge blocklist', edge_ban: 'banned at the edge', edge_wait: 'edge ban waiting for the next sync',
+  edge_label: 'At the edge:', hosts_label: 'On hosts:',
+  edge_in: 'it is in the list', edge_later: 'it goes in the list at the next sync',
+  edge_applying: 'Cloudflare is applying the change',
+  edge_adopt: 'it goes in once the list has been taken over',
+  host_queued: 'queued', host_approval: 'waiting for approval', host_extended: 'already blocked, time extended',
+  host_skipped: 'skipped: not a Linux agent you can reach',
+  seen_by: 'Hosts that saw it', of_hosts: 'Linux hosts in all',
+  off_note: 'Turn on the Edge blocklist under Security → Threat intel → Edge blocklist to ban at the edge.',
+  operator_note: 'Only the platform operator can ban at the edge.',
+  choose: 'Choose at least one place.', could_not: 'Could not ban this address', unbanned: 'Unbanned',
+};
+const _IPI_BAN_DIALOG = {
+  unban: {
+    title: 'Unban this address',
+    message: 'Lift the ban at the edge and every block RemotePower made on hosts for this address?',
+    confirm: 'Unban',
+  },
+};
 const _IPI_EDGE_DIALOG = {
   token: {
     title: 'Remove token',
@@ -155,6 +177,10 @@ function _ipiWire() {
       _ipiRenderAttackers();
       return;
     }
+    const ban = ev.target.closest('button[data-ipi-ban]');
+    if (ban) { openIpIntelBan(ban.dataset.ipiBan); return; }
+    const unban = ev.target.closest('button[data-ipi-unban]');
+    if (unban) { unbanIpIntel(unban.dataset.ipiUnban); return; }
     const b = ev.target.closest('button[data-ip][data-dev]');
     if (b) blockIpIntel(b.dataset.dev, b.dataset.ip);
   });
@@ -258,18 +284,31 @@ function _ipiFillSettings(s, budget) {
 // Why an address was not blocked, from the hosts that saw it. The edge's own reason (it
 // never reached a host) counts only when no host saw the address; otherwise it would
 // hide the reason that applies to the host, and say there is no host when there is one.
-function _ipiNotBlockedReason(a) {
+function _ipiNotBlockedReason(a, edgeHolds) {
   const withWhy = (a.devices || []).filter(d => d.not_blocked);
   const hosts = withWhy.filter(d => !String(d.device_id || '').startsWith('edge:'));
+  if (edgeHolds) return (hosts[0] || {}).not_blocked || '';   // the edge is where it is blocked
   return (hosts[0] || withWhy[0] || {}).not_blocked || '';
+}
+
+// What the edge does with an address: 'listed' (the list holds it), 'banned' (a ban by
+// hand is in the list) or 'waiting' (a ban by hand the list does not hold yet). The page
+// trusts a stamp only while the blocklist is on; a stamp outlives a list that was switched off.
+function _ipiEdgeState(a) {
+  const el = (_ipiData || {}).edge_list;
+  const listed = !!(a.in_list && el && el.enabled);
+  if (a.edge_ban) return listed ? 'banned' : 'waiting';
+  return listed ? 'listed' : '';
 }
 
 function _ipiStatus(a) {
   const parts = [];
   for (const p of Object.keys(a.reported || {})) parts.push(`reported to ${p === 'abuseipdb' ? 'AbuseIPDB' : 'SniffCat'}`);
+  const edge = _ipiEdgeState(a);
+  if (edge) parts.push(_IPI_BAN_WORD[{listed: 'in_list', banned: 'edge_ban', waiting: 'edge_wait'}[edge]]);
   const blocked = new Set((_ipiData.blocks || []).filter(b => b.ip === a.ip).map(b => b.device_id));
   if (blocked.size) parts.push(`blocked on ${blocked.size}`);
-  const why = _ipiNotBlockedReason(a);
+  const why = _ipiNotBlockedReason(a, edge === 'listed' || edge === 'banned');
   if (!blocked.size && why) parts.push(`not blocked: ${why}`);
   const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
   if (errs.length) parts.push(errs.map(([p, e]) => `${p}: ${e}`).join(', '));
@@ -303,9 +342,11 @@ function _ipiStatusHtml(a) {
   for (const p of Object.keys(a.reported || {})) {
     parts.push(`${_ipiPhrase('reported to')} ${escHtml(p === 'abuseipdb' ? 'AbuseIPDB' : 'SniffCat')}`);
   }
+  const edge = _ipiEdgeState(a);
+  if (edge) parts.push(_ipiPhrase(_IPI_BAN_WORD[{listed: 'in_list', banned: 'edge_ban', waiting: 'edge_wait'}[edge]]));
   const blocked = new Set((_ipiData.blocks || []).filter(b => b.ip === a.ip).map(b => b.device_id));
   if (blocked.size) parts.push(`${_ipiPhrase('blocked on')} ${blocked.size}`);
-  const why = _ipiNotBlockedReason(a);
+  const why = _ipiNotBlockedReason(a, edge === 'listed' || edge === 'banned');
   if (!blocked.size && why) parts.push(`${_ipiPhrase('not blocked:')} ${_ipiReason(why)}`);
   const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
   if (errs.length) parts.push(errs.map(([p, e]) => `${escHtml(p)}: ${_ipiReason(e)}`).join(', '));
@@ -393,6 +434,14 @@ function _ipiRenderAttackers() {
     const btn = target
       ? `<button class="btn-icon" data-ip="${escAttr(a.ip)}" data-dev="${escAttr(target.device_id)}" aria-label="Block on host"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> Block</button>`
       : '';
+    const icon = d => `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const shield = '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>';
+    const banBtn = `<button class="btn-icon" data-ipi-ban="${escAttr(a.ip)}" aria-label="Ban">${icon(shield + '<path d="m4.243 5.21 14.39 12.472"/>')} Ban</button>`;
+    // Unban only where there is something to lift: a ban at the edge, or a block on a host.
+    const liftable = a.edge_ban || (_ipiData.blocks || []).some(b => b.ip === a.ip);
+    const unbanBtn = liftable
+      ? `<button class="btn-icon" data-ipi-unban="${escAttr(a.ip)}" aria-label="Unban">${icon(shield + '<path d="m9 12 2 2 4-4"/>')} Unban</button>`
+      : '';
     const score = a.score == null ? '—' : String(a.score);
     return `<tr>
       <td class="ff-mono">${escHtml(a.ip)}</td>
@@ -404,7 +453,7 @@ function _ipiRenderAttackers() {
       <td>${_ipiEvidenceHtml(a)}</td>
       <td>${escHtml(timeAgo(a.last_seen))}</td>
       <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
-      <td>${btn}</td>
+      <td><div class="ipi-actions">${btn}${banBtn}${unbanBtn}</div></td>
     </tr>${_ipiOpen.has(a.ip) ? `<tr class="ipi-detail"><td colspan="10">${_ipiDetailHtml(a)}</td></tr>` : ''}`;
   }).join('');
 }
@@ -795,6 +844,92 @@ async function lookupIpIntel() {
   for (const [p, x] of Object.entries(v.providers || {})) lines.push(`${p}: ${x.score} (${x.reports || 0})`);
   for (const [p, e] of Object.entries(r.errors || {})) if (e) lines.push(`${p}: ${e}`);
   out.innerHTML = lines.map(l => `<div>${escHtml(l)}</div>`).join('');
+}
+
+let _ipiBanIp = '';
+
+// Open the ban dialog for one address. The edge half is offered only when the operator has
+// the blocklist on with a token (the page sends `edge_list` to the operator alone); the host
+// half defaults to the hosts that saw the address, or to nothing when none did.
+function openIpIntelBan(ip) {
+  const a = ((_ipiData || {}).attackers || []).find(x => x.ip === ip);
+  if (!a) return;
+  _ipiBanIp = ip;
+  const B = _IPI_BAN_WORD, $ = id => document.getElementById(id);
+  const el = _ipiData.edge_list;
+  const ready = !!(el && el.enabled && el.token_set);
+  const seen = (a.devices || []).filter(d => !String(d.device_id).startsWith('edge:')).length;
+  $('ipintel-ban-ip').textContent = ip;
+  const edge = $('ipintel-ban-edge');
+  edge.disabled = !ready;
+  edge.checked = ready;
+  $('ipintel-ban-edge-note').innerHTML = ready ? '' : _ipiPhrase(el ? B.off_note : B.operator_note);
+  $('ipintel-ban-hosts').checked = seen > 0;
+  const which = $('ipintel-ban-which');
+  which.value = seen > 0 ? 'seen' : 'all';
+  which.querySelector('option[value="seen"]').disabled = seen === 0;
+  $('ipintel-ban-counts').innerHTML = `${_ipiPhrase(B.seen_by)}: ${seen} · ${_ipiPhrase(B.of_hosts)}: ${_ipiData.ban_hosts || 0}`;
+  const want = String(((_ipiData.settings || {}).block_ttl_hours) || 24);
+  const hours = $('ipintel-ban-hours');
+  hours.value = [...hours.options].some(o => o.value === want) ? want : '24';
+  $('ipintel-ban-result').innerHTML = '';
+  openModal('ipintel-ban-modal');
+}
+
+function closeIpIntelBan() { closeModal('ipintel-ban-modal'); }
+
+// What a ban did, in the dialog: the edge half in a word, the hosts half as counts, and a
+// host that refused by name with its own reason (escaped; it is free text).
+function _ipiBanResultHtml(d) {
+  const B = _IPI_BAN_WORD, out = [];
+  if (d.edge) {
+    const s = d.edge.state;
+    const bad = s === 'held' || s === 'error' || s === 'needs_setup';
+    const word = s === 'ok' ? B.edge_in : s === 'pending' ? B.edge_applying : s === 'needs_adopt' ? B.edge_adopt : B.edge_later;
+    const cls = s === 'ok' ? 'c-green' : bad ? 'c-amber' : 'hint';
+    const text = bad && d.edge.why ? _ipiListWhy(d.edge.why) : _ipiPhrase(word);
+    out.push(`<div>${_ipiPhrase(B.edge_label)} <span class="${cls}">${text}</span></div>`);
+  }
+  if (d.hosts) {
+    const h = d.hosts, bits = [];
+    for (const [n, word] of [[h.queued, B.host_queued], [h.approval, B.host_approval],
+                             [h.extended, B.host_extended], [h.skipped, B.host_skipped]]) {
+      if (n) bits.push(`${escHtml(String(n))} ${_ipiPhrase(word)}`);
+    }
+    out.push(`<div>${_ipiPhrase(B.hosts_label)} ${bits.join(' · ') || '0'}</div>`);
+    for (const f of h.failed || []) {
+      out.push(`<div class="hint fs-11"><span class="c-red">${escHtml(f.name)}</span>: ${escHtml(f.error)}</div>`);
+    }
+  }
+  return out.join('');
+}
+
+async function applyIpIntelBan() {
+  const $ = id => document.getElementById(id);
+  const out = $('ipintel-ban-result');
+  const edge = $('ipintel-ban-edge').checked && !$('ipintel-ban-edge').disabled;
+  const hosts = $('ipintel-ban-hosts').checked;
+  if (!edge && !hosts) { out.innerHTML = _ipiPhrase(_IPI_BAN_WORD.choose); return; }
+  const body = {ip: _ipiBanIp, hours: Number($('ipintel-ban-hours').value)};
+  if (edge) body.edge = true;
+  if (hosts) body.hosts = $('ipintel-ban-which').value;
+  out.textContent = '…';
+  const r = await api('POST', '/ip-intel/ban', body).catch(() => null);
+  if (!r || r.error) { out.textContent = (r && r.error) || _IPI_BAN_WORD.could_not; return; }
+  out.innerHTML = _ipiBanResultHtml(r);
+  loadIpIntel();
+}
+
+async function unbanIpIntel(ip) {
+  const d = _IPI_BAN_DIALOG.unban;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+  if (!ok) return;
+  const body = {ip, hosts: 'all'};
+  if ((_ipiData || {}).edge_list) body.edge = true;
+  const r = await api('POST', '/ip-intel/unban', body).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Could not save', 'error'); return; }
+  toast(_IPI_BAN_WORD.unbanned, 'success');
+  loadIpIntel();
 }
 
 async function blockIpIntel(devId, ip) {

@@ -1033,6 +1033,7 @@ def build_ip_intel() -> dict:
                                          'sniffcat': {'score': 70 if reported else 10, 'reports': 3}}},
                'reported': {'abuseipdb': seen, 'sniffcat': seen} if reported else {}, 'errors': {}}
         if reported:
+            att['in_list'] = now() - 1500          # the demo's last sync listed what was reported
             att['ev_reported'] = {'at': seen, 'ev': ev}
             text = (f"{phrase}: {n} attempts within 10 minutes, seen by "
                     f"{'edge honeypot' if dev == 'edge:trap' else 'Cloudflare WAF'} (reported by RemotePower)")
@@ -1089,6 +1090,19 @@ def build_ip_intel() -> dict:
             'at': now() - rng.randint(20, 600), 'sources': web, 'events': 6 + k, 'dropped': 0,
             'throttled': 0, 'ignored': ({'cloudflare': 412} if k % 3 == 0 else {}),
             'hour': {'h': now() // 3600, 'n': 6 + k}}
+    # A ban by hand (v7.3.0): the operator banned the first host-seen address with a score
+    # of 90 or more at the edge, and on the host that saw it. The list holds it, and the
+    # host has its block, so the row shows both the marker and an Unban button.
+    edgeban = {}
+    for ip, att in attackers.items():
+        if not ip.startswith('192.0.2.') and (att.get('verdict') or {}).get('score', 0) >= 90:
+            edgeban[ip] = {'at': now() - 3600, 'until': now() + 23 * 3600, 'by': 'alice'}
+            att['in_list'] = now() - 1500
+            for dev_id in att.get('devices') or {}:
+                if not str(dev_id).startswith('edge:'):
+                    blocks.setdefault(dev_id, {})[ip] = {'at': now() - 3600, 'until': now() + 23 * 3600,
+                                                         'by': 'alice', 'kind': 'manual'}
+            break
     # The edge blocklist (v7.3.0): one sync that went through, so the page shows the
     # list's counts, where each part came from, and what the last run changed. Keys
     # are the ones edge_blocklist_handlers._record keeps.
@@ -1114,7 +1128,7 @@ def build_ip_intel() -> dict:
         'calls': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())), 'abuseipdb': 1, 'sniffcat': 1},
     }
     return {'attackers': attackers, 'blocks': blocks, 'queue': [], 'sensors': sensors,
-            'edge': edge, 'edgelist': edgelist,
+            'edge': edge, 'edgelist': edgelist, 'edgeban': edgeban,
             'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                        'abuseipdb': 18, 'sniffcat': 18},
             'last_sweep': now()}

@@ -91,6 +91,10 @@ def _server_sentences():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
                 and node.func.attr in ('respond', 'audit_log'):
             return
+        # what the ban endpoint says when the edge cannot take a ban is an error text
+        # shown by the dialog, not one of the card's reasons
+        if isinstance(node, ast.FunctionDef) and node.name == '_edge_not_ready':
+            return
         if isinstance(node, (ast.FunctionDef, ast.Module)) and node.body and isinstance(node.body[0], ast.Expr) \
                 and isinstance(getattr(node.body[0], 'value', None), ast.Constant):
             body = node.body[1:]
