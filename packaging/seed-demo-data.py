@@ -1048,7 +1048,7 @@ def build_ip_intel() -> dict:
         attackers[ip] = att
     edge = {
         'polled': now() - 240, 'at': now() - 240,
-        'cf': {'state': 'ok', 'at': now() - 240, 'rows': 38, 'kept': 16,
+        'cf': {'state': 'ok', 'at': now() - 240, 'rows': 38, 'kept': 16, 'mode': 'events',
                'ignored': {'not_an_attack_source': 112, 'not_a_refusal': 57, 'list_rule': 9},
                'zones': [{'name': 'demo.example'}, {'name': 'shop.demo.example'}],
                'rules_unreadable': False, 'truncated': False},

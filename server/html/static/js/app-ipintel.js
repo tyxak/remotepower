@@ -37,13 +37,13 @@ const _IPI_FEED = {
   cf: 'Cloudflare firewall events', trap: 'Edge honeypot',
 };
 const _IPI_FEED_STATE = {
-  ok: 'Reading', no_access: 'No permission', error: 'Error',
+  ok: 'Reading', no_access: 'No permission', refused: 'Refused by Cloudflare', error: 'Error',
   no_account: 'Needs an account id', no_zones: 'No zones found',
   off: 'Off', waiting: 'Waiting for the first read',
 };
 const _IPI_FEED_STATE_CLASS = {
-  ok: 'c-green', no_access: 'c-red', error: 'c-red', no_account: 'c-amber', no_zones: 'c-amber',
-  off: 'hint', waiting: 'hint',
+  ok: 'c-green', no_access: 'c-red', refused: 'c-red', error: 'c-red', no_account: 'c-amber',
+  no_zones: 'c-amber', off: 'hint', waiting: 'hint',
 };
 const _IPI_ASIDE = {
   not_a_refusal: 'challenges and log-only actions',
@@ -58,7 +58,8 @@ const _IPI_CHECK = {
   zones: 'Zones', firewall: 'Firewall events', rules: 'Custom rules', trap: 'Honeypot log',
 };
 const _IPI_CHECK_STATE = {
-  ok: 'Works', no_access: 'The token cannot read this', error: 'Failed', skipped: 'Skipped',
+  ok: 'Works', no_access: 'The token cannot read this', refused: 'Cloudflare refused this read',
+  error: 'Failed', skipped: 'Skipped',
 };
 const _IPI_STATE = {
   ok: 'Reading', idle: 'Quiet', missing: 'File missing', denied: 'No permission',
@@ -406,7 +407,7 @@ function _ipiRenderEdge() {
     const asideHtml = r.aside.map(([k, n]) => `${_ipiPhrase(_IPI_ASIDE[k] || k)} ×${escHtml(String(n))}`).join(', ');
     return `<tr>
       <td>${_ipiPhrase(_IPI_FEED[r.feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
-      <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}</td>
+      <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}${r.key === 'ok' && f.mode && f.mode !== 'groups' ? `<div class="hint fs-11">${_ipiPhrase('Cloudflare refused the grouped view, so the events are read one at a time.')}</div>` : ''}</td>
       <td>${on && f.at ? escHtml(timeAgo(f.at)) : ''}</td>
       <td>${escHtml(String(f.rows ?? f.hits ?? 0))}</td>
       <td>${escHtml(String(f.kept || 0))}</td>
@@ -446,6 +447,8 @@ async function testIpIntelEdge() {
     } else if (k === 'rules' && c.state === 'ok') {
       more = (c.rules || []).map(x =>
         `<div class="hint fs-11"><code>${escHtml(x.id)}</code> ${escHtml(x.d || '')}${x.k ? ` — ${_ipiPhrase('also blocks an IP list')}` : ''}</div>`).join('');
+    } else if (k === 'firewall' && c.state === 'ok' && c.mode && c.mode !== 'groups') {
+      more = ` · ${_ipiPhrase('Cloudflare refused the grouped view, so the events are read one at a time.')}`;
     } else if (c.error && c.state !== 'ok') {
       more = ` · ${escHtml(c.error)}`;
     }

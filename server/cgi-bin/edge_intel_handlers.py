@@ -55,6 +55,9 @@ LAG_S = 90                    # events take a moment to show up in analytics
 RULE_ZONES = 12               # zones whose rules are kept
 RULES_PER_ZONE = 60
 RULES_BUDGET_S = 20           # time one poll spends reading rules; the rest wait for the next
+FIREWALL_BUDGET_S = 45        # and reading events; a window half read does not move the cursor
+MODE_PROBE_S = 6 * 3600       # a zone read as single events asks for the grouped view again this often
+TEST_ZONES = 12               # zones Test connection reads
 FEEDS = (('cf', 'edge:cloudflare'), ('trap', 'edge:trap'))
 
 
@@ -63,10 +66,47 @@ def _store_ro():
 
 
 def _fail(res):
-    """A feed's state from a parser's refusal: the token cannot read this, or
-    Cloudflare failed. The sentence is the provider's, already cut and cleaned."""
+    """A feed's state from a parser's refusal. 'refused' is Cloudflare refusing a
+    dataset to a zone: it words that about the zone, and a token without Analytics
+    and a plan without the dataset both produce it, so it is not called a
+    permission. 'no_access' is the token being refused, and 'error' is anything
+    else. The sentence is the provider's, already cut and cleaned."""
+    if res.get('dataset'):
+        return {'state': 'refused', 'error': str(res.get('error') or '')[:200]}
     return {'state': 'no_access' if res.get('auth') else 'error',
-            'error': str(res.get('error') or '')[:160]}
+            'error': str(res.get('error') or '')[:200]}
+
+
+def _zone_error(z, res):
+    """The provider's sentence, with the zone it was about."""
+    return ('%s: %s' % (z.get('name') or str(z.get('id'))[:8], res.get('error') or ''))[:200]
+
+
+def _read_zone(token, zone_id, since, until, prefer_events, limit=None):
+    """(result, mode) for one zone's firewall events: the grouped dataset first,
+    and the zone's single events when Cloudflare refuses the grouped one, which a
+    Free plan does. A zone already known to need the events asks for them first,
+    and asks for the grouped view again now and then, in case its plan changed.
+    One zone to a request, so a zone Cloudflare refuses cannot blank the others."""
+    def grouped():
+        return edge_evidence.parse_firewall(*A._ip_intel_http(edge_evidence.firewall_request(
+            token, [zone_id], since, until, limit or edge_evidence.MAX_ROWS)))
+
+    def events():
+        n = limit or edge_evidence.MAX_EVENTS
+        return edge_evidence.parse_events(*A._ip_intel_http(edge_evidence.events_request(
+            token, [zone_id], since, until, n)), limit=n)
+
+    if prefer_events:
+        res = events()
+        if res['ok'] or not res.get('dataset'):
+            return res, 'events'
+        alt = grouped()
+        return (alt, 'groups') if alt['ok'] else (res, 'events')
+    res = grouped()
+    if res['ok'] or not res.get('dataset'):
+        return res, 'groups'
+    return events(), 'events'
 
 
 # ── the sweep ──────────────────────────────────────────────────────────────────
@@ -97,8 +137,13 @@ def _poll_cf(token, pol, edge, now):
         return {'state': 'no_zones', 'at': now}
     since = max(int(edge.get('cf_to') or 0), now - LOOKBACK_S)
     until = now - LAG_S
+    prev_cf = edge.get('cf') if isinstance(edge.get('cf'), dict) else {}
+    prev_modes = prev_cf.get('modes') if isinstance(prev_cf.get('modes'), dict) else {}
     out = {'state': 'ok', 'at': now, 'zones': [{'name': z.get('name') or z['id'][:8]} for z in zones],
-           'zone_list': zones, 'zones_at': now if refused is None else int(edge.get('zones_at') or 0)}
+           'zone_list': zones, 'zones_at': now if refused is None else int(edge.get('zones_at') or 0),
+           'modes': dict(prev_modes)}
+    if prev_cf.get('mode'):
+        out['mode'] = prev_cf['mode']
     # Rules: read once an hour per zone, so a rule that also blocks an IP list is
     # known and the operator's own description can choose a class. A zone whose
     # rules cannot be read is still counted; the page says so.
@@ -132,15 +177,47 @@ def _poll_cf(token, pol, edge, now):
     if until - since < 60:
         out['skipped'] = True
         return out
-    res = edge_evidence.parse_firewall(*A._ip_intel_http(
-        edge_evidence.firewall_request(token, [z['id'] for z in zones], since, until)))
-    if not res['ok']:
-        return dict(out, **_fail(res))
+    # One zone to a request. Cloudflare answers a dataset a zone's plan does not
+    # have with an error that names the zone and fails the whole request, and the
+    # grouped dataset is exactly what a Free plan lacks: so each zone is asked for
+    # the grouped view and, when that is refused, for its single events.
+    rows, truncated, refusals, modes, used = [], False, [], {}, set()
+    started = time.monotonic()
+    for z in zones:
+        if time.monotonic() - started > FIREWALL_BUDGET_S:
+            # a slow answer must not hold the poll up, and a window half read must
+            # not move the cursor
+            return dict(out, state='error', error='too many zones to read in one pass')
+        known = prev_modes.get(z['id']) if isinstance(prev_modes.get(z['id']), dict) else {}
+        prefer = known.get('m') == 'events' and now - int(known.get('p') or 0) < MODE_PROBE_S
+        res, mode = _read_zone(token, z['id'], since, until, prefer)
+        modes[z['id']] = {'m': mode,
+                          'p': int(known.get('p') or now) if (prefer and mode == 'events') else now}
+        if res['ok']:
+            rows += res['rows']
+            truncated = truncated or bool(res['truncated'])
+            used.add(mode)
+        elif res.get('dataset') or res.get('auth'):
+            refusals.append((z, res))
+        else:
+            return dict(out, **_fail(res))      # Cloudflare failed: the cursor stays
+    out['modes'] = modes
+    if not used:
+        z, res = refusals[0]
+        fail = _fail(res)
+        fail['error'] = _zone_error(z, res)
+        return dict(out, **fail)
     events, stats = edge_evidence.cf_events(
-        res['rows'], rules, now, since, until,
+        rows, rules, now, since, until,
         include_carriers=bool(pol.get('edge_count_list_rules')))
     out.update(events=events, rows=stats['rows'], kept=stats['kept'], ignored=stats['ignored'],
-               truncated=bool(res['truncated']), to=until)
+               truncated=truncated, to=until,
+               mode='groups' if used == {'groups'} else 'events' if used == {'events'} else 'mixed')
+    if refusals:
+        # some zones were read and these were not: the page says which, and the
+        # window still moves on, because a zone Cloudflare refuses stays refused
+        out['refused'] = len(refusals)
+        out['error'] = '; '.join(_zone_error(z, r) for z, r in refusals)[:200]
     return out
 
 
@@ -233,7 +310,7 @@ def run_edge_intel_if_due():
 # ── what the page reads ────────────────────────────────────────────────────────
 
 _FEED_KEYS = ('state', 'at', 'rows', 'hits', 'kept', 'ignored', 'truncated', 'error',
-              'rules_unreadable', 'skipped', 'zones', 'workers')
+              'rules_unreadable', 'skipped', 'zones', 'workers', 'mode', 'refused')
 
 
 def edge_intel_status(st, pol):
@@ -282,9 +359,26 @@ def handle_ip_intel_edge_test():
     ids = [z for z in (pol.get('edge_zone_ids') or []) if edge_evidence.valid_id(z)] \
         or [z['id'] for z in zones]
     if ids:
-        res = edge_evidence.parse_firewall(*A._ip_intel_http(
-            edge_evidence.firewall_request(token, ids, now - 900, now - LAG_S, 1)))
-        checks['firewall'] = _check(res)
+        # Each zone on its own, as the poll reads them: the answer names the
+        # zones Cloudflare refuses and says how the others were read.
+        names = {z['id']: z['name'] for z in zones}
+        modes, refusals = set(), []
+        for zid in ids[:TEST_ZONES]:
+            res, mode = _read_zone(token, zid, now - 900, now - LAG_S, False, limit=1)
+            if res.get('ok'):
+                modes.add(mode)
+            elif res.get('dataset') or res.get('auth'):
+                refusals.append(({'id': zid, 'name': names.get(zid, '')}, res))
+            else:
+                refusals.append(({'id': zid, 'name': names.get(zid, '')}, res))
+                break
+        if refusals:
+            fail = _fail(refusals[0][1])
+            fail['error'] = '; '.join(_zone_error(z, r) for z, r in refusals)[:200]
+            checks['firewall'] = fail
+        else:
+            checks['firewall'] = {'state': 'ok', 'mode': (
+                'groups' if modes == {'groups'} else 'events' if modes == {'events'} else 'mixed')}
         res = edge_evidence.parse_rules(*A._ip_intel_http(edge_evidence.rules_request(token, ids[0])))
         rows = [{'id': rid[:8], 'd': r['d'], 'c': r['c'], 'k': r['k']}
                 for rid, r in list((res.get('rules') or {}).items())[:12]]

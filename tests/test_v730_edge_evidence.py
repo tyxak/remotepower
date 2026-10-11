@@ -142,9 +142,10 @@ class TestParsers(unittest.TestCase):
 
     def test_a_graphql_error_is_read_even_on_http_200(self):
         r = ee.parse_firewall(200, {'data': None, 'errors': [
-            {'message': 'zone does not have access to the path', 'extensions': {'code': 'authz'}}]})
+            {'message': 'not authorized for that account', 'extensions': {'code': 'authz'}}]})
         self.assertFalse(r['ok'])
         self.assertTrue(r['auth'])
+        self.assertNotIn('dataset', r)
         r = ee.parse_firewall(200, {'errors': [{'message': 'query too large'}]})
         self.assertFalse(r['ok'])
         self.assertNotIn('auth', r)
@@ -188,6 +189,128 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(ee.parse_trap(200, {'result': None})['hits'], [])
         self.assertFalse(ee.parse_trap(403, {'success': False, 'errors': [
             {'code': 10000, 'message': 'Authentication error'}]})['ok'])
+
+
+ZONE2 = '6' * 32
+
+
+def ev(ip=ATK, action='block', source='firewallCustom', rule=RULE):
+    return {'clientIP': ip, 'action': action, 'source': source, 'ruleId': rule}
+
+
+def events_body(events, zone=ZONE):
+    return {'data': {'viewer': {'zones': [{'zoneTag': zone, 'firewallEventsAdaptive': events}]}}}
+
+
+class TestSingleEvents(unittest.TestCase):
+    """A Free zone is refused the grouped dataset and can read the zone's events.
+    The same four facts come out of both, and no more is asked for."""
+
+    def test_the_event_query_asks_for_four_fields_and_no_paths(self):
+        body = json.loads(ee.events_request('t', [ZONE], NOW - 600, NOW, 99999999)['body'])
+        q = body['query']
+        self.assertEqual(set(body), {'query'}, 'literals only: no typed variables')
+        self.assertIn('firewallEventsAdaptive(', q)
+        self.assertNotIn('firewallEventsAdaptiveGroups', q)
+        self.assertIn('clientIP action source ruleId }', q)
+        for field in ('clientRequestPath', 'clientRequestQuery', 'userAgent', 'clientRequestHTTPHost',
+                      'rayName', 'clientAsn'):
+            self.assertNotIn(field, q)
+        self.assertIn('zoneTag: "%s"' % ZONE, q)
+        self.assertIn('limit: %d' % ee.MAX_EVENTS, q)
+        self.assertIn('orderBy: [datetime_DESC]', q)
+        self.assertEqual(q.count('{'), q.count('}'))
+        self.assertEqual(ee.events_request('t', [ZONE], NOW - 600, NOW)['headers']['Authorization'], 'Bearer t')
+
+    def test_what_was_allowed_or_answered_is_left_out_but_no_refusal_is(self):
+        q = json.loads(ee.events_request('t', [ZONE], NOW - 600, NOW)['body'])['query']
+        for a in ('allow', 'skip', 'managed_challenge_interactive_solved', 'jschallenge_bypassed'):
+            self.assertIn('{action_neq: "%s"}' % a, q)
+        self.assertEqual(set(ee._NOT_EVENTS) & set(ee._CF_REFUSALS), set(),
+                         'the exclusion list must never hold something that counts')
+        for kept in ('block', 'managed_challenge', 'challenge', 'log', 'connectionClose'):
+            self.assertNotIn('"%s"' % kept, q)
+
+    def test_several_zones_are_asked_for_together(self):
+        q = json.loads(ee.events_request('t', [ZONE, ZONE2], NOW - 600, NOW)['body'])['query']
+        self.assertIn('zoneTag_in: ["%s", "%s"]' % (ZONE, ZONE2), q)
+
+    def test_nothing_in_the_event_query_can_come_from_outside(self):
+        evil = ZONE[:10] + '"]) { evil } #' + ZONE[10:]
+        q = json.loads(ee.events_request('t', [evil, ZONE], NOW - 600, NOW, 7)['body'])['query']
+        self.assertNotIn('evil', q)
+        self.assertIn('limit: 7,', q)
+        with self.assertRaises(ValueError):
+            ee.events_request('t', [evil], NOW - 600, NOW)
+        with self.assertRaises((TypeError, ValueError)):
+            ee.events_request('t', [ZONE], NOW - 600, NOW, '7) { evil }')
+
+    def test_events_become_the_rows_the_grouped_dataset_gives(self):
+        events = [ev(ATK)] * 7 + [ev(ATK2, source='country', action='challenge')] * 3 + ['junk']
+        r = ee.parse_events(200, events_body(events))
+        self.assertTrue(r['ok'])
+        self.assertEqual(sorted(r['rows'], key=lambda x: x['ip']), sorted([
+            row(ip=ATK, source='firewallcustom', count=7),
+            row(ip=ATK2, action='challenge', source='country', count=3)], key=lambda x: x['ip']))
+        self.assertFalse(r['truncated'])
+
+    def test_both_datasets_reduce_to_the_same_evidence(self):
+        grouped = ee.parse_firewall(200, {'data': {'viewer': {'zones': [{'zoneTag': ZONE,
+            'firewallEventsAdaptiveGroups': [
+                {'count': 7, 'dimensions': {'clientIP': ATK, 'action': 'block', 'source': 'firewallCustom',
+                                            'ruleId': RULE}},
+                {'count': 3, 'dimensions': {'clientIP': ATK2, 'action': 'block', 'source': 'waf',
+                                            'ruleId': RULE2}},
+                {'count': 5, 'dimensions': {'clientIP': '203.0.113.9', 'action': 'managed_challenge',
+                                            'source': 'bic', 'ruleId': ''}}]}]}}})
+        events = ([ev(ATK)] * 7 + [ev(ATK2, source='waf', rule=RULE2)] * 3
+                  + [ev('203.0.113.9', action='managed_challenge', source='bic', rule='')] * 5)
+        single = ee.parse_events(200, events_body(events))
+        a, sa = ee.cf_events(grouped['rows'], None, NOW, NOW - 600, NOW)
+        b, sb = ee.cf_events(single['rows'], None, NOW, NOW - 600, NOW)
+        key = lambda e: e['ip']  # noqa: E731
+        self.assertEqual(sorted(a, key=key), sorted(b, key=key))
+        self.assertEqual(sa, sb)
+        self.assertEqual(sa['ignored'], {'not_a_refusal': 5})
+
+    def test_a_zone_that_came_back_full_is_flagged(self):
+        full = [ev()] * 5
+        self.assertTrue(ee.parse_events(200, events_body(full), limit=5)['truncated'])
+        self.assertFalse(ee.parse_events(200, events_body(full), limit=6)['truncated'])
+
+    def test_the_limit_keeps_many_zones_inside_the_response_cap(self):
+        self.assertEqual(ee.events_limit(1), ee.MAX_EVENTS)
+        self.assertEqual(ee.events_limit(4), ee.MAX_EVENTS)
+        self.assertEqual(ee.events_limit(0), ee.MAX_EVENTS)
+        self.assertEqual(ee.events_limit(50), 400)
+        for n in range(1, ee.MAX_ZONES + 1):
+            self.assertLessEqual(ee.events_limit(n) * n, 20000, n)
+
+    def test_a_dataset_refusal_names_the_zone_and_is_not_called_a_permission(self):
+        msg = ("zone '%s' does not have access to the path. Refer to this page for more details about "
+               "access controls: https://developers.cloudflare.com/analytics/graphql-api/" % ZONE)
+        body = {'data': None, 'errors': [{'message': msg, 'extensions': {'code': 'authz'},
+                                          'path': ['viewer', 'zones', 0, 'firewallEventsAdaptiveGroups']}]}
+        for parse in (ee.parse_firewall, ee.parse_events):
+            r = parse(200, body)
+            self.assertFalse(r['ok'])
+            self.assertTrue(r['dataset'])
+            self.assertNotIn('auth', r, 'Cloudflare says the zone, not the token')
+            self.assertIn(ZONE, r['error'])
+            self.assertNotIn('Refer to this page', r['error'])
+            self.assertNotIn('http', r['error'])
+
+    def test_a_field_level_authorization_error_is_a_dataset_refusal_whatever_it_says(self):
+        r = ee.parse_events(200, {'errors': [{'message': 'something else entirely',
+                                              'extensions': {'code': 'authz'},
+                                              'path': ['viewer', 'zones', 0, 'firewallEventsAdaptive']}]})
+        self.assertTrue(r['dataset'])
+
+    def test_authorization_without_a_path_is_still_the_token(self):
+        r = ee.parse_events(200, {'errors': [{'message': 'nope', 'extensions': {'code': 'authz'}}]})
+        self.assertTrue(r['auth'])
+        self.assertNotIn('dataset', r)
+        self.assertTrue(ee.parse_events(403, {'success': False, 'errors': [{'code': 10000}]})['auth'])
 
 
 class TestCloudflareEvents(unittest.TestCase):

@@ -62,7 +62,11 @@ and the limit are validated and written into it, and a test feeds it a hostile i
 
 **What comes back is data.** Cloudflare's firewall events are asked for as groups
 of address, action, source and rule, so no path, query string or user agent is
-ever fetched. From the Worker's log the server reads four fields: the trap kind,
+ever fetched. A Free plan is refused that dataset; its events are then read one
+at a time, with the same four fields named in the query and no others, so the
+response carries no path, query string, host or user agent there either. A test
+pins the field list and that the filter never excludes something that counts.
+From the Worker's log the server reads four fields: the trap kind,
 the address, the Worker's decision and the time. Everything else in a line, which
 includes text the visitor chose, is dropped before it is stored. What is kept is
 mapped through fixed tables to a class, so the words of a report come from the
@@ -136,7 +140,9 @@ seconds on rules and reads the rest on the next one.
   response were written from Cloudflare's documentation and from the operator's
   own report scripts, which already query that API, and the parsers accept the
   shapes those scripts handle. They were not run against a real account in this
-  review. **Test connection** is there so the first run says what differs.
+  review. **Test connection** is there so the first run says what differs. The
+  first live run did: a Free zone refused the grouped dataset, and the event read
+  was added, with the query shape cf-sniffcat uses on the same zones.
 - **A production host's real logs and rules.** The firewall reader was run over
   realistic UFW and kernel records, not a live host's.
 - **The rest of the project.** The whole-project reviews are the earlier ones.

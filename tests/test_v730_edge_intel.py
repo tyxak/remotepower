@@ -50,6 +50,27 @@ def trap_line(ip, kind='bait', action='banned', at='2026-09-21T10:00:00.000Z', *
     return dict({'msg': 'trap hit', 'kind': kind, 'ip': ip, 'action': action, 'at': at}, **extra)
 
 
+def event(ip, source='firewallCustom', rule=RULE_PROBE, action='block'):
+    return {'clientIP': ip, 'action': action, 'source': source, 'ruleId': rule}
+
+
+def events_body(*pairs, zone=ZONE):
+    """`firewallEventsAdaptive`'s answer for events given as (event, how many)."""
+    evs = []
+    for e, n in pairs:
+        evs += [e] * n
+    return {'data': {'viewer': {'zones': [{'zoneTag': zone, 'firewallEventsAdaptive': evs}]}}}
+
+
+def dataset_refusal(zone=ZONE, field='firewallEventsAdaptiveGroups'):
+    """What Cloudflare answers, with HTTP 200, for a dataset a zone cannot read."""
+    return {'data': None, 'errors': [{
+        'message': ("zone '%s' does not have access to the path. Refer to this page for more details "
+                    "about access controls: https://developers.cloudflare.com/analytics/graphql-api/"
+                    "getting-started/authentication/" % zone),
+        'path': ['viewer', 'zones', 0, field], 'extensions': {'code': 'authz'}}]}
+
+
 class _Edge(_Case):
     def setUp(self):
         super().setUp()
@@ -67,6 +88,11 @@ class _Edge(_Case):
             trap_line(SECOND, kind='robots', action='banned'),
             trap_line(THIRD, kind='login', action='counted')]}}
         self.refuse = {}                    # url fragment -> (status, body)
+        # the events the zone has, the same facts as `self.graphql` has grouped
+        self.events = events_body((event(ATTACKER), 7), (event(SECOND, source='country'), 40),
+                                  (event(THIRD, rule=RULE_LIST), 9))
+        self.groups_refused = set()         # zone ids, or '*': Cloudflare refuses the grouped dataset
+        self.refused_zones = set()          # zone ids Cloudflare refuses both datasets for
         provider = api._ip_intel_http
 
         def _router(req):
@@ -90,7 +116,18 @@ class _Edge(_Case):
         if '/rulesets/phases/http_request_firewall_custom/entrypoint' in url:
             return 200, self.rules
         if url.endswith('/graphql'):
-            return 200, self.graphql
+            q = json.loads(req['body'])['query']
+            m = re.search(r'zoneTag(?:_in)?: \[?"([0-9a-f]{32})"', q)
+            zone = m.group(1) if m else ZONE
+            grouped = 'firewallEventsAdaptiveGroups' in q
+            if zone in self.refused_zones or (grouped and ({'*', zone} & self.groups_refused)):
+                return 200, dataset_refusal(zone, 'firewallEventsAdaptiveGroups' if grouped
+                                            else 'firewallEventsAdaptive')
+            if grouped:
+                return 200, self.graphql
+            body = json.loads(json.dumps(self.events))
+            body['data']['viewer']['zones'][0]['zoneTag'] = zone
+            return 200, body
         if url.endswith('/telemetry/query'):
             return 200, self.trap
         return 404, {'success': False}
@@ -286,9 +323,9 @@ class TestTheSweep(_Edge):
 
 
 class TestWhenAFeedFails(_Edge):
-    def test_a_token_without_the_permission_says_so_and_keeps_its_cursor(self):
-        self.refuse['/graphql'] = (200, {'data': None, 'errors': [
-            {'message': 'zone does not have access to the path', 'extensions': {'code': 'authz'}}]})
+    def test_a_token_that_is_refused_says_so_and_keeps_its_cursor(self):
+        self.refuse['/graphql'] = (403, {'success': False, 'errors': [
+            {'code': 10000, 'message': 'Authentication error'}]})
         st = self.poll()
         cf = st['edge']['cf']
         self.assertEqual(cf['state'], 'no_access')
@@ -327,6 +364,102 @@ class TestWhenAFeedFails(_Edge):
         self.assertEqual(st['edge']['trap'], {'state': 'error', 'at': T, 'error': 'RuntimeError'})
         self.assertEqual(st['edge']['cf']['state'], 'ok')
         self.assertIsNotNone(orig)
+
+
+class TestAZoneWithoutTheGroupedView(_Edge):
+    """A Free zone is refused `firewallEventsAdaptiveGroups` with "zone '...' does not
+    have access to the path", and reads `firewallEventsAdaptive` fine: it is the
+    dataset cf-sniffcat reads on the same zones. The feed asks for the grouped view
+    and, when that is refused, for the zone's single events."""
+
+    def setUp(self):
+        super().setUp()
+        self.groups_refused = {'*'}
+
+    def graphql_queries(self):
+        return [json.loads(c['body'])['query'] for c in self.cf_calls if c['url'].endswith('/graphql')]
+
+    def test_the_events_are_read_and_come_out_the_same(self):
+        st = self.poll()
+        cf = st['edge']['cf']
+        self.assertEqual((cf['state'], cf['mode']), ('ok', 'events'))
+        # the same counts the grouped answer gives in TestTheSweep
+        self.assertEqual((cf['rows'], cf['kept']), (3, 7))
+        self.assertEqual(cf['ignored'], {'not_an_attack_source': 40, 'list_rule': 9})
+        self.assertEqual(st['edge']['cf_to'], T - 90)
+        q = {(x['ip'], x['device_id']): x for x in st['queue']}
+        e = q[(ATTACKER, 'edge:cloudflare')]
+        self.assertEqual((e['evidence']['src'], e['evidence']['tok']['cf']), ({'cf': 7}, {'req:probe': 7}))
+
+    def test_nothing_but_four_fields_is_asked_for(self):
+        self.poll()
+        events = [q for q in self.graphql_queries() if 'firewallEventsAdaptive(' in q]
+        self.assertEqual(len(events), 1)
+        for field in ('clientRequestPath', 'clientRequestQuery', 'userAgent', 'clientRequestHTTPHost'):
+            self.assertNotIn(field, events[0])
+        self.assertIn('clientIP action source ruleId }', events[0])
+
+    def test_the_zone_is_asked_for_its_events_first_next_time(self):
+        self.poll()
+        self.cf_calls.clear()
+        self.poll(at=T + 700)
+        qs = self.graphql_queries()
+        self.assertEqual(len(qs), 1, 'one request, not a refused one and then a second')
+        self.assertIn('firewallEventsAdaptive(', qs[0])
+        self.assertNotIn('Groups', qs[0])
+
+    def test_the_grouped_view_is_asked_for_again_after_a_while(self):
+        self.poll()
+        self.cf_calls.clear()
+        st = self.poll(at=T + 7 * 3600)
+        qs = self.graphql_queries()
+        self.assertEqual(len(qs), 2)
+        self.assertIn('firewallEventsAdaptiveGroups', qs[0])
+        self.assertEqual(st['edge']['cf']['mode'], 'events')
+
+    def test_a_plan_that_gains_the_grouped_view_goes_back_to_it(self):
+        self.poll()
+        self.groups_refused = set()
+        st = self.poll(at=T + 7 * 3600)
+        self.assertEqual((st['edge']['cf']['state'], st['edge']['cf']['mode']), ('ok', 'groups'))
+
+    def test_one_refused_zone_does_not_blank_the_others(self):
+        z2 = '6' * 32
+        self.zones = {'success': True, 'result': [{'id': ZONE, 'name': 'example.org'},
+                                                  {'id': z2, 'name': 'refused.example'}]}
+        self.refused_zones = {z2}
+        st = self.poll()
+        cf = st['edge']['cf']
+        self.assertEqual((cf['state'], cf['refused']), ('ok', 1))
+        self.assertTrue(cf['error'].startswith('refused.example: zone '), cf['error'])
+        self.assertNotIn('example.org:', cf['error'])
+        self.assertIn(ATTACKER, [x['ip'] for x in st['queue'] if x['device_id'] == 'edge:cloudflare'])
+        self.assertEqual(st['edge']['cf_to'], T - 90, 'a zone that stays refused cannot hold the others back')
+
+    def test_zones_read_in_two_ways_say_mixed(self):
+        z2 = '6' * 32
+        self.zones = {'success': True, 'result': [{'id': ZONE, 'name': 'example.org'},
+                                                  {'id': z2, 'name': 'pro.example'}]}
+        self.groups_refused = {ZONE}
+        st = self.poll()
+        self.assertEqual(st['edge']['cf']['mode'], 'mixed')
+
+    def test_every_zone_refused_is_one_state_that_names_neither_cause(self):
+        self.refuse['/graphql'] = (200, dataset_refusal())
+        st = self.poll()
+        cf = st['edge']['cf']
+        self.assertEqual(cf['state'], 'refused')
+        self.assertTrue(cf['error'].startswith('example.org: zone '), cf['error'])
+        self.assertIn('does not have access to the path', cf['error'])
+        self.assertNotIn('Refer to this page', cf['error'])
+        self.assertNotIn('cf_to', st['edge'])
+        self.assertEqual(st['edge']['trap']['state'], 'ok', 'the other feed carried on')
+
+    def test_a_failing_cloudflare_is_not_taken_for_a_refusal(self):
+        self.refuse['/graphql'] = (500, {'errors': [{'message': 'internal error'}]})
+        st = self.poll()
+        self.assertEqual(st['edge']['cf']['state'], 'error')
+        self.assertNotIn('cf_to', st['edge'])
 
 
 class TestSettings(_Edge):
@@ -432,6 +565,23 @@ class TestTheConnectionTest(_Edge):
         st, d = self.run_test()
         self.assertEqual(d['checks']['trap']['state'], 'no_access')
         self.assertEqual(d['checks']['zones']['state'], 'ok')
+
+    def test_a_refused_dataset_is_named_with_its_zone_and_is_not_called_a_permission(self):
+        self.refuse['/graphql'] = (200, dataset_refusal())
+        st, d = self.run_test()
+        fw = d['checks']['firewall']
+        self.assertEqual(fw['state'], 'refused')
+        self.assertTrue(fw['error'].startswith('example.org: zone '), fw['error'])
+        self.assertNotIn('Refer to this page', fw['error'])
+        self.assertEqual(d['checks']['zones']['state'], 'ok')
+
+    def test_a_zone_without_the_grouped_view_works_and_says_how_it_was_read(self):
+        self.groups_refused = {'*'}
+        st, d = self.run_test()
+        self.assertEqual(d['checks']['firewall'], {'state': 'ok', 'mode': 'events'})
+        self.groups_refused = set()
+        st, d = self.run_test()
+        self.assertEqual(d['checks']['firewall'], {'state': 'ok', 'mode': 'groups'})
 
     def test_the_typed_token_is_the_one_tried_and_is_not_saved(self):
         typed = 'TYPED_token_' + 'z' * 30

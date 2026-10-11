@@ -183,6 +183,13 @@ RemotePower asks Cloudflare for counts grouped by address, mechanism and rule.
 The request path and the user agent are never fetched, so nothing a visitor typed
 can reach a report.
 
+A Free plan has no grouped view. Cloudflare refuses it with `zone '…' does not
+have access to the path`, and RemotePower then reads that zone's events one at a
+time and groups them itself. It asks for four fields only (address, action,
+source and rule), so the path and the user agent stay out here too. Each zone is
+asked on its own: a zone Cloudflare refuses is named on the **Edge feeds** card
+and does not hold back the others.
+
 ### What counts
 
 Only a **refusal** by a mechanism that means "this looked like an attack":
@@ -238,7 +245,8 @@ as a self-test, are not evidence.
    (the 32 hex digits in your dashboard's address). Leave **Zones** empty to read
    every zone the token can see.
 3. Press **Test connection**. Each check says what works. A missing permission
-   shows as exactly that.
+   shows as exactly that, and a zone Cloudflare refuses is named, with how the
+   others were read.
 4. Tick the switch and save.
 
 RemotePower reads every ten minutes (every five at the fastest). A read never
@@ -388,6 +396,8 @@ settings or run a manual lookup, which spends the install's daily quota.
 | Log sources: `No permission` | The agent cannot read the file. It runs as root normally, so check how it was started. |
 | Log sources: `Not understood` | Most lines did not match the log's format. Check the `log_format` and that it prints the address, the request and the status. |
 | Log sources: `Cannot be read` | fail2ban logs to syslog or the journal, or ModSecurity writes one file per transaction. Log to a single file. |
+| Edge feeds: `Refused by Cloudflare` | Cloudflare refused the firewall events for a zone, grouped and one by one. The line names the zone. Check that the token has **Zone → Analytics → Read** and that its zone list includes that zone. |
+| Edge feeds: `Reading`, with a note that the events are read one at a time | Expected on a Free plan. The grouped view is refused, so each event is read and grouped here. A read carries up to 2,500 events per zone. |
 | Edge feeds: `No permission` | The token cannot read that. **Test connection** shows which check failed; add the permission listed under [Set up the edge feeds](#set-up-the-edge-feeds). |
 | Edge feeds: `Needs an account id` | The honeypot's log is read through the account. Paste the account id. |
 | Edge feeds: `No zones found` | The token sees no zone. Check it is for all zones of the account, or list the zones you want. |

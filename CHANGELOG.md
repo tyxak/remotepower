@@ -37,8 +37,16 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
   crawlers impersonating a search engine are filed as bad web bots, which is how
   both services define them. Two classes are new: a credential the honeypot
   handed out being used, and signing in to a decoy service.
+- **Free zones are read too.** Cloudflare refuses the grouped firewall view to a
+  Free plan with `zone '…' does not have access to the path`. Each zone is now
+  asked on its own, and a zone that is refused the grouped view is read as single
+  events, four fields only. A zone that stays refused is named and no longer holds
+  back the others. The page calls that "Refused by Cloudflare" rather than saying
+  the token cannot read it, because the sentence names the zone and has two
+  causes.
 - **Nothing a visitor typed is fetched.** Cloudflare's events are read as counts
-  grouped by address, mechanism and rule, with no path and no user agent. From
+  grouped by address, mechanism and rule, or as single events with those four
+  fields only. There is no path and no user agent either way. From
   the Worker's log only the trap, the address, the Worker's own decision and the
   time are read.
 - **Test connection** tries each thing the feeds need, with the stored token or
@@ -84,7 +92,7 @@ reader in the agent. It is in `docs/security-review-7.3.0.md`.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-44`). Nothing changes until you turn the edge feeds on.
+`remotepower-shell-v7.3.0-45`). Nothing changes until you turn the edge feeds on.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
 report Cloudflare events or UFW blocks to the same services, stop them once the
 feeds here work, so each address is one report; a report the service refuses as

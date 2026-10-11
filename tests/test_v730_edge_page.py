@@ -92,7 +92,7 @@ class TestTheWordsMatchTheServer(unittest.TestCase):
         checks = set(re.findall(r"checks\['([a-z]+)'\]", _HANDLERS))
         self.assertEqual(set(table('_IPI_CHECK')), checks)
         states = set(re.findall(r"'state': '([a-z_]+)'", _HANDLERS[_HANDLERS.index('def handle_ip_intel_edge_test'):]))
-        states |= {'no_access', 'error', 'ok'}
+        states |= {'no_access', 'error', 'ok', 'refused'}   # the last two come through _fail()
         self.assertEqual(set(table('_IPI_CHECK_STATE')), states)
 
 
@@ -173,6 +173,26 @@ class TestWhatIsPrinted(unittest.TestCase):
         self.assertIn('example.org', rows)
         self.assertIn('Rules could not be read', out['notes'])
         self.assertIn('More events than one read can hold', out['notes'])
+
+    def test_a_refusal_of_the_dataset_is_not_worded_as_a_permission(self):
+        refusal = "zone '%s' does not have access to the path." % ('4' * 32)
+        out = self.render(dict(self.EDGE, cf={'state': 'refused', 'at': 1, 'error': 'bymanden.dk: ' + refusal,
+                                              'zones': [{'name': 'bymanden.dk'}]}))
+        self.assertIn('<span>Refused by Cloudflare</span>', out['rows'])
+        self.assertNotIn('<span>No permission</span> <', out['rows'].split('Edge honeypot')[0])
+        self.assertIn('does not have access to the path', out['rows'])
+
+    def test_a_zone_read_as_single_events_says_so_and_a_grouped_one_does_not(self):
+        note = 'Cloudflare refused the grouped view, so the events are read one at a time.'
+        for mode, shown in (('events', True), ('mixed', True), ('groups', False), (None, False)):
+            cf = dict(self.EDGE['cf'], **({'mode': mode} if mode else {}))
+            rows = self.render(dict(self.EDGE, cf=cf))['rows']
+            self.assertEqual(('<span>%s</span>' % note) in rows, shown, mode)
+
+    def test_the_note_is_for_a_feed_that_is_reading(self):
+        cf = {'state': 'refused', 'at': 1, 'mode': 'events', 'error': 'x'}
+        rows = self.render(dict(self.EDGE, cf=cf))['rows']
+        self.assertNotIn('read one at a time', rows)
 
     def test_off_and_not_yet_read(self):
         rows = self.render({'enabled': False, 'cf': {}, 'trap': {}})['rows']

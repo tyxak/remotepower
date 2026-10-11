@@ -2,12 +2,14 @@
 
 Two feeds the SERVER reads from api.cloudflare.com, with a read-only token:
 
-  * Cloudflare's firewall events (GraphQL `firewallEventsAdaptiveGroups`): who
-    was refused at the edge, by which mechanism. Only mechanisms that mean "this
-    request looked like an attack" count. A country or ASN rule, the security
-    level, an IP access rule (a ban somebody else already decided, often from
-    fail2ban or the honeypot itself) and a challenge that a person may have
-    solved are policy, not evidence, and are dropped here.
+  * Cloudflare's firewall events (GraphQL `firewallEventsAdaptiveGroups`, or the
+    zone's single events from `firewallEventsAdaptive` when its plan has no
+    grouped view): who was refused at the edge, by which mechanism. Only
+    mechanisms that mean "this request looked like an attack" count. A country
+    or ASN rule, the security level, an IP access rule (a ban somebody else
+    already decided, often from fail2ban or the honeypot itself) and a
+    challenge that a person may have solved are policy, not evidence, and are
+    dropped here.
   * The honeypot Worker's log (Workers Observability): every trap hit that a
     visitor with no business there made, with the Worker's own decision.
 
@@ -55,6 +57,26 @@ _CF_WEAK = ("bot", "ua")
 # operator's own geo and bot challenges would otherwise be reported as attacks.
 _CF_REFUSALS = ("block", "connectionclose", "forceconnectionclose")
 
+# Actions that are neither a refusal nor a challenge a person was given: a request
+# that was allowed or skipped, and what became of a challenge. The event read asks
+# Cloudflare to leave them out, so a busy site's allowed traffic cannot fill the
+# one page of events that a read is capped at. The names are the ones cf-sniffcat
+# filters on against the same API.
+_NOT_EVENTS = (
+    "allow",
+    "skip",
+    "challenge_solved",
+    "challenge_failed",
+    "challenge_bypassed",
+    "jschallenge_solved",
+    "jschallenge_failed",
+    "jschallenge_bypassed",
+    "managed_challenge_skipped",
+    "managed_challenge_non_interactive_solved",
+    "managed_challenge_interactive_solved",
+    "managed_challenge_bypassed",
+)
+
 # What the operator wrote in a custom rule's description, to a class. Used only
 # to choose a class; the text is never copied anywhere.
 _RULE_WORDS = tuple(
@@ -99,6 +121,7 @@ _TRAP_TOKEN = {
 }
 
 MAX_ROWS = 10000
+MAX_EVENTS = 2500  # single events one zone's read carries, as cf-sniffcat's default
 MAX_ZONES = 50
 MAX_WORKERS = 3
 _WORKER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}")
@@ -185,6 +208,46 @@ def firewall_request(token, zone_ids, since, until, limit=MAX_ROWS):
     }
 
 
+def events_request(token, zone_ids, since, until, limit=MAX_EVENTS):
+    """The same facts as firewall_request, read one event at a time from
+    `firewallEventsAdaptive`. A Free zone is refused the grouped dataset and can
+    read this one, which is the dataset cf-sniffcat reads on the same zones.
+
+    Four fields are asked for and no others, so the response carries no path, query
+    string, host or user agent here either. Events that were allowed, skipped or
+    answered by a person are left out by the query (`_NOT_EVENTS`); the rest are
+    grouped by the parser."""
+    zones = [z for z in zone_ids if valid_id(z)][:MAX_ZONES]
+    if not zones:
+        raise ValueError("no zone id")
+    if len(zones) == 1:
+        which = 'zoneTag: "%s"' % zones[0]
+    else:
+        which = "zoneTag_in: [%s]" % ", ".join('"%s"' % z for z in zones)
+    n = max(1, min(MAX_EVENTS, int(limit)))
+    skip = ", ".join('{action_neq: "%s"}' % a for a in _NOT_EVENTS)
+    query = (
+        "query { viewer { zones(filter: {%s}) { zoneTag"
+        " firewallEventsAdaptive(limit: %d, orderBy: [datetime_DESC],"
+        ' filter: {datetime_geq: "%s", datetime_lt: "%s", AND: [%s]}) {'
+        " clientIP action source ruleId } } } }" % (which, n, _iso(since), _iso(until), skip)
+    )
+    return {
+        "method": "POST",
+        "url": CF_GRAPHQL,
+        "headers": _headers(token),
+        "body": json.dumps({"query": query}).encode(),
+        "max_bytes": 4_000_000,
+        "timeout": 25,
+    }
+
+
+def events_limit(zone_count):
+    """How many single events to ask each zone for, so that however many zones are
+    read together the answer stays well inside the response cap."""
+    return max(100, min(MAX_EVENTS, 20000 // max(1, int(zone_count))))
+
+
 def trap_request(token, account_id, worker, since_ms, until_ms, limit=1000):
     """The honeypot Worker's `trap hit` log lines in a window, from Workers
     Observability. One Worker per request; the filter shape is the one the
@@ -221,16 +284,30 @@ def _iso(epoch):
 # ── responses ──────────────────────────────────────────────────────────────────
 
 
+_POINTER_RE = re.compile(r"\s*Refer to this page for more details.*$", re.S)
+
+
 def _cf_error(status, body):
-    """{'ok': False, 'error', 'auth'} for a REST or GraphQL failure. The provider's
-    sentence is shown to the operator, so it is cut and stripped of control
-    characters, never trusted as markup."""
+    """{'ok': False, 'error', 'auth' | 'dataset'} for a REST or GraphQL failure.
+    The provider's sentence is shown to the operator, so it is cut and stripped
+    of control characters, never trusted as markup; its closing pointer to a
+    documentation page is dropped, because the page shows text and not a link.
+
+    'dataset' is Cloudflare saying a zone has no access to a GraphQL field. That
+    sentence names the ZONE, not the token, and it is what a missing Analytics
+    permission and a plan without the dataset both produce, so it is kept apart
+    from 'auth' and never worded as one of the two."""
     msg = ""
     if isinstance(body, dict):
         errs = body.get("errors")
         if isinstance(errs, list) and errs and isinstance(errs[0], dict):
-            msg = _short(errs[0].get("message"))
+            msg = _short(_POINTER_RE.sub("", str(errs[0].get("message") or "")), 200)
             code = str(errs[0].get("code") or (errs[0].get("extensions") or {}).get("code") or "")
+            path = errs[0].get("path")
+            if "does not have access to the path" in msg.lower() or (
+                code == "authz" and isinstance(path, list) and len(path) >= 3
+            ):
+                return {"ok": False, "dataset": True, "error": msg or "this zone cannot read that dataset"}
             if (
                 code in ("authz", "10000", "9109")
                 or "authoriz" in msg.lower()
@@ -320,6 +397,45 @@ def parse_firewall(status, body):
                     "source": str(d.get("source") or "").lower(),
                     "rule": str(d.get("ruleId") or ""),
                     "count": _int(g.get("count")),
+                }
+            )
+    return {"ok": True, "rows": rows, "truncated": truncated}
+
+
+def parse_events(status, body, limit=MAX_EVENTS):
+    """The rows parse_firewall returns, built from single events: one per address,
+    action, source and rule, with the number of events behind it. `limit` is what
+    the request asked for per zone; a zone that came back full is flagged."""
+    if not isinstance(body, dict) or body.get("errors") or status != 200:
+        return _cf_error(status, body)
+    zones = ((body.get("data") or {}).get("viewer") or {}).get("zones")
+    rows, truncated = [], False
+    for z in zones or []:
+        if not isinstance(z, dict):
+            continue
+        events = z.get("firewallEventsAdaptive") or []
+        if len(events) >= limit:
+            truncated = True
+        seen = {}
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            key = (
+                str(e.get("clientIP") or ""),
+                str(e.get("action") or "").lower(),
+                str(e.get("source") or "").lower(),
+                str(e.get("ruleId") or ""),
+            )
+            seen[key] = seen.get(key, 0) + 1
+        for (ip, action, source, rule), n in seen.items():
+            rows.append(
+                {
+                    "zone": str(z.get("zoneTag") or ""),
+                    "ip": ip,
+                    "action": action,
+                    "source": source,
+                    "rule": rule,
+                    "count": n,
                 }
             )
     return {"ok": True, "rows": rows, "truncated": truncated}
