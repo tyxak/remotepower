@@ -58,7 +58,7 @@ def _context():
     app = (_JS / 'app.js').read_text(encoding='utf-8')
     esc = re.search(r'^function escHtml\(.*$', app, re.M).group(0)
     parts = [esc, 'var _ipiData = {blocks: []};']
-    parts += [js_function(src, n) for n in ('_ipiStatus', '_ipiPhrase', '_ipiReason', '_ipiStatusHtml')]
+    parts += [js_function(src, n) for n in ('_ipiStatus', '_ipiPhrase', '_ipiReason', '_ipiStatusHtml', '_ipiNotBlockedReason')]
     ctx = MiniRacer()
     ctx.eval('\n'.join(parts))
     return ctx

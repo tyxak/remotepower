@@ -178,7 +178,7 @@ These are the reasons a line is set aside:
 
 An address found at the edge appears in the same table as the addresses your hosts found, under the name **Cloudflare edge** or **Edge honeypot**. **Details** shows where it was seen, which rules fired and exactly what was sent to each service.
 
-An edge address has no **Block** button. It has no host to block it on, and the row says `not blocked: no host to block it on`. The [Edge blocklist](#edge-blocklist) is how such an address can reach a Cloudflare rule.
+An edge address has no **Block** button. It was seen at the edge and by none of your hosts, so there is no host to block it on, and the row says `not blocked: seen at the edge only, so there is no host to block it on`. The [Edge blocklist](#edge-blocklist) is how such an address can reach a Cloudflare rule. An address that one of your hosts also saw shows that host's reason instead.
 
 ## Free plans
 

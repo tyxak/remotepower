@@ -1025,7 +1025,7 @@ def build_ip_intel() -> dict:
                    'dec': 0, 'trp': 0, 'cve': []}, **base)
         att = {'first_seen': seen - 600, 'last_seen': seen, 'checked_at': seen,
                'devices': {dev: {'count': n, 'unit': 'edge-feed', 'at': seen,
-                                 'not_blocked': 'no host to block it on'}},
+                                 'not_blocked': 'seen at the edge only, so there is no host to block it on'}},
                'verdict': {'score': 88 if reported else 21, 'reports': 40 if reported else 1,
                            'country': rng.choice(['NL', 'RU', 'US']), 'isp': rng.choice(isps),
                            'usage': 'Data Center/Web Hosting/Transit',

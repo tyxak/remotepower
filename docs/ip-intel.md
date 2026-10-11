@@ -426,6 +426,6 @@ settings or run a manual lookup, which spends the install's daily quota.
 | Edge feeds: `Needs an account id` | The honeypot's log is read through the account. Paste the account id. |
 | Edge feeds: `No zones found` | The token sees no zone. Check it is for all zones of the account, or list the zones you want. |
 | Edge feeds: events set aside as `a rule that also blocks an IP list` | Expected: those rules are not evidence. See [What counts](#what-counts). |
-| `not blocked: no host to block it on` | An address seen at the edge has no host to block it on. Whatever bans it (Cloudflare, CrowdSec, fail2ban) does it, and the [edge blocklist](#the-edge-blocklist) can hand it to a Cloudflare rule. |
+| `not blocked: seen at the edge only, so there is no host to block it on` | The address was seen by Cloudflare or the honeypot and by none of your hosts, so there is no host where a block could go. Whatever bans it (Cloudflare, CrowdSec, fail2ban) does it, and the [edge blocklist](#the-edge-blocklist) can hand it to a Cloudflare rule. An address that a host also saw shows that host's reason instead. |
 | `not blocked: score 40 is below 90` | The address isn't bad enough for your threshold. |
 | `not blocked: on the never-block list` | The address is one of yours, on an allow-list, or someone recently signed in from it. |

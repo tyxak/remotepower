@@ -54,6 +54,8 @@ def node(script, timeout=30):
         'const tableCtl = {sortRows: (name, rows, fn) => rows};',
         'let _ipiData = null;',
         srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderEdge'),
+        srcpin.js_function(_JS, '_ipiReason'), srcpin.js_function(_JS, '_ipiStatus'),
+        srcpin.js_function(_JS, '_ipiStatusHtml'), srcpin.js_function(_JS, '_ipiNotBlockedReason'),
         srcpin.js_function(_JS, '_ipiEvidenceHtml'), srcpin.js_function(_JS, '_ipiClassName'),
         'const _ipiOpen = new Set();'])
     out = subprocess.run(['node', '-e', prelude + '\n' + script], capture_output=True, text=True, timeout=timeout)
@@ -125,9 +127,9 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
 
     def test_the_server_reason_and_the_confirmer_are_translated(self):
         rows = dict_rows()
-        for key in ('no host to block it on', 'the edge honeypot', 'Test failed'):
+        for key in ('seen at the edge only, so there is no host to block it on', 'the edge honeypot', 'Test failed'):
             self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), key)
-        self.assertIn("'no host to block it on'", (
+        self.assertIn("'seen at the edge only, so there is no host to block it on'", (
             _ROOT / 'server' / 'cgi-bin' / 'ip_intel_handlers.py').read_text())
 
     def test_the_class_phrases_the_edge_adds_are_translated(self):
@@ -218,6 +220,44 @@ class TestWhatIsPrinted(unittest.TestCase):
         ev['confirmed'] = '<b>x</b>'
         h = node('console.log(JSON.stringify(_ipiEvidenceHtml({ip: "1.2.3.4", evidence: %s})));' % json.dumps(ev))
         self.assertNotIn('<b>x', h)
+
+    EDGE_WHY = 'seen at the edge only, so there is no host to block it on'
+
+    def status(self, devices, blocks=()):
+        a = {'ip': '203.0.113.9', 'reported': {'abuseipdb': 1, 'sniffcat': 1}, 'errors': {}, 'devices': devices}
+        return node('''_ipiData = {blocks: %s};
+          console.log(JSON.stringify({html: _ipiStatusHtml(%s), text: _ipiStatus(%s)}));'''
+                    % (json.dumps(list(blocks)), json.dumps(a), json.dumps(a)))
+
+    def test_an_address_seen_only_at_the_edge_says_why_there_is_no_host(self):
+        out = self.status([{'device_id': 'edge:cloudflare', 'name': 'Cloudflare edge',
+                            'not_blocked': self.EDGE_WHY}])
+        self.assertIn('<span>%s</span>' % self.EDGE_WHY, out['html'])
+        self.assertIn('not blocked: ' + self.EDGE_WHY, out['text'])
+
+    def test_a_host_that_saw_it_is_never_hidden_by_the_edge_reason(self):
+        """The cell showed the first device's reason, so an address seen by the edge and
+        by a host read "no host to block it on" while a host existed."""
+        for order in (0, 1):
+            devs = [{'device_id': 'edge:cloudflare', 'name': 'Cloudflare edge', 'not_blocked': self.EDGE_WHY},
+                    {'device_id': 'd1', 'name': 'web01', 'not_blocked': 'web attacks arrive through a proxy'}]
+            if order:
+                devs.reverse()
+            out = self.status(devs)
+            self.assertIn('<span>web attacks arrive through a proxy</span>', out['html'], order)
+            self.assertNotIn('no host to block it on', out['html'], order)
+            self.assertIn('not blocked: web attacks arrive through a proxy', out['text'], order)
+
+    def test_a_block_on_a_host_is_still_the_whole_story(self):
+        devs = [{'device_id': 'edge:cloudflare', 'name': 'Cloudflare edge', 'not_blocked': self.EDGE_WHY},
+                {'device_id': 'd1', 'name': 'web01', 'not_blocked': ''}]
+        out = self.status(devs, blocks=[{'ip': '203.0.113.9', 'device_id': 'd1'}])
+        self.assertIn('<span>blocked on</span> 1', out['html'])
+        self.assertNotIn('not blocked', out['html'])
+
+    def test_an_address_with_no_reason_at_all_has_no_not_blocked_part(self):
+        out = self.status([{'device_id': 'd1', 'name': 'web01', 'not_blocked': ''}])
+        self.assertNotIn('not blocked', out['html'])
 
     def test_an_edge_row_has_no_block_button(self):
         src = srcpin.js_function(_JS, '_ipiRenderAttackers')

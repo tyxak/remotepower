@@ -255,13 +255,22 @@ function _ipiFillSettings(s, budget) {
   }
 }
 
+// Why an address was not blocked, from the hosts that saw it. The edge's own reason (it
+// never reached a host) counts only when no host saw the address; otherwise it would
+// hide the reason that applies to the host, and say there is no host when there is one.
+function _ipiNotBlockedReason(a) {
+  const withWhy = (a.devices || []).filter(d => d.not_blocked);
+  const hosts = withWhy.filter(d => !String(d.device_id || '').startsWith('edge:'));
+  return (hosts[0] || withWhy[0] || {}).not_blocked || '';
+}
+
 function _ipiStatus(a) {
   const parts = [];
   for (const p of Object.keys(a.reported || {})) parts.push(`reported to ${p === 'abuseipdb' ? 'AbuseIPDB' : 'SniffCat'}`);
   const blocked = new Set((_ipiData.blocks || []).filter(b => b.ip === a.ip).map(b => b.device_id));
   if (blocked.size) parts.push(`blocked on ${blocked.size}`);
-  const why = (a.devices || []).map(d => d.not_blocked).filter(Boolean);
-  if (!blocked.size && why.length) parts.push(`not blocked: ${why[0]}`);
+  const why = _ipiNotBlockedReason(a);
+  if (!blocked.size && why) parts.push(`not blocked: ${why}`);
   const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
   if (errs.length) parts.push(errs.map(([p, e]) => `${p}: ${e}`).join(', '));
   return parts.join(' · ');
@@ -296,8 +305,8 @@ function _ipiStatusHtml(a) {
   }
   const blocked = new Set((_ipiData.blocks || []).filter(b => b.ip === a.ip).map(b => b.device_id));
   if (blocked.size) parts.push(`${_ipiPhrase('blocked on')} ${blocked.size}`);
-  const why = (a.devices || []).map(d => d.not_blocked).filter(Boolean);
-  if (!blocked.size && why.length) parts.push(`${_ipiPhrase('not blocked:')} ${_ipiReason(why[0])}`);
+  const why = _ipiNotBlockedReason(a);
+  if (!blocked.size && why) parts.push(`${_ipiPhrase('not blocked:')} ${_ipiReason(why)}`);
   const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
   if (errs.length) parts.push(errs.map(([p, e]) => `${escHtml(p)}: ${_ipiReason(e)}`).join(', '));
   return parts.join(' · ');

@@ -282,7 +282,7 @@ class TestTheSweep(_Edge):
             self.assertEqual([c for c in self.queued(dev) if 'rp-ipintel' in c], [], dev)
         self.assertEqual(st.get('blocks') or {}, {})
         seen = st['attackers'][SECOND]['devices']['edge:trap']
-        self.assertEqual(seen['not_blocked'], 'no host to block it on')
+        self.assertEqual(seen['not_blocked'], 'seen at the edge only, so there is no host to block it on')
 
     def test_the_same_window_is_not_read_twice(self):
         self.poll()
