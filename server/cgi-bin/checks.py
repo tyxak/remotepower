@@ -53,9 +53,7 @@ def _win_bitlocker_on(volumes):
         return volumes
     if not isinstance(volumes, list):
         return None
-    states = [
-        str(v.get("status") or "").strip().lower() for v in volumes if isinstance(v, dict)
-    ]
+    states = [str(v.get("status") or "").strip().lower() for v in volumes if isinstance(v, dict)]
     if not states:
         return None
     if "off" in states:
@@ -77,9 +75,7 @@ def _win_firewall_on(profiles):
     if not isinstance(profiles, list):
         return None
     flags = [
-        p["enabled"]
-        for p in profiles
-        if isinstance(p, dict) and isinstance(p.get("enabled"), bool)
+        p["enabled"] for p in profiles if isinstance(p, dict) and isinstance(p.get("enabled"), bool)
     ]
     return all(flags) if flags else None
 
@@ -781,9 +777,11 @@ def _host_checks(
                 (
                     "running"
                     if running
-                    else f"{wu}, start type {start} (starts when updates are due)"
-                    if idle_ok
-                    else f"{wu} (not running)"
+                    else (
+                        f"{wu}, start type {start} (starts when updates are due)"
+                        if idle_ok
+                        else f"{wu} (not running)"
+                    )
                 ),
             )
         # v6.3.0 posture gaps. Tamper protection guards Defender from being
