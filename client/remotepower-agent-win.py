@@ -3285,7 +3285,10 @@ _WIN_POSTURE_PS = (
     "  secure_boot=$sb;"
     "  uac_enabled=($uac -eq 1);"
     "  pending_reboot=$pr;"
-    "  wu_service=$wu.Status.ToString()"
+    "  wu_service=$wu.Status.ToString();"
+    # wuauserv is a trigger-start service: stopped while idle is normal, and
+    # only a disabled one stops patching, so the start type is what matters.
+    "  wu_start=([string]$wu.StartType)"
     "} | ConvertTo-Json -Compress -Depth 4"
 )
 
@@ -3338,6 +3341,8 @@ def _parse_win_posture(stdout):
             out[k] = o[k]
     if o.get('wu_service'):
         out['wu_service'] = str(o.get('wu_service'))[:24]
+    if o.get('wu_start'):
+        out['wu_start'] = str(o.get('wu_start'))[:24]
     return out
 
 

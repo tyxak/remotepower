@@ -21761,6 +21761,8 @@ def handle_heartbeat():
                         safe_wp[_bk] = _wp[_bk]
                 if _wp.get('wu_service'):
                     safe_wp['wu_service'] = _sanitize_str(str(_wp['wu_service']), 24)
+                if _wp.get('wu_start'):
+                    safe_wp['wu_start'] = _sanitize_str(str(_wp['wu_start']), 24)
                 if safe_wp:
                     safe_si['win_posture'] = safe_wp
             # v6.3.0: macOS security posture (parity with win_posture) — FileVault /
@@ -38853,9 +38855,14 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 _win_bad['firewall'] = ('win_firewall_off', 'win_firewall_on',
                                         f"{', '.join(str(n) for n in _off if n)} profile(s) off")
         _wu = wp.get('wu_service')
-        if _wu and str(_wu).lower() != 'running':
+        # wuauserv is a trigger-start service, so "Stopped" is its normal idle
+        # state. Where the agent reports the start type, only a disabled service
+        # is a finding; an older agent that does not keeps the old rule.
+        _wu_start = str(wp.get('wu_start') or '').strip().lower()
+        if _wu and str(_wu).lower() != 'running' and (not _wu_start or _wu_start == 'disabled'):
             _win_bad['wu'] = ('win_update_stopped', 'win_update_running',
-                              f'Windows Update service is {_wu}')
+                              f'Windows Update service is {_wu}'
+                              + (' (start type disabled)' if _wu_start == 'disabled' else ''))
         _age = wp.get('defender_sig_age_days')
         # v6.2.2: AV signature-staleness threshold is operator-configurable
         # (Settings → Alert parameters → Lifecycle); 7 days stays the default.
@@ -45405,10 +45412,14 @@ def _compliance_facts(devices=None):
             reboot.append(nm)
         if dev.get('os'):
             os_known_devices += 1
-        fw = si.get('firewall')
-        if isinstance(fw, dict) and fw.get('active') is not None:
+        # v7.3.0: all three agents. This read `sysinfo.firewall`, which only the
+        # Linux agent writes, so a Windows or macOS host with its firewall off
+        # passed the control and a Windows-heavy fleet scored it on its Linux
+        # hosts alone. Encryption below already fanned out; this did not.
+        _fw_on = checks_mod.posture_flags(si)['firewall_active']
+        if _fw_on is not None:
             firewall_data_devices += 1
-            if fw.get('active') is False:
+            if _fw_on is False:
                 firewall_off.append(nm)
         # sshd posture. Present-and-bad only: a host that never reported is not
         # a host that reported bad news, which is the distinction the
@@ -50964,10 +50975,12 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
             if _ssh_issues:
                 _add('ssh_weak', w['ssh_weak'],
                      'sshd: ' + '; '.join(_ssh_issues))
-        _au = si.get('autoupdate')
-        # 'enabled' present-and-False only: a host whose agent cannot determine
-        # the mechanism reports no key, and absence is not a finding.
-        if isinstance(_au, dict) and 'enabled' in _au and not _au.get('enabled'):
+        # Present-and-off only: a host whose agent cannot determine the mechanism
+        # reports no key, and absence is not a finding. v7.3.0: all three agents
+        # (macOS `auto_security_update`, a disabled Windows Update service), not
+        # only the Linux key, so a Mac that stopped installing security updates
+        # counts the same as a Linux host that did.
+        if checks_mod.posture_flags(si)['autoupdate_enabled'] is False:
             _add('autoupdate_off', w['autoupdate_off'],
                  'automatic security updates are off')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────

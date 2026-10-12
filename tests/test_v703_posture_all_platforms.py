@@ -46,8 +46,14 @@ _LINUX = {'disk_encryption': {'encrypted': True},
           'firewall': {'backends': [{'name': 'nftables', 'active': True}],
                        'active': True},
           'autoupdate': {'enabled': False}}
-_WINDOWS = {'win_posture': {'bitlocker': True, 'firewall': False,
-                            'wu_service': True}}
+# The Windows agent's own shapes (see test_v730_posture_real_agent_shapes): a
+# list per OS volume, a list per firewall profile and the service's status. This
+# fixture used to hold booleans, which is what the helper read and not what the
+# agent sends, so it passed while every real Windows host answered None.
+_WINDOWS = {'win_posture': {'bitlocker': [{'mount': 'C:', 'status': 'On'}],
+                            'firewall': [{'name': 'Domain', 'enabled': True},
+                                         {'name': 'Public', 'enabled': False}],
+                            'wu_service': 'Running'}}
 _MACOS = {'mac_posture': {'filevault': False, 'firewall': True,
                           'auto_security_update': True}}
 

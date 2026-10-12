@@ -247,6 +247,24 @@ It is in `docs/security-review-7.3.0.md`.
   install only the edge's own findings are banned there, never a tenant host's.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
+- **Windows hosts answered "unknown" to firewall, disk encryption and automatic
+  updates in the Data Explorer, the Fleet Query facets and the report.** 7.0.3
+  added a shared helper for those three facts and read what the Windows agent
+  reports as booleans. The agent sends lists (one entry per BitLocker volume and
+  per firewall profile) and a status string, so every real Windows host read as
+  "never reported". Its test fixture held booleans, which is the shape the helper
+  assumed, so it passed. The helper now reads the agent's own shapes, with the
+  same rules as the check rows, the alerts and the risk score (a profile that is
+  off is an off firewall). Four readers that carried their own Linux-only copy now
+  use it: the compliance firewall control, the risk score's automatic-updates
+  factor, the Security Advisory and the AI assistant's flags and firewall roll-up.
+  That last one also read a Linux host whose firewall probes all failed as "firewall
+  off". The new test takes its payload from the Windows agent's own parser.
+- **A stopped Windows Update service is not a finding by itself.** It starts on
+  demand, so it is stopped most of the time on a healthy Windows 10 or 11 host. The
+  agent now reports the service's start type, and the check, the alert and the
+  facts treat only a disabled service as off. An older agent keeps the old rule.
+  Present since 6.2.0.
 - **The shipped nginx configs say `object-src 'none'`**, in the HTTP and HTTPS
   blocks, the shared locations and the three Docker files; before, plugins fell
   back to `default-src 'self'`. A proxied response carried `X-Content-Type-Options`

@@ -32,7 +32,10 @@ sortable, filterable table.
   matching OS, so a host never shows an irrelevant empty row:
   - **Windows** (`win_posture`) — Defender real-time protection, signature age,
     tamper protection, BitLocker (OS volume), Windows Firewall profiles, Secure
-    Boot, UAC, the Windows Update service, and a pending-reboot signal.
+    Boot, UAC, the Windows Update service, and a pending-reboot signal. The
+    Windows Update service starts on demand, so it is only a warning when its
+    start type is Disabled (an agent older than 7.3.0 does not report the start
+    type and keeps the old rule, a service that is not running).
   - **macOS** (`mac_posture`) — FileVault disk encryption, the Application
     Firewall, Gatekeeper, System Integrity Protection (SIP), and automatic
     security updates.

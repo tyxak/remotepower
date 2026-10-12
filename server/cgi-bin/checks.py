@@ -42,6 +42,65 @@ def _backends_active(backends):
     return any(b["active"] for b in readable)
 
 
+def _win_bitlocker_on(volumes):
+    """BitLocker, from the agent's own shape: one {mount, status} per OS volume.
+
+    True when every reported volume is protected, False when one is explicitly
+    off, None when nothing was reported or a status is "Unknown" (a volume the
+    agent could not read says nothing either way). A bool is accepted as given.
+    """
+    if isinstance(volumes, bool):
+        return volumes
+    if not isinstance(volumes, list):
+        return None
+    states = [
+        str(v.get("status") or "").strip().lower() for v in volumes if isinstance(v, dict)
+    ]
+    if not states:
+        return None
+    if "off" in states:
+        return False
+    if all(s in ("on", "encrypted") for s in states):
+        return True
+    return None
+
+
+def _win_firewall_on(profiles):
+    """Windows Firewall, from the agent's own shape: one {name, enabled} per profile.
+
+    A profile that is off is an off firewall, the same rule as the Windows
+    Firewall check row, its alert and the risk score, so True only when every
+    reported profile is on. A bool is accepted as given.
+    """
+    if isinstance(profiles, bool):
+        return profiles
+    if not isinstance(profiles, list):
+        return None
+    flags = [
+        p["enabled"]
+        for p in profiles
+        if isinstance(p, dict) and isinstance(p.get("enabled"), bool)
+    ]
+    return all(flags) if flags else None
+
+
+def _win_updates_on(status, start):
+    """Windows Update, from `wu_service` (a status string) and `wu_start`.
+
+    The service is trigger-start, so a stopped one is not evidence of anything.
+    What can be read is whether it can run: a start type of "Disabled" is False,
+    any other start type is True, and an agent that does not report the start
+    type is judged by the status alone (running is True, anything else is None,
+    "never told us"). A bool is accepted as given.
+    """
+    if isinstance(status, bool):
+        return status
+    start = str(start or "").strip().lower()
+    if start:
+        return start != "disabled"
+    return True if str(status or "").strip().lower() == "running" else None
+
+
 def posture_flags(si):
     """The three cross-platform posture facts, read from all three producers.
 
@@ -58,6 +117,14 @@ def posture_flags(si):
     Each value is TRI-STATE and stays that way: False means "reported, and it is
     off"; None means "this host never told us". Collapsing them puts a
     non-reporting host into a list of findings it does not belong in.
+
+    v7.3.0: the Windows values were read as booleans, and the Windows agent
+    sends lists: `bitlocker` is one {mount, status} per OS volume, `firewall`
+    one {name, enabled} per profile and `wu_service` a status string. Read
+    that way every Windows host answered None here, so the three surfaces above
+    still showed nothing for Windows. The test fixture had the consumer's
+    assumed shape, not the agent's, which is why it passed. The helpers above
+    apply the same rules as the check rows, the alerts and the risk score.
     """
     si = si if isinstance(si, dict) else {}
     wp = si.get("win_posture") if isinstance(si.get("win_posture"), dict) else {}
@@ -74,7 +141,7 @@ def posture_flags(si):
 
     return {
         "disk_encrypted": _first_bool(
-            de.get("encrypted"), wp.get("bitlocker"), mp.get("filevault")
+            de.get("encrypted"), _win_bitlocker_on(wp.get("bitlocker")), mp.get("filevault")
         ),
         # `firewall.active` is the agent's OWN tri-state: any READABLE backend
         # active, None when every probe was unreadable. Prefer it — the Data
@@ -85,12 +152,12 @@ def posture_flags(si):
         "firewall_active": _first_bool(
             fw.get("active"),
             _backends_active(fw.get("backends")),
-            wp.get("firewall"),
+            _win_firewall_on(wp.get("firewall")),
             mp.get("firewall"),
         ),
         "autoupdate_enabled": _first_bool(
             (au.get("enabled") if isinstance(au.get("enabled"), bool) else None),
-            wp.get("wu_service"),
+            _win_updates_on(wp.get("wu_service"), wp.get("wu_start")),
             mp.get("auto_security_update"),
         ),
     }
@@ -696,17 +763,28 @@ def _host_checks(
                     else "all profiles on"
                 ),
             )
-        # Windows Update service — if it's not running, the host silently stops
-        # patching, and every other patch signal quietly goes stale.
+        # Windows Update service — a DISABLED service silently stops patching,
+        # and every other patch signal quietly goes stale. It is a trigger-start
+        # service, so "stopped" while idle is its normal state: where the agent
+        # reports the start type, only "disabled" is a warning. An agent that
+        # does not report it keeps the older rule (not running = warning).
         wu = wp.get("wu_service")
         if wu:
             running = str(wu).lower() == "running"
+            start = str(wp.get("wu_start") or "").strip()
+            idle_ok = (not running) and bool(start) and start.lower() != "disabled"
             add(
                 "win_update_service",
                 "Windows Update service",
                 "patch",
-                "ok" if running else "warning",
-                "running" if running else f"{wu} (not running)",
+                "ok" if (running or idle_ok) else "warning",
+                (
+                    "running"
+                    if running
+                    else f"{wu}, start type {start} (starts when updates are due)"
+                    if idle_ok
+                    else f"{wu} (not running)"
+                ),
             )
         # v6.3.0 posture gaps. Tamper protection guards Defender from being
         # silently switched off by malware — off is a real weakening.

@@ -28,6 +28,8 @@ unit-testable and out of the circular-import trap).
 
 import time
 
+import checks
+
 # Order is the product: everything sorts by this, then by how many hosts are
 # affected (a problem on 30 hosts outranks the same problem on one).
 SEVERITY_RANK = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
@@ -143,17 +145,25 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None,
         _au = si.get('autoupdate')
         if not isinstance(_au, dict):
             _au = {}
-        _self_patches = bool(_au.get('enabled'))
+        # v7.3.0: all three agents, tri-state. A Windows or macOS host was told to
+        # enable unattended-upgrades, and a host that never reported was told it
+        # does not auto-patch.
+        _self_patches = checks.posture_flags(si)['autoupdate_enabled']
         _fix = ('Apply updates from Fleet → Patches (or schedule a patch window). '
                 'Security updates first if you are staging the rollout.')
-        if _self_patches:
+        if _self_patches is True:
             _fix += (f' This host auto-patches via {_au.get("mechanism") or "a timer"}, '
                      'so these should apply on their own soon — investigate if the '
                      'count keeps growing.')
-        else:
+        elif _self_patches is False:
+            if isinstance(si.get('win_posture'), dict):
+                _how = 'turning Windows Update back on'
+            elif isinstance(si.get('mac_posture'), dict):
+                _how = 'turning on automatic security updates in System Settings'
+            else:
+                _how = 'enabling unattended-upgrades / dnf-automatic on hosts that can take unattended reboots'
             _fix += (' This host does not auto-patch, so nothing will apply these '
-                     'until you do — consider enabling unattended-upgrades / '
-                     'dnf-automatic on hosts that can take unattended reboots.')
+                     f'until you do — consider {_how}.')
         out.append(_finding(
             'os.patches', 'os', 'high' if sec else 'medium',
             f'{upgradable} pending package updates'
@@ -239,18 +249,30 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
             source='listening ports', doc='docs/exposure.md'))
 
     fw = si.get('firewall')
-    fw_off = (isinstance(fw, dict) and fw.get('active') is False)
-    if not isinstance(fw, dict):
+    # v7.3.0: the three agents report this under three key sets; the shared
+    # helper reads all of them and keeps "never reported" apart from "off".
+    fw_off = checks.posture_flags(si)['firewall_active'] is False
+    if not isinstance(fw, dict) and not fw_off:
         fp = si.get('firewall_fp')
         fw_off = isinstance(fp, dict) and str(fp.get('backend') or '').lower() == 'none'
     if fw_off:
+        if isinstance(si.get('win_posture'), dict):
+            _fw_fix = ('Turn Windows Defender Firewall on for every profile '
+                       '(Domain, Private and Public) and allow only the '
+                       'services you actually publish.')
+        elif isinstance(si.get('mac_posture'), dict):
+            _fw_fix = ('Turn the application firewall on in System Settings → '
+                       'Network → Firewall and allow only the services you '
+                       'actually publish.')
+        else:
+            _fw_fix = ('Enable nftables/ufw with a default-deny inbound policy '
+                       'and allow only the services you actually publish.')
         out.append(_finding(
             'exp.firewall', 'exposure', 'high', 'No host firewall is active',
             'The host relies entirely on whatever is upstream. Anything that '
             'starts listening — on purpose or not — is immediately reachable '
             'from everywhere that can route to it.',
-            'Enable nftables/ufw with a default-deny inbound policy and allow '
-            'only the services you actually publish.',
+            _fw_fix,
             device_id=dev_id, device=name, source='firewall posture',
             doc='docs/firewall.md'))
 

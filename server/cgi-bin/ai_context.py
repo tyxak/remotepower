@@ -27,6 +27,8 @@ actual task begins.
 import json
 import time
 
+import checks
+
 
 # ── Project context ────────────────────────────────────────────────────────
 #
@@ -140,13 +142,14 @@ def _device_flags(d):
         out.append(f'{len(units)} failed unit' + ('s' if len(units) != 1 else ''))
     if si.get('mount_issues'):
         out.append('mount issues')
-    fw = si.get('firewall')
-    if isinstance(fw, dict):
-        backends = [b for b in (fw.get('backends') or []) if isinstance(b, dict)]
-        if backends and not any(b.get('active') for b in backends):
-            out.append('firewall off')
-    de = si.get('disk_encryption')
-    if isinstance(de, dict) and de.get('encrypted') is False:
+    # v7.3.0: the three platforms and the tri-state, through the shared helper.
+    # The old test was "backends exist and none is active", which read a Linux
+    # host whose probes all failed as a host with no firewall, and knew nothing
+    # of Windows or macOS.
+    pf = checks.posture_flags(si)
+    if pf['firewall_active'] is False:
+        out.append('firewall off')
+    if pf['disk_encrypted'] is False:
         out.append('disks unencrypted')
     ck = si.get('clock')
     if isinstance(ck, dict) and ck.get('synced') is False:

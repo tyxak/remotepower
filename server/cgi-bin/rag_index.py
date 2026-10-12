@@ -50,6 +50,8 @@ import re
 import math
 import hashlib
 
+import checks
+
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
 #
@@ -770,7 +772,8 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                     wl.append(f"firewall {f.get('name')}: "
                               + ("on" if f.get('enabled') else "OFF"))
             if wp.get('wu_service'):
-                wl.append(f"Windows Update service: {wp['wu_service']}")
+                wl.append(f"Windows Update service: {wp['wu_service']}"
+                          + (f" (start type {wp['wu_start']})" if wp.get('wu_start') else ''))
             if wl:
                 posture.append("Windows security posture:\n  " + '\n  '.join(wl))
         # v6.4.0: macOS posture parity with Windows.
@@ -1171,6 +1174,11 @@ def build_firewall_corpus(devices, now=0):
         bes = [b for b in (fw.get('backends') or [])
                if isinstance(b, dict) and b.get('present')]
         if not bes and not f2b.get('available'):
+            # v7.3.0: a Windows or macOS host has no Linux backends, so it never
+            # reached the roll-up below and "which hosts have no firewall" left
+            # it out. The per-host firewall state is in its posture document.
+            if checks.posture_flags(si)['firewall_active'] is False:
+                no_fw.append(name)
             continue
         active = fw.get('active')
         lines = []
