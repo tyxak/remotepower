@@ -126,6 +126,19 @@ class TestMoreWrongTypes(_Base):
         st = self._status(api.handle_fleet_timeline, None, method="GET", qs="since=1e999&until=-1e999")
         self.assertLess(st, 500)
 
+    def test_a_collect_all_target_that_is_not_an_object(self):
+        for target in (5, [1], "all", True):
+            with self.subTest(target=target):
+                st = self._status(api.handle_host_config_collect_all, {"target": target})
+                self.assertLess(st, 500)
+
+    def test_a_host_label_past_63_characters_is_not_a_crash(self):
+        import urllib.parse
+        for host in ("a" * 70 + ".example", "x." + "b" * 64, "nas..lan"):
+            with self.subTest(host=host[:12]):
+                parsed = urllib.parse.urlparse("https://" + host)
+                self.assertIs(api._url_targets_local_or_meta(parsed, allow_loopback=False), False)
+
     def test_a_proxmox_host_that_is_not_a_host(self):
         for host in ([1, "a"], {"a": 1}, "bad host:99999999999", "[::1"):
             with self.subTest(host=str(host)[:12]):

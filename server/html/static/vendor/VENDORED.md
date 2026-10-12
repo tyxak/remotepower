@@ -6,6 +6,21 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v7.3.0 — 2026-10-12
+
+- **Version check — nothing to update.** Against the npm registry on this date:
+  swagger-ui-dist 5.33.1, `@xterm/xterm` 6.0.0, `@xterm/addon-fit` 0.11.0,
+  `@novnc/novnc` 1.7.0, `qrcode-generator` 2.0.4, `@fontsource/inter` 5.3.0 and
+  `@fontsource/jetbrains-mono` 5.3.0 are each the current release, and the files
+  here are those releases.
+- **The server's Python dependencies were run at their latest releases**, the way
+  a fresh install resolves them (webauthn 3.0.1, cryptography 50.0.2, pydantic
+  2.14.1, werkzeug 3.1.9, pysaml2 7.5.5, gunicorn 26.2.0, psycopg 3.3.6, pyasn1
+  0.6.4, asyncssh 2.24.1): 54 test modules that touch them pass unchanged. Nothing
+  is pinned, so a new install gets these.
+- **Dev tooling moved with them**: black 26.10.1, isort 9.0.2, mypy 2.4.0 and ruff
+  0.17.0 produce no change to the formatted baseline and no new finding.
+
 ## v7.1.0 — 2026-10-03
 
 - **swagger-ui 5.32.15 → 5.33.1 — DONE.** The current upstream release, taken
@@ -154,5 +169,5 @@ hidden, never an error:
 | `psutil` | richer server-status metrics |
 
 Dev-only tooling is pinned in `pyproject.toml` / `make install-dev`
-(black 26.5.1, isort 8.0.1, mypy 2.1.0) and `playwright` powers the
+(black 26.10.1, isort 9.0.2, mypy 2.4.0, ruff 0.17.0) and `playwright` powers the
 optional `make e2e` browser smoke suite.

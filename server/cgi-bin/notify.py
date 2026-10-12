@@ -360,7 +360,9 @@ def _build_servicenow_body(event, title, message, dest):
 def _build_zendesk_body(event, title, message, dest):
     """Zendesk: POST <base>/api/v2/tickets.json. email/token basic auth."""
     auth = _itsm_basic(
-        str(dest.get("itsm_user") or "").strip(), str(dest.get("itsm_secret") or "").strip(), zendesk=True
+        str(dest.get("itsm_user") or "").strip(),
+        str(dest.get("itsm_secret") or "").strip(),
+        zendesk=True,
     )
     if not auth:
         return None, None, None

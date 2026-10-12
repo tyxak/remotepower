@@ -132,7 +132,7 @@ scan-demo:
 # previous version formatted — which is exactly how `make lint` silently
 # broke between v4.2.0 and v4.3.0.
 install-dev:
-	$(PIP) install $(PIP_FLAGS) 'black==26.5.1' 'isort==8.0.1' 'mypy==2.1.0' 'ruff==0.15.21'
+	$(PIP) install $(PIP_FLAGS) 'black==26.10.1' 'isort==9.0.2' 'mypy==2.4.0' 'ruff==0.17.0'
 
 test:
 	$(PY) -m unittest discover -s tests -v

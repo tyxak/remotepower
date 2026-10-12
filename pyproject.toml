@@ -2,7 +2,7 @@
 # Used by `make lint`, `make format`, and `make typecheck`.
 #
 # Dev-tool versions are PINNED (installed by `make install-dev`):
-#   black 26.5.1 · isort 8.0.1 · mypy 2.1.0 · ruff 0.15.21
+#   black 26.10.1 · isort 9.0.2 · mypy 2.4.0 · ruff 0.17.0
 #
 # ruff is used for ONE rule — F821 (undefined name) — over all shipped server,
 # agent and sidecar Python. Deliberately not a general linter here: a broad

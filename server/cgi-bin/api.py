@@ -13455,7 +13455,9 @@ def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
         return True   # No host at all — block to be safe
     try:
         addrs = socket.getaddrinfo(host, None)
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):
+        # UnicodeError: a label past 63 characters fails the idna codec before
+        # any lookup, and a host typed into a form reached here as a 500.
         return False  # Can't resolve — let the request through, will fail anyway
     for _family, _t, _p, _c, sockaddr in addrs:
         try:
@@ -73482,6 +73484,7 @@ def handle_host_config_collect_all():
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.HostConfigCollectAllRequest)
     target = body.get('target') or {'type': 'all', 'value': ''}
+    target = target if isinstance(target, dict) else {}
     targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
     devices = _load_ro(DEVICES_FILE) or {}
     # SECURITY: _autopatch_target_devices resolves all/group/tag/site across the
