@@ -531,7 +531,7 @@ def _host_checks(
             p
             for p in pools
             if isinstance(p, dict)
-            and (p.get("state") or "").lower() not in ("online", "active", "clean", "healthy", "ok")
+            and str(p.get("state") or "").lower() not in ("online", "active", "clean", "healthy", "ok")
         ]
         add(
             "storage",

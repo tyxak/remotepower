@@ -359,7 +359,7 @@ def handle_compose_stack_action(stack_id):
     # FETCHES the yaml separately — so signing the id alone left the one
     # thing that actually executes unsigned. The agent re-hashes what it
     # fetched and refuses a mismatch.
-    _yh = A.hashlib.sha256((s.get('yaml') or '').encode('utf-8')).hexdigest()[:32]
+    _yh = A.hashlib.sha256(str(s.get('yaml') or '').encode('utf-8')).hexdigest()[:32]
     A._queue_command_batch([device_id],
                            f'compose_deploy:{action}:{stack_id}:{_yh}', actor)
     A.audit_log(actor, 'compose_stack_action', f'{action} {s.get("name")} dev={device_id}')

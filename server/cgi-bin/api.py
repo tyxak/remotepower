@@ -3448,7 +3448,7 @@ def get_cve_severity_filter():
 
 def get_server_name():
     """Display name for this server — webhook payloads, page title, etc."""
-    name = _config_ro().get('server_name', '').strip()
+    name = str(_config_ro().get('server_name', '')).strip()
     return name or 'RemotePower'
 
 # ── Login brute-force protection ───────────────────────────────────────────────
@@ -4623,7 +4623,7 @@ def _external_scheduler_configured():
     different: "you told me a scheduler owns this" and "one actually does". The
     panel showing them as one number is how a dead scheduler stayed invisible.
     """
-    v = (os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
+    v = str(os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
     if v in ('1', 'true', 'yes', 'on'):
         return True
     try:
@@ -4639,7 +4639,7 @@ def _external_scheduler_active():
     double-running). Opt-in: env RP_EXTERNAL_SCHEDULER (1/true/yes/on) OR config
     ``external_scheduler``. Default OFF — the request path runs the cadence exactly
     as before, so existing CGI installs are unaffected. Never raises."""
-    v = (os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
+    v = str(os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
     configured = v in ('1', 'true', 'yes', 'on')
     if not configured:
         try:
@@ -8011,7 +8011,7 @@ def audit_log(actor, action, detail='', source_ip=None,
     # a WORM / S3-Object-Lock-backed mount), giving a tamper-resistant audit copy
     # independent of the live (bounded) log. Best-effort; a failure never breaks
     # audit logging. The entry already carries its _hash from inside the lock.
-    _worm = (cfg.get('audit_worm_path') or '').strip()
+    _worm = str(cfg.get('audit_worm_path') or '').strip()
     if _worm:
         try:
             with open(_worm, 'a') as _wf:
@@ -8278,7 +8278,7 @@ def _forward_audit(entry, cfg):
     """
     mode = (cfg.get('audit_forward_mode') or 'http').lower()
     if mode == 'http':
-        url = (cfg.get('audit_forward_url') or '').strip()
+        url = str(cfg.get('audit_forward_url') or '').strip()
         if not url:
             return 'no audit_forward_url configured'
         _block_local = cfg.get('webhook_block_local', True)
@@ -8287,7 +8287,7 @@ def _forward_audit(entry, cfg):
             return 'destination blocked by the SSRF guard (webhook_block_local)'
         data = json.dumps({'source': 'remotepower', 'event': entry}).encode()
         headers = {'Content-Type': 'application/json'}
-        tok = (cfg.get('audit_forward_token') or '').strip()
+        tok = str(cfg.get('audit_forward_token') or '').strip()
         if tok:
             headers['Authorization'] = f'Bearer {tok}'
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
@@ -8301,7 +8301,7 @@ def _forward_audit(entry, cfg):
         opener.open(req, timeout=5).close()
         return ''
     elif mode == 'syslog':
-        host = (cfg.get('audit_forward_host') or '').strip()
+        host = str(cfg.get('audit_forward_host') or '').strip()
         if not host:
             return 'no audit_forward_host configured'
         _block_local = cfg.get('webhook_block_local', True)
@@ -8461,13 +8461,13 @@ def _forward_siem(event, payload, cfg):
     the firing path. Called from fire_webhook for every event."""
     if not cfg.get('siem_enabled'):
         return
-    url = (cfg.get('siem_url') or '').strip()
+    url = str(cfg.get('siem_url') or '').strip()
     if not url:
         return
     fmt = (cfg.get('siem_format') or 'raw').lower()
     if fmt not in SIEM_FORMATS:
         fmt = 'raw'
-    token = (cfg.get('siem_token') or '').strip()
+    token = str(cfg.get('siem_token') or '').strip()
     now = int(time.time())
     record = _siem_record(event, payload)
     target, body, headers = _siem_envelope(fmt, url, record, token, now)
@@ -8483,7 +8483,7 @@ def handle_siem_test():
     cfg = load(CONFIG_FILE) or {}
     if not cfg.get('siem_enabled'):
         respond(400, {'error': 'SIEM streaming is not enabled in settings.'})
-    if not (cfg.get('siem_url') or '').strip():
+    if not str(cfg.get('siem_url') or '').strip():
         respond(400, {'error': 'No SIEM URL configured.'})
     try:
         _forward_siem('siem_test', {'name': 'remotepower-selftest',
@@ -8590,7 +8590,7 @@ def _export_otlp(cfg):
     now_ns = int(time.time()) * 1_000_000_000
     body = json.dumps(_otlp_payload(gauges, now_ns)).encode()
     headers = {'Content-Type': 'application/json'}
-    token = (cfg.get('otlp_token') or '').strip()
+    token = str(cfg.get('otlp_token') or '').strip()
     if token:
         headers['Authorization'] = f'Bearer {token}'
     _siem_post(url, body, headers, cfg)   # reuse the SSRF-guarded POST
@@ -8710,7 +8710,7 @@ def _export_otlp_traces(spans, cfg):
         return
     body = json.dumps(_otlp_traces_payload(spans, cfg)).encode()
     headers = {'Content-Type': 'application/json'}
-    token = (cfg.get('otlp_token') or '').strip()
+    token = str(cfg.get('otlp_token') or '').strip()
     if token:
         headers['Authorization'] = f'Bearer {token}'
     _siem_post(url, body, headers, cfg)   # reuse the SSRF-guarded POST
@@ -8840,7 +8840,7 @@ def _webpush_cfg():
         pub = _wp.vapid_public_key_b64(pem)
     except Exception:
         return (False, None, None, None)
-    subject = (cfg.get('webpush_subject') or '').strip() or 'mailto:admin@remotepower.local'
+    subject = str(cfg.get('webpush_subject') or '').strip() or 'mailto:admin@remotepower.local'
     return (True, pem, pub, subject)
 
 
@@ -9152,7 +9152,7 @@ def is_email_event_enabled(event, cfg=None):
         cfg = _config()
     if not cfg.get('smtp_enabled'):
         return False
-    if not (cfg.get('smtp_recipients') or '').strip():
+    if not str(cfg.get('smtp_recipients') or '').strip():
         return False
     events = cfg.get('email_events') or {}
     if event in events:
@@ -10665,7 +10665,7 @@ def handle_contacts():
                 if q not in hay:
                     continue
             out.append(_contact_public(c))
-        out.sort(key=lambda x: (x.get('name') or '').lower())
+        out.sort(key=lambda x: str(x.get('name') or '').lower())
         respond(200, {'ok': True, 'contacts': out})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -11028,7 +11028,7 @@ def handle_portal_magic_link():
         # checked where the link is made: with no URL set, no link is sent, rather
         # than one built from the request's Host header (a forged Host would mail the
         # real contact a link to the attacker's origin, carrying a live nonce).
-        base = (_config_ro().get('portal_base_url') or '').strip().rstrip('/')
+        base = str(_config_ro().get('portal_base_url') or '').strip().rstrip('/')
         if not base:
             audit_log('portal', 'portal_magic_link_blocked',
                       'no sign-in link sent: Settings -> Customer portal needs a Portal public URL')
@@ -11365,7 +11365,7 @@ def handle_kb():
                 if q not in hay:
                     continue
             out.append(_kb_public(a, full=False))
-        out.sort(key=lambda x: (not x['pinned'], (x.get('title') or '').lower()))
+        out.sort(key=lambda x: (not x['pinned'], str(x.get('title') or '').lower()))
         cats = sorted({a.get('category') or '' for a in articles if a.get('category')})
         respond(200, {'ok': True, 'articles': out, 'categories': cats,
                       'count': len(articles)})
@@ -12495,8 +12495,8 @@ def _quiet_hours_active(event, payload, cfg, now=None):
     qh = (cfg or {}).get('quiet_hours') or {}
     if not qh.get('enabled'):
         return None
-    start = (qh.get('start') or '').strip()
-    end = (qh.get('end') or '').strip()
+    start = str(qh.get('start') or '').strip()
+    end = str(qh.get('end') or '').strip()
     if len(start) != 5 or len(end) != 5:
         return None
     min_sev = (qh.get('min_severity') or 'critical').lower()
@@ -13068,7 +13068,7 @@ def fire_webhook(event, payload):
                 # Log so the operator can see what's being suppressed
                 # (suppression-log URL helper defined below — inline the
                 # fallback chain here since we run before the helper).
-                first_url = (cfg.get('webhook_url') or '').strip()
+                first_url = str(cfg.get('webhook_url') or '').strip()
                 if not first_url:
                     for e in (cfg.get('webhook_urls') or []):
                         if isinstance(e, dict) and e.get('url') and e.get('enabled', True):
@@ -13109,7 +13109,7 @@ def fire_webhook(event, payload):
     # multi-only setups had no log entry — silent suppression with nothing to
     # debug against. Picks the first enabled destination; cosmetic only.
     def _suppression_log_url():
-        u = (cfg.get('webhook_url') or '').strip()
+        u = str(cfg.get('webhook_url') or '').strip()
         if u:
             return u
         for e in (cfg.get('webhook_urls') or []):
@@ -13285,7 +13285,7 @@ def _deliver_user_notifications(event, payload, message, cfg):
             if isinstance(pf, dict) and pf.get('type', 'all') != 'all' \
                     and not _device_in_scope(pf, dev):
                 continue
-        url = (p.get('webhook_url') or '').strip()
+        url = str(p.get('webhook_url') or '').strip()
         if url:
             dest = {'id': f'user:{username}', 'name': f'{username} (personal)',
                     'url': url, 'format': _auto_detect_format(url), 'enabled': True}
@@ -13295,8 +13295,8 @@ def _deliver_user_notifications(event, payload, message, cfg):
             except Exception as e:
                 _log_webhook(event, url, 'error',
                              f'user {username}: {type(e).__name__}: {str(e)[:120]}')
-        email = (p.get('email') or '').strip()
-        if email and '@' in email and (cfg.get('smtp_host') or '').strip():
+        email = str(p.get('email') or '').strip()
+        if email and '@' in email and str(cfg.get('smtp_host') or '').strip():
             try:
                 subj = f'{title}'[:200]
                 smtp_notifier.send_email(cfg, [email], subj, message,
@@ -13334,7 +13334,7 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
     """
     # Build the destination list: legacy single + new array, deduped by URL.
     destinations = []
-    legacy = (cfg.get('webhook_url') or '').strip()
+    legacy = str(cfg.get('webhook_url') or '').strip()
     if legacy:
         destinations.append({
             'id':      'legacy',
@@ -13345,7 +13345,7 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
         })
     for entry in (cfg.get('webhook_urls') or []):
         if not isinstance(entry, dict): continue
-        url = (entry.get('url') or '').strip()
+        url = str(entry.get('url') or '').strip()
         if not url: continue
         if entry.get('enabled') is False: continue
         # Skip if it duplicates the legacy field (operator migrated but
@@ -14950,7 +14950,7 @@ def handle_devices_list():
             mem_total_kb = None
             mem_used_kb  = None
             for s in (sd.get('storage') or []):
-                descr = (s.get('descr') or '').lower()
+                descr = str(s.get('descr') or '').lower()
                 if descr in ('physical memory', 'main memory', 'memory'):
                     mem_pct = s.get('used_pct')
                     if s.get('size_bytes'):
@@ -14961,7 +14961,7 @@ def handle_devices_list():
             # Filesystem-like storage entries (skip memory/swap/cache)
             mounts = []
             for s in (sd.get('storage') or []):
-                d_descr = (s.get('descr') or '').strip()
+                d_descr = str(s.get('descr') or '').strip()
                 low = d_descr.lower()
                 if not d_descr:
                     continue
@@ -15000,8 +15000,8 @@ def handle_devices_list():
                 'mounts':     mounts,
                 'temp_board': temp_board,
                 'temp_cpu':   temp_cpu,
-                'vendor_kind': ('mikrotik' if (sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.14988')
-                                 else 'ubnt' if (sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.41112')
+                'vendor_kind': ('mikrotik' if str(sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.14988')
+                                 else 'ubnt' if str(sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.41112')
                                  else ''),
             }
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
@@ -17125,7 +17125,7 @@ def _send_invoice_email(inv, cfg, *, reminder=False):
     overdue-reminder sweep."""
     site_id = inv.get('site_id')
     sb = (_billing_cfg().get('sites') or {}).get(site_id) or {}
-    contact = (sb.get('billing_contact') or '').strip()
+    contact = str(sb.get('billing_contact') or '').strip()
     if not contact or '@' not in contact:
         return False, 'no billing contact for this customer'
     site_name = (load(SITES_FILE) or {}).get(site_id, {}).get('name', site_id)
@@ -17160,7 +17160,7 @@ def handle_invoice_send(iid):
     if not inv:
         respond(404, {'error': 'invoice not found'})
     cfg = load(CONFIG_FILE) or {}
-    if not (cfg.get('smtp_host') or '').strip():
+    if not str(cfg.get('smtp_host') or '').strip():
         respond(400, {'error': 'SMTP is not configured (Settings → Notifications)'})
     ok, detail = _send_invoice_email(inv, cfg)
     if not ok:
@@ -17199,7 +17199,7 @@ def run_invoice_reminders_if_due():
         days = 14
     cutoff = now - days * 86400
     cfg = load(CONFIG_FILE) or {}
-    if not (cfg.get('smtp_host') or '').strip():
+    if not str(cfg.get('smtp_host') or '').strip():
         return
     invs = (load(INVOICES_FILE) or {}).get('invoices') or []
     to_remind = [inv for inv in invs
@@ -17477,7 +17477,7 @@ def handle_site_create():
     sites = load(SITES_FILE)
     if len(sites) >= MAX_SITES:
         respond(400, {'error': f'site limit reached (max {MAX_SITES})'})
-    if any((s.get('name', '').lower() == name.lower()) for s in sites.values()):
+    if any((str(s.get('name', '')).lower() == name.lower()) for s in sites.values()):
         respond(409, {'error': 'a site with that name already exists'})
     site_id = secrets.token_urlsafe(8)
     lat, lng, _ = _coerce_latlng(get_json_obj())   # W5-5
@@ -17891,7 +17891,7 @@ def handle_tenant_create():
                                        'created': 0, 'builtin': True}
         if len(tenants) >= MAX_TENANTS:
             respond(400, {'error': f'tenant limit reached (max {MAX_TENANTS})'})
-        if any(t.get('name', '').lower() == name.lower() for t in tenants.values()):
+        if any(str(t.get('name', '')).lower() == name.lower() for t in tenants.values()):
             respond(409, {'error': 'a tenant with that name already exists'})
         tid = 'tn_' + secrets.token_urlsafe(8)
         tenants[tid] = {'name': name, 'status': 'active',
@@ -18411,11 +18411,11 @@ def handle_device_firewall_rule(dev_id):
         # here already passed the same strict validation as the real command.
         dry = None
         if backend == 'ufw':
-            dry = (f'ufw --dry-run {body.get("spec", "").strip()}' if op == 'add'
-                   else f'ufw --dry-run --force delete {body.get("ref", "").strip()}')
+            dry = (f'ufw --dry-run {str(body.get("spec", "")).strip()}' if op == 'add'
+                   else f'ufw --dry-run --force delete {str(body.get("ref", "")).strip()}')
         elif backend == 'nftables':
-            dry = (f'nft -c {body.get("spec", "").strip()}' if op == 'add'
-                   else f'nft -c delete rule {body.get("ref", "").strip()}')
+            dry = (f'nft -c {str(body.get("spec", "")).strip()}' if op == 'add'
+                   else f'nft -c delete rule {str(body.get("ref", "")).strip()}')
         out = {'ok': True, 'preview': True, 'command': cmd}
         if dry:
             out['dryrun_command'] = dry
@@ -20829,7 +20829,7 @@ def _agent_mtls_ok(dev_id):
     if not verified:
         return (False, 'mutual TLS required: no verified client certificate presented')
     dev = device_get(dev_id) or {}
-    pin = (dev.get('mtls_fingerprint') or '').strip().lower().replace('sha1:', '').replace(':', '')
+    pin = str(dev.get('mtls_fingerprint') or '').strip().lower().replace('sha1:', '').replace(':', '')
     if pin:
         if not fp:
             return (False, 'mutual TLS: client certificate fingerprint missing')
@@ -23999,8 +23999,8 @@ _SVC_UNIT_RE = re.compile(r'^[A-Za-z0-9@:._\\-]+$')   # systemd unit / instance 
 def _pdu_action_urls(pdu, action):
     """HTTP GET URL(s) to perform `action` (on|off) on the mapped smart PDU/plug.
     'cycle' is handled by the caller (off, wait, on)."""
-    kind = (pdu.get('kind') or '').lower()
-    host = (pdu.get('host') or '').strip()
+    kind = str(pdu.get('kind') or '').lower()
+    host = str(pdu.get('host') or '').strip()
     outlet = str(pdu.get('outlet') or '').strip()
     if not host:
         return []
@@ -25424,7 +25424,7 @@ def _send_wol(dev):
     """Send a Wake-on-LAN magic packet for a device record. Returns
     (ok: bool, info: dict|str). Shared by the manual WoL endpoint and the
     v3.14.0 power scheduler."""
-    mac = (dev.get('mac') or '').strip()
+    mac = str(dev.get('mac') or '').strip()
     if not mac:
         return False, 'No MAC address on record for this device'
     if not _MAC_RE.match(mac):
@@ -26340,7 +26340,7 @@ def ping_healthchecks_if_due():
     outage must not break RemotePower's request pipeline.
     """
     cfg = _config_ro()
-    url = (cfg.get('healthchecks_url') or '').strip()
+    url = str(cfg.get('healthchecks_url') or '').strip()
     if not url:
         return
     if not (url.startswith('http://') or url.startswith('https://')):
@@ -28205,7 +28205,7 @@ def handle_config_get():
             if k not in ('offline_notified', 'offline_pending', 'patch_alerted',
                          'monitor_notified', 'containers_stale_notified',
                          '_github_latest_version', '_github_latest_ts')}
-    safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
+    safe['webhook_configured'] = bool(str(cfg.get('webhook_url', '')).strip())
     safe.setdefault('offline_webhook_enabled', True)
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
@@ -28616,7 +28616,7 @@ def handle_config_get():
     # expose only whether it's set and strip the raw value.
     if isinstance(safe.get('gitops'), dict):
         _g = dict(safe['gitops'])
-        _g['auth_header_set'] = bool((_g.get('auth_header') or '').strip())
+        _g['auth_header_set'] = bool(str(_g.get('auth_header') or '').strip())
         _g.pop('auth_header', None)
         safe['gitops'] = _g
 
@@ -28629,14 +28629,14 @@ def handle_config_get():
     safe.pop('webhook_url', None)
     # W6-4: the Lenovo warranty ClientID is an API credential — withhold it,
     # expose only a boolean (re-enter to change), like other secret config.
-    safe['warranty_lenovo_configured'] = bool((cfg.get('warranty_lenovo_client_id') or '').strip())
+    safe['warranty_lenovo_configured'] = bool(str(cfg.get('warranty_lenovo_client_id') or '').strip())
     safe.pop('warranty_lenovo_client_id', None)
     # v5.5.0 (L1): the Healthchecks.io ping URL has a secret UUID in its path — a
     # reusable credential. The Settings form round-trips it on save, so admins keep
     # seeing it (like webhook_urls[].url), but a non-admin (viewer/MCP) token must
     # NOT get the raw URL in a GET body — it isn't caught by the name-based
     # _scrub_config_secrets. Always expose the boolean; withhold the URL below.
-    safe['healthchecks_configured'] = bool((cfg.get('healthchecks_url') or '').strip())
+    safe['healthchecks_configured'] = bool(str(cfg.get('healthchecks_url') or '').strip())
     # webhook_urls[].url stays visible to admins because the multi-webhook editor
     # round-trips it on save; viewers / MCP keys get only the url_set indicator.
     if not _cfg_is_admin:
@@ -28646,7 +28646,7 @@ def handle_config_get():
         # returned raw to read-only roles (viewer/MCP/auditor/finance); give
         # non-admins only a *_set indicator, matching metrics_push.url below.
         for _uk in ('siem_url', 'audit_forward_url', 'otlp_endpoint'):
-            if (safe.get(_uk) or '').strip():
+            if str(safe.get(_uk) or '').strip():
                 safe[_uk + '_set'] = True
                 safe[_uk] = ''
         # v5.6.0 pentest: a Pushgateway URL may embed basic-auth userinfo — give
@@ -28940,8 +28940,8 @@ def handle_config_save():
                     (e for e in (cfg.get('webhook_urls') or [])
                      if isinstance(e, dict) and e.get('id') == clean_entry['id']),
                     None)
-                token = (entry.get('pushover_token') or '').strip()
-                user  = (entry.get('pushover_user')  or '').strip()
+                token = str(entry.get('pushover_token') or '').strip()
+                user  = str(entry.get('pushover_user')  or '').strip()
                 if token:
                     clean_entry['pushover_token'] = _sanitize_str(token, 64)
                 elif existing and existing.get('pushover_token'):
@@ -28957,7 +28957,7 @@ def handle_config_save():
                     (e for e in (cfg.get('webhook_urls') or [])
                      if isinstance(e, dict) and e.get('id') == clean_entry['id']),
                     None)
-                pat = (entry.get('token') or '').strip()
+                pat = str(entry.get('token') or '').strip()
                 if pat:
                     clean_entry['token'] = _sanitize_str(pat, 256)
                 elif existing and existing.get('token'):
@@ -28970,7 +28970,7 @@ def handle_config_save():
                      if isinstance(e, dict) and e.get('id') == clean_entry['id']),
                     None)
                 clean_entry['itsm_user'] = _sanitize_str(entry.get('itsm_user') or '', 128)
-                _isec = (entry.get('itsm_secret') or '').strip()
+                _isec = str(entry.get('itsm_secret') or '').strip()
                 if _isec:
                     clean_entry['itsm_secret'] = _sanitize_str(_isec, 512)
                 elif existing and existing.get('itsm_secret'):
@@ -28988,13 +28988,13 @@ def handle_config_save():
                      if isinstance(e, dict) and e.get('id') == clean_entry['id']),
                     None)
                 if fmt == 'matrix':
-                    _mtok = (entry.get('matrix_token') or '').strip()
+                    _mtok = str(entry.get('matrix_token') or '').strip()
                     if _mtok:
                         clean_entry['matrix_token'] = _sanitize_str(_mtok, 512)
                     elif existing and existing.get('matrix_token'):
                         clean_entry['matrix_token'] = existing['matrix_token']
                 else:  # generic
-                    _hsec = (entry.get('hmac_secret') or '').strip()
+                    _hsec = str(entry.get('hmac_secret') or '').strip()
                     if _hsec:
                         clean_entry['hmac_secret'] = _sanitize_str(_hsec, 256)
                     elif existing and existing.get('hmac_secret'):
@@ -29831,7 +29831,7 @@ def handle_config_save():
     # is REQUIRED whenever the portal is enabled — reject any save that would leave
     # it enabled without one (surfaces an existing enabled-without-URL misconfig on
     # the next save, too, rather than silently emitting broken/ATO-able links).
-    if cfg.get('portal_enabled') and not (cfg.get('portal_base_url') or '').strip():
+    if cfg.get('portal_enabled') and not str(cfg.get('portal_base_url') or '').strip():
         respond(400, {'error': 'Set a "Portal public URL" (Settings → Customer '
                       'portal) before enabling the customer portal — the sign-in '
                       'email needs an explicit https:// address (the request host '
@@ -32052,7 +32052,7 @@ def handle_query_templates():
               and (gate is None or (t.get('tenant') or DEFAULT_TENANT) == gate)
               and (is_admin or t.get('owner') == actor
                    or t.get('visibility', 'shared') == 'shared')]
-    respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: t.get('name', '').lower())})
+    respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: str(t.get('name', '')).lower())})
 
 
 def _qt_visibility(body):
@@ -32348,10 +32348,10 @@ def handle_scim_user(username):
             desired_active = bool(body.get('active', True))
         else:  # PATCH PatchOp — handle the common "replace active" operation
             for op in (body.get('Operations') or []):
-                if (op.get('op') or '').lower() != 'replace':
+                if str(op.get('op') or '').lower() != 'replace':
                     continue
                 val = op.get('value')
-                path = (op.get('path') or '').lower()
+                path = str(op.get('path') or '').lower()
                 if path == 'active':
                     desired_active = bool(val)
                 elif isinstance(val, dict) and 'active' in val:
@@ -32455,8 +32455,8 @@ def handle_scim_group(role):
             replace = _member_ids(body.get('members'))
         else:
             for op in (body.get('Operations') or []):
-                verb = (op.get('op') or '').lower()
-                path = (op.get('path') or '').lower()
+                verb = str(op.get('op') or '').lower()
+                path = str(op.get('path') or '').lower()
                 if path and not path.startswith('members'):
                     continue
                 ids = _member_ids(op.get('value'))
@@ -32709,7 +32709,7 @@ def handle_user_update(username):
     # minting a superadmin without even needing to create one.
     if not _user_tenant_visible(username): respond(404, {'error': 'User not found'})
     body = _read_valid(request_models.UserUpdateRequest)
-    new_role = (body.get('role') or '').strip().lower()
+    new_role = str(body.get('role') or '').strip().lower()
     if not _assignable_role(new_role):
         respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
     if new_role == 'admin':
@@ -32746,7 +32746,7 @@ def _assignable_role(role):
 def _clean_role_body(body):
     """Validate a custom-role payload → clean dict, or (None, error)."""
     if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
-    name = _sanitize_str((body.get('name') or '').strip(), 32)
+    name = _sanitize_str(str(body.get('name') or '').strip(), 32)
     if not name or not re.match(r'^[a-z0-9_\-]{2,32}$', name):
         return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
     if name in ('admin', 'viewer', 'mcp'):
@@ -33524,7 +33524,7 @@ def handle_agent_version():
         # signature is published and the expected signing-key fingerprint so an
         # agent with a pinned key knows to require + check it.
         'signed':          _AGENT_SIG_PATH.exists(),
-        'key_fingerprint': (cfg.get('release_key_fingerprint') or '').upper(),
+        'key_fingerprint': str(cfg.get('release_key_fingerprint') or '').upper(),
     })
 
 
@@ -33544,7 +33544,7 @@ def handle_agent_signature():
     except OSError:
         respond(404, {'error': 'agent release is not signed'})
     respond(200, {'signature': sig,
-                  'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
+                  'key_fingerprint': str(load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
 
 
 def _release_signature_status(with_detail=False):
@@ -33812,7 +33812,7 @@ def _agent_integrity_status(dev, canonical_sha, canonical_ver):
     different hash, so comparing it against the Linux hash could NEVER verify — it
     showed no badge (or a false 'mismatch'). Resolve the OS-appropriate canonical
     for non-Linux devices."""
-    reported = (dev.get('agent_sha256') or '').lower()
+    reported = str(dev.get('agent_sha256') or '').lower()
     if _device_os_family(dev) in ('windows', 'darwin'):
         canonical_sha = _canonical_agent_sha_for(dev)
     canonical_sha = (canonical_sha or '').lower()
@@ -33956,7 +33956,7 @@ def handle_win_agent_version():
         'sha256':  sha,
         'size':    size,
         'signed':  sig_path.exists(),
-        'key_fingerprint': (cfg.get('release_key_fingerprint') or '').upper(),
+        'key_fingerprint': str(cfg.get('release_key_fingerprint') or '').upper(),
     })
 
 
@@ -33971,7 +33971,7 @@ def handle_win_agent_signature():
     except OSError:
         respond(404, {'error': f'{label} agent release is not signed'})
     respond(200, {'signature': sig,
-                  'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
+                  'key_fingerprint': str(load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
 
 
 def handle_win_agent_download():
@@ -35846,7 +35846,7 @@ def handle_version_check():
             with opener.open(req, timeout=5) as r:
                 data = json.loads(r.read(65536))  # cap response size
             # Strictly validate: tag must match semver pattern
-            raw_tag = data.get('tag_name', '').lstrip('v')
+            raw_tag = str(data.get('tag_name', '')).lstrip('v')
             if re.match(r'^\d{1,4}\.\d{1,4}\.\d{1,4}$', raw_tag):
                 latest = raw_tag
             else:
@@ -35882,7 +35882,7 @@ def handle_version_check():
         'update_available': update_available,
         'release_url': 'https://github.com/tyxak/remotepower/releases/latest',
         # v5.0.0: whether a guided self-update script is configured (Settings → Install).
-        'self_update_configured': bool((cfg.get('self_update_command') or '').strip()),
+        'self_update_configured': bool(str(cfg.get('self_update_command') or '').strip()),
         # v6.1.2: whether the scoped restart script is installed (drives the
         # "Restart server" button — hidden in a container / when not set up).
         # v6.4.2: a bare file-exists check said "available" on the shipped
@@ -35909,7 +35909,7 @@ def handle_server_self_update():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     cfg = load(CONFIG_FILE) or {}
-    cmd = (cfg.get('self_update_command') or '').strip()
+    cmd = str(cfg.get('self_update_command') or '').strip()
     if not cmd:
         respond(400, {'error': 'self-update is not configured — set an update-script '
                                'path in Settings → Install first', 'configured': False}); return
@@ -36978,7 +36978,7 @@ def handle_schedule_add():
     save(SCHEDULE_FILE, schedule)
     # v3.14.0: warn (non-fatal) if a power-down host can't be woken on a schedule.
     warning = ''
-    if command in ('shutdown', 'suspend') and not (devices[dev_id].get('mac') or '').strip():
+    if command in ('shutdown', 'suspend') and not str(devices[dev_id].get('mac') or '').strip():
         warning = ("This host has no MAC on record, so a scheduled Wake-on-LAN "
                    "won't be possible — it will stay down until woken manually.")
     respond(201, {'ok': True, 'job': job, 'warning': warning})
@@ -37343,9 +37343,9 @@ def handle_device_containers(dev_id: str) -> None:
             stamped.append(c)
             continue
         c = dict(c)
-        image = (c.get('image') or '').strip()
-        ref = f"{image}:{(c.get('tag') or '').strip() or 'latest'}"
-        reg_dig = ((img_cache.get(ref) or {}).get('registry_digest') or '').strip()
+        image = str(c.get('image') or '').strip()
+        ref = f"{image}:{str(c.get('tag') or '').strip() or 'latest'}"
+        reg_dig = str((img_cache.get(ref) or {}).get('registry_digest') or '').strip()
         ignored = bool(img_ignores.get(ref)) and _image_ignored(ref, reg_dig, img_ignores)
         c['update_available'] = bool(image) and not ignored and _image_stale(c.get('repo_digest'), reg_dig)
         _mid = cmute_ids.get(str(c.get('name') or ''))
@@ -37511,7 +37511,7 @@ def _cloud_import_run(targets, actor, mark_gone=False):
                 if not isinstance(dev, dict):
                     continue
                 prov = (dev.get('cloud') or {}).get('provider')
-                if (dev.get('source', '').startswith('cloud:') and prov in seen_providers
+                if (str(dev.get('source', '')).startswith('cloud:') and prov in seen_providers
                         and did not in new_devs and not dev.get('decommissioned')):
                     dev['decommissioned'] = True
                     decommissioned += 1
@@ -38613,10 +38613,10 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
             nm = p.get('name')
             if not nm:
                 continue
-            st = (p.get('state') or '').lower()
+            st = str(p.get('state') or '').lower()
             cur_pools[nm] = st
             bad_now = any(b in st for b in _BAD)
-            bad_was = any(b in (prev_pools.get(nm) or '').lower() for b in _BAD)
+            bad_was = any(b in str(prev_pools.get(nm) or '').lower() for b in _BAD)
             if bad_now and not bad_was and not first_seen:
                 _fire('storage_degraded', {'pool': nm, 'state': p.get('state'),
                                            'kind': p.get('kind')})
@@ -40629,8 +40629,8 @@ def run_mailflow_if_due():
     main_cfg = load(CONFIG_FILE) or {}
 
     def _send(token):
-        to = (cfg.get('to_address') or '').strip()
-        if '@' not in to or not (main_cfg.get('smtp_host') or '').strip():
+        to = str(cfg.get('to_address') or '').strip()
+        if '@' not in to or not str(main_cfg.get('smtp_host') or '').strip():
             return False
         try:
             smtp_notifier.send_email(main_cfg, [to], f'RemotePower mailflow {token}',
@@ -40656,7 +40656,7 @@ def _mailflow_imap_find(cfg, token, now):
     the message and return round-trip latency in seconds, else None."""
     import imaplib
     import ssl as _ssl
-    host = (cfg.get('imap_host') or '').strip()
+    host = str(cfg.get('imap_host') or '').strip()
     if not host:
         return None
     try:
@@ -42714,7 +42714,7 @@ def _batch_match_record(dev_outputs, match_key, created, still_queued):
         return None
     newest_prior = None
     for rec in reversed(dev_outputs or []):
-        if rec.get('cmd', '').strip() != match_key:
+        if str(rec.get('cmd', '')).strip() != match_key:
             continue
         if int(rec.get('ts', 0)) >= created:
             return rec                      # the run this job triggered
@@ -43146,7 +43146,7 @@ def handle_ai_config_set():
     # metadata / link-local (SSRF). Loopback is allowed only for the local
     # providers (Ollama / LocalAI legitimately run on 127.0.0.1). Validate
     # before taking the config lock so respond() never unwinds it.
-    _bu = (body.get('base_url') or '').strip()
+    _bu = str(body.get('base_url') or '').strip()
     if _bu:
         _prov = (body.get('provider')
                  or ((load(CONFIG_FILE) or {}).get('ai') or {}).get('provider') or '')
@@ -43163,7 +43163,7 @@ def handle_ai_config_set():
     # embedding endpoint. Loopback allowed only when the embedding provider is
     # local (Ollama/LocalAI) — falls back to the chat provider when unset.
     _erag = body.get('rag') if isinstance(body.get('rag'), dict) else {}
-    _ebu = (_erag.get('embedding_base_url') or '').strip()
+    _ebu = str(_erag.get('embedding_base_url') or '').strip()
     if _ebu:
         _eprov = (_erag.get('embedding_provider') or body.get('provider')
                   or ((load(CONFIG_FILE) or {}).get('ai') or {}).get('provider') or '')
@@ -47542,7 +47542,7 @@ _REALLOC_CRIT = 100       # reallocated/pending sectors we treat as "critical"
 def _disk_key(d):
     """Stable identity for a disk across samples — serial preferred (device
     path can shuffle across reboots)."""
-    return (d.get('serial') or '').strip() or (d.get('device') or '').strip()
+    return str(d.get('serial') or '').strip() or str(d.get('device') or '').strip()
 
 
 MAX_GPU_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
@@ -48634,7 +48634,7 @@ def _device_distro_version(dev, pkg_entry):
     ver = (pkg_entry or {}).get('version_id') or ''
     if oid and ver:
         return oid.strip().lower(), ver.strip()
-    pretty = (dev.get('os') or '').lower()
+    pretty = str(dev.get('os') or '').lower()
     if not pretty:
         return '', ''
     distro = ''
@@ -50817,8 +50817,8 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if kev_n:
         _add('cve_kev', min(_RISK_CAPS['cve_kev'], kev_n * w['cve_kev']),
              f'{kev_n} CVE(s) on CISA KEV — actively exploited in the wild')
-    crit = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'critical')
-    high = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'high')
+    crit = sum(1 for f in (finds or []) if isinstance(f, dict) and str(f.get('severity') or '').lower() == 'critical')
+    high = sum(1 for f in (finds or []) if isinstance(f, dict) and str(f.get('severity') or '').lower() == 'high')
     if crit:
         _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * w['cve_critical']), f'{crit} critical CVE(s)')
     if high:
@@ -50867,7 +50867,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         elif fwsum.get('active'):
             for b in fwsum['backends']:
                 if (b.get('active') and not b.get('rules')
-                        and (b.get('policy') or '').upper() == 'ACCEPT'):
+                        and str(b.get('policy') or '').upper() == 'ACCEPT'):
                     _add('firewall_off', max(1, w['firewall_off'] // 2),
                          f"{b.get('name')} defaults to ACCEPT with no rules")
                     break
@@ -50875,7 +50875,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         # Fallback for agents that only ship the drift fingerprint.
         fw = si.get('firewall_fp')
         if isinstance(fw, dict):
-            fwb = (fw.get('backend') or '').lower()
+            fwb = str(fw.get('backend') or '').lower()
             if fwb == 'none':
                 _add('firewall_off', w['firewall_off'], 'no host firewall active')
             elif fwb and not fw.get('rules'):
@@ -50955,7 +50955,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)
-                 and any(b in (p.get('state') or '').lower() for b in _RISK_STORAGE_BAD)]
+                 and any(b in str(p.get('state') or '').lower() for b in _RISK_STORAGE_BAD)]
     if bad_pools:
         names = ', '.join(p.get('name', '?') for p in bad_pools[:3])
         _add('storage_degraded',
@@ -52289,7 +52289,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             if isinstance(lo, (int, float)) and lo > 0 and (now - lo) < _oom_win:
                 oom_recent += 1
             for pool in (si.get('storage_health') or []):
-                if isinstance(pool, dict) and (pool.get('state') or '').lower() not in (
+                if isinstance(pool, dict) and str(pool.get('state') or '').lower() not in (
                         'online', 'active', 'clean', 'healthy', 'ok'):
                     storagedeg += 1
                     break
@@ -52595,7 +52595,7 @@ def handle_home():
                 ig = ignore_data.get(vid) if vid else None
                 if cve_ignore_applies(ig, cdev_id):
                     continue
-                sev = (f.get('severity') or '').lower()
+                sev = str(f.get('severity') or '').lower()
                 if sev in counts:
                     counts[sev] += 1
             cve_devs.append({'device_id': cdev_id, 'counts': counts})
@@ -53012,8 +53012,8 @@ def _incident_public(inc, *, admin):
 
 def _notify_incident_subscribers(inc, cfg, *, event):
     """Email status-page subscribers on incident open / resolve. Best-effort."""
-    raw = (cfg.get('status_incident_recipients') or '').strip()
-    if not raw or not (cfg.get('smtp_host') or '').strip():
+    raw = str(cfg.get('status_incident_recipients') or '').strip()
+    if not raw or not str(cfg.get('smtp_host') or '').strip():
         return
     recips = [p.strip() for p in re.split(r'[,;\s]+', raw) if p and '@' in p]
     if not recips:
@@ -53714,7 +53714,7 @@ def handle_drift_profiles():
         with _LockedUpdate(CONFIG_FILE) as cfg:
             dr = cfg.setdefault('drift', {})
             profs = dr.setdefault('profiles', [])
-            if any(isinstance(p, dict) and p.get('name', '').lower() == name.lower()
+            if any(isinstance(p, dict) and str(p.get('name', '')).lower() == name.lower()
                    for p in profs):
                 respond(409, {'error': 'a profile with that name already exists'})
             if len(profs) >= 100:
@@ -53744,7 +53744,7 @@ def handle_drift_profile_edit(pid):
                 if not nm:
                     respond(400, {'error': 'name cannot be empty'})
                 if any(isinstance(p, dict) and p.get('id') != pid
-                       and p.get('name', '').lower() == nm.lower() for p in profs):
+                       and str(p.get('name', '')).lower() == nm.lower() for p in profs):
                     respond(409, {'error': 'a profile with that name already exists'})
                 prof['name'] = nm
             if 'files' in body:
@@ -53984,7 +53984,7 @@ def handle_drift_ignore(dev_id):
         respond(400, {'error': 'invalid device id'})
         return
     body = _read_valid(request_models.DriftIgnoreRequest)
-    path = (body.get('path') or '').strip()
+    path = str(body.get('path') or '').strip()
     if not path:
         respond(400, {'error': 'path is required'})
         return
@@ -54247,7 +54247,7 @@ def handle_drift_get_content(dev_id):
     # matches which baseline/current hash from the drift state.
     enriched = []
     for c in captures:
-        sha = hashlib.sha256((c.get('content') or '').encode('utf-8',
+        sha = hashlib.sha256(str(c.get('content') or '').encode('utf-8',
                                                               'replace')).hexdigest()
         enriched.append({
             'ts':      c.get('ts'),
@@ -56196,7 +56196,7 @@ def _meter_needles(m):
     """All lower-cased match strings for a meter: its name plus any aliases
     (v3.4.2 normalization — map name variations onto one catalog entry, e.g.
     'openssl' also matching 'libssl3' / 'openssl-libs')."""
-    needles = [(m.get('name') or '').strip().lower()]
+    needles = [str(m.get('name') or '').strip().lower()]
     for a in (m.get('aliases') or [])[:20]:
         a = str(a).strip().lower()
         if a:
@@ -56210,11 +56210,11 @@ def _software_in_use(dev, needles):
     process. Used to flag reclamation candidates (installed but idle)."""
     sysinfo = dev.get('sysinfo') or {}
     for p in (sysinfo.get('top_processes') or []):
-        nm = (p.get('name') or '').lower()
+        nm = str(p.get('name') or '').lower()
         if any(n in nm for n in needles):
             return True
     for lp in (sysinfo.get('listening_ports') or []):
-        nm = (lp.get('process') or '').lower()
+        nm = str(lp.get('process') or '').lower()
         if any(n in nm for n in needles):
             return True
     return False
@@ -56234,7 +56234,7 @@ def handle_inventory_metering():
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
     for m in meters[:100]:
-        raw = (m.get('name') or '').strip()
+        raw = str(m.get('name') or '').strip()
         if not raw:
             continue
         needles = _meter_needles(m)
@@ -56247,7 +56247,7 @@ def handle_inventory_metering():
         for did, entry in store.items():
             if did not in devices:
                 continue   # v3.5.0 RBAC v2: out of caller scope
-            if not any(any(n in (p.get('name') or '').lower() for n in needles)
+            if not any(any(n in str(p.get('name') or '').lower() for n in needles)
                        for p in (entry or {}).get('packages') or []):
                 continue
             dev = devices.get(did) or {}
@@ -56395,11 +56395,11 @@ def handle_fleet_query():
             continue
         if tag and tag not in [t.lower() for t in (d.get('tags') or [])]:
             continue
-        if os_q and os_q not in (d.get('os') or '').lower():
+        if os_q and os_q not in str(d.get('os') or '').lower():
             continue
-        if version_q and version_q not in (d.get('version') or '').lower():
+        if version_q and version_q not in str(d.get('version') or '').lower():
             continue
-        if pkgmgr_q and pkgmgr_q not in (pkg.get('manager') or '').lower():
+        if pkgmgr_q and pkgmgr_q not in str(pkg.get('manager') or '').lower():
             continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:
@@ -56470,9 +56470,9 @@ def handle_fleet_query():
             if not (isinstance(v, (int, float)) and v > conntrack_gt):
                 continue
         # v4.1.0: identity substrings (kernel release, platform/distro).
-        if kernel_sub and kernel_sub not in (si.get('kernel') or '').lower():
+        if kernel_sub and kernel_sub not in str(si.get('kernel') or '').lower():
             continue
-        if platform_sub and platform_sub not in (si.get('platform') or '').lower():
+        if platform_sub and platform_sub not in str(si.get('platform') or '').lower():
             continue
         # v4.1.0: posture flags.
         if drift_q and did not in _drift_ids:
@@ -56494,7 +56494,7 @@ def handle_fleet_query():
         if storage_q:
             pools = si.get('storage_health') or []
             if not any(isinstance(p, dict) and (p.get('state') or '')
-                       and (p.get('state') or '').lower() not in _STORAGE_OK
+                       and str(p.get('state') or '').lower() not in _STORAGE_OK
                        for p in pools):
                 continue
         # v4.1.0: core count.
@@ -56562,7 +56562,7 @@ def handle_fleet_query():
         matched_pkg = None
         if has_pkg:
             installed = (pkg_store.get(did) or {}).get('packages') or []
-            hits = [p for p in installed if has_pkg in (p.get('name') or '').lower()]
+            hits = [p for p in installed if has_pkg in str(p.get('name') or '').lower()]
             if not hits:
                 continue
             # v3.13.0: surface the matched package name + INSTALLED VERSION so a
@@ -57100,7 +57100,7 @@ def handle_inventory_catalog():
             name = p.get('name') or ''
             if not name or (q and q not in name.lower()):
                 continue
-            ver = (p.get('version') or '').strip() or '—'
+            ver = str(p.get('version') or '').strip() or '—'
             agg.setdefault(name, {}).setdefault(ver, set()).add(dev_id)
     CAP = 1000
     def _dname(did):
@@ -57406,7 +57406,7 @@ def handle_patch_report_csv():
     writer = csv.writer(buf)
     writer.writerow(['Device', 'Hostname', 'Group', 'OS', 'Online', 'Pkg Manager',
                      'Pending Updates', 'Security Updates', 'Patch Status', 'Last Seen'])
-    for dev_id, dev in sorted(devices.items(), key=lambda x: x[1].get('name', '').lower()):
+    for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '')).lower()):
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
@@ -57450,7 +57450,7 @@ def handle_patch_report_xml():
     total = len(devices)
     patched = 0; pending = 0; no_data = 0; with_patches = 0
     devs_el = SubElement(root, 'Devices')
-    for dev_id, dev in sorted(devices.items(), key=lambda x: x[1].get('name', '').lower()):
+    for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '')).lower()):
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
@@ -58308,7 +58308,7 @@ def handle_security_posture():
         add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
             'configured' if fwd else 'not configured',
             'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).', fix_tab='security')
-    _worm_p = (cfg.get('audit_worm_path') or '').strip()
+    _worm_p = str(cfg.get('audit_worm_path') or '').strip()
     add('audit_worm', 'Append-only (WORM) audit sink', bool(_worm_p),
         _worm_p or 'not configured',
         'Set an append-only audit sink path under Settings → Security → Audit log '
@@ -58354,7 +58354,7 @@ def handle_security_posture():
     # "is it configured?" while appearing to answer "is it working?" is the
     # UI-that-lies class, in the one place an operator checks before trusting
     # their disaster recovery.
-    _offsite = ((cfg.get('backup') or {}).get('offsite_dir') or '').strip()
+    _offsite = str((cfg.get('backup') or {}).get('offsite_dir') or '').strip()
     _bstate = load(DATA_DIR / 'self_backup_state.json') or {}
     _off_ok = _bstate.get('offsite_ok')
     if not _offsite:
@@ -59428,7 +59428,7 @@ def _fire_ack_webhooks(alert, user):
         return
     dests = [d for d in (cfg.get('webhook_urls') or [])
              if isinstance(d, dict) and d.get('on_ack')
-             and d.get('enabled', True) and (d.get('url') or '').strip()]
+             and d.get('enabled', True) and str(d.get('url') or '').strip()]
     if not dests:
         return
     # v6.4.2: an alert that already has a ticket does not get a second one. Ack
@@ -60857,8 +60857,8 @@ def handle_nav_counts():
     # drives the topbar moon indicator answering "why am I not being paged?".
     try:
         _qh = (_config_ro().get('quiet_hours') or {})
-        _qs = (_qh.get('start') or '').strip()
-        _qe = (_qh.get('end') or '').strip()
+        _qs = str(_qh.get('start') or '').strip()
+        _qe = str(_qh.get('end') or '').strip()
         out['quiet_hours_active'] = bool(
             _qh.get('enabled') and len(_qs) == 5 and len(_qe) == 5
             and _in_time_window(time.strftime('%H:%M', time.localtime(now)), _qs, _qe))
@@ -60932,7 +60932,7 @@ def handle_setup_status():
     devices = _load_ro(DEVICES_FILE) or {}
 
     pw_done = bool(users) and not any(u.get('must_change_password') for u in users.values())
-    notif_configured = bool((cfg.get('webhook_url') or '').strip()
+    notif_configured = bool(str(cfg.get('webhook_url') or '').strip()
                             or (cfg.get('webhook_urls') or [])
                             or (cfg.get('smtp_enabled') and cfg.get('smtp_host')))
     # v6.4.2: this step used to be a PRESENCE test, so one mis-pasted character
@@ -62326,7 +62326,7 @@ def _mcp_handle(action, destructive):
     user = require_mcp_action(action)
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
-    device_id = (body.get('device_id') or '').strip()
+    device_id = str(body.get('device_id') or '').strip()
     if not device_id or not _validate_id(device_id):
         respond(400, {'error': 'valid device_id required'})
     devs = load(DEVICES_FILE)
@@ -62826,7 +62826,7 @@ def handle_oidc_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     cfg = load(CONFIG_FILE) or {}
-    issuer = (cfg.get('oidc_issuer') or '').strip()
+    issuer = str(cfg.get('oidc_issuer') or '').strip()
     if not issuer:
         respond(400, {'ok': False,
                       'error': 'oidc_issuer not set in config'})
@@ -63163,7 +63163,7 @@ def _snmp_os_label(entry):
     syn = (entry.get('synology') or {}).get('system') or {}
     if syn.get('dsm_version'):
         return ('Synology ' + str(syn['dsm_version']))[:60]   # "Synology DSM 7.3-86009"
-    sd = (entry.get('sysDescr') or '').strip()
+    sd = str(entry.get('sysDescr') or '').strip()
     if not sd:
         return ''
     low = sd.lower()
@@ -63413,11 +63413,11 @@ def _do_snmp_poll(dev_id, dev, collected=None):
         # for a value that almost never changes (446 devices on a 2,000-device fleet: minutes of fleet
         # rewrites per pass, with every heartbeat queued behind them). The block re-checks against the
         # stored record, so a device edited meanwhile is still corrected on the next pass.
-        if (os_label and (dev.get('agentless') or not (dev.get('os') or '').strip())
+        if (os_label and (dev.get('agentless') or not str(dev.get('os') or '').strip())
                 and dev.get('os') != os_label):
             with _LockedUpdate(DEVICES_FILE) as dstore:
                 d = dstore.get(dev_id)
-                if (d is not None and (d.get('agentless') or not (d.get('os') or '').strip())
+                if (d is not None and (d.get('agentless') or not str(d.get('os') or '').strip())
                         and d.get('os') != os_label):
                     d['os'] = os_label
     except Exception:
@@ -63498,9 +63498,9 @@ def _collect_fleet_images():
         for c in rec.get('items', []) or []:
             if not isinstance(c, dict):
                 continue
-            local = (c.get('repo_digest') or '').strip()
-            image = (c.get('image') or '').strip()
-            tag = (c.get('tag') or '').strip() or 'latest'
+            local = str(c.get('repo_digest') or '').strip()
+            image = str(c.get('image') or '').strip()
+            tag = str(c.get('tag') or '').strip() or 'latest'
             if not local.startswith('sha256:') or not image:
                 continue
             ref = f'{image}:{tag}'
@@ -63633,7 +63633,7 @@ def _image_ignored(ref, registry_digest, ignores):
     e = ignores.get(ref)
     if not e:
         return False
-    acked = (e.get('acked_digest') or '').strip()
+    acked = str(e.get('acked_digest') or '').strip()
     if not acked:
         return True
     return acked == (registry_digest or '')
@@ -63709,11 +63709,11 @@ def _image_update_view():
         for c in rec.get('items', []) or []:
             if not isinstance(c, dict):
                 continue
-            image = (c.get('image') or '').strip()
+            image = str(c.get('image') or '').strip()
             if not image:
                 continue
-            tag = (c.get('tag') or '').strip() or 'latest'
-            local = (c.get('repo_digest') or '').strip()
+            tag = str(c.get('tag') or '').strip() or 'latest'
+            local = str(c.get('repo_digest') or '').strip()
             ref = f'{image}:{tag}'
             e = refs.setdefault(ref, {'image': image, 'tag': tag,
                                       'hosts': [], 'any_digest': False})
@@ -63728,7 +63728,7 @@ def _image_update_view():
     rows = []
     for ref, e in refs.items():
         cache = images.get(ref) or {}
-        reg_dig = (cache.get('registry_digest') or '').strip()
+        reg_dig = str(cache.get('registry_digest') or '').strip()
         is_local = not e['any_digest']
         ign = ignores.get(ref)
         ignored = bool(ign) and _image_ignored(ref, reg_dig, ignores)
@@ -63861,9 +63861,9 @@ def handle_webhook_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.WebhookTestRequest)
-    target_id = (body.get('id') or '').strip() or None
+    target_id = str(body.get('id') or '').strip() or None
     cfg = load(CONFIG_FILE)
-    legacy_url = cfg.get('webhook_url', '').strip()
+    legacy_url = str(cfg.get('webhook_url', '')).strip()
     multi      = cfg.get('webhook_urls') or []
     if target_id:
         # Single-destination test — temporarily synthesize a config where
@@ -64925,7 +64925,7 @@ def handle_storage_overview():
         # Telemetry view — show unmonitored hosts' pools too (alerting only is
         # suppressed for them), flagged for the UI.
         for p in ((d.get('sysinfo') or {}).get('storage_health') or []):
-            st = (p.get('state') or '').lower()
+            st = str(p.get('state') or '').lower()
             bad = any(b in st for b in _BAD)
             if bad:
                 degraded += 1
@@ -65380,7 +65380,7 @@ def _build_posture_digest():
         for _did, rec in cve.items():
             findings = rec.get('findings') if isinstance(rec, dict) else rec
             for f in (findings or []):
-                sev = (f.get('severity') or '').lower()
+                sev = str(f.get('severity') or '').lower()
                 if sev == 'critical':
                     crit += 1
                 elif sev == 'high':
@@ -65837,7 +65837,7 @@ def _refresh_kev_epss_now():
     # KEV — full catalog (small, ~1–2k CVEs).
     try:
         data = json.loads(_fetch_feed_bytes(KEV_FEED_URL).decode('utf-8'))
-        kev = sorted({(v.get('cveID') or '').upper()
+        kev = sorted({str(v.get('cveID') or '').upper()
                       for v in data.get('vulnerabilities', []) if v.get('cveID')})
         store['kev'] = kev
         store['kev_error'] = ''
@@ -66007,7 +66007,7 @@ def handle_my_notify_prefs():
         p = prefs_all.get(user) or {}
         respond(200, {'ok': True,
                       'enabled': bool(p.get('enabled')),
-                      'webhook_configured': bool((p.get('webhook_url') or '').strip()),
+                      'webhook_configured': bool(str(p.get('webhook_url') or '').strip()),
                       'email': p.get('email', ''),
                       'min_priority': int(p.get('min_priority', 0) or 0),
                       'events': p.get('events') or [],
@@ -66021,14 +66021,14 @@ def handle_my_notify_prefs():
     if body.get('clear_webhook'):
         out['webhook_url'] = ''
     else:
-        new_url = (body.get('webhook_url') or '').strip()
+        new_url = str(body.get('webhook_url') or '').strip()
         if new_url:
             if not (new_url.startswith('http://') or new_url.startswith('https://')):
                 respond(400, {'error': 'webhook_url must be http(s)://'})
             out['webhook_url'] = new_url[:512]
         elif existing.get('webhook_url'):
             out['webhook_url'] = existing['webhook_url']
-    email = (body.get('email') or '').strip()
+    email = str(body.get('email') or '').strip()
     out['email'] = _sanitize_str(email, 200) if '@' in email else ''
     try:
         out['min_priority'] = max(0, min(5, int(body.get('min_priority', 0))))
@@ -66286,7 +66286,7 @@ def handle_sbom_fleet():
     used = set()
     stores = _sbom_stores()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for dev_id, dev in sorted(devices.items(), key=lambda x: (x[1].get('name', '') or '').lower()):
+        for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '') or '').lower()):
             doc = _build_sbom_doc(dev_id, dev, fmt, stores)
             fn = sbom_mod.filename_for(dict(dev, id=dev_id), fmt)
             # de-dup filenames (two hosts named the same) by suffixing the id
@@ -66818,7 +66818,7 @@ def _maybe_push_metrics():
     double-push. Errors are recorded, never raised onto the request path."""
     cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     mp = cfg.get('metrics_push') or {}
-    if not mp.get('enabled') or not (mp.get('url') or '').strip():
+    if not mp.get('enabled') or not str(mp.get('url') or '').strip():
         return
     interval = max(15, int(mp.get('interval') or 60))
     now = int(time.time())
@@ -67021,7 +67021,7 @@ def _gitops_reconcile(manifest, dry=False):
 def _gitops_fetch_manifest(gc):
     """Fetch + parse the JSON manifest from the configured raw Git URL.
     SSRF-safe, size-capped. Returns the parsed object or raises."""
-    url = (gc.get('url') or '').strip()
+    url = str(gc.get('url') or '').strip()
     if not url:
         raise ValueError('no manifest URL configured')
     if not re.match(r'^https?://', url):
@@ -67029,7 +67029,7 @@ def _gitops_fetch_manifest(gc):
     parsed = urllib.parse.urlparse(url)
     headers = {'User-Agent': f'RemotePower/{SERVER_VERSION}',
                'Accept': 'application/json, text/plain, */*'}
-    tok = (gc.get('auth_header') or '').strip()
+    tok = str(gc.get('auth_header') or '').strip()
     if tok:
         headers['Authorization'] = tok
     opener = _ssrf_safe_opener(allow_loopback=True,
@@ -67047,7 +67047,7 @@ def _gitops_sync(actor='system', dry=False):
     """Fetch the manifest and reconcile. Records status; never raises onto the
     request path beyond returning {'ok': False, 'error': ...}."""
     gc = (load(CONFIG_FILE) or {}).get('gitops') or {}
-    if not (gc.get('url') or '').strip():
+    if not str(gc.get('url') or '').strip():
         return {'ok': False, 'error': 'no manifest URL configured'}
     now = int(time.time())
     try:
@@ -67082,7 +67082,7 @@ def _maybe_gitops_sync():
     """Periodic, interval-gated GitOps reconcile. Off unless enabled + URL set."""
     cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     gc = cfg.get('gitops') or {}
-    if not gc.get('enabled') or not (gc.get('url') or '').strip():
+    if not gc.get('enabled') or not str(gc.get('url') or '').strip():
         return
     interval = max(300, int(gc.get('interval') or 900))
     now = int(time.time())
@@ -67116,7 +67116,7 @@ def handle_gitops_get():
         'url':           _g_url if _g_is_admin else '',
         'url_set':       bool((_g_url or '').strip()),
         'interval':      int(gc.get('interval') or 900),
-        'auth_header_set': bool((gc.get('auth_header') or '').strip()),
+        'auth_header_set': bool(str(gc.get('auth_header') or '').strip()),
         'last_sync':     st.get('last_sync', 0),
         'last_status':   st.get('last_status', ''),
         'last_error':    st.get('last_error', ''),
@@ -68371,7 +68371,7 @@ def _snmp_memory_used_pct(snmp_entry):
     """Pick memory used % from the polled storage table. Looks for the
     physical/main memory entry first; falls back to None."""
     for s in snmp_entry.get('storage') or []:
-        descr = (s.get('descr') or '').lower()
+        descr = str(s.get('descr') or '').lower()
         if descr in ('physical memory', 'main memory', 'memory'):
             return s.get('used_pct')
     return None
@@ -68382,7 +68382,7 @@ def _snmp_storage_mounts(snmp_entry):
     Returns [{descr, used_pct}, ...]."""
     out = []
     for s in snmp_entry.get('storage') or []:
-        descr = (s.get('descr') or '').strip()
+        descr = str(s.get('descr') or '').strip()
         low = descr.lower()
         # Skip non-filesystem rows
         if not descr:
@@ -68957,7 +68957,7 @@ def handle_services_config(dev_id):
             # v3.0.1: rule may specify either a systemd unit OR a file path.
             # Path-based rules tell the agent to tail the file and submit
             # new lines under the synthetic unit name 'file:<path>'.
-            path_raw = (r.get('path') or '').strip()
+            path_raw = str(r.get('path') or '').strip()
             if path_raw:
                 # Restrict to absolute filesystem paths; reject globs and
                 # parent-traversal so a misconfigured rule can't grab anything
@@ -69321,7 +69321,10 @@ def handle_log_search():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     q       = (qs.get('q', [''])[0])[:128]
     device  = (qs.get('device', [''])[0])[:64]
-    limit   = min(int(qs.get('limit', ['200'])[0] or 200), 1000)
+    try:
+        limit = max(1, min(int(qs.get('limit', ['200'])[0] or 200), 1000))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'limit must be a number'})
 
     if not q:
         respond(400, {'error': 'q parameter is required'})
@@ -70706,7 +70709,7 @@ def _is_demo_read_only() -> bool:
     toggle it. That's intentional: a public sandbox shouldn't expose
     "stop being a sandbox" as a button somebody could find.
     """
-    val = os.environ.get('RP_READ_ONLY', '').strip().lower()
+    val = str(os.environ.get('RP_READ_ONLY', '')).strip().lower()
     return val not in ('', '0', 'false', 'no', 'off')
 
 
@@ -72207,7 +72210,7 @@ def _route_code_80(pi, m):
 
 def _route_code_81(pi, m):
     if (pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST'):
-        _rest = pi[len('/api/acme/'):-len('/renew')]; _did, _dom = _rest.split('/', 1)
+        _rest = pi[len('/api/acme/'):-len('/renew')]; _did, _dom = _rest.split('/', 1) if '/' in _rest else (_rest, '')
         handle_acme_force_renew(_did, _dom)
         return True
     return False
@@ -72215,7 +72218,7 @@ def _route_code_81(pi, m):
 
 def _route_code_82(pi, m):
     if (pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST'):
-        _rest = pi[len('/api/acme/'):-len('/revoke')]; _did, _dom = _rest.split('/', 1)
+        _rest = pi[len('/api/acme/'):-len('/revoke')]; _did, _dom = _rest.split('/', 1) if '/' in _rest else (_rest, '')
         handle_acme_revoke(_did, _dom)
         return True
     return False
@@ -73269,8 +73272,8 @@ def _audit_host_config_drift(desired, current):
                 if u.get('shell') and u['shell'] != cu.get('shell'):
                     drifting.append(section)
                     break
-                d_keys = u.get('authorized_keys', '').strip()
-                c_keys = cu.get('authorized_keys', '').strip()
+                d_keys = str(u.get('authorized_keys', '')).strip()
+                c_keys = str(cu.get('authorized_keys', '')).strip()
                 if d_keys and d_keys != c_keys:
                     drifting.append(section)
                     break

@@ -200,7 +200,7 @@ def _device_one_liner(d, now=None, ttl=300):
         parts.append('(' + ', '.join(bits) + ')')
 
     # Notes / role from the device's notes field (operator-curated)
-    notes = (d.get('notes') or '').strip()
+    notes = str(d.get('notes') or '').strip()
     if notes:
         # First line only, truncated. Notes can be long; we just want
         # the operator's one-liner about the role.
@@ -323,7 +323,7 @@ def build_retrieved_context(chunks):
         when = time.strftime('%Y-%m-%d', time.gmtime(ts)) if ts else 'static'
         title = c.get('title') or c.get('id')
         lines.append(f"[{c.get('id')} · {when}] {title}")
-        lines.append(c.get('text', '').strip())
+        lines.append(str(c.get('text', '')).strip())
         lines.append('')
     return '\n'.join(lines).rstrip()
 

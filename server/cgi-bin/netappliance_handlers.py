@@ -613,7 +613,7 @@ def handle_device_netconfig_revision(dev_id, rev_id):
         A.respond(400, {'error': 'this configuration exceeded the archive body '
                                  'limit, so only its hash and size were kept'})
     if fmt == 'download':
-        data = (rev.get('text') or '').encode('utf-8', 'replace')
+        data = str(rev.get('text') or '').encode('utf-8', 'replace')
         stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime(int(rev.get('ts') or 0)))
         print("Status: 200 OK")
         print("Content-Type: text/plain; charset=utf-8")

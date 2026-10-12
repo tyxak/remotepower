@@ -168,8 +168,8 @@ def _cmdb_load() -> dict:
         # primary_interface/nat_ip fields so older records show up in the new
         # multi-NIC editor. Left non-destructive; the single fields stay in sync.
         if 'interfaces' not in rec or not isinstance(rec.get('interfaces'), list):
-            _pi = (rec.get('primary_interface') or '').strip()
-            _nat = (rec.get('nat_ip') or '').strip()
+            _pi = str(rec.get('primary_interface') or '').strip()
+            _nat = str(rec.get('nat_ip') or '').strip()
             rec['interfaces'] = ([{'iface': _pi, 'ip': '', 'nat_ip': _nat,
                                    'primary': True}] if (_pi or _nat) else [])
     return store

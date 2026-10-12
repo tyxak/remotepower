@@ -98,7 +98,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
         raise SmtpError('no recipients')
     subject = str(subject).replace('\r', ' ').replace('\n', ' ')
 
-    host  = (cfg.get('smtp_host') or '').strip()
+    host  = str(cfg.get('smtp_host') or '').strip()
     if not host:
         raise SmtpError('smtp_host is empty')
     try:
@@ -122,7 +122,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     if not sender or '@' not in sender:
         raise SmtpError('smtp_from must be a valid email address')
 
-    username = (cfg.get('smtp_username') or '').strip()
+    username = str(cfg.get('smtp_username') or '').strip()
     # v3.0.3: env-var first, config.json fallback. resolve_smtp_password()
     # returns ('', False) if nothing is set — the SMTP server may still
     # accept the connection anonymously (helpful for localhost relays).

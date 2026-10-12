@@ -250,7 +250,7 @@ def summarise(items: list[dict], restarting_min: int = 5) -> dict:
     restarting = 0
     by_runtime: dict[str, int] = {}
     for c in items:
-        status = (c.get("status") or "").lower()
+        status = str(c.get("status") or "").lower()
         # Status strings vary by runtime — be permissive
         if any(t in status for t in ("running", "up ", "up\t", "ready")):
             running += 1

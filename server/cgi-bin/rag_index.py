@@ -531,7 +531,7 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                 summary.append(f"{k}: {si[k]}")
         if dev.get('tags'):
             summary.append("tags: " + ', '.join(map(str, dev['tags'])))
-        if (dev.get('notes') or '').strip():
+        if str(dev.get('notes') or '').strip():
             summary.append("notes: " + dev['notes'].strip())
         docs.append(make_doc(
             f"live/{dev_id}#summary", 'live_state', 'device_summary',
@@ -1443,7 +1443,7 @@ def build_posture_corpus(config=None, devices=None, backup=None, now=0,
     # ── Mutual-TLS agent authentication ──
     mtls_on = bool(cfg.get('require_agent_mtls'))
     pinned = [d.get('name') or d.get('id') for d in devs
-              if isinstance(d, dict) and (d.get('mtls_fingerprint') or '').strip()]
+              if isinstance(d, dict) and str(d.get('mtls_fingerprint') or '').strip()]
     total = sum(1 for d in devs if isinstance(d, dict))
     mtls_body = (
         f"Mutual-TLS agent authentication is "
@@ -1577,7 +1577,7 @@ def build_metrics_corpus(summaries, now=0):
         if not isinstance(s, dict):
             continue
         dev_id = s.get('device')
-        text = (s.get('text') or '').strip()
+        text = str(s.get('text') or '').strip()
         if not dev_id or not text:
             continue
         docs.append(make_doc(f"metrics/{dev_id}", 'metrics', 'device_metrics',

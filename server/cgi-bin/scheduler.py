@@ -188,7 +188,7 @@ def acquire_pg_leader_lock():
     node won the lock, the string 'n/a' when PG isn't in use (no cross-node lock
     needed), or None when another node already holds it. Never raises."""
     try:
-        if (os.environ.get('RP_STORAGE_BACKEND', '') or '').lower() not in ('pg', 'postgres', 'postgresql'):
+        if str(os.environ.get('RP_STORAGE_BACKEND', '') or '').lower() not in ('pg', 'postgres', 'postgresql'):
             return 'n/a'
         import storage_pg
         conn = storage_pg._new_conn(storage_pg._dsn(), read_write=True)

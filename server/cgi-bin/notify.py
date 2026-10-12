@@ -178,7 +178,7 @@ def _build_github_body(event, title, message, dest, safe_payload):
         "labels": ["remotepower", "<event>", "<severity if set>"]
       }
     """
-    pat = (dest.get("token") or "").strip()
+    pat = str(dest.get("token") or "").strip()
     if not pat:
         return None, None, None
     labels = ["remotepower", str(event)[:32]]
@@ -284,8 +284,8 @@ def _build_pushover_body(event, title, message, priority, dest):
                          escalates to emergency tier with mandatory ack. Reserve
                          that for caller-explicit configuration.)
     """
-    token = (dest.get("pushover_token") or "").strip()
-    user = (dest.get("pushover_user") or "").strip()
+    token = str(dest.get("pushover_token") or "").strip()
+    user = str(dest.get("pushover_user") or "").strip()
     if not token or not user:
         return None, None, None
     p_prio = {0: 0, 1: 1, 2: 1}.get(priority, 0)
@@ -321,9 +321,9 @@ def _itsm_basic(user, secret, zendesk=False):
 def _build_jira_body(event, title, message, dest):
     """Jira Cloud/Server: POST <base>/rest/api/2/issue. Needs a project key +
     user(email)/secret(API token). issuetype defaults to Task."""
-    proj = (dest.get("jira_project") or "").strip()
+    proj = str(dest.get("jira_project") or "").strip()
     auth = _itsm_basic(
-        (dest.get("itsm_user") or "").strip(), (dest.get("itsm_secret") or "").strip()
+        str(dest.get("itsm_user") or "").strip(), str(dest.get("itsm_secret") or "").strip()
     )
     if not (proj and auth):
         return None, None, None
@@ -344,7 +344,7 @@ def _build_jira_body(event, title, message, dest):
 def _build_servicenow_body(event, title, message, dest):
     """ServiceNow: POST <base>/api/now/table/incident. user/secret basic auth."""
     auth = _itsm_basic(
-        (dest.get("itsm_user") or "").strip(), (dest.get("itsm_secret") or "").strip()
+        str(dest.get("itsm_user") or "").strip(), str(dest.get("itsm_secret") or "").strip()
     )
     if not auth:
         return None, None, None
@@ -360,7 +360,7 @@ def _build_servicenow_body(event, title, message, dest):
 def _build_zendesk_body(event, title, message, dest):
     """Zendesk: POST <base>/api/v2/tickets.json. email/token basic auth."""
     auth = _itsm_basic(
-        (dest.get("itsm_user") or "").strip(), (dest.get("itsm_secret") or "").strip(), zendesk=True
+        str(dest.get("itsm_user") or "").strip(), str(dest.get("itsm_secret") or "").strip(), zendesk=True
     )
     if not auth:
         return None, None, None
@@ -400,8 +400,8 @@ def build_itsm_close(fmt, dest, ticket_ref, ticket_id, message):
     human reference (ServiceNow's sys_id vs its INC number) — addressing a
     ServiceNow incident by its number does not work.
     """
-    user = (dest.get("itsm_user") or "").strip()
-    secret = (dest.get("itsm_secret") or "").strip()
+    user = str(dest.get("itsm_user") or "").strip()
+    secret = str(dest.get("itsm_secret") or "").strip()
     ref = str(ticket_ref or "").strip()
     if not ref:
         return None
@@ -584,7 +584,7 @@ def _build_telegram_body(event, title, message, dest):
     """Telegram Bot API: POST https://api.telegram.org/bot<TOKEN>/sendMessage —
     the bot token lives in the destination URL (like a Slack/Discord webhook
     URL); chat_id is a non-secret destination field."""
-    chat_id = (dest.get("telegram_chat_id") or "").strip()
+    chat_id = str(dest.get("telegram_chat_id") or "").strip()
     if not chat_id:
         return None, None, None
     text = (f"{title}\n\n{message}" if title else (message or str(event)))[:4000]
@@ -602,7 +602,7 @@ def _build_matrix_body(event, title, message, dest):
     """Matrix Client-Server API: POST <homeserver>/_matrix/client/v3/rooms/
     <room>/send/m.room.message — the room is in the destination URL; the access
     token is a masked destination field sent as a bearer header."""
-    token = (dest.get("matrix_token") or "").strip()
+    token = str(dest.get("matrix_token") or "").strip()
     if not token:
         return None, None, None
     text = (f"{title}\n\n{message}" if title else (message or str(event)))[:8000]

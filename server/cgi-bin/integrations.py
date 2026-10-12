@@ -1076,7 +1076,7 @@ def _grafana(inst, c):
     "control).",
 )
 def _remotepower(inst, c):
-    key = (inst.get("secret") or "").strip()
+    key = str(inst.get("secret") or "").strip()
     if not key:
         raise IntegrationError("a viewer-role API key from the peer instance is required")
     # RemotePower authenticates API keys via the X-Token header (its primary
@@ -2419,7 +2419,7 @@ def _custom_probe(inst, c):
             }
     elif not r.ok:
         return {"status": CRIT, "detail": f"HTTP {r.status}", "metrics": metrics}
-    field = (inst.get("probe_json_field") or "").strip()
+    field = str(inst.get("probe_json_field") or "").strip()
     if field:
         try:
             data = r.json()
@@ -2465,7 +2465,7 @@ _GH_PER_PAGE = 30  # newest issues fetched per repo (detection window)
 def _gh_repos(inst):
     """The instance's watched repo list — 'owner/repo, owner/repo' in ``slug``."""
     out, bad = [], []
-    for raw in (inst.get("slug") or "").split(","):
+    for raw in str(inst.get("slug") or "").split(","):
         r = raw.strip().strip("/")
         if not r:
             continue
@@ -2509,7 +2509,7 @@ def _github(inst, c):
     # dead and every github.com-configured instance errored. Instead rewrite the
     # client's BASE to the API root and keep paths relative. GHE roots pass through
     # untouched. (api.github.com is public, so the SSRF connect-time guard is happy.)
-    u = (inst.get("url") or "").strip().lower().rstrip("/")
+    u = str(inst.get("url") or "").strip().lower().rstrip("/")
     if u in (
         "https://github.com",
         "http://github.com",

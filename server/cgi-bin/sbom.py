@@ -125,7 +125,7 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
 
     # v3.14.0: running container images as components.
     for j, c in enumerate(containers or []):
-        image = (c.get('image') or '').strip()
+        image = str(c.get('image') or '').strip()
         if not image:
             continue
         purl = _purl_container(image, c.get('tag', ''), c.get('repo_digest', ''))
@@ -293,7 +293,7 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
 
     # v3.14.0: running container images as SPDX packages.
     for j, c in enumerate(containers or []):
-        image = (c.get('image') or '').strip()
+        image = str(c.get('image') or '').strip()
         if not image:
             continue
         cid = _spdx_id('Container', j)

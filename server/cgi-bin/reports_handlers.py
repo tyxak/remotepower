@@ -462,7 +462,7 @@ def _build_report_summary(report):
             **_rs_kwargs)
         if not res.get('ok'):
             return {'error': str(res.get('error') or 'AI request failed')[:200]}
-        text = (res.get('text') or '').strip()
+        text = str(res.get('text') or '').strip()
         if not text:
             return {'error': 'the model returned an empty summary'}
         return {'text': text[:4000], 'model': res.get('model', ''),
@@ -1281,7 +1281,7 @@ def _maybe_send_report_definitions():
             # v6.4.2: honour the definition's site scope. `_build_fleet_report`
             # has taken site_id since the per-site download shipped; the
             # scheduler simply never passed it.
-            _site = (d.get('site') or '').strip()
+            _site = str(d.get('site') or '').strip()
             report = A._filter_report_sections(
                 A._build_fleet_report(site_id=_site) if _site
                 else A._build_fleet_report(), d.get('sections'))

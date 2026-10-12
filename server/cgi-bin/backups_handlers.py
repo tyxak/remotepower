@@ -373,7 +373,7 @@ def _run_data_backup(triggered_by='scheduled'):
     # take the backups with it. Best-effort: a copy failure NEVER fails the backup;
     # the result is recorded in state + graded on the posture page. The same
     # retention prunes the offsite copies.
-    offsite = (bcfg.get('offsite_dir') or '').strip()
+    offsite = str(bcfg.get('offsite_dir') or '').strip()
     offsite_ok = None
     if offsite:
         try:
@@ -1354,7 +1354,7 @@ def _restore_drill_core():
     bk = cfg.get('backup') or {}
     local = _drill_one_dir(bk.get('path') or _default_backup_dir())
 
-    offsite_dir = (bk.get('offsite_dir') or '').strip()
+    offsite_dir = str(bk.get('offsite_dir') or '').strip()
     if not offsite_dir:
         return local
 
@@ -1488,7 +1488,7 @@ def _backup_321_score(items, monitors):
     def _target_of(it):
         m = mon_by_path.get(it.get('path')) or {}
         for k in ('target', 'dest', 'tool', 'offsite_dir'):
-            v = (m.get(k) or '').strip()
+            v = str(m.get(k) or '').strip()
             if v:
                 return v.lower()
         p = str(it.get('path') or '')

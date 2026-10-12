@@ -492,7 +492,7 @@ def handle_proxmox_snapshot_action() -> None:
     body = A._read_valid(A.request_models.ProxmoxSnapshotActionRequest)
     guest_type = body.get('type')
     action = body.get('action')
-    name = (body.get('name') or '').strip()
+    name = str(body.get('name') or '').strip()
     if guest_type not in ('qemu', 'lxc'):
         A.respond(400, {'error': 'type must be qemu or lxc'})
         return

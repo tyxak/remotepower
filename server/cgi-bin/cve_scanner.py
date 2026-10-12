@@ -60,9 +60,9 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
     """Map /etc/os-release + pkg_manager to OSV ecosystem string."""
     if not os_release:
         return None
-    os_id     = (os_release.get('ID') or '').lower().strip()
-    id_like   = (os_release.get('ID_LIKE') or '').lower().strip()
-    ver_id    = (os_release.get('VERSION_ID') or '').strip()
+    os_id     = str(os_release.get('ID') or '').lower().strip()
+    id_like   = str(os_release.get('ID_LIKE') or '').lower().strip()
+    ver_id    = str(os_release.get('VERSION_ID') or '').strip()
     ver_major = ver_id.split('.')[0] if ver_id else ''
 
     if pkg_manager == 'apt':
@@ -195,8 +195,8 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict:
         if not _ecosystem_supported(eco):
             continue
         for p in (entry.get("packages") or [])[:MAX_PACKAGES]:
-            name = (p.get("name") or "").strip()
-            version = (p.get("version") or "").strip()
+            name = str(p.get("name") or "").strip()
+            version = str(p.get("version") or "").strip()
             if not name or not version:
                 continue
             key = (eco, name, version)
@@ -415,7 +415,7 @@ def _debian_severity_fallback(cve_id: str) -> str | None:
             data = json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8'))
         # Debian urgency can carry a '**' suffix (postponed / end-of-life
         # — e.g. 'low**'); strip it before matching.
-        urgency = data.get('urgency', '').lower().rstrip('*').strip()
+        urgency = str(data.get('urgency', '')).lower().rstrip('*').strip()
         # high / medium urgency → capped at 'medium' (see docstring)
         if urgency in ('high', 'medium'):
             return 'medium'
@@ -473,7 +473,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
     # 1. database_specific fields (Debian, Arch, etc.)
     db_spec = vuln.get('database_specific') or {}
     for field in ('severity', 'priority'):
-        raw = (db_spec.get(field) or '').lower()
+        raw = str(db_spec.get(field) or '').lower()
         if raw in SEVERITY_ORDER:
             return raw, 'database_specific'
         if raw in ('important',):
@@ -486,7 +486,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
     # 2. Ubuntu priority (type 'Ubuntu') — before CVSS.
     for sev in vuln.get('severity', []):
         if sev.get('type') == 'Ubuntu':
-            ubuntu_score = sev.get('score', '').lower()
+            ubuntu_score = str(sev.get('score', '')).lower()
             if ubuntu_score in SEVERITY_ORDER:
                 return ubuntu_score, 'ubuntu_priority'
             if ubuntu_score in ('important',):
@@ -502,7 +502,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
         vec = sev.get('score', '')
         score = _cvss_base_score(vec)
         if score is not None:
-            vtype = (sev.get('type') or '').upper()
+            vtype = str(sev.get('type') or '').upper()
             # v6.4.2: name the v4 source honestly. The score is the v3.1 formula
             # applied to v4's base metrics, not an official v4 base score, and a
             # consumer that reads the source deserves to know which it got.
@@ -580,8 +580,8 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # Build queries
     queries = []
     for p in packages:
-        name = (p.get('name') or '').strip()
-        version = (p.get('version') or '').strip()
+        name = str(p.get('name') or '').strip()
+        version = str(p.get('version') or '').strip()
         if not name or not version:
             continue
         queries.append({

@@ -127,7 +127,7 @@ def _kmip_daemon_secret():
     ever reads THAT too, so the secret landed unreadable and the page said
     "Not installed" while the daemon ran happily.
     """
-    env = (os.environ.get('RP_KMIP_SECRET') or '').strip()
+    env = str(os.environ.get('RP_KMIP_SECRET') or '').strip()
     if env:
         return env
     from_file = _kmip_secret_from_file()

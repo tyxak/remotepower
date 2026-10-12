@@ -624,7 +624,7 @@ def handle_acme_issue(dev_id):
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid device id'}); return
     body = A._read_valid(A.request_models.AcmeIssueRequest)
-    domain = (body.get('domain') or '').strip().lower()
+    domain = str(body.get('domain') or '').strip().lower()
     if not A._acme_validate_domain(domain):
         A.respond(400, {'error': 'invalid primary domain'}); return
     alt_names_raw = body.get('alt_names') or []
@@ -637,7 +637,7 @@ def handle_acme_issue(dev_id):
             A.respond(400, {'error': f'invalid alt name: {a}'}); return
         if a != domain and a not in alt_names:
             alt_names.append(a)
-    dns_provider = (body.get('dns_provider') or '').strip()
+    dns_provider = str(body.get('dns_provider') or '').strip()
     if dns_provider not in A.ACME_DNS_PROVIDERS:
         A.respond(400, {'error': f'unknown dns provider {dns_provider!r}'}); return
     key_length = str(body.get('key_length') or '4096').strip()

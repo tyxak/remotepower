@@ -104,7 +104,7 @@ def _parse_kuma(doc: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[st
                 unmapped.append({'name': name, 'reason': 'http monitor without url'})
                 continue
             mon = _mon(name, 'http', url)
-            kw = (m.get('keyword') or '').strip()
+            kw = str(m.get('keyword') or '').strip()
             if kind == 'keyword' and kw:
                 mon['body_match'] = {'mode': 'contains', 'value': kw[:200]}
             monitors.append(mon)
@@ -160,7 +160,7 @@ def _parse_nagios(text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]
     seen_service_hosts = set()
     for s in _nagios_blocks(text, 'service'):
         hn = s.get('host_name') or ''
-        cmd = (s.get('check_command') or '').strip()
+        cmd = str(s.get('check_command') or '').strip()
         target = addr.get(hn, hn)
         desc = s.get('service_description') or cmd or hn
         base = cmd.split('!', 1)[0].lower()

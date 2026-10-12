@@ -63,8 +63,8 @@ def parse_dmarc(records):
             tags = _parse_tags(s)
             return {
                 'record':           s.strip()[:512],
-                'policy':           (tags.get('p') or '').lower(),
-                'subdomain_policy': (tags.get('sp') or '').lower(),
+                'policy':           str(tags.get('p') or '').lower(),
+                'subdomain_policy': str(tags.get('sp') or '').lower(),
                 'pct':              _int(tags.get('pct'), 100),
                 'rua':              tags.get('rua', '')[:512],
                 'ruf':              tags.get('ruf', '')[:512],

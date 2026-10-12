@@ -1304,7 +1304,7 @@ def _fetch_ticket_replies():
     import email as _email
     import ssl as _ssl
     c = A._ticket_imap_cfg()
-    host = (c.get('host') or '').strip()
+    host = str(c.get('host') or '').strip()
     if not host:
         return
     try:
@@ -1314,7 +1314,7 @@ def _fetch_ticket_replies():
     use_ssl = c.get('use_ssl', True) is not False
     verify_tls = c.get('verify_tls', True) is not False
     folder = (c.get('folder') or 'INBOX').strip() or 'INBOX'
-    username = (c.get('username') or '').strip()
+    username = str(c.get('username') or '').strip()
     password = c.get('password') or ''
     last_uid = int((A.load(A.TICKETS_FILE) or {}).get('imap_last_uid', 0) or 0)
     autoreply_jobs = []   # v5.4.1: (to_email, number, subject) for freshly auto-created tickets
@@ -1336,12 +1336,12 @@ def _fetch_ticket_replies():
             if not raw:
                 continue
             msg = _email.message_from_bytes(raw)
-            auto = (msg.get('Auto-Submitted') or '').lower()
+            auto = str(msg.get('Auto-Submitted') or '').lower()
             if auto and 'no' not in auto:
                 continue
             if msg.get('X-RP-Ticket'):
                 continue
-            if (msg.get('Precedence') or '').lower() in ('bulk', 'auto_reply', 'list', 'junk'):
+            if str(msg.get('Precedence') or '').lower() in ('bulk', 'auto_reply', 'list', 'junk'):
                 continue
             mt = re.search(r'#RP0*(\d+)', str(msg.get('Subject') or ''))
             number = int(mt.group(1)) if mt else None

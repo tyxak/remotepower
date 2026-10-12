@@ -137,7 +137,7 @@ def config_from(cfg: dict) -> dict:
     otherwise. The env var keeps the secret out of the data directory
     (and therefore out of the backup export).
     """
-    env_secret = os.environ.get(ENV_TOKEN_SECRET, '').strip()
+    env_secret = str(os.environ.get(ENV_TOKEN_SECRET, '')).strip()
     token_secret = env_secret or str(cfg.get('proxmox_token_secret', ''))
     return {
         'enabled':      bool(cfg.get('proxmox_enabled', False)),

@@ -98,9 +98,9 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None,
     # and kept driving the advisory.)
     findings = (cve_rec or {}).get('findings') or []
     crit = [f for f in findings if isinstance(f, dict)
-            and (f.get('severity') or '').lower() == 'critical' and not f.get('ignored')]
+            and str(f.get('severity') or '').lower() == 'critical' and not f.get('ignored')]
     high = [f for f in findings if isinstance(f, dict)
-            and (f.get('severity') or '').lower() == 'high' and not f.get('ignored')]
+            and str(f.get('severity') or '').lower() == 'high' and not f.get('ignored')]
     if crit or high:
         # KEV membership means "observed being exploited in the wild right now",
         # which outranks severity: a KEV-listed high is more urgent than a
@@ -242,7 +242,7 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
     fw_off = (isinstance(fw, dict) and fw.get('active') is False)
     if not isinstance(fw, dict):
         fp = si.get('firewall_fp')
-        fw_off = isinstance(fp, dict) and (fp.get('backend') or '').lower() == 'none'
+        fw_off = isinstance(fp, dict) and str(fp.get('backend') or '').lower() == 'none'
     if fw_off:
         out.append(_finding(
             'exp.firewall', 'exposure', 'high', 'No host firewall is active',
@@ -678,7 +678,7 @@ def _application_findings(dev_id, name, scans):
         for f in (s.get('findings') or [])[:200]:
             if not isinstance(f, dict):
                 continue
-            sev = (f.get('severity') or '').lower()
+            sev = str(f.get('severity') or '').lower()
             # MEDIUM belongs here too. A scanner's medium findings on a public
             # service are frequently the most actionable thing it reports —
             # enumerable usernames, an exposed config backup — and dropping

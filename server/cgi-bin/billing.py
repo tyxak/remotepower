@@ -190,7 +190,7 @@ def compute_worksheet(cfg, site_id, entries, period_from="", period_to="", inclu
     groups = {}  # (rate_name, rate) -> {hours, amount, entry_ids}
     for e in selected:
         rate = resolve_rate(cfg, site_id, e.get("rate_name"))
-        name = (e.get("rate_name") or "").strip() or "Standard"
+        name = str(e.get("rate_name") or "").strip() or "Standard"
         hrs = quantize_hours(e.get("hours"))
         if hrs <= 0:
             continue

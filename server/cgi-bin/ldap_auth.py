@@ -112,18 +112,18 @@ def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
     if not username:
         raise LdapAuthDenied('empty username')
 
-    url = (cfg.get('ldap_url') or '').strip()
+    url = str(cfg.get('ldap_url') or '').strip()
     if not url:
         raise LdapTransientError('ldap_url is empty')
 
-    bind_dn   = (cfg.get('ldap_bind_dn') or '').strip()
+    bind_dn   = str(cfg.get('ldap_bind_dn') or '').strip()
     # v3.0.3: env-var first, config.json fallback. _from_env is logged
     # by the caller for auditability — not used inside this function.
     bind_pw, _from_env = resolve_bind_password(cfg)
-    user_base = (cfg.get('ldap_user_base') or '').strip()
+    user_base = str(cfg.get('ldap_user_base') or '').strip()
     user_filter_tpl = (cfg.get('ldap_user_filter') or '(uid={u})').strip()
-    required_group  = (cfg.get('ldap_required_group') or '').strip()
-    admin_group     = (cfg.get('ldap_admin_group') or '').strip()
+    required_group  = str(cfg.get('ldap_required_group') or '').strip()
+    admin_group     = str(cfg.get('ldap_admin_group') or '').strip()
     tls_verify      = bool(cfg.get('ldap_tls_verify', True))
     try:
         timeout = int(cfg.get('ldap_timeout') or 5)
@@ -245,11 +245,11 @@ def test_connection(cfg: dict) -> dict:
     except ImportError:
         return {'ok': False, 'detail': 'ldap3 library not installed (pip3 install ldap3)'}
 
-    url = (cfg.get('ldap_url') or '').strip()
+    url = str(cfg.get('ldap_url') or '').strip()
     if not url:
         return {'ok': False, 'detail': 'ldap_url is empty'}
 
-    bind_dn = (cfg.get('ldap_bind_dn') or '').strip()
+    bind_dn = str(cfg.get('ldap_bind_dn') or '').strip()
     # v3.0.3: same env-var override as authenticate()
     bind_pw, _from_env = resolve_bind_password(cfg)
     tls_verify = bool(cfg.get('ldap_tls_verify', True))

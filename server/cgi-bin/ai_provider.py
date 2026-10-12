@@ -832,8 +832,8 @@ def embedding_cfg(cfg):
         from embedding_api_key.
     """
     rag = cfg.get('rag') or {}
-    eprov = (rag.get('embedding_provider') or '').strip()
-    ebase = (rag.get('embedding_base_url') or '').strip()
+    eprov = str(rag.get('embedding_provider') or '').strip()
+    ebase = str(rag.get('embedding_base_url') or '').strip()
     ekey  = rag.get('embedding_api_key') or ''
     if not eprov and not ebase and not ekey:
         return cfg

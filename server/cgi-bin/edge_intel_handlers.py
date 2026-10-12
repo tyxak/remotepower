@@ -345,10 +345,10 @@ def handle_ip_intel_edge_test():
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.IpIntelEdgeTestRequest)
     pol = A.ip_intel_policy()
-    token = (body.get('token') or '').strip() or pol.get('edge_token') or ''
+    token = str(body.get('token') or '').strip() or pol.get('edge_token') or ''
     if not ip_intel.valid_cf_token(token):
         A.respond(409, {'error': 'Add a Cloudflare API token first'})
-    acct = (body.get('account_id') or '').strip().lower() or pol.get('edge_account_id') or ''
+    acct = str(body.get('account_id') or '').strip().lower() or pol.get('edge_account_id') or ''
     if acct and not edge_evidence.valid_id(acct):
         A.respond(400, {'error': 'The account id is 32 hex digits'})
     now = int(time.time())
