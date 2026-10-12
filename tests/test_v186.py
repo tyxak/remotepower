@@ -270,13 +270,17 @@ class TestLdapAuth(unittest.TestCase):
             ldap_auth.authenticate({'ldap_enabled': False}, 'alice', 'pw')
 
     def test_no_ldap3_library_raises_transient(self):
-        # No stub — the real ldap3 isn't installed in the CI environment
+        # Make the import fail whether or not ldap3 happens to be installed here:
+        # a None entry in sys.modules is what turns `import ldap3` into an
+        # ImportError. (The test used to pop the stub and rely on CI not having
+        # the package, so it failed on any machine that did, such as a box that
+        # installed ldap3 for another tool.)
         import sys as _sys
-        _sys.modules.pop('ldap3', None)
-        _sys.modules.pop('ldap3.core', None)
-        _sys.modules.pop('ldap3.core.exceptions', None)
-        with self.assertRaises(ldap_auth.LdapTransientError) as ctx:
-            ldap_auth.authenticate({'ldap_enabled': True}, 'alice', 'pw')
+        from unittest import mock
+        gone = {'ldap3': None, 'ldap3.core': None, 'ldap3.core.exceptions': None}
+        with mock.patch.dict(_sys.modules, gone):
+            with self.assertRaises(ldap_auth.LdapTransientError) as ctx:
+                ldap_auth.authenticate({'ldap_enabled': True}, 'alice', 'pw')
         self.assertIn('ldap3 library not installed', str(ctx.exception))
 
     def test_empty_url_raises_transient(self):

@@ -65,9 +65,11 @@ holds long-form docs that don't fit there.
   scoped to what is new rather than the whole project: a stored Cloudflare token,
   two feeds the server reads from outside and turns into public reports, a
   firewall-log reader, and a second token that can edit lists with a sync that
-  writes one, and the automatic bans between hosts and the edge. Ten issues, all
-  caught before release, among them an agent that could have claimed the
-  honeypot's decision and challenges that would have been counted as attacks.
+  writes one, and the automatic bans between hosts and the edge, plus a pass over
+  the rest of the product with the scanners we use. Twenty-two issues, all caught
+  before release, among them a stored session hash that worked as a session, an
+  IPv6 zone id that reached a root shell and an agent that could have claimed the
+  honeypot's decision.
 - **[security-review-7.2.0.md](security-review-7.2.0.md)** — the v7.2.0 review,
   scoped to the new log sensor rather than the whole project: an agent
   summarising logs an attacker can write to, and a server turning that into

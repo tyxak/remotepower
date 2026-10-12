@@ -206,14 +206,18 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   agents can also read UFW's log. Reading blocks nothing, so banning stays with
   what you already use. RemotePower can also keep a Cloudflare IP list up to date
   from AbuseIPDB, SniffCat and what it found itself, with a token of its own, for
-  your rules to use. Off until you turn it on.
+  your rules to use. Off until you turn it on. An address the WAF on a host
+  refused is reported at once, with a setting to ask for more, and a feed that
+  stops reading or a list sync that waits for you raises an alert. The release is
+  also a security pass over the whole product with the scanners listed below:
+  twenty-two issues, all fixed before release, and the review is public.
 - **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
   say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
   fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat
   now says what the address actually did instead of "brute force": SQL
   injection, path traversal, scanning, with the time it happened, once per
   address however many hosts or logs saw it. An address qualifies when fail2ban
-  or CrowdSec already banned it, the WAF refused it three times, or it reached
+  or CrowdSec already banned it, the WAF refused it enough times, or it reached
   your threshold. Only counts and fixed labels leave the host. The page shows
   the evidence, what was sent, and any log the agent could not read; Cloudflare
   addresses are never reported. Off until you turn it on.

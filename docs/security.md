@@ -34,10 +34,11 @@ test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
 - [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds
-  and the blocklist: ten issues in a stored Cloudflare token, two feeds the server
-  reads from outside, a firewall-log reader, a second token that can edit lists
-  and the automatic bans that carry a block between hosts and the edge, all
-  caught before release.
+  and the blocklist: twenty-two issues across the new edge code and the rest of the
+  product (a stored session hash that worked as a session, an IPv6 zone id that
+  reached a root shell, second-factor guesses without a lockout, routes that
+  answered 500 to a body of the wrong type), the scan tools run against the shipped
+  nginx configuration, and what each reported, all caught before release.
 - [security-review-7.2.0.md](security-review-7.2.0.md) — scoped to the log sensor:
   eight issues in an agent that reads logs an attacker can write to, and the
   server that turns them into public reports, all caught before release.

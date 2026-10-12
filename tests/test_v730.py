@@ -184,13 +184,15 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         self.assertIn("security-review-7.3.0.md", (_ROOT / "docs/security.md").read_text())
 
     def test_the_review_says_what_it_did_not_cover(self):
-        """A review that implied it covered the whole project would be worse
-        than none: this one is scoped to the edge feeds and must say so, and
-        must say that the live Cloudflare API was not part of it."""
+        """A review that implied more than it did would be worse than none. This
+        one covers the whole project, so it must say what that did not include:
+        that it is the project's own work and not an independent audit, and that
+        the live Cloudflare API was not part of it."""
         text = _flat("docs/security-review-7.3.0.md")
-        self.assertIn("does not cover the whole project", text)
         self.assertIn("What this review did not cover", text)
+        self.assertIn("not an independent audit", text)
         self.assertIn("The live Cloudflare API", text)
+        self.assertIn("How it was done", text)
 
     def test_only_three_security_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
@@ -283,7 +285,7 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
     def test_the_review_numbers_match_its_table(self):
         raw = (_ROOT / "docs/security-review-7.3.0.md").read_text()
         rows = re.findall(r"^\| (\d+) \|", raw, re.M)
-        words = {6: "six", 9: "nine", 10: "ten"}
+        words = {6: "six", 9: "nine", 10: "ten", 22: "twenty-two"}
         n = len(rows)
         self.assertIn(n, words, "extend the word map for a new count")
         self.assertIn("**%s** issues" % words[n], raw)

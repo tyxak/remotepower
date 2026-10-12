@@ -140,7 +140,8 @@ class TestMoreWrongTypes(_Base):
                 self.assertIs(api._url_targets_local_or_meta(parsed, allow_loopback=False), False)
 
     def test_a_proxmox_host_that_is_not_a_host(self):
-        for host in ([1, "a"], {"a": 1}, "bad host:99999999999", "[::1"):
+        for host in ([1, "a"], {"a": 1}, "bad host:99999999999", "[::1",
+                      "a" * 70 + ".example", "x." + "b" * 300):
             with self.subTest(host=str(host)[:12]):
                 st = self._status(api.handle_proxmox_test, {"proxmox_host": host})
                 self.assertEqual(st, 400)

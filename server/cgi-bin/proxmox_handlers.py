@@ -99,7 +99,13 @@ def handle_proxmox_test() -> None:
     _host = str(pc.get('host') or '').strip()
     # A host:port or a bracketed IPv6 literal, nothing else: anything more raised
     # out of urlparse / http.client as a 500 for what is a bad form field.
-    if _host and not re.fullmatch(r'[A-Za-z0-9._\-]+(:\d{1,5})?|\[[0-9A-Fa-f:.]+\](:\d{1,5})?', _host):
+    _name = _host.rsplit(':', 1)[0] if _host and not _host.startswith('[') else _host
+    if _host and (
+            not re.fullmatch(r'[A-Za-z0-9._\-]+(:\d{1,5})?|\[[0-9A-Fa-f:.]+\](:\d{1,5})?', _host)
+            or len(_name) > 253
+            or any(len(label) > 63 for label in _name.split('.'))):
+        # A label past 63 characters (or a name past 253) fails the idna codec
+        # inside the connect, which is a 500 for what is a bad form field.
         A.respond(400, {'error': 'Host must be a name or address, optionally with :port.'})
     if _host and A._url_targets_local_or_meta(
             urllib.parse.urlparse('https://' + _host), allow_loopback=False):
