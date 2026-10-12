@@ -59,6 +59,11 @@ FIREWALL_BUDGET_S = 45        # and reading events; a window half read does not 
 MODE_PROBE_S = 6 * 3600       # a zone read as single events asks for the grouped view again this often
 TEST_ZONES = 12               # zones Test connection reads
 FEEDS = (('cf', 'edge:cloudflare'), ('trap', 'edge:trap'))
+FEED_LABELS = {'cf': 'Cloudflare firewall events', 'trap': 'Honeypot Worker log'}
+FEED_FAILING = ('no_access', 'error', 'refused')   # nothing could be read
+FEED_ALERT_AFTER = 2                               # failed reads in a row before anyone is told
+_FEED_WORDS = {'no_access': 'the token was refused', 'error': 'the read failed',
+               'refused': 'Cloudflare refused the dataset'}
 
 
 def _store_ro():
@@ -279,10 +284,29 @@ def run_edge_intel_if_due():
     if pol.get('edge_trap'):
         got['trap'] = _safely(_poll_trap, token, pol, prev, now)
 
+    announce = []                         # (event, payload), fired after the lock is released
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         edge = st.get('edge') if isinstance(st.get('edge'), dict) else {}
+        health = edge.get('health') if isinstance(edge.get('health'), dict) else {}
         for feed, dev in FEEDS:
             r = got.get(feed)
+            h = health.get(feed) if isinstance(health.get(feed), dict) else {}
+            if r is None or r.get('state') not in FEED_FAILING:
+                # Not failing (healthy, switched off, or not set up): an alert the
+                # operator was sent is closed, and the streak starts over.
+                if h.get('alerted'):
+                    announce.append(('edge_feed_recovered', {'label': FEED_LABELS[feed]}))
+                h = {}
+            else:
+                h['fails'] = int(h.get('fails') or 0) + 1
+                if h['fails'] >= FEED_ALERT_AFTER and not h.get('alerted'):
+                    h['alerted'] = True
+                    why = _FEED_WORDS.get(r.get('state'), 'it could not be read')
+                    sentence = str(r.get('error') or '')[:120]
+                    announce.append(('edge_feed_down', {
+                        'label': FEED_LABELS[feed],
+                        'detail': (why + (': ' + sentence if sentence else ''))[:200]}))
+            health[feed] = h
             if r is None:
                 # Switched off: say so, rather than keep showing the last read as
                 # though it were still being made.
@@ -303,8 +327,14 @@ def run_edge_intel_if_due():
                 edge[feed + '_to'] = int(r['to'])
             r.pop('to', None)
             edge[feed] = r
+        edge['health'] = health
         edge['at'] = now
         st['edge'] = edge
+    for event, payload in announce:
+        try:
+            A.fire_webhook(event, payload)
+        except Exception:   # nosec B110 — telling the operator must not stop the poll
+            pass
 
 
 # ── what the page reads ────────────────────────────────────────────────────────

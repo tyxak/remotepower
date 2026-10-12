@@ -158,6 +158,7 @@ class _Case(unittest.TestCase):
             raise api.HTTPError(status, data)
         api.respond = _respond
         api.audit_log = lambda *a, **k: self.audit.append(a)
+        self.real_fire_webhook = api.fire_webhook     # for a test that wants the alert ledger
         api.fire_webhook = lambda *a, **k: None
         api.get_token_from_request = lambda: 'tok'
         self.scores = {'abuseipdb': 100, 'sniffcat': 80}

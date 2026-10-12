@@ -348,7 +348,37 @@ _KEEP = ('mode', 'at', 'state', 'why', 'list', 'capacity', 'kept', 'offered', 't
          'created', 'can_force', 'needs_adopt', 'op', 'held', 'auth', 'bans')
 
 
+LIST_ALERT_AFTER_ERRORS = 2     # failed syncs in a row before anyone is told
+
+
+def _health_event(el, res):
+    """(event, payload) when this result moves the list between healthy and
+    needing a person, else None. A held sync and a missing adopt wait for an
+    operator, so they are announced at once; a failed one needs two in a row,
+    which is what separates a bad hour at Cloudflare from a revoked token."""
+    state = res.get('state')
+    h = el.get('health') if isinstance(el.get('health'), dict) else {}
+    name = str((res.get('list') or {}).get('name') or
+               ((el.get('last') or {}).get('list') or {}).get('name') or 'Cloudflare IP list')[:64]
+    if state == 'ok' or (state == 'pending' and res.get('op')):
+        el['health'] = {}
+        return ('edge_list_synced', {'label': name}) if h.get('alerted') else None
+    if state not in ('error', 'held', 'needs_adopt'):
+        return None
+    h['bad'] = int(h.get('bad') or 0) + 1
+    el['health'] = h
+    due = state != 'error' or h['bad'] >= LIST_ALERT_AFTER_ERRORS
+    if due and not h.get('alerted'):
+        h['alerted'] = True
+        return ('edge_list_held', {'label': name, 'detail': str(
+            res.get('why') or {'held': 'a sync is held and waits for you',
+                               'needs_adopt': 'the list is not RemotePower\'s yet',
+                               'error': 'Cloudflare could not apply the change'}[state])[:200]})
+    return None
+
+
 def _record(res, now, attempted=True):
+    announce = None
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
         if attempted:
@@ -376,6 +406,13 @@ def _record(res, now, attempted=True):
             applied = res.get('state') == 'ok' or (res.get('state') == 'pending' and res.get('op'))
             if applied and res.get('_listed') is not None:
                 _mark_listed(st, res['_listed'], now)
+        if res.get('mode') in ('apply', 'adopt'):
+            announce = _health_event(st['edgelist'], res)
+    if announce:
+        try:
+            A.fire_webhook(*announce)
+        except Exception:   # nosec B110 — telling the operator must not undo the record
+            pass
 
 
 def _prune_bans(st, now):

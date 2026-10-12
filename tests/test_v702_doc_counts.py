@@ -95,6 +95,21 @@ class TestTheConnectorCountIsCurrent(unittest.TestCase):
         self.assertEqual(feat.group(1), rd.group(1))
 
 
+class TestTheEventCountIsCurrent(unittest.TestCase):
+    """features.md quoted 215 event types for a registry that held 214, and
+    nothing asked: unlike the connectors, no test pinned it."""
+
+    def test_features_md_matches(self):
+        api = _load('api_v702dc_events', _CGI / 'api.py')
+        n = len(api.WEBHOOK_EVENTS)
+        self.assertGreater(n, 150, 'the registry is empty — the number below means nothing')
+        txt = (_ROOT / 'docs' / 'features.md').read_text()
+        m = re.search(r'Webhook event registry \| (\d+) event types', txt)
+        self.assertTrue(m, 'the event-registry row moved or was reworded')
+        self.assertEqual(int(m.group(1)), n,
+                         f'docs/features.md says {m.group(1)}; the registry lists {n}')
+
+
 class TestTheAutonomyActionCountIsCurrent(unittest.TestCase):
     """The action catalog is quoted in the release docs and drives a policy
     checkbox per action, so a wrong number is a wrong safety story."""

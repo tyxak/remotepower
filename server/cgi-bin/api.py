@@ -2713,6 +2713,27 @@ EVENT_REGISTRY = {
     'integration_recovered': dict(
         label='An integration target recovered', kind='integration',
         title='Integration Recovered', resolves=('integration_down',)),
+    # v7.3.0: Threat intel's own health. A feed that cannot be read, or a list sync
+    # that waits for a person, stops the reporting and the blocklist without a
+    # word: the cause is a token or a plan, not a host, so nothing else says so.
+    # Both fire on the transition only (a feed needs two failed reads in a row),
+    # and the recover event closes the alert by the feed's or the list's label.
+    'edge_feed_down': dict(
+        label='A Threat intel edge feed (Cloudflare events or the honeypot log) cannot be read',
+        kind='threat_intel', title='Edge Feed Down', severity='medium',
+        tags='warning,satellite'),
+    'edge_feed_recovered': dict(
+        label='A Threat intel edge feed is being read again', kind='threat_intel',
+        title='Edge Feed Recovered', resolves=('edge_feed_down',),
+        tags='white_check_mark,satellite'),
+    'edge_list_held': dict(
+        label='The Cloudflare IP list sync is held or failing and needs an operator',
+        kind='threat_intel', title='Edge Blocklist Needs Attention', severity='medium',
+        tags='warning,shield'),
+    'edge_list_synced': dict(
+        label='The Cloudflare IP list is back in step with its sources',
+        kind='threat_intel', title='Edge Blocklist Synced', resolves=('edge_list_held',),
+        tags='white_check_mark,shield'),
     'dependency_missing': dict(
         # v6.3.1: a DECLARED depends_on edge that was carrying observed traffic
         # (agent peer-conns or the flow receiver) has gone silent while BOTH
@@ -9725,6 +9746,7 @@ CHANNEL_KIND_DEFS = (
     ('scan', 'Security scan findings', 'operational'),
     # v4.7.0: homelab software integration health
     ('integration', 'Integration health', 'operational'),
+    ('threat_intel', 'Threat intel feeds and blocklist', 'operational'),
     ('github_issue', 'GitHub new issues', 'operational'),  # v5.8.0
     ('reputation', 'IP reputation (DNSBL)', 'operational'),
     ('resolver', 'DNS resolver health', 'operational'),
@@ -10087,6 +10109,10 @@ def _alert_title(event, payload):
         return f'Scan findings on {name}: {c} critical, {h} high'
     if event == 'integration_down':
         return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
+    if event == 'edge_feed_down':
+        return f'Edge feed down: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
+    if event == 'edge_list_held':
+        return f'Cloudflare IP list needs attention: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'ip_blacklisted':
         return (f'IP blocklisted: {p.get("ip", "?")} on '
                 f'{p.get("listed_count", "?")} list(s) ({p.get("blocklists", "?")})')[:200]
@@ -12068,6 +12094,10 @@ def _auto_resolve_alerts(event, payload):
     elif event == 'mailflow_ok':
         # W4-16: mail round-trip recovers — clear the open mailflow_delayed
         # alert (no device_id; matched by the fixed 'mailflow' label).
+        sub_match['label'] = p.get('label')
+    elif event in ('edge_feed_recovered', 'edge_list_synced'):
+        # v7.3.0: no device_id; one alert per feed (and one for the list), told
+        # apart by `label`, which is in _ALERT_IDENTITY_FIELDS and stored.
         sub_match['label'] = p.get('label')
     elif event == 'image_updated':
         # Fleet-level (no device_id) — match the open alert by image+tag.

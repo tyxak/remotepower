@@ -252,6 +252,22 @@ If a script of yours already reports Cloudflare events to AbuseIPDB or SniffCat,
 | Honeypot log | Up to 3 Workers and 1,000 lines for each Worker in a read. Cloudflare keeps the log for about three days. |
 | Accounts | One account id for each RemotePower. With an id set, only that account's zones are read. |
 
+## Being told when it stops
+
+A feed that cannot be read, or a list sync that waits for you, stops the reporting
+or the blocklist without a word, so each one raises an alert on its own:
+
+| Alert | When | Closes when |
+|---|---|---|
+| **Edge Feed Down** | A feed failed two reads in a row: the token was refused, Cloudflare refused the dataset, or the read failed. One alert for each feed. | The feed reads again, or you switch it off. |
+| **Edge Blocklist Needs Attention** | A sync is held (see below), the list is not RemotePower's yet, or two syncs in a row failed. | A sync goes through. |
+
+The alerts are in the inbox and go to your webhooks, e-mail and push under the
+kind **Threat intel feeds and blocklist**, so you can route them like any other
+(Settings → Notifications). They fire once, when the state changes, and not on
+every read. The same numbers are in Prometheus: `remotepower_edge_feed_up`,
+`remotepower_edge_blocklist_held` and the rest ([monitors.md](monitors.md)).
+
 ## Security
 
 - **The token** is stored with RemotePower's other secrets, and it is never sent
