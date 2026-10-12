@@ -35,7 +35,7 @@ It is in `docs/security-review-7.3.0.md`.
   aside, and the page says how many of each and why.
 - **An address is reported after one Cloudflare refusal.** A refusal at the edge
   is a block your own rules or Cloudflare's already made, so it does not wait for
-  three like a host's WAF does. **Report after Cloudflare refusals** on the card
+  more. **Report after Cloudflare refusals** on the card
   sets it, from 1 to 50. The reason an address has not been reported names the
   nearest route (`1 of 3 Cloudflare refusals so far`) and no longer says ten
   attempts are needed. Lowering the number reports addresses counted in the last
@@ -144,6 +144,13 @@ It is in `docs/security-review-7.3.0.md`.
 
 ### Reports
 
+- **An address your WAF refused once is reported.** A host's WAF used to need
+  three refusals before an address was reported, so an address with a reputation
+  score of 51 and seven reports from others sat unreported after its first
+  refusal. **Report after WAF refusals** is new, next to **Report after
+  attempts**, from 1 to 50 and 1 by default. Raise it if a single refusal is too
+  little for you. Lowering it reports addresses counted in the last day on the
+  next sweep.
 - **One hit reads as one hit.** The standard text says `1 attempt within 1
   minute` instead of `1 attempts within 1 minutes`. A template you wrote is
   rendered as you wrote it.

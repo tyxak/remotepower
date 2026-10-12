@@ -4782,7 +4782,7 @@
             <summary><strong>What's new — v7.2.0 &ldquo;Ev1denceMatters&rdquo;</strong> &mdash; threat intel reads your web server, WAF, fail2ban and CrowdSec logs, and a report says what the address actually did.</summary>
             <div class="doc-body">
               <p><strong>The log sensor.</strong> Switch it on under <strong>Security &rarr; Threat intel &rarr; Log sensor</strong>. Linux agents then read nginx and Apache logs, ModSecurity&rsquo;s audit log, fail2ban&rsquo;s log and CrowdSec&rsquo;s alerts, found from your web server&rsquo;s own configuration, and tell RemotePower what each address did. Only counts and fixed labels leave the host: no log lines, paths or host names. It is off until you turn it on.</p>
-              <p><strong>Reports say what happened.</strong> SQL injection is filed as SQL injection and path traversal as path traversal, with the time it happened for AbuseIPDB, and once per address however many hosts or logs saw it. An address qualifies when fail2ban or CrowdSec already banned it, the WAF refused it three times, or it reached your threshold. A repeat the service refuses counts as reported. The standard message names what was seen, so it says &ldquo;brute force&rdquo; only when that is what happened.</p>
+              <p><strong>Reports say what happened.</strong> SQL injection is filed as SQL injection and path traversal as path traversal, with the time it happened for AbuseIPDB, and once per address however many hosts or logs saw it. An address qualifies when fail2ban or CrowdSec already banned it, the WAF refused it as often as you set (once by default), or it reached your threshold. A repeat the service refuses counts as reported. The standard message names what was seen, so it says &ldquo;brute force&rdquo; only when that is what happened.</p>
               <p><strong>You can see why.</strong> The attackers table has an <strong>Evidence</strong> column with a <strong>Details</strong> row showing what was sent to each service, and a <strong>Log sources</strong> card lists every log each host reads, so a log the agent cannot read says so instead of looking like a quiet night.</p>
               <p><strong>Safeguards.</strong> Cloudflare&rsquo;s addresses are never reported, a web attack arriving through a proxy is not blocked on the host, and one host can add at most 3,000 addresses an hour.</p>
               <p><strong>Security review.</strong> Scoped to the new trust boundary: eight issues, all caught before release. See <a href="docs/security-review-7.2.0.md" class="c-accent">security-review-7.2.0.md</a>.</p>
@@ -6701,6 +6701,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="form-group">
               <label class="form-label" for="ipintel-report-min">Report after attempts</label>
               <input type="number" id="ipintel-report-min" class="form-input isl-80" min="1" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-waf-report-after">Report after WAF refusals</label>
+              <input type="number" id="ipintel-waf-report-after" class="form-input isl-80" min="1" max="50" placeholder="1">
             </div>
           </div>
           <div class="toolbar">

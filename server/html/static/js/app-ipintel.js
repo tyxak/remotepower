@@ -234,6 +234,7 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-ttl', s.block_ttl_hours ?? 24);
   set('ipintel-max-hour', s.block_max_per_hour ?? 20);
   set('ipintel-report-min', s.report_min_count ?? 10);
+  set('ipintel-waf-report-after', s.report_waf_after ?? 1);
   set('ipintel-lookup-budget', s.daily_lookup_budget ?? 900);
   set('ipintel-report-budget', s.daily_report_budget ?? 900);
   set('ipintel-cache-hours', s.cache_hours ?? 24);
@@ -777,6 +778,7 @@ async function saveIpIntelSettings() {
     block_ttl_hours: v('ipintel-ttl').value,
     block_max_per_hour: v('ipintel-max-hour').value,
     report_min_count: v('ipintel-report-min').value,
+    report_waf_after: v('ipintel-waf-report-after').value,
     daily_lookup_budget: v('ipintel-lookup-budget').value,
     daily_report_budget: v('ipintel-report-budget').value,
     cache_hours: v('ipintel-cache-hours').value,

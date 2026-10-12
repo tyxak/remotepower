@@ -206,13 +206,34 @@ class TestWhenAnAddressIsReported(_Engine):
         self.sweep()
         self.assertTrue(self.reported())
 
-    def test_the_waf_refusing_it_three_times_is_enough_two_is_not(self):
+    def test_one_waf_refusal_is_enough_by_default(self):
+        """A request the WAF refused is a block a rule of the operator's already
+        made. The default used to be three, and an address the WAF refused once
+        sat unreported with a reputation score of 51 and seven reports from
+        others."""
+        self.assertEqual(ip_intel.DEFAULTS['report_waf_after'], 1)
+        self.feed(raw_event(src={'waf': 1}, tok={'waf': {'crs:942100': 1}}))
+        self.sweep()
+        self.assertTrue(self.reported())
+
+    def test_the_waf_threshold_is_the_operators_to_raise(self):
+        self.policy(report_waf_after=3)
         self.feed(raw_event(src={'waf': 2}, tok={'waf': {'crs:942100': 2}}))
         self.sweep()
         self.assertFalse(self.reported())
+        self.assertEqual(self.att()['errors']['abuseipdb'], 'not reported: 2 of 3 WAF refusals so far')
         self.feed(raw_event(src={'waf': 1}, tok={'waf': {'crs:942100': 1}}))
         self.sweep()
         self.assertTrue(self.reported(), 'the ledger added the two sweeps')
+
+    def test_lowering_the_waf_threshold_reports_what_the_day_already_held(self):
+        self.policy(report_waf_after=3)
+        self.feed(raw_event(src={'waf': 1}, tok={'waf': {'crs:942100': 1}}))
+        self.sweep()
+        self.assertFalse(self.reported())
+        self.policy(report_waf_after=1)
+        self.sweep()
+        self.assertTrue(self.reported(), 'the catch-up pass reads the ledger with the new number')
 
     def test_an_address_with_no_recognisable_class_is_never_reported(self):
         self.feed(raw_event(ban=['recidive'], src={'f2b': 50}, tok={'f2b': {'jail:recidive': 50}}))

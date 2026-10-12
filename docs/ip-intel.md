@@ -98,7 +98,8 @@ An address is reported when **any** of these is true:
 - fail2ban banned it;
 - one of CrowdSec's own scenarios raised a ban on this host (a community
   blocklist entry or a decision someone made by hand does not count);
-- the WAF refused its requests three times;
+- the WAF on a host refused its requests as many times as **Report after WAF
+  refusals** says (1 by default);
 - Cloudflare refused its requests as many times as **Report after Cloudflare
   refusals** says (1 by default, see [Edge sources](#edge-sources));
 - it made as many hostile requests as **Report after attempts** says (10 by
@@ -106,7 +107,8 @@ An address is reported when **any** of these is true:
 
 What it does adds up for a day, so a slow attacker still counts. The page says
 why an address has not been reported yet and names the nearest of these routes,
-for example `4 / 10 attempts so far` or `2 / 3 WAF refusals so far`. An address
+for example `4 / 10 attempts so far` or `2 / 3 WAF refusals so far` (when you
+have raised the WAF number). An address
 with nothing recognisable in the logs is never reported.
 
 ### What a report says
@@ -213,7 +215,8 @@ tick **Count refusals by a rule that also blocks an IP list**.
 
 An address is reported after **Report after Cloudflare refusals** refusals by
 Cloudflare, which is 1 unless you change it: the refusal is a block your own
-rules or Cloudflare's already made. A host's WAF needs three. A weaker mechanism
+rules or Cloudflare's already made. A host's WAF works the same way with **Report
+after WAF refusals**, also 1 by default. A weaker mechanism
 (Bot Fight Mode, Browser Integrity Check, a user-agent rule) only counts towards
 **Report after attempts**. The reason an address has not been reported yet names
 the nearest route, for example `1 of 3 Cloudflare refusals so far`. When you
@@ -303,6 +306,7 @@ Each service has its own daily limits, and you set them on the same page:
 | **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. |
 | **Reuse a lookup for (hours)** | 24 | How long an answer is kept before the same address is asked about again. |
 | **Report after attempts** | 10 | How many failed attempts an address needs before it is reported. |
+| **Report after WAF refusals** | 1 | How many requests the WAF on a host must have refused before an address is reported. Raise it if a single refusal is too little for you. |
 
 The defaults stay under AbuseIPDB's free plan of 1,000 a day. Days run in UTC.
 When a limit is reached, RemotePower stops until the next day and says so in the
@@ -432,7 +436,7 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `already reported a moment ago` | The service had the same address from you minutes earlier, often from fail2ban. Nothing is wrong. |
 | `rate limited or already reported` | SniffCat uses one status for its own limit and for a repeat, and only a repeat says so in words (that case shows as `already reported a moment ago`). When the message does not say, RemotePower cannot tell which it was, and waits a little over 20 minutes before asking again. |
 | `not reported: 4 / 10 attempts so far` | The logs show the address, but not enough yet. See [When an address is reported](#when-an-address-is-reported). |
-| `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs three refusals, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
+| `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs the number in **Report after WAF refusals**, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
 | `not reported: nothing recognisable in the logs` | Only a jail such as `recidive` named it, so there is no honest category to report it under. |
 | Log sources: `Quiet` | The agent looked at the log and nothing new had been written. It looks about once a minute and reads only what was added since the last look, so a log that is written to now and then shows `Quiet` between writes. |
 | Log sources: `Reading` | New lines arrived since the last look. The numbers beside it are for that look, not totals. |

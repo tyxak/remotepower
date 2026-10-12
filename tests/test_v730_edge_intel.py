@@ -714,6 +714,14 @@ class TestSettings(_Edge):
         st, page = self.call(self.api.handle_ip_intel, 'GET')
         self.assertEqual(page['settings']['edge_report_after'], 50)
 
+    def test_the_waf_threshold_is_clamped_validated_and_defaults_to_one(self):
+        st, page = self.call(self.api.handle_ip_intel, 'GET')
+        self.assertEqual(page['settings']['report_waf_after'], 1)
+        self.assertEqual(self.save(report_waf_after=0)[1]['settings']['report_waf_after'], 1)
+        self.assertEqual(self.save(report_waf_after=999)[1]['settings']['report_waf_after'], 50)
+        self.assertEqual(self.save(report_waf_after='often')[0], 400)
+        self.assertEqual(self.save(report_waf_after='3')[1]['settings']['report_waf_after'], 3)
+
     def test_only_an_admin_changes_it(self):
         st, _ = self.call(self.api.handle_ip_intel_settings, 'POST', {'edge_enabled': True}, role='viewer')
         self.assertIn(st, (401, 403))

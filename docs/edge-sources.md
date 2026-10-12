@@ -219,7 +219,8 @@ Edge evidence takes the same report path as your hosts' logs.
 
 - An address is reported after **Report after Cloudflare refusals** refusals by
   Cloudflare, which is 1 unless you change it. The refusal is a block your own
-  rules or Cloudflare's already made. A host's WAF needs three.
+  rules or Cloudflare's already made. A host's WAF uses
+  **Report after WAF refusals**, also 1 unless you change it.
 - Bot Fight Mode, Browser Integrity Check and user-agent rules are weaker
   signals. They only count towards **Report after attempts**, which is 10 unless
   you changed it.

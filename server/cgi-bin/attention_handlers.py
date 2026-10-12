@@ -421,9 +421,20 @@ def handle_suppressions():
     #    class of lie this page exists to end.
     try:
         for w in A._visible_windows((A.load(A.MAINT_FILE) or {}).get('windows') or []):
-            start = A._parse_iso(w.get('start'))
-            end = A._parse_iso(w.get('end'))
-            if start and end and not (start <= now <= end):
+            if not isinstance(w, dict):
+                continue
+            # A recurring (cron) window carries no start/end at all. Parsing the
+            # empty string raised, and one such window ended the loop, so every
+            # window after it never reached the list.
+            try:
+                start = A._parse_iso(w.get('start')) if w.get('start') else None
+                end = A._parse_iso(w.get('end')) if w.get('end') else None
+            except ValueError:
+                start = end = None      # unreadable times: list it rather than hide it
+            if start and end:
+                if not (start <= now <= end):
+                    continue
+            elif w.get('cron') and not A._window_active(w, now):
                 continue
             add('maintenance',
                 f"{w.get('scope') or 'global'}: {w.get('target') or 'fleet'}",

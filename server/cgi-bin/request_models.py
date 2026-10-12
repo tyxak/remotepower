@@ -2651,6 +2651,7 @@ if _AVAILABLE:
         block_ttl_hours: Any = None
         block_max_per_hour: Any = None
         report_min_count: Any = None
+        report_waf_after: Any = None
         cache_hours: Any = None
         daily_lookup_budget: Any = None
         daily_report_budget: Any = None

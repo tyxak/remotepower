@@ -438,14 +438,15 @@ def _may_report(item, att, pol, now):
     att = att or {}
     need = int(pol['report_min_count'])
     cf_min = pol.get('edge_report_after')
+    waf_min = pol.get('report_waf_after')
     ev = item.get('evidence')
     if isinstance(ev, dict):
         ledger = _fresh_ledger(att, now)
         ok, _why = threat_evidence.qualifies(
-            threat_evidence.merge(ledger, ev) if ledger else ev, need, cf_min)
+            threat_evidence.merge(ledger, ev) if ledger else ev, need, cf_min, waf_min)
     elif item.get('_catchup'):
         ledger = _fresh_ledger(att, now)
-        ok = bool(ledger) and threat_evidence.qualifies(ledger, need, cf_min)[0]
+        ok = bool(ledger) and threat_evidence.qualifies(ledger, need, cf_min, waf_min)[0]
     else:
         ok = int(item.get('count') or 0) >= need
     if not ok:
@@ -503,7 +504,8 @@ def _report_plan(group, pol):
     ev = threat_evidence.merge(ledger, own) if (own and ledger) else (own or ledger)
     legacy = [p for p in group if not isinstance(p['item'].get('evidence'), dict)]
     need = int(pol['report_min_count'])
-    ev_ok, ev_why = (threat_evidence.qualifies(ev, need, pol.get('edge_report_after'))
+    ev_ok, ev_why = (threat_evidence.qualifies(ev, need, pol.get('edge_report_after'),
+                                               pol.get('report_waf_after'))
                      if ev else (False, ''))
     lead = max(legacy, key=lambda p: int(p['item'].get('count') or 0)) if legacy else None
     legacy_n = int(lead['item'].get('count') or 0) if lead else 0
@@ -545,6 +547,7 @@ def _ledger_catchup(st, pol, now):
         return []
     need = int(pol['report_min_count'])
     cf_min = pol.get('edge_report_after')
+    waf_min = pol.get('report_waf_after')
     out = []
     atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
     for ip, att in atts.items():
@@ -557,7 +560,7 @@ def _ledger_catchup(st, pol, now):
         if not any(now - int(told.get(p) or 0) >= REPORT_EVERY_S and now >= int(retry.get(p) or 0)
                    for p in keyed):
             continue
-        if not threat_evidence.qualifies(ev, need, cf_min)[0]:
+        if not threat_evidence.qualifies(ev, need, cf_min, waf_min)[0]:
             continue
         devs = att.get('devices') if isinstance(att.get('devices'), dict) else {}
         dev = next(iter(devs), '')
@@ -1074,7 +1077,7 @@ def handle_ip_intel_settings():
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
                           ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
                           ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440),
-                          ('edge_report_after', 1, 50), ('edgelist_own_score', 1, 100),
+                          ('edge_report_after', 1, 50), ('report_waf_after', 1, 50), ('edgelist_own_score', 1, 100),
                           ('edgelist_own_days', 1, 365), ('edgelist_abuseipdb_conf', 25, 100),
                           ('edgelist_abuseipdb_limit', 100, 50000), ('edgelist_sniffcat_conf', 30, 100),
                           ('edgelist_sniffcat_limit', 10, 30000), ('edgelist_hours', 1, 168),

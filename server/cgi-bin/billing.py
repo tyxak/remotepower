@@ -63,7 +63,9 @@ def _num(value, default=0.0):
     """Coerce to a finite float, else `default`. Rejects NaN/inf."""
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: a JSON integer past 1e308 is a valid Python int that
+        # float() refuses, and the time-entry handler answered 500 for it.
         return default
     if f != f or f in (float("inf"), float("-inf")):
         return default

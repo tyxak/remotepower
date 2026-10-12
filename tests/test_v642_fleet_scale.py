@@ -562,6 +562,28 @@ class TestUnifiedSuppressionView(unittest.TestCase):
         self.assertEqual(len(rows), 1,
                          "a window that has ended is not suppressing anything")
 
+    def test_a_recurring_window_does_not_hide_the_windows_after_it(self):
+        """A cron window has no start or end, and parsing the empty string used
+        to raise out of the loop: every window listed after the first recurring
+        one was missing, and the page logged an error on each request."""
+        api.save(api.MAINT_FILE, {"windows": [
+            {"id": "c0", "scope": "global", "target": "", "start": "", "end": "",
+             "cron": "0 0 31 2 *", "duration": 60, "reason": "never fires"},
+            {"id": "c1", "scope": "global", "target": "", "start": "", "end": "",
+             "cron": "* * * * *", "duration": 3600, "reason": "always on"},
+            {"id": "w1", "scope": "device", "target": "sup1",
+             "start": "2020-01-01T00:00:00", "end": "2099-01-01T00:00:00",
+             "reason": "upgrade"}]})
+        api._LOAD_CACHE.clear()
+        rows = [r for r in self._get()["suppressions"] if r["kind"] == "maintenance"]
+        details = sorted(r["detail"] for r in rows)
+        self.assertEqual(details,
+                         ["Maintenance window — always on",
+                          "Maintenance window — upgrade"],
+                         "the cron window that is on and the one-shot window after "
+                         "the cron windows are both in force; the one that never "
+                         "fires is not listed")
+
     def test_every_row_routes_to_the_page_that_can_lift_it(self):
         """A rollup you cannot act from is the same dead end one level up."""
         for r in self._get()["suppressions"]:

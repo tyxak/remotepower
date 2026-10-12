@@ -216,8 +216,10 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
         self.fail(f"{name} is not assigned at the top level of the agent")
 
     def test_the_thresholds(self):
-        self.assertEqual(te.WAF_MIN_BLOCKS, 3)
-        self.says("the WAF refused its requests three times")
+        self.assertEqual(te.WAF_MIN_BLOCKS, 3)      # the library's own default, when no policy is passed
+        self.assertEqual(ip_intel.DEFAULTS["report_waf_after"], 1)
+        self.says("**Report after WAF")
+        self.says("refusals** says (1 by default)")
         self.assertEqual(ip_intel.DEFAULTS["report_min_count"], 10)
         self.says("(10 by default)")
         self.assertEqual(self.const("THREAT_MIN_HITS"), 3)
