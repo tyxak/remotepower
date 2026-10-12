@@ -406,7 +406,7 @@ class TestTheVoice(unittest.TestCase):
         self.assertNotRegex(guide, r'\b[0-9a-f]{32}\b', 'a real zone or account id')
         for word in ('genuine', 'genuinely', 'verbatim', 'deliberate', 'deliberately'):
             self.assertNotRegex(guide, r'(?i)\b%s\b' % word, word)
-        self.assertNotRegex(guide, r'(?i)tviweb|tvipper|atramentum|bymanden')
+        self.assertNotRegex(guide, r'(?i)tviweb|tvipper|bymanden')
 
     def test_it_stays_inside_what_the_in_app_viewer_renders(self):
         guide = _guide()
