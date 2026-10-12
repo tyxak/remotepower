@@ -157,9 +157,9 @@ function _ragFmtAge(builtAt) {
   if (!builtAt) return 'never built';
   const secs = Math.max(0, Math.floor(Date.now() / 1000) - builtAt);
   if (secs < 60)    return 'just now';
-  if (secs < 3600)  return `${Math.floor(secs / 60)} min ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
-  return `${Math.floor(secs / 86400)} d ago`;
+  if (secs < 3600)  return _fmtAgo(Math.floor(secs / 60), 'minute');
+  if (secs < 86400) return _fmtAgo(Math.floor(secs / 3600), 'hour');
+  return _fmtAgo(Math.floor(secs / 86400), 'day');
 }
 
 async function loadRAGStatus() {

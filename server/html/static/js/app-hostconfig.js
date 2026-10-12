@@ -481,9 +481,9 @@ function _reltime(ts) {
   if (!ts) return '';
   const diff = Math.floor(Date.now() / 1000) - ts;
   if (diff < 60)   return 'just now';
-  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-  return `${Math.floor(diff/86400)}d ago`;
+  if (diff < 3600) return _fmtAgo(Math.floor(diff/60), 'minute');
+  if (diff < 86400) return _fmtAgo(Math.floor(diff/3600), 'hour');
+  return _fmtAgo(Math.floor(diff/86400), 'day');
 }
 
 // ─── v2.6.0: Host Configuration Management ────────────────────────────────────

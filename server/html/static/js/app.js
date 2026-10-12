@@ -6972,7 +6972,7 @@ function _timeDisplayAbsolute() {
 function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty;
   const _n = parseInt(ts); if (!Number.isFinite(_n) || _n <= 0) return (opts && opts.empty !== undefined) ? opts.empty : 'never';
   if (_timeDisplayAbsolute()) return _fmtAbsTs(_n);
-  let diff = Math.floor(Date.now() / 1000 - _n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
+  let diff = Math.floor(Date.now() / 1000 - _n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return _fmtAgo(diff, 'second'); if (diff < 3600) return _fmtAgo(Math.floor(diff / 60), 'minute'); if (diff < 86400) return _fmtAgo(Math.floor(diff / 3600), 'hour'); return _fmtAgo(Math.floor(diff / 86400), 'day'); }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
 // Everything is STORED in Celsius — the agent reports °C, thresholds are °C,
@@ -7805,39 +7805,39 @@ const _DYK_TIPS = [
   "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
   "If the dashboard can't reach the server, a banner with a Retry button appears at the bottom — and clears itself the moment a request gets through. No more silently-stale pages.",
   "deploy-server.sh keeps the last 3 deployed versions as snapshots — `sudo bash deploy-server.sh --rollback` restores the newest one if an upgrade misbehaves.",
-  "The Pentest page (under Monitoring) scans the hosts and websites you own for vulnerabilities — nuclei, nikto and nmap on the safe passive profile; OWASP ZAP and wapiti on the gated active one; and a lynis hardening audit on-host.",
+  "The Pentest page (under Security) scans the hosts and websites you own for vulnerabilities — nuclei, nikto and nmap on the safe passive profile; OWASP ZAP and wapiti on the gated active one; and a lynis hardening audit on-host.",
   "To scan a website you don't have an agent on, add it as a target and prove you own it with a DNS TXT record or a .well-known file — ACME-style, just like issuing a TLS certificate. RemotePower refuses anything you haven't verified.",
   "Vulnerability scans run on a scanner satellite — a hardened relay node — not on your production hosts, so there's no footprint on the machine being scanned. Pin a scan to a specific satellite, e.g. one per network segment.",
   "Schedule a recurring scan on the Pentest page and wire its findings to a notification channel — a cron-style web/host vulnerability sweep that pages you only when something new turns up.",
   "Add a passkey under My Account → Passkeys for phishing-resistant, passwordless sign-in with a security key, your phone or biometrics — and it counts as MFA, so you can drop the password entirely.",
   "Settings → Integrations → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
-  "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
+  "Each warning on the security-posture self-check (Audit page) links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
-  "Resource alerts flapping? Settings \u2192 Monitoring has \u201cMetric alert dampening\u201d (wait N over-threshold checks before a CPU/mem/disk alert) and \u201cSNMP alert dampening\u201d (N failed polls before SNMP-unreachable) \u2014 the metric/SNMP siblings of the per-monitor setting.",
+  "Resource alerts flapping? Settings \u2192 Alert parameters has \u201cMetric alert after\u201d (wait N over-threshold checks before a CPU/mem/disk alert) and \u201cSNMP unreachable after\u201d (N failed polls before an SNMP-unreachable alert) \u2014 the metric and SNMP siblings of the per-monitor setting.",
   "A flaky monitor that blips for one check shouldn\u2019t page you \u2014 set \u201cAlert after consecutive failures\u201d on the monitor (Monitoring \u2192 add/edit) so monitor-down only fires after N failures in a row.",
   "A device\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a device-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
   "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
   "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
-  "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
+  "The Audit page has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
   "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
   "The Users table shows each account's MFA method (TOTP, passkey, or none), its auth source (local, OIDC, SAML, SCIM) and whether it's deactivated — so 'who is missing MFA' is one glance, not an audit.",
   "Scheduled scans on the Pentest page show when they last ran and can be paused and resumed without deleting them — and an on-host lynis audit reports its 0–100 hardening index in the scan detail.",
   "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
-  "The CVEs page now flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
+  "The CVEs page flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
   "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
   "On the Devices page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
-  "Open a device drawer's Hardware tab to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
+  "Open a device drawer's Audit tab and its Health & Hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
   "The Predictive health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
   "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
   "The SSH keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
   "Open a container in the device drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
-  "Press / (or Ctrl-K) anywhere for the command palette — it now searches open alerts and CVE findings too, not just pages and devices.",
+  "Press / (or Ctrl-K) anywhere for the command palette — it searches open alerts and CVE findings too, not just pages and devices.",
   "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
-  "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts — wire them to a channel under Settings → Notifications.",
+  "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts raise alerts — wire them to a channel under Settings → Notifications.",
   "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
-  "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish and Arabic — your choice is saved to your account and follows you across devices.",
+  "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish, Arabic, German and French — your choice is saved to your account and follows you across devices.",
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
   "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
@@ -7847,13 +7847,13 @@ const _DYK_TIPS = [
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
   "A device drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
-  "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
+  "The drawer's Ports card shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
-  "On the Drift page, 'Export all host configs' downloads one JSON bundle of every device's desired + current config — handy for audits, backups and diffing. 'Collect all' refreshes them from the agents first.",
+  "On the Drift page, 'Export all host configs' downloads one JSON bundle of every device's desired + current config — handy for audits, backups and diffing. 'Collect all host configs' refreshes them from the agents first.",
   "Look for the AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
-  "Take a full disaster-recovery backup from Settings → Advanced → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
-  "Network shares (NFS/SMB/CIFS) now appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
+  "Take a full disaster-recovery backup from Settings → Backups → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
+  "Network shares (NFS/SMB/CIFS) appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
   "Set a Software Policy rule (banned / required / min-version) and RemotePower checks it against every host's installed packages — e.g. 'fail2ban required, telnetd banned'.",
   "The Storage page tracks ZFS / mdadm / btrfs pool health fleet-wide; a degraded array or an overdue scrub raises an alert.",
@@ -7862,28 +7862,28 @@ const _DYK_TIPS = [
   "Forward every audit entry to your SIEM or syslog collector from Settings → Security → Audit log forwarding (HTTP or RFC 5424).",
   "Give a CMDB credential a rotation policy and RemotePower reminds you on the dashboard when it's overdue for a change.",
   "Turn on change approval (Settings → Security) to require a second admin to sign off arbitrary command runs — the requester can't approve their own.",
-  "The Ansible page runs playbooks against a group/tag/site with this server as the control node — no agent needed, just SSH.",
+  "Provisioning → Ansible playbooks runs a playbook against a group, tag or site with this server as the control node — no agent needed, just SSH.",
   "Create Proxmox VMs (not just containers) from the Virtualization page — pick cores, memory, disk, bridge and a boot ISO.",
   "The Files device action browses and transfers files over SFTP, tunnelled through the same SSH path as the web terminal — no extra ports.",
-  "Define backup commands (restic/borg/rsync) under Planning → Backups, run them on demand, or schedule them with cron.",
+  "Define backup commands (restic/borg/rsync) under Backups, run them on demand, or schedule them with cron.",
   "Manage host users and SSH keys, or open/close firewall ports, straight from a device's drawer — exec-gated and audited.",
-  "Planning → Auto-patch applies updates on a schedule across a group, tag, site, or the whole fleet, respecting maintenance windows.",
+  "Patching → Auto-patch applies updates on a schedule across a group, tag, site, or the whole fleet, respecting maintenance windows.",
   "Connect a Proxmox node and RemotePower flags guests whose newest backup is stale, alongside the existing stale-snapshot check.",
   "Export a CVE-enriched SBOM (CycloneDX or SPDX) for any host from its CVE detail, or a ZIP for the whole fleet from the CVE Findings page.",
   "Record warranty, license, and support-contract expiry dates on a CMDB asset — RemotePower warns you on the dashboard before they lapse.",
   "The Remote desktop action opens a graphical VNC session in your browser, tunnelled over SSH — no inbound ports, no agent change.",
-  "Organise the fleet into Sites (location / team / customer) under Admin → Sites, then filter the Devices roster by site.",
+  "Organise the fleet into Sites (location / team / customer) under Fleet → Sites, then filter the Devices roster by site.",
   "The Timeline page (Monitoring → Timeline) merges events and command runs into one story — for the whole fleet or a single device.",
   "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
-  "Set a health-score alert threshold in Settings → Dashboard and get notified the moment a device's score drops below it.",
+  "Set a health-score alert threshold in Settings → Alert parameters and get notified the moment a device's score drops below it.",
   "The Patches page shows how many CVEs each pending update would fix, and a search box to find which hosts run a given package version.",
   "RemotePower flags hosts on an end-of-life OS — they show in Needs Attention and fail a compliance control until you upgrade.",
   "Subscribe your calendar to /api/schedule.ics to see scheduled jobs and maintenance windows alongside your other events.",
-  "Set quiet hours in Settings → Dashboard to mute non-critical alerts overnight — critical ones still page through.",
+  "Set quiet hours in Settings → Alerting to mute non-critical alerts overnight — critical ones still page through.",
   "The Reports page tracks per-device uptime % (SLA) and a fleet CPU/memory/disk capacity rollup.",
   "Share a read-only public status page (status.html?token=…) showing fleet health and monitor status — no login required.",
   "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
-  "Automation rules (Admin → Automation) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
+  "Automation rules (the Automation page) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
   "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
   "The Reports page flags resource anomalies — when a host's memory, swap, or disk jumps far outside its own normal range.",
   "Agents report their own binary hash every heartbeat — RemotePower flags any agent whose code doesn't match the canonical build it serves.",
@@ -7893,15 +7893,15 @@ const _DYK_TIPS = [
   "The Patches page has a patch catalog — see which update is pending across how many hosts, the inverse of the per-device view.",
   "Fleet → Query lets you filter devices by group, tags, OS, pending updates, CVE count or integrity — and save the queries you reuse.",
   "A green check next to a device's version means it's running the canonical signed agent build; a red mark means the hash doesn't match.",
-  "Planning → Rollouts pushes an upgrade or script in rings — canary, then pilot, then broad — and won't release the next ring until the current one verifies.",
-  "A maintenance window can gate command/upgrade execution, not just suppress alerts: tick 'gate execution' so changes are held until the window opens.",
+  "Patching → Rollouts pushes an upgrade or script in rings — canary, then pilot, then broad — and won't release the next ring until the current one verifies.",
+  "A maintenance window can gate command/upgrade execution, not just suppress alerts: tick 'Gate command/upgrade execution to this window' so changes are held until the window opens.",
   "The Compliance page scores a CIS-style baseline (patches, reboot, failed units, disk, CVEs, agent integrity) and tracks the trend day over day.",
   "Software meters take aliases — 'openssl = 0 | libssl3, openssl-libs' — and flag installs not seen running as reclaimable licenses.",
   "Under Users & Roles you can define custom roles — e.g. an operator who can reboot and upgrade only the 'staging' group, and sees only those devices.",
   "The Compliance page can run a real OpenSCAP scan (CIS/STIG/PCI) on a host — score, pass/fail and the exact failing rule ids — if oscap is installed there.",
-  "Patch catalog now counts flatpak, snap, pip and npm updates too, not just apt/dnf/pacman.",
+  "The patch catalog counts flatpak, snap, pip and npm updates too, not just apt/dnf/pacman.",
   "Set escalation tiers under Settings → Notifications so an unacknowledged critical alert re-notifies after N minutes and names whoever is on call.",
-  "Planning → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
+  "Monitoring → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
   "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
   "Patches → Install software installs repo packages on one host or a whole group/tag at once — it auto-detects apt/dnf/yum/zypper/pacman/apk.",
   "Rollouts → One-time install is the un-staged shortcut: install a package on one device or a tag right away, no rings.",
@@ -7911,13 +7911,13 @@ const _DYK_TIPS = [
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
-  "You can open an SSH session to any device straight from its row using the quick-connect button.",
+  "The small SSH icon next to a device's name on the Devices page builds an ssh:// link and copies the `ssh user@host` command to your clipboard — set your default username under Settings → Security → SSH preferences.",
   "Stuck on an alert? Ask the built-in AI assistant for remediation suggestions tailored to the affected device.",
   "RemotePower can take a Proxmox snapshot automatically before deploying changes, giving you an instant rollback point.",
   "You can write custom scripts to monitor almost anything — niche services, sensors, or your own health checks.",
   "Issue and renew TLS certificates directly from the dashboard through the built-in ACME (acme.sh) integration.",
   "Set up a staggered, rolling patch schedule so your fleet updates in waves instead of all at once.",
-  "On the planning board you can drag scheduled tasks around like sticky notes.",
+  "On the Tasks page you can drag cards between kanban columns like sticky notes.",
   "A full REST API with named, non-expiring keys lets you wire RemotePower into the rest of your tooling.",
   "Connect RemotePower to Claude over MCP to ask questions about your fleet and run commands in plain language.",
   "Notifications can be routed per event and per channel, so the right people hear about the right things.",
@@ -7965,9 +7965,9 @@ const _DYK_TIPS = [
   "Spin up a Proxmox LXC container from a wizard — pick a template, storage and network, and RemotePower creates it via the API.",
   "Need a starting point for a device's documentation? Let the AI draft a CMDB doc from what it already knows about the host.",
   "Running Kubernetes? Where a host has Helm and a kubeconfig, RemotePower shows your Helm release status alongside everything else.",
-  "Planning → Trends now plots a CPU-load saturation line (load ÷ cores) next to memory, swap and disk — so you can see a host's load trend over time, not just its current number.",
+  "Monitoring → Trends plots a CPU-load saturation line (load ÷ cores) next to memory, swap and disk — so you can see a host's load trend over time, not just its current number.",
   "Watch mysql.service on a host that actually runs mariadb.service? The Services table shows the canonical unit systemd resolved your alias to, so you're never left wondering why it reads 'active'.",
-  "A container that keeps crash-looping? RemotePower now tracks the restart count for Docker and Podman too (not just Kubernetes) and alerts when it climbs — the container's age and restart count show in the device drawer.",
+  "A container that keeps crash-looping? RemotePower tracks the restart count for Docker and Podman too (not just Kubernetes) and alerts when it climbs — the container's age and restart count show in the device drawer.",
   "The device drawer shows each network interface's MAC address next to its IP, and ClamAV's last on-demand scan time alongside its signature-DB age.",
   "Run a one-click image Update on a stale, compose-managed container row and RemotePower pulls the new image and recreates it (docker compose pull + up -d) on the host — no SSH needed.",
 ];
@@ -9574,6 +9574,21 @@ function _localeTag() {
     return { en: 'en', zh: 'zh-CN', hi: 'hi-IN', es: 'es-ES', ar: 'ar',
              de: 'de-DE', fr: 'fr-FR' }[l] || 'en';
   } catch (_) { return 'en'; }
+}
+// v7.3.0: "5m ago" in the interface language. English keeps the compact form the
+// product has always shown; every other language goes through
+// Intl.RelativeTimeFormat, which has them all ("vor 5 Min.", "il y a 5 min",
+// "5分钟前"). It used to be English text in a German or Arabic page. `unit` is
+// second | minute | hour | day.
+function _fmtAgo(n, unit) {
+  const short = { second: 's', minute: 'm', hour: 'h', day: 'd' }[unit] || 'd';
+  try {
+    const l = (window.RPi18n && window.RPi18n.current) || 'en';
+    if (l !== 'en' && typeof Intl !== 'undefined' && Intl.RelativeTimeFormat) {
+      return new Intl.RelativeTimeFormat(_localeTag(), { numeric: 'always', style: 'short' }).format(-n, unit);
+    }
+  } catch (_) { /* fall through to the English form */ }
+  return n + short + ' ago';
 }
 // v6.4.2: bare `_fmtAbsTs(ts)` follows the BROWSER
 // locale, so an operator who picked another language in the app still got the
@@ -28991,8 +29006,8 @@ async function loadIgnoredItems() {
     { key: 'devices',          label: 'Devices',          identify: e => e.id },
   ];
   const _ago = ts => { if (!ts) return ''; const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
-    if (s < 3600) return Math.floor(s/60)+'m ago'; if (s < 86400) return Math.floor(s/3600)+'h ago';
-    return Math.floor(s/86400)+'d ago'; };
+    if (s < 3600) return _fmtAgo(Math.floor(s/60), 'minute'); if (s < 86400) return _fmtAgo(Math.floor(s/3600), 'hour');
+    return _fmtAgo(Math.floor(s/86400), 'day'); };
   let html = '';
   for (const sec of sections) {
     const entries = data[sec.key] || [];

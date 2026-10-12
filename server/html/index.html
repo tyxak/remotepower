@@ -5335,7 +5335,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li>CVE Findings → row → <em>Triage</em>.</li>
                 <li>Scripts editor → <em>Generate from prompt</em> / <em>Explain</em> / <em>Audit for risks</em>.</li>
                 <li>Notifications → webhook log row → <em>Explain</em>.</li>
-                <li>Help → AI Assistant → standalone chat with model picker and Ollama server stats.</li>
+                <li>Admin → AI Assistant → standalone chat with model picker and Ollama server stats.</li>
               </ul>
               <p><strong>Privacy:</strong> hostnames and IPs are <em>redacted</em> before leaving the building unless you toggle "Send hostnames" / "Send IP addresses" in Settings. Bearer tokens, AWS keys, and long hex strings are <em>always</em> redacted regardless. AI-generated scripts go through the same dry-run + dangerous-pattern detection as anything else — no AI-trusted bypass.</p>
               <p><strong>Slow local models</strong> (smallthinker, qwq, deepseek-r1) routinely take 60–180 s per response. The HTTP timeout is 5 min on the Python side, but nginx's <code>proxy_read_timeout</code> defaults to 60 s and will cut you off first — add a <code>location /api/ai/</code> block with <code>proxy_read_timeout 300s;</code>. See <a href="docs/ai.md" class="c-accent">docs/ai.md</a> for the snippet and the full reference.</p>
@@ -5683,21 +5683,29 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="sidebar collapse expand navigation groups fleet monitoring security planning admin">
-            <summary><strong>Sidebar navigation</strong> — collapsible groups and section deep-links</summary>
+          <details class="doc-card" data-keywords="sidebar navigation groups domains fleet monitoring hardware security compliance patching automation scheduling access backups business admin favorites star search collapse all pages">
+            <summary><strong>Sidebar navigation</strong> — twelve groups, search and pinned favorites</summary>
             <div class="doc-body">
-              <p><strong>Grouped layout:</strong> the sidebar organises all pages into five collapsible sections. Each group opens and closes independently; state persists in <code>localStorage</code>. Fleet and Monitoring are expanded by default; Admin is collapsed.</p>
+              <p><strong>Twelve groups:</strong> every page sits in one domain. Each group opens and closes on its own, you can keep several open at once, and the browser remembers which. They all start closed, and going to a page opens its group.</p>
               <table class="isl-104 isl-770">
-                <tr><th>Group</th><th>Pages</th></tr>
-                <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Containers, Virtualization, Network</td></tr>
-                <tr><td><strong>Monitoring</strong></td><td>Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs</td></tr>
-                <tr><td><strong>Security</strong></td><td>TLS/DNS, Patches, CVEs, Drift, Audit</td></tr>
-                <tr><td><strong>Planning</strong></td><td>Schedule, Calendar, Tasks, Maintenance, History</td></tr>
-                <tr><td><strong>Admin</strong></td><td>Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status</td></tr>
+                <tr><th>Group</th><th>In this group</th></tr>
+                <tr><td><strong>Fleet</strong></td><td>CMDB, Contacts, Containers, History, Library, Links, Network, Query, Sites, Tags &amp; groups, Virtualization</td></tr>
+                <tr><td><strong>Monitoring</strong></td><td>Needs Attention, Checks, Forecast, Integrations, Live Monitor, Logs, Network metrics, Services, Status Board, Timeline, Trends, Tuning</td></tr>
+                <tr><td><strong>Hardware</strong></td><td>GPUs, Power, Predictive health, Storage, Thermal</td></tr>
+                <tr><td><strong>Security</strong></td><td>Advisory, CVEs, Drift, Exposure, Firewall, KMIP, Pentest, Protect, Risk, Software policy, SSH keys, Threat intel, TLS / DNS</td></tr>
+                <tr><td><strong>Compliance</strong></td><td>Audit, Compliance, Reputation/DMARC</td></tr>
+                <tr><td><strong>Patching</strong></td><td>Patches, Auto-patch, Rollouts</td></tr>
+                <tr><td><strong>Automation</strong></td><td>App catalog, Automation, Autonomy, Command Queue, Confirmations, Data Explorer, IaC Generator, Package Snapshots, Provisioning, Scripts</td></tr>
+                <tr><td><strong>Scheduling</strong></td><td>Calendar, Cron, Maintenance, Schedule, Tasks</td></tr>
+                <tr><td><strong>Access</strong></td><td>DNS, Files, SSH gateway, WG Access</td></tr>
+                <tr><td><strong>Backups</strong></td><td>Backups</td></tr>
+                <tr><td><strong>Business</strong></td><td>Billing, Knowledge base, Reports, Timesheet</td></tr>
+                <tr><td><strong>Admin</strong></td><td>AI Assistant, API Keys, Release Signing, Server status, Settings, Users, Documentation, About</td></tr>
               </table>
-              <p><strong>Monitoring deep-links:</strong> each item in the Monitoring group navigates to the Monitoring page and smooth-scrolls to its section — so clicking "Listening Ports" skips straight to that section without manual scrolling.</p>
-              <p><strong>Narrow mode:</strong> click ◀ at the top to shrink the sidebar to a 56-px icon strip. Click ▶ to expand. Preference saved in <code>localStorage</code> and applied before first paint. Mobile ignores this — the slide-in drawer is unchanged.</p>
-              <p><strong>Standalone items:</strong> Home and Links sit above the groups as always-visible direct links (no group required to reach them).</p>
+              <p><strong>Always visible:</strong> Dashboard, Devices, Alerts and Tickets sit above the groups. <strong>All pages</strong> opens the whole map on one screen, and the search box finds a page by its name or by what it contains.</p>
+              <p><strong>Optional modules:</strong> Billing, Knowledge base and the AI command runner are off until you switch them on under Settings → Advanced. A module that is off has no menu entry and its API answers 404.</p>
+              <p><strong>Favorites:</strong> hover any entry and click the star to pin it under Main. Pins are saved to your account, so they follow you to another browser.</p>
+              <p><strong>Narrow mode:</strong> Collapse at the top of the sidebar shrinks it to an icon strip, and the choice is remembered in this browser. On a phone the sidebar slides in over the page instead.</p>
             </div>
           </details>
 
