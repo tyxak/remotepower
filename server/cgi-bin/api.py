@@ -31770,40 +31770,23 @@ _QE_ALERT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
 
 
 def _qe_attackers_rows():
-    """v7.1.0: one row per (source address, attacked host) that IP intel has
+    """v7.1.0: one row per (source address, place that saw it) that IP intel has
     recorded — "which known-abusive addresses are hitting my web tier and are
-    not blocked" is a Data Explorer question now. Limited to visible devices,
-    like every device-keyed entity here."""
-    visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
-    st = (_load_ro(IPINTEL_FILE) or {}) if backend_exists(IPINTEL_FILE) else {}
-    blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
-    out = []
-    for ip, a in (st.get('attackers') or {}).items():
-        if not isinstance(a, dict):
-            continue
-        v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
-        rep = a.get('reported') if isinstance(a.get('reported'), dict) else {}
-        for did, seen in (a.get('devices') or {}).items():
-            if did not in visible or not isinstance(seen, dict):
-                continue
-            out.append({
-                'ip': ip, 'device_id': did,
-                'device_name': (visible[did] or {}).get('name') or did,
-                'unit': seen.get('unit') or '', 'count': int(seen.get('count') or 0),
-                'score': v.get('score'), 'reports': v.get('reports'),
-                'country': v.get('country') or '', 'isp': v.get('isp') or '',
-                'usage': v.get('usage') or '',
-                'blocked': ip in (blocks.get(did) or {}),
-                'reported': bool(rep),
-                'first_seen': int(a.get('first_seen') or 0),
-                'last_seen': int(seen.get('at') or a.get('last_seen') or 0),
-            })
-    return out
+    not blocked" is a Data Explorer question now. Hosts are limited to the
+    caller's visible devices, like every device-keyed entity here; the two edge
+    sources (v7.3.0) are the platform operator's. The rows are built in
+    ip_intel_handlers, which owns the store."""
+    return ip_intel_handlers_mod.explorer_rows(
+        _scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
 
 
 _QE_ATTACKER_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'ip', 'device_id', 'device_name', 'unit', 'count', 'score', 'reports',
-    'country', 'isp', 'usage', 'blocked', 'reported', 'first_seen', 'last_seen')}
+    'country', 'isp', 'usage', 'blocked', 'reported', 'first_seen', 'last_seen',
+    # v7.3.0: where it was seen (host or edge), what it did, who was told, and
+    # whether the Cloudflare list or a ban holds it. The last two are empty for
+    # anyone who is not the platform operator.
+    'source', 'classes', 'reported_to', 'in_edge_list', 'edge_banned')}
 
 
 def _qe_gateway_sessions_rows():
@@ -64058,6 +64041,9 @@ _TIMELINE_AUDIT_PREFIXES = (
     # and listing both would show every session twice.
     'ip_intel_block', 'ip_intel_unblock', 'sshgw_open', 'sshgw_device_',
     'sshgw_key_',
+    # v7.3.0: a ban placed by hand (hosts, the edge or both) and a change to the
+    # Cloudflare IP list are changes to what traffic reaches the fleet.
+    'ip_intel_ban', 'ip_intel_unban', 'edge_list_sync',
 )
 
 
@@ -66669,6 +66655,13 @@ def _build_metrics_ctx(visible=None):
         'attack':            _metrics_attack(_mctx_devs, now),
         'sshgw':             _metrics_sshgw(_mctx_devs, now),
     }
+    # v7.3.0: the edge feeds and the Cloudflare list belong to the instance, so
+    # they ride only a machine scrape (visible is None) or the platform operator.
+    try:
+        if visible is None or ip_intel_handlers_mod._is_operator():
+            ctx['threat_intel'] = ip_intel_handlers_mod.edge_metrics(now)
+    except Exception as e:     # a scrape must never 500 because one block failed
+        sys.stderr.write(f'[remotepower] metrics threat-intel block failed: {e}\n')
     return ctx if visible is None else _metrics_scope_ctx(ctx, visible)
 
 

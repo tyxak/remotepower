@@ -648,6 +648,43 @@ def generate_metrics(ctx: dict) -> str:
             lines.append(f'# TYPE {fam} gauge')
             lines.append(_metric(fam, {}, int(sshgw.get(key) or 0)))
 
+    # ── v7.3.0: the edge feeds and the Cloudflare IP list ──────────────────────
+    ti = ctx.get('threat_intel')
+    if isinstance(ti, dict) and ti:
+        feeds = ti.get('feeds') if isinstance(ti.get('feeds'), dict) else {}
+        if feeds:
+            lines.append('# HELP remotepower_edge_feed_up 1 when the edge feed\'s last read worked.')
+            lines.append('# TYPE remotepower_edge_feed_up gauge')
+            for name, f in sorted(feeds.items()):
+                lines.append(_metric('remotepower_edge_feed_up', {'feed': name}, int(f.get('up') or 0)))
+            lines.append('# HELP remotepower_edge_feed_age_seconds Seconds since the edge feed was last read.')
+            lines.append('# TYPE remotepower_edge_feed_age_seconds gauge')
+            for name, f in sorted(feeds.items()):
+                if f.get('age') is not None:
+                    lines.append(_metric('remotepower_edge_feed_age_seconds', {'feed': name}, int(f['age'])))
+        bl = ti.get('blocklist') if isinstance(ti.get('blocklist'), dict) else {}
+        if bl:
+            for fam, key, help_text in (
+                    ('remotepower_edge_blocklist_entries', 'entries',
+                     'Entries in the Cloudflare IP list RemotePower keeps.'),
+                    ('remotepower_edge_blocklist_up', 'up',
+                     '1 when the last sync of the Cloudflare IP list did not fail.'),
+                    ('remotepower_edge_blocklist_held', 'held',
+                     '1 when a sync is held and waits for an operator.'),
+                    ('remotepower_edge_bans_active', 'bans',
+                     'Addresses banned at the edge by hand or by an automatic block that have not expired.')):
+                lines.append(f'# HELP {fam} {help_text}')
+                lines.append(f'# TYPE {fam} gauge')
+                lines.append(_metric(fam, {}, int(bl.get(key) or 0)))
+            if bl.get('age') is not None:
+                lines.append('# HELP remotepower_edge_blocklist_sync_age_seconds Seconds since the list was last synced.')
+                lines.append('# TYPE remotepower_edge_blocklist_sync_age_seconds gauge')
+                lines.append(_metric('remotepower_edge_blocklist_sync_age_seconds', {}, int(bl['age'])))
+        if ti.get('attackers_24h') is not None:
+            lines.append('# HELP remotepower_ip_intel_attackers_24h Addresses Threat intel recorded in the last 24 hours.')
+            lines.append('# TYPE remotepower_ip_intel_attackers_24h gauge')
+            lines.append(_metric('remotepower_ip_intel_attackers_24h', {}, int(ti['attackers_24h'])))
+
     # ── v6.4.2: per-device uptime/SLA + framework compliance ───────────────────
     # The two posture numbers the product has always computed for its own
     # screens and never let an operator take away.

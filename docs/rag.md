@@ -37,7 +37,7 @@ never indexed by any of them.
 | **Fleet rollups** | Cross-host summaries: worst CVEs, **all open (unresolved) alerts worst-first**, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" / "what is alerting?" |
 | **CMDB** | Asset metadata + per-asset Markdown docs | **credentials vault never indexed** |
 | **History** | Recent commands, alerts, fleet events | bounded by count + age; redaction applied |
-| **Firewall** | Per device: host-firewall posture (nftables/iptables/ufw/firewalld — active, rule counts, policy) + fail2ban jails/bans, and a fleet "no active firewall" rollup | rule **counts**, never raw rules/counters |
+| **Firewall** | Per device: host-firewall posture (nftables/iptables/ufw/firewalld — active, rule counts, policy) + fail2ban jails/bans, and a fleet "no active firewall" rollup. Also Threat intel: each host's attackers with reputation and block state, SSH-gateway sessions, and (v7.3.0) the edge feeds' state, the Cloudflare IP list and the addresses only the edge saw | rule **counts**, never raw rules/counters; public attacker addresses, not fleet data |
 | **Integrations** | Homelab software-integration health (Pi-hole, TrueNAS, *arr, …) + a down/degraded rollup | fleet-scoped; secrets never indexed |
 | **Backups** | Per device: backup freshness (which watched paths are stale, age) + a fleet "stale backups" rollup | answers "are X's backups current?" |
 | **Email & DNS** | DMARC/SPF/DKIM posture per domain, DNSBL/IP-reputation status, and DNS-resolver health — grounds the *email-deliverability* and *DNS-hygiene* AI advisors | admin-configured posture, no PII |

@@ -55,7 +55,19 @@ def main():
                         'slo_ids': ['slo-web']}]
     cfg['slo_objects'] = [{'id': 'slo-web', 'name': 'Public web',
                            'target_pct': 99.9, 'window_days': 30}]
+    # v7.3.0: the edge feeds and the Cloudflare list, so the sample carries
+    # their families too (they appear only when those features are on).
+    cfg['ip_intel'] = {'edge_enabled': True, 'edgelist_enabled': True}
     api.save(api.CONFIG_FILE, cfg)
+    api.save(api.IPINTEL_FILE, {
+        'edge': {'polled': now - 120,
+                 'cf': {'state': 'ok', 'at': now - 120, 'rows': 38, 'kept': 16},
+                 'trap': {'state': 'ok', 'at': now - 120, 'hits': 17, 'kept': 12}},
+        'edgelist': {'last': {'mode': 'apply', 'at': now - 900, 'state': 'ok',
+                              'list': {'name': 'remotepower_blocklist', 'items': 168}}},
+        'edgeban': {'203.0.113.40': {'at': now - 3600, 'until': now + 82800, 'by': 'alice'}},
+        'attackers': {'198.51.100.7': {'last_seen': now - 600, 'devices': {}}},
+    })
     # 2000 checks, not 200: a 99.9% target leaves a 0.1 pp error budget, and a
     # window of N checks can only resolve 100/N pp. Under ~1000 samples the
     # budget is thinner than one check, the exporter suppresses the

@@ -126,7 +126,7 @@ def _period_activity(devices, now, days=30):
     return out
 
 
-def _threats_section(devices, now, days=30):
+def _threats_section(devices, now, days=30, edge=False):
     """v7.1.0: attacks on the fleet and remote access through the SSH gateway,
     for the report a security reviewer is handed. Both used to live only on
     their own pages. `devices` is already scoped to the caller, and every count
@@ -135,12 +135,20 @@ def _threats_section(devices, now, days=30):
     Brute force: hosts with a source over the alert threshold right now.
     Attackers: sources IP intel recorded in the last week, how many a
     reputation service lists as abusive, and how many of those are blocked.
-    Gateway: sessions in the period, by how many people, to how many hosts."""
+    Gateway: sessions in the period, by how many people, to how many hosts.
+    Edge (`edge=True`, only for an unrestricted reader): what Cloudflare and the
+    honeypot saw, which belongs to the instance and not to any host."""
     ids = set(devices)
     out = {'days': days, 'bf_hosts': 0, 'bf_sources': 0,
            'attackers': 0, 'known_bad': 0, 'known_bad_unblocked': 0,
            'blocks_active': 0, 'reported': 0, 'top_hosts': [],
-           'gw_sessions': 0, 'gw_users': 0, 'gw_hosts': 0, 'gw_hours': 0.0}
+           'gw_sessions': 0, 'gw_users': 0, 'gw_hosts': 0, 'gw_hours': 0.0,
+           'edge': None}
+    if edge:
+        try:
+            out['edge'] = A.ip_intel_handlers_mod.edge_report(now, days)
+        except Exception:  # nosec B110 — the edge sources are optional
+            pass
     try:
         on, thresh, window = A._brute_config()
         if on and A.backend_exists(A.BRUTE_FORCE_FILE):
@@ -370,7 +378,12 @@ def _build_fleet_report(site_id=None):
                            'worst': health['devices'][:10]},
         'attention':      health['counts'],
         'posture':        pos,
-        'threats':        _threats_section(devices, now),
+        'threats':        _threats_section(
+            devices, now,
+            # The edge belongs to the instance: a per-site report, or a reader
+            # whose role scope or tenant trimmed the fleet, does not get it.
+            edge=(site_id is None and not _caller_restricted
+                  and A._caller_scope() is None and A._tenant_gate() is None)),
         'compliance':     comp,
         # v6.4.2: what CHANGED, not just where things stand. Every section above
         # is a live counter, so two consecutive weekly reports were
@@ -581,6 +594,12 @@ def _fleet_report_csv_bytes(report):
         row(['Threats', 'Known-abusive, not blocked', th.get('known_bad_unblocked', 0)])
         row(['Threats', 'Blocks active', th.get('blocks_active', 0)])
         row(['Threats', f"Addresses reported ({th.get('days', 30)}d)", th.get('reported', 0)])
+        eg = th.get('edge')
+        if isinstance(eg, dict):
+            row(['Edge', f"Addresses seen at the edge ({th.get('days', 30)}d)", eg.get('seen', 0)])
+            row(['Edge', 'Of those, reported', eg.get('reported', 0)])
+            row(['Edge', 'In the Cloudflare IP list now', eg.get('in_list', 0)])
+            row(['Edge', 'Edge bans active', eg.get('bans', 0)])
         row(['Remote access', f"SSH gateway sessions ({th.get('days', 30)}d)", th.get('gw_sessions', 0)])
         row(['Remote access', 'Distinct users', th.get('gw_users', 0)])
         row(['Remote access', 'Distinct hosts', th.get('gw_hosts', 0)])
@@ -1005,6 +1024,11 @@ def _render_report_email(report):
         lines.append(f"  Attackers (7d)     : {th.get('attackers', 0)}, "
                      f"{th.get('known_bad', 0)} known-abusive "
                      f"({th.get('known_bad_unblocked', 0)} not blocked)")
+        eg = th.get('edge')
+        if isinstance(eg, dict):
+            lines.append(f"  Edge ({th.get('days', 30)}d)       : {eg.get('seen', 0)} address(es) seen, "
+                         f"{eg.get('reported', 0)} reported, {eg.get('in_list', 0)} in the Cloudflare list, "
+                         f"{eg.get('bans', 0)} ban(s) active")
         if th.get('blocks_active') or th.get('reported'):
             lines.append(f"  Blocks / reports   : {th.get('blocks_active', 0)} active, "
                          f"{th.get('reported', 0)} reported")

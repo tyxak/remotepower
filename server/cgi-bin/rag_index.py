@@ -1270,6 +1270,154 @@ def build_threats_corpus(devices, intel=None, sessions=None, now=0):
             f"RemotePower gateway, newest first):\n" + '\n'.join(lines),
             title=f"{name} — SSH gateway access", device=did,
             ts=int(rows[0].get('started') or now)))
+    docs += build_edge_threats_corpus(intel, now)
+    return docs
+
+
+# What the edge sources and the Cloudflare IP list say, for "is the honeypot
+# catching anything", "what is in the edge blocklist" and "why did the Cloudflare
+# feed stop". The Threat intel page shows all of it to an operator; without this
+# the assistant could not, because the host-keyed docs above skip an address that
+# only the edge saw (its pseudo-device is not a fleet device).
+_EDGE_FEED_WORDS = {
+    'ok': 'reading normally', 'refused': 'refused by Cloudflare',
+    'no_access': 'the token cannot read it', 'error': 'failing with an error',
+    'off': 'switched off',
+}
+_EDGE_FEEDS = (('cf', 'Cloudflare firewall events', 'rows'),
+               ('trap', 'the honeypot Worker log', 'hits'))
+_EDGE_SOURCE_WORDS = {'edge:cloudflare': 'Cloudflare', 'edge:trap': 'the honeypot'}
+EDGE_ADDRESSES_SHOWN = 25
+
+
+def _iso_minute(ts):
+    try:
+        t = int(ts)
+    except (TypeError, ValueError, OverflowError):
+        return ''
+    if t <= 0:
+        return ''
+    import time as _t
+    return _t.strftime('%Y-%m-%d %H:%M UTC', _t.gmtime(t))
+
+
+def build_edge_threats_corpus(intel, now=0):
+    """Fleet-level docs for the edge feeds, the Cloudflare IP list and the
+    addresses only the edge saw. Pure; `intel` is the IP-intel store."""
+    intel = intel if isinstance(intel, dict) else {}
+    docs = []
+    edge = intel.get('edge') if isinstance(intel.get('edge'), dict) else {}
+    el = intel.get('edgelist') if isinstance(intel.get('edgelist'), dict) else {}
+    last = el.get('last') if isinstance(el.get('last'), dict) else {}
+    lines = []
+    for key, label, count_key in _EDGE_FEEDS:
+        f = edge.get(key) if isinstance(edge.get(key), dict) else None
+        if not f:
+            continue
+        state = str(f.get('state') or '')
+        bits = [f"{label}: {_EDGE_FEED_WORDS.get(state, state or 'unknown')}"]
+        when = _iso_minute(f.get('at'))
+        if when:
+            bits.append(f"last read {when}")
+        n = f.get(count_key)
+        if isinstance(n, int) and not isinstance(n, bool):
+            kept = f.get('kept')
+            bits.append(f"{n} {'groups' if count_key == 'rows' else 'hits'} read"
+                        + (f", {kept} kept" if isinstance(kept, int) else ''))
+        ign = f.get('ignored') if isinstance(f.get('ignored'), dict) else {}
+        if ign:
+            bits.append("set aside: " + ', '.join(
+                f"{k.replace('_', ' ')} {v}" for k, v in sorted(ign.items())
+                if isinstance(v, int))[:160])
+        err = str(f.get('error') or f.get('message') or '')[:160]
+        if err and state != 'ok':
+            bits.append(f"says: {err}")
+        lines.append('; '.join(bits))
+    ltxt = None
+    if last:
+        lst = last.get('list') if isinstance(last.get('list'), dict) else {}
+        name = str(lst.get('name') or 'the Cloudflare IP list')[:64]
+        bits = [f"Edge blocklist ({name}): {last.get('state') or 'unknown'}"]
+        when = _iso_minute(last.get('at'))
+        if when:
+            bits.append(f"last {last.get('mode') or 'sync'} {when}")
+        if isinstance(lst.get('items'), int):
+            bits.append(f"{lst['items']} entries now")
+        if isinstance(last.get('added'), int) and isinstance(last.get('removed'), int):
+            bits.append(f"{last['added']} added and {last['removed']} removed")
+        kept = last.get('kept') if isinstance(last.get('kept'), dict) else {}
+        if kept:
+            bits.append("by source: " + ', '.join(
+                f"{k} {v}" for k, v in sorted(kept.items()) if isinstance(v, int)))
+        if last.get('held'):
+            bits.append(f"HELD, waiting for an operator: {str(last.get('held'))[:100]}")
+        ltxt = '; '.join(bits)
+        lines.append(ltxt)
+    bans = intel.get('edgeban') if isinstance(intel.get('edgeban'), dict) else {}
+    live_bans = [ip for ip, b in bans.items()
+                 if isinstance(b, dict) and int(b.get('until') or 0) > int(now or 0)]
+    if live_bans:
+        lines.append(f"{len(live_bans)} address(es) banned at the edge and not yet expired "
+                     f"(by hand or by an automatic block)")
+    if lines:
+        docs.append(make_doc(
+            'live/fleet#edge_sources', 'live_state', 'edge_sources',
+            "Threat intel edge sources (read from Cloudflare and the honeypot, "
+            "not from a host):\n" + '\n'.join(lines),
+            title='Threat intel — edge sources and blocklist',
+            ts=max([int(f.get('at') or 0) for f in edge.values() if isinstance(f, dict)]
+                   + [int(last.get('at') or 0), 0]) or now))
+    # The addresses only the edge saw (or saw as well): reputation, what they
+    # did, who was told, and whether the list or a ban holds them.
+    try:
+        import threat_evidence as _te
+    except Exception:
+        _te = None
+    atts = intel.get('attackers') if isinstance(intel.get('attackers'), dict) else {}
+    rows = []
+    for ip, a in atts.items():
+        if not isinstance(a, dict):
+            continue
+        devs = a.get('devices') if isinstance(a.get('devices'), dict) else {}
+        edge_seen = [d for d in devs if str(d).startswith('edge:')]
+        if not edge_seen:
+            continue
+        v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
+        ev = a.get('ev') if isinstance(a.get('ev'), dict) else (
+            (a.get('ev_reported') or {}).get('ev') if isinstance(a.get('ev_reported'), dict) else None)
+        classes = ''
+        if _te is not None and isinstance(ev, dict):
+            try:
+                classes = ', '.join(_te.CLASSES[c]['phrase'] for c, _n in _te.dominant(ev, 3))
+            except Exception:
+                classes = ''
+        seen_by = ', '.join(sorted({_EDGE_SOURCE_WORDS.get(str(d), str(d)) for d in edge_seen}))
+        told = a.get('reported') if isinstance(a.get('reported'), dict) else {}
+        bits = []
+        score = v.get('score')
+        bits.append(f"reputation {score}/100" if isinstance(score, int) else 'no reputation answer yet')
+        if v.get('country'):
+            bits[-1] += f", {str(v['country'])[:2]}"
+        if v.get('isp'):
+            bits[-1] += f", {str(v['isp'])[:50]}"
+        if classes:
+            bits.append(classes)
+        bits.append(f"seen by {seen_by}")
+        bits.append("reported to " + ', '.join(sorted(told)) if told else 'not reported')
+        if a.get('in_list'):
+            bits.append('in the edge blocklist')
+        if ip in live_bans:
+            bits.append('banned at the edge')
+        rows.append((score if isinstance(score, int) else -1, int(a.get('last_seen') or 0),
+                     f"{ip}: " + '; '.join(bits)))
+    if rows:
+        rows.sort(key=lambda r: (-r[0], -r[1]))
+        docs.append(make_doc(
+            'live/fleet#edge_addresses', 'live_state', 'edge_addresses',
+            f"Addresses seen at the edge ({len(rows)} in all, highest reputation first):\n"
+            + '\n'.join(r[2] for r in rows[:EDGE_ADDRESSES_SHOWN]),
+            title='Threat intel — addresses seen at the edge',
+            ts=max(r[1] for r in rows) or now))
     return docs
 
 

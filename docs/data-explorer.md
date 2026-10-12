@@ -164,13 +164,26 @@ visible to you.
 ### `attackers`
 
 `ip`, `device_id`, `device_name`, `unit`, `count`, `score`, `reports`,
-`country`, `isp`, `usage`, `blocked`, `reported`, `first_seen`, `last_seen`.
+`country`, `isp`, `usage`, `blocked`, `reported`, `first_seen`, `last_seen`,
+`source`, `classes`, `reported_to`, `in_edge_list`, `edge_banned`.
 
-One row for each brute-force source on each host it attacked, as
+One row for each source address on each place that saw it, as
 [IP intel](ip-intel.md) recorded it. `score` is the merged reputation (0–100)
 and is empty until a lookup has run; `blocked` is whether the address is blocked
 on that host right now; `reported` is whether it has been reported to a
 reputation service.
+
+`source` is `host` or `edge`. An edge row's `device_id` is `edge:cloudflare` or
+`edge:trap` (the honeypot), and it exists for an address only Cloudflare or the
+honeypot saw. `classes` lists what it did (`probe`, `sqli`, `bad_bot` and so on,
+most telling first), and `reported_to` names the services that were told.
+`in_edge_list` and `edge_banned` say whether the [Cloudflare IP
+list](edge-sources.md#edge-blocklist) holds the address and whether a ban at the
+edge is in force.
+
+The edge belongs to the instance, not to a host. Edge rows, `in_edge_list` and
+`edge_banned` are for the platform operator; everyone else gets host rows, and
+those two columns are empty.
 
 ### `gateway_sessions`
 

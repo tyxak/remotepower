@@ -4,7 +4,7 @@
 # the exporter is server/cgi-bin/prometheus_export.py.
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
-remotepower_info{version="7.0.3"} 1
+remotepower_info{version="7.3.0"} 1
 # HELP remotepower_devices_total Total enrolled devices.
 # TYPE remotepower_devices_total gauge
 remotepower_devices_total 2
@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1788753835
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1788746635
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1791790508
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1791783308
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -70,7 +70,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1788154135
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1791190808
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
@@ -181,6 +181,32 @@ remotepower_compliance_check_devices{check="cis-cve",severity="high",result="na"
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="pass"} 0
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="fail"} 0
 remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="na"} 2
+# HELP remotepower_edge_feed_up 1 when the edge feed's last read worked.
+# TYPE remotepower_edge_feed_up gauge
+remotepower_edge_feed_up{feed="cloudflare"} 1
+remotepower_edge_feed_up{feed="honeypot"} 1
+# HELP remotepower_edge_feed_age_seconds Seconds since the edge feed was last read.
+# TYPE remotepower_edge_feed_age_seconds gauge
+remotepower_edge_feed_age_seconds{feed="cloudflare"} 120
+remotepower_edge_feed_age_seconds{feed="honeypot"} 120
+# HELP remotepower_edge_blocklist_entries Entries in the Cloudflare IP list RemotePower keeps.
+# TYPE remotepower_edge_blocklist_entries gauge
+remotepower_edge_blocklist_entries 168
+# HELP remotepower_edge_blocklist_up 1 when the last sync of the Cloudflare IP list did not fail.
+# TYPE remotepower_edge_blocklist_up gauge
+remotepower_edge_blocklist_up 1
+# HELP remotepower_edge_blocklist_held 1 when a sync is held and waits for an operator.
+# TYPE remotepower_edge_blocklist_held gauge
+remotepower_edge_blocklist_held 0
+# HELP remotepower_edge_bans_active Addresses banned at the edge by hand or by an automatic block that have not expired.
+# TYPE remotepower_edge_bans_active gauge
+remotepower_edge_bans_active 1
+# HELP remotepower_edge_blocklist_sync_age_seconds Seconds since the list was last synced.
+# TYPE remotepower_edge_blocklist_sync_age_seconds gauge
+remotepower_edge_blocklist_sync_age_seconds 900
+# HELP remotepower_ip_intel_attackers_24h Addresses Threat intel recorded in the last 24 hours.
+# TYPE remotepower_ip_intel_attackers_24h gauge
+remotepower_ip_intel_attackers_24h 1
 # HELP remotepower_compliance_framework_score Compliance score for one framework (0-100).
 # TYPE remotepower_compliance_framework_score gauge
 remotepower_compliance_framework_score{framework="pci"} 66.7

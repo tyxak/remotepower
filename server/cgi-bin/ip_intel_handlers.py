@@ -980,6 +980,145 @@ def _sensor_rows(st, visible):
     return rows
 
 
+def _is_operator():
+    """An administrator, and on a multi-tenant install only the platform operator.
+    The edge feeds and the Cloudflare list belong to the instance, not to a tenant."""
+    try:
+        role = A.verify_token(A.get_token_from_request())[1]
+    except Exception:
+        return False
+    return bool(A._resolve_role(role).get('admin')) and (
+        not A._tenancy_enforced() or A._caller_is_superadmin())
+
+
+def edge_metrics(now=None):
+    """Instance-level numbers for the metrics export: whether each edge feed's last
+    read worked and how long ago it was, what the Cloudflare list holds and whether
+    its last sync needs a person, how many bans are live, and how many addresses
+    the day's logs and edge feeds named. {} when nothing here is switched on."""
+    now = int(now or time.time())
+    pol = _policy()
+    st = _store_ro()
+    out = {}
+    edge = st.get('edge') if isinstance(st.get('edge'), dict) else {}
+    if pol.get('edge_enabled'):
+        feeds = {}
+        for key, name in (('cf', 'cloudflare'), ('trap', 'honeypot')):
+            f = edge.get(key) if isinstance(edge.get(key), dict) else None
+            if f is None:
+                continue
+            at = int(f.get('at') or 0)
+            feeds[name] = {'up': 1 if f.get('state') == 'ok' else 0,
+                           'age': max(0, now - at) if at else None}
+        out['feeds'] = feeds
+    if pol.get('edgelist_enabled'):
+        el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
+        last = el.get('last') if isinstance(el.get('last'), dict) else {}
+        lst = last.get('list') if isinstance(last.get('list'), dict) else {}
+        state = str(last.get('state') or '')
+        at = int(last.get('at') or 0)
+        out['blocklist'] = {
+            'entries': int(lst.get('items') or 0),
+            'age': max(0, now - at) if at else None,
+            'up': 1 if state in ('ok', 'pending', '') else 0,
+            'held': 1 if state in ('held', 'needs_adopt') else 0,
+            'bans': len(edge_blocklist.active_bans(st.get('edgeban'), now)),
+        }
+    atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+    recent = sum(1 for a in atts.values()
+                 if isinstance(a, dict) and now - int(a.get('last_seen') or 0) < 86400)
+    if out or atts:
+        out['attackers_24h'] = recent
+    return out
+
+
+def edge_report(now, days=30):
+    """What the edge sources saw in the last `days`, for the posture report, or
+    None when there is nothing to say. Instance-level: the caller decides whether
+    the reader may have it."""
+    pol = _policy()
+    st = _store_ro()
+    cutoff = int(now) - int(days) * 86400
+    seen = reported = listed = 0
+    atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+    for a in atts.values():
+        if not isinstance(a, dict):
+            continue
+        devs = a.get('devices') if isinstance(a.get('devices'), dict) else {}
+        if not any(d in ip_intel.EDGE_DEVICES and isinstance(x, dict)
+                   and int(x.get('at') or 0) >= cutoff for d, x in devs.items()):
+            continue
+        seen += 1
+        if any(int(t or 0) >= cutoff for t in (a.get('reported') or {}).values()):
+            reported += 1
+        if a.get('in_list'):
+            listed += 1
+    on = bool(pol.get('edge_enabled') or pol.get('edgelist_enabled'))
+    if not on and not seen:
+        return None
+    el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
+    last = el.get('last') if isinstance(el.get('last'), dict) else {}
+    lst = last.get('list') if isinstance(last.get('list'), dict) else {}
+    return {'seen': seen, 'reported': reported, 'in_list': listed,
+            'list_entries': int(lst.get('items') or 0) if pol.get('edgelist_enabled') else None,
+            'bans': len(edge_blocklist.active_bans(st.get('edgeban'), int(now)))}
+
+
+def explorer_rows(visible):
+    """Rows for the Data Explorer's `attackers` entity: one per (source address,
+    place that saw it). `visible` is the caller's device map.
+
+    A place is a host the caller can see, or, for the platform operator, one of the
+    two edge sources (Cloudflare's firewall events, the honeypot Worker). An address
+    only the edge saw has no host, so without those rows "which addresses has the
+    honeypot caught and are they in the blocklist" could not be asked at all. Edge
+    rows and the list/ban columns stay empty for everyone else."""
+    st = _store_ro()
+    blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
+    operator = _is_operator()
+    now = int(time.time())
+    bans = edge_blocklist.active_bans(st.get('edgeban'), now) if operator else {}
+    out = []
+    for ip, a in (st.get('attackers') or {}).items():
+        if not isinstance(a, dict):
+            continue
+        v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
+        rep = a.get('reported') if isinstance(a.get('reported'), dict) else {}
+        ev = a.get('ev') if isinstance(a.get('ev'), dict) else (
+            (a.get('ev_reported') or {}).get('ev') if isinstance(a.get('ev_reported'), dict) else None)
+        classes = ''
+        if isinstance(ev, dict):
+            classes = ','.join(c for c, _n in threat_evidence.dominant(ev, 5))
+        canon = edge_blocklist.canonical(ip)
+        for did, seen in (a.get('devices') or {}).items():
+            if not isinstance(seen, dict):
+                continue
+            edge = did in ip_intel.EDGE_DEVICES
+            if edge and not operator:
+                continue
+            if not edge and did not in visible:
+                continue
+            out.append({
+                'ip': ip, 'device_id': did,
+                'device_name': (ip_intel.EDGE_DEVICES[did] if edge
+                                else (visible[did] or {}).get('name') or did),
+                'unit': seen.get('unit') or '', 'count': int(seen.get('count') or 0),
+                'score': v.get('score'), 'reports': v.get('reports'),
+                'country': v.get('country') or '', 'isp': v.get('isp') or '',
+                'usage': v.get('usage') or '',
+                'blocked': ip in (blocks.get(did) or {}),
+                'reported': bool(rep),
+                'first_seen': int(a.get('first_seen') or 0),
+                'last_seen': int(seen.get('at') or a.get('last_seen') or 0),
+                'source': 'edge' if edge else 'host',
+                'classes': classes,
+                'reported_to': ','.join(sorted(str(k) for k in rep)),
+                'in_edge_list': (bool(a.get('in_list')) if operator else None),
+                'edge_banned': ((canon in bans) if operator and canon else None),
+            })
+    return out
+
+
 def handle_ip_intel():
     """GET /api/ip-intel — settings (keys as booleans), recent attackers with
     their reputation and what the logs showed, active blocks, each host's log

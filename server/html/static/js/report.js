@@ -174,6 +174,15 @@
         ['Distinct gateway users', th.gw_users, 0],
         ['Distinct hosts reached', th.gw_hosts, 0],
       ];
+      // The edge is the instance's, so these rows exist only when the server
+      // sent them: a per-site or scoped report has none.
+      if (th.edge && typeof th.edge === 'object') {
+        thRows.splice(7, 0,
+          ['Addresses seen at the edge (last ' + (th.days || 30) + ' days)', th.edge.seen, 0],
+          ['Of those, reported', th.edge.reported, 0],
+          ['In the Cloudflare IP list now', th.edge.in_list, 0],
+          ['Edge bans active', th.edge.bans, 0]);
+      }
       html += '<h2>Threats and remote access</h2><table data-rows="print"><tbody>'
         + thRows.map(function (r) {
             return '<tr><td>' + esc(r[0]) + '</td><td class="' + ((r[2] || 0) ? 'bad' : '')

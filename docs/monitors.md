@@ -196,6 +196,11 @@ metrics. Each block is emitted only when the underlying store has data.
 | `remotepower_device_bruteforce_sources` | — | Sources currently over the brute-force threshold on the host; quiet hosts are omitted |
 | `remotepower_device_known_attackers_unblocked`, `remotepower_device_ip_blocks_active` | — | Known-abusive sources that attacked the host this week and are not blocked, and blocks in place — see [ip-intel.md](ip-intel.md) |
 | `remotepower_sshgw_devices_opted_in`, `remotepower_sshgw_tunnels_connected`, `remotepower_sshgw_sessions_24h` | — | SSH gateway reach, live agent tunnels and recent sessions, emitted only when the module is on — see [sshgw.md](sshgw.md) |
+| `remotepower_edge_feed_up`, `remotepower_edge_feed_age_seconds` | `feed` (`cloudflare`, `honeypot`) | Whether each edge feed's last read worked and how long ago it was, emitted only while edge sources are on — see [edge-sources.md](edge-sources.md) |
+| `remotepower_edge_blocklist_entries`, `remotepower_edge_blocklist_up`, `remotepower_edge_blocklist_held`, `remotepower_edge_blocklist_sync_age_seconds`, `remotepower_edge_bans_active` | — | The Cloudflare IP list RemotePower keeps: entries, whether the last sync failed, whether one waits for an operator, its age, and live edge bans. Emitted only while the Edge blocklist is on |
+| `remotepower_ip_intel_attackers_24h` | — | Addresses Threat intel recorded in the last 24 hours, from hosts and from the edge |
+
+The three edge rows are instance-level. A scrape with the status token and a platform operator's session get them; a role-scoped or tenant session does not.
 
 Health, risk and reliability are three separate families, not one
 number: health is the Needs-Attention rollup, risk is security posture, and
