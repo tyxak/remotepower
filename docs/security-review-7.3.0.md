@@ -27,10 +27,10 @@ what each one said, and the reviewed false positives, are below.
 |---|---|---|
 | Read against the threat model | The new code (part one), then each place a rule is meant to apply: who may write a store, who may read a device, which routes check who you are before they say whether something exists | 22 findings, below |
 | Undefined names (`ruff F821`) | Server, agents, sidecars, tools and tests; the server's route table is checked with a generated list of the names bound at runtime | 0 |
-| bandit | 127,384 lines of server and agent Python, against the committed baseline | 0 new, 0 High. The baseline holds 25 Medium and 925 Low, each reviewed and marked on its line when it is by design |
-| semgrep | The Python, JavaScript and security-audit rulesets over the server and the agents | 19 results, every one a reviewed false positive (see below) |
+| bandit | 127,903 lines of server and agent Python, against the committed baseline | 0 new, 0 High. The baseline holds 25 Medium and 925 Low, each reviewed and marked on its line when it is by design |
+| semgrep | The Python, JavaScript and security-audit rulesets over the server and the agents | 17 results, every one a reviewed false positive (see below) |
 | CodeQL | Python and JavaScript, GitHub's default code-scanning suites, with the project's configuration, which is the one the production scan uses | 0 results |
-| gitleaks | All 2,252 commits and the working tree | No leaks |
+| gitleaks | Every commit on every branch (2,270 at the time of writing) and the working tree | No leaks |
 | eslint correctness rules | Every client file; now a test | 1 defect (a function declared twice, not a vulnerability) |
 | Dependency audit (`pip-audit`) | The packages the server imports | Three advisories at the versions on the dev box (cryptography, pyasn1, werkzeug); each is fixed in a newer release, and a fresh install resolves the newer one. The suite's modules that touch them pass at the latest releases |
 | nuclei 10.5.0 | All templates, low to critical, against nginx running the shipped configuration, anonymous and signed in | 0 results. A control run of the informational templates found nginx and the swagger page, so the templates were reaching the target |
@@ -40,6 +40,7 @@ what each one said, and the reviewed false positives, are below.
 | Every route, hostile input | The 952 operations in the OpenAPI document (44 skipped: sign-out, password change, restore, update, restart and the like), each sent bodies in which every key held one wrong type, numbers past the float range, a 20,000-deep nested array, NUL and bidirectional characters, and query strings of the same kind; as the operator, a viewer and with no token | About 49,000 requests over five rounds. The first rounds found 20 routes that answered 500 (finding 21). After the fixes, the viewer's round and the last operator's round found one route left, the Proxmox connection test for a host name with a label past 63 characters, which is fixed and has a test |
 | Authorization matrix | The 908 operations that remain, each sent one benign request as five identities: no token, a viewer, a finance role, an operator role and an administrator | 835 refuse an anonymous caller with 401, 13 answer 400, 27 answer 404 and 20 answer 403. The 13 that answer an anonymous caller with 2xx are public on purpose (the agent install and version scripts, `health`, `public-info`, the signed alert-action and survey links, the portal sign-in request, and the two CSP report receivers). No route answered 5xx to any identity |
 | Rendered browser gates | Every page on a seeded fleet: console errors, failed requests, accessibility, box overflow, spacing, typography | No CSP violation, no failed request except the two demo integrations that point at addresses that do not exist |
+| The test suite, on every storage backend | The whole suite against JSON files (14,704 tests), SQLite (14,641) and a real PostgreSQL (28 integration tests), then the release tarball unpacked, then Python 3.14 with only the dependency list the CI workflow installs (14,676) | All pass, with the browser gates required to run rather than skip |
 
 **Reviewed false positives in semgrep:** the SNMPv3 privacy layer uses AES in CFB
 mode because RFC 3826 specifies it (authentication is the protocol's separate HMAC);

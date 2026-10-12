@@ -38,9 +38,14 @@ def build_fixture(root: Path):
     api += ['# pad'] * 2960
     (root / 'server/cgi-bin/api.py').write_text('\n'.join(api) + '\n')
 
+    # The tool derives the count from the RUNTIME registry, as the real module
+    # does (the *arr connectors register in a loop, so a decorator grep misses
+    # them), so the fixture has a registry rather than only decorators.
     (root / 'server/cgi-bin/integrations.py').write_text(
-        'def _register(*a, **k):\n'
+        'CONNECTORS = {}\n\n\n'
+        'def _register(key, label=None):\n'
         '    def deco(fn):\n'
+        '        CONNECTORS[key] = fn\n'
         '        return fn\n'
         '    return deco\n\n\n'
         '@_register(\n    "pihole",\n    "Pi-hole",\n)\n'
@@ -77,7 +82,7 @@ def build_fixture(root: Path):
         '[![Version](https://img.shields.io/badge/version-5.6.0-blue.svg)]'
         '(x)\n\n'
         '**~2,000 lines** of server Python, one HTML file.\n\n'
-        '| **Integrate** | 9 **homelab-app** health connectors (Pi-hole) |\n\n'
+        '- **Integrate** — 9 connectors (homelab apps, hypervisors)\n\n'
         f'### Recent releases\n\n{bullets}\n\n'
         'Old notes: [v5.0.0 notes](docs/v5.0.0.md) and '
         '[review](docs/security-review-5.2.0.md).\n')
@@ -282,7 +287,7 @@ class TestCounts(FixtureCase):
         self.assertEqual(rc, 0, out)
         readme = (self.tmp / 'README.md').read_text()
         self.assertIn('**~3,000 lines** of server Python', readme)
-        self.assertIn('| 2 **homelab-app** health connectors', readme)
+        self.assertIn('**Integrate** — 2 connectors', readme)
         feats = (self.tmp / 'docs/features.md').read_text()
         self.assertIn('| 3 event types', feats)
         self.assertIn('| 2 connectors (+ Custom HTTP)', feats)

@@ -398,19 +398,25 @@ class Counter(Concern):
                   rf'\g<1>{rounded:,}\g<2>')
 
     def _connectors(self):
-        """Count @_register(...) connectors, excluding the custom probe
-        (the README/features counts list 'custom' separately: '(+ Custom HTTP)')."""
-        src = (self.root / 'server/cgi-bin/integrations.py').read_text()
-        ids = re.findall(r"^@_register\(\s*\n\s*[\"']([a-z0-9_]+)[\"']",
-                         src, flags=re.M)
-        return [i for i in ids if not i.startswith('custom')]
+        """The named connectors in the RUNTIME registry, excluding the custom
+        probe (the README/features counts list 'custom' separately: '(+ Custom
+        HTTP)'). Not a grep for `@_register(`: the five *arr connectors are
+        registered in a loop, so the decorator count misses them (it said 43 and
+        44 when there were 48), and tests/test_v702_doc_counts.py derives the
+        number the same way this does."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'integrations_relprep', self.root / 'server/cgi-bin/integrations.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return sorted(k for k in mod.CONNECTORS if not k.startswith('custom'))
 
     def _connector_count(self):
         n = len(self._connectors())
         print(f'homelab connectors (excl. custom probe): {n}')
         self.edit(self.root / 'README.md',
-                  r'\d+( \*\*homelab-app\*\* health connectors)',
-                  rf'{n}\g<1>')
+                  r'(\*\*Integrate\*\* — )\d+( connectors)',
+                  rf'\g<1>{n}\g<2>')
         self.edit(self.root / 'docs/features.md',
                   r'(\| )\d+( connectors \(\+ Custom HTTP\))',
                   rf'\g<1>{n}\g<2>')
