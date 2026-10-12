@@ -1435,7 +1435,7 @@ def build_integrations_corpus(latest, now=0):
         label = r.get('label') or key
         rtype = r.get('type', '')
         status = r.get('status', '')
-        detail = (r.get('detail') or '')[:200]
+        detail = str(r.get('detail') or '')[:200]
         rows.append(f"- {label} ({rtype}): {status}"
                     + (f" — {detail}" if detail else ''))
         if status in ('warning', 'critical'):
@@ -1844,11 +1844,11 @@ def build_tickets_corpus(store, resolve_device=None, now=0):
                 + (f"Affected host: {dev}.\n" if dev else '')
                 + f"Open for ~{age_h}h."
                 + (f"\nLast message: {snippet}" if snippet else ''))
-        rollup.append(f"- {rp} [{PRIO.get(pr, 'P4')}] {t.get('subject', '')[:80]} "
+        rollup.append(f"- {rp} [{PRIO.get(pr, 'P4')}] {str(t.get('subject', ''))[:80]} "
                       f"— {t.get('status', '')}, {who}" + (f", {dev}" if dev else ''))
         docs.append(make_doc(
             f"ticket/{t.get('id') or num}", 'tickets', 'ticket', body,
-            title=f"Ticket {rp}: {t.get('subject', '')[:80]}",
+            title=f"Ticket {rp}: {str(t.get('subject', ''))[:80]}",
             ts=int(t.get('updated_at') or now)))
     closed = sum(1 for t in tickets
                  if isinstance(t, dict) and t.get('status') in ('resolved', 'closed'))

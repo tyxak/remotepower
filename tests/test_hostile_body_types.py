@@ -80,5 +80,58 @@ class TestWrongTypesAreClientErrors(_Base):
         self.assertLess(status, 500)
 
 
+class TestMoreWrongTypes(_Base):
+    """The second round: every route sent a body whose every key held one wrong
+    type. Each of these answered 500."""
+
+    def _status(self, fn, body, *args, method="POST", qs=""):
+        status, _ = self.call(fn, body, method, qs, *args)
+        return status
+
+    def test_a_role_scope_that_is_not_an_object(self):
+        for scope in (5, [1], "all", True):
+            with self.subTest(scope=scope):
+                self.assertEqual(self._status(
+                    api.handle_role_create, {"name": "abc", "permissions": 5, "scope": scope}), 400)
+
+    def test_role_permissions_and_scope_values_of_the_wrong_type(self):
+        st = self._status(api.handle_role_create,
+                          {"name": "abc", "permissions": 5, "scope": {"type": "groups", "values": 7}})
+        self.assertEqual(st, 400, "no value to scope to: a client error, not a crash")
+
+    def test_a_kmip_port_that_is_not_a_number(self):
+        for port in ([1], {"a": 1}, 10 ** 400):
+            with self.subTest(port=str(port)[:10]):
+                self.assertEqual(self._status(api.handle_kmip_config, {"port": port}), 400)
+
+    def test_tls_hosts_that_are_a_number(self):
+        self.assertEqual(self._status(api.handle_tls_gen_self_signed, {"hosts": 5}), 400)
+
+    def test_a_drift_ignore_reason_that_is_a_list(self):
+        st = self._status(api.handle_drift_ignore, {"path": "/etc/x", "reason": [1]}, "pmx01")
+        self.assertIn(st, (400, 404), st)
+
+    def test_a_threshold_preview_with_infinity_or_a_huge_number(self):
+        for v in ("inf", "-inf", "nan", 10 ** 400):
+            with self.subTest(v=str(v)[:6]):
+                key = sorted(api._alert_param_config_keys())[0]
+                self.assertEqual(self._status(api.handle_threshold_preview, {key: v}), 200)
+
+    def test_report_definition_lists_of_the_wrong_type(self):
+        st = self._status(api.handle_report_defs_save,
+                          {"name": "x", "sections": 5, "recipients": True, "destinations": 1})
+        self.assertLess(st, 500)
+
+    def test_a_timeline_window_of_infinity(self):
+        st = self._status(api.handle_fleet_timeline, None, method="GET", qs="since=1e999&until=-1e999")
+        self.assertLess(st, 500)
+
+    def test_a_proxmox_host_that_is_not_a_host(self):
+        for host in ([1, "a"], {"a": 1}, "bad host:99999999999", "[::1"):
+            with self.subTest(host=str(host)[:12]):
+                st = self._status(api.handle_proxmox_test, {"proxmox_host": host})
+                self.assertEqual(st, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

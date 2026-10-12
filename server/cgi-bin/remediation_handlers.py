@@ -62,7 +62,7 @@ def _rule_guard_params(rule):
     def _num(key, default, lo, hi):
         try:
             return max(lo, min(hi, int(rule.get(key, default))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return default
     return {
         'host_cooldown_seconds': _num('host_cooldown_seconds', _DEF_HOST_COOLDOWN_S, 0, 7 * 86400),

@@ -1224,7 +1224,7 @@ def handle_ip_intel_settings():
             if body.get(k) not in (None, ''):
                 try:
                     pol[k] = max(lo, min(hi, int(body[k])))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     A.respond(400, {'error': f'{k} must be a number'})
                 changed.append(f'{k}={pol[k]}')
         if body.get('report_comment') is not None:
@@ -1394,7 +1394,7 @@ def handle_ip_intel_block():
         A.respond(409, {'error': f'Not blocking {ip}: {why}'})
     try:
         hours = max(1, min(24 * 90, int(body.get('hours') or pol['block_ttl_hours'])))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         hours = int(pol['block_ttl_hours'])
     now = int(time.time())
     res = (A._queue_command_batch([dev_id], 'exec:' + ip_intel.block_command(ip), actor)

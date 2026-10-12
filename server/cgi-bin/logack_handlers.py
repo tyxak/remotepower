@@ -222,7 +222,7 @@ def handle_log_ack_add():
         A.respond(403, {'error': 'a fleet-wide acknowledgement requires an admin'})
     try:
         days = int(body.get('days') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = 0
     days = max(0, min(ACK_EXPIRY_MAX_DAYS, days))
     now = int(time.time())

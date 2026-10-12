@@ -162,7 +162,7 @@ def _ingest_log_sweep(dev_id, sweep):
     try:
         scanned = int(sweep.get('scanned') or 0)
         skipped = int(sweep.get('skipped') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         scanned = skipped = 0
     rec = {
         'ts':          int(time.time()),
@@ -298,7 +298,7 @@ def handle_log_sweep_diagnose(dev_id):
     if not ai_result.get('ok'):
         A.respond(502, {'error': ai_result.get('error') or 'AI provider returned no text'})
         return
-    summary = (ai_result.get('text') or '')[:_TRIAGE_MAX_STORE]
+    summary = str(ai_result.get('text') or '')[:_TRIAGE_MAX_STORE]
     ai_rec = {'summary': summary, 'at': int(time.time()),
               'by': A.current_username() or 'unknown', 'sweep_ts': rec.get('ts')}
     with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
@@ -321,7 +321,7 @@ def _triage_tools(dev_id, dev, alert=None):
     def _journal(args):
         try:
             n = min(int(args.get('lines') or 40), 80)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             n = 40
         lines = [str(l) for l in (dev.get('journal') or [])[-n:]]
         return '\n'.join(A._redact_log_line(l) for l in lines) or '(journal empty)'

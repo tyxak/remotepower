@@ -188,7 +188,7 @@ def _vpn_parse_expiry(v):
         return None
     try:
         v = int(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         A.respond(400, {'error': 'invalid expires_at'})
     if v <= int(time.time()):
         A.respond(400, {'error': 'expires_at must be in the future'})
@@ -471,7 +471,7 @@ def handle_vpn_tunnel_create() -> None:
                 'created_by': actor, 'created_at': int(time.time()), 'clients': [],
             }
             tunnels.append(tunnel)
-    except ValueError as e:
+    except (TypeError, ValueError, OverflowError) as e:
         A.respond(400, {'error': str(e)})
     # Kernel-side apply + hub-key capture happen OUTSIDE the lock (subprocess).
     tunnel = A._vpn_up_tunnel(tunnel)
@@ -862,7 +862,7 @@ def run_vpn_stats_if_due():
             # Tunnel TTL → tear down + drop (audit only, no event).
             if A._vpn_expired(t, now):
                 pending_audit.append(('vpn_tunnel_expired',
-                                      f"tunnel={t.get('id')} name={t.get('name','')[:40]} iface={t.get('iface')}"))
+                                      f"tunnel={t.get('id')} name={str(t.get('name',''))[:40]} iface={t.get('iface')}"))
                 if t.get('iface'):
                     ifaces_down.append(t['iface'])
                 continue

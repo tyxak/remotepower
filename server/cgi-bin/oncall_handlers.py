@@ -82,7 +82,7 @@ def _oncall_at(cfg, now=None):
         try:
             start = int(ov.get('start') or 0)
             end = int(ov.get('end') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if who and start <= now < end:
             return who
@@ -93,7 +93,7 @@ def _oncall_at(cfg, now=None):
         try:
             anchor = int(anchor)
             days = max(1, int(oc.get('rotation_days') or 7))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             anchor = None
         if anchor:
             return contacts[_oncall_index(now, anchor, days * 86400, len(contacts))]
@@ -103,7 +103,7 @@ def _oncall_at(cfg, now=None):
         return ''
     try:
         days = max(1, int(oc.get('rotation_days') or 7))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = 7
     return contacts[(now // (days * 86400)) % len(contacts)]
 
@@ -120,7 +120,7 @@ def _oncall_upcoming(cfg, now=None, count=4):
     try:
         anchor = int(anchor)
         days = max(1, int(oc.get('rotation_days') or 7))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return []
     now = int(now or time.time())
     period = days * 86400
@@ -179,7 +179,7 @@ def _escalation_tick(now=None):
                         continue
                     try:
                         after = int(tier.get('after_minutes') or 0)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         after = 0
                     if age_min < after:
                         continue

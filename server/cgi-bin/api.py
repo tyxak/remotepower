@@ -694,7 +694,7 @@ def _agent_line_ts(value, now):
     """
     try:
         t = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return now
     if t > 100000000000:        # milliseconds (as seconds that would be year 5138)
         t //= 1000
@@ -2979,13 +2979,13 @@ def get_online_ttl():
     """Effective online TTL value, clamped to MIN_ONLINE_TTL."""
     try:
         v = int(_config_ro().get('online_ttl', DEFAULT_ONLINE_TTL))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         v = DEFAULT_ONLINE_TTL
     # v6.2.2 batch 5: the flap floor is operator-tunable (min_online_ttl);
     # default = the code constant so an unconfigured server is unchanged.
     try:
         floor = int(_config_ro().get('min_online_ttl', MIN_ONLINE_TTL) or MIN_ONLINE_TTL)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         floor = MIN_ONLINE_TTL
     return max(floor, v)
 
@@ -2998,7 +2998,7 @@ def _oom_recent_window():
         return int(_config_ro().get('oom_recent_window_seconds',
                                     OOM_RECENT_WINDOW_SECONDS)
                    or OOM_RECENT_WINDOW_SECONDS)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return OOM_RECENT_WINDOW_SECONDS
 
 
@@ -3240,7 +3240,7 @@ def run_agentless_reachability_if_due():
         _ping_fail_thresh = int(_ro.get('agentless_ping_fail_threshold',
                                         AGENTLESS_PING_FAIL_THRESHOLD)
                                 or AGENTLESS_PING_FAIL_THRESHOLD)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _ping_fail_thresh = AGENTLESS_PING_FAIL_THRESHOLD
     answers = _ping_hosts(targets)     # no lock held while this waits on the network
     transitions = []   # (dev_id, name, online_bool) → fire webhook after the lock
@@ -3364,7 +3364,7 @@ def _offline_thresholds(dev, ttl):
     """
     try:
         poll = int(dev.get('poll_interval', DEFAULT_POLL_INTERVAL))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         poll = DEFAULT_POLL_INTERVAL
     poll = max(1, poll)
     # v6.2.2: the missed-poll multiplier is operator-configurable (Settings →
@@ -3377,7 +3377,7 @@ def _offline_thresholds(dev, ttl):
     # 0 (default) leaves behaviour exactly as before; capped at 24h.
     try:
         extra_min = int(dev.get('offline_alert_delay_min', 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         extra_min = 0
     offline_after += max(0, min(1440, extra_min)) * 60
     # v6.3.0: chassis-aware grace — a laptop that closed its lid is not a down
@@ -3387,7 +3387,7 @@ def _offline_thresholds(dev, ttl):
     # in-function _config_ro() read as offline_missed_polls above.
     try:
         _lg = int(_config_ro().get('laptop_offline_grace_hours', 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _lg = 0
     if _lg > 0 and (dev.get('sysinfo') or {}).get('chassis') in (
             'laptop', 'notebook', 'portable', 'tablet', 'convertible', 'detachable'):
@@ -3400,7 +3400,7 @@ def get_default_poll_interval():
     """Default poll interval used when enrolling new agents."""
     try:
         v = int(_config_ro().get('default_poll_interval', DEFAULT_POLL_INTERVAL))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         v = DEFAULT_POLL_INTERVAL
     return max(10, min(3600, v))
 
@@ -3411,11 +3411,11 @@ def get_session_ttl(remember_me=False):
     if remember_me:
         try:
             return int(cfg.get('session_ttl_long', DEFAULT_TOKEN_TTL_LONG))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return DEFAULT_TOKEN_TTL_LONG
     try:
         return int(cfg.get('session_ttl_short', DEFAULT_TOKEN_TTL_SHORT))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return DEFAULT_TOKEN_TTL_SHORT
 
 
@@ -3428,7 +3428,7 @@ def get_cve_cache_seconds():
     """How long to cache OSV vulnerability details before re-fetching."""
     try:
         days = int(_config_ro().get('cve_cache_days', DEFAULT_CVE_CACHE_DAYS))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = DEFAULT_CVE_CACHE_DAYS
     return max(1, min(90, days)) * 86400
 
@@ -3584,7 +3584,7 @@ def _validate_password_policy(plain, username=''):
     cfg = _config_ro()
     try:
         min_len = int(cfg.get('password_min_length') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         min_len = 0
     if min_len and len(plain) < min_len:
         return False, f'Password must be at least {min_len} characters'
@@ -3920,7 +3920,7 @@ _RETENTION_KEYS = ('history_retention_days', 'fleet_events_retention_days',
 def _retention_cutoff(cfg, key):
     try:
         days = int(cfg.get(key) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = 0
     return (int(time.time()) - days * 86400) if days > 0 else None
 
@@ -3936,7 +3936,7 @@ def _audit_retention_days(cfg):
     raw = cfg.get('audit_log_retention_days')
     try:
         return 90 if raw in (None, '') else int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 90
 
 
@@ -5120,7 +5120,7 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
                     try:
                         _disk = int(_on.get('last_seen', 0) or 0)
                         _inc = int(_dev.get('last_seen', 0) or 0)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         continue
                     if _disk > _inc:
                         _dev['last_seen'] = _disk
@@ -5825,7 +5825,7 @@ def _enforce_session_cap(tokens, username):
     while holding the TOKENS_FILE lock, just before inserting the new session."""
     try:
         cap = int(_config_ro().get('max_sessions_per_user') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         cap = 0
     if cap <= 0:
         return
@@ -5954,7 +5954,7 @@ def verify_token(token):
             # pre-stamp sessions. Default 0 = off (no behaviour change).
             try:
                 _idle = int(_config_ro().get('idle_timeout_minutes') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _idle = 0
             if _idle > 0 and now - int(entry.get('last_seen') or entry.get('created') or 0) > _idle * 60:
                 try:
@@ -5970,7 +5970,7 @@ def verify_token(token):
             # newest `cap`; if not, it's effectively evicted — kill it and deny.
             try:
                 _scap = int(_config_ro().get('max_sessions_per_user') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _scap = 0
             if _scap > 0:
                 _mine = sorted(
@@ -6528,7 +6528,7 @@ def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
         return
     try:
         limit = int(kdata.get('rate_limit') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         limit = 0
     if limit <= 0:
         return
@@ -7688,7 +7688,7 @@ def _sanitize_monitor_target(mtype, target, with_reason=False):
             port = int(port_s)
             if not (1 <= port <= 65535):
                 return _out(None, f'port must be 1–65535 (got {port_s!r})')
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return _out(None, f'expected host:port — no valid port in {target!r}')
         # SSRF guard — same IP-class check the http branch applies. Without it a
         # tcp monitor was a blind internal port scanner (target 127.0.0.1:22 or
@@ -7764,7 +7764,7 @@ def _command_history_cap():
     """Operator-tunable command-history depth (default MAX_HISTORY)."""
     try:
         v = int(_config_ro().get('command_history_max', MAX_HISTORY))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         v = MAX_HISTORY
     return max(50, min(MAX_HISTORY_CEILING, v))
 
@@ -7772,7 +7772,7 @@ def _command_history_cap():
 def _slow_handler_threshold_ms():
     try:
         return int(_config_ro().get('slow_handler_ms', 1500))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 1500
 
 
@@ -8328,7 +8328,7 @@ def _forward_audit(entry, cfg):
         _block_local = cfg.get('webhook_block_local', True)
         try:
             port = int(cfg.get('audit_forward_port') or 514)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             port = 514
         use_tcp = bool(cfg.get('audit_forward_tcp'))
         # v3.13.0: resolve the target ONCE to a literal IP, classify that IP,
@@ -8631,7 +8631,7 @@ def _maybe_export_otlp():
     cfg = load(CONFIG_FILE) or {}    # enabled: take the real (mutable) copy
     try:
         interval = max(15, min(3600, int(cfg.get('otlp_interval') or 60)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 60
     now = int(time.time())
     # v7.0.0 (PERF): read the slot READ-ONLY first. With OTLP enabled this ran
@@ -8762,7 +8762,7 @@ def _otlp_record_span(method, path, status_code, start_ns):
         }
         try:
             interval = max(15, min(3600, int(cfg.get('otlp_traces_interval') or 30)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             interval = 30
         batch = None
         with _OTLP_SPAN_LOCK:
@@ -10006,7 +10006,7 @@ def _alert_severity(event, payload):
         days = p.get('days_left')
         try:
             days = int(days)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 'high'
         if days < 3:
             return 'critical'
@@ -10038,7 +10038,7 @@ def _alert_severity(event, payload):
         # Lower score → more severe. Mirrors the _health_grade bands.
         try:
             score = int(p.get('score'))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 'high'
         if score < 40:
             return 'critical'
@@ -10144,7 +10144,7 @@ def _alert_title(event, payload):
         return f'Check recovered on {name}: {p.get("check_name") or "check"}'[:256]
     if event == 'ticket_sla_breached':
         return (f'Ticket #RP{int(p.get("number") or 0):06d} SLA breached: '
-                f'{(p.get("subject") or "")[:80]}')[:200]
+                f'{str(p.get("subject") or "")[:80]}')[:200]
     if event == 'ip_blacklist_cleared':
         return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
@@ -10642,7 +10642,7 @@ def _severity_to_priority(sev):
 def _coerce_priority(v, default=4):
     try:
         n = int(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return n if n in TICKET_PRIORITIES else default
 
@@ -11255,7 +11255,7 @@ def handle_portal_ticket_queue_decide(qid):
             respond(404, {'error': 'queued submission not found'})
         item = pending.pop(idx)
     if decision == 'reject':
-        audit_log(actor, 'portal_ticket_rejected', f'id={qid} subject={item.get("subject", "")[:80]}')
+        audit_log(actor, 'portal_ticket_rejected', f'id={qid} subject={str(item.get("subject", ""))[:80]}')
         respond(200, {'ok': True, 'decision': 'reject'})
     contact = {'id': item.get('contact_id', ''), 'name': item.get('contact_name', ''),
                'email': item.get('contact_email', '')}
@@ -11272,7 +11272,7 @@ def handle_portal_ticket(number):
     contact, site = _portal_session()
     try:
         num = int(re.sub(r'\D', '', str(number)) or 0)
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         respond(404, {'error': 'ticket not found'})
     is_reply = str(number).endswith('/reply') or _env('PATH_INFO', '').endswith('/reply')
     # Ownership: the ticket must carry THIS contact's site. No site → no match.
@@ -11411,7 +11411,7 @@ def handle_kb():
         'body': _sanitize_str(str(body.get('body', '')), MAX_KB_BODY),
         'pinned': bool(body.get('pinned')),
         'linked_devices': [_sanitize_str(str(d), 64)
-                           for d in (body.get('linked_devices') or [])][:50],
+                           for d in as_list(body.get('linked_devices'))][:50],
         'author': actor, 'created_at': now, 'updated_at': now,
     }
     with _LockedUpdate(KB_FILE) as store:
@@ -11470,7 +11470,7 @@ def handle_kb_article(aid):
                 a['pinned'] = bool(body['pinned'])
             if 'linked_devices' in body:
                 a['linked_devices'] = [_sanitize_str(str(d), 64)
-                                       for d in (body.get('linked_devices') or [])][:50]
+                                       for d in as_list(body.get('linked_devices'))][:50]
             a['updated_at'] = now
     if not ok:
         respond(404, {'error': 'article not found'})
@@ -11660,7 +11660,7 @@ def _mute_expired(m, now=None):
         return False
     try:
         return int(exp) <= (now if now is not None else int(time.time()))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
@@ -11700,7 +11700,7 @@ def _alert_first_seen(alert):
         return 0
     try:
         return int(alert.get('first_seen') or alert.get('ts') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -12774,7 +12774,7 @@ def _run_automation_rules(event, payload, cfg):
             continue
         try:
             cooldown = int(rule.get('cooldown_seconds', 60))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             cooldown = 60
         if cooldown > 0 and (now - int(rule.get('last_fired') or 0)) < cooldown:
             continue
@@ -12830,7 +12830,7 @@ def _validate_rule(body):
             try:
                 if a.get('priority'):
                     act['priority'] = max(1, min(4, int(a['priority'])))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
             actions.append(act)
         elif a.get('type') == 'add_tag' and str(a.get('tag', '')).strip():
@@ -12845,7 +12845,7 @@ def _validate_rule(body):
         return None, 'specify at least one event or severity to match'
     try:
         cooldown = max(0, min(86400, int(body.get('cooldown_seconds', 60))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         cooldown = 60
     rule = {
         'name':    name,
@@ -12863,7 +12863,7 @@ def _validate_rule(body):
         if body.get(k) is not None:
             try:
                 rule[k] = int(body[k])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
     rule.update({k: v for k, v in _rule_guard_params(rule).items()})
     return rule, None
@@ -13274,7 +13274,7 @@ def _deliver_user_notifications(event, payload, message, cfg):
         try:
             if priority < int(p.get('min_priority', 0) or 0):
                 continue
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
         evs = p.get('events')
         if isinstance(evs, list) and evs and event not in evs:
@@ -13660,7 +13660,7 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
         try:
             if min_prio is not None and int(min_prio) > priority:
                 return
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     # W2-22: per-destination digest window. A non-critical event queues for a
     # later single-summary flush instead of sending now; critical events
@@ -13979,7 +13979,7 @@ def _icmp_reachable(host, timeout=1):
         return False
     try:
         to = max(1, int(timeout))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         to = 1
     try:
         r = subprocess.run(['ping', '-c', '1', '-W', str(to), '--', host],
@@ -14954,7 +14954,7 @@ def handle_devices_list():
             # they have no agent binary to attest).
             if not agentless:
                 row['agent_integrity'] = _agent_integrity_status(dev, _canon_sha, SERVER_VERSION)
-                row['agent_sha256'] = (dev.get('agent_sha256') or '')[:12]
+                row['agent_sha256'] = str(dev.get('agent_sha256') or '')[:12]
         result.append(row)
         if slim:
             # v3.3.0: skip the SNMP-status block in slim mode. Home + nav
@@ -15280,7 +15280,7 @@ def handle_device_save_bulk(dev_id):
         if 'offline_alert_delay_min' in body:
             try:
                 _ad = int(body.get('offline_alert_delay_min') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _ad = 0
             updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
 
@@ -15342,14 +15342,14 @@ def handle_device_save_bulk(dev_id):
         if 'ssh_port' in body:
             try:
                 updates['ssh_port'] = max(1, min(65535, int(body.get('ssh_port') or 22)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 updates['ssh_port'] = 22
 
         # poll_interval — int, clamp to a reasonable floor
         if 'poll_interval' in body:
             try:
                 pi_val = int(body.get('poll_interval'))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'poll_interval must be an integer'})
             if pi_val < 30:
                 respond(400, {'error': 'poll_interval must be >= 30 seconds'})
@@ -15645,7 +15645,7 @@ def _validate_device_profile(body):
     if 'poll_interval' in body:
         try:
             pi = int(body['poll_interval'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'poll_interval must be an integer'})
         if not (30 <= pi <= 3600):
             respond(400, {'error': 'poll_interval must be 30–3600 seconds'})
@@ -15892,7 +15892,7 @@ def _validate_smart_rules(raw):
         if raw.get(k) is not None:
             try:
                 v = float(raw[k])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{k} must be a number'})
             if 0 <= v <= 100:
                 out[k] = v
@@ -16568,7 +16568,7 @@ def handle_billing_config():
     if 'reminder_days' in body:
         try:
             cfg['reminder_days'] = max(1, min(365, int(body.get('reminder_days'))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if 'billing_webhook_secret' in body:   # v6.1.1 (#90): '' clears, omitted preserves
         t = str(body['billing_webhook_secret'])
@@ -16827,7 +16827,7 @@ def handle_quotes():
         respond(400, {'error': 'a quote needs at least one line item'})
     try:
         valid_until = int(body.get('valid_until') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         valid_until = 0
 
     cfg = _billing_cfg()
@@ -17083,7 +17083,7 @@ def handle_billing_payment_webhook():
     iid = str(body.get('invoice_id') or '').strip()
     try:
         amount = float(body.get('amount'))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'amount must be a number'})
     kind = str(body.get('kind') or 'payment').strip().lower()
     if kind not in ('payment', 'refund'):
@@ -17225,7 +17225,7 @@ def run_invoice_reminders_if_due():
         return
     try:
         days = max(1, int(b.get('reminder_days') or 14))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = 14
     cutoff = now - days * 86400
     cfg = load(CONFIG_FILE) or {}
@@ -17451,7 +17451,7 @@ def _coerce_latlng(body):
                 continue
             try:
                 fv = float(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{key} must be a number'})
             if not (lo <= fv <= hi):
                 respond(400, {'error': f'{key} must be between {lo} and {hi}'})
@@ -18183,7 +18183,7 @@ def handle_device_firewall_action(dev_id):
     proto = str(body.get('proto', 'tcp')).strip().lower()
     try:
         port = int(body.get('port'))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'port must be an integer'})
     if not (1 <= port <= 65535):
         respond(400, {'error': 'port out of range'})
@@ -19236,8 +19236,9 @@ def _autopatch_target_devices(target, tenant_gate=None):
     mechanism this doesn't touch (a real remaining gap, not silently ignored)."""
     devices = load(DEVICES_FILE)
     pinned = _pinned_patch_tags()
-    t = (target or {}).get('type', 'all')
-    v = (target or {}).get('value', '')
+    target = target if isinstance(target, dict) else {}
+    t = target.get('type', 'all')
+    v = target.get('value', '')
     out = []
     for did, dev in devices.items():
         if dev.get('quarantined'):
@@ -19446,7 +19447,7 @@ def handle_autopatch_create():
         pol['health_gate'] = _autopatch_clean_health_gate(body.get('health_gate'))
         try:
             pol['verify_minutes'] = max(1, min(120, int(body.get('verify_minutes') or 15)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pol['verify_minutes'] = 15
     data['policies'].append(pol)
     save(AUTOPATCH_FILE, data)
@@ -19500,7 +19501,7 @@ def handle_autopatch_update(pol_id):
     if 'verify_minutes' in body:
         try:
             pol['verify_minutes'] = max(1, min(120, int(body['verify_minutes'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     save(AUTOPATCH_FILE, data)
     _autopatch_sync(pol)   # v3.13.0: keep the maintenance window + calendar in sync
@@ -19557,7 +19558,7 @@ def _autopatch_clean_rings(raw):
             # other malformed ring here.
             try:
                 _n = float(sel.get('value'))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if not (0 < _n <= (100 if st == 'percent' else 100000)):
                 continue
@@ -19575,7 +19576,7 @@ def _autopatch_clean_health_gate(raw):
     raw = raw if isinstance(raw, dict) else {}
     try:
         floor = max(1, min(100, int(raw.get('threshold', 70))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         floor = 70
     return {'enabled': bool(raw.get('enabled')), 'threshold': floor}
 
@@ -19597,7 +19598,7 @@ def _autopatch_spawn_rollout(pol, actor):
                 return r.get('id')          # one active rollout per policy
         try:
             vmin = max(1, min(120, int(pol.get('verify_minutes', 15))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             vmin = 15
         roll = {
             'id': secrets.token_hex(8),
@@ -20129,7 +20130,7 @@ def handle_device_poll_interval(dev_id):
     try:
         body = _read_valid(request_models.DevicePollIntervalRequest)
         interval = int(get_json_obj().get('poll_interval', 60))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'poll_interval must be an integer'})
     interval = max(10, min(3600, interval))
     with _LockedUpdate(DEVICES_FILE) as devices:
@@ -20157,7 +20158,7 @@ def handle_device_alert_delay(dev_id):
         respond(404, {'error': 'Device not found'})
     try:
         mins = int((get_json_obj()).get('offline_alert_delay_min', 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'offline_alert_delay_min must be an integer'})
     mins = max(0, min(1440, mins))   # 0 .. 24h
     found = False
@@ -20398,7 +20399,7 @@ def handle_enroll_token_create():
     # Validate expires_in
     try:
         ttl = int(body.get('expires_in', DEFAULT_ENROLL_TOKEN_TTL))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'expires_in must be an integer (seconds)'})
     if ttl < 60:
         respond(400, {'error': 'expires_in must be >= 60 seconds'})
@@ -20723,7 +20724,7 @@ def handle_enroll_register():
             # (re-enrollment of an existing device above is never blocked).
             try:
                 _cap = int(_config_ro().get('max_devices') or MAX_DEVICES)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _cap = MAX_DEVICES
             if _cap and len(devices) >= _cap:
                 pending_audit = ('enroll_denied',
@@ -21104,7 +21105,7 @@ def handle_heartbeat():
                     _ups = int(si['uptime_seconds'])
                     if 0 <= _ups <= 60 * 60 * 24 * 365 * 50:   # sanity: ≤50 years
                         safe_si['uptime_seconds'] = _ups
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
             # v6.1.2: ECC counters / zram / auto-update posture. safe_si is a
             # whitelist — a field the agent sends but this drops silently never
@@ -21556,7 +21557,7 @@ def handle_heartbeat():
                     safe_clk['offset_ms'] = round(float(off), 1)
                 try:
                     _ct = float(_config_ro().get('clock_skew_threshold_ms', 1000))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     _ct = 1000.0
                 skewed = (not synced) or (isinstance(off, (int, float)) and abs(off) > _ct)
                 safe_clk['skewed'] = skewed
@@ -21613,7 +21614,7 @@ def handle_heartbeat():
                     # re-enable it at the default.
                     try:
                         _lat_thr = int(_config_ro().get('gateway_latency_high_ms', 150))
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         _lat_thr = 150
                     _recent = [p[1] for p in _hist[-10:] if isinstance(p, list) and len(p) == 2]
                     if _lat_thr > 0 and len(_recent) >= 5:
@@ -21902,7 +21903,7 @@ def handle_heartbeat():
                         continue
                     try:
                         ts = int(e.get('ts') or 0)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         ts = 0
                     logins.append({
                         'user':   _sanitize_str(e.get('user', ''), 64),
@@ -22840,7 +22841,7 @@ def handle_heartbeat():
                     _hist = _v.get('size_hist') or []
                     try:
                         _pct = int(_config_ro().get('backup_size_anomaly_pct') or 0)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         _pct = 0
                     _shrunk, _median = _backup_is_shrunk(_size, _hist, _pct)
                     if _shrunk and not _v.get('size_anom', False):
@@ -23530,7 +23531,7 @@ def _ingest_custom_metrics(dev_id, custom_metrics, dev_name, now):
         if isinstance(th, dict):
             try:
                 limit = float(th.get('value'))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             op = th.get('op', 'gt')
             breached = (val > limit) if op == 'gt' else (val < limit)
@@ -23563,7 +23564,7 @@ def _backfill_metrics(dev_id, samples, now):
             continue
         try:
             ts = int(s.get('ts') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if ts < floor or ts > now + 300:
             continue
@@ -24736,7 +24737,7 @@ def handle_command_queue_clear(dev_id):
         else:
             try:
                 idx = int(idx_raw)
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'index must be an integer'})
             if idx < 0 or idx >= len(queue):
                 respond(404, {'error': 'no queued command at that index'})
@@ -24831,7 +24832,7 @@ def _ver_tuple(s):
     for p in parts:
         try:
             out.append(int(re.sub(r'[^0-9].*$', '', p) or 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             out.append(0)
     return tuple(out)
 
@@ -25465,7 +25466,7 @@ def _send_wol(dev):
         port = int(cfg.get('wol_port', 9))
         if not (1 <= port <= 65535):
             port = 9
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         port = 9
     def _v4(raw):
         """An IPv4 literal, or '' — the socket below is AF_INET.
@@ -25569,7 +25570,7 @@ def handle_metrics(dev_id):
     if rng and _m is not None:
         try:
             secs = max(3600, min(int(rng), 366 * 86400))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'invalid range'})
         series = _m.metric_range(DATA_DIR, dev_id, int(time.time()) - secs)
         if series:
@@ -26210,14 +26211,14 @@ def _persist_monitor_results(results):
             if isinstance(_m, dict) and _m.get('label'):
                 try:
                     thresholds[_m['label']] = max(1, min(10, int(_m.get('failures_before_alert', 1) or 1)))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     thresholds[_m['label']] = 1
         dirty = False
         # Hoisted out of the per-result loop — one read, not one per monitor.
         try:
             _hist_cap = max(10, min(5000, int(cfg.get('monitor_history_max')
                                               or MAX_MON_HISTORY)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _hist_cap = MAX_MON_HISTORY
         _path_baselines = cfg.get('path_baselines') or {}
         _paths_dirty = False
@@ -26377,7 +26378,7 @@ def ping_healthchecks_if_due():
         return  # malformed config — silently skip
     try:
         interval = max(30, int(cfg.get('healthchecks_interval_seconds', 60)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 60
     last = int(cfg.get('last_healthchecks_ping', 0))
     now = int(time.time())
@@ -26636,7 +26637,7 @@ def _integ_threshold_breached(op, value, bound):
     try:
         v = float(value)
         b = float(bound)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
     return {
         'gt':  v > b,  'lt':  v < b,
@@ -26753,12 +26754,12 @@ def _persist_integration_results(results):
                 try:
                     if int(item.get('number') or 0) > int(prev_max):
                         new_issues.append(item)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
             new_issues.sort(key=lambda i: i.get('number') or 0)
             try:
                 _gh_cap = int(_config_ro().get('github_new_issue_per_poll_cap', 10) or 10)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _gh_cap = 10
             overflow = len(new_issues) - _gh_cap
             for item in new_issues[:_gh_cap]:    # anti-burst cap per poll
@@ -26906,7 +26907,7 @@ def handle_integrations_list():
                         continue
                     try:
                         _ts = int(_e.get('ts') or 0)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         _ts = 0
                     _lg.append({
                         'user':         _sanitize_str(str(_e.get('user', '')), 64),
@@ -27034,7 +27035,7 @@ def handle_integrations_save():
                                                + ', '.join(_INTEG_THRESHOLD_OPS)})
                     try:
                         _val = float(_t.get('value'))
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         respond(400, {'error': f'threshold for {inst["label"]}.{_m} '
                                                'must be a number'})
                     _sev = str(_t.get('severity') or 'medium').strip().lower()
@@ -28951,7 +28952,7 @@ def handle_config_save():
                     # still pass everything) — no silent change for anyone.
                     if 0 <= mp <= 5:
                         clean_entry['min_priority'] = mp
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
             # W2-22: per-destination digest window (minutes). Non-critical events
             # queue and flush as one summary; 0/absent = immediate (unchanged).
@@ -28960,7 +28961,7 @@ def handle_config_save():
                     dm = int(entry['digest_minutes'])
                     if dm > 0:
                         clean_entry['digest_minutes'] = max(1, min(1440, dm))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
             # Pushover-specific creds. Empty/missing == "leave unchanged"
             # vs explicitly set. Look up existing entry by id to preserve
@@ -29096,7 +29097,7 @@ def handle_config_save():
             if not (10 <= v <= 3600):
                 respond(400, {'error': 'default_poll_interval must be 10–3600 seconds'})
             cfg['default_poll_interval'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'default_poll_interval must be an integer'})
 
     # v6.3.1: flow-verified service-dependency link alerting (opt-in)
@@ -29106,7 +29107,7 @@ def handle_config_save():
         try:
             v = int(body['dependency_silence_min'])
             cfg['dependency_silence_min'] = max(1, min(1440, v))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'dependency_silence_min must be an integer'})
 
     # v1.8.4: online TTL
@@ -29118,7 +29119,7 @@ def handle_config_save():
             if v > 7200:
                 respond(400, {'error': 'online_ttl must be <= 7200 seconds (2h)'})
             cfg['online_ttl'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'online_ttl must be an integer'})
 
     # v1.8.4: CVE details cache TTL (in days, internally stored as days)
@@ -29128,7 +29129,7 @@ def handle_config_save():
             if not (1 <= v <= 90):
                 respond(400, {'error': 'cve_cache_days must be 1–90'})
             cfg['cve_cache_days'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'cve_cache_days must be an integer'})
 
     # v1.11.4: container staleness TTL (seconds). Floor at 300s so we don't
@@ -29140,7 +29141,7 @@ def handle_config_save():
             if not (300 <= v <= 86400):
                 respond(400, {'error': 'container_stale_ttl must be 300–86400 seconds'})
             cfg['container_stale_ttl'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'container_stale_ttl must be an integer'})
 
     # v1.8.4: CVE severity filter (which severities fire cve_found webhook)
@@ -29162,7 +29163,7 @@ def handle_config_save():
             if not (300 <= v <= 86400 * 7):
                 respond(400, {'error': 'session_ttl_short must be 300–604800 seconds'})
             cfg['session_ttl_short'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'session_ttl_short must be an integer'})
     if 'session_ttl_long' in body:
         try:
@@ -29170,7 +29171,7 @@ def handle_config_save():
             if not (3600 <= v <= 86400 * 90):
                 respond(400, {'error': 'session_ttl_long must be 3600–7776000 seconds'})
             cfg['session_ttl_long'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'session_ttl_long must be an integer'})
 
     # ── v1.8.6: SMTP settings ──────────────────────────────────────────────────
@@ -29184,7 +29185,7 @@ def handle_config_save():
             if not (1 <= v <= 65535):
                 respond(400, {'error': 'smtp_port must be 1–65535'})
             cfg['smtp_port'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'smtp_port must be an integer'})
     if 'smtp_tls' in body:
         v = _sanitize_str(body['smtp_tls'], 16).lower()
@@ -29312,7 +29313,7 @@ def handle_config_save():
     if 'cloud_autosync_interval' in body:
         try:
             cfg['cloud_autosync_interval'] = max(3600, min(604800, int(body['cloud_autosync_interval'])))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'cloud_autosync_interval must be an integer'})
     # W6-4: warranty auto-lookup
     if 'warranty_lookup_enabled' in body:
@@ -29330,7 +29331,7 @@ def handle_config_save():
     if 'geo_anomaly_hours' in body:
         try:
             cfg['geo_anomaly_hours'] = max(1, min(72, int(body['geo_anomaly_hours'])))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'geo_anomaly_hours must be an integer'})
 
     # ── v1.8.6: LDAP settings ──────────────────────────────────────────────────
@@ -29375,7 +29376,7 @@ def handle_config_save():
             if not (1 <= v <= 60):
                 respond(400, {'error': 'ldap_timeout must be 1–60 seconds'})
             cfg['ldap_timeout'] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'ldap_timeout must be an integer'})
 
     if 'wol_broadcast' in body:
@@ -29387,7 +29388,7 @@ def handle_config_save():
             if not (1 <= port <= 65535):
                 respond(400, {'error': 'wol_port must be 1–65535'})
             cfg['wol_port'] = port
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'wol_port must be an integer'})
 
     if 'patch_alert_threshold' in body:
@@ -29400,7 +29401,7 @@ def handle_config_save():
                 t = int(val)
                 if t < 1: respond(400, {'error': 'patch_alert_threshold must be >= 1'})
                 cfg['patch_alert_threshold'] = t
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 respond(400, {'error': 'patch_alert_threshold must be an integer'})
 
     if 'monitors' in body and isinstance(body['monitors'], list):
@@ -29464,7 +29465,7 @@ def handle_config_save():
                     try:
                         if s.get('expect_status') is not None:
                             st['expect_status'] = int(s['expect_status'])
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         pass
                     if s.get('expect_contains'):
                         st['expect_contains'] = _sanitize_str(str(s['expect_contains']), 200)
@@ -29537,7 +29538,7 @@ def handle_config_save():
                     if not (1 <= p <= 65535):
                         raise ValueError
                     entry['port'] = p
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     _mon_reject(_mon_name,
                                 'a tcp monitor targeting a tag or group needs a '
                                 'port (the name carries none)', m)
@@ -29596,7 +29597,7 @@ def handle_config_save():
             # checks (1 = default, stored only when raised so configs stay clean).
             try:
                 fba = int(m.get('failures_before_alert', 1) or 1)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 fba = 1
             if fba > 1:
                 entry['failures_before_alert'] = max(2, min(10, fba))
@@ -29655,13 +29656,13 @@ def handle_config_save():
             _slo_seen.add(oid)
             try:
                 _tgt = float(o.get('target_pct', 99.9))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _tgt = 99.9
             if not (0 < _tgt < 100):
                 respond(400, {'error': f'SLO "{name}": target % must be between 0 and 100 (exclusive)'})
             try:
                 _win = int(o.get('window_days') or 30)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _win = 30
             _slo_validated.append({
                 'id':          oid,
@@ -29690,7 +29691,7 @@ def handle_config_save():
             mi = int(body['monitor_interval'])
             mi = max(60, min(3600, mi))
             cfg['monitor_interval'] = mi
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'monitor_interval must be an integer (60–3600)'})
 
     # v4.3.0: flap-dampening thresholds (consecutive failures/breaches before an
@@ -29698,12 +29699,12 @@ def handle_config_save():
     if 'snmp_failures_before_alert' in body:
         try:
             cfg['snmp_failures_before_alert'] = max(2, min(72, int(body['snmp_failures_before_alert'])))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'snmp_failures_before_alert must be an integer (2–72)'})
     if 'metric_failures_before_alert' in body:
         try:
             cfg['metric_failures_before_alert'] = max(1, min(10, int(body['metric_failures_before_alert'])))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'metric_failures_before_alert must be an integer (1–10)'})
 
     # v2.8.1: brute-force detection settings
@@ -29713,13 +29714,13 @@ def handle_config_save():
         try:
             t = int(body['brute_force_threshold'])
             cfg['brute_force_threshold'] = max(1, min(1000, t))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'brute_force_threshold must be an integer'})
     if 'brute_force_window_seconds' in body:
         try:
             w = int(body['brute_force_window_seconds'])
             cfg['brute_force_window_seconds'] = max(60, min(3600, w))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'brute_force_window_seconds must be an integer'})
 
     # v3.4.1: health-score alert threshold (0 disables; 1-100 enables
@@ -29728,7 +29729,7 @@ def handle_config_save():
         try:
             h = int(body['health_alert_threshold'])
             cfg['health_alert_threshold'] = max(0, min(100, h))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'health_alert_threshold must be an integer'})
 
     # v3.4.1: quiet hours — hold non-critical notifications in a daily window.
@@ -29771,7 +29772,7 @@ def handle_config_save():
                 continue
             try:
                 lim = max(0, min(1000000, int(m.get('limit') or 0)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 lim = 0
             # v3.4.2: optional normalization aliases (map name variants → one
             # catalog entry). Sanitised, de-duped, capped.
@@ -29805,7 +29806,7 @@ def handle_config_save():
                 thr = float(w.get('threshold') or 80)
                 if thr != thr:               # reject nan (inf clamps via min/max below)
                     thr = 80.0
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 thr = 80.0
             thr = max(1.0, min(100.0, thr))
             watches.append({'name': nm, 'metric': metric, 'threshold': round(thr, 1)})
@@ -29833,7 +29834,7 @@ def handle_config_save():
         try:
             cfg['image_scan_interval'] = max(3600, min(7 * 86400,
                                              int(body['image_scan_interval'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'image_scan_interval must be an integer (seconds, 3600–604800)'})
     if 'push_enabled' in body:            # v6.1.1 #1: opt-in agent push channel
         cfg['push_enabled'] = bool(body['push_enabled'])
@@ -29917,7 +29918,7 @@ def handle_config_save():
     if 'disk_watchdog_pct' in body:
         try:
             v = int(body['disk_watchdog_pct'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'disk_watchdog_pct must be an integer'})
         if v < 0 or v > 99:
             respond(400, {'error': 'disk_watchdog_pct must be 0..99 (0 = off)'})
@@ -30055,7 +30056,7 @@ def handle_config_save():
                 continue
             try:
                 _iv = int(_raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{_tk} must be an integer'})
             if _iv < _lo or _iv > _hi:
                 respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
@@ -30091,7 +30092,7 @@ def handle_config_save():
                 continue
             try:
                 _fv = float(_raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{_tk} must be a number'})
             if _fv < _lo or _fv > _hi:
                 respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
@@ -30186,7 +30187,7 @@ def handle_config_save():
                 continue
             try:
                 mins = max(1, min(10080, int(t.get('after_minutes') or 0)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             # v5.4.1 (G2): optional per-tier target — a webhook destination
             # name/id this tier escalates to (blank = all destinations). Lets a
@@ -30210,7 +30211,7 @@ def handle_config_save():
                     if _sanitize_str(c, 80)][:50]
         try:
             rot = max(1, min(365, int(oc.get('rotation_days') or 7)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             rot = 7
         new_oc = {'enabled': bool(oc.get('enabled')),
                   'contacts': contacts, 'rotation_days': rot}
@@ -30220,7 +30221,7 @@ def handle_config_save():
         # their window.
         try:
             anchor = int(oc.get('anchor')) if oc.get('anchor') else 0
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             anchor = 0
         if anchor:
             new_oc['anchor'] = anchor
@@ -30232,7 +30233,7 @@ def handle_config_save():
             try:
                 start = int(ov.get('start') or 0)
                 end = int(ov.get('end') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if who and 0 < start < end:
                 overrides.append({'contact': who, 'start': start, 'end': end})
@@ -30255,7 +30256,7 @@ def handle_config_save():
         evs = [e for e in (ah.get('events') or []) if isinstance(e, str) and e in WEBHOOK_EVENT_NAMES][:30]
         try:
             days = [int(x) for x in (ah.get('workdays') or [0, 1, 2, 3, 4]) if isinstance(x, int) and 0 <= x <= 6][:7]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             days = [0, 1, 2, 3, 4]
         cfg['after_hours'] = {
             'enabled':  bool(ah.get('enabled')),
@@ -30303,7 +30304,7 @@ def handle_config_save():
             return
         try:
             _idays = int(sp_in.get('incident_days', 30))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _idays = 30
         _sp_comps = []
         for c in (sp_in.get('components') or [])[:20]:
@@ -30392,7 +30393,7 @@ def handle_config_save():
                 if not (300 <= v <= 31_536_000):  # 5min .. 1y
                     respond(400, {'error': f'{k} must be between 300 and 31_536_000'})
                 cfg[k] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{k} must be an integer (seconds)'})
 
     # v3.0.2: audit log retention
@@ -30402,7 +30403,7 @@ def handle_config_save():
             if not (0 <= v <= 3650):
                 respond(400, {'error': 'audit_log_retention_days must be 0..3650'})
             cfg['audit_log_retention_days'] = v
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'audit_log_retention_days must be an integer'})
 
     # v3.12.0: per-log age-based retention (days; 0 = keep all, only count caps).
@@ -30415,7 +30416,7 @@ def handle_config_save():
                 if not (0 <= v <= 3650):
                     respond(400, {'error': f'{_rkey} must be 0..3650'})
                 cfg[_rkey] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{_rkey} must be an integer'})
 
     # v6.4.2: the INGESTED LOG-LINE ring (LOG_BUFFER_TTL / the per-unit byte
@@ -30431,7 +30432,7 @@ def handle_config_save():
                 if not (_lo <= v <= _hi):
                     respond(400, {'error': f'{_rkey} must be {_lo}..{_hi}'})
                 cfg[_rkey] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{_rkey} must be an integer'})
 
     # v3.0.6: CSP violation reporting toggle + per-IP rate limit.
@@ -30445,7 +30446,7 @@ def handle_config_save():
             if not (0 <= v <= 1000):
                 respond(400, {'error': 'csp_report_throttle_per_minute must be 0..1000'})
             cfg['csp_report_throttle_per_minute'] = v
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'csp_report_throttle_per_minute must be an integer'})
 
     # v3.0.2: SSRF defense-in-depth toggle. When on, webhook deliveries
@@ -30470,7 +30471,7 @@ def handle_config_save():
     if 'apikey_default_expiry_days' in body:
         try:
             v = int(body['apikey_default_expiry_days'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'apikey_default_expiry_days must be an integer'})
         if not (0 <= v <= 3650):
             respond(400, {'error': 'apikey_default_expiry_days must be 0..3650 (0 = never)'})
@@ -30478,7 +30479,7 @@ def handle_config_save():
     if 'max_sessions_per_user' in body:
         try:
             v = int(body['max_sessions_per_user'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'max_sessions_per_user must be an integer'})
         if not (0 <= v <= 1000):
             respond(400, {'error': 'max_sessions_per_user must be 0..1000 (0 = unlimited)'})
@@ -30510,7 +30511,7 @@ def handle_config_save():
     if 'audit_forward_port' in body:
         try:
             p = int(body['audit_forward_port'] or 514)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'audit_forward_port must be an integer'})
         if not (1 <= p <= 65535):
             respond(400, {'error': 'audit_forward_port out of range'})
@@ -30557,7 +30558,7 @@ def handle_config_save():
     if 'otlp_interval' in body:
         try:
             iv = int(body['otlp_interval'] or 60)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'otlp_interval must be an integer'})
         cfg['otlp_interval'] = max(15, min(3600, iv))
     if 'otlp_token' in body:
@@ -30572,7 +30573,7 @@ def handle_config_save():
     if 'otlp_traces_interval' in body:
         try:
             iv = int(body['otlp_traces_interval'] or 30)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'otlp_traces_interval must be an integer'})
         cfg['otlp_traces_interval'] = max(15, min(3600, iv))
 
@@ -30584,13 +30585,13 @@ def handle_config_save():
     if 'ups_critical_battery_pct' in body:
         try:
             pct = int(body['ups_critical_battery_pct'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'ups_critical_battery_pct must be an integer'})
         cfg['ups_critical_battery_pct'] = max(1, min(99, pct))
     if 'ups_critical_runtime_s' in body:
         try:
             rt = int(body['ups_critical_runtime_s'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'ups_critical_runtime_s must be an integer'})
         cfg['ups_critical_runtime_s'] = max(0, min(3600, rt))
     # v6.1.1 (#53): incident auto-promotion.
@@ -30599,7 +30600,7 @@ def handle_config_save():
     if 'incident_device_threshold' in body:
         try:
             th = int(body['incident_device_threshold'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'incident_device_threshold must be an integer'})
         cfg['incident_device_threshold'] = max(2, min(1000, th))
     # v3.7.0: change approval (maker-checker)
@@ -30661,7 +30662,7 @@ def handle_config_save():
             respond(400, {'error': 'ticket_business_hours must be an object'})
         try:
             tzoff = max(-720, min(840, int(bh.get('tz_offset_min', 0))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             tzoff = 0
         weekly = {}
         for wd in range(7):
@@ -30670,7 +30671,7 @@ def handle_config_save():
             for w in wins[:6]:
                 try:
                     s, e = int(w[0]), int(w[1])
-                except (TypeError, ValueError, IndexError):
+                except (TypeError, ValueError, IndexError, OverflowError):
                     continue
                 s = max(0, min(1440, s)); e = max(0, min(1440, e))
                 if e > s:
@@ -30746,7 +30747,7 @@ def handle_config_save():
                 continue
             try:
                 val = float(v.get('value'))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             op = v.get('op') if v.get('op') in ('gt', 'lt') else 'gt'
             sev = v.get('severity') if v.get('severity') in ('critical', 'high', 'medium', 'low') else 'medium'
@@ -30787,7 +30788,7 @@ def handle_config_save():
     if 'backup_size_anomaly_pct' in body:
         try:
             cfg['backup_size_anomaly_pct'] = max(0, min(100, int(body['backup_size_anomaly_pct'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     # W1-33: patch-compliance SLA rules [{match_type, pattern, sec_days, all_days}].
     if 'patch_sla' in body:
@@ -30810,7 +30811,7 @@ def handle_config_save():
                     v = int(r.get(k))
                     if v > 0:
                         rule[k] = max(1, min(3650, v))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
             if 'sec_days' in rule or 'all_days' in rule:
                 rules.append(rule)
@@ -30919,14 +30920,14 @@ def handle_config_save():
     if 'healthchecks_interval_seconds' in body:
         try:
             v = int(body['healthchecks_interval_seconds'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'healthchecks_interval_seconds must be an integer'})
         cfg['healthchecks_interval_seconds'] = max(30, min(3600, v))
     for _bk, _cap in (('batch_max_devices', 100000), ('batch_max_fleet_percent', 100)):
         if _bk in body:
             try:
                 cfg[_bk] = max(0, min(int(body[_bk]), _cap))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
 
     # v3.3.0: IP allowlist (off by default). When enabled, only requests
@@ -30991,7 +30992,7 @@ def handle_config_save():
                 if not (0 <= v <= 90):
                     respond(400, {'error': 'backup.drill_days must be 0..90'})
                 clean_bk['drill_days'] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'backup.drill_days must be an integer'})
         if 'retain_days' in bk:
             try:
@@ -30999,7 +31000,7 @@ def handle_config_save():
                 if not (1 <= v <= 365):
                     respond(400, {'error': 'backup.retain_days must be 1..365'})
                 clean_bk['retain_days'] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'backup.retain_days must be an integer'})
         if 'offsite_dir' in bk:   # v5.4.1 (G1): off-host backup mirror (a mount path)
             od = _sanitize_str(bk.get('offsite_dir') or '', 512).strip()
@@ -31023,7 +31024,7 @@ def handle_config_save():
                 if v and not (1 <= v <= 8760):
                     respond(400, {'error': 'backup.rpo_hours must be 0 (off) or 1..8760'})
                 clean_bk['rpo_hours'] = max(0, v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'backup.rpo_hours must be an integer'})
         if 'rto_hours' in bk:
             try:
@@ -31031,7 +31032,7 @@ def handle_config_save():
                 if v and not (1 <= v <= 8760):
                     respond(400, {'error': 'backup.rto_hours must be 0 (off) or 1..8760'})
                 clean_bk['rto_hours'] = max(0, v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': 'backup.rto_hours must be an integer'})
         cfg['backup'] = clean_bk
 
@@ -31079,7 +31080,7 @@ def handle_config_save():
     if 'sshgw_public_port' in body:
         try:
             cfg['sshgw_public_port'] = max(1, min(65535, int(body['sshgw_public_port'] or 2222)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'sshgw_public_port must be an integer'})
     if body.get('sshgw_daemon_secret'):
         _gs = str(body['sshgw_daemon_secret'])
@@ -31090,7 +31091,7 @@ def handle_config_save():
     if 'slow_handler_ms' in body:
         try:
             cfg['slow_handler_ms'] = max(1, min(600000, int(body['slow_handler_ms'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'slow_handler_ms must be an integer'})
 
     # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
@@ -31210,7 +31211,7 @@ def handle_config_save():
     if 'scrub_overdue_days' in body:
         try:
             cfg['scrub_overdue_days'] = max(1, min(3650, int(body['scrub_overdue_days'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             # was `pass` — an unparseable value was discarded in
             # silence under a "Settings saved" toast.
             respond(400, {'error': 'scrub_overdue_days must be an integer'})
@@ -31220,7 +31221,7 @@ def handle_config_save():
     if 'snapshot_stale_days' in body:
         try:
             cfg['snapshot_stale_days'] = max(0, min(3650, int(body['snapshot_stale_days'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             # was `pass` — an unparseable value was discarded in
             # silence under a "Settings saved" toast.
             respond(400, {'error': 'snapshot_stale_days must be an integer'})
@@ -31230,7 +31231,7 @@ def handle_config_save():
     if 'unit_flap_restarts' in body:
         try:
             cfg['unit_flap_restarts'] = max(0, min(1000, int(body['unit_flap_restarts'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     # v6.1.2: fold each host's DISCOVERED compose files into its drift watch list.
     # Off by default — it appends to a list operators curate .
@@ -31263,7 +31264,7 @@ def handle_config_save():
     if 'password_min_length' in body:        # D1
         try:
             cfg['password_min_length'] = max(0, min(256, int(body['password_min_length'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if 'password_require_classes' in body:   # D1
         cfg['password_require_classes'] = bool(body['password_require_classes'])
@@ -31274,24 +31275,24 @@ def handle_config_save():
     if 'idle_timeout_minutes' in body:       # D3
         try:
             cfg['idle_timeout_minutes'] = max(0, min(43200, int(body['idle_timeout_minutes'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if 'audit_hmac_auto_rotate_days' in body:   # master-improvement-scoping #26
         try:
             cfg['audit_hmac_auto_rotate_days'] = max(0, min(3650, int(body['audit_hmac_auto_rotate_days'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if 'max_devices' in body:                # A7
         try:
             cfg['max_devices'] = max(1, min(10000000, int(body['max_devices'])))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if 'slo_target_percent' in body:         # F3: availability SLO target
         try:
             _t = float(body['slo_target_percent'])
             if 0 < _t < 100:
                 cfg['slo_target_percent'] = _t
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
 
     # v6.4.2: apply only the keys this request CHANGED, under the lock. The
@@ -31387,11 +31388,11 @@ def _paginate_list(items):
         return _envelope(items, None, 0, None) if want_meta else items
     try:
         limit = max(0, min(100000, int(qs.get('limit', ['0'])[0])))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return _envelope(items, None, 0, None) if want_meta else items
     try:
         offset = max(0, int(qs.get('offset', ['0'])[0]))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         offset = 0
     page = items[offset:offset + limit] if limit else items[offset:]
     if want_meta:
@@ -31899,11 +31900,11 @@ def _query_run_one(body):
     total = len(matched)
     try:
         limit = min(max(int(body.get('limit', 500) or 500), 1), 2000)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         limit = 500
     try:
         offset = max(int(body.get('offset', 0) or 0), 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         offset = 0
     return 200, {'ok': True, 'entity': entity, 'rows': matched[offset:offset + limit],
                  'meta': {'total': total, 'limit': limit, 'offset': offset,
@@ -32253,7 +32254,7 @@ def _scim_auth():
 def _scim_iso(ts):
     try:
         return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(ts)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(0))
 
 
@@ -32360,7 +32361,7 @@ def handle_scim_user(username):
         if m == 'PUT':
             desired_active = bool(body.get('active', True))
         else:  # PATCH PatchOp — handle the common "replace active" operation
-            for op in (body.get('Operations') or []):
+            for op in as_list(body.get('Operations')):
                 if str(op.get('op') or '').lower() != 'replace':
                     continue
                 val = op.get('value')
@@ -32467,7 +32468,7 @@ def handle_scim_group(role):
         if m == 'PUT':
             replace = _member_ids(body.get('members'))
         else:
-            for op in (body.get('Operations') or []):
+            for op in as_list(body.get('Operations')):
                 verb = str(op.get('op') or '').lower()
                 path = str(op.get('path') or '').lower()
                 if path and not path.startswith('members'):
@@ -32764,14 +32765,16 @@ def _clean_role_body(body):
         return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
     if name in ('admin', 'viewer', 'mcp'):
         return None, "name collides with a built-in role"
-    perms = [p for p in (body.get('permissions') or []) if p in _VALID_ROLE_PERMS]
+    perms = [p for p in as_list(body.get('permissions')) if p in _VALID_ROLE_PERMS]
     sc = body.get('scope') or {'type': 'all'}
+    if not isinstance(sc, dict):
+        return None, "scope must be an object with a type"
     stype = sc.get('type', 'all')
-    if stype not in _RBAC_SCOPE_TYPES:
+    if not isinstance(stype, str) or stype not in _RBAC_SCOPE_TYPES:
         return None, "scope.type must be all, groups, tags, or sites"
     vals = []
     if stype != 'all':
-        vals = [_sanitize_str(v, 64) for v in (sc.get('values') or []) if _sanitize_str(v, 64)][:100]
+        vals = [_sanitize_str(v, 64) for v in as_list(sc.get('values')) if _sanitize_str(v, 64)][:100]
         if not vals:
             return None, f"scope.type '{stype}' requires at least one value"
     return {'name': name, 'permissions': perms,
@@ -33856,7 +33859,7 @@ def handle_agent_integrity():
         counts[st] += 1
         rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
                      'version': dev.get('version', ''), 'status': st,
-                     'agent_sha256': (dev.get('agent_sha256') or '')[:12],
+                     'agent_sha256': str(dev.get('agent_sha256') or '')[:12],
                      'update_rejected': dev.get('agent_update_rejected') or ''})
     order = {'mismatch': 0, 'unknown': 1, 'verified': 2}
     rows.sort(key=lambda r: (order.get(r['status'], 3), r['name'].lower()))
@@ -34926,7 +34929,7 @@ def handle_self_status():
     def _sh_int(key, dflt):
         try:
             return int(_shc.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     _load_ratio = _sh_int('self_high_load_ratio', 2)
     _mem_warn = _sh_int('self_mem_warn_pct', 90)
@@ -35139,7 +35142,7 @@ def handle_self_test():
         used_pct = round((1 - free / total) * 100, 1) if total else 0
         try:                                          # 0 = off (mirrors _disk_watchdog)
             thr = int(cfg.get('disk_watchdog_pct', 85))
-        except (TypeError, ValueError):               # malformed stored value → default, don't red the check
+        except (TypeError, ValueError, OverflowError):               # malformed stored value → default, don't red the check
             thr = 85
         off = thr <= 0
         _add('Disk space', off or used_pct < thr,
@@ -35430,7 +35433,7 @@ def handle_tls_gen_self_signed():
     raw = body.get('hosts')
     if isinstance(raw, str):
         raw = re.split(r'[,\s]+', raw)
-    hosts = [str(h).strip() for h in (raw or []) if str(h).strip()]
+    hosts = [str(h).strip() for h in as_list(raw) if str(h).strip()]
     if not hosts:
         respond(400, {'error': 'Provide at least one hostname or IP'}); return
     if len(hosts) > 16 or any(not _valid_tls_host(h) for h in hosts):
@@ -35780,7 +35783,7 @@ def _maybe_check_disk_space():
     cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     try:
         threshold = int(cfg.get('disk_watchdog_pct', 85))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         threshold = 85
     if threshold <= 0:
         return
@@ -36231,7 +36234,7 @@ def _as_pct(v):
     """Coerce a configured SLA target to a float in (0, 100], else None."""
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return f if 0 < f <= 100 else None
 
@@ -36309,7 +36312,7 @@ def handle_fleet_sla():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['30'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         days = 30
     days = max(1, min(365, days))
     now = int(time.time())
@@ -36473,7 +36476,7 @@ def handle_fleet_anomalies():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         z = float((qs.get('z') or ['2.5'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         z = 2.5
     z = max(1.5, min(6.0, z))
     # W4-18: seasonal=1 scores against the matching day-of-week × 4-hour bucket
@@ -36619,7 +36622,7 @@ def _slo_target():
     """v5.4.1 (F3): the configured availability SLO target (percent), default 99.9."""
     try:
         t = float(_config_ro().get('slo_target_percent') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         t = 0.0
     return t if 0 < t < 100 else 99.9
 
@@ -36717,14 +36720,14 @@ def _compute_slo_objects(mh):
     for o in objs:
         try:
             target = float(o.get('target_pct') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             target = 0.0
         if not (0 < target < 100):
             target = 99.9
         budget = 100.0 - target
         try:
             window_days = max(1, min(365, int(o.get('window_days') or 30)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             window_days = 30
         cutoff = now - window_days * 86400
         labels = by_obj.get(o.get('id')) or []
@@ -36813,14 +36816,14 @@ def _valid_cron(expr):
                 step = int(part[2:])
                 if step < 1 or step > hi:
                     return False
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 return False
         else:
             try:
                 v = int(part)
                 if not (lo <= v <= hi):
                     return False
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 return False
     return True
 
@@ -36894,7 +36897,7 @@ def _cron_due_since(cron, now, last_minute):
     cur = int(now) // 60
     try:
         last = int(last_minute)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         last = 0
     if last >= cur:
         # Already claimed this minute, or the clock moved back — evaluate just
@@ -37211,7 +37214,7 @@ def handle_custom_cmd():
     # default heuristic (300s, or 1800s for an upgrade) applies.
     try:
         _to = int(body.get('timeout', 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'timeout must be an integer (seconds)'})
     if _to and not (1 <= _to <= 3600):
         respond(400, {'error': 'timeout must be 1..3600 seconds'})
@@ -37848,7 +37851,7 @@ def _eval_process_watches(dev_id, dev_name, top_processes, now):
             metric = 'mem' if w.get('metric') == 'mem' else 'cpu'
             try:
                 thr = float(w.get('threshold') or 80)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 thr = 80.0
             key = f'{nm}|{metric}'
             live_keys.add(key)
@@ -38147,7 +38150,7 @@ def _ingest_pii_findings(dev_id, findings):
             continue
         try:
             count = int(f.get('count') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             count = 0
         if count <= 0:
             continue
@@ -38155,7 +38158,7 @@ def _ingest_pii_findings(dev_id, findings):
         for ln in (f.get('lines') or [])[:5]:
             try:
                 n = int(ln)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if 0 < n < 10_000_000:
                 lines.append(n)
@@ -38262,7 +38265,7 @@ def _ingest_mdns(dev_id, raw):
             continue
         try:
             port = int(e.get('port') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             port = 0
         key = (addr, stype, port)
         if key in seen:
@@ -38360,7 +38363,7 @@ def _ingest_secret_findings(dev_id, dev_name, findings):
             ln = int(f.get('line') or 0)
             if 0 < ln < 10_000_000:
                 ent['line'] = ln
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
         clean.append(ent)
     new_fps = []
@@ -38620,7 +38623,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         scrub_fired = set(prev.get('scrub_overdue') or [])
         try:
             thresh_days = int((_config_ro().get('scrub_overdue_days') or 35))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             thresh_days = 35
         for p in pools:
             nm = p.get('name')
@@ -38656,7 +38659,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         snap_fired = set(prev.get('snapshot_stale') or [])
         try:
             snap_days = int(_config_ro().get('snapshot_stale_days') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             snap_days = 0
         if snap_days > 0:
             now_ts = int(time.time())
@@ -38796,7 +38799,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         # _NIC_ERR_ALERT_MIN is the default) new errors/drops in one interval.
         try:
             _nic_min = int(_config_ro().get('nic_err_alert_min') or _NIC_ERR_ALERT_MIN)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _nic_min = _NIC_ERR_ALERT_MIN
         if _nic_min < 1:
             _nic_min = _NIC_ERR_ALERT_MIN
@@ -39741,7 +39744,7 @@ def handle_device_docker_prune(dev_id):
         log_command(actor, dev_id, dev.get('name', dev_id), f'exec(wait):{shell_cmd[:60]}')
         try:
             timeout = max(10, min(int(body.get('timeout', 90) or 90), 120))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             timeout = 90
         status, output = _longpoll_wait(dev_id, timeout)
         if status == 'ok':
@@ -39952,7 +39955,7 @@ def handle_device_container_action(dev_id):
     if action == 'logs':
         try:
             tail_want = int(body.get('tail') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             tail_want = 0
         if tail_want:
             tail_want = max(10, min(tail_want, CONTAINER_LOG_TAIL_MAX))
@@ -39973,7 +39976,7 @@ def handle_device_container_action(dev_id):
     if wait:
         try:
             timeout = max(10, min(int(body.get('timeout') or 90), 120))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             timeout = 90
         lp = load(LONGPOLL_FILE)
         # `match` = the exact command we queued. Without it the first output the
@@ -40066,13 +40069,13 @@ def handle_mailflow_save() -> None:
     imap_host = _no_ctrl(_sanitize_str(body.get('imap_host', ''), 255)).strip()
     try:
         port = int(body.get('imap_port') or 993)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993
     if not (1 <= port <= 65535):
         respond(400, {'error': 'imap_port must be 1-65535'})
     try:
         max_lat = max(30, int(body.get('max_latency_seconds') or 300))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         max_lat = 300
     if body.get('enabled') and (not to_addr or '@' not in to_addr):
         respond(400, {'error': 'a valid to_address is required to enable'})
@@ -40674,7 +40677,7 @@ def _mailflow_imap_find(cfg, token, now):
         return None
     try:
         port = int(cfg.get('imap_port') or 993)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993
     use_ssl = bool(cfg.get('imap_ssl', True))
     try:
@@ -40699,7 +40702,7 @@ def _mailflow_imap_find(cfg, token, now):
             try:
                 sent_ts = int(token.split('-')[2])
                 latency = max(0, now - sent_ts)
-            except (IndexError, ValueError):
+            except (IndexError, ValueError, OverflowError):
                 pass
             return latency
         finally:
@@ -40978,7 +40981,7 @@ def handle_deadman_jobs():
     try:
         period = max(1, min(43200, int(body.get('period_minutes') or 60)))
         grace = max(1, min(10080, int(body.get('grace_minutes') or 10)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'period_minutes / grace_minutes must be numbers'})
     with _LockedUpdate(DEADMAN_FILE) as store:
         jobs = store.setdefault('jobs', [])
@@ -41452,7 +41455,7 @@ def handle_sudo_search():
     user_f = (qs.get('user') or [''])[0].lower().strip()
     try:
         limit = max(1, min(1000, int((qs.get('limit') or ['200'])[0])))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         limit = 200
     store = load(SUDO_LOG_FILE) or {}
     # _scope_filter_devices folds in tenant isolation (a tenant admin/auditor
@@ -41915,7 +41918,7 @@ def handle_network_positions() -> None:
             else:
                 try:
                     xi = int(x); yi = int(y)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
                 if not (-10000 <= xi <= 10000 and -10000 <= yi <= 10000):
                     continue
@@ -42788,7 +42791,7 @@ def handle_exec_batch_status(job_id):
             if rec is not None:
                 out['status']     = 'done'
                 out['rc']         = rec.get('rc', -1)
-                out['output']     = rec.get('output', '')[:8192]
+                out['output']     = str(rec.get('output', ''))[:8192]
                 out['finished_at'] = rec.get('ts')
             else:
                 out['status'] = 'pending'
@@ -44594,7 +44597,7 @@ def handle_ai_rag_search():
         'type':   h.get('type'),
         'device': h.get('device'),
         'ts':     h.get('ts'),
-        'excerpt': (h.get('text', '') or '')[:600],
+        'excerpt': str(h.get('text', '') or '')[:600],
     } for h in hits]
     respond(200, {
         'ok': True,
@@ -44984,7 +44987,7 @@ def handle_netscan_schedules():
         respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
     try:
         interval = max(15, min(10080, int(body.get('interval_minutes', 60))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'interval_minutes must be an integer (minutes, 15..10080)'})
     sid = secrets.token_hex(8)
     with _LockedUpdate(NETSCAN_SCHEDULES_FILE) as scheds:
@@ -45066,7 +45069,7 @@ def _forecast_min_r2():
         return forecast._MIN_R2
     try:
         return float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return forecast._MIN_R2
 
 
@@ -45153,7 +45156,7 @@ def handle_device_changes(dev_id):
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = max(1, min(90, int(qs.get('days', ['1'])[0])))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         days = 1
     rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
     respond(200, forecast.what_changed(rec.get('samples', []), days, int(time.time())))
@@ -45340,7 +45343,7 @@ def _compliance_facts(devices=None):
     def _compl_int(key, dflt):
         try:
             return int(cfg.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     _compliance_tls_days = _compl_int('compliance_tls_expiring_days', 21)
     _compliance_lookback_days = _compl_int('compliance_lookback_days', 30)
@@ -45354,7 +45357,7 @@ def _compliance_facts(devices=None):
     _pt_raw = cfg.get(PATCH_ALERT_KEY)
     try:
         patch_thresh = int(_pt_raw) if _pt_raw is not None else 50
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         patch_thresh = 50
     pending_bad, reboot = [], []
     # v6.3.1: CAPABLE-SOURCE coverage counts (the "silence isn't clearance"
@@ -45554,7 +45557,7 @@ def _compliance_facts(devices=None):
             scap_scanned += 1
             try:
                 nfail = int(rec.get('fail') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 nfail = 0
             if nfail:
                 nm = (devices.get(did) or {}).get('name', did)
@@ -45941,9 +45944,9 @@ def _build_runbook_snapshot(dev_id, devices):
         recent_cmds = []
     recent_cmds = [{
         'ts':     c.get('ts'),
-        'cmd':    (c.get('cmd') or '')[:120],
+        'cmd':    str(c.get('cmd') or '')[:120],
         'rc':     c.get('rc'),
-        'output': (c.get('output') or '')[:200],
+        'output': str(c.get('output') or '')[:200],
     } for c in recent_cmds]
 
     # CVE findings: top 10 (was 20), summary capped to 100 chars (was 200)
@@ -45957,7 +45960,7 @@ def _build_runbook_snapshot(dev_id, devices):
         'severity': f.get('severity'),
         'pkg':      f.get('package'),
         'fixed':    f.get('fixed_version'),
-        'summary':  (f.get('summary') or '')[:100],
+        'summary':  str(f.get('summary') or '')[:100],
     } for f in cve_findings if not f.get('ignored')]
 
     # Patch status. `patch_status`, `upgradable` and `last_patch_check` have
@@ -45982,7 +45985,7 @@ def _build_runbook_snapshot(dev_id, devices):
         'group':          dev.get('group'),
         'tags':           dev.get('tags') or [],
         # Notes capped at 500 (was 1000) — runbooks aren't biographies
-        'notes':          (dev.get('notes') or '')[:500],
+        'notes':          str(dev.get('notes') or '')[:500],
         'ip':             dev.get('ip'),
         'mac':            dev.get('mac'),
         'sysinfo':        si,
@@ -47084,7 +47087,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         # configurable (default 85 C); fires once when any sensor crosses it.
         try:
             _t_thresh = float(_config_ro().get('temp_alert_threshold_c', 85))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _t_thresh = 85.0
         # v6.4.2: an operator-ignored sensor must not fire temp_high. Without
         # this the only escape from a dead pin's permanent "critical" alert is
@@ -47098,7 +47101,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         # hot GPU fires temp_high (sensor labelled "GPU: <name>") and cooling
         # back down auto-resolves it via temp_normal, exactly like a board
         # sensor. No separate event/threshold to manage.
-        for _g in (body.get('gpus') or []):
+        for _g in as_list(body.get('gpus')):
             if isinstance(_g, dict) and isinstance(_g.get('temp_c'), (int, float)) \
                     and _g['temp_c'] >= _t_thresh:
                 _hot.append({'label': 'GPU: ' + str(_g.get('name') or 'GPU'),
@@ -47120,10 +47123,10 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         _tvals = [t['current_c'] for t in (safe.get('temps') or [])
                   if isinstance(t.get('current_c'), (int, float))
                   and str(t.get('label') or '') not in _t_ign]
-        for _sd in (body.get('smart') or []):
+        for _sd in as_list(body.get('smart')):
             if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
                 _tvals.append(_sd['temperature_c'])
-        for _gg in (body.get('gpus') or []):
+        for _gg in as_list(body.get('gpus')):
             if isinstance(_gg, dict) and isinstance(_gg.get('temp_c'), (int, float)):
                 _tvals.append(_gg['temp_c'])
         if _tvals:
@@ -47333,7 +47336,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         _rt_raw = _ups_cfg.get('ups_critical_runtime_s')
         try:
             runtime_thr = 180 if _rt_raw in (None, '') else int(_rt_raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             runtime_thr = 180
 
         def _crit(u):
@@ -47536,7 +47539,7 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
         # per-device entity-row rewrite on each beat with no forecast benefit.
         try:
             last_ts = float(samples[-1].get('ts') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             last_ts = 0
         if (now - last_ts) < _METRIC_SAMPLE_REFRESH_SEC:
             return
@@ -47854,7 +47857,7 @@ def handle_disk_health():
     def _u_int(key, dflt):
         try:
             return int(_uc.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     unstable = _unstable_hosts_view(days=_u_int('unstable_host_window_days', 7),
                                     threshold=_u_int('unstable_host_returns_min', 3))
@@ -47945,7 +47948,7 @@ def _resource_forecast_bounds():
                 continue
             try:
                 out[metric] = float(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
     return ceilings, floors
 
@@ -48338,7 +48341,7 @@ def handle_monitoring_profile_apply():
         respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.MonitoringProfileApplyRequest)
     pid = str(body.get('profile_id', ''))
-    device_ids = [str(x) for x in (body.get('device_ids') or []) if _validate_id(str(x))][:500]
+    device_ids = [str(x) for x in as_list(body.get('device_ids')) if _validate_id(str(x))][:500]
     if not device_ids:
         respond(400, {'error': 'select at least one device'})
     cfg = load(CONFIG_FILE) or {}
@@ -48851,7 +48854,7 @@ def _checks_threshold_kwargs(cfg):
     def _i(key, dflt):
         try:
             return int(cfg.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     return {
         'disk_forecast_crit_days':   _i('disk_forecast_crit_days', 7),
@@ -49093,7 +49096,7 @@ def handle_custom_checks_save():
     def _iarg(key, default, lo, hi):
         try:
             return max(lo, min(int(body.get(key) or default), hi))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': f'{key} must be a number'})
     extras = {}
     if ctype == 'log_errors':
@@ -49433,7 +49436,7 @@ def _compute_attention():
     def _cfg_int(key, dflt):
         try:
             return int(cfg.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     _disk_fc_crit = _cfg_int('disk_forecast_crit_days', 7)
     _disk_fc_warn = _cfg_int('disk_forecast_warn_days', 21)
@@ -50133,7 +50136,7 @@ def _compute_attention():
             items.append({
                 'severity': 'critical', 'kind': 'monitor_down',
                 'device':   label,
-                'summary':  f'Monitor probe failing — {mon.get("type","?")} {mon.get("target","")[:80]}',
+                'summary':  f'Monitor probe failing — {mon.get("type","?")} {str(mon.get("target",""))[:80]}',
             })
 
     # v3.0.1 (attention audit): custom_script_fail. Failing scripts show in
@@ -50321,7 +50324,7 @@ def _compute_attention():
                             f'{payload.get("process", "unknown process")}',
             })
         elif ev_type == 'ssh_key_added':
-            fp = (payload.get('fingerprint') or '')[:24]
+            fp = str(payload.get('fingerprint') or '')[:24]
             user = payload.get('user', '?')
             dedup_key = f'ssh_key|{did}|{user}|{fp}'
             if dedup_key in seen_event_keys: continue
@@ -50649,7 +50652,7 @@ def _weight_or(raw, default):
     but a hand-edited config might not) → default. 0 is legal (disables a factor)."""
     try:
         v = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return v if 0 <= v <= 1000 else default
 
@@ -50672,7 +50675,7 @@ def _health_grade_cuts():
         good = int(cfg.get('health_grade_good', 90))
         fair = min(int(cfg.get('health_grade_fair', 70)), good)
         poor = min(int(cfg.get('health_grade_poor', 40)), fair)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         good, fair, poor = 90, 70, 40
     return good, fair, poor
 
@@ -50774,7 +50777,7 @@ def _risk_level_cuts():
         crit = int(cfg.get('risk_level_critical', 80))
         high = min(int(cfg.get('risk_level_high', 50)), crit)
         med = min(int(cfg.get('risk_level_medium', 20)), high)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         crit, high, med = 80, 50, 20
     return crit, high, med
 
@@ -50838,7 +50841,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('cve_high', min(_RISK_CAPS['cve_high'], high * w['cve_high']), f'{high} high CVE(s)')
     try:
         up = int(((si.get('packages') or {}).get('upgradable')) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         up = 0
     if up:
         _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * w['pending_updates']), f'{up} pending update(s)')
@@ -51274,7 +51277,7 @@ def _reliability_level_cuts():
         crit = int(cfg.get('reliability_crit', _dc['critical']))
         high = min(int(cfg.get('reliability_high', _dc['high'])), crit)
         med = min(int(cfg.get('reliability_medium', _dc['medium'])), high)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         crit, high, med = _dc['critical'], _dc['high'], _dc['medium']
     return crit, high, med
 
@@ -51307,7 +51310,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     def _rel_int(key, dflt):
         try:
             return int(_rc.get(key, dflt) or dflt)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     def _rel_float(key, dflt):
         # NB: don't use `x or dflt` — 0.0 is a legal tuning (fire on any positive
@@ -51317,7 +51320,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             return dflt
         try:
             return float(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     _wear_high = _rel_int('reliability_wear_high_pct', _WEAR_HIGH_PCT)
     _reboot_churn_min = _rel_int('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)
@@ -52026,7 +52029,7 @@ def _check_health_webhooks():
     cfg = _config_ro()
     try:
         threshold = int(cfg.get('health_alert_threshold') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         threshold = 0
     if threshold <= 0:
         return
@@ -52923,7 +52926,7 @@ def _status_page_projection(cfg, devices, now, ttl):
         return None
     try:
         window_days = max(1, min(90, int(sp.get('incident_days', 30))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         window_days = 30
     window_s = window_days * 86400
     mon_hist = load(MON_HIST_FILE) or {}
@@ -54002,7 +54005,7 @@ def handle_drift_ignore(dev_id):
         respond(400, {'error': 'path is required'})
         return
     ignored = bool(body.get('ignored', True))
-    reason = (body.get('reason') or '')[:500]
+    reason = str(body.get('reason') or '')[:500]
     with _LockedUpdate(DRIFT_STATE_FILE) as state:
         dev_state = state.get(dev_id)
         if not dev_state or path not in (dev_state.get('files') or {}):
@@ -55735,7 +55738,7 @@ def handle_apikeys_create():
     # v5.0.0 (#C4): optional per-key rate limit (requests/minute, 0 = unlimited).
     try:
         rate_limit = int(body.get('rate_limit') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
     if rate_limit < 0 or rate_limit > 100000:
         respond(400, {'error': 'rate_limit must be 0..100000'})
@@ -55745,7 +55748,7 @@ def handle_apikeys_create():
     # the same name) — surfaced as an attention item, never auto-rotated silently.
     try:
         rotate_after_days = int(body.get('rotate_after_days') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'rotate_after_days must be an integer'})
     if rotate_after_days < 0 or rotate_after_days > 3650:
         respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
@@ -55759,7 +55762,7 @@ def handle_apikeys_create():
             expires_at = int(expires_at)
             if expires_at <= int(time.time()):
                 respond(400, {'error': 'expires_at must be in the future'})
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'expires_at must be a unix timestamp'})
     # v4.2.0 (A5): default-expiry policy — if the operator set
     # apikey_default_expiry_days and no explicit expiry was given, apply it so
@@ -55767,7 +55770,7 @@ def handle_apikeys_create():
     if expires_at is None:
         try:
             dd = int(_config_ro().get('apikey_default_expiry_days') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             dd = 0
         if dd > 0:
             expires_at = int(time.time()) + dd * 86400
@@ -55847,7 +55850,7 @@ def handle_apikeys_update(kid):
     if 'rate_limit' in body:
         try:
             rate_limit = int(body.get('rate_limit') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
         if rate_limit < 0 or rate_limit > 100000:
             respond(400, {'error': 'rate_limit must be 0..100000'})
@@ -55859,7 +55862,7 @@ def handle_apikeys_update(kid):
         else:
             try:
                 expires_at = int(expires_at)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 respond(400, {'error': 'expires_at must be a unix timestamp'})
             if expires_at <= int(time.time()):
                 respond(400, {'error': 'expires_at must be in the future'})
@@ -55879,7 +55882,7 @@ def handle_apikeys_update(kid):
     if 'rotate_after_days' in body:                       # v6.1.1
         try:
             rad = int(body.get('rotate_after_days') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'rotate_after_days must be an integer'})
         if rad < 0 or rad > 3650:
             respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
@@ -56028,7 +56031,7 @@ def handle_longpoll_exec():
     try:
         timeout = int(body.get('timeout', 90))
         timeout = max(10, min(timeout, 120))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         timeout = 90
 
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
@@ -56253,7 +56256,7 @@ def handle_inventory_metering():
         needles = _meter_needles(m)
         try:
             limit = int(m.get('limit') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             limit = 0
         hosts = []
         reclaimable = []
@@ -56314,7 +56317,7 @@ def handle_fleet_query():
     def qi(k):
         try:
             return int(q(k)) if q(k) else None
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             return None
     def qbool(k):
         v = q(k).lower()
@@ -56322,7 +56325,7 @@ def handle_fleet_query():
     def qf(k):
         try:
             return float(q(k)) if q(k) else None
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             return None
     group, tag, os_q = q('group'), q('tag').lower(), q('os').lower()
     version_q, pkgmgr_q, has_pkg = q('version').lower(), q('pkg_manager').lower(), q('has_package').lower()
@@ -56813,11 +56816,11 @@ def _cis_checks():
     _gc = _config_ro()
     try:
         _cis_disk_max = int(_gc.get('cis_disk_pct_max', 90) or 90)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _cis_disk_max = 90
     try:
         _cis_swap_max = int(_gc.get('cis_swap_pct_max', 80) or 80)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _cis_swap_max = 80
     def _disk(ctx):
         d = ctx['sysinfo'].get('disk_percent')
@@ -59112,7 +59115,7 @@ def run_incident_promotion_if_due():
         return
     try:
         threshold = max(2, int(cfg.get('incident_device_threshold') or 5))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         threshold = 5
     alerts = (load(ALERTS_FILE) or {}).get('alerts') or []
     clusters = {}
@@ -59254,11 +59257,11 @@ def handle_alerts_list():
     status = (qs.get('status', ['open'])[0] or 'open').lower()
     try:
         limit = max(1, min(1000, int(qs.get('limit', ['200'])[0])))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         limit = 200
     try:
         offset = max(0, int(qs.get('offset', ['0'])[0]))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         offset = 0
     q = (qs.get('q', [''])[0] or '').strip().lower()[:200]
     # Repeatable either way: ?severity=high&severity=low or ?severity=high,low.
@@ -59495,7 +59498,7 @@ def _fire_ack_webhooks(alert, user):
                 for a in (store.get('alerts') or []):
                     if isinstance(a, dict) and a.get('id') == alert.get('id'):
                         a['ticket_ref'] = ticket['ticket_ref'][:128]
-                        a['ticket_url'] = (ticket.get('ticket_url') or '')[:512]
+                        a['ticket_url'] = str(ticket.get('ticket_url') or '')[:512]
                         # v6.4.2: the provider's ADDRESSABLE id (ServiceNow's
                         # sys_id is not its INC number) and WHICH destination
                         # opened it — without both, the close call cannot be
@@ -59906,7 +59909,7 @@ def handle_alert_act():
         _public_action_page('Invalid link', 'This action link is not valid.')
     try:
         exp = int((qs.get('e') or ['0'])[0])
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         exp = 0
     # Verify the SIGNATURE first, then the deadline. Checking the clock first
     # would answer differently for a well-formed expired link and a forged one,
@@ -60080,7 +60083,7 @@ def handle_alert_resolution_stats():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int(qs.get('days', ['30'])[0] or '30')
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         days = 30
     store = load(ALERTS_FILE) or {}
     alerts = store.get('alerts', []) if isinstance(store, dict) else []
@@ -60263,7 +60266,7 @@ def handle_alert_mutes():
     if body.get('hours') not in (None, ''):
         try:
             hrs = float(body['hours'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'hours must be a number'})
         if not (0.25 <= hrs <= 8760):
             respond(400, {'error': 'hours must be between 0.25 and 8760'})
@@ -60354,7 +60357,7 @@ def handle_alert_tuning():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['30'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         days = 30
     days = max(1, min(days, 365))
     cutoff = int(time.time()) - days * 86400
@@ -60855,7 +60858,7 @@ def handle_nav_counts():
             _used = (1 - _free / _tot) * 100 if _tot else 0
             try:
                 _thr = int(_sh_cfg.get('disk_watchdog_pct', 85))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 _thr = 85
             if _thr > 0 and _used >= _thr:
                 _sh_fail.append('Disk space')
@@ -61468,7 +61471,7 @@ def handle_inbound_webhooks_list():
         if not _inbound_token_visible(t):
             continue
         copy = {k: v for k, v in t.items() if k != 'token'}
-        copy['token_preview'] = (t.get('token') or '')[:12] + '…'
+        copy['token_preview'] = str(t.get('token') or '')[:12] + '…'
         redacted.append(copy)
     respond(200, {'tokens': redacted})
 
@@ -61644,7 +61647,7 @@ def _parse_syslog_line(raw):
         return 6, s
     try:
         pri = int(m.group(1))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         return 6, s
     # PRI = facility (0..23) * 8 + severity (0..7) ⇒ legal 0..191
     if pri < 0 or pri > 191:
@@ -61695,7 +61698,7 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
             matches, _acked = filter_acked_lines(dev_id, 'syslog', matches)
             try:
                 threshold = int(rule.get('threshold', 1))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 threshold = 1
             severity = str(rule.get('severity', 'WARN')).upper()
             if severity not in ('OK', 'WARN', 'CRIT'):
@@ -61783,7 +61786,7 @@ def handle_syslog_in(token_str):
         # Plain-text fallback — read stdin directly
         try:
             content_length = int(_env('CONTENT_LENGTH', '0') or 0)
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             content_length = 0
         if content_length > 0:
             raw = _read_request_body(min(content_length, 256 * 1024)).decode('utf-8', errors='replace')
@@ -63134,7 +63137,7 @@ def _device_snmp_target(dev):
     host = dev.get('ip') or dev.get('hostname') or dev.get('host')
     try:
         port = int(snmp_cfg.get('port') or 161)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 161
     if str(snmp_cfg.get('version') or '2c') == '3':
         community = {
@@ -63378,7 +63381,7 @@ def _do_snmp_poll(dev_id, dev, collected=None):
         # of the monitor failures_before_alert flap-dampening knob.
         try:
             _snmp_need = max(2, min(72, int(_config_ro().get('snmp_failures_before_alert', 2) or 2)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _snmp_need = 2
         if is_monitored and prev_fails == _snmp_need - 1 and new_fails == _snmp_need:
             try:
@@ -63396,7 +63399,7 @@ def _do_snmp_poll(dev_id, dev, collected=None):
         # _SNMP_DEAD_THRESHOLD is the default).
         try:
             _snmp_dead_n = int(_config_ro().get('snmp_dead_threshold') or _SNMP_DEAD_THRESHOLD)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _snmp_dead_n = _SNMP_DEAD_THRESHOLD
         if _snmp_dead_n < 1:
             _snmp_dead_n = _SNMP_DEAD_THRESHOLD
@@ -63947,7 +63950,7 @@ def handle_fleet_events():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['50'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         limit = 50
     limit = max(1, min(MAX_FLEET_EVENTS, limit))
 
@@ -64165,7 +64168,7 @@ def _timeline_collect(include_ids, name_map):
                 'kind':        'command',
                 'severity':    'warning' if failed else 'info',
                 'title':       'Command failed' if failed else 'Command executed',
-                'detail':      (c.get('cmd') or '')[:200],
+                'detail':      str(c.get('cmd') or '')[:200],
                 'device_id':   did,
                 'device_name': name_map.get(did, did),
             })
@@ -64258,7 +64261,7 @@ def _timeline_window(qs):
             return default
         try:
             v = int(float(raw))
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             return default
         # Tolerate milliseconds — the client has a Date in hand and sending
         # Date.now() instead of /1000 is the obvious mistake to make. Anything
@@ -64278,7 +64281,7 @@ def _timeline_parse_qs():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['100'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         limit = 100
     limit = max(1, min(500, limit))
     kind_filter = set()
@@ -64491,7 +64494,7 @@ def handle_ldap_test():
 
     result = ldap_auth.test_connection(test_cfg)
     audit_log(actor, 'ldap_test',
-              f'{"success" if result.get("ok") else "failed"}: {result.get("detail", "")[:200]}')
+              f'{"success" if result.get("ok") else "failed"}: {str(result.get("detail", ""))[:200]}')
     respond(200, result)
 
 
@@ -64902,7 +64905,7 @@ def handle_exposure_mute():
     if body.get('port') not in (None, ''):
         try:
             rule['port'] = int(body['port'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'port must be an integer'}); return
     if not rule:
         respond(400, {'error': 'specify at least one of device / process / proto / port'})
@@ -65585,7 +65588,7 @@ def _close_inherited_fds(keep=(0, 1, 2)):
         for name in names:
             try:
                 fd = int(name)
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 continue
             if fd in keep:
                 continue
@@ -65709,7 +65712,7 @@ def _cve_scan_worker(actor, target):
             return dflt
         try:
             return float(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return dflt
     cve_scanner.set_cvss_bands(
         _band('cvss_band_critical', cve_scanner._CVSS_BAND_DEFAULT_CRITICAL),
@@ -65886,7 +65889,7 @@ def _refresh_kev_epss_now():
                     continue
                 try:
                     epss[cid] = round(float(parts[1]), 4)
-                except ValueError:
+                except (TypeError, ValueError, OverflowError):
                     pass
         store['epss'] = epss
         store['epss_error'] = ''
@@ -66048,7 +66051,7 @@ def handle_my_notify_prefs():
     out['email'] = _sanitize_str(email, 200) if '@' in email else ''
     try:
         out['min_priority'] = max(0, min(5, int(body.get('min_priority', 0))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         out['min_priority'] = 0
     evs = body.get('events')
     if isinstance(evs, list):
@@ -67245,7 +67248,7 @@ def _cron_field_match(spec, value, lo=0, hi=59):
             part, _, raw_step = part.partition('/')
             try:
                 step = int(raw_step)
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 continue
             if step <= 0:
                 continue
@@ -67256,12 +67259,12 @@ def _cron_field_match(spec, value, lo=0, hi=59):
             a, _, b = part.partition('-')
             try:
                 start, end = int(a), int(b)
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 continue
         else:
             try:
                 start = end = int(part)
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 continue
             if step != 1:
                 end = hi          # "5/15" means 5, 20, 35 … up to the maximum
@@ -67666,7 +67669,7 @@ def _validate_maintenance_body(body):
     cron   = _sanitize_str(body.get('cron', ''), 64)
     try:
         duration = int(body.get('duration', 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         duration = 0
     events = body.get('events') or []
     if not isinstance(events, list):
@@ -67817,7 +67820,7 @@ def _sanitize_service_entry(entry):
     since  = entry.get('since') or 0
     try:
         since = int(since)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         since = 0
     out = {'unit': unit, 'active': active, 'sub': sub, 'since': since}
     # v3.9.0: the agent resolves a watched alias to its canonical unit (e.g.
@@ -67892,7 +67895,7 @@ def process_service_report(dev_id, services_payload):
     flaps = []
     try:
         flap_threshold = int(_config_ro().get('unit_flap_restarts') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         flap_threshold = 0
     flap_recovers = []            # v6.3.0: units that stopped flapping
     with _LockedUpdate(SERVICES_FILE) as store:
@@ -68091,7 +68094,7 @@ def _metric_failures_before_alert():
     = alert on the first breach, exactly as before."""
     try:
         return max(1, min(10, int(_config_ro().get('metric_failures_before_alert', 1) or 1)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 1
 
 
@@ -68127,7 +68130,7 @@ def _below_recovery(value, warn):
     """
     try:
         _buf = int(_config_ro().get('metric_recovery_buffer', METRIC_RECOVERY_BUFFER))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _buf = METRIC_RECOVERY_BUFFER
     recovery_point = max(warn - _buf, warn * 0.9)
     return value < recovery_point
@@ -68742,7 +68745,7 @@ def process_container_report(dev_id, normalised, now):
         _restart_delta = int(_config_ro().get('container_restart_delta_threshold',
                                               CONTAINER_RESTART_DELTA_THRESHOLD)
                              or CONTAINER_RESTART_DELTA_THRESHOLD)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _restart_delta = CONTAINER_RESTART_DELTA_THRESHOLD
     for key, cur in new_by_key.items():
         prev = prev_by_key.get(key)
@@ -68751,7 +68754,7 @@ def process_container_report(dev_id, normalised, now):
         try:
             cur_n = int(cur.get('restart_count', 0))
             prev_n = int(prev.get('restart_count', 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         delta = cur_n - prev_n
         if delta >= _restart_delta:
@@ -68793,7 +68796,7 @@ def get_container_stale_ttl():
     """
     try:
         v = int(_config_ro().get('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         v = containers_mod.DEFAULT_STALE_TTL
     return max(300, v)
 
@@ -69006,7 +69009,7 @@ def handle_services_config(dev_id):
                 continue
             try:
                 thr = int(r.get('threshold', 1) or 1)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 thr = 1
             # v3.0.1: optional severity classification (OK/WARN/CRIT).
             # Defaults to WARN so existing rules keep firing as before.
@@ -69278,7 +69281,7 @@ def handle_log_submit():
                     threshold = rule.get('threshold', 1)
                     try:
                         threshold = int(threshold)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         threshold = 1
                     # v3.0.1: severity classification (OK/WARN/CRIT)
                     severity = str(rule.get('severity', 'WARN')).upper()
@@ -69346,7 +69349,7 @@ def handle_log_search():
     device  = (qs.get('device', [''])[0])[:64]
     try:
         limit = max(1, min(int(qs.get('limit', ['200'])[0] or 200), 1000))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'limit must be a number'})
 
     if not q:
@@ -69475,7 +69478,7 @@ def _validate_global_rule(body):
         raw_threshold = 1
     try:
         threshold = int(raw_threshold)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, 'threshold must be an integer'
     # v3.0.1: severity classification — OK/WARN/CRIT — default WARN
     severity = str(body.get('severity', 'WARN')).upper()
@@ -69626,13 +69629,13 @@ def handle_log_tail():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     try:
         since = int(qs.get('since', ['0'])[0] or 0)
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         since = 0
     device = (qs.get('device', [''])[0])[:64]
     unit   = (qs.get('unit',   [''])[0])[:128]
     try:
         limit = min(int(qs.get('limit', ['500'])[0] or 500), 2000)
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         limit = 500
 
     log_store = load(LOG_WATCH_FILE)
@@ -70434,7 +70437,7 @@ def handle_vault_checkout() -> None:
         respond(404, {'error': 'device not found'})
     try:
         hours = float(body.get('hours') or _CHECKOUT_DEFAULT_HOURS)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         hours = _CHECKOUT_DEFAULT_HOURS
     hours = max(0.25, min(_CHECKOUT_MAX_HOURS, hours))
 
@@ -73767,7 +73770,7 @@ def _iac_collect_server_side(dev_id, dev, requested):
                 assigned.append({
                     'id': sid, 'name': script.get('name', ''),
                     'schedule': script.get('schedule', ''),
-                    'body_preview': (script.get('body') or '')[:500],
+                    'body_preview': str(script.get('body') or '')[:500],
                 })
         out['remotepower'] = {
             'group':      dev.get('group'),
@@ -74466,7 +74469,7 @@ def _resolve_ai_params(key):
                     out[k] = int(v)
                 else:
                     out[k] = float(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 out[k] = None
     return out
 
@@ -74511,7 +74514,7 @@ def handle_ai_params_save():
             if f < lo or f > hi:
                 respond(400, {'error': f'{name} must be {lo}..{hi}'}); return
             out[name] = f
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': f'{name} must be a number'}); return
     def _i(name, lo, hi):
         v = body.get(name)
@@ -74522,7 +74525,7 @@ def handle_ai_params_save():
             if i < lo or i > hi:
                 respond(400, {'error': f'{name} must be {lo}..{hi}'}); return
             out[name] = i
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             respond(400, {'error': f'{name} must be an integer'}); return
 
     _f('temperature', 0.0, 2.0)

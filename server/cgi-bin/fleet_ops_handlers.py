@@ -279,7 +279,7 @@ def handle_devices_bulk_attrs():
     if 'poll_interval' in body:
         try:
             pi_val = int(body.get('poll_interval'))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             A.respond(400, {'error': 'poll_interval must be an integer'})
         if pi_val < 30 or pi_val > 3600:
             A.respond(400, {'error': 'poll_interval must be 30..3600 seconds'})
@@ -287,7 +287,7 @@ def handle_devices_bulk_attrs():
     if 'offline_alert_delay_min' in body:
         try:
             _ad = int(body.get('offline_alert_delay_min') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             _ad = 0
         updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
 
@@ -704,7 +704,7 @@ def _log_buffer_ttl():
     per-device / per-unit loop by the caller."""
     try:
         hours = int(A._config_ro().get('log_buffer_retention_hours') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         hours = 0
     if hours <= 0:
         return A.LOG_BUFFER_TTL
@@ -722,7 +722,7 @@ def _log_buffer_unit_cap():
     lines, so enabling it never hides recent evidence."""
     try:
         v = int(A._config_ro().get('log_buffer_max_bytes_per_unit') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         v = 0
     return max(0, min(64 * 1024 * 1024, v))
 
@@ -771,12 +771,12 @@ def handle_logs_export():
         fmt = 'csv'
     try:
         since = int(qs.get('since', ['0'])[0] or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         since = 0
     try:
         limit = int(qs.get('limit', [str(_LOG_EXPORT_MAX_LINES)])[0]
                     or _LOG_EXPORT_MAX_LINES)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         limit = _LOG_EXPORT_MAX_LINES
     limit = max(1, min(_LOG_EXPORT_MAX_LINES, limit))
 

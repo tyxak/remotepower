@@ -63,7 +63,7 @@ _FLOW_TTL_S = 6 * 3600      # upper bound; only binds when an exporter goes idle
 def _flow_num(v, cap=None):
     try:
         n = int(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
     if n < 0:
         return 0
@@ -346,7 +346,7 @@ def run_flow_dep_check_if_due():
     # cheap cadence gate on a read-only copy (like the other run_*_if_due sweeps)
     try:
         interval = int(A._config_ro().get('dependency_check_interval_s', 120))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 120
     interval = max(30, min(3600, interval))
     st = A.load(A.FLOW_DEPS_FILE) or {}
@@ -358,7 +358,7 @@ def run_flow_dep_check_if_due():
     try:
         silence_s = int(A._config_ro().get('dependency_silence_min',
                                            _DEP_DEFAULT_SILENCE_MIN)) * 60
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         silence_s = _DEP_DEFAULT_SILENCE_MIN * 60
     silence_s = max(60, silence_s)
     pending = []          # (event, payload) fired AFTER the lock
@@ -449,7 +449,7 @@ def run_flow_export_check_if_due():
         v = cfg.get(key, default)
         try:
             return max(0, int(v))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return default
     every = _num('flow_export_check_seconds', 900)
     silence_s = _num('flow_export_silence_seconds', A._FLOW_SILENT_S)
@@ -463,7 +463,7 @@ def run_flow_export_check_if_due():
     try:
         if now - int((A._load_ro(A.FLOW_DEPS_FILE) or {}).get('export_last_run') or 0) < every:
             return
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass                              # unreadable timestamp: fall through and re-stamp
     with A._LockedUpdate(A.FLOW_DEPS_FILE) as store:
         # re-check under the lock: a concurrent worker may have claimed the tick

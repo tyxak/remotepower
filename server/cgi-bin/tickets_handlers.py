@@ -87,7 +87,7 @@ def _ticket_sla_policy(ttype=None):
             v = float(raw.get(str(k), raw.get(k)))
             if v > 0:
                 out[k] = v
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if ttype and ttype in A.TICKET_TYPES:
         by_type = (A._config_ro() or {}).get('ticket_sla_by_type') or {}
@@ -97,7 +97,7 @@ def _ticket_sla_policy(ttype=None):
                 v = float(type_raw.get(str(k), type_raw.get(k)))
                 if v > 0:
                     out[k] = v
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
     return out
 
@@ -135,7 +135,7 @@ def _business_deadline(start_ts, seconds, spec):
     to infinity."""
     try:
         offset = int(spec.get('tz_offset_min', 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         offset = 0
     tz = timezone(timedelta(minutes=offset))
     weekly = spec.get('weekly') or {}
@@ -151,7 +151,7 @@ def _business_deadline(start_ts, seconds, spec):
             for win in (weekly.get(day_key) or []):
                 try:
                     s_min, e_min = int(win[0]), int(win[1])
-                except (TypeError, ValueError, IndexError):
+                except (TypeError, ValueError, IndexError, OverflowError):
                     continue
                 if e_min <= s_min:
                     continue
@@ -291,7 +291,7 @@ def handle_tickets():
     if _pn:
         try:
             _pnum = int(_pn)
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             _pnum = None
         if _pnum is not None:
             _pt = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
@@ -407,7 +407,7 @@ def _clean_sla_hours(raw, base_for_defaults=None):
     for k in (1, 2, 3, 4):
         try:
             v = float(raw.get(str(k), raw.get(k)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             v = base[k]
         out[str(k)] = max(0.1, min(8760.0, v))   # 6 min .. 1 year
     return out
@@ -460,7 +460,7 @@ def handle_ticket_sla():
                 try:
                     v = float(rule.get(str(k), rule.get(k)))
                     cleaned[str(k)] = max(0.1, min(8760.0, v))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
             if cleaned:
                 by_type_out[ttype] = cleaned
@@ -733,7 +733,7 @@ def handle_ticket_update(tid):
                 else:
                     try:
                         _pnum = int(_pn)
-                    except ValueError:
+                    except (TypeError, ValueError, OverflowError):
                         _pnum = None
                     if _pnum is not None:
                         _pt = next((x for x in (store.get('tickets') or [])
@@ -939,13 +939,13 @@ def handle_ticket_imap_save():
     host = A._no_ctrl(A._sanitize_str(body.get('host', ''), 255)).strip()
     try:
         port = int(body.get('port') or 993)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993
     if not (1 <= port <= 65535):
         A.respond(400, {'error': 'port must be 1-65535'})
     try:
         interval = max(120, int(body.get('interval', 300) or 300))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 300
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cur = cfg.get('ticket_imap') if isinstance(cfg.get('ticket_imap'), dict) else {}
@@ -979,7 +979,7 @@ def handle_ticket_imap_test():
     verify_tls = body.get('verify_tls', saved.get('verify_tls', True)) is not False
     try:
         port = int(body.get('port') or saved.get('port') or (993 if use_ssl else 143))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993 if use_ssl else 143
     username = A._sanitize_str(str(body.get('username', saved.get('username', ''))), 255)
     password = body.get('password') or saved.get('password', '')
@@ -1232,7 +1232,7 @@ def handle_ticket_csat():
         _csat_page('Invalid link', 'This survey link is not valid.')
     try:
         exp = int((qs.get('e') or ['0'])[0])
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         exp = 0
     # Signature first, then the clock — the other order answers differently for
     # a well-formed expired link and a forged one.
@@ -1309,7 +1309,7 @@ def _fetch_ticket_replies():
         return
     try:
         port = int(c.get('port') or (993 if c.get('use_ssl', True) else 143))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993
     use_ssl = c.get('use_ssl', True) is not False
     verify_tls = c.get('verify_tls', True) is not False
@@ -1475,7 +1475,7 @@ def run_ticket_imap_if_due():
     st = A._load_ro(A.TICKETS_FILE) or {}   # v6.3.0 perf: read-only gate
     try:
         interval = max(120, int(c.get('interval', 300) or 300))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 300
     if int(time.time()) - int(st.get('imap_last_fetch', 0) or 0) < interval:
         return
@@ -1494,7 +1494,7 @@ def run_ticket_sla_if_due():
     try:
         if now - int(st0.get('sla_last_check', 0) or 0) < A.TICKET_SLA_CHECK_INTERVAL:
             return
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
     pending = []
     with A._LockedUpdate(A.TICKETS_FILE) as store:

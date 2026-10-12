@@ -3399,6 +3399,12 @@ def build_alerts() -> dict:
          {'device_id': 'pi1', 'device_name': 'pihole.lab'}, 'alice', 'auto'),
         ('service_down',       'high',     'ng01',  'nginx.service was down on nginx.lab',
          {'device_id': 'ng01', 'device_name': 'nginx.lab', 'unit': 'nginx.service'}, 'bob', 'bob'),
+        # v7.3.0: Threat intel's own health, closed again, so the inbox shows what
+        # an edge-feed alert looks like and the recover that clears it.
+        ('edge_feed_down',     'medium',   None,
+         'Edge feed down: Cloudflare firewall events — the token was refused',
+         {'label': 'Cloudflare firewall events',
+          'detail': 'the token was refused: Authentication error'}, 'alice', 'auto'),
     ]
     alerts = []
     for i, (event, sev, dev_id, title, payload, ack_by, resolved_by) in enumerate(specs):
@@ -3458,6 +3464,9 @@ def build_fleet_events() -> dict:
         ('snmp_recover',    'sw02',  {}),
         ('backup_stale',    'gt01',  {'unit': 'gitea-dump'}),
         ('smart_failure',   'tnas',  {'path': '/dev/sdc'}),
+        ('edge_feed_down',  None,    {'label': 'Cloudflare firewall events',
+                                     'detail': 'the token was refused: Authentication error'}),
+        ('edge_feed_recovered', None, {'label': 'Cloudflare firewall events'}),
         ('kernel_outdated', 'pmx01', {}),
         ('health_degraded', 'nc01',  {'severity': 'warning'}),
         ('health_recovered','nc01',  {}),

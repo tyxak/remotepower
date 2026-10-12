@@ -699,7 +699,7 @@ def handle_evidence_pack():
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['90'])[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         days = 90
     days = max(1, min(366, days))
     now = int(A.time.time())
@@ -876,7 +876,7 @@ def handle_report_archive():
     def _num(key):
         try:
             return int((qs.get(key) or ['0'])[0])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 0
 
     as_of = _num('as_of')
@@ -1174,7 +1174,7 @@ def _clean_report_def(body):
     name = A._sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
         return None
-    sections = [s for s in (body.get('sections') or []) if s in _ALL_REPORT_SECTIONS]
+    sections = [s for s in A.as_list(body.get('sections')) if s in _ALL_REPORT_SECTIONS]
     fmt = str(body.get('format', 'json')).lower()
     if fmt not in ('json', 'csv'):
         fmt = 'json'
@@ -1182,12 +1182,12 @@ def _clean_report_def(body):
     enabled = bool(body.get('enabled'))
     if enabled and cron and not A._valid_cron(cron):
         return 'badcron'
-    recipients = [A._sanitize_str(r, 254) for r in (body.get('recipients') or [])
+    recipients = [A._sanitize_str(r, 254) for r in A.as_list(body.get('recipients'))
                   if isinstance(r, str) and '@' in r][:50]
     # v6.1.2 (#41): webhook destination ids. This is a WHITELIST — a key that
     # isn't listed here never reaches the stored definition, so the Settings
     # toggle would appear to save and then quietly do nothing.
-    destinations = [A._sanitize_str(str(x), 32) for x in (body.get('destinations') or [])
+    destinations = [A._sanitize_str(str(x), 32) for x in A.as_list(body.get('destinations'))
                     if isinstance(x, (str, int))][:20]
     # v6.4.2: scope a scheduled report to ONE SITE (= one customer, per
     # docs/sites.md). The schema had no site field, so the scheduler could only

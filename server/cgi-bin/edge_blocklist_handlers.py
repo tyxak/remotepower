@@ -715,7 +715,7 @@ def handle_ip_intel_ban():
         actor = A.require_perm('command', ids or None)
     try:
         hours = max(1, min(BAN_HOURS_MAX, int(body.get('hours') or pol['block_ttl_hours'])))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         hours = int(pol['block_ttl_hours'])
     now = int(time.time())
     until = now + hours * 3600

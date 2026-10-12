@@ -80,7 +80,7 @@ def _rollup_merge(buckets, samples, bucket_sec, keys=None):
     for s in samples or []:
         try:
             ts = int(s.get('ts'))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if ts <= 0:
             continue
@@ -248,7 +248,7 @@ def _raw_temp_samples(hist_rec, since_ts):
             continue
         try:
             ts = int(s.get('ts'))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if ts > since_ts:
             out.append(s)

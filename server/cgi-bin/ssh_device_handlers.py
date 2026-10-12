@@ -103,7 +103,7 @@ def handle_device_ssh(dev_id):
                     p = int(body['port'])
                     if 1 <= p <= 65535:
                         sc['port'] = p
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     A.respond(400, {'error': 'port must be 1..65535'})
             if 'password' in body:
                 pw = str(body['password'])

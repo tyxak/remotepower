@@ -495,7 +495,7 @@ def handle_kmip_status():
     _bind = str(daemon.get('bind') or '')
     try:
         _real_port = int(_bind.rsplit(':', 1)[1]) if ':' in _bind else None
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, OverflowError):
         _real_port = None
     A.respond(200, {
         'enabled': bool(store.get('enabled')),
@@ -534,7 +534,10 @@ def handle_kmip_config():
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.KmipConfigRequest)
     enabled = bool(body.get('enabled'))
-    port = int(body.get('port') or 5696)
+    try:
+        port = int(body.get('port') or 5696)
+    except (TypeError, ValueError, OverflowError):
+        A.respond(400, {'error': 'port must be a number'})
     if not (1 <= port <= 65535):
         A.respond(400, {'error': 'port out of range'})
     hosts_raw = body.get('hosts')
@@ -990,7 +993,7 @@ def handle_kmip_log_list():
         if part.startswith('n='):
             try:
                 n = max(1, min(1000, int(part[2:])))
-            except ValueError:
+            except (TypeError, ValueError, OverflowError):
                 pass
     store = A.load(A.KMIP_LOG_FILE) or {}
     entries = list(store.get('entries') or [])[-n:]

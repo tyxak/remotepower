@@ -341,13 +341,13 @@ def handle_dmarc_imap_save() -> None:
     host = A._no_ctrl(A._sanitize_str(body.get('host', ''), 255)).strip()
     try:
         port = int(body.get('port') or 993)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 993
     if not (1 <= port <= 65535):
         A.respond(400, {'error': 'port must be 1-65535'})
     try:
         interval = max(300, int(body.get('interval', 900) or 900))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 900
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cur = cfg.get('dmarc_imap') if isinstance(cfg.get('dmarc_imap'), dict) else {}

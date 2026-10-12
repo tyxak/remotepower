@@ -637,7 +637,7 @@ def _webhook_message(event, payload):
         verb = "opened" if event == "ticket_opened" else "resolved"
         msg = (
             f'Ticket #RP{int(payload.get("number") or 0):06d} '
-            f'"{(payload.get("subject") or "")[:80]}" {verb}'
+            f'"{str(payload.get("subject") or "")[:80]}" {verb}'
         )
         if who:
             msg += f" by {who}"
@@ -651,7 +651,7 @@ def _webhook_message(event, payload):
     elif event == "ticket_sla_breached":
         return (
             f'Ticket #RP{int(payload.get("number") or 0):06d} '
-            f'"{(payload.get("subject") or "")[:80]}" (P{payload.get("priority", 4)}) '
+            f'"{str(payload.get("subject") or "")[:80]}" (P{payload.get("priority", 4)}) '
             f"breached its SLA target"
             + (
                 f' — assigned to {payload.get("assignee")}'

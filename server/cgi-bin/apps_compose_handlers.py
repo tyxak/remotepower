@@ -149,7 +149,7 @@ def handle_app_catalog_custom_add():
     description = A._sanitize_str(body.get('description', ''), 240, allow_empty=True) or ''
     try:
         port = int(body.get('port') or 0) or None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = None
     if port is not None and not (1 <= port <= 65535):
         A.respond(400, {'error': 'port must be 1–65535'})

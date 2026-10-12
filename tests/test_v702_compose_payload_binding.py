@@ -52,7 +52,9 @@ class TestTheServerBindsThePayload(unittest.TestCase):
         """Hashing the wrong variable binds nothing. One site has the yaml in a
         local, the other has to read it back off the stored stack."""
         self.assertIn("A.hashlib.sha256((yaml or '')", self.src)
-        self.assertIn("A.hashlib.sha256((s.get('yaml') or '')", self.src)
+        # str() around the stored value: a stack read back off disk is text, but
+        # a hand-edited store need not be, and the hash must not be what raises.
+        self.assertRegex(self.src, r"A\.hashlib\.sha256\((?:str\()?\(?s\.get\('yaml'\) or ''\)?")
 
     def test_the_status_regex_accepts_the_new_form(self):
         """The agent echoes the full command back and the server matches it to

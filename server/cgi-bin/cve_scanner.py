@@ -660,8 +660,8 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             continue
         severity, severity_source = _severity_from_vuln(vuln, ecosystem)
         details_cache[vid] = {
-            'summary': (vuln.get('summary') or '')[:500],
-            'details': (vuln.get('details') or '')[:2000],
+            'summary': str(vuln.get('summary') or '')[:500],
+            'details': str(vuln.get('details') or '')[:2000],
             'severity': severity,
             'severity_source': severity_source,   # v2.3.4: classification provenance
             'aliases': (vuln.get('aliases') or [])[:10],

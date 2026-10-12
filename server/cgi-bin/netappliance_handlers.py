@@ -131,7 +131,7 @@ def handle_device_routeros(dev_id):
                     p = int(body['port'])
                     if 1 <= p <= 65535:
                         rc['port'] = p
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     A.respond(400, {'error': 'port must be 1..65535'})
             if 'verify' in body:
                 rc['verify'] = bool(body['verify'])
@@ -361,7 +361,7 @@ def handle_device_opnsense(dev_id):
                     p = int(body['port'])
                     if 1 <= p <= 65535:
                         oc['port'] = p
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     A.respond(400, {'error': 'port must be 1..65535'})
             if 'verify' in body:
                 oc['verify'] = bool(body['verify'])
@@ -372,7 +372,7 @@ def handle_device_opnsense(dev_id):
             dev['opnsense'] = oc
             store[dev_id] = dev
         A.audit_log(actor, 'device_opnsense_config',
-                    f'dev={dev_id} enabled={oc.get("enabled")} key={oc.get("api_key", "")[:8]}')
+                    f'dev={dev_id} enabled={oc.get("enabled")} key={str(oc.get("api_key", ""))[:8]}')
         A.respond(200, {'ok': True, 'config': A._opnsense_redacted({'opnsense': oc})})
     else:
         A.respond(405, {'error': 'Method not allowed'})
@@ -645,7 +645,7 @@ def run_netconfig_backup_if_due():
     try:
         interval = max(3600, min(30 * 86400,
                                  int(cfg.get('netconfig_backup_interval_s') or interval)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
     state = A._load_ro(A.NETCONFIG_STATE_FILE) or {}
     if now - int(state.get('last_run') or 0) < interval:

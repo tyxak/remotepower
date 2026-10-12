@@ -77,7 +77,7 @@ def _cmdb_clean_list(items, spec):
             elif rule == 'int':
                 try:
                     rec[f] = max(0, int(v)) if v not in (None, '') else 0
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     rec[f] = 0
             elif rule == 'ip':       # v5.0.0: optional IPv4/IPv6 literal
                 s = str(v or '').strip()
@@ -448,7 +448,7 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
 
     try:
         rotate_after_days = int(body.get('rotate_after_days', 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         rotate_after_days = 0
     if not (0 <= rotate_after_days <= 3650):
         A.respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
@@ -645,10 +645,10 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     if cred.get('break_glass'):
         A._breakglass_consume(bg_req_id)
         A.audit_log(actor, 'cmdb_break_glass_reveal',
-                  detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
+                  detail=f'device={dev_id} cred={cred_id} label={str(cred.get("label",""))[:40]}',
                   source_ip=A._get_client_ip())
     A.audit_log(actor, 'cmdb_credential_reveal',
-              detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
+              detail=f'device={dev_id} cred={cred_id} label={str(cred.get("label",""))[:40]}',
               source_ip=A._get_client_ip())
     A.respond(200, {
         'ok':       True,
@@ -736,7 +736,7 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
     if 'rotate_after_days' in body:
         try:
             rad = int(body.get('rotate_after_days', 0) or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             A.respond(400, {'error': 'rotate_after_days must be an integer'})
         if not (0 <= rad <= 3650):
             A.respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
@@ -1155,7 +1155,7 @@ def handle_cmdb_update(dev_id: str) -> None:
     if 'rack_unit' in body:
         try:
             ru = int(body.get('rack_unit') or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             A.respond(400, {'error': 'rack_unit must be an integer'})
         if not (0 <= ru <= 100):
             A.respond(400, {'error': 'rack_unit must be 0–100 (0 = not placed)'})
@@ -1164,7 +1164,7 @@ def handle_cmdb_update(dev_id: str) -> None:
     if 'rack_height_u' in body:
         try:
             rh = int(body.get('rack_height_u') or 1)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             A.respond(400, {'error': 'rack_height_u must be an integer'})
         if not (1 <= rh <= 60):
             A.respond(400, {'error': 'rack_height_u must be 1–60'})
@@ -1209,7 +1209,7 @@ def handle_cmdb_update(dev_id: str) -> None:
         else:
             try:
                 port = int(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 A.respond(400, {'error': 'ssh_port must be an integer'})
             if port < A.CMDB_SSH_PORT_MIN or port > A.CMDB_SSH_PORT_MAX:
                 A.respond(400, {'error': f'ssh_port must be between '
@@ -1755,7 +1755,7 @@ def handle_scoped_credentials_reveal(cred_id: str) -> None:
         A.respond(500, {'error': f'decrypt failed: {e}'})
     A.audit_log(actor, 'scoped_credential_reveal',
               detail=(f'cred={cred_id} {cred.get("scope_type")}={cred.get("scope_value")} '
-                      f'label={cred.get("label","")[:40]}'),
+                      f'label={str(cred.get("label",""))[:40]}'),
               source_ip=A._get_client_ip())
     A.respond(200, {'ok': True, 'id': cred_id, 'label': cred.get('label', ''),
                   'username': cred.get('username', ''), 'password': plaintext,

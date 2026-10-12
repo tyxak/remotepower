@@ -766,7 +766,7 @@ def _backup_wait_timeout(dev):
     timed out (the v6.3.0 'run-and-wait dead on slow pollers' bug)."""
     try:
         interval = int(dev.get('poll_interval') or 60)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         interval = 60
     if interval > 80:
         return 0
@@ -1388,7 +1388,7 @@ def _maybe_run_restore_drill():
         return
     try:
         days = int(bk.get('drill_days', 7))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         days = 7
     if days <= 0:
         return
@@ -1416,10 +1416,10 @@ def _maybe_run_restore_drill():
             # failure the operator has to go and reproduce by hand.
             st['last_drill_stores'] = r.get('stores')
             st['last_drill_db_image'] = r.get('db_image')
-            st['last_drill_error'] = (r.get('error') or '')[:300]
+            st['last_drill_error'] = str(r.get('error') or '')[:300]
             payload = {'path': 'self:dr-archive', 'file': r.get('file') or '',
                        'seconds': r.get('seconds'),
-                       'error': (r.get('error') or '')[:200]}
+                       'error': str(r.get('error') or '')[:200]}
             if not drill_ok and not prev_failed:
                 st['drill_alerted'] = True
                 events.append(('restore_drill_failed', payload))
@@ -1592,7 +1592,7 @@ def handle_proxmox_backup_threshold() -> None:
         A.respond(405, {'error': 'Method not allowed'})
     try:
         days = int((A.get_json_obj()).get('days'))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         A.respond(400, {'error': 'days must be an integer'})
     if not (1 <= days <= 365):
         A.respond(400, {'error': 'days must be between 1 and 365'})

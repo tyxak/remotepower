@@ -203,7 +203,7 @@ def handle_ignored_add():
             if raw_exp is not None and raw_exp != '':
                 try:
                     expires_at = int(raw_exp)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     expires_at = None
                 if expires_at is not None:
                     expires_at = min(expires_at, now + 30 * 86400)
@@ -572,7 +572,7 @@ def handle_prometheus_sd():
 
     try:
         port = int((qs.get('port') or ['9100'])[0])
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         port = 9100
     if not (1 <= port <= 65535):
         port = 9100
@@ -818,8 +818,10 @@ def handle_threshold_preview():
             continue
         try:
             nv = float(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
+        if nv != nv or nv in (float('inf'), float('-inf')):
+            continue          # int() below cannot take NaN or infinity
         if cfg.get(k) is None or float(cfg.get(k, 0) or 0) != nv:
             proposed_vals[k] = int(nv) if nv == int(nv) else nv
     if not proposed_vals:

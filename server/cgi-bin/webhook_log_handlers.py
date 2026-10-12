@@ -142,7 +142,7 @@ def handle_webhook_replay():
     ev = str(body.get('event', '')).strip()
     try:
         ts = int(body.get('ts', 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         ts = 0
     if not ev or not ts:
         A.respond(400, {'error': 'pass {"event": ..., "ts": ...} from the activity feed'})

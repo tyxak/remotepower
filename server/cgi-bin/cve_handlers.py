@@ -206,7 +206,7 @@ def handle_cve_campaigns():
     cve_ids = [A.re.sub(r'[^A-Za-z0-9\-]', '', str(x))[:32]
                for x in A.as_list(body.get('cve_ids'), 500)]
     cve_ids = [c for c in cve_ids if c]
-    sevs = [s for s in (str(x).lower() for x in (body.get('severities') or []))
+    sevs = [s for s in (str(x).lower() for x in A.as_list(body.get('severities')))
             if s in ('critical', 'high', 'medium', 'low')]
     now = int(A.time.time())
     camp = {'id': 'camp_' + A.secrets.token_hex(5), 'name': name,

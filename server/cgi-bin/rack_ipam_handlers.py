@@ -120,7 +120,7 @@ def handle_racks():
         A.respond(400, {'error': 'name required'})
     try:
         height = int(body.get('height_u') or 42)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         height = 42
     if not (1 <= height <= 60):
         A.respond(400, {'error': 'height_u must be 1–60'})
@@ -169,7 +169,7 @@ def handle_rack(rid):
         if 'height_u' in body:
             try:
                 h = int(body['height_u'])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 A.respond(400, {'error': 'height_u must be an integer'})
             if not (1 <= h <= 60):
                 A.respond(400, {'error': 'height_u must be 1–60'})

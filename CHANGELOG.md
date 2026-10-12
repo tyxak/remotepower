@@ -2,6 +2,9 @@
 
 All notable changes to RemotePower. Newest first.
 
+Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
+releases only; for an older release the entry below is the record.
+
 ## v7.3.0 — "Edg3Matters" — unreleased (test)
 
 A release about the edge. Threat intel learned about an attacker from your own
@@ -174,6 +177,46 @@ It is in `docs/security-review-7.3.0.md`.
   replay a window, and a feed that cannot read does not move its cursor.
 - **The demo carries edge attackers and feed state**, so the rendered gates
   measure the new cards.
+- **The edge reaches the rest of the product.** The AI index gained two fleet-level
+  documents (the feeds' and the Cloudflare list's state, and the addresses only the
+  edge saw with their reputation, what they did, who was told and whether the list
+  or a ban holds them). The Data Explorer's `attackers` entity has edge rows and
+  `source`, `classes`, `reported_to`, `in_edge_list` and `edge_banned`. The metrics
+  export has `remotepower_edge_feed_up`, `_feed_age_seconds`, `_edge_blocklist_*`,
+  `_edge_bans_active` and `_ip_intel_attackers_24h`. The posture report has an edge
+  block (print, CSV and e-mail), and a ban by hand and a list sync are timeline
+  events. All of it is the platform operator's: a scoped or tenant reader gets host
+  rows and no edge families.
+- **A feed that cannot be read, or a list sync that waits for you, raises an alert.**
+  A token that was revoked or a sync that is held stopped the reporting without a
+  word, because the cause is a token or a plan and not a host. `edge_feed_down` /
+  `edge_feed_recovered` fire per feed after two failed reads in a row,
+  `edge_list_held` / `edge_list_synced` when a sync is held or two in a row fail.
+  They fire on the change only, show in the inbox and the activity feed, route
+  through the notification matrix as **Threat intel feeds and blocklist**, and the
+  recovery closes only its own alert.
+- **A JSON integer past 1e308, an integer where a list is expected and a number
+  where text is expected are 400, not 500.** Sending every route a body in which
+  every key held the same wrong type found handlers that raised and answered
+  `500 Internal server error` for what is a bad request: roles, webhook test,
+  Proxmox snapshot and test, KB articles, CVE campaigns, monitoring profiles, KMIP
+  config, report definitions, SLA targets, drift ignore, time entries and more. The
+  causes were three idioms, now closed across the server: `(x.get('k') or
+  '').strip()` on a value that is not text (234 sites wrapped in `str()`),
+  `(body.get('k') or [])` iterated when it is not a list (every request-body site
+  uses `as_list`), and `int()` / `float()` under an `except ValueError` that missed
+  `TypeError` and `OverflowError` (349 handlers widened). A source ratchet holds the
+  first at zero.
+- **Client JavaScript is linted for the bugs `node --check` cannot see.** A function
+  declared twice, a repeated object key, a `case` that runs into the next, `x ===
+  NaN`, a `typeof` compared with a misspelt type. It found `status.js` declaring
+  `fmtAbs` twice, which printed every auto-detected incident on the public status
+  page as January 1970 (an unresolved one as `1/1/1970`). A scan also holds that no
+  top-level name is declared in two files.
+- **A recurring maintenance window no longer hides the ones after it.** The
+  suppressions list parsed an empty start and end, raised, and stopped the loop, so
+  every window after the first recurring one was missing and the page logged an
+  error on each request.
 - **Edge addresses can be blocked on every Linux agent.** A new switch next to automatic blocking blocks an address the edge feeds found on each Linux agent, with the same score, never-block and hourly limits. It is off by default and skipped on a multi-tenant install. With the Edge blocklist on, an automatic block is also banned at the edge for the same lifetime; Cloudflare's own addresses and the never-block list are never banned, and on a multi-tenant install only the edge's own findings are banned there, never a tenant host's.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
@@ -6591,7 +6634,7 @@ regression-tested:
 - **AI daily-cap mis-accounting** — the per-user AI request cap was debited
   before the 404/400 validation checks, so a request that made no provider call
   still spent quota. Now debited only when a provider call is about to happen.
-See [security-review-6.4.0.md](docs/security-review-6.4.0.md) for the full write-up.
+See `docs/security-review-6.4.0.md` for the full write-up.
 
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.4.0
@@ -7288,7 +7331,7 @@ code, and de-duplicated docs.
     ACME DNS-provider keys "leaking" via config/diagnostics/backup — was
     verified a false positive (the whole `acme_dns_credentials` subtree is
     already scrubbed by its container key) and left unchanged.
-  - Full write-up: [docs/security-review-6.2.3.md](docs/security-review-6.2.3.md).
+  - Full write-up: `docs/security-review-6.2.3.md`.
 - **LDAP honours the group → role map.** The `sso_group_roles` matrix (any
   builtin or custom role) now applies to LDAP logins too — matrix keys are
   group DNs, matched case-insensitively like the legacy admin-group DN. LDAP
@@ -9731,7 +9774,7 @@ entire codebase, not just the changes above):
   medium-severity SSRF gap (the AI provider now re-validates the peer IP at
   connect, closing a DNS-rebinding window). Live posture re-verified: strict CSP
   with no `unsafe-inline`, HSTS preload, full security-header set, 401 on every
-  unauthenticated API call. See [docs/security-review-5.1.0.md](docs/security-review-5.1.0.md).
+  unauthenticated API call. See `docs/security-review-5.1.0.md`.
 - **Performance.** The Needs-Attention, fleet-risk/health and nav-counts caches
   now use the storage-backend mtime helpers, so they actually hit on the
   SQLite/PostgreSQL backend (they were silently recomputing the full-fleet scan on
@@ -9838,7 +9881,7 @@ Control-plane hardening + scale. No breaking changes.
 - Fixed a 500 on the per-device patch report. The agent's audit (read-only) mode now also refuses server-pushed custom monitoring scripts (the fourth command channel). Distro security-flagged update counts are surfaced on the Checks page and in the patch alert. SSRF connect-time guards extended to SNMP, LDAP and Proxmox runtime calls (loopback / link-local / cloud-metadata refused, peer IP re-validated). The containerized agent reads backup, web-access-log, file-log and ACME paths through the host rootfs. The Reputation, DMARC and Scoped-credential tables are now sortable. The NOC Status Board and break-glass list cap their height and scroll. The heartbeat writes `backup_state` once per beat instead of twice; debug instrumentation no longer runs on every request when disabled.
 - **Critical fix:** the daily scheduled-backup gate checked `Path.exists()` on `self_backup_state.json`, but under the SQLite/Postgres backend that state is a database row, not a file — so the 24-hour throttle never engaged and a full encrypted backup ran on **every heartbeat**. It now uses the storage-aware existence check; the same class was swept across the backup and cache subsystems.
 
-**Deferred:** user-configurable timezone. See [docs/v5.0.0.md](docs/v5.0.0.md).
+**Deferred:** user-configurable timezone. See `docs/v5.0.0.md`.
 
 ## v4.10.0 — "PerimeterMatters" — folded into v5.0.0 (no standalone release)
 
@@ -9865,7 +9908,7 @@ finalize sweep. No breaking changes, no schema changes.
 - **Security** — firewalld-delete argument validation, IPv6-encoded
   metadata-IP unwrapping in the TLS monitor, and containerized-agent host-path
   fixes for drift / authorized-keys / mailbox reads. No Critical/High/Medium
-  findings ([docs/security-review-4.10.0.md](docs/security-review-4.10.0.md)).
+  findings (`docs/security-review-4.10.0.md`).
 - **Performance** — scope-keyed cache on the sidebar badge poll; the agent's
   per-poll service check batched from up to 50 subprocesses into one.
 - **Agent audit (read-only) mode** — touch `/etc/remotepower/audit-mode` on a
@@ -10050,7 +10093,7 @@ this dashboard. No breaking changes, no schema changes.
 An onboarding release: standing the server up — and adding the hosts you manage —
 is now a single command, with HTTPS on by default and no insecure default
 password. Plus a full DMARC monitor, accessibility work, and agent parity. No
-breaking changes. Full notes in [docs/v4.8.0.md](docs/v4.8.0.md).
+breaking changes. Full notes in `docs/v4.8.0.md`.
 
 - **Turnkey onboarding.** A unified **`install.sh`** wizard provisions server +
   TLS + admin in one run. **One-command Docker** (`docker compose up -d`) serves
@@ -10090,7 +10133,7 @@ breaking changes. Full notes in [docs/v4.8.0.md](docs/v4.8.0.md).
 
 A reach-outward release: monitor the popular software your homelab/fleet already
 runs, and run the agent as a container to watch a Docker host. No breaking
-changes. Full notes in [docs/v4.7.0.md](docs/v4.7.0.md).
+changes. Full notes in `docs/v4.7.0.md`.
 
 - **Homelab software integrations (26 connectors).** A new read-only server-side
   subsystem polls popular self-hosted software for health on a cadence and folds
@@ -10145,7 +10188,7 @@ A stability-and-hardening patch on top of v4.6.0 "RepellantMatters". It fixes tw
 issues that only surface under the optional **SCGI prefork worker**, closes a
 **ReDoS** and a defence-in-depth **XSS** finding, and removes a small **UI flash**
 on page reload. No breaking changes and no schema changes. Full notes in
-[docs/v4.6.1.md](docs/v4.6.1.md).
+`docs/v4.6.1.md`.
 
 - **SCGI worker: agentless ICMP devices flapped offline.** The worker runs with
   `NoNewPrivileges=true`, which blocks `ping`'s setuid / file-capability
@@ -10181,7 +10224,7 @@ performance polish pass. A new **Industrial** interface ("New UI") becomes the
 default, with a one-click **New UI / Old UI** toggle so anyone can keep the
 classic look — and a thorough sweep of the whole project lands alongside it.
 No breaking changes; fully CSP-safe. Full notes in
-[docs/v4.6.0.md](docs/v4.6.0.md).
+`docs/v4.6.0.md`.
 
 - **Industrial "New UI" (default).** A distinctive skin that drops the generic
   slate-navy template for a warm **graphite/steel** palette (keeping the
@@ -10209,7 +10252,7 @@ No breaking changes; fully CSP-safe. Full notes in
   config and a pending-confirmation count); and hardened agent credential
   storage — restrictive ACLs on the Windows token file, atomic 0600 writes on
   macOS, and the Linux command stash routed through the O_NOFOLLOW helpers. See
-  [docs/security-review-4.6.0.md](docs/security-review-4.6.0.md).
+  `docs/security-review-4.6.0.md`.
 - **Performance.** The dashboard's 7-day uptime stripe is cached 5 min instead of
   firing a second round-trip every tick; the offline-sweep transition handler
   uses single-row reads; and the agent heartbeat is lighter — memoized tool-path
@@ -10240,7 +10283,7 @@ No breaking changes; fully CSP-safe. Full notes in
 TLS onboarding. A one-command self-signed **CA** for instances that can't use a
 real cert, fingerprint-verified rollout to agents, and an opt-in TLS mode for the
 Docker image. **No breaking changes** — HTTP-only installs and real-cert setups
-are untouched. Full details in [docs/v4.5.0.md](docs/v4.5.0.md) and the decision
+are untouched. Full details in `docs/v4.5.0.md` and the decision
 tree / migration guide in [docs/tls-selfsigned.md](docs/tls-selfsigned.md).
 
 - **Self-signed CA + leaf generator** (`tools/gen-ca.sh`, `make tls-selfsigned
@@ -10270,7 +10313,7 @@ tree / migration guide in [docs/tls-selfsigned.md](docs/tls-selfsigned.md).
 
 A documentation-and-triage release on the heels of the security-themed v4.4.0.
 **No breaking changes and no runtime behaviour changes.** Full details in
-[docs/v4.4.1.md](docs/v4.4.1.md) and [docs/security-review-4.4.1.md](docs/security-review-4.4.1.md).
+`docs/v4.4.1.md` and `docs/security-review-4.4.1.md`.
 
 **CodeQL code-scanning triage — all 13 alerts are false positives:**
 - **XSS / DOM-as-HTML (7):** every flagged `innerHTML` assignment interpolates
@@ -10300,7 +10343,7 @@ A documentation-and-triage release on the heels of the security-themed v4.4.0.
 ## v4.4.0 — "FortifyMatters" — 2026-06-13
 
 A security-hardening and bind-it-together release. **No breaking changes.**
-Full details in [docs/v4.4.0.md](docs/v4.4.0.md).
+Full details in `docs/v4.4.0.md`.
 
 **Security (audited + independently pentested with wapiti / nikto / nuclei /
 bandit / OWASP ZAP — clean):**
@@ -10465,7 +10508,7 @@ self-observability, UX polish, and regression guardrails.
   stayed visible and the count / Select-all disagreed with the screen. The
   hide-utility is now authoritative.
 
-See [docs/v4.3.0.md](docs/v4.3.0.md).
+See `docs/v4.3.0.md`.
 
 ## v4.2.0 — "5ecur1tyM4tter5" — 2026-06-10
 
@@ -10498,7 +10541,7 @@ changes; every new control is off until you turn it on.
   sessions per user, set a default API-key expiry, and a graded
   **security-posture self-check** on the Audit page.
 
-See [docs/v4.2.0.md](docs/v4.2.0.md).
+See `docs/v4.2.0.md`.
 
 **Post-release sweep (2026-06-11, still v4.2.0):** a full-project bind / bughunt /
 security / performance pass.
@@ -10554,7 +10597,7 @@ assertions, credential-less DB liveness, tag/group targeting), a **composable
 **host-grouped alert inbox** that folds a host-down storm under its root cause.
 Plus a TLS-1.2 floor across the satellite/agent/server hops. No breaking changes;
 most features surface data the agent already reports. See
-[docs/v4.1.0.md](docs/v4.1.0.md).
+`docs/v4.1.0.md`.
 
 ### Added
 - **Checks page (CheckMK-style)** under Monitoring — every monitored signal on
@@ -10589,7 +10632,7 @@ most features surface data the agent already reports. See
 - SSH command builder rejects host/user beginning with `-` (defense-in-depth).
 - Independently scanned with **wapiti, nikto, nuclei, bandit and OWASP ZAP** —
   clean. See [docs/security.md](docs/security.md) and
-  [docs/security-review-4.1.0.md](docs/security-review-4.1.0.md).
+  `docs/security-review-4.1.0.md`.
 
 ### Finalize sweep (bind it together + polish)
 - **Bound more agent signals into the UI**: the server-side *process* custom
@@ -10612,7 +10655,7 @@ audit, endurance, predictive health, KEV/EPSS CVE ranking), adds a **macOS agent
 and a full set of install scripts, and ships a focused **security-hardening** pass
 (independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean).
 No breaking changes for a single-node flat-JSON install; most features surface
-data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
+data the agent already reports. See `docs/v4.0.0.md`.
 
 ### Added
 - **Encrypt every hop, incl. satellites.** The relay satellite can now serve the
@@ -11192,7 +11235,7 @@ already being reported and stored.
 ### Security
 - **External SAST + DAST scan: no exploitable findings.** The release was
   scanned with Bandit (SAST) and OWASP ZAP / Nikto / Nuclei / Wapiti / WhatWeb
-  (DAST); see [docs/security-review-3.13.0.md](docs/security-review-3.13.0.md).
+  (DAST); see `docs/security-review-3.13.0.md`.
   Two LOW items found in the new v3.13.0 surface were fixed: a
   decompression-bomb guard on **backup restore** (cap uncompressed size + member
   count), and **RBAC isolation for `/api/ai/chat`** (the fleet context is now
@@ -11277,7 +11320,7 @@ already being reported and stored.
 - Two latent clip bugs (host-config dump, patch-command history) where content
   was cut off with no scrollbar.
 
-See **[docs/v3.13.0.md](docs/v3.13.0.md)**.
+See `docs/v3.13.0.md`.
 
 ## v3.12.0 — unreleased (dev)
 

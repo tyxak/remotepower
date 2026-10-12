@@ -641,7 +641,7 @@ def _proxmox_backup_evidence(dev, now):
             age = (now - int(hits[0]['last_backup'])) // 86400
             try:
                 warn = int(cfg.get('proxmox_backup_warn_days', 7))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 warn = 7
             if age <= warn:
                 return True, (f"Proxmox backup of guest {hits[0].get('name')} "
@@ -653,7 +653,7 @@ def _proxmox_backup_evidence(dev, now):
         cache = A.load(A.PROXMOX_SNAPSHOT_CACHE) or {}
         try:
             warn = int(cfg.get('proxmox_snapshot_warn_days', 7))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             warn = 7
         hits = [e for e in cache.values() if isinstance(e, dict)
                 and str(e.get('vm_name') or '').strip().lower() == guest]
@@ -923,7 +923,7 @@ def _verify_delay_for(dev):
     collected yet measures nothing."""
     try:
         poll = int((dev or {}).get('poll_interval') or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         poll = 0
     return max(_VERIFY_DELAY_S, 2 * poll)
 

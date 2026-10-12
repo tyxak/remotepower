@@ -66,8 +66,8 @@ def parse_dmarc(records):
                 'policy':           str(tags.get('p') or '').lower(),
                 'subdomain_policy': str(tags.get('sp') or '').lower(),
                 'pct':              _int(tags.get('pct'), 100),
-                'rua':              tags.get('rua', '')[:512],
-                'ruf':              tags.get('ruf', '')[:512],
+                'rua':              str(tags.get('rua', ''))[:512],
+                'ruf':              str(tags.get('ruf', ''))[:512],
                 'aspf':             (tags.get('aspf') or 'r').lower(),
                 'adkim':            (tags.get('adkim') or 'r').lower(),
             }

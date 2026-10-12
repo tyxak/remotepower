@@ -210,7 +210,7 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
             dev['force_package_scan'] = True
         dispatched.append(dev_id)
         A.log_command(actor, dev_id, dev.get('name', dev_id),
-                    f'rollout "{roll.get("name","")[:30]}" ring {ring.get("name","")[:20]}')
+                    f'rollout "{str(roll.get("name",""))[:30]}" ring {str(ring.get("name",""))[:20]}')
     return dispatched, queued
 
 
@@ -300,7 +300,7 @@ def _rollout_resolve_ring(selector, devices, exclude=None):
         else:
             try:
                 n = float(selector.get('value') or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 n = 0
             if t == 'percent':
                 # A percentage of the WHOLE fleet, not of what is left — so
@@ -908,7 +908,7 @@ def handle_rollouts_create():
             # a success toast for a ring that can never do anything.
             try:
                 _n = float(sel.get('value'))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 A.respond(400, {'error': f'{st} ring needs a number'})
             _hi = 100 if st == 'percent' else 100000
             if not (0 < _n <= _hi):
@@ -925,14 +925,14 @@ def handle_rollouts_create():
     try:
         vmin = max(1, min(A._ROLLOUT_VERIFY_MIN_MAX,
                           int(body.get('verify_minutes') or A._ROLLOUT_VERIFY_MIN_DEFAULT)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         vmin = A._ROLLOUT_VERIFY_MIN_DEFAULT
     # v4.10.0: optional health gate — auto-halt the rollout if a dispatched host's
     # health score drops below the floor during the verify window. Default OFF.
     _hg_in = body.get('health_gate') or {}
     try:
         _hg_floor = max(1, min(100, int(_hg_in.get('threshold', 70))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         _hg_floor = 70
     health_gate = {'enabled': bool(_hg_in.get('enabled')), 'threshold': _hg_floor}
     roll = {

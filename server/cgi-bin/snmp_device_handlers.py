@@ -99,7 +99,7 @@ def handle_device_snmp(dev_id):
                 port_in = int(body['port'])
                 if not (1 <= port_in <= 65535):
                     A.respond(400, {'error': 'port must be 1..65535'})
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 A.respond(400, {'error': 'port must be an integer'})
         # v5.8.0: SNMPv3 fields. Validate protocols against what snmp.py
         # actually implements (DES is rejected there — broken
@@ -374,7 +374,7 @@ def handle_device_snmp_walk(dev_id):
         A.respond(400, {'error': 'oid must be a dotted-decimal OID, e.g. 1.3.6.1.2.1.1'})
     try:
         limit = max(1, min(2000, int(body.get('max') or 256)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         limit = 256
     host, community, port = target
     import snmp as snmp_mod
@@ -611,7 +611,7 @@ def _if_rate_bps(prev, cur, seconds, speed_bps=None):
         return None
     try:
         p, c = int(prev), int(cur)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if c < p:
         delta = c + _IF_COUNTER_MAX - p
@@ -622,7 +622,7 @@ def _if_rate_bps(prev, cur, seconds, speed_bps=None):
     bps = round(delta * 8.0 / seconds, 1)
     try:
         speed = float(speed_bps or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         speed = 0
     # 5 % headroom: vendors report ifSpeed in round numbers and a sample
     # interval is never exactly the wall-clock gap.
@@ -634,7 +634,7 @@ def _if_rate_bps(prev, cur, seconds, speed_bps=None):
 def _if_util_pct(bps, speed_bps):
     try:
         speed = float(speed_bps or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if speed <= 0 or bps is None:
         return None

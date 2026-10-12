@@ -29,6 +29,7 @@ distinct api globals, none of them the notify/event core the ratchet exists to
 protect.
 """
 import hmac
+import re
 import time
 import urllib.parse
 
@@ -96,6 +97,10 @@ def handle_proxmox_test() -> None:
     # Preflight it exactly like the save path so it can't be turned into an
     # internal port-scan oracle (loopback / link-local / cloud-metadata).
     _host = str(pc.get('host') or '').strip()
+    # A host:port or a bracketed IPv6 literal, nothing else: anything more raised
+    # out of urlparse / http.client as a 500 for what is a bad form field.
+    if _host and not re.fullmatch(r'[A-Za-z0-9._\-]+(:\d{1,5})?|\[[0-9A-Fa-f:.]+\](:\d{1,5})?', _host):
+        A.respond(400, {'error': 'Host must be a name or address, optionally with :port.'})
     if _host and A._url_targets_local_or_meta(
             urllib.parse.urlparse('https://' + _host), allow_loopback=False):
         A.respond(400, {'error': 'Refusing to probe a loopback, link-local or metadata address.'})
@@ -129,7 +134,7 @@ def handle_proxmox_lifecycle() -> None:
         A.respond(400, {'error': 'invalid guest_type or action'})
     try:
         int(vmid)   # reject a non-numeric vmid BEFORE parking a 4-eyes confirmation
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         A.respond(400, {'error': 'numeric vmid required'})
     label = f'{action} {guest_type}/{vmid}'
     if body.get('dry'):
@@ -284,7 +289,7 @@ def handle_proxmox_action(guest_type: str, rest: str) -> None:
     vmid_str, action = parts
     try:
         vmid = int(vmid_str)
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         A.respond(400, {'error': 'vmid must be numeric'})
         return
     cfg = A.load(A.CONFIG_FILE)
@@ -424,7 +429,7 @@ def handle_proxmox_lxc_delete(rest) -> None:
         return
     try:
         vmid = int(parts[0])
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         A.respond(400, {'error': 'vmid must be numeric'})
         return
     cfg = A.load(A.CONFIG_FILE)
@@ -498,7 +503,7 @@ def handle_proxmox_snapshot_action() -> None:
         return
     try:
         vmid = int(body.get('vmid'))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         A.respond(400, {'error': 'numeric vmid required'})
         return
     if action not in ('create', 'rollback', 'delete'):
