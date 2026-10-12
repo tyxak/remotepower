@@ -104,6 +104,48 @@ _ROW_HEIGHTS = r"""(name) => {
 }"""
 
 
+# v7.3.0: two more rhythms the same stack can measure. The title-to-subtitle gap
+# is 3px on every page (the title's 16px margin less the subtitle's -13px pull),
+# and was 16px on Containers because a panel wrapper sat between the two and the
+# `.page-title + .page-subtitle` sibling rule could not reach it. And a row of
+# MIXED controls (button, input, select) shares one centre line: the type-to-
+# filter box inserted before a long <select> carried a 4px bottom margin that
+# made the Data Explorer's condition row sit two pixels out of line.
+_RHYTHM = r"""(name) => {
+  const root = document.getElementById('page-' + name);
+  const out = {gap: null, rows: [], controls: 0};
+  if (!root) return out;
+  const vis = el => { const s = getComputedStyle(el); return s.display !== 'none'
+    && s.visibility !== 'hidden' && el.getBoundingClientRect().height > 0; };
+  const t = [...root.querySelectorAll('.page-title')].find(vis);
+  const sub = [...root.querySelectorAll('.page-subtitle')].find(vis);
+  if (t && sub && !t.closest('.page-title-row')) {
+    out.gap = Math.round((sub.getBoundingClientRect().top - t.getBoundingClientRect().bottom) * 10) / 10;
+  }
+  root.querySelectorAll('*').forEach(par => {
+    if (!vis(par)) return;
+    const kids = [...par.children].filter(k => /^(BUTTON|INPUT|SELECT|A)$/.test(k.tagName) && vis(k)
+        && (k.tagName !== 'A' || /btn/.test(k.className))
+        && !(k.tagName === 'INPUT' && ['checkbox', 'radio', 'hidden'].includes(k.type))
+        && k.getBoundingClientRect().height > 12);
+    if (kids.length < 2) return;
+    const lines = new Map();
+    kids.forEach(k => { const r = k.getBoundingClientRect(); const key = Math.round(r.top / 6);
+      if (!lines.has(key)) lines.set(key, []);
+      lines.get(key).push({c: r.top + r.height / 2, t: k.tagName + ':' + ((k.textContent || k.placeholder || '').trim().slice(0, 14) || k.className.slice(0, 14))}); });
+    lines.forEach(row => {
+      if (row.length < 2) return;
+      out.controls += row.length;
+      const cs = row.map(x => x.c);
+      if (Math.max(...cs) - Math.min(...cs) > 1.5) {
+        out.rows.push((par.className || par.tagName).toString().slice(0, 30) + ': ' + row.map(x => x.t).join(' | '));
+      }
+    });
+  });
+  return out;
+}"""
+
+
 class TestOneIconLabelGap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -225,6 +267,44 @@ class TestOneIconLabelGap(unittest.TestCase):
             sorted(set(bad)), [],
             'buttons sitting side by side in one row render at different '
             'heights:\n' + '\n'.join('  ' + b for b in sorted(set(bad))[:12]))
+
+    def test_page_headers_and_control_rows_keep_one_rhythm(self):
+        """The subtitle sits 3px under its title on every page, and the controls
+        of one row share a centre line. See _RHYTHM for the two cases that broke."""
+        html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+        pages, seen = [], set()
+        for m in re.finditer(r'class="nav-btn[^"]*"[^>]*?\sdata-page="([a-z-]+)"', html):
+            if m.group(1) not in seen:
+                seen.add(m.group(1)); pages.append(m.group(1))
+        ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        page = ctx.new_page()
+        gaps, bad_rows, controls = {}, [], 0
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            for name in pages:
+                page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
+                page.wait_for_timeout(700)
+                res = page.evaluate(_RHYTHM, name)
+                controls += res['controls']
+                if res['gap'] is not None:
+                    gaps[name] = res['gap']
+                bad_rows.extend(f"{name} .{r}" for r in res['rows'])
+        finally:
+            page.close(); ctx.close()
+
+        self.assertGreater(len(gaps), 60, 'the walk found almost no page subtitles')
+        self.assertGreater(controls, 200, 'the walk measured almost no control rows')
+        off = {n: g for n, g in gaps.items() if abs(g - 3) > 0.6}
+        self.assertEqual(off, {}, 'subtitles not 3px under their title: %s' % off)
+        self.assertEqual(
+            sorted(set(bad_rows)), [],
+            'controls in one row are not on one centre line:\n'
+            + '\n'.join('  ' + b for b in sorted(set(bad_rows))[:12]))
 
     def test_the_exemptions_state_a_reason(self):
         for cls, why in EXEMPT_CLASSES.items():

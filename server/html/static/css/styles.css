@@ -1092,6 +1092,17 @@
     height: 34px; padding: 0 12px; font-size: 13px; width: 100%; max-width: 360px;
     margin: 0 0 4px; box-sizing: border-box;
   }
+  /* The box is inserted before every long <select>. Stacked above the select it
+     keeps its 4px gap; as a control in a ROW the same gap made the line 4px
+     taller than its controls and left the Data Explorer's condition row two
+     pixels out of line (the select wrappers centre, the input and button sit on
+     the bottom edge). In a row it is a plain control. */
+  :is(.toolbar, .toolbar-mb24, .row-8, .row-8-center, .row-6-center, .batch-bar,
+      .form-row-wrap, .modal-actions, .sb-controls, .section-header)
+    > input.select-filter,
+  .settings-row:not(:has(> .form-label)) > input.select-filter {
+    margin: 0; width: auto; flex: 0 1 160px;
+  }
   /* v5.1.1: the type-to-filter box must NEVER render accent-on-accent (blue text
    * on a blue background). Pin a solid, readable surface + text in every state and
    * skin — !important to beat the industrial `.form-input{background:well-bg!important}`
@@ -1294,6 +1305,10 @@
   /* directly under the title (or title row) it pulls up to sit 3px below it
      (16px title margin − 13px); elsewhere it spaces itself normally */
   .page-title + .page-subtitle { margin-top: -13px; }
+  /* The same, when a panel wrapper sits between the title and its subtitle
+     (Containers: the agent panel). Without it the subtitle floated 16px under
+     the title on that page and 3px on every other. */
+  .page-title + :is(div, section) > .page-subtitle:first-child { margin-top: -13px; }
   /* v7.1.0: a heading for a section that sits between cards on a page
      (Containers → Image updates). It was a 16px .page-title — a third heading
      size between the 19px page title and the 13px card heading. Same size and
