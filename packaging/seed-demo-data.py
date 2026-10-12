@@ -534,6 +534,19 @@ def _demo_enrich_sysinfo(dev, rng, si):
             # Vary status so the demo shows both the check and the risk firing.
             'bitlocker': [{'mount': 'C:',
                            'status': rng.choice(['On', 'On', 'Off'])}],
+            # v7.3.0: the shapes the Windows agent sends for the other two of the
+            # three cross-platform posture facts (a {name, enabled} per profile,
+            # and the Windows Update service's status and start type). Without
+            # them every Windows row in the Data Explorer and the Fleet Query
+            # facets answered "never reported". No rng draw here, so the rest of
+            # the seeded fleet is unchanged. wuauserv is trigger-start: Stopped
+            # with a Manual start type is the healthy idle state.
+            'firewall': [
+                {'name': 'Domain', 'enabled': True},
+                {'name': 'Private', 'enabled': True},
+                {'name': 'Public',
+                 'enabled': sum(map(ord, str(dev.get('id') or ''))) % 4 != 0}],
+            'wu_service': 'Stopped', 'wu_start': 'Manual',
         }
     elif 'macos' in _os:
         si['mac_posture'] = {
