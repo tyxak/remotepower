@@ -342,7 +342,7 @@ are fixed here, and each has a test that fails without its fix.
 ### Upgrading
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-53`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-54`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
