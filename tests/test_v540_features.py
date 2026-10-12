@@ -43,6 +43,14 @@ class TestBillingMath(unittest.TestCase):
         self.assertEqual(billing_mod.quantize_hours('2'), 2.0)
         self.assertEqual(billing_mod.quantize_hours(float('nan')), 0.0)
 
+    def test_a_number_past_the_float_range_is_not_a_crash(self):
+        # A JSON integer past 1e308 is a valid Python int and float() refuses it
+        # with OverflowError; the time-entry handler answered 500.
+        for v in (10 ** 400, -10 ** 400, '9' * 400):
+            with self.subTest(v=str(v)[:12]):
+                self.assertEqual(billing_mod.quantize_hours(v), 0.0)
+        self.assertEqual(billing_mod._num(10 ** 400, 7.0), 7.0)
+
     def test_rate_resolution(self):
         cfg = {'default_rate': 800, 'rate_card': [{'name': 'A', 'rate': 1200}],
                'sites': {'s1': {'default_rate': 900}}}
