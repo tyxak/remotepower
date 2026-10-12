@@ -261,4 +261,7 @@ a host finding through both settings and fails when the check is removed.
   against an in-memory model of it. **Preview** is there so the first live run
   changes nothing.
 - **The rest of the project.** The whole-project reviews are the earlier ones.
+  A separate pass over the server, the agents and the containers landed in this
+  release as its own commit; its fixes are under **Security** in the changelog
+  and in `docs/security.md`, not in the findings above.
 - **Windows and macOS.** The agents there do not carry the sensor.
