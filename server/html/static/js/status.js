@@ -290,17 +290,19 @@
       row.appendChild(pillEl('maintenance'));
       row.appendChild(el('strong', null, String(w.title || 'Scheduled maintenance')));
       var when = '';
-      if (w.start) { when = fmtAbs(w.start); }
-      if (w.end) { when += (when ? ' — ' : '') + fmtAbs(w.end); }
+      if (w.start) { when = fmtIso(w.start); }
+      if (w.end) { when += (when ? ' — ' : '') + fmtIso(w.end); }
       if (when) { row.appendChild(el('span', 'status-maint-when', when)); }
       wrap.appendChild(row);
     }
     return wrap;
   }
 
-  // Absolute, in the VIEWER's locale — a public page has no session and no
-  // configured timezone to borrow, and a bare ISO string is not readable.
-  function fmtAbs(iso) {
+  // An ISO-8601 string, in the VIEWER's locale — a public page has no session
+  // and no configured timezone to borrow, and a bare ISO string is not readable.
+  // (Not fmtAbs: that name is the epoch-seconds formatter above, and a second
+  // declaration under the same name replaced it for every caller.)
+  function fmtIso(iso) {
     try {
       var d = new Date(iso);
       if (isNaN(d.getTime())) { return String(iso || ''); }
@@ -317,7 +319,7 @@
       var row = el('div', 'status-incident');
       var main = el('div', 'status-incident-main');
       main.appendChild(el('div', 'status-incident-name', inc.title || 'Incident'));
-      var when = fmtAbs(inc.created_at);
+      var when = fmtIso(inc.created_at);
       main.appendChild(el('div', 'status-incident-meta',
         (when ? when : '') + (inc.impact ? ' · ' + inc.impact : '')));
       // latest update body (textContent — never innerHTML)
