@@ -8178,7 +8178,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <label class="form-label" for="autonomy-preview-device">Host</label>
             <select id="autonomy-preview-device" class="form-input device-combo mw-200" aria-label="Host to preview"></select>
             <label class="form-label" for="autonomy-preview-action">Action</label>
-            <select id="autonomy-preview-action" class="form-input mw-200" aria-label="Action to preview"></select>
+            <select id="autonomy-preview-action" class="form-input mw-380" aria-label="Action to preview"></select>
             <button class="btn-secondary" data-action="previewAutonomyBlastRadius">Preview blast radius</button>
           </div>
           <div id="autonomy-preview-result" class="mt-8 scroll-cap" role="status" aria-live="polite"></div>
@@ -8220,7 +8220,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <p class="hint">Per tenant. A tenant starts at <strong>off</strong> and records nothing at all; <strong>shadow</strong> records what it would have done; <strong>enabled</strong> lets it act inside every limit below. <span id="autonomy-mode-pill"></span></p>
           <div class="settings-row">
             <label class="form-label" for="autonomy-mode">Mode</label>
-            <select id="autonomy-mode" class="form-input mw-200">
+            <select id="autonomy-mode" class="form-input mw-380">
               <option value="off">Off — record nothing</option>
               <option value="shadow">Shadow — record, never act</option>
               <option value="enabled">Enabled — act within the limits</option>

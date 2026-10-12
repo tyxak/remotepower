@@ -182,6 +182,18 @@ It is in `docs/security-review-7.3.0.md`.
   `ssh://` link. The help card said five groups; it lists the twelve there are.
 - **Two wrong translations.** Hindi `Active sessions` was half English, and Arabic
   `Playbooks` read as "play notebooks".
+- **Arabic pages scrolled ten thousand pixels sideways.** The skip-to-content link
+  was parked off screen with `left: -9999px`, which is outside the scrollable area
+  in a left-to-right page and inside it in a right-to-left one, so every page was
+  11,355px wide in Arabic. It uses a logical offset now, and a rendered test
+  measures the document in English and Arabic.
+- **Labels that did not fit their box.** In the sidebar, German `Predictive health`
+  and French `Threat intel` were cut off with an ellipsis, and French and Spanish
+  `Last seen` overflowed its table header. They read `Zustandsprognose`,
+  `Veille sur les menaces`, `Dernier contact` and `Última conexión`. The two
+  Autonomy drop-downs were capped at 200px and cut off `Enabled — act within the
+  limits` and 25 action ids. A walk over 76 views and 10,938 controls in six
+  languages found nothing else wider than its box.
 - **The Containers subtitle sits where the others do.** It was 16px under its
   title on that one page and 3px on the other 79, because a wrapper stood between
   the two. The type-to-filter box in front of a long select also pushed a row of
@@ -341,6 +353,9 @@ are fixed here, and each has a test that fails without its fix.
 
 ### Upgrading
 
+7.2.0 was tagged and never published as a release, so 7.3.0 is the first
+release since 7.1.0 and includes everything in 7.2.0.
+
 Hard-reload the dashboard once (service-worker cache
 `remotepower-shell-v7.3.0-54`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
@@ -357,7 +372,7 @@ Host header). And the "type your password to confirm" prompts, the second-factor
 check at sign-in and enrolment by PIN now lock out after repeated wrong answers,
 so a user who mistypes ten times waits ten seconds, then longer if they keep going.
 
-## v7.2.0 — "Ev1denceMatters" — 2026-10-06
+## v7.2.0 — "Ev1denceMatters" — 2026-10-06 (tagged, no standalone release — ships within v7.3.0)
 
 A release about evidence. Threat intel used to learn about an attacker from
 failed SSH logins and a handful of web patterns, and every report it filed said

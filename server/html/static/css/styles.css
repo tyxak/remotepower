@@ -1178,11 +1178,16 @@
   .tour-pop-body { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
   .tour-pop-row { display: flex; align-items: center; gap: 6px; }
   .tour-pop-meta { font-size: 12px; color: var(--muted); margin-right: auto; }
-  /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
-  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
+  /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused.
+     v7.3.0: `inset-inline-start`, not `left`. A left offset of -9999px is
+     scrollable overflow in a right-to-left document (the overflow side is the
+     left), so in Arabic every page scrolled ten thousand pixels sideways to an
+     empty link. The logical property puts it off the START edge in either
+     direction, which is the side nothing scrolls to. */
+  .skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 1000;
     background: var(--accent); color: var(--accent-contrast, #fff); padding: 8px 14px; border-radius: 0 0 6px 0;
     font-size: 13px; text-decoration: none; }
-  .skip-link:focus { left: 0; }
+  .skip-link:focus { inset-inline-start: 0; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

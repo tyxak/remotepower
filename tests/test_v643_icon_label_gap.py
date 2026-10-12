@@ -268,6 +268,54 @@ class TestOneIconLabelGap(unittest.TestCase):
             'buttons sitting side by side in one row render at different '
             'heights:\n' + '\n'.join('  ' + b for b in sorted(set(bad))[:12]))
 
+    def test_no_page_scrolls_sideways_in_a_right_to_left_language(self):
+        """v7.3.0: in Arabic every page scrolled about ten thousand pixels sideways.
+
+        The skip-to-content link is parked off screen with `left: -9999px`. In a
+        left-to-right document that is outside the scrollable area, but in a
+        right-to-left one the overflow side is the LEFT, so the link extended the
+        document to 11,355px and the viewport could be dragged across an empty
+        strip. English never showed it, which is why no English measurement saw it.
+
+        Measures the document, not an element: `scrollWidth` against the viewport,
+        in English (the control) and in Arabic, on a spread of pages.
+        """
+        pages = ['home', 'devices', 'alerts', 'ipintel', 'settings', 'compliance',
+                 'patches', 'cve', 'monitor', 'scans', 'reports', 'users']
+        ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        page = ctx.new_page()
+        wide, rtl_applied = {}, False
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            page.evaluate("() => _ensureI18n()")
+            page.wait_for_timeout(800)
+            for lang in ('en', 'ar'):
+                page.evaluate("l => RPi18n.setLang(l, false)", lang)
+                page.wait_for_timeout(700)
+                if lang == 'ar':
+                    rtl_applied = page.evaluate(
+                        "() => document.documentElement.dir") == 'rtl'
+                for name in pages:
+                    page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
+                    page.wait_for_timeout(450)
+                    over = page.evaluate(
+                        "() => document.documentElement.scrollWidth - window.innerWidth")
+                    if over > 1:
+                        wide[f'{lang}:{name}'] = over
+        finally:
+            page.close(); ctx.close()
+
+        self.assertTrue(rtl_applied, 'Arabic did not switch the document to rtl, '
+                                     'so the walk measured the wrong thing')
+        self.assertEqual(wide, {}, 'these pages scroll sideways (document wider '
+                                   'than the viewport, in px):\n' +
+                         '\n'.join(f'  {k}: +{v}px' for k, v in sorted(wide.items())))
+
     def test_page_headers_and_control_rows_keep_one_rhythm(self):
         """The subtitle sits 3px under its title on every page, and the controls
         of one row share a centre line. See _RHYTHM for the two cases that broke."""

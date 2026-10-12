@@ -32,10 +32,14 @@ WHAT THIS PINS
   close.
 """
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
 _CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
+# ai_context imports its sibling `checks` (the shared posture helper), so the
+# directory has to be importable when the module is loaded by file path.
+sys.path.insert(0, str(_CGI))
 _spec = importlib.util.spec_from_file_location('ai_ctx_v700', _CGI / 'ai_context.py')
 ctx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ctx)
