@@ -182,7 +182,7 @@ An edge address has no **Block** button. It was seen at the edge and by none of 
 
 To block such addresses on your hosts as well, tick **Also block addresses found at the edge on every Linux agent** under Threat intel (it needs automatic blocking on). Each address that passes the same score and never-block checks gets the block on every Linux agent, for the block lifetime you set, up to 100 hosts per sweep. It stops direct connections to your servers; a visitor who comes through Cloudflare is stopped by the edge list. It stays off on a multi-tenant install.
 
-With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned.
+With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned. On a multi-tenant install only addresses the edge feeds found are banned this way, because the list belongs to the whole Cloudflare account; a tenant's host block is not copied to it.
 
 ## Free plans
 

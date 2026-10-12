@@ -782,9 +782,12 @@ def run_ip_intel_if_due():
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
-            if ok and _edge_ban_ready(pol):
+            if (ok and _edge_ban_ready(pol)
+                    and (dev_id in ip_intel.EDGE_DEVICES or not A._tenancy_enforced())):
                 # What is blocked on a host is banned at the edge too, so a
-                # visitor arriving through Cloudflare is stopped as well.
+                # visitor arriving through Cloudflare is stopped as well. The
+                # list is the whole account's, so on a multi-tenant install a
+                # tenant's host does not write to it; the edge's own findings do.
                 if protected is None:
                     protected = _protected_networks(pol, devices)
                 if not ip_intel.never_block_reason(ip, protected):

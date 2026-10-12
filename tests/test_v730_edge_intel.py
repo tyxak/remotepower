@@ -336,6 +336,35 @@ class TestTheSweep(_Edge):
         self.assertNotIn(SECOND, bans)
         self.assertIn(ATTACKER, bans, 'control: another address in the same sweep was banned')
 
+    def _as_host_findings(self):
+        """Re-label the queued edge findings as if an agent on d1 had reported them."""
+        api = self.api
+        st = api.load(api.IPINTEL_FILE) or {}
+        for q in st.get('queue') or []:
+            q['device_id'] = 'd1'
+            q.pop('evidence', None)
+        api.save(api.IPINTEL_FILE, st)
+        api._LOAD_CACHE.clear()
+
+    def _ban_at_edge_run(self, tenanted):
+        self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
+                    edge_account_id='a' * 32)
+        self.list_token()
+        self.poll()
+        self._as_host_findings()
+        with mock.patch.object(self.api, '_tenancy_enforced', return_value=tenanted):
+            return self.sweep()
+
+    def test_a_hosts_block_is_banned_at_the_edge_on_a_single_tenant_install(self):
+        st = self._ban_at_edge_run(False)
+        self.assertTrue(st.get('blocks', {}).get('d1'), 'the host block happened')
+        self.assertIn(SECOND, st.get('edgeban') or {})
+
+    def test_a_tenants_host_does_not_write_to_the_account_wide_edge_list(self):
+        st = self._ban_at_edge_run(True)
+        self.assertTrue(st.get('blocks', {}).get('d1'), 'control: the host block itself still happened')
+        self.assertEqual(st.get('edgeban') or {}, {})
+
     def test_no_edge_ban_while_the_edge_blocklist_cannot_write(self):
         self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True)
         self.poll()

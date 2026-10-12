@@ -167,7 +167,7 @@ It is in `docs/security-review-7.3.0.md`.
   replay a window, and a feed that cannot read does not move its cursor.
 - **The demo carries edge attackers and feed state**, so the rendered gates
   measure the new cards.
-- **Edge addresses can be blocked on every Linux agent.** A new switch next to automatic blocking blocks an address the edge feeds found on each Linux agent, with the same score, never-block and hourly limits. It is off by default and skipped on a multi-tenant install. With the Edge blocklist on, an automatic block is also banned at the edge for the same lifetime; Cloudflare's own addresses and the never-block list are never banned.
+- **Edge addresses can be blocked on every Linux agent.** A new switch next to automatic blocking blocks an address the edge feeds found on each Linux agent, with the same score, never-block and hourly limits. It is off by default and skipped on a multi-tenant install. With the Edge blocklist on, an automatic block is also banned at the edge for the same lifetime; Cloudflare's own addresses and the never-block list are never banned, and on a multi-tenant install only the edge's own findings are banned there, never a tenant host's.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
 

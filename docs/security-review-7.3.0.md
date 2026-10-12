@@ -6,9 +6,11 @@ so. It covers what is new in this release and changes who can influence what:
 outside (Cloudflare's firewall events and a honeypot Worker's log) and turns into
 public reports, an agent reader for the host firewall's log, a second token
 that can edit lists, with a sync that writes a list in the operator's account, and
-a button that bans an address there and on hosts.**
+a button that bans an address there and on hosts, and two automatic paths
+that carry a block from one place to another: an edge finding to every Linux
+agent, and a host's block to the edge.**
 
-It found **nine** issues worth reporting. All were **caught before release**, by
+It found **ten** issues worth reporting. All were **caught before release**, by
 reading the design against the threat model and then by the tests written for the
 feature, and all are fixed in this release. None came from the field. The bar this
 project holds itself to, that nothing Critical, High or Medium ships, is met for
@@ -26,6 +28,9 @@ what was reviewed.
   goes in the list) and `edge_blocklist_handlers.py` (the sync, its endpoints, the
   ban and unban endpoints and what the page reads), and the second token that can
   edit lists.
+- **The two automatic paths in the sweep** (`ip_intel_handlers.py`): an
+  edge-found address blocked on every Linux agent, and a host's automatic block
+  banned at the edge.
 - **The firewall-log reader** in the Linux agent.
 - **The Threat intel page**, for what it prints from Cloudflare's answers.
 - **Static analysis on the changed files**: bandit (no issue in the two new
@@ -36,7 +41,8 @@ what was reviewed.
   protects, and has to fail: a challenge counted as a refusal, a list-carrying
   rule trusted, a policy source kept, the default family set widened back to all
   families, the outbound check dropped from the firewall reader, and its
-  thresholds removed.
+  thresholds removed, the tenancy check on both automatic paths, and the
+  never-block check on the edge ban.
 
 ## Summary
 
@@ -51,6 +57,7 @@ what was reviewed.
 | 7 | A missing list id could reach a URL as the text `None` | Low: a request to a path that does not exist | Server |
 | 8 | A range typed under Always include was not checked against Cloudflare's ranges | Low: an entry covering Cloudflare's own addresses | Server |
 | 9 | The shrink guard measured what was read, not what the list holds | Medium: a read that stopped early let a large list be replaced unasked | Server |
+| 10 | A tenant's host could write to the account-wide edge list through the automatic ban | Low: a tenant's report could ban an address on the platform's edge | Server |
 
 ## The trust boundary
 
@@ -107,6 +114,27 @@ address the operator banned is stored with an end time and leaves the list when 
 ends. The address is parsed as one address, never a range, and the same protected
 networks that stop a block stop a ban, so a ban cannot be used to cut off the
 fleet, the allow-list, a recent login or Cloudflare itself.
+
+**A ban across many hosts.** The block record is written before the commands
+are queued, and what was not queued is taken out afterwards, so a request that
+dies half way leaves a record the expiry sweep lifts and never a rule on a host
+nothing remembers. Hosts are queued twenty at a time and no new step starts after
+25 seconds; the answer says how many were not reached, and a second Ban carries
+on. Each host still passes the checks a single block does.
+
+**An edge finding blocked on every host.** An address only the edge saw has no
+host of its own. A separate switch, off by default, queues the same block command
+on each Linux agent, with the same score, never-block and hourly limits, at most
+100 hosts a sweep. It is skipped on a multi-tenant install, so one tenant's edge
+data never blocks another tenant's hosts.
+
+**A host's block banned at the edge.** When the Edge blocklist can write, an
+automatic block is also stored as an edge ban for the same lifetime, behind the
+same never-block check and at most 50 an hour. An address the host only claimed
+still needs a reputation score above the block threshold from the lookups, which
+an agent does not supply, so a compromised host can name addresses that already
+score as hostile and no others. On a multi-tenant install only the edge's own
+findings take this path (finding 10).
 
 **What comes back is data.** Cloudflare's firewall events are asked for as groups
 of address, action, source and rule, so no path, query string or user agent is
@@ -205,6 +233,17 @@ after a fixed number of pages. A list that Cloudflare paged more finely than
 expected looked small, so a replacement that halved it would not have been held.
 The guard now measures the larger of what was read and what Cloudflare says the
 list holds, and a read that stopped early never skips a write.
+
+## 10. One tenant's host, the whole account's list
+
+The fan-out to hosts was skipped on a multi-tenant install, and the commit that
+added it said why. The automatic edge ban, added after it, was not: a block queued
+for a tenant's host also went into the ban list, and that list is the Cloudflare
+account's, so it applies to every tenant's traffic through it. The address still
+needed a high reputation score, which limits the harm to banning addresses that
+are already bad, but the same rule was missing at the second site. The ban is now
+taken only from the edge's own findings on a multi-tenant install. A test drives
+a host finding through both settings and fails when the check is removed.
 
 ## What this review did not cover
 
