@@ -166,6 +166,27 @@ It is in `docs/security-review-7.3.0.md`.
   up) counts now; form logins keep the old rule. Present in 7.2.0: if the log
   sensor is on, upgrade the agents.
 
+### Interface and languages
+
+- **Relative times follow the language.** `5m ago`, `2h ago` and `yesterday` were
+  English in every language, so a French or Arabic table mixed two languages in
+  one row. They use the browser's own relative-time formatting for the six
+  languages and keep the short English form for English.
+- **The did-you-know tips are translated.** 169 of the 172 tips on the About page
+  were English in every language. Each has an entry in the six languages, and a
+  label a tip quotes uses the wording of the label itself, so you can find it.
+- **The tips and the Sidebar navigation help card describe today's product.** 19
+  tips named a Planning group and a Settings → Dashboard tab that no longer
+  exist, an Ansible page, a Hardware tab in the device drawer, a language list
+  without German and French, and a quick-connect button that only builds an
+  `ssh://` link. The help card said five groups; it lists the twelve there are.
+- **Two wrong translations.** Hindi `Active sessions` was half English, and Arabic
+  `Playbooks` read as "play notebooks".
+- **The Containers subtitle sits where the others do.** It was 16px under its
+  title on that one page and 3px on the other 79, because a wrapper stood between
+  the two. The type-to-filter box in front of a long select also pushed a row of
+  controls two pixels out of line; a rendered gate now measures both.
+
 ### Under the hood
 
 - **An agent cannot claim the edge.** The vocabulary has two sets of families,
@@ -217,9 +238,25 @@ It is in `docs/security-review-7.3.0.md`.
   suppressions list parsed an empty start and end, raised, and stopped the loop, so
   every window after the first recurring one was missing and the page logged an
   error on each request.
-- **Edge addresses can be blocked on every Linux agent.** A new switch next to automatic blocking blocks an address the edge feeds found on each Linux agent, with the same score, never-block and hourly limits. It is off by default and skipped on a multi-tenant install. With the Edge blocklist on, an automatic block is also banned at the edge for the same lifetime; Cloudflare's own addresses and the never-block list are never banned, and on a multi-tenant install only the edge's own findings are banned there, never a tenant host's.
+- **Edge addresses can be blocked on every Linux agent.** A new switch next to
+  automatic blocking blocks an address the edge feeds found on each Linux agent,
+  with the same score, never-block and hourly limits. It is off by default and
+  skipped on a multi-tenant install. With the Edge blocklist on, an automatic
+  block is also banned at the edge for the same lifetime; Cloudflare's own
+  addresses and the never-block list are never banned, and on a multi-tenant
+  install only the edge's own findings are banned there, never a tenant host's.
 - **Evidence chips have square corners.** They were drawn as pills, the shape the
   page keeps for status.
+- **The shipped nginx configs say `object-src 'none'`**, in the HTTP and HTTPS
+  blocks, the shared locations and the three Docker files; before, plugins fell
+  back to `default-src 'self'`. A proxied response carried `X-Content-Type-Options`
+  twice, once from the app and once from the server block; the proxied locations
+  now hide the upstream copy.
+- **Components are current.** `codeql-action` is 4.38.3 and the formatter, import
+  sorter, type checker and linter pins moved to their latest releases with no
+  change to the formatted baseline and no new finding. Every vendored front-end
+  library is the current release, and the server's Python dependencies were run at
+  their latest releases (54 modules, unchanged). `VENDORED.md` records both.
 
 ### Security
 
