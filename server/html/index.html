@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-56">
+<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-57">
 
 </head>
 <body>
@@ -6905,6 +6905,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <label class="form-label" for="ipintel-never">Never block or report (one address or network per line)</label>
             <textarea id="ipintel-never" class="form-input ff-mono" rows="3" spellcheck="false" placeholder="198.51.100.0/24"></textarea>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="ipintel-ignore">Never report these addresses (one address or network per line)</label>
+            <textarea id="ipintel-ignore" class="form-input ff-mono" rows="3" spellcheck="false" placeholder="203.0.113.0/24"></textarea>
+            <p class="hint">An address on this list is still recorded and looked up, and blocked when auto-block is on. It is never reported to AbuseIPDB or SniffCat. The Ignore button on an attacker adds to it.</p>
+          </div>
+          <div class="form-group">
+            <div class="form-label">Never report an address when all it did was</div>
+            <div id="ipintel-ignore-classes" class="ipi-ignore-classes scroll-cap"></div>
+            <p class="hint">An address that did anything else as well is reported as usual.</p>
+          </div>
           <div class="toolbar">
             <button class="btn-primary" data-action="saveIpIntelSettings">Save</button>
             <span id="ipintel-budget" class="hint"></span>
@@ -12322,36 +12332,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.3.0-56"></script>
+<script defer src="static/js/app.js?v=7.3.0-57"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-cmdb.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-containers.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-network.js?v=7.3.0-56"></script>
+<script defer src="static/js/app-calendar.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-cmdb.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-containers.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-network.js?v=7.3.0-57"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-compliance.js?v=7.3.0-56"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-compliance.js?v=7.3.0-57"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-dns.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-drift.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-cve.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-firewall.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-backups.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-iac.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-proxmox.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-virt.js?v=7.3.0-56"></script>
+<script defer src="static/js/app-ai.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-dns.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-drift.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-cve.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-firewall.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-backups.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-iac.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-proxmox.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-virt.js?v=7.3.0-57"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-remote.js?v=7.3.0-56"></script>
-<script defer src="static/js/app-tickets.js?v=7.3.0-56"></script>
+<script defer src="static/js/app-logs.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-remote.js?v=7.3.0-57"></script>
+<script defer src="static/js/app-tickets.js?v=7.3.0-57"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.3.0-56"></script>
+<script defer src="static/js/app-self.js?v=7.3.0-57"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12361,6 +12371,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.3.0-56"></script>
+<script defer src="static/js/sw-register.js?v=7.3.0-57"></script>
 </body>
 </html>

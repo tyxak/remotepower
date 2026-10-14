@@ -73,7 +73,12 @@ DEFAULTS = {
     'daily_lookup_budget': 900,   # per provider; AbuseIPDB's free tier is 1000
     'daily_report_budget': 900,   # per provider; reports have their own daily limit
     'report_comment': '',         # '' = the default text below
-    'never_block': [],            # extra CIDRs that are never blocked
+    'never_block': [],            # extra CIDRs that are never blocked (or reported)
+    # What is never REPORTED, and nothing else: an ignored address can still be looked up
+    # and blocked, so ignoring can only ever do less in public, never leave a host less
+    # protected. `never_block` is the stronger list: it stops both.
+    'ignore_addresses': [],       # addresses and networks that are never reported
+    'ignore_classes': [],         # attack classes: an address is not reported when this is all it did
     'sensor_enabled': False,      # Linux agents read web server, WAF, fail2ban and CrowdSec logs
     'sensor_paths': [],           # extra log files for them, each under /var/log
     # The edge feeds (v7.3.0): the server reads Cloudflare's firewall events and
@@ -560,6 +565,76 @@ def unblock_command(ip):
 
 SENSOR_PATH_MAX = 20
 _SENSOR_PATH_RE = re.compile(r'^/var/log/[A-Za-z0-9._@+/-]{1,280}$')
+
+
+IGNORE_MAX = 500              # entries on the address list
+IGNORE_MIN_V4_PREFIX = 8      # a /0 typed by mistake would silence every report
+IGNORE_MIN_V6_PREFIX = 16
+
+# The brute-force counter's own entries name a kind, not a class; these are the two
+# that map onto one. Any other kind is left unmapped on purpose (see ignore_reason's
+# caller): an entry that cannot be placed in a class is never suppressed by one.
+LEGACY_KIND_CLASS = {'ssh': 'ssh_brute', 'web': 'login_brute'}
+
+
+def clean_ignore_addresses(raw):
+    """(entries, error) for the addresses and networks an operator never wants
+    reported: canonical text, in the order given, without duplicates. Each must be
+    an address or a network of a width that can still be a decision (a /0 typed by
+    mistake would silence every report); a zone id is refused the way every other
+    address check here refuses it."""
+    items = raw if isinstance(raw, list) else str(raw or '').replace(',', '\n').splitlines()
+    out = []
+    for it in items[:IGNORE_MAX * 2]:
+        text = str(it).strip()
+        if not text:
+            continue
+        if '%' in text:
+            return out, f'Not an address or network: {text[:60]}'
+        try:
+            net = ipaddress.ip_network(text, strict=False)
+        except ValueError:
+            return out, f'Not an address or network: {text[:60]}'
+        floor = IGNORE_MIN_V4_PREFIX if net.version == 4 else IGNORE_MIN_V6_PREFIX
+        if net.prefixlen < floor:
+            return out, f'Too wide to ignore (narrower than /{floor}): {text[:60]}'
+        canon = str(net.network_address) if net.prefixlen == net.max_prefixlen else str(net)
+        if canon not in out:
+            out.append(canon)
+    if len(out) > IGNORE_MAX:
+        return out[:IGNORE_MAX], f'At most {IGNORE_MAX} addresses or networks'
+    return out, None
+
+
+def clean_ignore_classes(raw):
+    """(ids, error) for the attack classes an operator ignores. Only a class the
+    vocabulary has can be named; anything else is refused instead of stored, so a
+    typo cannot sit in the list looking like a rule."""
+    items = raw if isinstance(raw, list) else str(raw or '').replace(',', '\n').splitlines()
+    out = []
+    for it in items:
+        cid = str(it).strip()
+        if not cid:
+            continue
+        if cid not in threat_evidence.CLASSES:
+            return out, f'Not a kind of attack: {cid[:40]}'
+        if cid not in out:
+            out.append(cid)
+    return out, None
+
+
+def ignore_reason(ip, nets, kinds, ignored):
+    """Why this address is not reported because the operator chose to ignore it,
+    or ''. `nets` are the networks on the address list; `kinds` the attack classes
+    the evidence names (a set, possibly with '?' for something that fits none);
+    `ignored` the classes the operator ignores. An address is held back when it is
+    on the list, or when EVERYTHING it did is an ignored kind: one other class and
+    it is reported as usual. Both are fixed phrases (the page translates them)."""
+    if nets and in_any(ip, nets):
+        return 'on the ignore list'
+    if ignored and kinds and set(kinds) <= set(ignored):
+        return 'only attacks you ignore'
+    return ''
 
 
 def clean_sensor_paths(raw):

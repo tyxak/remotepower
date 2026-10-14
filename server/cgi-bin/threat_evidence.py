@@ -637,6 +637,17 @@ def dominant(ev, limit=3):
     return ranked[:limit]
 
 
+def report_classes(ev):
+    """The classes a report would speak for, as a set: what `dominant` ranks, with
+    the generic WAF class stepping aside once a specific class explains the
+    blocks. Used to tell whether everything an address did is a kind of attack the
+    operator ignores."""
+    cls = classes(ev)
+    if len(cls) > 1:
+        cls.pop("waf", None)
+    return set(cls)
+
+
 def confirmed_by(ev):
     """Who already decided this address is hostile: 'fail2ban', 'CrowdSec', 'the
     edge honeypot' or ''. A honeypot decision is its own ban (the address

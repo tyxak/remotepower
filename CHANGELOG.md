@@ -147,6 +147,18 @@ It is in `docs/security-review-7.3.0.md`.
 
 ### Reports
 
+- **You can tell Threat intel what not to report.** Two lists under **Limits and
+  report message** and an **Ignore** button on each attacker. **Never report these
+  addresses** takes addresses and networks (500 at most, none wider than a /8 or a
+  /16). **Never report an address when all it did was** takes kinds of attack: an
+  address is held back when everything it did is a kind you ticked, and reported as
+  usual if it did anything else as well. Ignoring only ever does less in public. An
+  ignored address is still recorded, looked up and blocked as before (the
+  never-block list stops that too), and its evidence is kept, so taking it off the
+  list reports it on its next sighting. The rule holds at every place a report can
+  come from: the claim that rations lookups, the catch-up that revisits a qualified
+  day, and the report itself, for the logs' evidence and for the brute-force
+  counter's own entries.
 - **An address your WAF refused once is reported.** A host's WAF used to need
   three refusals before an address was reported, so an address with a reputation
   score of 51 and seven reports from others sat unreported after its first
@@ -382,7 +394,7 @@ are fixed here, and each has a test that fails without its fix.
 release since 7.1.0 and includes everything in 7.2.0.
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-56`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-57`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts

@@ -350,6 +350,30 @@ Before 7.2.0 the box showed `{what} brute force: {count} failed attempts within
 report brute force. A Settings page still open from then is read as the standard
 text when you save it, not stored as your own wording.
 
+## Ignore what you do not want reported
+
+Some addresses are yours to ignore: a partner's scanner, a monitoring service, a
+customer's office. Some kinds of attack are not worth a public report. Two lists
+under **Limits and report message** and a button on each attacker say so.
+
+| Setting | What it does |
+|---|---|
+| **Never report these addresses** | One address or network per line, up to 500, none wider than a /8 (IPv4) or /16 (IPv6). An address on it is never reported to AbuseIPDB or SniffCat. |
+| **Never report an address when all it did was** | Tick the kinds of attack. An address is held back when everything it did is a kind you ticked. If it did anything else as well, it is reported as usual. |
+| **Ignore** on an attacker's row | Adds that one address to the first list, after asking. It is not shown on an address the list already covers. |
+
+Ignoring only ever does less in public. An ignored address is still recorded and
+looked up, and it is blocked when auto-block is on. **Never block or report**,
+above, stops that too. The evidence is kept, so taking an address off the list
+reports it on its next sighting if it qualifies. A report that was already made
+is not taken back.
+
+The status column says `on the ignore list` for an address on the first list and
+`not reported: only attacks you ignore` when the second list held it back. The
+[edge blocklist](#the-edge-blocklist) still takes high-scoring addresses from the
+table, ignored or not: the ignore lists change reporting and nothing else. On a
+multi-tenant install only the platform operator can change them.
+
 ## What leaves your network
 
 | Action | What is sent |

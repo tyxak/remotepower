@@ -148,6 +148,19 @@ const _IPI_MORE_WORD = {
 };
 const _ipiRowLimit = {attackers: _IPI_ROW_STEP, blocks: _IPI_ROW_STEP};
 let _ipiRowsAsked = 0;        // 0 = the server's default; set by Load all and kept for refreshes
+// Ignoring (v7.3.0): an address or a kind of attack the operator does not want reported. The
+// fixed words are a table so the language gate reads one place
+// (tests/test_v730_ipintel_ignore_page.py).
+const _IPI_IGNORE_WORD = {
+  done: 'Ignored', could_not: 'Could not ignore this address',
+};
+const _IPI_IGNORE_DIALOG = {
+  ignore: {
+    title: 'Ignore this address',
+    message: 'RemotePower will not report this address to AbuseIPDB or SniffCat. It is still recorded and looked up, and blocked when auto-block is on; use the never-block list to stop that too. Take it off the list under Never report these addresses.',
+    confirm: 'Ignore',
+  },
+};
 const _IPI_CLEAR_DIALOG = {
   clear: {
     title: 'Clear recorded addresses',
@@ -213,6 +226,8 @@ function _ipiWire() {
     if (ban) { openIpIntelBan(ban.dataset.ipiBan); return; }
     const unban = ev.target.closest('button[data-ipi-unban]');
     if (unban) { unbanIpIntel(unban.dataset.ipiUnban); return; }
+    const ign = ev.target.closest('button[data-ipi-ignore]');
+    if (ign) { ignoreIpIntel(ign.dataset.ipiIgnore); return; }
     const b = ev.target.closest('button[data-ip][data-dev]');
     if (b) blockIpIntel(b.dataset.dev, b.dataset.ip);
   });
@@ -272,6 +287,8 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-cache-hours', s.cache_hours ?? 24);
   set('ipintel-comment', s.report_comment || '');
   set('ipintel-never', (s.never_block || []).join('\n'));
+  set('ipintel-ignore', (s.ignore_addresses || []).join('\n'));
+  _ipiRenderIgnoreClasses(s.ignore_classes || []);
   chk('ipintel-edge', s.edge_enabled);
   chk('ipintel-edge-cf', s.edge_cf_events);
   chk('ipintel-edge-trap', s.edge_trap);
@@ -345,7 +362,10 @@ function _ipiStatus(a) {
   if (blocked.size) parts.push(`blocked on ${blocked.size}`);
   const why = _ipiNotBlockedReason(a, edge === 'listed' || edge === 'banned');
   if (!blocked.size && why) parts.push(`not blocked: ${why}`);
-  const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
+  // An address on the ignore list says so once: the server's refusal ("not reported: on the
+  // ignore list") would repeat it. The phrase is ip_intel.ignore_reason's, word for word.
+  if (a.ignored) parts.push('on the ignore list');
+  const errs = Object.entries(a.errors || {}).filter(([, e]) => e && !(a.ignored && String(e) === 'not reported: on the ignore list'));
   if (errs.length) parts.push(errs.map(([p, e]) => `${p}: ${e}`).join(', '));
   return parts.join(' · ');
 }
@@ -383,12 +403,30 @@ function _ipiStatusHtml(a) {
   if (blocked.size) parts.push(`${_ipiPhrase('blocked on')} ${blocked.size}`);
   const why = _ipiNotBlockedReason(a, edge === 'listed' || edge === 'banned');
   if (!blocked.size && why) parts.push(`${_ipiPhrase('not blocked:')} ${_ipiReason(why)}`);
-  const errs = Object.entries(a.errors || {}).filter(([, e]) => e);
+  if (a.ignored) parts.push(_ipiPhrase('on the ignore list'));
+  const errs = Object.entries(a.errors || {}).filter(([, e]) => e && !(a.ignored && String(e) === 'not reported: on the ignore list'));
   if (errs.length) parts.push(errs.map(([p, e]) => `${escHtml(p)}: ${_ipiReason(e)}`).join(', '));
   return parts.join(' · ');
 }
 
 function _ipiClassName(id) { return _IPI_CLASS[id] || String(id); }
+
+// The kinds of attack that can be ignored, as checkboxes. The names are the ones the page
+// already uses for the Evidence column, so each is a phrase the language engine translates.
+function _ipiRenderIgnoreClasses(selected) {
+  const box = document.getElementById('ipintel-ignore-classes');
+  if (!box) return;
+  const on = new Set(selected || []);
+  box.innerHTML = Object.keys(_IPI_CLASS).map(id =>
+    `<label class="ipi-ignore-class"><input type="checkbox" data-ipi-class="${escAttr(id)}"${on.has(id) ? ' checked' : ''}> ` +
+    `${_ipiPhrase(_IPI_CLASS[id])}</label>`).join('');
+}
+
+function _ipiIgnoredClasses() {
+  const box = document.getElementById('ipintel-ignore-classes');
+  if (!box) return [];
+  return [...box.querySelectorAll('input[data-ipi-class]')].filter(i => i.checked).map(i => i.dataset.ipiClass);
+}
 
 // Plain text for filtering: what the logs showed, in the words the page uses.
 function _ipiEvidenceText(a) {
@@ -560,6 +598,11 @@ function _ipiRenderAttackers() {
     const unbanBtn = liftable
       ? `<button class="btn-icon" data-ipi-unban="${escAttr(a.ip)}" aria-label="Unban">${icon(shield + '<path d="m9 12 2 2 4-4"/>')} Unban</button>`
       : '';
+    // Ignore: stop reporting this address. The platform operator only (the list is the
+    // instance's), and not on a row the list already covers.
+    const ignoreBtn = (_ipiData.can_ignore && !a.ignored)
+      ? `<button class="btn-icon" data-ipi-ignore="${escAttr(a.ip)}" aria-label="Ignore">${icon('<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>')} Ignore</button>`
+      : '';
     const score = a.score == null ? '—' : String(a.score);
     return `<tr>
       <td class="ff-mono">${escHtml(a.ip)}</td>
@@ -571,7 +614,7 @@ function _ipiRenderAttackers() {
       <td>${_ipiEvidenceHtml(a)}</td>
       <td>${escHtml(timeAgo(a.last_seen))}</td>
       <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
-      <td><div class="ipi-actions">${btn}${banBtn}${unbanBtn}</div></td>
+      <td><div class="ipi-actions">${btn}${banBtn}${unbanBtn}${ignoreBtn}</div></td>
     </tr>${_ipiOpen.has(a.ip) ? `<tr class="ipi-detail"><td colspan="10">${_ipiDetailHtml(a)}</td></tr>` : ''}`;
   }).join('');
 }
@@ -903,6 +946,8 @@ async function saveIpIntelSettings() {
     cache_hours: v('ipintel-cache-hours').value,
     report_comment: v('ipintel-comment').value,
     never_block: v('ipintel-never').value,
+    ignore_addresses: v('ipintel-ignore').value,
+    ignore_classes: _ipiIgnoredClasses(),
   };
   // Keys are write-only: only send one the admin actually typed.
   const ak = v('ipintel-abuseipdb-key').value.trim();
@@ -1054,6 +1099,16 @@ async function unbanIpIntel(ip) {
   const r = await api('POST', '/ip-intel/unban', body).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Could not save', 'error'); return; }
   toast(_IPI_BAN_WORD.unbanned, 'success');
+  loadIpIntel();
+}
+
+async function ignoreIpIntel(ip) {
+  const d = _IPI_IGNORE_DIALOG.ignore;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm});
+  if (!ok) return;
+  const r = await api('POST', '/ip-intel/ignore', {ip}).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || _IPI_IGNORE_WORD.could_not, 'error'); return; }
+  toast(_IPI_IGNORE_WORD.done, 'success');
   loadIpIntel();
 }
 

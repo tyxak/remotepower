@@ -442,6 +442,7 @@ builtins = [
     "handle_ip_intel_block",
     "handle_ip_intel_clear",
     "handle_ip_intel_edge_test",
+    "handle_ip_intel_ignore",
     "handle_ip_intel_lookup",
     "handle_ip_intel_settings",
     "handle_ip_intel_unban",

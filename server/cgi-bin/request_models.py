@@ -2657,6 +2657,8 @@ if _AVAILABLE:
         daily_report_budget: Any = None
         report_comment: Any = None
         never_block: Any = None
+        ignore_addresses: Any = None
+        ignore_classes: Any = None
         abuseipdb_api_key: str = ''
         sniffcat_api_key: str = ''
         clear_abuseipdb_key: bool = False
@@ -2729,6 +2731,13 @@ if _AVAILABLE:
         account_id: str = ''
 
         _v0 = field_validator('token', 'account_id', mode='before')(_coerce_str_loose)
+
+    class IpIntelIgnoreRequest(BaseModel):
+        """handle_ip_intel_ignore POST."""
+        model_config = ConfigDict(extra='ignore')
+        ip: str = ''
+
+        _v0 = field_validator('ip', mode='before')(_coerce_str_loose)
 
     class IpIntelClearRequest(BaseModel):
         """handle_ip_intel_clear POST. It takes no fields: the model is here so the

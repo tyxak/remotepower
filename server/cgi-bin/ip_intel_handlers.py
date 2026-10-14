@@ -84,6 +84,11 @@ def _policy():
                    'sniffcat': str(cfg.get('sniffcat_api_key') or '')}
     pol['edge_token'] = str(cfg.get('edge_cloudflare_token') or '')
     pol['edge_list_token'] = str(cfg.get('edge_list_token') or '')
+    # Derived, not settings: what the report decisions test an address against.
+    addrs, classes = pol.get('ignore_addresses'), pol.get('ignore_classes')
+    pol['ignore_nets'] = ip_intel.parse_cidrs(addrs if isinstance(addrs, list) else [])
+    pol['ignore_kinds'] = {c for c in (classes if isinstance(classes, list) else [])
+                           if c in threat_evidence.CLASSES}
     return pol
 
 
@@ -95,6 +100,28 @@ def _any_enabled(pol):
 def ip_intel_policy():
     """The operator's policy with the API keys resolved. Read-only."""
     return _policy()
+
+
+def _ignore_why(ip, ev, legacy_units, pol):
+    """The reason this address is not to be reported because the operator chose to
+    ignore it, or ''. `ev` is the evidence a report would be made of (the day's
+    ledger and what is waiting, merged) or None; `legacy_units` are the units of
+    the brute-force counter's own entries for it. Three places decide whether a
+    report can happen and all three ask here, so the rule cannot hold at one and
+    not another: the claim that rations network calls, the catch-up that revisits
+    a qualified ledger, and the report itself."""
+    nets, ignored = pol.get('ignore_nets') or [], pol.get('ignore_kinds') or set()
+    if not nets and not ignored:
+        return ''
+    kinds = set()
+    if ignored:
+        if isinstance(ev, dict):
+            kinds |= threat_evidence.report_classes(ev)
+        for unit in legacy_units:
+            # a counter entry that fits no class is '?', which no ignore list can
+            # cover, so it is never held back by one
+            kinds.add(ip_intel.LEGACY_KIND_CLASS.get(ip_intel.attack_kind(unit), '?'))
+    return ip_intel.ignore_reason(ip, nets, kinds, ignored)
 
 
 # ── the heartbeat-side hook ────────────────────────────────────────────────────
@@ -460,6 +487,13 @@ def _may_report(item, att, pol, now):
     cf_min = pol.get('edge_report_after')
     waf_min = pol.get('report_waf_after')
     ev = item.get('evidence')
+    if pol.get('ignore_nets') or pol.get('ignore_kinds'):
+        ledger = _fresh_ledger(att, now)
+        seen = threat_evidence.merge(ledger, ev) if (ledger and isinstance(ev, dict)) else (
+            ev if isinstance(ev, dict) else ledger)
+        counter = [item.get('unit')] if not isinstance(ev, dict) and not item.get('_catchup') else []
+        if _ignore_why(ip_intel.parse_ip(item.get('ip')) or '', seen, counter, pol):
+            return False
     if isinstance(ev, dict):
         ledger = _fresh_ledger(att, now)
         ok, _why = threat_evidence.qualifies(
@@ -576,6 +610,8 @@ def _ledger_catchup(st, pol, now):
         ev = _fresh_ledger(att, now)
         if not ev:
             continue
+        if _ignore_why(ip, ev, [], pol):
+            continue
         told, retry = att.get('reported') or {}, att.get('retry') or {}
         if not any(now - int(told.get(p) or 0) >= REPORT_EVERY_S and now >= int(retry.get(p) or 0)
                    for p in keyed):
@@ -686,6 +722,20 @@ def run_ip_intel_if_due():
         keyed = [prov for prov in ip_intel.PROVIDERS if pol['keys'].get(prov)]
         if not keyed:
             continue
+        # What the operator said not to report is decided before anything is built
+        # from the evidence, and said only for a service it has not been reported to
+        # today, like the other reasons below.
+        if pol.get('ignore_nets') or pol.get('ignore_kinds'):
+            own_ev = _entry_evidence(group)
+            led = lead.get('ledger')
+            seen_ev = threat_evidence.merge(led, own_ev) if (own_ev and led) else (own_ev or led)
+            counters = [p['item'].get('unit') for p in group
+                        if not isinstance(p['item'].get('evidence'), dict)]
+            ign = _ignore_why(ip, seen_ev, counters, pol)
+            if ign:
+                lead['report_err'] = {prov: f'not reported: {ign}' for prov in keyed
+                                      if now - int(lead['reported'].get(prov) or 0) >= REPORT_EVERY_S}
+                continue
         report, why = _report_plan(group, pol)
         if report is None:
             # Said only for a service it has not been reported to today: an
@@ -1193,6 +1243,7 @@ def handle_ip_intel():
             'checked_at': a.get('checked_at'), 'reported': a.get('reported', {}),
             'errors': a.get('errors', {}),
             'in_list': a.get('in_list') if operator else None,
+            'ignored': bool(pol.get('ignore_nets') and ip_intel.in_any(ip, pol['ignore_nets'])),
             'edge_ban': ({'until': bans[edge_blocklist.canonical(ip)]}
                          if edge_blocklist.canonical(ip) in bans else None),
             'evidence': _evidence_view(a),
@@ -1221,6 +1272,7 @@ def handle_ip_intel():
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
                     'ban_hosts': ban_hosts,
+                    'can_ignore': bool(operator),
                     'budget': budget, 'queued': len(st.get('queue') or [])})
 
 
@@ -1320,6 +1372,18 @@ def handle_ip_intel_settings():
                 nets.append(it)
             pol['never_block'] = nets
             changed.append(f'never_block={len(nets)}')
+        if body.get('ignore_addresses') is not None:
+            entries, bad = ip_intel.clean_ignore_addresses(body['ignore_addresses'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['ignore_addresses'] = entries
+            changed.append(f'ignore_addresses={len(entries)}')
+        if body.get('ignore_classes') is not None:
+            ids, bad = ip_intel.clean_ignore_classes(body['ignore_classes'])
+            if bad:
+                A.respond(400, {'error': bad})
+            pol['ignore_classes'] = ids
+            changed.append(f'ignore_classes={len(ids)}')
         cfg['ip_intel'] = pol
         if body.get('clear_edge_token'):
             cfg.pop('edge_cloudflare_token', None)
@@ -1558,3 +1622,40 @@ def handle_ip_intel_clear():
                 f'queue={queue_cleared}'[:300])
     A.respond(200, {'ok': True, 'cleared': cleared, 'kept_listed': kept_listed,
                     'remembered': remembered, 'queue': queue_cleared})
+
+
+def handle_ip_intel_ignore():
+    """POST /api/ip-intel/ignore {ip} — the platform operator. Add one address to
+    the list of addresses that are never reported. The list is the instance's (the
+    same one Settings edits), so on a multi-tenant install a tenant's administrator
+    cannot change it, as they cannot change the provider settings.
+
+    It only ever does LESS in public: an ignored address is still recorded, looked
+    up and, when blocking is on, blocked. Taking an address back off the list is
+    done in Settings, where the whole list is."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    if A._tenancy_enforced() and not A._caller_is_superadmin():
+        A.respond(403, {'error': 'The ignore list is managed by the platform operator.'})
+    body = A._read_valid(A.request_models.IpIntelIgnoreRequest)
+    ip = ip_intel.parse_ip(body.get('ip'))
+    if not ip:
+        A.respond(400, {'error': 'Enter an IP address'})
+    already = False
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+        pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
+        cur = [str(x) for x in (pol.get('ignore_addresses') or [])] \
+            if isinstance(pol.get('ignore_addresses'), list) else []
+        if ip_intel.in_any(ip, ip_intel.parse_cidrs(cur)):
+            already = True
+        else:
+            if len(cur) >= ip_intel.IGNORE_MAX:
+                A.respond(409, {'error': f'The list holds {ip_intel.IGNORE_MAX} entries already'})
+            cur.append(ip)
+            pol['ignore_addresses'] = cur
+            cfg['ip_intel'] = pol
+    A._invalidate_load_cache(A.CONFIG_FILE)
+    if not already:
+        A.audit_log(actor, 'ip_intel_ignore', f'ip={ip}')
+    A.respond(200, {'ok': True, 'already': already, 'ip': ip})

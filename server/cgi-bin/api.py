@@ -1129,6 +1129,7 @@ for _ii_name in (
         'ip_intel_note_attack', 'ip_intel_note_attacks', '_ip_intel_http', 'run_ip_intel_if_due',
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
         'handle_ip_intel_block', 'handle_ip_intel_unblock', 'handle_ip_intel_clear',
+        'handle_ip_intel_ignore',
         'ip_intel_annotate', 'ip_intel_by_device',
         'ip_intel_policy', 'ip_intel_note_evidence', '_note_evidence_into',
 ):
@@ -71725,6 +71726,7 @@ def _build_exact_routes():
         ('POST', '/api/ip-intel/block'): handle_ip_intel_block,
         ('POST', '/api/ip-intel/unblock'): handle_ip_intel_unblock,
         ('POST', '/api/ip-intel/clear'): handle_ip_intel_clear,
+        ('POST', '/api/ip-intel/ignore'): handle_ip_intel_ignore,
         ('POST', '/api/ip-intel/edge-test'): handle_ip_intel_edge_test,
         ('POST', '/api/ip-intel/edge-list/preview'): handle_edge_list_preview,
         ('POST', '/api/ip-intel/edge-list/sync'): handle_edge_list_sync,

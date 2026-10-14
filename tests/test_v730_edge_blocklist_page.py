@@ -452,13 +452,18 @@ class TestTheSettingsRoundTrip(unittest.TestCase):
         save = 'async ' + srcpin.js_function(_JS, 'saveIpIntelSettings')
         prelude = '''
 const els = {};
-const el = id => (els[id] = els[id] || {value: '', checked: false, placeholder: '', textContent: '', hidden: false});
+const el = id => (els[id] = els[id] || {value: '', checked: false, placeholder: '', textContent: '', hidden: false, innerHTML: '', querySelectorAll: () => []});
 const document = {getElementById: el};
 let sent = null; let _ipiData = {settings: {}};
 async function api(m, p, body) { sent = {m, p, body}; return {ok: true}; }
 function toast() {} function loadIpIntel() {} async function uiConfirm() { return true; }
 '''
-        out = subprocess.run(['node', '-e', prelude + fill + '\n' + save + '\n(async () => {' + script + '})()'],
+        helpers = '\n'.join([
+            re.search(r'^const _IPI_CLASS = \{.*?^\};', _JS, re.S | re.M).group(0),
+            'function escAttr(s) { return String(s); } function escHtml(s) { return String(s); }',
+            srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderIgnoreClasses'),
+            srcpin.js_function(_JS, '_ipiIgnoredClasses')])
+        out = subprocess.run(['node', '-e', prelude + helpers + '\n' + fill + '\n' + save + '\n(async () => {' + script + '})()'],
                              capture_output=True, text=True, timeout=30)
         self.assertEqual(0, out.returncode, out.stderr)
         return json.loads(out.stdout.strip().splitlines()[-1])

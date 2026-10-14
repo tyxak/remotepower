@@ -5306,6 +5306,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
 /* v7.3.0: the row's buttons (Block, Ban, Unban) wrap instead of overflowing the cell. */
 .ipi-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ipi-ignore-classes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 16px; }
+.ipi-ignore-class { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
 .ipi-facts dt { color: var(--muted); }
 .ipi-facts dd { margin: 0; overflow-wrap: anywhere; }

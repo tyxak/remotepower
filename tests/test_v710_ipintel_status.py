@@ -35,7 +35,7 @@ def server_reasons():
     reasons = set()
     mod = ast.parse((_CGI / 'ip_intel.py').read_text(encoding='utf-8'))
     for fn in mod.body:
-        if isinstance(fn, ast.FunctionDef) and fn.name in ('block_decision', 'never_block_reason'):
+        if isinstance(fn, ast.FunctionDef) and fn.name in ('block_decision', 'never_block_reason', 'ignore_reason'):
             for node in ast.walk(fn):
                 if isinstance(node, ast.Return) and node.value is not None:
                     vals = node.value.elts if isinstance(node.value, ast.Tuple) else [node.value]
