@@ -2,9 +2,9 @@
 
 A honeypot Worker answers paths that no real visitor asks for, such as `/.env` or `/wp-login.php`, and writes down who asked. Scanners ask for these all day, and nobody who asks has a good reason.
 
-RemotePower reads that log and reports the addresses that keep asking to AbuseIPDB and SniffCat. This page builds the Worker: one script and one config file, with no database and no credentials. It adds nothing to your host and leaves the rest of your site alone.
+RemotePower reads that log and reports the addresses that keep asking to AbuseIPDB and SniffCat. This page builds the Worker: one script and one config file, with no database and no credentials. It adds nothing to your host and leaves the rest of your site alone. Once it works, [More traps for your honeypot Worker](honeypot-traps.md) adds a `robots.txt` decoy, a fake backup directory, decoy host names and more.
 
-On this page: [Before you start](#before-you-start) · [How it works](#how-it-works) · [Step 1: Create the two files](#step-1-create-the-two-files) · [Step 2: Add your own addresses](#step-2-add-your-own-addresses) · [Step 3: Deploy it](#step-3-deploy-it) · [Step 4: Check that it answers](#step-4-check-that-it-answers) · [Step 5: Connect RemotePower](#step-5-connect-remotepower) · [What RemotePower does with a hit](#what-remotepower-does-with-a-hit) · [Rules that answer first](#rules-that-answer-first) · [Change the decoys](#change-the-decoys) · [Limits](#limits) · [Security](#security) · [Troubleshooting](#troubleshooting) · [Turn it off](#turn-it-off)
+On this page: [Before you start](#before-you-start) · [How it works](#how-it-works) · [Step 1: Create the two files](#step-1-create-the-two-files) · [Step 2: Add your own addresses](#step-2-add-your-own-addresses) · [Step 3: Deploy it](#step-3-deploy-it) · [Step 4: Check that it answers](#step-4-check-that-it-answers) · [Step 5: Connect RemotePower](#step-5-connect-remotepower) · [What RemotePower does with a hit](#what-remotepower-does-with-a-hit) · [Block what it finds](#block-what-it-finds) · [Rules that answer first](#rules-that-answer-first) · [Change the decoys](#change-the-decoys) · [Limits](#limits) · [Security](#security) · [Troubleshooting](#troubleshooting) · [Turn it off](#turn-it-off)
 
 ## Before you start
 
@@ -273,6 +273,16 @@ The report names counts and the kind of attack. The path, the user agent and the
 
 This Worker never bans, so it never writes the actions that make RemotePower report at once. If you add banning to it, log `banned`, `already-banned` or `already-blocked-elsewhere` for a ban. [The honeypot Worker log](edge-sources.md#the-honeypot-worker-log) lists what each action means.
 
+## Block what it finds
+
+The Worker blocks nobody, and RemotePower only reports. To stop an address at Cloudflare, let RemotePower keep a Cloudflare IP list and block that list with one rule of yours:
+
+1. Turn on the [Edge blocklist](edge-sources.md#edge-blocklist), with a token that can edit lists. It builds the list from the sources you choose. **Found by RemotePower** is one of them: the addresses RemotePower reported, or that scored high.
+2. Add one custom rule to your zone with the expression `(ip.src in $remotepower_blocklist)` and the action **Block**, using the name you gave the list ([Use the list in a rule](edge-sources.md#use-the-list-in-a-rule)).
+3. To block one address now, press **Ban** on its row in the attackers table ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)).
+
+An address reaches the list after RemotePower has reported it, which takes as many hits as **Report after attempts**. A Worker that bans on the first hit is faster, but it needs a token that can edit IP rules inside a Worker that faces the internet, and a job to expire the bans. Doing it from RemotePower keeps that token in one place.
+
 ## Rules that answer first
 
 Cloudflare's WAF custom rules and managed rules run before a Worker, and bot protection can answer first too. A path that one of them blocks never reaches the Worker, so it leaves no `trap hit` line.
@@ -285,7 +295,7 @@ To let the Worker answer a path, exclude that path from the rule that blocks it,
 
 - **Add one.** Add a line to `TRAPS` with a lower-case prefix, and a route in `wrangler.toml` whose path is that prefix followed by `*`. Run `npx wrangler deploy` again.
 - **Drop one.** Delete its line and its route. Do this for any path your site really serves.
-- **Kinds.** This script writes `bait` and `login`. RemotePower knows more kinds, listed in [The honeypot Worker log](edge-sources.md#the-honeypot-worker-log). The others need more than a path, such as a decoy host name, a `robots.txt` that names a path or a credential that is handed out, and this script does not write them. A kind that RemotePower does not know is set aside as not evidence.
+- **Kinds.** This script writes `bait` and `login`. RemotePower knows more kinds, listed in [The honeypot Worker log](edge-sources.md#the-honeypot-worker-log). The others need more than a path, such as a decoy host name, a `robots.txt` that names a path or a credential that is handed out. [More traps for your honeypot Worker](honeypot-traps.md) has a script that writes them. A kind that RemotePower does not know is set aside as not evidence.
 
 Route paths are case sensitive, and a route cannot have a wildcard in the middle or a query string. A route for `/.env*` does not match `/.ENV`. Add a second route if you want both.
 

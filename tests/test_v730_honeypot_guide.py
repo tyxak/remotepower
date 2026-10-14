@@ -16,10 +16,7 @@ import datetime
 import ipaddress
 import json
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -27,39 +24,25 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / 'server' / 'cgi-bin'))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import edge_evidence as ee  # noqa: E402
+import honeypot_worker_harness as H  # noqa: E402
 import ip_intel  # noqa: E402
 import threat_evidence as te  # noqa: E402
 
 _GUIDE_PATH = _ROOT / 'docs' / 'honeypot-worker.md'
-_NODE = shutil.which('node')
-
-ATK = '185.220.101.7'       # a routable address: RemotePower sets aside documentation ranges
+_NODE = H.NODE
+ATK = H.ATK
 NOW = 1_790_000_000
+_blocks = H.blocks
+_case = H.case
 
 
 def _guide():
     if not _GUIDE_PATH.exists():
         raise unittest.SkipTest('docs excluded from this tree')
     return _GUIDE_PATH.read_text()
-
-
-def _blocks(text, lang):
-    """The fenced code blocks of one language, in order."""
-    out, cur, name = [], None, ''
-    for line in text.split('\n'):
-        m = re.match(r'^```(\w*)\s*$', line)
-        if m:
-            if cur is None:
-                cur, name = [], m.group(1)
-            else:
-                if name == lang:
-                    out.append('\n'.join(cur) + '\n')
-                cur = None
-            continue
-        if cur is not None:
-            cur.append(line)
-    return out
 
 
 def _script():
@@ -91,57 +74,8 @@ def _const(name):
     return int(m.group(1))
 
 
-# The driver imports the guide's script as a module and calls its fetch() the way the
-# runtime does. The request is a plain object with no body methods on purpose: a script
-# that reads the body throws here, which is how "never reads a request body" is pinned.
-_DRIVER = r"""
-import fs from 'node:fs';
-import worker from './worker.mjs';
-const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const results = [];
-let origin = 0;
-globalThis.fetch = async () => { origin += 1; return new Response('origin page', { status: 200 }); };
-const realNow = Date.now;
-for (const c of cases) {
-  const logs = [];
-  console.log = (...a) => { logs.push(a.join(' ')); };
-  Date.now = c.now === undefined ? realNow : () => c.now;
-  const req = { url: c.url, method: c.method || 'GET', headers: new Headers(c.headers || {}), cf: c.cf };
-  let out;
-  try {
-    const res = await worker.fetch(req, c.env === undefined ? {} : c.env);
-    out = { status: res.status, type: res.headers.get('content-type'),
-            cache: res.headers.get('cache-control'), robots: res.headers.get('x-robots-tag'),
-            body: await res.text(), logs, origin };
-  } catch (e) {
-    out = { error: String(e), logs };
-  }
-  results.push(out);
-}
-process.stdout.write(JSON.stringify(results));
-"""
-
-
 def _run(cases):
-    with tempfile.TemporaryDirectory() as td:
-        td = Path(td)
-        (td / 'worker.mjs').write_text(_script())
-        (td / 'driver.mjs').write_text(_DRIVER)
-        (td / 'cases.json').write_text(json.dumps(cases))
-        p = subprocess.run([_NODE, 'driver.mjs', 'cases.json'], cwd=td, capture_output=True,
-                           text=True, timeout=120)
-    assert p.returncode == 0, p.stderr[-2000:]
-    return json.loads(p.stdout)
-
-
-def _case(path, ip=ATK, **kw):
-    headers = {'user-agent': 'scanner/1.0'}
-    if ip is not None:
-        headers['cf-connecting-ip'] = ip
-    headers.update(kw.pop('headers', {}))
-    c = {'url': 'https://example.com' + path, 'headers': headers, 'cf': {'country': 'DK'}}
-    c.update(kw)
-    return c
+    return H.run(_script(), cases)
 
 
 # ── the script, run ────────────────────────────────────────────────────────────
@@ -484,49 +418,15 @@ class TestThePage(unittest.TestCase):
             self.assertIn('(honeypot-worker.md)', p.read_text(), rel)
 
     def test_it_is_a_public_page(self):
-        guide = _guide()
-        self.assertNotRegex(guide, r'-internal\.md')
-        self.assertNotRegex(guide, r'\b[0-9a-f]{32}\b', 'a real zone or account id')
-        for word in ('genuine', 'genuinely', 'verbatim', 'deliberate', 'deliberately'):
-            self.assertNotRegex(guide, r'(?i)\b%s\b' % word, word)
-        self.assertNotRegex(guide, r'(?i)tviweb|tvipper|bymanden|atramentum')
-        self.assertNotRegex(guide, r'(?i)trap_(bait|robots|login|impostor|private)|trap-edge|trap-watch|SINK_KEY')
+        self.assertEqual(H.voice_problems(_guide()), [])
 
     def test_every_address_in_it_is_a_documentation_or_loopback_address(self):
-        """A guide copied from a working install is where a real address slips in."""
-        guide = _guide()
-        nets = [ipaddress.ip_network(n) for n in ('192.0.2.0/24', '198.51.100.0/24', '203.0.113.0/24',
-                                                  '127.0.0.0/8', '2001:db8::/32')]
-        found = re.findall(r'\b\d{1,3}(?:\.\d{1,3}){3}\b', guide)
-        found += re.findall(r'(?<![\w:])[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}(?![\w:])', guide)
-        self.assertGreaterEqual(len(found), 3, 'control: the scan found nothing to check')
-        bad = []
-        for a in found:
-            try:
-                ip = ipaddress.ip_address(a)
-            except ValueError:
-                continue
-            if not any(ip in n for n in nets):
-                bad.append(a)
+        n, bad = H.address_problems(_guide())
+        self.assertGreaterEqual(n, 3, 'control: the scan found nothing to check')
         self.assertEqual(bad, [])
 
     def test_it_stays_inside_what_the_in_app_viewer_renders(self):
-        """No horizontal rules, images or HTML outside a code fence, and no bold, code or link
-        written over two lines: the in-app viewer matches them one line at a time."""
-        fence, plain = False, []
-        for line in _guide().split('\n'):
-            if line.strip().startswith('```'):
-                fence = not fence
-                continue
-            if not fence:
-                plain.append(line)
-        text = '\n'.join(plain)
-        self.assertNotRegex(text, r'(?m)^\s*(---|\*\*\*)\s*$', 'no horizontal rules')
-        self.assertNotRegex(text, r'!\[', 'no images')
-        self.assertNotRegex(text, r'</?[a-z]+[^>]*>', 'no HTML')
-        crossing = [ln.strip()[:70] for ln in plain
-                    if len(re.findall(r'\*\*', ln)) % 2 or ln.count('`') % 2 or ln.count('[') != ln.count(']')]
-        self.assertEqual(crossing, [])
+        self.assertEqual(H.viewer_problems(_guide()), [])
 
 
 if __name__ == '__main__':
