@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.3.0 — "Edg3Matters" — unreleased (test)
+## v7.3.0 — "Edg3Matters" — 2026-10-14
 
 A release about the edge. Threat intel learned about an attacker from your own
 hosts' logs. Cloudflare refuses requests before they reach a host, and a honeypot
