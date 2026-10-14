@@ -208,8 +208,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   from AbuseIPDB, SniffCat and what it found itself, with a token of its own, for
   your rules to use. Off until you turn it on. An address the WAF on a host
   refused is reported at once, with a setting to ask for more, and a feed that
-  stops reading or a list sync that waits for you raises an alert. The release is
-  also a security pass over the whole product with the scanners listed below:
+  stops reading or a list sync that waits for you raises an alert. You can tell it
+  which addresses and kinds of attack not to report, and clear what it has
+  recorded. The release is also a security pass over the whole product with the
+  scanners listed below:
   twenty-three issues, all fixed before release, and the review is public.
 - **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
   say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
