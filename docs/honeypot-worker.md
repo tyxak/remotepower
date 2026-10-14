@@ -176,7 +176,7 @@ ALLOW = ""
 
 Replace `example.com` with your domain in every route line. Use find and replace in your editor so none is missed.
 
-Leave the Worker's name as `trap-sink`. RemotePower reads a Worker with that name unless you change **Worker names** on the Edge sources card.
+Leave the Worker's name as `trap-sink`. RemotePower reads a Worker with that name unless you change **Worker names** on the Edge sources card. If your account already has a Worker called `trap-sink`, deploying this one replaces it. Use another name in `wrangler.toml` and enter it under **Worker names**.
 
 What each part does:
 
