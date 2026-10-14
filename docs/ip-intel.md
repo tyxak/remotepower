@@ -248,6 +248,8 @@ Addresses the Worker never bans (yours, Cloudflare's shared ones, countries you
 exempt) are not reported on its word alone. Lines it logs only to be read, such
 as a self-test, are not evidence.
 
+If you do not run a honeypot yet, [Run a honeypot Worker on Cloudflare](honeypot-worker.md) builds a small one.
+
 ### Set up the edge feeds
 
 [Edge sources: Cloudflare](edge-sources.md) is the step-by-step guide: the token

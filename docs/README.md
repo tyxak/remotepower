@@ -187,6 +187,9 @@ holds long-form docs that don't fit there.
 - **[edge-sources.md](edge-sources.md)** — Edge sources: set up the Cloudflare
  token and feeds that let Threat intel read what Cloudflare refused, step by
  step, with troubleshooting.
+- **[honeypot-worker.md](honeypot-worker.md)** — Run a honeypot Worker on
+ Cloudflare: one script and one config file that answer decoy paths and write
+ the log Threat intel reads, step by step.
 - **[sshgw.md](sshgw.md)** — SSH gateway: reach hosts with your own SSH client
  through one gateway, with no inbound port on the host, public-key login and a
  per-session audit trail.

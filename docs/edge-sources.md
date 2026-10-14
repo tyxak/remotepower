@@ -304,7 +304,7 @@ every read. The same numbers are in Prometheus: `remotepower_edge_feed_up`,
 
 ## The honeypot Worker log
 
-This feed is for operators who run a honeypot Worker, a Cloudflare Worker that answers decoy paths and logs who asked. If you do not run one, untick **Honeypot Worker log** and leave the Workers row out of the token.
+This feed is for operators who run a honeypot Worker, a Cloudflare Worker that answers decoy paths and logs who asked. If you do not run one, untick **Honeypot Worker log** and leave the Workers row out of the token. To build one, follow [Run a honeypot Worker on Cloudflare](honeypot-worker.md).
 
 RemotePower reads the Worker's log through Workers Observability. The Worker has to keep Workers Logs on and print one JSON object for each hit, with these fields:
 
