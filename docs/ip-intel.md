@@ -415,11 +415,44 @@ block RemotePower made for that address. The status column says
 `in the edge blocklist` for an address the last sync put in your list and
 `banned at the edge` for one you banned by hand.
 
+## How much it keeps
+
+Threat intel remembers up to 5,000 addresses. When there are more, the ones seen
+longest ago go first. The page shows the 1,000 most recent and says how many there
+are in all when that is more, because the filter above the table works on what the
+page has: it cannot find an address that was not sent.
+
+Up to 500 addresses wait to be looked up at a time. When more arrive, an address
+that fail2ban, CrowdSec or the honeypot already decided on stays, and the newest of
+the rest follow it.
+
+A burst of attacking sources costs one write of the store however large it is, so a
+botnet trying your SSH port from thousands of addresses does not hold up the
+host's heartbeats.
+
+### Clear the list
+
+**Clear**, above the attackers table, forgets the addresses Threat intel has
+recorded and the ones waiting to be looked up. It asks first, and it is for
+administrators. On a multi-tenant install a tenant's administrator clears what
+their own hosts saw, and the edge's addresses are the platform operator's.
+
+The answer says how many addresses went and how many of each of these it kept:
+
+| Kept | Why |
+|---|---|
+| Blocks on hosts and bans at the edge | Each expires by itself and has its own **Unblock** or **Unban**. The sweep still lifts what runs out. |
+| Addresses the [edge blocklist](#the-edge-blocklist) takes from the table | The list is kept equal to its sources, so forgetting one would take it out of your Cloudflare list at the next sync. Turn off **Found by RemotePower** under **Edge blocklist** first if you want those gone too. |
+| The date an address was last reported, for a day | Without it, the next time the address attacks it would be reported again. |
+| Settings and keys, the day's counts, where the feeds had read to, and each host's sensor status | They are not addresses. |
+
+An address that attacks again after a clear is recorded again from the start.
+
 ## Who can see what
 
 | Role | Sees |
 |---|---|
-| Admin | Everything, including the provider settings and manual lookups. |
+| Admin | Everything, including the provider settings, manual lookups and **Clear**. |
 | Anyone else | Attackers and blocks for the hosts their role can see. |
 
 Under multi-tenancy, only the platform operator can change the provider

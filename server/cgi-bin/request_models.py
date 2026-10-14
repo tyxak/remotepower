@@ -2730,6 +2730,11 @@ if _AVAILABLE:
 
         _v0 = field_validator('token', 'account_id', mode='before')(_coerce_str_loose)
 
+    class IpIntelClearRequest(BaseModel):
+        """handle_ip_intel_clear POST. It takes no fields: the model is here so the
+        body is read and checked like every other POST."""
+        model_config = ConfigDict(extra='ignore')
+
     class IpIntelLookupRequest(BaseModel):
         """handle_ip_intel_lookup POST."""
         model_config = ConfigDict(extra='ignore')

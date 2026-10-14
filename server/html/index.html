@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-54">
+<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-55">
 
 </head>
 <body>
@@ -4776,7 +4776,7 @@
               <p><strong>Reports.</strong> An address is reported after one refusal by Cloudflare or by a host&rsquo;s WAF. Both numbers are settings, from 1 to 50: <strong>Report after Cloudflare refusals</strong> on the Edge sources card and <strong>Report after WAF refusals</strong> next to <strong>Report after attempts</strong>. One hit reads <code>1 attempt within 1 minute</code>. A sign-in to a JSON login API is no longer counted as a failed login, which 7.2.0 did for every visitor who signed in to a RemotePower instance; upgrade the agents if the log sensor is on.</p>
               <p><strong>Alerts and everywhere else.</strong> A feed that cannot be read after two tries, and a list sync that is held for you, raise an alert and close it when they recover. What the edge saw is also in the AI assistant, the Data Explorer, the metrics export, the posture report and the Timeline.</p>
               <p><strong>Fixes.</strong> A wrong type where a list, text or number was expected is a 400, not a 500, across about twenty routes. The public status page printed every auto-detected incident as January 1970. A recurring maintenance window no longer hides the ones after it. Relative times (&ldquo;5m ago&rdquo;) and the tips on this page follow the interface language.</p>
-              <p><strong>Security review.</strong> It covers the whole project, not only what is new: twenty-two issues, all fixed before release, and a table of every tool that was run and what it said. See <a href="docs/security-review-7.3.0.md" class="c-accent">security-review-7.3.0.md</a>.</p>
+              <p><strong>Security review.</strong> It covers the whole project, not only what is new: twenty-three issues, all fixed before release, and a table of every tool that was run and what it said. See <a href="docs/security-review-7.3.0.md" class="c-accent">security-review-7.3.0.md</a>.</p>
               <p class="hint">See <code>docs/v7.3.0.md</code> and <code>docs/ip-intel.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -6609,7 +6609,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="toolbar">
             <input type="text" id="ipintel-filter" class="form-input input-wide" placeholder="Filter by address, country, network or host…" aria-label="Filter attackers">
             <button class="btn-icon" data-action="loadIpIntel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <button class="btn-icon" id="ipintel-clear-btn" data-action="clearIpIntel" hidden><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-a93e5032"/></svg> Clear</button>
           </div>
+          <div id="ipintel-clear-result" class="mt-8" role="status" aria-live="polite"></div>
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
               <thead id="ipintel-att-thead"><tr>
@@ -6627,6 +6629,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <tbody id="ipintel-att-tbody"><tr><td colspan="10" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
+          <p class="hint fs-11 mt-8" id="ipintel-att-note" hidden></p>
         </div>
 
         <div class="dash-card mt-16">
@@ -12317,36 +12320,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.3.0-54"></script>
+<script defer src="static/js/app.js?v=7.3.0-55"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-cmdb.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-containers.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-network.js?v=7.3.0-54"></script>
+<script defer src="static/js/app-calendar.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-cmdb.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-containers.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-network.js?v=7.3.0-55"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-compliance.js?v=7.3.0-54"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-compliance.js?v=7.3.0-55"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-dns.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-drift.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-cve.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-firewall.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-backups.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-iac.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-proxmox.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-virt.js?v=7.3.0-54"></script>
+<script defer src="static/js/app-ai.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-dns.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-drift.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-cve.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-firewall.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-backups.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-iac.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-proxmox.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-virt.js?v=7.3.0-55"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-remote.js?v=7.3.0-54"></script>
-<script defer src="static/js/app-tickets.js?v=7.3.0-54"></script>
+<script defer src="static/js/app-logs.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-remote.js?v=7.3.0-55"></script>
+<script defer src="static/js/app-tickets.js?v=7.3.0-55"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.3.0-54"></script>
+<script defer src="static/js/app-self.js?v=7.3.0-55"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12356,6 +12359,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.3.0-54"></script>
+<script defer src="static/js/sw-register.js?v=7.3.0-55"></script>
 </body>
 </html>

@@ -34,7 +34,7 @@ test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
 - [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds
-  and the blocklist: twenty-two issues across the new edge code and the rest of the
+  and the blocklist: twenty-three issues across the new edge code and the rest of the
   product (a stored session hash that worked as a session, an IPv6 zone id that
   reached a root shell, second-factor guesses without a lockout, routes that
   answered 500 to a body of the wrong type), the scan tools run against the shipped

@@ -285,7 +285,7 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
     def test_the_review_numbers_match_its_table(self):
         raw = (_ROOT / "docs/security-review-7.3.0.md").read_text()
         rows = re.findall(r"^\| (\d+) \|", raw, re.M)
-        words = {6: "six", 9: "nine", 10: "ten", 22: "twenty-two"}
+        words = {6: "six", 9: "nine", 10: "ten", 22: "twenty-two", 23: "twenty-three"}
         n = len(rows)
         self.assertIn(n, words, "extend the word map for a new count")
         self.assertIn("**%s** issues" % words[n], raw)

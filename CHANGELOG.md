@@ -168,6 +168,16 @@ It is in `docs/security-review-7.3.0.md`.
 
 ### Interface and languages
 
+- **Threat intel has a Clear button, and says when the list it shows is cut short.**
+  **Clear**, above the attackers table (administrators only), forgets the recorded
+  addresses and the ones waiting to be looked up, after asking. It leaves blocks and
+  bans (each expires by itself and has its own Unblock or Unban), the addresses the
+  edge blocklist takes from the table (forgetting them would have taken them out of
+  your Cloudflare list at the next sync), and, for a day, the date an address was
+  last reported, so its next sighting is not reported twice. The answer says how
+  many of each it kept. The page is sent the 1,000 most recent of up to 5,000
+  addresses and now says how many there are in all, because a filter cannot find
+  an address that was not sent.
 - **Relative times follow the language.** `5m ago`, `2h ago` and `yesterday` were
   English in every language, so a French or Arabic table mixed two languages in
   one row. They use the browser's own relative-time formatting for the six
@@ -340,6 +350,15 @@ are fixed here, and each has a test that fails without its fix.
   OPNsense routes, ticket hours, scan delete, backup-job run and every route that
   takes a tag or a group, so an anonymous caller could tell which ids, tags and
   groups exist. Authentication comes first.
+- **A burst of attacking sources rewrote the whole Threat intel store once each.**
+  The store is one document and every writer rewrites all of it: 46 ms at 1,000
+  recorded addresses, 250 ms at the cap of 5,000, 640 ms when each address carries
+  a day of evidence. The brute-force hook took the lock once per source, so a
+  heartbeat in which forty sources crossed the threshold held the request for ten
+  seconds at the cap and slowed every other writer of the store meanwhile. The
+  sources one heartbeat found are written under one lock now (the same forty cost
+  51 ms at 1,000 addresses and 283 ms at 5,000), and the queue keeps an address a
+  ban engine decided on over the newest arrivals, as the sensor's path already did.
 - Smaller: a non-ASCII value in a signed alert-action link, a survey link, an inbound
   webhook path, the billing secret or the SCIM token was a server error instead of a
   refusal; the heartbeat's debug line wrote a device id and version straight from an
@@ -357,7 +376,7 @@ are fixed here, and each has a test that fails without its fix.
 release since 7.1.0 and includes everything in 7.2.0.
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-54`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-55`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts

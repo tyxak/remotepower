@@ -124,6 +124,23 @@ const _IPI_BAN_DIALOG = {
     confirm: 'Unban',
   },
 };
+// Clearing what is recorded (v7.3.0). The fixed words are a table so the language gate reads
+// one place (tests/test_v730_ipintel_clear_page.py). Each line of the answer is a phrase and a
+// number, so every phrase can be translated on its own.
+const _IPI_CLEAR_WORD = {
+  done: 'Addresses cleared', queue: 'Waiting to be looked up, cleared',
+  kept: 'Kept because the edge blocklist uses them',
+  remembered: 'Remembered for a day so they are not reported twice',
+  could_not: 'Could not clear',
+  shown: 'Most recent shown', recorded: 'Recorded in all',
+};
+const _IPI_CLEAR_DIALOG = {
+  clear: {
+    title: 'Clear recorded addresses',
+    message: 'Forget the addresses Threat intel has recorded and the ones waiting to be looked up. Blocks and bans stay and expire on their own. Addresses the edge blocklist takes from this table stay, so the list does not shrink. An address reported in the last day is remembered by date only, so it is not reported twice.',
+    confirm: 'Clear',
+  },
+};
 const _IPI_EDGE_DIALOG = {
   token: {
     title: 'Remove token',
@@ -207,6 +224,7 @@ async function loadIpIntel() {
   document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
+  document.getElementById('ipintel-clear-btn').hidden = !_ipiAdmin;
   // The edge feeds belong to the instance: only the operator is sent their state.
   const edge = !!(_ipiAdmin && _ipiData.edge);
   document.getElementById('ipintel-edge-card').hidden = !edge;
@@ -412,9 +430,48 @@ function _ipiDetailHtml(a) {
   return `<dl class="ipi-facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
 }
 
+// The server sends the most recent rows only. When there are more, say how many, so a list
+// that was cut short does not read as complete (a search cannot find what was not sent).
+function _ipiRenderAttackerNote() {
+  const note = document.getElementById('ipintel-att-note');
+  if (!note) return;
+  const sent = ((_ipiData || {}).attackers || []).length;
+  const total = Number((_ipiData || {}).attackers_total) || 0;
+  if (total <= sent) { note.hidden = true; note.innerHTML = ''; return; }
+  const CW = _IPI_CLEAR_WORD;
+  note.innerHTML = `${_ipiPhrase(CW.shown)}: ${escHtml(String(sent))} · ${_ipiPhrase(CW.recorded)}: ${escHtml(String(total))}`;
+  note.hidden = false;
+}
+
+// What a clear did: how many addresses went, and each thing it left and why.
+function _ipiClearResultHtml(r) {
+  const CW = _IPI_CLEAR_WORD, n = v => escHtml(String(Number(v) || 0));
+  const out = [`<div>${_ipiPhrase(CW.done)}: ${n(r.cleared)}</div>`];
+  for (const [key, word] of [['queue', CW.queue], ['kept_listed', CW.kept], ['remembered', CW.remembered]]) {
+    if (Number(r[key]) > 0) out.push(`<div class="hint fs-11">${_ipiPhrase(word)}: ${n(r[key])}</div>`);
+  }
+  return out.join('');
+}
+
+async function clearIpIntel() {
+  const d = _IPI_CLEAR_DIALOG.clear;
+  const ok = await uiConfirm({title: d.title, message: d.message, confirmText: d.confirm, danger: true});
+  if (!ok) return;
+  const out = document.getElementById('ipintel-clear-result');
+  if (out) out.textContent = '…';
+  const r = await api('POST', '/ip-intel/clear', {}).catch(() => null);
+  if (!r || r.error) {
+    if (out) out.textContent = (r && r.error) || _IPI_CLEAR_WORD.could_not;
+    return;
+  }
+  if (out) out.innerHTML = _ipiClearResultHtml(r);
+  await loadIpIntel();
+}
+
 function _ipiRenderAttackers() {
   const tb = document.getElementById('ipintel-att-tbody');
   if (!tb || !_ipiData) return;
+  _ipiRenderAttackerNote();
   const q = ((document.getElementById('ipintel-filter') || {}).value || '').trim().toLowerCase();
   let rows = _ipiData.attackers || [];
   if (q) rows = rows.filter(a => `${a.ip} ${a.country} ${a.isp} ${(a.devices || []).map(d => d.name).join(' ')} ${_ipiEvidenceText(a)}`

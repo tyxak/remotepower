@@ -210,7 +210,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   refused is reported at once, with a setting to ask for more, and a feed that
   stops reading or a list sync that waits for you raises an alert. The release is
   also a security pass over the whole product with the scanners listed below:
-  twenty-two issues, all fixed before release, and the review is public.
+  twenty-three issues, all fixed before release, and the review is public.
 - **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
   say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
   fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat

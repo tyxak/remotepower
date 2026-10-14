@@ -1126,9 +1126,9 @@ ip_intel_handlers_mod = _tk_ilu.module_from_spec(_ii_spec)
 _ii_spec.loader.exec_module(ip_intel_handlers_mod)
 ip_intel_handlers_mod.bind(globals())
 for _ii_name in (
-        'ip_intel_note_attack', '_ip_intel_http', 'run_ip_intel_if_due',
+        'ip_intel_note_attack', 'ip_intel_note_attacks', '_ip_intel_http', 'run_ip_intel_if_due',
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
-        'handle_ip_intel_block', 'handle_ip_intel_unblock',
+        'handle_ip_intel_block', 'handle_ip_intel_unblock', 'handle_ip_intel_clear',
         'ip_intel_annotate', 'ip_intel_by_device',
         'ip_intel_policy', 'ip_intel_note_evidence', '_note_evidence_into',
 ):
@@ -39393,6 +39393,7 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
 
     cutoff = now - window
     changed = False
+    crossed = []    # (source, attempts) for each source that crossed in these lines
 
     for line_entry in lines:
         line = line_entry if isinstance(line_entry, str) else line_entry.get('line', '')
@@ -39411,9 +39412,11 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
             changed = True
 
             if len(timestamps) == threshold + 1:  # just crossed configured threshold
-                # Queue the source for AbuseIPDB / SniffCat. Appends only; the
-                # lookups run in the cadence sweep, never on the heartbeat.
-                ip_intel_note_attack(dev_id, unit, src, len(timestamps), window)
+                # Queued for AbuseIPDB / SniffCat after the loop, in one write: the
+                # Threat intel store is one document, so a write per source cost a
+                # botnet's burst of sources seconds on this request. Appends only;
+                # the lookups run in the cadence sweep, never on the heartbeat.
+                crossed.append((src, len(timestamps)))
                 try:
                     fire_webhook('brute_force_detected', {
                         'device_id': dev_id,
@@ -39427,6 +39430,9 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
                 except Exception:
                     pass
             break   # one pattern match per line is enough
+
+    if crossed:
+        ip_intel_note_attacks(dev_id, unit, crossed, window)
 
     if changed:
         bf[dev_id] = dev_bf
@@ -71718,6 +71724,7 @@ def _build_exact_routes():
         ('POST', '/api/ip-intel/lookup'): handle_ip_intel_lookup,
         ('POST', '/api/ip-intel/block'): handle_ip_intel_block,
         ('POST', '/api/ip-intel/unblock'): handle_ip_intel_unblock,
+        ('POST', '/api/ip-intel/clear'): handle_ip_intel_clear,
         ('POST', '/api/ip-intel/edge-test'): handle_ip_intel_edge_test,
         ('POST', '/api/ip-intel/edge-list/preview'): handle_edge_list_preview,
         ('POST', '/api/ip-intel/edge-list/sync'): handle_edge_list_sync,

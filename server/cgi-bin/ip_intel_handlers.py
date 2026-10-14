@@ -66,6 +66,7 @@ import threat_evidence
 
 QUEUE_CAP = 500            # pending addresses kept between sweeps
 ATTACKER_CAP = 5000        # addresses remembered
+PAGE_ROWS = 1000           # addresses the page is sent: the most recent
 PER_SWEEP = 25             # addresses processed per sweep
 REPORT_EVERY_S = 86400     # report an address to a provider at most daily
 SWEEP_EVERY_S = 60
@@ -98,26 +99,45 @@ def ip_intel_policy():
 
 # ── the heartbeat-side hook ────────────────────────────────────────────────────
 
-def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
-    """Queue a brute-force source for the sweep. Cheap and silent: a disabled
-    feature, a private address or a hostname returns at once."""
+def ip_intel_note_attacks(dev_id, unit, sources, window_s):
+    """Queue the brute-force sources one heartbeat found, under ONE lock.
+    `sources` is [(ip, count), ...]. Cheap and silent: a disabled feature, a
+    private address or a hostname is skipped.
+
+    The store is a single document and every write rewrites all of it: 46 ms at
+    1,000 recorded addresses, 250 ms at 5,000 (the cap), 640 ms when each address
+    carries a full day of evidence. A heartbeat that took one lock per source made
+    a botnet's burst of forty sources cost ten seconds on the request the host was
+    waiting for, and slowed every other writer meanwhile; one lock per heartbeat
+    costs one write whatever the burst. The queue is trimmed the way the sensor's
+    is, keeping what a ban engine decided on over the newest arrivals."""
     try:
         pol = _policy()
         if not _any_enabled(pol):
             return
-        ip = ip_intel.parse_ip(ip)
-        if not ip or not ip_intel.is_public(ip) or threat_evidence.infra_reason(ip):
-            return
         now = int(time.time())
+        rows = []
+        for ip, count in sources or []:
+            ip = ip_intel.parse_ip(ip)
+            if not ip or not ip_intel.is_public(ip) or threat_evidence.infra_reason(ip):
+                continue
+            rows.append({'ip': ip, 'device_id': dev_id, 'unit': str(unit)[:64],
+                         'count': int(count or 0), 'window_s': int(window_s or 0),
+                         'at': now})
+        if not rows:
+            return
         with A._LockedUpdate(A.IPINTEL_FILE) as st:
             q = st.get('queue') if isinstance(st.get('queue'), list) else []
-            q.append({'ip': ip, 'device_id': dev_id, 'unit': str(unit)[:64],
-                      'count': int(count or 0), 'window_s': int(window_s or 0),
-                      'at': now})
-            st['queue'] = q[-QUEUE_CAP:]
+            q.extend(rows)
+            st['queue'] = _trim_queue(q)
     except Exception:  # nosec B110
         # Never let enrichment break brute-force detection.
         pass
+
+
+def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
+    """One brute-force source for the sweep; see ip_intel_note_attacks."""
+    A.ip_intel_note_attacks(dev_id, unit, [(ip, count)], window_s)
 
 
 # ── the threat sensor's side of the queue ──────────────────────────────────────
@@ -1181,9 +1201,12 @@ def handle_ip_intel():
                                  name=(visible[dev_id] or {}).get('name') or dev_id))
     rows.sort(key=lambda r: int(r.get('at') or 0), reverse=True)
     budget = st.get('budget') if isinstance(st.get('budget'), dict) else {}
+    # The page shows the most recent PAGE_ROWS addresses. `attackers_total` says how
+    # many there are, so a list cut short says so instead of looking complete.
     A.respond(200, {'ok': True, 'is_admin': is_admin,
                     'settings': _settings_view(pol) if is_admin else {},
-                    'attackers': attackers[:1000], 'blocks': rows,
+                    'attackers': attackers[:PAGE_ROWS], 'attackers_total': len(attackers),
+                    'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
                     'sensors': _sensor_rows(st, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
@@ -1428,3 +1451,101 @@ def handle_ip_intel_unblock():
             blocks.pop(dev_id, None)
     A.audit_log(actor, 'ip_intel_unblock', f'device={dev_id} ip={ip} manual')
     A.respond(200, {'ok': True})
+
+
+# ── clearing what is recorded ──────────────────────────────────────────────────
+
+def _held_by_blocklist(st, pol, now):
+    """The addresses the Edge blocklist takes from this table at its next sync, as
+    the list spells them. A clear leaves them: the list is kept equal to its
+    sources, so forgetting one here would drop it from Cloudflare at the next sync
+    without anybody having asked for that. Empty while the list cannot write or
+    its "found by RemotePower" source is off, when nothing depends on the table."""
+    if not (_edge_ban_ready(pol) and pol.get('edgelist_own')):
+        return set()
+    return set(edge_blocklist.own_candidates(
+        st.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days']))
+
+
+def _reported_marker(att, now):
+    """What a cleared address keeps: when each service was last told about it, for
+    the day a report holds, and any wait a service asked for. Without it the next
+    sighting reports the same address again. None when there is nothing to keep."""
+    told = {p: int(t) for p, t in (att.get('reported') or {}).items()
+            if isinstance(t, (int, float)) and now - int(t) < REPORT_EVERY_S}
+    wait = {p: int(t) for p, t in (att.get('retry') or {}).items()
+            if isinstance(t, (int, float)) and int(t) > now}
+    out = {}
+    if told:
+        out['reported'] = told
+    if wait:
+        out['retry'] = wait
+    return out or None
+
+
+def handle_ip_intel_clear():
+    """POST /api/ip-intel/clear — administrator. Forget the addresses Threat intel
+    has recorded, and what is waiting to be looked up, for the hosts the caller can
+    see; the platform operator also clears what the edge feeds queued.
+
+    Left alone, because each has an effect or a lifetime of its own:
+      * blocks on hosts and bans at the edge: each expires by itself and has its own
+        Unblock or Unban, and the sweep lifts what runs out;
+      * addresses the Edge blocklist takes from this table (see _held_by_blocklist);
+      * when an address was last reported, for a day (see _reported_marker);
+      * settings and keys, the day's lookup and report counts, the feeds' place in
+        their logs and each host's sensor status.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    A._read_valid(A.request_models.IpIntelClearRequest)
+    pol = _policy()
+    # The platform operator (an administrator on a single-organisation install)
+    # clears everything. A tenant's administrator clears the sightings from the
+    # hosts that tenant can see, and an address stays while another tenant's host
+    # still saw it.
+    operator = _is_operator()
+    mine = set(A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {}))
+    now = int(time.time())
+    cleared = remembered = kept_listed = queue_cleared = 0
+    with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
+        held = _held_by_blocklist(st, pol, now)
+        for ip in list(atts):
+            att = atts[ip]
+            if not isinstance(att, dict):
+                atts.pop(ip, None)
+                continue
+            devs = att.get('devices') if isinstance(att.get('devices'), dict) else {}
+            theirs = list(devs) if operator else [d for d in devs if d in mine]
+            if not operator and not theirs:
+                continue                  # none of this caller's hosts saw it
+            if held and edge_blocklist.canonical(ip) in held:
+                kept_listed += 1
+                continue
+            if devs:
+                cleared += 1
+            for d in theirs:
+                devs.pop(d, None)
+            if devs:
+                continue                  # another tenant's host saw it too: it stays for them
+            marker = _reported_marker(att, now)
+            if marker:
+                atts[ip] = marker
+                remembered += 1
+            else:
+                atts.pop(ip, None)
+        st['attackers'] = atts
+        queue = st.get('queue') if isinstance(st.get('queue'), list) else []
+        if operator:
+            keep = []
+        else:
+            keep = [q for q in queue if not (isinstance(q, dict) and q.get('device_id') in mine)]
+        queue_cleared = len(queue) - len(keep)
+        st['queue'] = keep
+    A.audit_log(actor, 'ip_intel_clear',
+                f'cleared={cleared} kept_listed={kept_listed} remembered={remembered} '
+                f'queue={queue_cleared}'[:300])
+    A.respond(200, {'ok': True, 'cleared': cleared, 'kept_listed': kept_listed,
+                    'remembered': remembered, 'queue': queue_cleared})

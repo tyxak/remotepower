@@ -15,7 +15,7 @@ the installers and the containers. It combined a read of every place a rule is
 applied, static analysis, a scanner run against the shipped nginx configuration, and
 every route sent hostile input as several different users.
 
-It found **twenty-two** issues worth reporting. All were **caught before release** by
+It found **twenty-three** issues worth reporting. All were **caught before release** by
 the review and the tests written for it, and all are fixed in this release. None came
 from the field. The bar this project holds itself to, that nothing Critical, High or
 Medium ships, is met for everything reviewed. The scan tools report nothing open;
@@ -25,7 +25,7 @@ what each one said, and the reviewed false positives, are below.
 
 | Method | Scope | Result |
 |---|---|---|
-| Read against the threat model | The new code (part one), then each place a rule is meant to apply: who may write a store, who may read a device, which routes check who you are before they say whether something exists | 22 findings, below |
+| Read against the threat model | The new code (part one), then each place a rule is meant to apply: who may write a store, who may read a device, which routes check who you are before they say whether something exists | 23 findings, below |
 | Undefined names (`ruff F821`) | Server, agents, sidecars, tools and tests; the server's route table is checked with a generated list of the names bound at runtime | 0 |
 | bandit | 127,903 lines of server and agent Python, against the committed baseline | 0 new, 0 High. The baseline holds 25 Medium and 925 Low, each reviewed and marked on its line when it is by design |
 | semgrep | The Python, JavaScript and security-audit rulesets over the server and the agents | 17 results, every one a reviewed false positive (see below) |
@@ -39,6 +39,7 @@ what each one said, and the reviewed false positives, are below.
 | wapiti 3.3 | An unauthenticated crawl and attack of the whole site, then 48 signed-in query routes with the injection, XSS, command, file, redirect, CRLF and SSRF modules | Crawl and passive checks, unauthenticated: the login form posts over the plain-HTTP test listener, `object-src` fell back to the default (fixed: `object-src 'none'` is in every shipped config), and 59 pages mention an install path that the public docs document. Attack modules, signed in: 0 vulnerabilities and 0 server errors |
 | Every route, hostile input | The 952 operations in the OpenAPI document (44 skipped: sign-out, password change, restore, update, restart and the like), each sent bodies in which every key held one wrong type, numbers past the float range, a 20,000-deep nested array, NUL and bidirectional characters, and query strings of the same kind; as the operator, a viewer and with no token | About 49,000 requests over five rounds. The first rounds found 20 routes that answered 500 (finding 21). After the fixes, the viewer's round and the last operator's round found one route left, the Proxmox connection test for a host name with a label past 63 characters, which is fixed and has a test |
 | Authorization matrix | The 908 operations that remain, each sent one benign request as five identities: no token, a viewer, a finance role, an operator role and an administrator | 835 refuse an anonymous caller with 401, 13 answer 400, 27 answer 404 and 20 answer 403. The 13 that answer an anonymous caller with 2xx are public on purpose (the agent install and version scripts, `health`, `public-info`, the signed alert-action and survey links, the portal sign-in request, and the two CSP report receivers). No route answered 5xx to any identity |
+| Timing the writers | Every writer of the Threat intel store at 1,000 and at 5,000 recorded addresses, and one heartbeat in which forty sources cross the threshold, before and after the fix | 1 finding (23): ten seconds at the cap, 0.3 seconds after |
 | Rendered browser gates | Every page on a seeded fleet: console errors, failed requests, accessibility, box overflow, spacing, typography | No CSP violation, no failed request except the two demo integrations that point at addresses that do not exist |
 | The test suite, on every storage backend | The whole suite against JSON files (14,704 tests), SQLite (14,641) and a real PostgreSQL (28 integration tests), then the release tarball unpacked, then Python 3.14 with only the dependency list the CI workflow installs (14,676) | All pass, with the browser gates required to run rather than skip |
 
@@ -77,6 +78,7 @@ sink is fed by a template that escapes every field.
 | 20 | Smaller issues: log forging through a heartbeat's device id, an unthrottled monitor run, SNMP answers that raised the wrong exception, installers writing to fixed names in `/tmp` as root, Postgres sharing a network with the scanner | Low | Server, installers, compose |
 | 21 | A body of the wrong type answered `500` on 20 routes, and the idioms behind them were everywhere | Low: a signed-in caller could provoke server errors on demand | Server |
 | 22 | The suppressions list lost every maintenance window after the first recurring one | Low: an incomplete answer to "why am I not being paged?" | Server |
+| 23 | A burst of attacking sources rewrote the whole Threat intel store once each | Medium: forty sources in one heartbeat held it for ten seconds at the cap, and slowed every other writer of the store | Server |
 
 ## The trust boundary
 
@@ -387,6 +389,23 @@ loop over the windows ended there: every window after the first recurring one wa
 missing from the list, and an error was logged on every request. It is not an
 exposure, but a list that says less than is true about what is silenced is the wrong
 way round for a page that exists to answer "why am I not being paged".
+
+## 23. A burst of sources was a write each
+
+The Threat intel store is one document, and every writer rewrites all of it. That
+costs 46 ms at 1,000 recorded addresses, 250 ms at the cap of 5,000 and 640 ms when
+every address carries a day of evidence. When a source crossed the brute-force
+threshold, the heartbeat took the store's lock for that one source, so a heartbeat
+in which forty sources crossed held the request for ten seconds at the cap, and
+every other writer of the store (the sensors' reports, the edge feeds, the sweep)
+queued behind it. Nobody needed to sign in: the sources are addresses sending failed
+logins to a monitored host.
+
+The sources one heartbeat found are written under one lock now, so the same forty
+cost 51 ms at 1,000 addresses and 283 ms at 5,000. The queue they join is trimmed
+the way the sensor's is, keeping an address a ban engine decided on over the newest
+arrivals; it used to keep the newest 500 whatever they were. What a burst still
+costs is one alert in the inbox for each source, about 20 ms apiece.
 
 ## What this review did not cover
 

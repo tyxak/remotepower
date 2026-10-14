@@ -66,7 +66,7 @@ holds long-form docs that don't fit there.
   two feeds the server reads from outside and turns into public reports, a
   firewall-log reader, and a second token that can edit lists with a sync that
   writes one, and the automatic bans between hosts and the edge, plus a pass over
-  the rest of the product with the scanners we use. Twenty-two issues, all caught
+  the rest of the product with the scanners we use. Twenty-three issues, all caught
   before release, among them a stored session hash that worked as a session, an
   IPv6 zone id that reached a root shell and an agent that could have claimed the
   honeypot's decision.
