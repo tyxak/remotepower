@@ -306,7 +306,7 @@ class TestMarkup(unittest.TestCase):
 
     def test_every_sortable_header_is_wired_before_the_data_arrives(self):
         body = _JS[_JS.index('async function loadIpIntel'):]
-        fetch_at = body.index("await api('GET', '/ip-intel')")
+        fetch_at = body.index("await api('GET', '/ip-intel'")      # the path may carry ?limit=
         for tid, name in (('ipintel-att-thead', 'ipintel-att'), ('ipintel-blk-thead', 'ipintel-blk'),
                           ('ipintel-src-thead', 'ipintel-src')):
             wire = body.index(f"tableCtl.wireSortOnly('{tid}', '{name}'")

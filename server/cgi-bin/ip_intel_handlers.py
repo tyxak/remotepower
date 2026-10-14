@@ -1150,6 +1150,14 @@ def handle_ip_intel():
     role = A.verify_token(A.get_token_from_request())[1]
     is_admin = bool(A._resolve_role(role).get('admin'))
     pol = _policy()
+    # `?limit=` asks for more of the table than the page's default (the page's
+    # "Load all"); it never exceeds what is kept.
+    qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    try:
+        limit = int((qs.get('limit') or [PAGE_ROWS])[0])
+    except (TypeError, ValueError, OverflowError):
+        limit = PAGE_ROWS
+    limit = PAGE_ROWS if limit < 1 else min(ATTACKER_CAP, limit)
     visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     st = _store_ro()
     # The edge feeds belong to the instance, not to a host: only the operator who
@@ -1201,11 +1209,12 @@ def handle_ip_intel():
                                  name=(visible[dev_id] or {}).get('name') or dev_id))
     rows.sort(key=lambda r: int(r.get('at') or 0), reverse=True)
     budget = st.get('budget') if isinstance(st.get('budget'), dict) else {}
-    # The page shows the most recent PAGE_ROWS addresses. `attackers_total` says how
-    # many there are, so a list cut short says so instead of looking complete.
+    # The page is sent the most recent `limit` addresses (PAGE_ROWS unless it asked
+    # for more). `attackers_total` says how many there are, so a list cut short says
+    # so instead of looking complete.
     A.respond(200, {'ok': True, 'is_admin': is_admin,
                     'settings': _settings_view(pol) if is_admin else {},
-                    'attackers': attackers[:PAGE_ROWS], 'attackers_total': len(attackers),
+                    'attackers': attackers[:limit], 'attackers_total': len(attackers),
                     'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
                     'sensors': _sensor_rows(st, visible),

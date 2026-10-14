@@ -43,7 +43,7 @@ def node(script, real_load=False, timeout=30):
         esc, esca, _const('_IPI_CLEAR_WORD'), _const('_IPI_CLEAR_DIALOG'),
         'const els = {}; const mk = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: "", hidden: false});',
         'const document = {getElementById: mk};',
-        'let _ipiData = null, _ipiAdmin = false, _ipiWired = false; const sent = [], asked = [];',
+        'let _ipiData = null, _ipiAdmin = false, _ipiWired = false, _ipiRowsAsked = 0; const sent = [], asked = [];',
         'let answer = true, reply = {ok: true}, loads = 0;',
         'async function api(m, p, body) { sent.push({m, p, body}); return reply; }',
         'async function uiConfirm(o) { asked.push(o); return answer; }',
@@ -198,7 +198,9 @@ class TestTheCountUnderTheTable(unittest.TestCase):
     def test_a_cut_list_says_how_many_there_are(self):
         out = self.note({'attackers': [{}] * 1000, 'attackers_total': 4812})
         self.assertFalse(out['hidden'])
-        self.assertEqual(out['html'], '<span>Most recent shown</span>: 1000 · <span>Recorded in all</span>: 4812')
+        self.assertTrue(out['html'].startswith(
+            '<span>Most recent shown</span>: 1000 · <span>Recorded in all</span>: 4812 '), out['html'])
+        self.assertIn('data-action="loadAllIpIntel"', out['html'])
 
     def test_a_whole_list_says_nothing(self):
         for data in ({'attackers': [{}] * 7, 'attackers_total': 7}, {'attackers': [], 'attackers_total': 0},

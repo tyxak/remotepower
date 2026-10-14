@@ -449,6 +449,27 @@ class TestTheCountTheListWasCutAt(_Clear):
         page = self.view()
         self.assertEqual((len(page['attackers']), page['attackers_total']), (7, 7))
 
+    def rows_for(self, qs):
+        with mock.patch.object(self.api, '_env', lambda k, d='': qs if k == 'QUERY_STRING' else d):
+            return self.view()
+
+    def test_a_larger_limit_returns_more_and_never_more_than_is_kept(self):
+        self.fill(1300)
+        self.assertEqual(len(self.rows_for('limit=1300')['attackers']), 1300)
+        self.assertEqual(len(self.rows_for('limit=50')['attackers']), 50)
+        with mock.patch.object(self.api.ip_intel_handlers_mod, 'ATTACKER_CAP', 1100):
+            page = self.rows_for('limit=99999999')
+        self.assertEqual((len(page['attackers']), page['attackers_total']), (1100, 1300))
+
+    def test_a_limit_that_is_not_a_positive_number_is_the_default(self):
+        self.fill(1200)
+        for qs in ('limit=abc', 'limit=0', 'limit=-5', 'limit=', 'limit=1e400', 'other=1'):
+            self.assertEqual(len(self.rows_for(qs)['attackers']), 1000, qs)
+
+    def test_the_total_does_not_depend_on_the_limit(self):
+        self.fill(1200)
+        self.assertEqual(self.rows_for('limit=10')['attackers_total'], 1200)
+
     def test_the_total_is_what_the_caller_may_see(self):
         self.put(attackers={A1: att(seen('d1')), A2: att(seen('d2')), A3: att(seen('d2'))})
         self.api._tenancy_enforced = lambda: True

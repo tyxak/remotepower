@@ -132,8 +132,22 @@ const _IPI_CLEAR_WORD = {
   kept: 'Kept because the edge blocklist uses them',
   remembered: 'Remembered for a day so they are not reported twice',
   could_not: 'Could not clear',
-  shown: 'Most recent shown', recorded: 'Recorded in all',
+  shown: 'Most recent shown', recorded: 'Recorded in all', load_all: 'Load all',
 };
+// A table with more rows than the page should draw at once shows the first few and says how
+// many there are (v7.3.0). 1,000 attacker rows were 36k DOM nodes and about 0.3 s a render,
+// repeated on every keystroke in the filter. The window never grows past _IPI_ROW_MAX, which
+// is what the page drew before; the rest is reached by filtering. _IPI_LOAD_ALL is the most
+// the server keeps (ATTACKER_CAP), and a test compares the two.
+const _IPI_ROW_STEP = 200;
+const _IPI_ROW_MAX = 1000;
+const _IPI_LOAD_ALL = 5000;
+const _IPI_MORE_WORD = {
+  shown: 'Shown', matching: 'Matching', total: 'In all', more: 'Show more', all: 'Show all',
+  narrow: 'Filter the list to see the rest.',
+};
+const _ipiRowLimit = {attackers: _IPI_ROW_STEP, blocks: _IPI_ROW_STEP};
+let _ipiRowsAsked = 0;        // 0 = the server's default; set by Load all and kept for refreshes
 const _IPI_CLEAR_DIALOG = {
   clear: {
     title: 'Clear recorded addresses',
@@ -208,7 +222,7 @@ function _ipiWire() {
     if (b) unblockIpIntel(b.dataset.dev, b.dataset.ip);
   });
   const f = document.getElementById('ipintel-filter');
-  if (f) f.addEventListener('input', () => _ipiRenderAttackers());
+  if (f) f.addEventListener('input', () => { _ipiRowLimit.attackers = _IPI_ROW_STEP; _ipiRenderAttackers(); });
 }
 
 async function loadIpIntel() {
@@ -217,7 +231,7 @@ async function loadIpIntel() {
   tableCtl.wireSortOnly('ipintel-src-thead', 'ipintel-src', () => _ipiRenderSources());
   tableCtl.wireSortOnly('ipintel-edge-thead', 'ipintel-edge', () => _ipiRenderEdge());
   _ipiWire();
-  const d = await api('GET', '/ip-intel').catch(() => null);
+  const d = await api('GET', '/ip-intel' + (_ipiRowsAsked ? '?limit=' + _ipiRowsAsked : '')).catch(() => null);
   _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], sensors: [], settings: {}};
   _ipiAdmin = !!_ipiData.is_admin;
   document.getElementById('ipintel-settings-card').hidden = !_ipiAdmin;
@@ -430,6 +444,45 @@ function _ipiDetailHtml(a) {
   return `<dl class="ipi-facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
 }
 
+// The first rows of a table, and under it how many there are and how to see more. `label` is
+// the word for the count: "Matching" while a filter is on, "In all" otherwise.
+function _ipiWindow(which, rows) {
+  return rows.slice(0, Math.min(_ipiRowLimit[which], _IPI_ROW_MAX));
+}
+
+function _ipiRenderMore(which, shown, total, label) {
+  const el = document.getElementById(which === 'blocks' ? 'ipintel-blk-more' : 'ipintel-att-more');
+  if (!el) return;
+  if (total <= shown) { el.hidden = true; el.innerHTML = ''; return; }
+  const M = _IPI_MORE_WORD;
+  const room = shown < Math.min(total, _IPI_ROW_MAX);
+  const btn = (act, word) => `<button class="btn-icon" data-action="${act}" data-arg="${which}">${_ipiPhrase(word)}</button>`;
+  el.innerHTML = `${_ipiPhrase(M.shown)}: ${escHtml(String(shown))} · ${_ipiPhrase(label)}: ${escHtml(String(total))} ` +
+    (room ? `${btn('showMoreIpIntel', M.more)} ${btn('showAllIpIntel', M.all)}` : `· ${_ipiPhrase(M.narrow)}`);
+  el.hidden = false;
+}
+
+function _ipiRerender(which) { if (which === 'blocks') _ipiRenderBlocks(); else _ipiRenderAttackers(); }
+
+function showMoreIpIntel(which) {
+  if (which !== 'attackers' && which !== 'blocks') return;
+  _ipiRowLimit[which] = Math.min(_IPI_ROW_MAX, _ipiRowLimit[which] + _IPI_ROW_STEP);
+  _ipiRerender(which);
+}
+
+function showAllIpIntel(which) {
+  if (which !== 'attackers' && which !== 'blocks') return;
+  _ipiRowLimit[which] = _IPI_ROW_MAX;
+  _ipiRerender(which);
+}
+
+// Ask the server for every address it keeps, not the most recent 1,000, so the filter can
+// find an old one. The table still draws a window of them.
+async function loadAllIpIntel() {
+  _ipiRowsAsked = _IPI_LOAD_ALL;
+  await loadIpIntel();
+}
+
 // The server sends the most recent rows only. When there are more, say how many, so a list
 // that was cut short does not read as complete (a search cannot find what was not sent).
 function _ipiRenderAttackerNote() {
@@ -439,7 +492,8 @@ function _ipiRenderAttackerNote() {
   const total = Number((_ipiData || {}).attackers_total) || 0;
   if (total <= sent) { note.hidden = true; note.innerHTML = ''; return; }
   const CW = _IPI_CLEAR_WORD;
-  note.innerHTML = `${_ipiPhrase(CW.shown)}: ${escHtml(String(sent))} · ${_ipiPhrase(CW.recorded)}: ${escHtml(String(total))}`;
+  note.innerHTML = `${_ipiPhrase(CW.shown)}: ${escHtml(String(sent))} · ${_ipiPhrase(CW.recorded)}: ${escHtml(String(total))} ` +
+    `<button class="btn-icon" data-action="loadAllIpIntel">${_ipiPhrase(CW.load_all)}</button>`;
   note.hidden = false;
 }
 
@@ -483,8 +537,12 @@ function _ipiRenderAttackers() {
   }));
   if (!rows.length) {
     tb.innerHTML = `<tr><td colspan="10" class="hint">${escHtml('No attackers recorded yet.')}</td></tr>`;
+    _ipiRenderMore('attackers', 0, 0, _IPI_MORE_WORD.total);
     return;
   }
+  const matching = rows.length;
+  rows = _ipiWindow('attackers', rows);
+  _ipiRenderMore('attackers', rows.length, matching, q ? _IPI_MORE_WORD.matching : _IPI_MORE_WORD.total);
   const blocked = new Set((_ipiData.blocks || []).map(b => `${b.device_id}|${b.ip}`));
   tb.innerHTML = rows.map(a => {
     const hosts = (a.devices || []).map(d =>
@@ -571,15 +629,19 @@ function _ipiRenderSources() {
 function _ipiRenderBlocks() {
   const tb = document.getElementById('ipintel-blk-tbody');
   if (!tb || !_ipiData) return;
-  const rows = tableCtl.sortRows('ipintel-blk', _ipiData.blocks || [], b => ({
+  let rows = tableCtl.sortRows('ipintel-blk', _ipiData.blocks || [], b => ({
     ip: b.ip, name: b.name || '', score: b.score ?? -1, by: b.by || '',
     at: b.at || 0, until: b.until || 0,
   }));
   if (!rows.length) {
     tb.innerHTML = `<tr><td colspan="7" class="hint">${escHtml('No active blocks.')}</td></tr>`;
+    _ipiRenderMore('blocks', 0, 0, _IPI_MORE_WORD.total);
     return;
   }
   const now = Date.now() / 1000;
+  const all = rows.length;
+  rows = _ipiWindow('blocks', rows);
+  _ipiRenderMore('blocks', rows.length, all, _IPI_MORE_WORD.total);
   tb.innerHTML = rows.map(b => {
     const left = Math.max(0, (b.until || 0) - now);
     return `<tr>

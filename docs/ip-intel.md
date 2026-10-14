@@ -418,9 +418,14 @@ block RemotePower made for that address. The status column says
 ## How much it keeps
 
 Threat intel remembers up to 5,000 addresses. When there are more, the ones seen
-longest ago go first. The page shows the 1,000 most recent and says how many there
-are in all when that is more, because the filter above the table works on what the
-page has: it cannot find an address that was not sent.
+longest ago go first. The page is sent the 1,000 most recent and says how many there
+are in all when that is more. The filter above the table works on what the page
+has, so **Load all** asks for everything that is kept, and the filter can then find
+an older address.
+
+Each table draws its first 200 rows and says how many there are. **Show more** adds
+200 and **Show all** goes to 1,000, the most the page draws at once. Past that,
+filter the list. A filter always starts again from the first 200.
 
 Up to 500 addresses wait to be looked up at a time. When more arrive, an address
 that fail2ban, CrowdSec or the honeypot already decided on stays, and the newest of

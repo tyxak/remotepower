@@ -176,8 +176,14 @@ It is in `docs/security-review-7.3.0.md`.
   your Cloudflare list at the next sync), and, for a day, the date an address was
   last reported, so its next sighting is not reported twice. The answer says how
   many of each it kept. The page is sent the 1,000 most recent of up to 5,000
-  addresses and now says how many there are in all, because a filter cannot find
-  an address that was not sent.
+  addresses and now says how many there are in all, with a **Load all** button,
+  because a filter cannot find an address that was not sent.
+- **The Attackers and Active blocks tables draw their first 200 rows.** 1,000
+  attacker rows were 36,000 DOM nodes and 285 ms a render, repeated on every
+  keystroke in the filter; 200 rows are 8,100 nodes and 58 ms. **Show more** adds
+  200, **Show all** goes to 1,000 (what the page drew before), and a filter starts
+  again from the first 200. The Active blocks table, which had no cap, is a window
+  the same way.
 - **Relative times follow the language.** `5m ago`, `2h ago` and `yesterday` were
   English in every language, so a French or Arabic table mixed two languages in
   one row. They use the browser's own relative-time formatting for the six
@@ -376,7 +382,7 @@ are fixed here, and each has a test that fails without its fix.
 release since 7.1.0 and includes everything in 7.2.0.
 
 Hard-reload the dashboard once (service-worker cache
-`remotepower-shell-v7.3.0-55`). Nothing changes until you turn the edge feeds on,
+`remotepower-shell-v7.3.0-56`). Nothing changes until you turn the edge feeds on,
 and nothing is written to Cloudflare until you turn the blocklist on, give it a
 token and sync.
 The agent's firewall-log reader runs only where the log sensor is on. If scripts
