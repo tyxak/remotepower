@@ -46,32 +46,20 @@ def _guide():
 
 
 def _script():
-    blocks = _blocks(_guide(), 'js')
-    assert len(blocks) == 1, 'the guide holds exactly one script, found %d' % len(blocks)
-    return blocks[0]
-
-
-def _config_text():
-    blocks = [b for b in _blocks(_guide(), 'toml') if re.search(r'(?m)^name\s*=', b)]
-    assert len(blocks) == 1, 'the guide holds exactly one wrangler.toml, found %d' % len(blocks)
-    return blocks[0]
+    return H.script_of(_guide())
 
 
 def _config():
-    return tomllib.loads(_config_text())
+    return H.config_of(_guide())
 
 
 def _traps():
     """[(kind, prefix)] read from the TRAPS array in the script."""
-    m = re.search(r'const TRAPS = \[(.*?)^\];', _script(), re.S | re.M)
-    assert m, 'no TRAPS array in the script'
-    return re.findall(r'\["(\w+)",\s*"([^"]+)"\]', m.group(1))
+    return H.traps_of(_script())
 
 
 def _const(name):
-    m = re.search(r'^const %s = (\d+);' % name, _script(), re.M)
-    assert m, name
-    return int(m.group(1))
+    return H.const_of(_script(), name)
 
 
 def _run(cases):

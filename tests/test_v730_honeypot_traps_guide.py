@@ -52,60 +52,28 @@ def _guide():
     return _read(_GUIDE_PATH)
 
 
-def _script_of(text):
-    blocks = H.blocks(text, 'js')
-    assert len(blocks) == 1, 'a guide holds exactly one script, found %d' % len(blocks)
-    return blocks[0]
-
-
 def _script():
-    return _script_of(_guide())
+    return H.script_of(_guide())
 
 
 def _config_text():
-    blocks = [b for b in H.blocks(_guide(), 'toml') if re.search(r'(?m)^name\s*=', b)]
-    assert len(blocks) == 1, 'the guide holds exactly one wrangler.toml, found %d' % len(blocks)
-    return blocks[0]
+    return H.config_text_of(_guide())
 
 
 def _config():
-    return tomllib.loads(_config_text())
-
-
-def _traps_of(script):
-    m = re.search(r'const TRAPS = \[(.*?)^\];', script, re.S | re.M)
-    assert m, 'no TRAPS array in the script'
-    return re.findall(r'\["(\w+)",\s*"([^"]+)"\]', m.group(1))
+    return H.config_of(_guide())
 
 
 def _traps():
-    return _traps_of(_script())
+    return H.traps_of(_script())
 
 
 def _const(name):
-    m = re.search(r'^const %s = (\d+);' % name, _script(), re.M)
-    assert m, name
-    return int(m.group(1))
+    return H.const_of(_script(), name)
 
 
-def _section(text, title):
-    m = re.search(r'^## %s\n(.*?)(?=^## |\Z)' % re.escape(title), text, re.S | re.M)
-    assert m, 'no section "%s"' % title
-    return m.group(1)
-
-
-def _table(text):
-    """The first pipe table in `text` as rows of cells, the header and the rule dropped."""
-    rows = []
-    for line in text.splitlines():
-        if re.match(r'^\s*\|.*\|\s*$', line):
-            cells = [c.strip() for c in line.strip().strip('|').split('|')]
-            if all(re.fullmatch(r':?-{2,}:?', c) for c in cells):
-                continue
-            rows.append(cells)
-        elif rows:
-            break
-    return rows[1:]
+_section = H.section
+_table = H.table
 
 
 def _kinds_in(cell):
@@ -439,7 +407,7 @@ class TestTheScriptRuns(unittest.TestCase):
     # the first guide's script, and the page's own commands --------------------
 
     def test_every_trap_of_the_first_guide_answers_with_the_same_kind(self):
-        first = _traps_of(_script_of(_read(_FIRST_PATH)))
+        first = H.traps_of(H.script_of(_read(_FIRST_PATH)))
         self.assertGreaterEqual(len(first), 10)
         res = H.run(_script(), [H.case(p + 'probe') for _, p in first])
         for (kind, prefix), r in zip(first, res):

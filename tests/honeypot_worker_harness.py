@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 
 NODE = shutil.which('node')
@@ -38,6 +39,59 @@ def blocks(text, lang):
         if cur is not None:
             cur.append(line)
     return out
+
+
+def script_of(text):
+    """The one script a guide holds."""
+    found = blocks(text, 'js')
+    assert len(found) == 1, 'a guide holds exactly one script, found %d' % len(found)
+    return found[0]
+
+
+def config_text_of(text):
+    """The one wrangler.toml a guide holds: the toml block that names the Worker."""
+    found = [b for b in blocks(text, 'toml') if re.search(r'(?m)^name\s*=', b)]
+    assert len(found) == 1, 'a guide holds exactly one wrangler.toml, found %d' % len(found)
+    return found[0]
+
+
+def config_of(text):
+    return tomllib.loads(config_text_of(text))
+
+
+def traps_of(script):
+    """[(kind, lower-case path prefix)] read from the TRAPS array of a script."""
+    m = re.search(r'const TRAPS = \[(.*?)^\];', script, re.S | re.M)
+    assert m, 'no TRAPS array in the script'
+    return re.findall(r'\["(\w+)",\s*"([^"]+)"\]', m.group(1))
+
+
+def const_of(script, name):
+    """The number in `const NAME = <number>;` in a script."""
+    m = re.search(r'^const %s = (\d+);' % name, script, re.M)
+    assert m, 'no const %s in the script' % name
+    return int(m.group(1))
+
+
+def section(text, title):
+    """The body of the `## title` section of a page."""
+    m = re.search(r'^## %s\n(.*?)(?=^## |\Z)' % re.escape(title), text, re.S | re.M)
+    assert m, 'no section "%s"' % title
+    return m.group(1)
+
+
+def table(text):
+    """The first pipe table in `text` as rows of cells, the header and the rule dropped."""
+    rows = []
+    for line in text.splitlines():
+        if re.match(r'^\s*\|.*\|\s*$', line):
+            cells = [c.strip() for c in line.strip().strip('|').split('|')]
+            if all(re.fullmatch(r':?-{2,}:?', c) for c in cells):
+                continue
+            rows.append(cells)
+        elif rows:
+            break
+    return rows[1:]
 
 
 _DRIVER = r"""
