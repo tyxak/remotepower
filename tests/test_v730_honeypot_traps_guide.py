@@ -39,6 +39,8 @@ _NODE = H.NODE
 ATK = H.ATK
 PW = 'Zk3-Qw9_Lm4xT7vB2n'
 DECOY = 'vpn-portal.example.com'
+# What a site may answer for /robots.txt, other than the file itself.
+ROBOTS_STATUSES = (301, 302, 304, 400, 401, 403, 404, 410, 429, 500, 502, 503)
 ENV = {'CANARY_PASSWORD': PW, 'DECOY_HOSTS': DECOY + ', other.example.com', 'ALLOW': '203.0.113.7, 2001:DB8::1'}
 
 
@@ -135,7 +137,9 @@ class TestTheScriptRuns(unittest.TestCase):
             add(n, C(p, env=ENV))
         # robots.txt
         add('robots_own', C('/robots.txt', originBody='User-agent: Googlebot\nDisallow: /tmp/\n'))
-        add('robots_404', C('/robots.txt', originStatus=404, originBody='nope'))
+        for st in ROBOTS_STATUSES:
+            add('robots_status:%d' % st, C('/robots.txt', originStatus=st,
+                                           originBody=None if st == 304 else 'site answer %d' % st))
         add('robots_down', C('/robots.txt', originFail=True))
         add('robots_decoy_host', C('/robots.txt', host=DECOY, env=ENV))
         # the fake directory
@@ -286,12 +290,41 @@ class TestTheScriptRuns(unittest.TestCase):
         self.assertGreaterEqual(len(want), 3)
         self.assertEqual(group, 'User-agent: *\n' + '\n'.join('Disallow: ' + p for p in want) + '\n')
 
-    def test_robots_txt_without_a_file_of_your_own_is_the_decoys_alone(self):
-        for n in ('robots_404', 'robots_down'):
-            r = self.r(n)
-            self.assertEqual(r['status'], 200, n)
-            self.assertTrue(r['body'].startswith('User-agent: *\nDisallow: /'), n)
-            self.assertNotIn('nope', r['body'], n)
+    def robots_alone(self):
+        """The statuses of the site's answer that the Worker turns into the decoys alone."""
+        want = 'User-agent: *\n' + ''.join('Disallow: %s\n' % p for k, p in self.traps if k == 'robots')
+        return [st for st in ROBOTS_STATUSES
+                if (self.r('robots_status:%d' % st)['status'], self.r('robots_status:%d' % st)['body']) == (200, want)]
+
+    def test_robots_txt_is_the_decoys_alone_only_when_your_site_has_none(self):
+        """404 and 410 say there is no file, which lets a crawler go anywhere, so the decoys
+        only narrow that."""
+        self.assertEqual(self.robots_alone(), [404, 410])
+
+    def test_any_other_answer_from_your_site_is_passed_on_unchanged(self):
+        """A 5xx tells crawlers to stay out until the site answers (RFC 9309, 2.3.1.4), a
+        redirect points them at the file to read, and a 304 says their copy is still good.
+        Swapping any of these for a 200 with only the decoys in it told crawlers they
+        could go anywhere."""
+        passed = [st for st in ROBOTS_STATUSES if st not in (404, 410)]
+        self.assertGreaterEqual(len(passed), 8, 'control')
+        for st in passed:
+            r = self.r('robots_status:%d' % st)
+            self.assertEqual((r['status'], r['fetched'], r['logs']), (st, 1, []), st)
+            self.assertEqual(r['body'], '' if st == 304 else 'site answer %d' % st, st)
+
+    def test_robots_txt_is_a_503_when_your_site_cannot_be_reached(self):
+        r = self.r('robots_down')
+        self.assertEqual((r['status'], r['logs']), (503, []))
+        self.assertNotIn('Disallow', r['body'])
+
+    def test_the_troubleshooting_row_names_the_answers_that_give_the_decoys_alone(self):
+        rows = _table(_section(_guide(), 'Troubleshooting'))
+        alone = [r for r in rows if 'only the decoy lines' in r[0]]
+        self.assertEqual(len(alone), 1)
+        self.assertEqual(sorted(int(s) for s in re.findall(r'`(\d{3})`', alone[0][1])), self.robots_alone())
+        other = [r for r in rows if r[0].startswith('`robots.txt` answers with')]
+        self.assertEqual(len(other), 1, 'a row for the answers the Worker passes on')
 
     def test_a_decoy_host_does_not_get_the_robots_treatment(self):
         self.assertEqual(self.kind('robots_decoy_host'), 'decoy')

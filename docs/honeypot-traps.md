@@ -224,17 +224,23 @@ function decoy(env, shape, path, missing) {
   return page("Not found\n", text, 404);
 }
 
-// robots.txt: your own file, with the decoy paths added as a group of their own.
+// robots.txt: your own file, with the decoy paths added as a group of their own. Only a
+// file is added to. When your site has none (404 or 410) the decoys go alone. Any other
+// answer goes back unchanged: a 5xx tells crawlers to stay out until your site answers,
+// and a redirect points them at the file to read.
 async function robots(request) {
   const lines = TRAPS.filter(([k]) => k === "robots").map(([, p]) => "Disallow: " + p);
   if (!lines.length) return fetch(request);
-  let base = "";
+  let site;
+  let text = "";
   try {
-    const own = await fetch(request);
-    if (own.ok) base = (await own.text()).trimEnd() + "\n\n";
+    site = await fetch(request);
+    if (site.ok) text = (await site.text()).trimEnd();
   } catch (e) {
-    // no robots.txt of your own: send the decoys alone
+    return page("Service unavailable\n", "text/plain; charset=utf-8", 503);
   }
+  if (!site.ok && site.status !== 404 && site.status !== 410) return site;
+  const base = text ? text + "\n\n" : "";
   return page(base + "User-agent: *\n" + lines.join("\n") + "\n", "text/plain; charset=utf-8");
 }
 
@@ -442,7 +448,8 @@ RemotePower reports an address at once only when the Worker banned it, and this 
 
 | You see | Why | What to do |
 |---|---|---|
-| `robots.txt` shows only the decoy lines | Your site has no `robots.txt`, or answered with an error | Expected. The Worker sends the decoys alone. |
+| `robots.txt` shows only the decoy lines | Your site has no `robots.txt`: it answered `404` or `410` | Expected. The Worker sends the decoys alone. |
+| `robots.txt` answers with an error or a redirect | Your site answered that way, and the Worker passes on any answer that is not a file. If it cannot reach your site at all, it answers `503` | Expected. Crawlers follow a redirect, and a `5xx` keeps them out until your site answers, as it would without the Worker. |
 | `robots.txt` is unchanged | The route for `/robots.txt` is missing | Add the route and deploy again. |
 | The password is used and the line says `login` | `CANARY_PASSWORD` is empty or under 12 characters, the request states no length or more than 4 KB, or the password differs | Check the variable, then send the password as `pwd=...` in a short `POST`. |
 | `.env` has no `ADMIN_PASSWORD` line | `CANARY_PASSWORD` is empty or under 12 characters | Set it and deploy again. |
