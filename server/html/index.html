@@ -3765,7 +3765,7 @@
 
         <div class="settings-section">
           <div class="section-title">Monitors &amp; freshness</div>
-          <p class="hint">How many consecutive failures (or how stale) before a monitor pages. Higher values ride out brief blips; lower values page sooner.</p>
+          <p class="hint">How many consecutive failures (or how stale) before a monitor pages. Higher values ride out brief blips; lower values page sooner. <a href="docs/alert-parameters.md#monitors--freshness" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-snmp-fails" class="form-label">SNMP unreachable after</label>
@@ -3790,7 +3790,7 @@
 
         <div class="settings-section">
           <div class="section-title">Network &amp; time</div>
-          <p class="hint">Interface error and clock-drift thresholds.</p>
+          <p class="hint">Interface error and clock-drift thresholds. <a href="docs/alert-parameters.md#network--time" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-nic-err-min" class="form-label">NIC error floor</label>
@@ -3807,7 +3807,7 @@
 
         <div class="settings-section">
           <div class="section-title">Hardware &amp; power</div>
-          <p class="hint">Temperature, UPS and controller disk headroom.</p>
+          <p class="hint">Temperature, UPS and controller disk headroom. <a href="docs/alert-parameters.md#hardware--power" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-temp-c" class="form-label">Temperature (°C)</label>
@@ -3832,7 +3832,7 @@
 
         <div class="settings-section">
           <div class="section-title">Patching &amp; capacity</div>
-          <p class="hint">Pending-update and cross-device incident thresholds.</p>
+          <p class="hint">Pending-update and cross-device incident thresholds. <a href="docs/alert-parameters.md#patching--capacity" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="cfg-patch-threshold" class="form-label">Pending updates</label>
@@ -3849,7 +3849,7 @@
 
         <div class="settings-section">
           <div class="section-title">Storage &amp; backup</div>
-          <p class="hint">Pool-scrub and snapshot-age thresholds.</p>
+          <p class="hint">Pool-scrub and snapshot-age thresholds. <a href="docs/alert-parameters.md#storage--backup" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue (days)</label>
@@ -3878,7 +3878,7 @@
 
         <div class="settings-section">
           <div class="section-title">Server health</div>
-          <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing. Set to <strong>0</strong> to disable.</p>
+          <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing. Set to <strong>0</strong> to disable. <a href="docs/alert-parameters.md#server-health" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="health-alert-threshold" class="form-label">Alert below score (0=off)</label>
@@ -3890,7 +3890,7 @@
 
         <div class="settings-section">
           <div class="section-title">Health grade cutoffs</div>
-          <p class="hint">The health-score boundaries that decide a device's grade and the colour of the dashboard score — <strong>good</strong> (green), <strong>fair</strong> (amber), <strong>poor</strong> (orange); anything below poor is <strong>critical</strong> (red). A score at or above each value takes that grade. Keep them descending.</p>
+          <p class="hint">The health-score boundaries that decide a device's grade and the colour of the dashboard score — <strong>good</strong> (green), <strong>fair</strong> (amber), <strong>poor</strong> (orange); anything below poor is <strong>critical</strong> (red). A score at or above each value takes that grade. Keep them descending. <a href="docs/alert-parameters.md#health-grade-cutoffs" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-grade-good" class="form-label">Good ≥ (green)</label>
@@ -3910,7 +3910,7 @@
 
         <div class="settings-section">
           <div class="section-title">Risk levels</div>
-          <p class="hint">The per-asset security/posture <strong>risk score</strong> boundaries that decide an asset's level and badge colour on the Risk Assessment page — <strong>critical</strong> (red), <strong>high</strong> (amber), <strong>medium</strong>; anything below medium is <strong>low</strong> (green). A score at or above each value takes that level. Keep them descending.</p>
+          <p class="hint">The per-asset security/posture <strong>risk score</strong> boundaries that decide an asset's level and badge colour on the Risk Assessment page — <strong>critical</strong> (red), <strong>high</strong> (amber), <strong>medium</strong>; anything below medium is <strong>low</strong> (green). A score at or above each value takes that level. Keep them descending. <a href="docs/alert-parameters.md#risk-levels" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-risk-crit" class="form-label">Critical ≥ (red)</label>
@@ -3930,7 +3930,7 @@
 
         <div class="settings-section">
           <div class="section-title">Reliability levels</div>
-          <p class="hint">The failure-likelihood <strong>reliability score</strong> boundaries that decide a host's predicted-failure level — <strong>critical</strong>, <strong>high</strong>, <strong>medium</strong>; below medium a host is not flagged. A host crossing the medium cutoff raises the "likely to fail" Needs-Attention card and a reliability alert, so a low bar here becomes noise. Keep them descending.</p>
+          <p class="hint">The failure-likelihood <strong>reliability score</strong> boundaries that decide a host's predicted-failure level — <strong>critical</strong>, <strong>high</strong>, <strong>medium</strong>; below medium a host is not flagged. A host crossing the medium cutoff raises the "likely to fail" Needs-Attention card and a reliability alert, so a low bar here becomes noise. Keep them descending. <a href="docs/alert-parameters.md#reliability-levels" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-rel-crit" class="form-label">Critical ≥</label>
@@ -3950,7 +3950,7 @@
 
         <div class="settings-section">
           <div class="section-title">Capacity limits</div>
-          <p class="hint">Fullness percentages that fire <code>metric_warning</code>/<code>metric_critical</code> for inode, file-descriptor and conntrack-table exhaustion. A per-device threshold override still wins over these fleet defaults.</p>
+          <p class="hint">Fullness percentages that fire <code>metric_warning</code>/<code>metric_critical</code> for inode, file-descriptor and conntrack-table exhaustion. A per-device threshold override still wins over these fleet defaults. <a href="docs/alert-parameters.md#capacity-limits" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-inode-warn" class="form-label">Inode warn %</label>
@@ -3982,7 +3982,7 @@
 
         <div class="settings-section">
           <div class="section-title">Reachability</div>
-          <p class="hint">Flap-dampening confirm counts before a host, resolver or IP-reputation signal pages. Higher rides out transient blips; lower pages sooner.</p>
+          <p class="hint">Flap-dampening confirm counts before a host, resolver or IP-reputation signal pages. Higher rides out transient blips; lower pages sooner. <a href="docs/alert-parameters.md#reachability" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-offline-polls" class="form-label">Offline after N missed polls</label>
@@ -4007,7 +4007,7 @@
 
         <div class="settings-section">
           <div class="section-title">Certificates</div>
-          <p class="hint">Certificate-expiry windows (days). TLS warn/crit are the fleet defaults for monitored TLS targets that don't set their own; cert-file is the local x509 inventory window.</p>
+          <p class="hint">Certificate-expiry windows (days). TLS warn/crit are the fleet defaults for monitored TLS targets that don't set their own; cert-file is the local x509 inventory window. <a href="docs/alert-parameters.md#certificates" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-tls-warn-days" class="form-label">TLS expiry warn (days)</label>
@@ -4032,7 +4032,7 @@
 
         <div class="settings-section">
           <div class="section-title">Lifecycle</div>
-          <p class="hint">Warn/soon windows (days) for contract expiry, OS end-of-life and AV/Defender signature staleness — the date-based Needs-Attention verdicts.</p>
+          <p class="hint">Warn/soon windows (days) for contract expiry, OS end-of-life and AV/Defender signature staleness — the date-based Needs-Attention verdicts. <a href="docs/alert-parameters.md#lifecycle" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-contract-warn-days" class="form-label">Contract expiry warn (days)</label>
@@ -4077,7 +4077,7 @@
 
         <div class="settings-section">
           <div class="section-title">Thermal &amp; GPU</div>
-          <p class="hint">Temperature cutoffs (°C) for the Thermal and GPU pages. <strong>Hot</strong> flags a host/GPU and drives the "hot" count and the amber cell colour; <strong>critical</strong> marks it critical (red) and feeds the overheating risk/reliability factors. Keep critical above hot.</p>
+          <p class="hint">Temperature cutoffs (°C) for the Thermal and GPU pages. <strong>Hot</strong> flags a host/GPU and drives the "hot" count and the amber cell colour; <strong>critical</strong> marks it critical (red) and feeds the overheating risk/reliability factors. Keep critical above hot. <a href="docs/alert-parameters.md#thermal--gpu" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-thermal-hot-c" class="form-label">Sensor hot ≥ (°C)</label>
@@ -4097,7 +4097,7 @@
 
         <div class="settings-section">
           <div class="section-title">Disk wear &amp; SMART</div>
-          <p class="hint">Predictive disk-health thresholds. Wear <strong>warn/high</strong> percentages colour the SSD/NVMe wear cell and raise its risk; <strong>realloc/pending critical</strong> is the bad-sector count treated as critical and the ETA target; <strong>medium-risk ETA</strong> suppresses a <code>disk_predict_fail</code> for a medium-risk disk unless it's within that many days; <strong>ECC min delta</strong> is the floor a per-beat correctable/uncorrectable increase must exceed to fire <code>ecc_errors</code> (0 = any increase fires). Keep wear high above warn.</p>
+          <p class="hint">Predictive disk-health thresholds. Wear <strong>warn/high</strong> percentages colour the SSD/NVMe wear cell and raise its risk; <strong>realloc/pending critical</strong> is the bad-sector count treated as critical and the ETA target; <strong>medium-risk ETA</strong> suppresses a <code>disk_predict_fail</code> for a medium-risk disk unless it's within that many days; <strong>ECC min delta</strong> is the floor a per-beat correctable/uncorrectable increase must exceed to fire <code>ecc_errors</code> (0 = any increase fires). Keep wear high above warn. <a href="docs/alert-parameters.md#disk-wear--smart" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-smart-wear-warn" class="form-label">Wear warn %</label>
@@ -4125,7 +4125,7 @@
 
         <div class="settings-section">
           <div class="section-title">Health score weights</div>
-          <p class="hint">Points deducted from a device&#x27;s 0-100 health score per Needs-Attention item, by severity. Higher = a bigger hit to the score (and the fleet average). 0 disables that severity&#x27;s deduction. Blank uses the default.</p>
+          <p class="hint">Points deducted from a device&#x27;s 0-100 health score per Needs-Attention item, by severity. Higher = a bigger hit to the score (and the fleet average). 0 disables that severity&#x27;s deduction. Blank uses the default. <a href="docs/alert-parameters.md#health-score-weights" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-hw-critical" class="form-label">Critical item</label>
@@ -4145,7 +4145,7 @@
 
         <div class="settings-section">
           <div class="section-title">Risk score weights</div>
-          <p class="hint">Points each posture/security signal adds to a device&#x27;s 0-100 risk score. Per-occurrence factors are marked (each) and may be capped. Higher = more impact on the score. 0 disables the factor. Blank uses the default.</p>
+          <p class="hint">Points each posture/security signal adds to a device&#x27;s 0-100 risk score. Per-occurrence factors are marked (each) and may be capped. Higher = more impact on the score. 0 disables the factor. Blank uses the default. <a href="docs/alert-parameters.md#risk-score-weights" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-rw-offline" class="form-label">Offline</label>
@@ -4305,7 +4305,7 @@
 
         <div class="settings-section">
           <div class="section-title">Reliability score weights</div>
-          <p class="hint">Points each signal adds to a host&#x27;s 0-100 failure-likelihood (reliability) score. Higher = more impact on the predicted-failure score. Some factors are capped internally. 0 disables the factor. Blank uses the default.</p>
+          <p class="hint">Points each signal adds to a host&#x27;s 0-100 failure-likelihood (reliability) score. Higher = more impact on the predicted-failure score. Some factors are capped internally. 0 disables the factor. Blank uses the default. <a href="docs/alert-parameters.md#reliability-score-weights" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-lw-smart_failing" class="form-label">SMART failing</label>
@@ -4371,7 +4371,7 @@
              remaining monitoring/NA/control-plane scalars. -->
         <div class="settings-section">
           <div class="section-title">Capacity &amp; forecast</div>
-          <p class="hint">Disk-fill ETA (days-to-full) cutoffs drive the SAME verdict everywhere — the Needs-Attention digest, the Checks engine row and the disk-health cell colour. Pending-update count fires an NA warning (below it, informational). OOM window is how long after an OOM kill a host still counts as recently-OOM'd.</p>
+          <p class="hint">Disk-fill ETA (days-to-full) cutoffs drive the SAME verdict everywhere — the Needs-Attention digest, the Checks engine row and the disk-health cell colour. Pending-update count fires an NA warning (below it, informational). OOM window is how long after an OOM kill a host still counts as recently-OOM'd. <a href="docs/alert-parameters.md#capacity--forecast" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-disk-fc-crit" class="form-label">Disk fill ETA crit ≤ (days)</label>
@@ -4395,7 +4395,7 @@
 
         <div class="settings-section">
           <div class="section-title">Containers &amp; SNMP</div>
-          <p class="hint">Container restart-delta and "restarting" thresholds, plus the fleet-default SNMP CPU cutoffs (a per-device threshold override still wins).</p>
+          <p class="hint">Container restart-delta and "restarting" thresholds, plus the fleet-default SNMP CPU cutoffs (a per-device threshold override still wins). <a href="docs/alert-parameters.md#containers--snmp" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-container-restart-delta" class="form-label">Restart delta ≥ (alert)</label>
@@ -4419,7 +4419,7 @@
 
         <div class="settings-section">
           <div class="section-title">Monitoring cadence</div>
-          <p class="hint">Transient-event NA lifetime, after-hours activity window, agentless ping-fail debounce, per-poll GitHub-issue cap, metric-recovered hysteresis buffer, and the online-TTL flap floor.</p>
+          <p class="hint">Transient-event NA lifetime, after-hours activity window, agentless ping-fail debounce, per-poll GitHub-issue cap, metric-recovered hysteresis buffer, and the online-TTL flap floor. <a href="docs/alert-parameters.md#monitoring-cadence" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-attn-event-ttl-h" class="form-label">NA event TTL (hours)</label>
@@ -4451,7 +4451,7 @@
 
         <div class="settings-section">
           <div class="section-title">Compliance &amp; CIS</div>
-          <p class="hint">Compliance TLS-expiry and recent-events windows, and the CIS disk/swap fullness ceilings and DMARC minimum pass percentage.</p>
+          <p class="hint">Compliance TLS-expiry and recent-events windows, and the CIS disk/swap fullness ceilings and DMARC minimum pass percentage. <a href="docs/alert-parameters.md#compliance--cis" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-compliance-tls-days" class="form-label">Compliance TLS expiring (days)</label>
@@ -4479,7 +4479,7 @@
 
         <div class="settings-section">
           <div class="section-title">RemotePower self-health</div>
-          <p class="hint">The control plane's OWN health pill (top bar). High-load = 5-minute load average above cores × this ratio; memory and fleet-online percentages below feed the pill's reasons.</p>
+          <p class="hint">The control plane's OWN health pill (top bar). High-load = 5-minute load average above cores × this ratio; memory and fleet-online percentages below feed the pill's reasons. <a href="docs/alert-parameters.md#remotepower-self-health" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-self-load-ratio" class="form-label">High-load ratio (× cores)</label>
@@ -4499,7 +4499,7 @@
 
         <div class="settings-section">
           <div class="section-title">Reliability tuning</div>
-          <p class="hint">Unstable-host detection (returns-to-online in a window) and the reboot-churn and high-wear thresholds that feed the failure-likelihood score.</p>
+          <p class="hint">Unstable-host detection (returns-to-online in a window) and the reboot-churn and high-wear thresholds that feed the failure-likelihood score. <a href="docs/alert-parameters.md#reliability-tuning" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="ap-unstable-returns" class="form-label">Unstable returns ≥</label>

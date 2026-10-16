@@ -26,6 +26,11 @@ comes with a check that keeps it fixed.
   two login routes it really serves. "Block what it finds" says that a reported
   address waits for the next list sync.
 
+### Interface
+
+- Every section of **Settings → Alert parameters** links to its own part of
+  the guide, which now describes each of the 24 sections and names its fields.
+
 ### Fixes
 
 - A virtualization platform that cannot be reached says so. The page showed

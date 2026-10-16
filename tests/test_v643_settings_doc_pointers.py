@@ -23,15 +23,20 @@ pointer; never raise it.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from test_v710_docs_internal_links import _slug, anchors  # noqa: E402  (the viewer's own slug rule)
 
 _ROOT = Path(__file__).resolve().parent.parent
 _HTML = _ROOT / "server" / "html" / "index.html"
 _DOCS = _ROOT / "docs"
 
 # Shrink-only. See the module docstring for why it is not zero.
-_WITHOUT_POINTER_CEILING = 27
+_WITHOUT_POINTER_CEILING = 0
 
 
 def _settings_html():
@@ -76,7 +81,14 @@ def _sections():
 
 
 def _doc_refs(html):
-    return set(re.findall(r'href="docs/([a-z0-9._-]+\.md)"', html))
+    return set(re.findall(r'href="docs/([a-z0-9._-]+\.md)(?:#[^"]*)?"', html))
+
+
+def _doc_links(html):
+    """[(file, anchor or '')] for every in-app doc link. v7.4.0: the pattern above
+    used to end at `.md"`, so a link with an anchor neither counted as a pointer
+    nor was checked to resolve."""
+    return re.findall(r'href="docs/([a-z0-9._-]+\.md)(?:#([^"]*))?"', html)
 
 
 class TestTheExtractionWorks(unittest.TestCase):
@@ -126,6 +138,15 @@ class TestNoPointerDangles(unittest.TestCase):
             "Settings links to documentation that does not exist — a 404 "
             f"dressed as help: {missing}",
         )
+
+    def test_every_anchor_on_the_whole_page_is_a_heading_of_its_doc(self):
+        """An anchor that names no heading opens the doc at the top, silently."""
+        html = _HTML.read_text(encoding="utf-8")
+        links = [(f, a) for f, a in _doc_links(html) if a]
+        self.assertGreaterEqual(len(links), 3, "control: anchored links were found")
+        bad = sorted({"%s#%s" % (f, a) for f, a in links
+                      if (_DOCS / f).exists() and a not in anchors((_DOCS / f).read_text(encoding="utf-8"))})
+        self.assertEqual(bad, [], "doc links whose anchor is not a heading of the doc")
 
     def test_every_doc_link_on_the_whole_page_resolves(self):
         """Not just Settings — the same rot applies to every in-app pointer."""
@@ -254,3 +275,32 @@ class TestDocsPointAtRealSettingsTabs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAlertParametersSectionsAreDocumented(unittest.TestCase):
+    """Every section of Settings → Alert parameters has its own heading in
+    docs/alert-parameters.md, and its link opens the doc at that heading. A new
+    section without a heading fails here, which keeps the two in step."""
+
+    def setUp(self):
+        if not _HTML.exists() or not (_DOCS / "alert-parameters.md").exists():
+            self.skipTest("excluded from this tree")
+
+    def sections(self):
+        html = _settings_html()
+        start = html.index('id="settings-pane-alertparams"')
+        nxt = html.find('id="settings-pane-', start + 10)
+        pane = html[start:nxt if nxt != -1 else len(html)]
+        return [(t, b) for t, b in _sections() if b[:300] in pane]
+
+    def test_each_section_has_a_heading_and_links_to_it(self):
+        import html as _h
+        secs = self.sections()
+        self.assertGreaterEqual(len(secs), 20, "control: the pane's sections were found")
+        doc = (_DOCS / "alert-parameters.md").read_text(encoding="utf-8")
+        have = anchors(doc)
+        for title, body in secs:
+            title = _h.unescape(title)
+            self.assertIn("### " + title + "\n", doc, "no heading for " + title)
+            self.assertIn(_slug(title), have, title)
+            self.assertIn('href="docs/alert-parameters.md#%s"' % _slug(title), body, "no link to " + title)
