@@ -636,6 +636,23 @@ class TestTheConfig(unittest.TestCase):
         commented = set(re.findall(r'^\s*#\s*\{ pattern = "\*example\.com(/wp[^"]+)"', _config_text(), re.M))
         self.assertEqual(commented, wp)
 
+    def test_every_wordpress_route_that_is_on_is_named_where_a_wordpress_site_looks(self):
+        """A WordPress site serves these paths, so the routes for them that are on by
+        default are the ones it has to delete. Step 3 tells a WordPress site what to do,
+        and the config is where the lines are deleted, so both name each of them."""
+        active = {r['pattern'].split('example.com', 1)[1].rstrip('*') for r in _config()['routes']}
+        wordpress = [p for _, p in _traps() if p.startswith(('/wp-', '/xmlrpc'))]
+        self.assertGreaterEqual(len(wordpress), 5, 'control: the WordPress paths of the script')
+        on = [p for p in wordpress if p in active]
+        self.assertTrue(on, 'control: no WordPress route is on by default')
+        step = [line for line in _section(_guide(), 'Step 3: Choose your traps').splitlines() if 'WordPress' in line]
+        self.assertEqual(len(step), 1)
+        comments = [line for line in _config_text().splitlines()
+                    if line.strip().startswith('#') and 'WordPress' in line]
+        for p in on:
+            self.assertIn('`%s`' % p, step[0], p)
+            self.assertTrue(any(p.lstrip('/') in c for c in comments), 'no config comment names ' + p)
+
     def test_the_robots_decoys_and_their_routes_agree(self):
         cfg = _config()
         active = {r['pattern'].split('example.com', 1)[1] for r in cfg['routes']}

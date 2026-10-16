@@ -10,14 +10,14 @@ On this page: [Before you start](#before-you-start) · [What each trap catches](
 
 - The Worker from [Run a honeypot Worker on Cloudflare](honeypot-worker.md) is deployed, and RemotePower reads its log. Nothing changes on the RemotePower side.
 - Your own addresses are in `ALLOW`. Keep them there while you test, and test one trap at a time.
-- Do not trap a path your site really serves. That goes for every line on this page, including the `robots.txt` decoys and `/backups`.
+- Do not trap a path your site really serves. That goes for every line on this page, including the `robots.txt` decoys and `/backups`. A WordPress site serves `/wp-login.php` and `/xmlrpc.php`, and the config below has routes for both: [Step 3](#step-3-choose-your-traps) says what to delete.
 
 ## What each trap catches
 
 | Trap | `kind` | The visitor asked for | Filed as | Needs |
 |---|---|---|---|---|
 | Loot and exploit paths | `bait` | `.env`, `.git/HEAD`, `.git/config`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for exposed files and admin pages | A route for each path |
-| Login pages | `login` | `wp-login.php`, `xmlrpc.php`, `phpmyadmin`, `administrator` | Probing for exposed files and admin pages | A route for each path |
+| Login pages | `login` | `wp-login.php`, `xmlrpc.php`, `phpmyadmin`, `administrator` | Probing for exposed files and admin pages | A route for each path. On a WordPress site, none for `wp-login.php` or `xmlrpc.php` |
 | A fake git repository | `gitdump` | What a git dump tool asks for after `HEAD`: `objects`, `refs`, `logs`, `index`, `packed-refs` | Probing for exposed files and admin pages | The `.git` route |
 | robots.txt decoys | `robots` | A path that only `robots.txt` names | Unwanted web crawling | Routes for `/robots.txt` and each decoy path |
 | A fake backup directory | `mazeentry`, `maze`, `mazeloot` | The directory, a folder in it, an archive in it | Probing for exposed files and admin pages | The `/backups` route |
@@ -337,7 +337,7 @@ routes = [
   { pattern = "*example.com/database.sql*", zone_name = "example.com" },
   { pattern = "*example.com/actuator*", zone_name = "example.com" },
   { pattern = "*example.com/vendor/phpunit/*", zone_name = "example.com" },
-  # Login pages
+  # Login pages. On a WordPress site, delete the wp-login.php and xmlrpc.php lines.
   { pattern = "*example.com/wp-login.php*", zone_name = "example.com" },
   { pattern = "*example.com/xmlrpc.php*", zone_name = "example.com" },
   { pattern = "*example.com/phpmyadmin*", zone_name = "example.com" },
@@ -378,7 +378,7 @@ DECOY_HOSTS = ""
 1. Replace `example.com` with your domain in every route line.
 2. Delete the routes of the traps you do not want. The script can stay as it is, because a path with no route never reaches it.
 3. Rename the `robots.txt` decoys. Edit the three `robots` lines in `TRAPS` and the three matching routes. Pick names that sound worth stealing and that your site does not have.
-4. If your site is not WordPress, remove the `#` from the three WordPress routes. On a WordPress site leave them off: those paths are real.
+4. If your site is not WordPress, remove the `#` from the three WordPress routes. On a WordPress site leave them off, and delete the routes for `/wp-login.php` and `/xmlrpc.php` as well. All five paths are real there, and with those two routes on, your own logins and anything that uses XML-RPC would get the fake page instead of WordPress.
 5. To use the planted password and the decoy hosts, follow [The planted password](#the-planted-password) and [Decoy hosts](#decoy-hosts). Leave both empty to skip them.
 
 ## Step 4: Deploy and check each one
