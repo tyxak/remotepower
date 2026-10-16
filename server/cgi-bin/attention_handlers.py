@@ -168,10 +168,40 @@ def handle_na_suppress_remove():
     A.respond(200, {'ok': True})
 
 
+def _ignored_entry_device(cat, entry):
+    """The host an ignore entry names, or '' for a fleet-level one. The devices
+    category keeps it under `id`, the other two under `device_id`."""
+    return str((entry.get('id') if cat == 'devices' else entry.get('device_id')) or '')
+
+
+def _ignored_visible():
+    """A predicate (category, entry) -> may this caller see and lift the entry.
+
+    v7.4.0: the ignore list is one store for the whole install, and its entries
+    name hosts, with the host name as the label. It was returned whole to any
+    signed-in user and accepted any host id from an admin, so under tenancy one
+    tenant could read the names of another's hidden hosts and hide another's
+    host from its Containers page. Same rule as every device-keyed store: keep a
+    fleet-level entry, an entry whose host no longer exists, and an entry for a
+    host this caller can see (role scope and tenant both)."""
+    all_devs = A._load_ro(A.DEVICES_FILE) or {}
+    visible = set(A._scope_filter_devices(all_devs))
+
+    def ok(cat, entry):
+        did = _ignored_entry_device(cat, entry)
+        return not did or did not in all_devs or did in visible
+    return ok
+
+
 def handle_ignored_list():
-    """GET /api/ignored — full list across all categories."""
+    """GET /api/ignored — every category, less the entries for hosts the caller
+    cannot see."""
     A.require_auth()
-    A.respond(200, A._ignored_load())
+    data = A._ignored_load()
+    ok = _ignored_visible()
+    for cat in ('needs_attention', 'stale_containers', 'devices'):
+        data[cat] = [e for e in data[cat] if isinstance(e, dict) and ok(cat, e)]
+    A.respond(200, data)
 
 
 def handle_ignored_add():
@@ -183,6 +213,10 @@ def handle_ignored_add():
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         A.respond(400, {'error': 'invalid category'}); return
+    # v7.4.0: a host id in the body must be one this caller can see.
+    _did = str(body.get('id') if cat == 'devices' else body.get('device_id') or '')
+    if _did:
+        A._scope_block_device(_did)
     now  = int(A.time.time())
     with A._LockedUpdate(A.IGNORED_ITEMS_FILE) as data:
         for k in ('needs_attention', 'stale_containers', 'devices'):
@@ -269,13 +303,19 @@ def handle_ignored_remove():
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         A.respond(400, {'error': 'invalid category'}); return
+    _did = str(body.get('id') if cat == 'devices' else body.get('device_id') or '')
+    if _did:
+        A._scope_block_device(_did)
+    ok = _ignored_visible()
     with A._LockedUpdate(A.IGNORED_ITEMS_FILE) as data:
         for k in ('needs_attention', 'stale_containers', 'devices'):
             if not isinstance(data.get(k), list):
                 data[k] = []
         if cat == 'needs_attention':
+            # by key, and only an entry this caller could see in the list
             key = str(body.get('key', ''))
-            data['needs_attention'] = [e for e in data['needs_attention'] if e.get('key') != key]
+            data['needs_attention'] = [e for e in data['needs_attention']
+                                       if e.get('key') != key or not ok(cat, e)]
         elif cat == 'stale_containers':
             did = str(body.get('device_id', ''))
             ctr = str(body.get('container', ''))
@@ -381,7 +421,7 @@ def handle_suppressions():
                 add('na_ignore', f"{cat}: {e.get('id') or e.get('key') or '?'}",
                     'Hidden from Needs attention',
                     'settings', tab='ignored',
-                    device_id=e.get('device_id') or '')
+                    device_id=_ignored_entry_device(cat, e))
     except Exception as e:
         A.sys.stderr.write(f'[remotepower] suppressions: ignores: {e}\n')
     try:

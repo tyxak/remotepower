@@ -96,7 +96,9 @@ EXEMPT = {
     'handle_enroll_register':  'agent-self (one-time PIN / enroll token; re-enroll gated by device-token)',
     # ---- daemon shared-secret auth; id is only written to the audit log
     'handle_webterm_session_audit': 'daemon shared-secret (webterm_daemon_secret); id is audit metadata only',
-    'handle_sshgw_audit':       'daemon shared-secret (sshgw_daemon_secret); id is audit metadata only',
+    # v7.4.0: the id is also stamped as the host's last_session in the gateway's
+    # own state; the caller is the gateway daemon (_require_daemon), not a user.
+    'handle_sshgw_audit':       'daemon shared-secret (_require_daemon, sshgw_daemon_secret); id is the session host',
     'handle_sshgw_agent_check': 'agent-self via the gateway daemon (device token checked with _device_token_ok)',
     # ---- non-device / metadata: the id is stored as a free label and the
     #      device's data is never read / mutated / commanded through it.
@@ -113,8 +115,13 @@ EXEMPT = {
     # guard green over a handler that resolves affected_devices to HOSTNAMES
     # (a working cross-tenant name oracle before v6.4.2). Removed on purpose;
     # test_exempt_entries_are_not_redundant keeps the class from coming back.
-    'handle_ignored_add':    'metadata (UI hide-list key; never reads/mutates/commands the device)',
-    'handle_ignored_remove': 'metadata (UI hide-list key; never reads/mutates/commands the device)',
+    # handle_ignored_add / handle_ignored_remove were exempt as "metadata (UI
+    # hide-list key; never reads/mutates/commands the device)". Re-checked at
+    # v7.4.0 and it was the wrong question: the list is one store for the
+    # install, so a tenant admin could hide another tenant's host from its
+    # Containers page, and GET /api/ignored gave every signed-in user every
+    # tenant's hidden hosts by name. Both now gate the body id with
+    # _scope_block_device and the list is filtered (test_v740_ignored_tenant).
     # ---- gated by a custom mechanism (not the three canonical helpers): a
     #      per-(host,event) mute checks _tenant_visible + _device_in_scope and
     #      404-hides cross-scope existence (a 403 would confirm it).

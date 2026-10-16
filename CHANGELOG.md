@@ -56,6 +56,12 @@ comes with a check that keeps it fixed.
   static files are cached for a year, so a browser that had loaded it once
   could keep an older set of translations. The address now changes with each
   release, and `deploy-server.sh` gives it the file's content hash.
+- With tenancy on, the ignore list keeps to the caller's tenant. It is one
+  list for the whole install and its entries name hosts, so any signed-in user
+  could read the names of every tenant's hidden hosts, and a tenant admin could
+  hide another tenant's host from its Containers page and Needs attention. The
+  list now shows only entries for hosts you can see, and hiding or un-hiding a
+  host you cannot see is refused. Installs without tenancy see no change.
 - Threat intel's **Ignore** button refuses an address that is not public. Such
   an address is never looked up, reported or blocked, so the entry it stored
   could never match anything. The Settings list can still name private networks.

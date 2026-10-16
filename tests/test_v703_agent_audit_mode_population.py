@@ -48,8 +48,10 @@ _NOT_CHANNELS = {
 EXEMPT = {
     # ── read-only collectors, told WHAT to look at by the server ────────────
     'collect_backup_status': 'stats the configured paths; spawns nothing',
-    'collect_disk_usage': 'walks the configured paths and reports sizes',
-    'collect_image_cves': 'scans container images and reports findings',
+    'collect_disk_usage': 'runs du (read-only) on the configured paths and reports sizes',
+    # v7.4.0: the names are the host's own running containers, from the
+    # agent's container list; the server only switches the scan on.
+    'collect_image_cves': 'runs trivy over the images of the host\'s own containers',
     'collect_pii_findings': 'reads the configured paths, reports matches',
     'collect_secret_findings': 'reads the configured paths, reports matches',
     'compute_drift_report': 'hashes the watched files and reports differences',

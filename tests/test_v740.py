@@ -146,6 +146,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v740_data_dir_restored.py",
         "tests/test_v740_theme_contrast.py",
         "tests/test_v740_theme_contrast_e2e.py",
+        "tests/test_v740_ignored_tenant.py",
     )
 
     def test_every_guard_file_exists(self):
