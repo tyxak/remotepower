@@ -42,6 +42,7 @@ comes with a check that keeps it fixed.
 
 ### Under the hood
 
+- Swagger UI 5.33.1 → 5.33.3 for the API reference page.
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's
   cache marker, counter included, and `verify` checks every page against it. It
   used to stamp `index.html` alone and drop the counter, the opposite of what

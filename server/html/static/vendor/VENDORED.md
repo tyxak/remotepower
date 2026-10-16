@@ -6,6 +6,19 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v7.4.0 — 2026-10-16
+
+- **swagger-ui 5.33.1 → 5.33.3 — DONE.** From the npm `swagger-ui-dist@5.33.3`
+  tarball, its sha512 integrity checked against the registry, `swagger-ui-bundle.js`
+  and `swagger-ui.css` copied unchanged (the files here were confirmed to be
+  5.33.1's, byte for byte, before the swap). Upstream's stylesheet is identical
+  between the two releases, so only the bundle's SRI pin in `swagger.html`
+  changed. Booted signed in, in Chromium, against the old bundle as a control:
+  the spec loads (954 operations, 14 tags), an operation expands, no console
+  error, no failed request, the same on both.
+- xterm.js 6.0.0, addon-fit 0.11.0, noVNC 1.7.0 and qrcode-generator 2.0.4 are
+  the current releases.
+
 ## v7.3.0 — 2026-10-12
 
 - **Version check — nothing to update.** Against the npm registry on this date:
