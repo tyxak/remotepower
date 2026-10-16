@@ -281,7 +281,7 @@ The Worker blocks nobody, and RemotePower only reports. To stop an address at Cl
 2. Add one custom rule to your zone with the expression `(ip.src in $remotepower_blocklist)` and the action **Block**, using the name you gave the list ([Use the list in a rule](edge-sources.md#use-the-list-in-a-rule)).
 3. To block one address now, press **Ban** on its row in the attackers table ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)).
 
-An address reaches the list after RemotePower has reported it, which takes as many hits as **Report after attempts**. A Worker that bans on the first hit is faster, but it needs a token that can edit IP rules inside a Worker that faces the internet, and a job to expire the bans. Doing it from RemotePower keeps that token in one place.
+An address goes into the list at the next sync after RemotePower reports it, which takes as many hits as **Report after attempts**, or after its score reaches **Found addresses: score of at least**. A report does not start a sync. The list is synced every six hours unless you changed **Update every (hours)**, so a reported address can wait that long, and **Sync now** on the card syncs at once. A Worker that bans on the first hit is faster, but it needs a token that can edit IP rules inside a Worker that faces the internet, and a job to expire the bans. Doing it from RemotePower keeps that token in one place.
 
 ## Rules that answer first
 

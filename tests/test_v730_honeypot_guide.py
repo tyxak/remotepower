@@ -401,6 +401,27 @@ class TestThePage(unittest.TestCase):
         self.assertIn('every %dth' % every, guide)
         self.assertIn('With the default of %d, %d leaves room' % (n, first), guide)
 
+    def test_the_block_section_says_when_an_address_reaches_the_list(self):
+        """A report does not sync the Edge blocklist: the schedule, Sync now, Ban and Unban
+        do. A reader who counts only the hits expects a block that can be hours away, so
+        the section names the schedule, and the card labels it quotes are the card's own."""
+        sec = H.section(_guide(), 'Block what it finds')
+        words = {6: 'six', 12: 'twelve', 24: '24'}
+        hours = ip_intel.DEFAULTS['edgelist_hours']
+        self.assertIn('every %s hours unless you changed **Update every (hours)**' % words[hours], sec)
+        page = _ROOT / 'server' / 'html' / 'index.html'
+        if not page.exists():
+            self.skipTest('the dashboard is not in this tree')
+        html = page.read_text()
+        card = [line for line in html.splitlines() if re.search(r'(?i)edgelist|IpIntelList', line)]
+        self.assertGreaterEqual(len(card), 5, 'control: the Edge blocklist card was found')
+        on_card = ('Found addresses: score of at least', 'Update every (hours)', 'Sync now')
+        for label in ('Report after attempts',) + on_card:
+            self.assertIn('**%s**' % label, sec, label)
+            self.assertRegex(html, r'>\s*%s\s*<' % re.escape(label), 'not a label on the dashboard: ' + label)
+        for label in on_card:
+            self.assertTrue(any(label in line for line in card), 'not on the Edge blocklist card: ' + label)
+
     def test_the_page_is_linked_from_the_index_and_from_both_guides_it_extends(self):
         for rel in ('README.md', 'edge-sources.md', 'ip-intel.md'):
             p = _ROOT / 'docs' / rel
