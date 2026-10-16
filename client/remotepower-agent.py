@@ -746,7 +746,7 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
 # listens on the network for it, and the operator's SSH session stays encrypted
 # end to end with the local sshd, which still decides who may log in.
 #
-# What the gateway can make this agent do is deliberately narrow: open a TCP
+# What the gateway can make this agent do is narrow: open a TCP
 # connection to THIS host's sshd on loopback, and pass bytes. The port comes from
 # this host (RP_SSHGW_PORT, default 22), never from the gateway, so the tunnel
 # cannot be turned into a way to reach other ports or other machines on the LAN.
