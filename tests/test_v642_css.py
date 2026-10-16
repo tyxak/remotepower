@@ -261,9 +261,9 @@ class TestAccentAsTextContrast(unittest.TestCase):
     def test_c_accent_and_friends_use_the_ink_token(self):
         """.c-accent is the mandated idiom for every in-app doc link, so the
         token has to reach it — the maths above is worthless otherwise."""
-        for rule in (".c-accent", ".c-accent-12", ".c-accent-bold",
-                     ".fs-13-accent", ".meta-accent", ".anomaly-link",
-                     ".compliance-fix"):
+        # (.fs-13-accent, .c-accent-bold and .meta-accent left this list at v7.4.0
+        # with their rules: nothing wrote them; test_v740_css_dead_classes)
+        for rule in (".c-accent", ".c-accent-12", ".anomaly-link", ".compliance-fix"):
             m = re.search(re.escape(rule) + r"\s*\{([^}]*)\}", self.src)
             self.assertIsNotNone(m, "%s vanished from styles.css" % rule)
             self.assertIn("var(--accent-ink)", m.group(1),

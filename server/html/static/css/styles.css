@@ -593,16 +593,6 @@
     /* The PNG is square 1:1 — fit it cleanly into the 36px slot. */
     object-fit: contain;
   }
-  .logo-icon {
-    width: 36px;
-    height: 36px;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .logo-icon svg { width: 20px; height: 20px; }
   .logo-text { font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
   .logo-text span { color: var(--accent-ink); }
   /* v6: the brand lives in the sidebar (chosen-design .brand) */
@@ -1277,7 +1267,6 @@
     flex: 1;
     min-width: 0;
   }
-  .header-nav { display: none; }
   .logout-btn {
     background: transparent;
     border: 1px solid var(--border);
@@ -2100,7 +2089,6 @@
   }
   .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
   .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red-on-tint);   border: 1px solid rgba(239,68,68,0.2); }
-  .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
   .journal-wrap {
     background: #070910;
     border: 1px solid var(--border);
@@ -2243,8 +2231,6 @@
   tbody.first-paint tr:nth-child(5) { animation-delay: 100ms; }
   tbody.first-paint tr:nth-child(n+6) { animation-delay: 120ms; }
   @keyframes rp-row-in { from { opacity: 0; transform: translateY(3px); } }
-  .stat-delta-up { color: var(--red); font-size: 10px; margin-left: 3px; }
-  .stat-delta-down { color: var(--green); font-size: 10px; margin-left: 3px; }
   #fleet-pulse { display: inline-block; vertical-align: middle; opacity: .8; }
   .pos-rel { position: relative; }
   .hh-bar-tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--amber, #d29922); opacity: .65; }
@@ -2398,7 +2384,6 @@
        PNG, the card's --surface fill will show through cleanly. */
     max-width: 480px;
   }
-  .login-logo  { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
   /* v2.0 polish: the logo wrap sits ABOVE the .login-card as a sibling,
      not inside it. No background, no padding, no frame — the logo PNG
      has its own visual treatment baked in (rounded corners, dark
@@ -2742,9 +2727,9 @@ svg {
  * an enhancement for consistency. */
 code, pre, .mono, [data-mono], kbd,
 .audit-log td:nth-child(4),
-.cmd-output, .journal-wrap,
+.journal-wrap,
 input.form-input[type="text"][data-token],
-.device-id, .cve-id, .file-path, .hash-display {
+.device-id, .file-path {
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;  /* turn off mono ligatures */
 }
@@ -2834,7 +2819,6 @@ input.form-input[type="text"][data-token],
 .stat-delta { font-size: 10px; font-weight: 600; line-height: 1; }
 .stat-delta.sd-good { color: var(--green); }
 .stat-delta.sd-bad  { color: var(--red); }
-.stat-delta.sd-flat { color: var(--muted); }
 /* State-reactive: a "bad" tile (e.g. Offline) turns red + one subtle pulse when > 0. */
 .stat-card.stat-alert .stat-value { color: var(--red); }
 .stat-card.stat-alert .stat-icon { animation: stat-pulse 1.4s ease-out 2; }
@@ -2879,7 +2863,6 @@ input.form-input[type="text"][data-token],
 .skeleton-line.short { width: 40%; }
 .skeleton-line.med   { width: 65%; }
 .skeleton-line.long  { width: 90%; }
-.skeleton-circle { width: 14px; height: 14px; border-radius: 50%; vertical-align: middle; }
 .skeleton-row td  { padding: 12px 10px; }
 /* The div-container sibling of .skeleton-row — emitted by _skeletonBlock() for
    modal bodies / cards / lists. Without a rule the wrapper is a bare block and
@@ -3549,9 +3532,6 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
   /* Two-col dashboard layout → stack */
   .dash-cols { grid-template-columns: 1fr; gap: 12px; }
 
-  /* Hide hover affordances entirely — no hover on touch */
-  tr.has-hover-actions .row-actions { display: none; }
-
   /* Devices minimal table: hide low-priority columns */
   .devices-minimal-table .dev-host-cell,
   .devices-minimal-table .dev-group-cell,
@@ -3582,7 +3562,6 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
   .btn-icon, .nav-btn, button {
     min-height: 36px;
   }
-  .row-actions button { min-height: 0; }  /* hidden anyway */
 
   /* Sidebar group items: more vertical space */
   .nav-btn { padding: 10px 12px; }
@@ -3941,8 +3920,6 @@ button, a, [role="button"],
 .table-card,
 .modal,
 .sidebar,
-.cmd-output,
-.log-output,
 .hc-panel textarea {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
@@ -3956,7 +3933,6 @@ button, a, [role="button"],
     transition-duration: 0.01ms !important;
   }
   .ai-btn.available::after { animation: none; }
-  .refresh-bar-fill        { transition: none; }
 }
 
 /* 5. Minimum touch target size — apply only on touch screens */
@@ -4735,8 +4711,7 @@ body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: b
 .fs-12 { font-size: 12px; }
 .fs-13 { font-size: 13px; }
 .bh-day { min-width: 96px; }
-.fs-body { font-size: 13px; }  /* THE body anchor — reach for this one */
-.fs-14 { font-size: 13px; }    /* deprecated alias of .fs-body (the 14px and 13.5px anchors were retired) */
+.fs-14 { font-size: 13px; }    /* the body size; the name is from before the 14px anchor was retired */
 .meta-sm { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hint-mb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .meta-sm-nm { font-size: 11px; color: var(--muted); }
@@ -4757,7 +4732,6 @@ body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: b
 .ff-mono { font-family: var(--font-mono); }
 /* v3.14.0 (#22): customizable dashboard */
 .dash-off { display: none !important; }
-.dash-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .dash-edit-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
 .dash-edit-hint { margin-bottom: 8px; }
 .dash-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
@@ -4863,7 +4837,6 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .mb-8 { margin-bottom: 8px; }
 .mb-12 { margin-bottom: 12px; }
 .mb-16 { margin-bottom: 16px; }
-.mb-24 { margin-bottom: 24px; }
 .mt-2 { margin-top: 2px; }
 .mt-4 { margin-top: 4px; }
 .mt-8 { margin-top: 8px; }
@@ -5318,7 +5291,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .fs-10 { font-size: 10px; }
 .code-pill { background: var(--bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); font-family: var(--font-mono); }
 .mono-12 { font-family: var(--font-mono); font-size: 12px; }
-.fw-600-mb10 { font-weight: 600; margin-bottom: 10px; }
 .nowrap { white-space: nowrap; }
 .hint-nowrap { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .cell-sm { padding: 4px 8px; font-size: 11px; }
@@ -5328,54 +5300,25 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .empty-p20 { color: var(--muted); padding: 20px; text-align: center; }
 .c-muted-13 { font-size: 13px; color: var(--muted); }
-.fw-600-13 { font-size: 13px; font-weight: 600; }
-.p-16 { padding: 16px; }
-.p-8 { padding: 8px; }
 .mb-14 { margin-bottom: 14px; }
-.fs-12-p4-10 { font-size: 12px; padding: 4px 10px; }
 .c-green-bold { color: var(--green); font-weight: 600; }
 .c-red-bold { color: var(--red); font-weight: 600; }
 .c-amber-bold { color: var(--amber); font-weight: 600; }
 .pointer { cursor: pointer; }
-.cursor-default { cursor: default; }
-.p-2-8 { padding: 2px 8px; }
-.fs-11-bold { font-size: 11px; font-weight: 600; }
-.fs-12-bold { font-size: 12px; font-weight: 600; }
-.fw-600-14 { font-size: 13px; font-weight: 600; }
-.row-space-between { display: flex; justify-content: space-between; }
-.row-between-center { display: flex; align-items: center; justify-content: space-between; }
 .row-4-center { display: flex; align-items: center; gap: 4px; }
-.row-4 { display: flex; gap: 4px; }
 .row-6 { display: flex; gap: 6px; }
 .row-6-center { display: flex; gap: 6px; align-items: center; }
 .mb-4 { margin-bottom: 4px; }
 .mt-6 { margin-top: 6px; }
 .mt-12 { margin-top: 12px; }
-.fs-12-mb6 { font-size: 12px; margin-bottom: 6px; }
 .opacity-60 { opacity: 0.6; }
-.opacity-50 { opacity: 0.5; }
 .va-middle { vertical-align: middle; }
-.meta-red { font-size: 11px; color: var(--red); }
-.meta-green { font-size: 11px; color: var(--green); }
-.meta-accent { font-size: 11px; color: var(--accent-ink); }
-.text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-trunc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.p-4-0 { padding: 4px 0; }
-.p-0 { padding: 0; }
-.p-8-12 { padding: 8px 12px; }
 .p-12 { padding: 12px; }
-.p-16-0 { padding: 16px 0; }
-.gap-8 { gap: 8px; }
 .c-muted-fs13 { color: var(--muted); font-size: 13px; }
-.fs-12-center { font-size: 12px; text-align: center; }
 .border-top { border-top: 1px solid var(--border); }
 .border-bottom { border-bottom: 1px solid var(--border); }
 .c-accent-12 { color: var(--accent-ink); font-size: 12px; }
-.c-accent-bold { color: var(--accent-ink); font-weight: 600; }
-.min-w-0 { min-width: 0; }
-.max-w-full { max-width: 100%; }
-.fs-13-accent { font-size: 13px; color: var(--accent-ink); }
-.meta-right { font-size: 11px; color: var(--muted); text-align: right; }
 
 /* CSP L1 fix: one-off auto-generated classes from app.js */
 .isl-304 { color: var(--muted); opacity: .3; font-size: 10px }
@@ -6685,7 +6628,6 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
   #print-report * { color: #111 !important; background: transparent !important;
     border-color: #ccc !important; }
   #print-report .pr-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-  #print-report .pr-logo { height: 40px; width: auto; }
   #print-report h1 { font-size: 28px; margin: 0 0 2px; }
   #print-report h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
   #print-report .pr-meta { color: #555 !important; font-size: 12px; }
@@ -6693,7 +6635,6 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
   #print-report .pr-card { border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
   #print-report .pr-k { font-size: 11px; text-transform: uppercase; color: #555 !important; letter-spacing: .04em; }
   #print-report .pr-v { font-size: 28px; font-weight: 600; }
-  #print-report .pr-sub { font-size: 11px; color: #555 !important; }
   #print-report table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }
   #print-report th, #print-report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }
   #print-report th { color: #444 !important; font-size: 11px; text-transform: uppercase; }
@@ -6726,8 +6667,7 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
      #111 — a printed posture table is unreadable without ok/warn/bad. */
   #main-content .c-green, .modal-overlay.active .c-green,
   #device-drawer.open .c-green { color: #137333 !important; }
-  #main-content .c-red, #main-content .c-crit,
-  .modal-overlay.active .c-red, #device-drawer.open .c-red { color: #b00020 !important; }
+  #main-content .c-red, .modal-overlay.active .c-red, #device-drawer.open .c-red { color: #b00020 !important; }
   #main-content .c-amber, .modal-overlay.active .c-amber { color: #8a5a00 !important; }
   #main-content .c-muted, #main-content .hint,
   .modal-overlay.active .c-muted, #device-drawer.open .c-muted { color: #555 !important; }
@@ -6771,7 +6711,6 @@ body.light .sev-pill.sev-critical { color: #a4232b; }
   #main-content .scroll-cap-sm,
   #main-content .scroll-cap-lg,
   #main-content .table-card,
-  #main-content .cmd-output,
   .modal-overlay.active .modal,
   .modal-overlay.active .scroll-cap,
   .modal-overlay.active .scroll-cap-sm,
@@ -7259,7 +7198,7 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* #2 Tabular numerals — digits that don't jitter as metrics tick every 60s.
    Applied to every place numbers stack into columns. */
-td, .num, .tnum, .stat-value, .metric-value, .meta-sm, .meta-sm-nm,
+td, .num, .stat-value, .metric-value, .meta-sm, .meta-sm-nm,
 input[type="number"], .mono-12, .fs-13, .fs-12, .fs-11 {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
@@ -7267,7 +7206,7 @@ input[type="number"], .mono-12, .fs-13, .fs-12, .fs-11 {
 
 /* #1 Machine voice — IDs, IPs, versions, ports, hashes, paths render in the
    mono "instrument" face; prose stays Inter. Use .machine on value cells. */
-.machine, .mono-val { font-family: var(--font-mono); }
+.machine { font-family: var(--font-mono); }
 
 /* #10 Compact density — operators on 1000+ nodes want max rows per screen.
    Toggled via body.density-compact (header button, persisted). */
@@ -7275,8 +7214,7 @@ body.density-compact td { padding: 5px 9px; }
 body.density-compact .card,
 body.density-compact .dash-card { padding: 11px 13px; }
 body.density-compact .drawer-section { padding: 9px 14px 0; }
-body.density-compact .section-title,
-body.density-compact .group-title { margin-bottom: 6px; }
+body.density-compact .section-title { margin-bottom: 6px; }
 .density-toggle-btn.active { color: var(--accent2-ink); border-color: var(--accent-edge); }
 
 /* #3 Semaphore — ONE status-dot system. Always paired with text in markup, and
@@ -7291,7 +7229,6 @@ body.density-compact .group-title { margin-bottom: 6px; }
 .sem-down { background: var(--red); }
 .sem-idle { background: var(--muted); }
 /* square variant for a second, shape-based cue (colour-blind safety) */
-.sem.sq { border-radius: 1px; }
 
 /* #7 Segmented control — hard-edged, mono labels; replaces soft pills for
    filter/grouping toggles. */
@@ -7421,8 +7358,7 @@ body.density-compact .group-title { margin-bottom: 6px; }
    changes digit glyph width). A precise, technical touch that fits the
    industrial language and improves the at-a-glance overview feel. */
 table { font-variant-numeric: tabular-nums; }
-.status-num, .hh-num, .pin-code, .board-num, .stat-num,
-.metric-value, .big-num, td .mono-12 { font-variant-numeric: tabular-nums; }
+.status-num, .hh-num, .pin-code, .metric-value, td .mono-12 { font-variant-numeric: tabular-nums; }
 
 /* ── v5.0.1 "TemperMatters" — design polish ──────────────────────────────────
    Weight/contrast + tactile feedback on the dense data tables, within the
@@ -7631,8 +7567,6 @@ kbd{
    GPU busy at idle and starving scroll. Static coloured dots convey status just
    as well. rp-pulse is kept for the bounded critical-state indicator only. */
 @keyframes rp-pulse{ 50%{ opacity:.35; } }
-.rp-spin{ animation:rp-spin 1.1s linear infinite; transform-origin:50% 50%; }
-@keyframes rp-spin{ to{ transform:rotate(360deg); } }
 
 /* #8 · Divider with centre label */
 .rp-divider{ display:flex; align-items:center; gap:12px; color:var(--muted);
@@ -7669,7 +7603,7 @@ kbd{
   .skeleton-line::after,
   .skeleton-card::after,
   .status-dot.online,
-  .rp-spin, #rp-topbar::after, #rp-topbar.on::after{ animation:none; }
+  #rp-topbar::after, #rp-topbar.on::after{ animation:none; }
 }
 
 /* #8 · login divider shows only when an alt sign-in method is visible (CSS :has, no JS) */
@@ -7704,13 +7638,6 @@ body.light #page-watermark svg, body.light #page-watermark svg *{
 
 /* (v6: the card-gradient consistency sweep is gone — panels are flat
    var(--surface); un-migrated ones keep their base borders.) */
-
-/* v6 · a contrasting text surface inside a card — flat on the page ground
-   (the recessed inset shadows are gone) */
-.rp-well{
-  background:var(--bg); border:1px solid var(--hair); border-radius:7px;
-  padding:12px 14px;
-}
 
 /* (v6: the recessed input wells are gone — inputs are flat hairline fields.) */
 
