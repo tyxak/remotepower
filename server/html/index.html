@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.3.0-58">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-1">
 
 </head>
 <body>
@@ -4765,7 +4765,14 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.3.0 edg3matters edge cloudflare firewall events honeypot worker trap sink workers logs threat intel abuseipdb sniffcat report reports edge sources token read-only test connection ufw firewall log port scan canary decoy bad bot robots.txt cf-sniffcat ufw-sniffcat only reported never blocked list rule ip access rule challenge waf refusals report after alerts feed down list held blocklist ban unban data explorer metrics timeline relative times tips translated 400 status page security review twenty-two ignore never report ignore list kinds of attack clear forget load all show more window">
+          <details class="doc-card" open data-keywords="release notes changelog v7.4.0 f1nishmatters finish polish themes contrast languages translations honeypot worker guide guides robots.txt decoy trap traps wordpress">
+            <summary><strong>What's new — v7.4.0 &ldquo;F1nishMatters&rdquo;</strong> &mdash; a release about finish: what is already there reads, looks and behaves better in every theme and every language.</summary>
+            <div class="doc-body">
+              <p><strong>Honeypot guides.</strong> Two guides show how to build the Worker that RemotePower's Edge sources read: <a href="docs/honeypot-worker.md" class="c-accent">Run a honeypot Worker on Cloudflare</a> and <a href="docs/honeypot-traps.md" class="c-accent">More traps for your honeypot Worker</a>. The test suite runs each guide's script and sends what it prints through RemotePower's own reader.</p>
+              <p class="hint">See <code>docs/v7.4.0.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v7.3.0 edg3matters edge cloudflare firewall events honeypot worker trap sink workers logs threat intel abuseipdb sniffcat report reports edge sources token read-only test connection ufw firewall log port scan canary decoy bad bot robots.txt cf-sniffcat ufw-sniffcat only reported never blocked list rule ip access rule challenge waf refusals report after alerts feed down list held blocklist ban unban data explorer metrics timeline relative times tips translated 400 status page security review twenty-two ignore never report ignore list kinds of attack clear forget load all show more window">
             <summary><strong>What's new — v7.3.0 &ldquo;Edg3Matters&rdquo;</strong> &mdash; threat intel reads Cloudflare's firewall events and your honeypot Worker's log, and the host firewall's log.</summary>
             <div class="doc-body">
               <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. Reading blocks nothing: banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Step by step: <a href="docs/edge-sources.md" class="c-accent">Edge sources: Cloudflare</a>.</p>
@@ -4792,22 +4799,8 @@
               <p class="hint">See <code>docs/v7.2.0.md</code> and <code>docs/ip-intel.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v7.1.0 g4tewaymatters gateway ssh gateway jump host proxyjump ssh -j bastion tunnel no inbound port public key keys sessions threat intel ip intel abuseipdb sniffcat reputation brute force attackers block auto-block report never block allow-list advisory risk data explorer usb logged-in users report threats remote access typography font size body size heading size alert actions more menu nginx put 403 dashboard public url alert email links security review tenancy platform operator websocket redirect translations languages german french spanish arabic hindi chinese settings paragraphs phone mobile top bar overflow documentation viewer guides anchors risk factors performance big fleet 2000 devices sbom backup jobs export monitors agentless ping lock">
-            <summary><strong>What's new — v7.1.0 &ldquo;G4tewayMatters&rdquo;</strong> &mdash; reach hosts with your own SSH client through one gateway, look up and block the addresses attacking them, and see both wherever a host is described.</summary>
-            <div class="doc-body">
-              <p><strong>The SSH gateway.</strong> Add a key on <strong>Access &rarr; SSH gateway</strong>, copy the <code>~/.ssh/config</code> block it gives you, and <code>ssh web01.rp</code> works from your laptop. Each opted-in Linux host opens a tunnel outward to the gateway, so there is no inbound port on the host, and the gateway forwards to nothing but that host&rsquo;s own sshd. Every login and every connection is asked of RemotePower &mdash; your permission, scope and tenant, the host&rsquo;s opt-in &mdash; and every session is recorded. Off by default; see <a href="docs/sshgw.md" class="c-accent">the guide</a>.</p>
-              <p><strong>Threat intel.</strong> An address that crosses the brute-force threshold is checked against AbuseIPDB and SniffCat, reported back if you choose, and blocked on the attacked host for a while if its score is high enough &mdash; through the normal command queue, so maintenance, quarantine and four-eyes approval all apply. Your own addresses, your allow-list and anywhere someone recently signed in from are never blocked or reported. <strong>Security &rarr; Threat intel</strong>; see <a href="docs/ip-intel.md" class="c-accent">the guide</a>.</p>
-              <p><strong>Attacks and access, everywhere a host is described.</strong> The Security Advisory puts known-abusive sources first, the risk score gains two tunable factors, the Data Explorer can ask about attackers, gateway sessions, USB devices and logged-in users, and the fleet report, AI assistant, Prometheus export, knowledge index, compliance evidence and Timeline carry the same facts.</p>
-              <p><strong>One body size, one heading size.</strong> Body text sat at three sizes half a pixel apart; it is one size now, and every card heading shares one size. Alert rows keep Triage, Fix, Mute and Resolve on one line and put the rest in a labelled <strong>More</strong> menu.</p>
-              <p><strong>Edits saved with PUT work on a standard install.</strong> The shipped nginx configuration refused PUT on the API, which the dashboard uses to save about thirty kinds of edit. Fixed, along with a version banner and a catch-all page the scanners flagged.</p>
-              <p><strong>Translations and phone layout.</strong> The Settings pages are translated as whole sentences in all six languages, and a page-by-page check fixed three subtitles that stayed English. At phone width the top bar no longer pushes every page sideways, guides open at the section they link to, and risk factors read as words.</p>
-              <p><strong>Faster on big fleets.</strong> On a test fleet of 2,000 devices the backup-jobs list took 9.7 s and the fleet SBOM download did not answer within a minute; they take 0.1 s and 1.9 s. The monitor, agentless ping and SNMP checks now probe hosts together, so a few dead hosts no longer hold up every heartbeat or the alerts behind them.</p>
-              <p><strong>Ten security issues, all caught before release.</strong> The biggest: with multi-tenancy on, a tenant admin could change state that belongs to the whole install. Signed links in alert emails now use the new <strong>Dashboard public URL</strong> setting rather than the address a request arrived on. The full write-up is in <a href="docs/security-review-7.1.0.md" class="c-accent">security-review-7.1.0.md</a>.</p>
-              <p class="hint">See <code>docs/v7.1.0.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v7.0.3 c4usematters v7.0.2 prec3dentmatters v7.0.1 c0llapsematters sidebar collapse rail auto-hide v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v7.0.3 and earlier</summary>
+          <details class="doc-card" data-keywords="release notes changelog older versions history v7.1.0 g4tewaymatters gateway ssh gateway jump host proxyjump ssh -j bastion tunnel no inbound port public key keys sessions threat intel ip intel abuseipdb sniffcat reputation brute force attackers block auto-block report never block allow-list advisory risk data explorer usb logged-in users report threats remote access typography font size body size heading size alert actions more menu nginx put 403 dashboard public url alert email links security review tenancy platform operator websocket redirect translations languages german french spanish arabic hindi chinese settings paragraphs phone mobile top bar overflow documentation viewer guides anchors risk factors performance big fleet 2000 devices sbom backup jobs export monitors agentless ping lock v7.0.3 c4usematters v7.0.2 prec3dentmatters v7.0.1 c0llapsematters sidebar collapse rail auto-hide v6.3.0 fl0wmatters undo redo notification center configuration history rollback syslog listener posture radar restore drills battery health v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+            <summary><strong>Older releases</strong> &mdash; v7.1.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the three most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -12333,36 +12326,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.3.0-58"></script>
+<script defer src="static/js/app.js?v=7.4.0-1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-cmdb.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-containers.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-network.js?v=7.3.0-58"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-containers.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-network.js?v=7.4.0-1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-compliance.js?v=7.3.0-58"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.0-1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-dns.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-drift.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-cve.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-firewall.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-backups.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-iac.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-proxmox.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-virt.js?v=7.3.0-58"></script>
+<script defer src="static/js/app-ai.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-dns.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-drift.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-cve.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-backups.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-iac.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-virt.js?v=7.4.0-1"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-remote.js?v=7.3.0-58"></script>
-<script defer src="static/js/app-tickets.js?v=7.3.0-58"></script>
+<script defer src="static/js/app-logs.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-remote.js?v=7.4.0-1"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.0-1"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.3.0-58"></script>
+<script defer src="static/js/app-self.js?v=7.4.0-1"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12372,6 +12365,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.3.0-58"></script>
+<script defer src="static/js/sw-register.js?v=7.4.0-1"></script>
 </body>
 </html>

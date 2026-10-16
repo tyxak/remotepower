@@ -66,13 +66,17 @@ def build_fixture(root: Path):
     (root / 'server/html/sw.js').write_text(
         "const CACHE_NAME = 'remotepower-shell-v5.6.0-50';   // bump\n")
 
+    # Every ?v= is in lockstep with CACHE_NAME, on every page: the rule
+    # tests/test_ui_wiring.py TestCacheBustLockstep holds for the real tree.
     (root / 'server/html/index.html').write_text(
-        '<link href="styles.css?v=5.6.0">\n'
-        '<script src="app.js?v=5.6.0-48"></script>\n'
-        '<script src="app-ai.js?v=5.6.0"></script>\n'
+        '<link href="styles.css?v=5.6.0-50">\n'
+        '<script src="app.js?v=5.6.0-50"></script>\n'
+        '<script src="app-ai.js?v=5.6.0-50"></script>\n'
         f'<summary><strong>What\'s new {EM} v5.6.0 "HeapMatters"</strong>'
         '</summary>\n'
         '<a href="docs/security-review-5.2.0.md">old review</a>\n')
+    (root / 'server/html/status.html').write_text(
+        '<link href="status.css?v=5.6.0-50">\n<script src="status.js?v=5.6.0-50"></script>\n')
 
     bullets = '\n'.join(
         f'- **v5.{i}.0 {EM} Name{i}** {EM} blurb for 5.{i}.0.'
@@ -180,10 +184,10 @@ class TestBump(FixtureCase):
         self.assertIn("remotepower-shell-v5.7.0-1'",
                       (self.tmp / 'server/html/sw.js').read_text(),
                       'CACHE_NAME counter must reset to -1')
-        idx = (self.tmp / 'server/html/index.html').read_text()
-        self.assertNotIn('?v=5.6.0', idx)
-        self.assertNotRegex(idx, r'\?v=5\.7\.0-\d')
-        self.assertEqual(idx.count('?v=5.7.0'), 3)
+        # every page's ?v= carries CACHE_NAME's marker, counter included
+        for page, n in (('index.html', 3), ('status.html', 2)):
+            text = (self.tmp / 'server/html' / page).read_text()
+            self.assertEqual(re.findall(r'\?v=([\w.-]+)', text), ['5.7.0-1'] * n, page)
         self.assertIn('version-5.7.0-blue',
                       (self.tmp / 'README.md').read_text())
         self.assertEqual(rc, 1, 'judgment items still missing → exit 1')
@@ -329,7 +333,7 @@ class TestVerify(FixtureCase):
         (self.tmp / 'client/remotepower-agent').write_text('drifted\n')
         idx = self.tmp / 'server/html/index.html'
         idx.write_text(idx.read_text()
-                       .replace('app.js?v=5.6.0-48', 'app.js?v=5.5.0'))
+                       .replace('app.js?v=5.6.0-50', 'app.js?v=5.5.0'))
         ch = self.tmp / 'CHANGELOG.md'
         ch.write_text('# Changelog\n\n## v5.7.0: NoQuotes\n')
         # and overflow the docs cap again
@@ -342,6 +346,18 @@ class TestVerify(FixtureCase):
                      'changelog-top-header'):
             self.assertIn(f'FAIL: {name}', out)
         self.assertIn('stale ?v= versions: 5.5.0', out)
+
+    def test_a_page_other_than_index_out_of_lockstep_fails(self):
+        """The counter matters, and so does every page: status.html on the
+        previous counter serves a stale status.js after a release."""
+        self._make_clean()
+        page = self.tmp / 'server/html/status.html'
+        page.write_text(page.read_text().replace('status.js?v=5.6.0-50', 'status.js?v=5.6.0-49'))
+        self.assertIn('status.js?v=5.6.0-49', page.read_text())
+        rc, out = run(self.root_args('verify'))
+        self.assertEqual(rc, 1, out)
+        self.assertIn('FAIL: index-cache-bust', out)
+        self.assertIn('status.html', out)
 
 
 class TestRealRepoSmoke(unittest.TestCase):

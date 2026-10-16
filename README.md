@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.0 "F1nishMatters"** — a release about finish. It adds no new subsystem:
+  what is already there reads, looks and behaves better in every theme and every
+  language, and each fix comes with a check that keeps it fixed. It also brings
+  two public guides to building the honeypot Worker that RemotePower reads.
 - **v7.3.0 "Edg3Matters"** — threat intel reads the edge. RemotePower can read
   Cloudflare's firewall events and your honeypot Worker's log with a read-only
   token and report what they show, with the evidence: only refusals that mean an
@@ -246,15 +250,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   terminal also verifies a host's SSH key before sending your password, and the
   Data Explorer, risk score, compliance checklist and Prometheus exporter now
   use signals the agents were already sending.
-- **v7.0.2 "Prec3dentMatters"** — the autonomy loop refused everything it looked
-  at, and each reason named a cause it did not have. Precedent could only come
-  from an AI verdict, so a fleet whose incidents people fix scored lower than one
-  with no memory at all; two sweeps already knew when a fix had worked and threw
-  the answer away; "only inside a maintenance window" called a function that does
-  not exist; and `no_verified_backup` refused actions a backup has no bearing on.
-  The catalog is 26 action classes now: two added, five dropped because the alert
-  that triggers them names no host, or the command cannot fix what fired it.
-  Receipts can be cleared, per row or in bulk.
 
 ## Security
 

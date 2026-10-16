@@ -5,6 +5,34 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## v7.4.0 — "F1nishMatters" — unreleased (test)
+
+A release about finish. It adds no new subsystem. What is already there should
+read, look and behave better in every theme and every language, and each fix
+comes with a check that keeps it fixed.
+
+### Guides
+
+- **Run a honeypot Worker on Cloudflare** (`docs/honeypot-worker.md`) and **More
+  traps for your honeypot Worker** (`docs/honeypot-traps.md`): two public guides
+  to building the Worker that RemotePower's Edge sources read. Each script and
+  config is run by the test suite, and each line it prints goes through
+  RemotePower's own reader.
+- The guides after a review: the Worker passes your site's own `robots.txt`
+  answer on unchanged unless it is a file or "there is none", so an outage still
+  tells crawlers to stay out. The decoy lines go into every group of your file,
+  so a crawler with a group of its own is told about them too. A login whose
+  body cannot be read is still logged. A WordPress site is told to delete the
+  two login routes it really serves. "Block what it finds" says that a reported
+  address waits for the next list sync.
+
+### Under the hood
+
+- `tools/release-prep.py bump` stamps every HTML page with the service worker's
+  cache marker, counter included, and `verify` checks every page against it. It
+  used to stamp `index.html` alone and drop the counter, the opposite of what
+  the cache-bust test requires.
+
 ## v7.3.0 — "Edg3Matters" — 2026-10-14
 
 A release about the edge. Threat intel learned about an attacker from your own

@@ -139,10 +139,11 @@ class Bumper(Concern):
                   rf"(CACHE_NAME = 'remotepower-shell-v){VER_RE}(?:-\d+)?(')",
                   rf'\g<1>{version}-1\g<2>')
 
-        # 4. every ?v= cache-bust in index.html (drop -N suffixes)
-        self.edit(self.root / 'server/html/index.html',
-                  rf'\?v={VER_RE}(?:-\d+)?',
-                  f'?v={version}')
+        # 4. every ?v= cache-bust on every HTML page carries CACHE_NAME's
+        #    marker, counter included: the rule TestCacheBustLockstep holds
+        for page in sorted((self.root / 'server/html').glob('*.html')):
+            self.edit(page, rf'\?v={VER_RE}(?:-\d+)?', f'?v={version}-1',
+                      min_hits=1 if page.name == 'index.html' else 0)
 
         # 5. README version badge
         self.edit(self.root / 'README.md',
@@ -536,17 +537,26 @@ class Verifier(Concern):
                    f'{n} bullet(s) (cap {KEEP_RECENT_RELEASES})')
 
     def _cache_bust(self):
-        cur = self._server_version()
-        if cur is None:
-            self.check(False, 'index-cache-bust', 'SERVER_VERSION not found')
+        """Every ?v= on every HTML page equals sw.js CACHE_NAME's marker,
+        counter included, as TestCacheBustLockstep requires of the tree."""
+        sw = self.root / 'server/html/sw.js'
+        m = re.search(r"CACHE_NAME\s*=\s*'remotepower-shell-v([\w.\-]+)'",
+                      sw.read_text() if sw.exists() else '')
+        if not m:
+            self.check(False, 'index-cache-bust', 'sw.js CACHE_NAME not found')
             return
-        text = (self.root / 'server/html/index.html').read_text()
-        vers = set(re.findall(rf'\?v=({VER_RE})(?:-\d+)?', text))
-        stale = sorted(vers - {cur})
+        marker = m.group(1)
+        stale, where = set(), []
+        pages = sorted((self.root / 'server/html').glob('*.html'))
+        for page in pages:
+            bad = set(re.findall(r'\?v=([\w.\-]+)', page.read_text())) - {marker}
+            if bad:
+                stale |= bad
+                where.append(page.name)
         self.check(not stale, 'index-cache-bust',
-                   f'all ?v= strings are v{cur}' if not stale else
-                   f'stale ?v= versions: {", ".join(stale)} '
-                   f'(SERVER_VERSION is {cur})')
+                   f'every ?v= on {len(pages)} page(s) is {marker}' if not stale else
+                   f'stale ?v= versions: {", ".join(sorted(stale))} in '
+                   f'{", ".join(where)} (sw.js CACHE_NAME is {marker})')
 
     def _changelog_header(self):
         text = (self.root / 'CHANGELOG.md').read_text()

@@ -83,6 +83,10 @@ holds long-form docs that don't fit there.
   their address from the request; a crafted SSH user name could make threat
   intel blame someone else; the agent's WebSocket channels followed redirects
   with the device token; and nginx refused every dashboard edit sent with PUT.
+- **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
+  already there reads, looks and behaves better in every theme and language, and
+  each fix comes with a check that keeps it fixed. Includes the two honeypot
+  Worker guides.
 - **[v7.3.0.md](v7.3.0.md)** — "Edg3Matters": threat intel reads Cloudflare's
   firewall events and your honeypot Worker's log, and the host firewall's log.
   Only refusals that mean an attack count; an address your honeypot banned is
@@ -92,11 +96,6 @@ holds long-form docs that don't fit there.
   server, WAF, fail2ban and CrowdSec logs, and reports say what the address
   actually did, once per address. Counts and fixed labels only leave the host;
   the page shows the evidence, what was sent and which logs could not be read.
-- **[v7.1.0.md](v7.1.0.md)** — "G4tewayMatters": the front door. Reach hosts
-  with your own SSH client through one gateway and no inbound port; look up,
-  report and block the addresses brute-forcing them; and see both wherever a
-  host is described. One body size and one heading size, alert rows on one
-  line, and dashboard edits saved with PUT working on a standard nginx install.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
