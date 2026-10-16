@@ -22,6 +22,9 @@ The instance-config dict (stored per-integration in the server config) carries:
 import base64
 import json
 import re
+import socket
+import ssl
+import urllib.error
 import urllib.parse
 
 OK = "ok"
@@ -36,6 +39,44 @@ PASSWORD = "password"
 
 class IntegrationError(Exception):
     """Any failure reaching/parsing a target — caught by the poller → 'critical'."""
+
+
+# What a failed connection says to an operator. A URLError carries the real
+# cause in .reason; the exception's class name and errno are for a developer.
+_NAME_FAILURES = (
+    "name or service not known",
+    "nodename nor servname",
+    "temporary failure in name resolution",
+    "no address associated",
+    "getaddrinfo failed",
+)
+
+
+def describe_network_error(e: BaseException) -> str:
+    """Why a target could not be reached, in words an operator can act on."""
+    if isinstance(e, urllib.error.HTTPError):
+        return "it answered HTTP %d" % e.code
+    reason = getattr(e, "reason", None)
+    cause = reason if isinstance(reason, BaseException) else e
+    raw = str(reason if reason is not None else e).strip()
+    text = raw.lower()
+    if isinstance(cause, socket.gaierror) or any(s in text for s in _NAME_FAILURES):
+        return "the host name does not resolve"
+    if isinstance(cause, ConnectionRefusedError) or "connection refused" in text:
+        return "the connection was refused"
+    if isinstance(cause, TimeoutError) or "timed out" in text:
+        return "it did not answer in time"
+    if isinstance(cause, ssl.SSLCertVerificationError) or "certificate verify failed" in text:
+        return "its certificate was not accepted"
+    if isinstance(cause, ssl.SSLError):
+        return "the TLS handshake failed"
+    if isinstance(cause, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)) or (
+        "reset by peer" in text
+    ):
+        return "the connection was dropped"
+    if "network is unreachable" in text or "no route to host" in text:
+        return "the network is unreachable"
+    return raw[:120] or "the request failed"
 
 
 # v6.4.2: the transport's per-response read budget, declared HERE so the cap and

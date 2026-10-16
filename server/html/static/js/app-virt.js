@@ -81,12 +81,20 @@ async function loadVirtPlatform(id) {
   if (!body) return;
   body.innerHTML = _skeletonBlock();
   let data;
-  try { data = await api('GET', `/virt/${encodeURIComponent(id)}/vms`); }
+  // quiet: this page says what went wrong itself, so the generic toast stays out
+  try { data = await api('GET', `/virt/${encodeURIComponent(id)}/vms`, undefined, {quiet: true}); }
   catch (e) {
     body.innerHTML = `<div class="table-card isl-578">${escHtml(e.message || String(e))}</div>`;
     return;
   }
-  window._virtVms = data.vms || [];
+  // A platform that could not be reached answers {error}. Painting the empty
+  // state for it told the operator the platform had no VMs.
+  if (!data || !Array.isArray(data.vms)) {
+    window._virtVms = [];
+    body.innerHTML = `<div class="table-card isl-578">${escHtml((data && data.error) || 'Could not list the VMs.')}</div>`;
+    return;
+  }
+  window._virtVms = data.vms;
   window._virtPowerActions = data.power_actions || [];
   _renderVirtVmList();
 }

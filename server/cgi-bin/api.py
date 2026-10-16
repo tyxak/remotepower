@@ -27254,8 +27254,8 @@ def _dns_dispatch(inst, op, *args):
         respond(502, {'error': str(e)[:200]})
     except HTTPError:
         raise
-    except Exception as e:   # pragma: no cover - defensive
-        respond(502, {'error': f'{e.__class__.__name__}: {e}'[:200]})
+    except Exception as e:   # a platform that cannot be reached lands here
+        respond(502, {'error': _reach_failure(inst, e)})
 
 
 def handle_dns_blockers():
@@ -27321,6 +27321,15 @@ def _virt_inst(integration_id):
     return inst
 
 
+def _reach_failure(inst, e):
+    """The 502 message for a platform that could not be reached: which one and
+    why, in words. It used to be the exception itself, "URLError: <urlopen error
+    [Errno -2] Name or service not known>"."""
+    label = (inst.get('label') or inst.get('type')) if isinstance(inst, dict) else ''
+    reason = integrations_mod.describe_network_error(e)
+    return ('Could not reach %s: %s' % (label or 'the platform', reason))[:200]
+
+
 def _virt_dispatch(inst, op, *args):
     """Call a hypervisor driver op, translating failures to a 502."""
     _demo = _demo_snapshot(inst, op)
@@ -27332,8 +27341,8 @@ def _virt_dispatch(inst, op, *args):
         respond(502, {'error': str(e)[:200]})
     except HTTPError:
         raise
-    except Exception as e:   # pragma: no cover - defensive
-        respond(502, {'error': f'{e.__class__.__name__}: {e}'[:200]})
+    except Exception as e:   # a platform that cannot be reached lands here
+        respond(502, {'error': _reach_failure(inst, e)})
 
 
 def handle_virt_platforms():

@@ -28,6 +28,11 @@ comes with a check that keeps it fixed.
 
 ### Fixes
 
+- A virtualization platform that cannot be reached says so. The page showed
+  "No VMs.", as if the platform had answered with none; it now shows the
+  reason, in words: "Could not reach vCenter lab: the host name does not
+  resolve", where it used to be a Python exception. DNS blockers word it the
+  same way.
 - Translations reach returning users after an upgrade. Since 6.1.2 the
   dashboard fetched its dictionary from the same address in every release, and
   static files are cached for a year, so a browser that had loaded it once
