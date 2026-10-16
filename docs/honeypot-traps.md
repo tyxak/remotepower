@@ -143,6 +143,7 @@ function fakeEnv(env) {
 
 // Was the planted password sent? The header is read for any trap. A body is read only
 // for a POST to a login page, only up to 4 KB, only to compare it, and is never logged.
+// A body that cannot be read is no match, so the visit is still logged and answered.
 async function usedPlanted(request, pw, withBody) {
   if (!pw) return false;
   const auth = request.headers.get("authorization") || "";
@@ -156,12 +157,11 @@ async function usedPlanted(request, pw, withBody) {
   if (!withBody || request.method !== "POST") return false;
   const length = Number(request.headers.get("content-length"));
   if (!(length > 0 && length <= 4096)) return false;
-  const text = await request.text();
-  if (text.includes(pw)) return true;
   try {
-    return decodeURIComponent(text.replace(/\+/g, " ")).includes(pw);
+    const text = await request.text();
+    return text.includes(pw) || decodeURIComponent(text.replace(/\+/g, " ")).includes(pw);
   } catch (e) {
-    return false;
+    return false; // the body did not arrive, or is not valid percent-encoding
   }
 }
 

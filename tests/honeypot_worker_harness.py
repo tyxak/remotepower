@@ -4,7 +4,8 @@ Shared by the tests of docs/honeypot-worker.md and docs/honeypot-traps.md. It is
 not a test module: both guides hand a stranger a script to paste, so the script is executed,
 and what it prints is the input the tests give to RemotePower's own reader.
 
-The request is a plain object with no body methods unless a case gives a `body`. A script
+The request is a plain object with no body methods unless a case gives a `body` (or
+`bodyFail`, a body whose read fails). A script
 that reads a body it should not throws here, which is how "never reads a request body" is
 pinned. `fetch` is a stub standing in for the visitor's site: the number of times one visit
 calls it (`fetched`, counted again from zero for each visit) is what tells a decoy answer (0)
@@ -116,7 +117,13 @@ for (const c of cases) {
   console.log = (...a) => { logs.push(a.join(' ')); };
   Date.now = c.now === undefined ? realNow : () => c.now;
   const req = { url: c.url, method: c.method || 'GET', headers: new Headers(c.headers || {}), cf: c.cf };
-  if (c.body !== undefined) req.text = async () => { bodyReads += 1; return c.body; };
+  if (c.body !== undefined || c.bodyFail) {
+    req.text = async () => {
+      bodyReads += 1;
+      if (c.bodyFail) throw new TypeError('Network connection lost.');
+      return c.body;
+    };
+  }
   let out;
   try {
     const res = await worker.fetch(req, c.env === undefined ? {} : c.env);
@@ -133,8 +140,9 @@ process.stdout.write(JSON.stringify(results));
 
 
 def run(script, cases):
-    """Each case is a dict: url, method, headers, cf, env, now, body, originBody,
-    originStatus, originFail. Returns one result per case, in order."""
+    """Each case is a dict: url, method, headers, cf, env, now, body, bodyFail (the read
+    of the body fails, as when the client drops the upload), originBody, originStatus,
+    originFail. Returns one result per case, in order."""
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         (td / 'worker.mjs').write_text(script)

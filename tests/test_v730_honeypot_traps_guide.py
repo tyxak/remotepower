@@ -202,6 +202,10 @@ class TestTheScriptRuns(unittest.TestCase):
         add('c_basic_bad', C('/phpmyadmin/', headers={'authorization': 'Basic !!!not-base64'}, env=ENV))
         add('c_bad_percent', C('/wp-login.php', method='POST', headers={'content-length': '7'},
                                body='%E0%A4%A', env=ENV))
+        add('c_post_lost', C('/wp-login.php', method='POST', headers={'content-length': '40'},
+                             bodyFail=True, env=ENV))
+        add('d_post_lost', C('/login', host=DECOY, method='POST', headers={'content-length': '40'},
+                             bodyFail=True, env=ENV))
         # decoy hosts
         add('d_get', C('/', host=DECOY, env=ENV))
         add('d_path', C('/admin/users', host=DECOY, env=ENV))
@@ -431,6 +435,16 @@ class TestTheScriptRuns(unittest.TestCase):
     def test_a_malformed_body_or_header_is_not_an_error(self):
         self.assertNotIn('error', self.r('c_bad_percent'))
         self.assertEqual(self.kind('c_bad_percent'), 'login')
+
+    def test_a_body_that_cannot_be_read_is_still_logged_and_answered(self):
+        """A client that drops its upload makes the read fail. The visit is still a hit,
+        and the visitor still gets the fake page, not an error that gives the trap away."""
+        for n, kind in (('c_post_lost', 'login'), ('d_post_lost', 'decoy_login')):
+            r = self.r(n)
+            self.assertNotIn('error', r, n)
+            self.assertEqual(r['bodyReads'], 1, n)
+            self.assertEqual(self.kind(n), kind, n)
+            self.assertIn('type="password"', r['body'], n)
 
     # decoy hosts ------------------------------------------------------------------
 
