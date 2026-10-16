@@ -1755,11 +1755,8 @@ async function api(method, path, body, extra) {
     try {
       const parsed = await r.clone().json();
       if (parsed && parsed.demo) {
-        if (typeof toast === 'function') {
-          toast('Demo mode — read-only sandbox. Nothing was changed.', 'error');
-        } else {
-          alert(parsed.error || 'Read-only demo mode.');
-        }
+        // toast is a function declaration in this file, so it is always there
+        toast('Demo mode — read-only sandbox. Nothing was changed.', 'error');
         return parsed;
       }
       // v3.0.3: F2 interceptor returns must_change_password: true on

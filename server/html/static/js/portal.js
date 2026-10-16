@@ -18,6 +18,12 @@
   }
   function show(id) { $(id).classList.remove('hidden'); }
   function hide(id) { $(id).classList.add('hidden'); }
+  // A failed action shows its reason on the page. A native alert() is
+  // suppressed by browsers after a few in a row and cannot be styled.
+  function say(msg) {
+    $('portal-status').textContent = msg || '';
+    if (msg) { show('portal-status'); } else { hide('portal-status'); }
+  }
   function fmt(ts) { return ts ? new Date(ts * 1000).toLocaleString() : ''; }
 
   // ── sign-in ────────────────────────────────────────────────────────────
@@ -47,6 +53,7 @@
 
   // ── tickets ────────────────────────────────────────────────────────────
   function loadTickets() {
+    say('');
     hide('ticket-detail'); hide('new-ticket'); show('ticket-list');
     api('GET', '/tickets').then(function (r) {
       var box = $('ticket-list');
@@ -70,13 +77,14 @@
     e.preventDefault();
     api('POST', '/tickets', { subject: $('nt-subject').value.trim(), message: $('nt-message').value.trim() }).then(function (r) {
       if (r.ok) { $('nt-subject').value = ''; $('nt-message').value = ''; loadTickets(); }
-      else { alert((r.data && r.data.error) || 'Could not open ticket.'); }
+      else { say((r.data && r.data.error) || 'Could not open ticket.'); }
     });
   });
 
   function openTicket(num) {
     api('GET', '/tickets/' + encodeURIComponent(num)).then(function (r) {
-      if (!r.ok) { alert('Could not open ticket.'); return; }
+      if (!r.ok) { say('Could not open ticket.'); return; }
+      say('');
       var t = r.data.ticket || {};
       hide('ticket-list'); hide('new-ticket'); show('ticket-detail');
       $('td-subject').textContent = '#' + num + ' ' + (t.subject || '');
@@ -91,7 +99,7 @@
         if (!msg) { return; }
         api('POST', '/tickets/' + encodeURIComponent(num) + '/reply', { message: msg }).then(function (rr) {
           if (rr.ok) { $('td-reply').value = ''; openTicket(num); }
-          else { alert((rr.data && rr.data.error) || 'Could not send reply.'); }
+          else { say((rr.data && rr.data.error) || 'Could not send reply.'); }
         });
       };
     });
