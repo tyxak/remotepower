@@ -224,7 +224,7 @@ async function triggerCVEScan(devId, btn) {
   const finish = (st) => {
     if (btn) {
       btn.disabled = false;
-      btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
+      btn.style.color = _textInk((st && st.errors) ? 'var(--red-ink)' : 'var(--green-ink)');
       setTimeout(() => { if (btn.isConnected) { btn.innerHTML = origText; btn.style.color = ''; } }, 4000);
     }
     if (st && !st.running) {

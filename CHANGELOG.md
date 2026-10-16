@@ -28,6 +28,15 @@ comes with a check that keeps it fixed.
 
 ### Interface
 
+- Text is readable in every theme. Eleven of the thirteen themes had text
+  below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
+  grey metadata to status words: Nord's red text was 2.45:1 on its own panels,
+  and the orange "high" badge 2.05:1 in a light theme. Each theme now carries
+  a text shade of each status colour next to the colour itself, so a red dot
+  stays the same red and the word beside it is a shade you can read. Two tests
+  hold it: one computes every theme's text colours against every background
+  they are painted on, and one measures the real pages in each theme in the
+  browser.
 - The in-app documentation viewer reads a wrapped paragraph as one, as GitHub
   and the wiki do. It broke every line where the source wraps at 80 columns,
   so most guides read with a break mid-sentence. The AI chat and the

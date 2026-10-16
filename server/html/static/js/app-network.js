@@ -1341,7 +1341,7 @@ function linksToggleEditMode() {
     btn.textContent = _linksEditMode ? 'Done editing' : 'Edit mode';
     btn.style.background = _linksEditMode ? 'rgba(59,126,255,0.12)' : '';
     btn.style.borderColor = _linksEditMode ? 'var(--accent)' : '';
-    btn.style.color = _linksEditMode ? 'var(--accent)' : '';
+    btn.style.color = _textInk(_linksEditMode ? 'var(--accent)' : '');
   }
   renderLinks();
 }

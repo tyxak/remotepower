@@ -180,13 +180,13 @@ async function testProxmoxConnection() {
     const r = await api('POST', '/proxmox/test', _collectProxmoxForm());
     if (r && r.ok) {
       resultEl.textContent = '✓ ' + (r.message || 'Connected');
-      resultEl.style.color = 'var(--green)';
+      resultEl.style.color = 'var(--green-ink)';
     } else {
       resultEl.textContent = '✗ ' + ((r && r.message) || 'Connection failed');
-      resultEl.style.color = 'var(--red)';
+      resultEl.style.color = 'var(--red-ink)';
     }
   } catch (e) {
     resultEl.textContent = '✗ ' + (e.message || String(e));
-    resultEl.style.color = 'var(--red)';
+    resultEl.style.color = 'var(--red-ink)';
   }
 }

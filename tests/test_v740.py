@@ -139,6 +139,13 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v730_honeypot_guide.py",
         "tests/test_v730_honeypot_traps_guide.py",
         "tests/test_release_prep.py",
+        "tests/test_v740_no_native_dialogs.py",
+        "tests/test_v740_i18n_url_is_versioned.py",
+        "tests/test_v740_unreachable_platform.py",
+        "tests/test_v740_css_dead_classes.py",
+        "tests/test_v740_data_dir_restored.py",
+        "tests/test_v740_theme_contrast.py",
+        "tests/test_v740_theme_contrast_e2e.py",
     )
 
     def test_every_guard_file_exists(self):

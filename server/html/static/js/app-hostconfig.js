@@ -470,10 +470,10 @@ async function csGenerateWithAI() {
     const cleaned = text.replace(/^```(?:bash|sh)?\n?/m, '').replace(/\n?```$/m, '').trim();
     document.getElementById('cs-modal-body').value = cleaned;
     status.textContent = '✓ Script generated — review before saving';
-    status.style.color = 'var(--green)';
+    status.style.color = 'var(--green-ink)';
   } catch (e) {
     status.textContent = `✗ ${e.message || 'AI generation failed'}`;
-    status.style.color = 'var(--red)';
+    status.style.color = 'var(--red-ink)';
   }
 }
 

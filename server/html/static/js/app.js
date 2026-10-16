@@ -1456,7 +1456,7 @@ function _buildAppearancePicker() {
     const b = document.createElement('button');
     b.className = 'accent-swatch' + (name === cur ? ' sel' : '');
     b.style.background = _ACCENT_COLORS[name];   // CSP-safe: set via JS, not inline attr
-    b.style.color = _ACCENT_COLORS[name];
+    b.style.color = _textInk(_ACCENT_COLORS[name]);
     b.title = name;
     b.setAttribute('aria-label', 'Accent ' + name);
     b.dataset.action = 'setAccentUI';
@@ -5939,12 +5939,12 @@ async function testSmtp() {
     if (data.ok) {
       const list = (data.recipients || []).join(', ');
       resultEl.style.background = 'rgba(34,197,94,0.1)';
-      resultEl.style.color = 'var(--green)';
+      resultEl.style.color = 'var(--green-ink)';
       resultEl.textContent = `✓ Test email sent to: ${list}`;
       toast('Test email sent', 'success');
     } else {
       resultEl.style.background = 'rgba(239,68,68,0.1)';
-      resultEl.style.color = 'var(--red)';
+      resultEl.style.color = 'var(--red-ink)';
       resultEl.textContent = `✕ ${data.error || 'unknown error'}`;
       toast(`SMTP test failed: ${data.error || 'unknown'}`, 'error');
     }
@@ -5975,7 +5975,7 @@ async function testPushChannel() {
   if (!data || !resultEl) return;
   resultEl.style.display = 'block';
   resultEl.textContent = data.detail || (data.reachable ? 'Daemon reachable.' : 'Daemon unreachable.');
-  resultEl.style.color = data.reachable ? 'var(--green)' : 'var(--red)';
+  resultEl.style.color = _textInk(data.reachable ? 'var(--green-ink)' : 'var(--red-ink)');
 }
 async function testLdap() {
   const resultEl = document.getElementById('cfg-ldap-test-result');
@@ -5996,11 +5996,11 @@ async function testLdap() {
   resultEl.style.display = 'block';
   if (data.ok) {
     resultEl.style.background = 'rgba(34,197,94,0.1)';
-    resultEl.style.color = 'var(--green)';
+    resultEl.style.color = 'var(--green-ink)';
     resultEl.textContent = `✓ ${data.detail || 'OK'}`;
   } else {
     resultEl.style.background = 'rgba(239,68,68,0.1)';
-    resultEl.style.color = 'var(--red)';
+    resultEl.style.color = 'var(--red-ink)';
     resultEl.textContent = `✕ ${data.detail || 'failed'}`;
   }
 }
@@ -6025,7 +6025,7 @@ async function runLdapTestUser() {
   if (!data) return;
   if (data.ok) {
     resultEl.style.background = 'rgba(34,197,94,0.1)';
-    resultEl.style.color = 'var(--green)';
+    resultEl.style.color = 'var(--green-ink)';
     resultEl.innerHTML = `✓ Authenticated successfully<br>` +
       `<span class="isl-341">DN: ${escHtml(data.dn)}<br>` +
       `Role: ${escHtml(data.role)}<br>` +
@@ -6034,7 +6034,7 @@ async function runLdapTestUser() {
       `</span>`;
   } else {
     resultEl.style.background = 'rgba(239,68,68,0.1)';
-    resultEl.style.color = 'var(--red)';
+    resultEl.style.color = 'var(--red-ink)';
     resultEl.textContent = `✕ ${data.error || 'unknown error'}`;
   }
 }
@@ -7982,7 +7982,7 @@ function _renderAboutTip() {
 }
 function nextAboutTip() { _renderAboutTip(); }
 
-async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
+async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber-ink)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green-ink)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!await uiConfirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -15364,7 +15364,7 @@ function _renderLintIntoBox(boxId, lint) {
     lint.dangerous.forEach(d => { body += '\n  • ' + d; });
   }
   el.style.background = bg;
-  el.style.color = fg;
+  el.style.color = _textInk(fg);
   el.textContent = body;
   el.style.display = 'block';
 }
@@ -21900,7 +21900,7 @@ async function forcePackageScan(devId, name, btn) {
     const msg = r?.message || 'Package scan queued — fresh list within ~60s';
     if (btn) {
       btn.textContent    = ok ? 'Queued' : 'Failed';
-      btn.style.color    = ok ? 'var(--green)' : 'var(--red)';
+      btn.style.color    = _textInk(ok ? 'var(--green-ink)' : 'var(--red-ink)');
       btn.style.opacity  = '1';
       btn.style.cursor   = 'default';
       btn.disabled       = false;
@@ -21910,7 +21910,7 @@ async function forcePackageScan(devId, name, btn) {
   } catch (e) {
     if (btn) {
       btn.textContent    = '✗ Error';
-      btn.style.color    = 'var(--red)';
+      btn.style.color    = 'var(--red-ink)';
       btn.style.opacity  = '1';
       btn.style.cursor   = 'default';
       btn.disabled       = false;
@@ -28499,7 +28499,7 @@ async function _wolWithMacCheck(id, name, btn) {
   const _wolDone = (ok, msg) => {
     if (btn) {
       btn.textContent = ok ? '✓ Sent' : '✗ Failed';
-      btn.style.color = ok ? 'var(--green)' : 'var(--red)';
+      btn.style.color = _textInk(ok ? 'var(--green-ink)' : 'var(--red-ink)');
       btn.disabled = false;
       setTimeout(() => { if (btn.isConnected) { btn.textContent = _origText; btn.style.color = ''; } }, 4000);
     }
@@ -31611,11 +31611,19 @@ async function removeEmailRoute(idx) {
 // because CSS can't carry JS expressions. Templates that used those
 // classes now also carry `data-color="<value>"` and a MutationObserver
 // applies the value via the CSP-safe element.style IDL setter.
+// v7.4.0: a status colour is also a fill (a dot, a bar, a border), and as a fill it
+// keeps its hue. As TEXT it has to clear WCAG AA on the theme's surfaces, so
+// data-color, which always sets text colour, gets the colour's -ink token.
+// styles.css computes one per palette (test_v740_theme_contrast holds them).
+const _TEXT_INK = { 'var(--red)': 'var(--red-ink)', 'var(--green)': 'var(--green-ink)',
+  'var(--amber)': 'var(--amber-ink)', 'var(--orange)': 'var(--orange-ink)',
+  '#d4a017': 'var(--amber-ink)', '#ff8c00': 'var(--orange-ink)' };
+function _textInk(c) { return _TEXT_INK[String(c).trim()] || c; }
 const _dynColorObserver = new MutationObserver((muts) => {
   for (const m of muts) {
     for (const node of m.addedNodes) {
       if (node.nodeType !== 1) continue;
-      if (node.dataset?.color) node.style.color = node.dataset.color;
+      if (node.dataset?.color) node.style.color = _textInk(node.dataset.color);
       if (node.dataset?.bg) node.style.background = node.dataset.bg;
       if (node.dataset?.bd) node.style.border = '1px solid ' + node.dataset.bd;
       if (node.dataset?.bdStyle && node.dataset?.bdColor) {
@@ -31627,7 +31635,7 @@ const _dynColorObserver = new MutationObserver((muts) => {
       // v3.4.2: data-h → pixel height (compliance trend spark bars)
       if (node.dataset?.h) node.style.height = node.dataset.h + 'px';
       if (node.querySelectorAll) {
-        node.querySelectorAll('[data-color]').forEach(el => { el.style.color = el.dataset.color; });
+        node.querySelectorAll('[data-color]').forEach(el => { el.style.color = _textInk(el.dataset.color); });
         node.querySelectorAll('[data-bg]').forEach(el => { el.style.background = el.dataset.bg; });
         node.querySelectorAll('[data-bd]').forEach(el => { el.style.border = '1px solid ' + el.dataset.bd; });
         node.querySelectorAll('[data-bd-style][data-bd-color]').forEach(el => {

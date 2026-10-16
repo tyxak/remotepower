@@ -145,10 +145,10 @@ function onAIProviderChange() {
       embHint.style.color = 'var(--muted)';
     } else if (embLocal) {
       embHint.textContent = `Local embedding provider${via} — embeddings stay on-prem, no data egress. Recommended.`;
-      embHint.style.color = 'var(--green)';
+      embHint.style.color = 'var(--green-ink)';
     } else {
       embHint.textContent = `Embeddings send indexed content to ${embProvider}${via} (data egress). Leave off if that's a concern.`;
-      embHint.style.color = 'var(--amber, var(--muted))';
+      embHint.style.color = 'var(--amber-ink)';
     }
   }
 }
@@ -172,7 +172,7 @@ async function loadRAGStatus() {
   if (s.embedded)  bits.push(`${s.embedded} embedded (${s.emb_model || 'semantic'})`);
   if (s.stale)     bits.push('— sources changed since last build');
   el.textContent = bits.join(' · ');
-  el.style.color = s.stale ? 'var(--amber, var(--muted))' : 'var(--muted)';
+  el.style.color = _textInk(s.stale ? 'var(--amber-ink)' : 'var(--muted)');
   // v4.1.0: offer the pgvector switch only when the storage backend is Postgres.
   const btn = document.getElementById('ai-rag-backend-btn');
   const hint = document.getElementById('ai-rag-backend-hint');
@@ -259,7 +259,7 @@ async function aiRagReindex() {
   if (el) { el.textContent = 'Rebuilding index…'; el.style.color = 'var(--muted)'; }
   // Persist any unsaved config first — reindex reads server-side config.
   const saved = await saveAISettings();
-  if (!saved) { if (el) { el.textContent = '(save failed)'; el.style.color = 'var(--red)'; } return; }
+  if (!saved) { if (el) { el.textContent = '(save failed)'; el.style.color = 'var(--red-ink)'; } return; }
   const r = await api('POST', '/ai/rag/reindex', {});
   if (r && r.ok) {
     let msg = `Rebuilt: ${r.docs} chunks in ${r.elapsed_ms} ms`;
@@ -269,7 +269,7 @@ async function aiRagReindex() {
     loadRAGStatus();
   } else {
     toast('Reindex: ' + (r?.error || 'unknown error'), 'error');
-    if (el) { el.textContent = '✗ ' + (r?.error || 'failed'); el.style.color = 'var(--red)'; }
+    if (el) { el.textContent = '✗ ' + (r?.error || 'failed'); el.style.color = 'var(--red-ink)'; }
   }
 }
 
@@ -435,14 +435,14 @@ async function testAIConnection() {
   // Save first if there are unsaved changes — the test endpoint reads
   // from server-side config, not whatever's in the form.
   const saved = await saveAISettings();
-  if (!saved) { out.textContent = '(save failed)'; out.style.color = 'var(--red)'; return; }
+  if (!saved) { out.textContent = '(save failed)'; out.style.color = 'var(--red-ink)'; return; }
   const resp = await api('POST', '/ai/test', {});
   if (resp && resp.ok) {
     out.textContent = `✓ ${resp.model || ''} responded (${resp.tokens_in}+${resp.tokens_out} tokens)`;
-    out.style.color = 'var(--green)';
+    out.style.color = 'var(--green-ink)';
   } else {
     out.textContent = '✗ ' + (resp?.error || 'unknown error');
-    out.style.color = 'var(--red)';
+    out.style.color = 'var(--red-ink)';
   }
 }
 
