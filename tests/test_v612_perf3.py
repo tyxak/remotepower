@@ -193,7 +193,10 @@ class TestEagerJsPayload(unittest.TestCase):
 
     def test_it_is_loaded_on_demand(self):
         self.assertIn('function _ensureI18n', self.app)
-        self.assertIn("static/js/i18n.js?v=", self.app)
+        # v7.4.0: the versioned URL lives in index.html, where the cache-bust
+        # tools stamp it; the loader reads it (test_v740_i18n_url_is_versioned).
+        self.assertIn('meta[name="rp-i18n"]', self.app)
+        self.assertRegex(self.html, r'<meta name="rp-i18n" content="static/js/i18n\.js\?v=')
 
     def test_all_three_triggers_are_wired(self):
         """Miss any one and the feature becomes unreachable rather than merely

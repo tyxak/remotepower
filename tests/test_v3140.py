@@ -1366,7 +1366,9 @@ class TestI18nWiring(unittest.TestCase):
         get their language, and an English user must still be able to CHOOSE one
         (the language <select> is populated by i18n.js's own init())."""
         self.assertIn('function _ensureI18n', self.JS)
-        self.assertIn('static/js/i18n.js?v=', self.JS)
+        # v7.4.0: the versioned URL is in index.html's rp-i18n meta, read by the loader.
+        self.assertIn('meta[name="rp-i18n"]', self.JS)
+        self.assertRegex(self.HTML, r'<meta name="rp-i18n" content="static/js/i18n\.js\?v=')
         self.assertIn("localStorage.getItem('rp_lang')", self.JS)
 
     def test_language_card_present(self):

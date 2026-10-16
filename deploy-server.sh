@@ -474,10 +474,18 @@ PYEOF
 # unregister the service worker — the ?v=<server_version> query string
 # only bumps when SERVER_VERSION bumps, not when code changes.
 #
-# Each `<script src="static/X.js?v=...">` and `<link href="static/X.css?v=...">`
-# reference in the *deployed* index.html gets rewritten to carry the
-# first 12 chars of the SHA-256 of that file's content. The repo's
-# index.html is left untouched (tests assert ?v=<SERVER_VERSION> there).
+# Each `<link href="static/X.css?v=...">` and the dictionary's
+# `<meta name="rp-i18n" content="static/js/i18n.js?v=...">` in the *deployed*
+# index.html gets rewritten to carry the first 12 chars of the SHA-256 of that
+# file's content. The repo's index.html is left untouched (tests assert the
+# release marker there).
+#
+# Scripts keep the release marker (?v=X.Y.Z-N), which is bumped on every asset
+# change. Lazy-loaded modules take their ?v= from app.js's tag
+# (_jsBundleVersion), and the sidebar's version pill reads the version out of
+# it, so a content hash on app.js would leave the pill blank and a changed lazy
+# module on its old URL. (Until 7.4.0 a `<script\s+src=` pattern was here; every
+# tag is `<script defer src=`, so it matched nothing and this was already so.)
 info "Rewriting ?v= query strings to per-file content hashes..."
 python3 - << 'PYEOF'
 import hashlib, re
@@ -506,10 +514,10 @@ def _replace(match: re.Match) -> str:
     edits += 1
     return f'{tag}"{rel}?v={h}"'
 
-# <script src="static/…?v=…">
-html = re.sub(r'(<script\s+src=)"((?:static|/static)/[^"?]+)\?v=[^"]+"', _replace, html)
 # <link  href="static/…?v=…">
 html = re.sub(r'(<link [^>]*href=)"((?:static|/static)/[^"?]+)\?v=[^"]+"', _replace, html)
+# <meta name="rp-i18n" content="static/…?v=…">: the dictionary app.js loads on demand
+html = re.sub(r'(<meta name="rp-i18n" content=)"((?:static|/static)/[^"?]+)\?v=[^"]+"', _replace, html)
 
 INDEX.write_text(html)
 print(f"  Rewrote {edits} ?v= reference(s) in deployed index.html to content hashes")

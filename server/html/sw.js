@@ -27,7 +27,7 @@ const CACHE_NAME = 'remotepower-shell-v7.4.0-1';   // bump on every asset change
 const SHELL_ASSETS = [
   '/',
   '/index.html',
-  // v6.1.2 (perf #8): i18n.js (~776 KB) is NOT precached. It is no longer part of
+  // v6.1.2 (perf #8): i18n.js (every language, the largest asset) is NOT precached. It is no longer part of
   // "the minimum set needed for the app to load" — the app renders in English
   // without it, and it is fetched on demand only when the language isn't English.
   // Precaching it here would have quietly re-downloaded the whole translation

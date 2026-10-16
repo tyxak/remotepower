@@ -28,6 +28,11 @@ comes with a check that keeps it fixed.
 
 ### Fixes
 
+- Translations reach returning users after an upgrade. Since 6.1.2 the
+  dashboard fetched its dictionary from the same address in every release, and
+  static files are cached for a year, so a browser that had loaded it once
+  could keep an older set of translations. The address now changes with each
+  release, and `deploy-server.sh` gives it the file's content hash.
 - Threat intel's **Ignore** button refuses an address that is not public. Such
   an address is never looked up, reported or blocked, so the entry it stored
   could never match anything. The Settings list can still name private networks.

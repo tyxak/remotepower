@@ -1608,7 +1608,7 @@ function _rpLoad(d) {
 }
 
 // ─── v6.1.2 (perf #8): load i18n.js on demand ──────────────────────────────
-// i18n.js is ~776 KB — the second-largest asset after app.js itself — and it is
+// i18n.js holds every language — the largest asset the dashboard has — and it is
 // pure dead weight for an English user, which is the default and the large
 // majority of loads. It is no longer an eager <script> in index.html; it is
 // fetched only when a non-English language is actually in play.
@@ -1628,9 +1628,12 @@ function _ensureI18n() {
   if (_i18nPromise) return _i18nPromise;
   _i18nPromise = new Promise(resolve => {
     const sc = document.createElement('script');
-    // Same cache-bust as every other asset — a stale i18n.js after a release
-    // would show the previous version's strings.
-    sc.src = 'static/js/i18n.js?v=' + (window.RP_VERSION || '6.1.2');
+    // The URL comes from index.html, where the cache-bust tools and the
+    // deploy rewrite stamp it with every release. /static/ is cached
+    // immutably, so a URL that never changes serves an old dictionary for a
+    // year: it was 'i18n.js?v=6.1.2' on every install from 6.1.2 to 7.3.0.
+    const meta = document.querySelector('meta[name="rp-i18n"]');
+    sc.src = (meta && meta.content) || 'static/js/i18n.js';
     sc.onload = () => resolve(window.RPi18n || null);
     // Never leave a caller hanging on a missing/blocked file: resolve null and
     // stay in English rather than deadlocking the language picker.
