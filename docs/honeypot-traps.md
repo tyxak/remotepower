@@ -224,10 +224,35 @@ function decoy(env, shape, path, missing) {
   return page("Not found\n", text, 404);
 }
 
-// robots.txt: your own file, with the decoy paths added as a group of their own. Only a
-// file is added to. When your site has none (404 or 410) the decoys go alone. Any other
-// answer goes back unchanged: a 5xx tells crawlers to stay out until your site answers,
-// and a redirect points them at the file to read.
+// Your own robots.txt with the decoy lines added to each group in it, right under its
+// User-agent lines. A crawler that finds a group for itself reads only that group, so a
+// decoy left out of it would not be off limits to that crawler. A file with no
+// `User-agent: *` group gets one for every other crawler.
+function withDecoys(text, lines) {
+  const out = [];
+  let agent = -1;
+  let everyone = false;
+  for (const line of text.split("\n")) {
+    const bare = line.replace(/#.*/, "").trim();
+    if (/^user[- ]?agent\s*:/i.test(bare)) {
+      agent = out.length;
+      if (/:\s*\*$/.test(bare)) everyone = true;
+    } else if (bare && agent >= 0) {
+      out.splice(agent + 1, 0, ...lines);
+      agent = -1;
+    }
+    out.push(line);
+  }
+  if (agent >= 0) out.splice(agent + 1, 0, ...lines);
+  const own = out.join("\n").trimEnd();
+  if (everyone) return own + "\n";
+  return (own ? own + "\n\n" : "") + "User-agent: *\n" + lines.join("\n") + "\n";
+}
+
+// robots.txt: your own file with the decoys added. Only a file is added to. When your
+// site has none (404 or 410) the decoys go alone. Any other answer goes back unchanged:
+// a 5xx tells crawlers to stay out until your site answers, and a redirect points them
+// at the file to read.
 async function robots(request) {
   const lines = TRAPS.filter(([k]) => k === "robots").map(([, p]) => "Disallow: " + p);
   if (!lines.length) return fetch(request);
@@ -235,13 +260,12 @@ async function robots(request) {
   let text = "";
   try {
     site = await fetch(request);
-    if (site.ok) text = (await site.text()).trimEnd();
+    if (site.ok) text = await site.text();
   } catch (e) {
     return page("Service unavailable\n", "text/plain; charset=utf-8", 503);
   }
   if (!site.ok && site.status !== 404 && site.status !== 410) return site;
-  const base = text ? text + "\n\n" : "";
-  return page(base + "User-agent: *\n" + lines.join("\n") + "\n", "text/plain; charset=utf-8");
+  return page(withDecoys(text, lines), "text/plain; charset=utf-8");
 }
 
 export default {
@@ -369,7 +393,7 @@ Ask for each trap in another terminal and watch the `kind` in the log:
 | Ask for | You should see | `kind` |
 |---|---|---|
 | `curl -i https://example.com/.git/refs/heads/main` | A 40 character hash | `gitdump` |
-| `curl https://example.com/robots.txt` | Your own file, with a `User-agent: *` group of `Disallow:` lines added at the end | No line: the file is the bait, not a hit |
+| `curl https://example.com/robots.txt` | Your own file, with the decoy `Disallow:` lines added under each `User-agent:` group. A file with no `User-agent: *` group gets one at the end | No line: the file is the bait, not a hit |
 | `curl -i https://example.com/old-backups/` | A `404` | `robots` |
 | `curl https://example.com/backups/` | A directory listing | `mazeentry` |
 | `curl https://example.com/backups/db/` | A listing of two archives | `maze` |

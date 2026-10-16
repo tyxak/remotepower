@@ -22,6 +22,7 @@ import shlex
 import sys
 import tomllib
 import unittest
+import urllib.robotparser
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -41,6 +42,18 @@ PW = 'Zk3-Qw9_Lm4xT7vB2n'
 DECOY = 'vpn-portal.example.com'
 # What a site may answer for /robots.txt, other than the file itself.
 ROBOTS_STATUSES = (301, 302, 304, 400, 401, 403, 404, 410, 429, 500, 502, 503)
+# Shapes a site's own robots.txt takes, the crawlers they speak to, and paths of the site.
+ROBOTS_FILES = {
+    'named': 'User-agent: Googlebot\nDisallow: /tmp/\n',
+    'mixed': ('# our rules\nUser-agent: Googlebot\nUser-agent: Bingbot\nCrawl-delay: 5\nDisallow: /tmp/\n\n'
+              'User-agent: *\nDisallow: /admin/\nAllow: /admin/help\n\n'
+              'Sitemap: https://example.com/sitemap.xml\n'),
+    'crlf': 'User-agent: Googlebot\r\nDisallow: /tmp/\r\n\r\nUser-agent: *\r\nDisallow: /admin/\r\n',
+    'agents_only': 'User-agent: Googlebot\nDisallow: /tmp/\n\nUser-agent: BadBot\n',
+    'split_agents': 'User-agent: Googlebot\n\nuser-agent: Bingbot\nDisallow: /tmp/\n',
+}
+AGENTS = ('Googlebot', 'Bingbot', 'BadBot', 'SomeOtherBot')
+OWN_PATHS = ('/', '/about', '/tmp/x', '/admin/x', '/admin/help', '/backups/', '/old-backups')
 ENV = {'CANARY_PASSWORD': PW, 'DECOY_HOSTS': DECOY + ', other.example.com', 'ALLOW': '203.0.113.7, 2001:DB8::1'}
 
 
@@ -80,6 +93,20 @@ _table = H.table
 
 def _kinds_in(cell):
     return re.findall(r'`(\w+)`', cell)
+
+
+def _robots(text):
+    """A robots.txt as Python's parser reads it: a crawler gets the group that names it,
+    and the `*` group only when none does."""
+    rp = urllib.robotparser.RobotFileParser()
+    rp.parse(text.splitlines())
+    return rp
+
+
+def _in_order(needles, hay):
+    """Every needle is in hay, in the same order."""
+    rest = iter(hay)
+    return all(any(n == h for h in rest) for n in needles)
 
 
 def _check_rows():
@@ -137,6 +164,8 @@ class TestTheScriptRuns(unittest.TestCase):
             add(n, C(p, env=ENV))
         # robots.txt
         add('robots_own', C('/robots.txt', originBody='User-agent: Googlebot\nDisallow: /tmp/\n'))
+        for name, text in ROBOTS_FILES.items():
+            add('robots_file:' + name, C('/robots.txt', originBody=text))
         for st in ROBOTS_STATUSES:
             add('robots_status:%d' % st, C('/robots.txt', originStatus=st,
                                            originBody=None if st == 304 else 'site answer %d' % st))
@@ -281,14 +310,40 @@ class TestTheScriptRuns(unittest.TestCase):
 
     # robots.txt -----------------------------------------------------------------
 
-    def test_robots_txt_is_your_own_file_with_a_group_added_and_is_not_a_hit(self):
+    def test_robots_txt_is_your_own_file_with_the_decoys_added_and_is_not_a_hit(self):
         r = self.r('robots_own')
         self.assertEqual(r['logs'], [])
-        self.assertTrue(r['body'].startswith('User-agent: Googlebot\nDisallow: /tmp/\n'))
+        self.assertTrue(_in_order(['User-agent: Googlebot', 'Disallow: /tmp/'], r['body'].split('\n')))
         group = r['body'].split('\n\n')[-1]
         want = [p for k, p in self.traps if k == 'robots']
         self.assertGreaterEqual(len(want), 3)
         self.assertEqual(group, 'User-agent: *\n' + '\n'.join('Disallow: ' + p for p in want) + '\n')
+
+    def test_every_crawler_is_kept_off_the_decoys_and_nothing_else_changes(self):
+        """A crawler that finds a group for itself reads only that group (RFC 9309, 2.2.1),
+        so a decoy that is only in a `User-agent: *` group is open to it, and a crawler
+        that obeyed robots.txt would be filed as one that did not."""
+        decoys = ['https://example.com%sx' % p for k, p in self.traps if k == 'robots']
+        mixed = _robots(ROBOTS_FILES['mixed'])
+        self.assertNotEqual(mixed.can_fetch('Googlebot', 'https://example.com/admin/x'),
+                            mixed.can_fetch('SomeOtherBot', 'https://example.com/admin/x'),
+                            'control: the parser gives a crawler its own group')
+        def everyone(text):
+            return len(re.findall(r'(?im)^user-agent:\s*\*\s*$', text))
+
+        for name, own in ROBOTS_FILES.items():
+            out = self.r('robots_file:' + name)['body']
+            before, after = _robots(own), _robots(out)
+            self.assertTrue(_in_order(own.rstrip().split('\n'), out.split('\n')), name)
+            # a second `*` group is merged by a parser that follows RFC 9309, and is all a
+            # parser that keeps the last one would read
+            self.assertEqual(everyone(out), max(1, everyone(own)), name)
+            for agent in AGENTS:
+                for url in decoys:
+                    self.assertFalse(after.can_fetch(agent, url), (name, agent, url))
+                for path in OWN_PATHS:
+                    url = 'https://example.com' + path
+                    self.assertEqual(after.can_fetch(agent, url), before.can_fetch(agent, url), (name, agent, path))
 
     def robots_alone(self):
         """The statuses of the site's answer that the Worker turns into the decoys alone."""
