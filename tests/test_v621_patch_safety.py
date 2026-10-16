@@ -223,8 +223,13 @@ class _SchedHarness(_ShellHarness):
         # v6.4.0: the reboot is CONDITIONAL now — redirect the need-check
         # paths into the sandbox so the host's real state can't leak in.
         cmd = cmd.replace('/var/run/reboot-required', str(self.dir / 'reboot-required'))
-        cmd = cmd.replace('/lib/modules', str(self.modules))
+        # the longer path first: '/lib/modules' is part of '/usr/lib/modules', so
+        # the other order left '/usr<sandbox>/modules' and never redirected it
         cmd = cmd.replace('/usr/lib/modules', str(self.dir / 'usr-lib-modules'))
+        cmd = cmd.replace('/lib/modules', str(self.modules))
+        # every host module path must have been redirected into the sandbox
+        leftover = [x for x in ('/lib/modules', '/usr' + str(self.modules)) if x in cmd]
+        assert not leftover, 'host paths left in the sandboxed command: %s' % leftover
         return cmd
 
     def need_reboot(self):
