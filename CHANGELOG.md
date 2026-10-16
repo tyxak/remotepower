@@ -26,6 +26,12 @@ comes with a check that keeps it fixed.
   two login routes it really serves. "Block what it finds" says that a reported
   address waits for the next list sync.
 
+### Fixes
+
+- Threat intel's **Ignore** button refuses an address that is not public. Such
+  an address is never looked up, reported or blocked, so the entry it stored
+  could never match anything. The Settings list can still name private networks.
+
 ### Under the hood
 
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's

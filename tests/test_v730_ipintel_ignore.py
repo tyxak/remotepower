@@ -400,6 +400,16 @@ class TestTheOperatorsControls(_Lists):
         self.assertEqual(self.cap.get('status'), 401)
         self.assertEqual(self.config().get('ignore_addresses') or [], [])
 
+    def test_a_non_public_address_is_refused_and_nothing_is_stored(self):
+        """The row button only ever sees public attackers; a request for any other
+        address stored an entry that could never match anything (v7.4.0)."""
+        self.assertEqual(self.ignore('185.220.101.11')[0], 200, 'control: a public address')
+        before = list(self.config()['ignore_addresses'])
+        for ip in ('::', '0.0.0.0', '127.0.0.1', '10.0.0.5', '192.168.1.1', '203.0.113.7', 'fe80::1'):
+            st, d = self.ignore(ip)
+            self.assertEqual((st, d.get('error')), (400, 'Not a public address'), ip)
+        self.assertEqual(self.config()['ignore_addresses'], before)
+
     def test_a_body_of_the_wrong_type_is_a_400_not_a_500(self):
         for body in ({'ip': 5}, {'ip': ['185.220.101.11']}, {'ip': {'a': 1}}, {'ip': None}):
             st, _ = self.call(self.api.handle_ip_intel_ignore, body)

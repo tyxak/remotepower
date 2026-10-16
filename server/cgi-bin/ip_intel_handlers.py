@@ -1642,6 +1642,10 @@ def handle_ip_intel_ignore():
     ip = ip_intel.parse_ip(body.get('ip'))
     if not ip:
         A.respond(400, {'error': 'Enter an IP address'})
+    if not ip_intel.is_public(ip):
+        # never looked up, reported or blocked anyway, so an entry could never
+        # match; the Settings list stays free to name private networks
+        A.respond(400, {'error': 'Not a public address'})
     already = False
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
