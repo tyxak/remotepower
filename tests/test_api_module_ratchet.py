@@ -97,7 +97,9 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # require_admin_auth / audit_log / _read_valid — and none of the notify/event
 # core the ratchet exists to protect. The pure protocol layer already lived in
 # proxmox_client.py, so only the request-coupled half moved.
-INLINE_HANDLER_CEILING = 593
+# 593→591 (v7.4.0): no carve; the ceiling had two of slack from handlers that
+# moved or went since, and slack lets the next inline handler in unnoticed.
+INLINE_HANDLER_CEILING = 591
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
