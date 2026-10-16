@@ -93,12 +93,14 @@ class TestTheScriptRuns(unittest.TestCase):
             cls.index[name] = len(cases)
             cases.append(case)
 
-        for kind, prefix in cls.traps:
-            add('trap:' + prefix, _case(prefix + 'probe'))
+        # The visits that go through to the site come first, so a fetch counter that ran on
+        # from one visit to the next would fail every trap below.
         add('plain', _case('/about'))
         add('home', _case('/'))
         add('acme', _case('/.well-known/acme-challenge/abc'))
         add('security_txt', _case('/.well-known/security.txt'))
+        for kind, prefix in cls.traps:
+            add('trap:' + prefix, _case(prefix + 'probe'))
         add('env', _case('/.env'))
         add('env_upper', _case('/.ENV'))
         add('git_head', _case('/.git/HEAD'))
@@ -146,7 +148,7 @@ class TestTheScriptRuns(unittest.TestCase):
     def test_every_decoy_path_is_answered_and_logged_with_its_kind(self):
         for kind, prefix in self.traps:
             r = self.r('trap:' + prefix)
-            self.assertEqual(r['origin'], 0, 'a decoy path went through to the site: ' + prefix)
+            self.assertEqual(r['fetched'], 0, 'a decoy path went through to the site: ' + prefix)
             self.assertIn(r['status'], (200, 404), prefix)
             ls = self.lines('trap:' + prefix)
             self.assertEqual(len(ls), 1, prefix)
@@ -158,6 +160,7 @@ class TestTheScriptRuns(unittest.TestCase):
         for name in ('plain', 'home', 'acme', 'security_txt'):
             r = self.r(name)
             self.assertEqual(r['body'], 'origin page', name)
+            self.assertEqual(r['fetched'], 1, name)
             self.assertEqual(r['logs'], [], name)
 
     def test_the_certificate_and_security_paths_are_never_a_decoy(self):

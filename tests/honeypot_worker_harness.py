@@ -6,8 +6,9 @@ and what it prints is the input the tests give to RemotePower's own reader.
 
 The request is a plain object with no body methods unless a case gives a `body`. A script
 that reads a body it should not throws here, which is how "never reads a request body" is
-pinned. `fetch` is a stub standing in for the visitor's site: the number of times it is
-called is what tells a decoy answer (0) from a pass-through (1).
+pinned. `fetch` is a stub standing in for the visitor's site: the number of times one visit
+calls it (`fetched`, counted again from zero for each visit) is what tells a decoy answer (0)
+from a pass-through (1).
 """
 import ipaddress
 import json
@@ -44,11 +45,9 @@ import fs from 'node:fs';
 import worker from './worker.mjs';
 const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const results = [];
-let origin = 0;
 let fetched = 0;
 let current = {};
 globalThis.fetch = async () => {
-  origin += 1;
   fetched += 1;
   if (current.originFail) throw new Error('origin down');
   return new Response(current.originBody === undefined ? 'origin page' : current.originBody,
@@ -69,9 +68,9 @@ for (const c of cases) {
     const res = await worker.fetch(req, c.env === undefined ? {} : c.env);
     out = { status: res.status, type: res.headers.get('content-type'),
             cache: res.headers.get('cache-control'), robots: res.headers.get('x-robots-tag'),
-            body: await res.text(), logs, origin, fetched, bodyReads };
+            body: await res.text(), logs, fetched, bodyReads };
   } catch (e) {
-    out = { error: String(e), logs, origin, fetched, bodyReads };
+    out = { error: String(e), logs, fetched, bodyReads };
   }
   results.push(out);
 }
