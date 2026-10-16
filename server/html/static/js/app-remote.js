@@ -701,11 +701,11 @@ async function openAvScan(id, name) {
   const rows = [];
   if (av.clamav) {
     const c = av.clamav;
-    rows.push(`<div class="sysinfo-pill"><div class="label">ClamAV</div><div class="value">${c.installed ? 'installed' : 'absent'}${c.db_age_days != null ? ` · DB ${c.db_age_days}d old` : ''}${c.last_scan_ts ? ` · last scan ${timeAgo(c.last_scan_ts)}` : ''}${c.infected != null ? ` · ${c.infected} infected` : ''}</div></div>`);
+    rows.push(`<div class="sysinfo-pill"><div class="label">ClamAV</div><div class="value">${c.installed ? 'installed' : 'absent'}${c.db_age_days != null ? ` · DB ${c.db_age_days}d old` : ''}${c.last_scan_ts ? ` · last scan ${timeAgoHtml(c.last_scan_ts)}` : ''}${c.infected != null ? ` · ${c.infected} infected` : ''}</div></div>`);
   }
   if (av.rkhunter) {
     const r2 = av.rkhunter;
-    rows.push(`<div class="sysinfo-pill"><div class="label">rkhunter</div><div class="value">${r2.installed ? 'installed' : 'absent'}${r2.warnings != null ? ` · ${r2.warnings} warnings` : ''}${r2.last_run_ts ? ` · last run ${timeAgo(r2.last_run_ts)}` : ''}</div></div>`);
+    rows.push(`<div class="sysinfo-pill"><div class="label">rkhunter</div><div class="value">${r2.installed ? 'installed' : 'absent'}${r2.warnings != null ? ` · ${r2.warnings} warnings` : ''}${r2.last_run_ts ? ` · last run ${timeAgoHtml(r2.last_run_ts)}` : ''}</div></div>`);
   }
   body.innerHTML = `<div class="sysinfo-row mb-16">${rows.join('')}</div>`;
 }

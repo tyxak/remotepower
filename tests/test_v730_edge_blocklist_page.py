@@ -56,6 +56,7 @@ def node(script, timeout=30):
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: "", checked: false, hidden: false});',
         'const document = {getElementById: el};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
+        'function timeAgoHtml(t) { return t ? "5m ago" : "never"; }',
         'let _ipiData = null; const sent = []; const asked = []; let answer = true; let reply = {ok: true, result: {state: "ok"}}; let replies = null;',
         'async function api(m, p, body) { sent.push({m, p, body}); return replies ? replies.shift() : reply; }',
         'async function uiConfirm(o) { asked.push(o); return answer; }',

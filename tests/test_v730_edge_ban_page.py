@@ -49,6 +49,7 @@ def node(script, timeout=30):
         ' disabled: false, hidden: false, options: []});',
         'const document = {getElementById: mk, querySelector: () => null};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
+        'function timeAgoHtml(t) { return t ? "5m ago" : "never"; }',
         'let _ipiData = null; const sent = []; const asked = []; const toasts = []; const opened = []; let answer = true; '
         'let reply = {ok: true}; let loads = 0;',
         'async function api(m, p, body) { sent.push({m, p, body}); return reply; }',

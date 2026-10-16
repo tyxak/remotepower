@@ -48,7 +48,7 @@ function _renderRollout(roll) {
       <span class="c-muted fs-12">${escHtml(roll.action === 'script' ? 'saved script' : roll.action === 'self-update' ? 'agent self-update' : 'package upgrade')}${roll.auto_promote ? ' · auto-promote' : ' · manual promote'}${roll.health_gate && roll.health_gate.enabled ? ` · health-gate &lt;${roll.health_gate.threshold}` : ''}</span>
     </div>
     <div class="ro-rings mb-8">${rings || '<span class="c-muted">no rings</span>'}</div>
-    ${last ? `<div class="c-muted fs-12">${escHtml(timeAgo(last.ts))} — ${escHtml(last.msg)}</div>` : ''}
+    ${last ? `<div class="c-muted fs-12">${timeAgoHtml(last.ts)} — ${escHtml(last.msg)}</div>` : ''}
     <div class="row-8-center mt-8">${actions}</div>
   </div>`;
 }

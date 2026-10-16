@@ -477,14 +477,9 @@ async function csGenerateWithAI() {
   }
 }
 
-function _reltime(ts) {
-  if (!ts) return '';
-  const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 60)   return 'just now';
-  if (diff < 3600) return _fmtAgo(Math.floor(diff/60), 'minute');
-  if (diff < 86400) return _fmtAgo(Math.floor(diff/3600), 'hour');
-  return _fmtAgo(Math.floor(diff/86400), 'day');
-}
+// v7.4.0: was a private copy of timeAgo (English "just now", and the
+// operator's absolute-time setting never reached it).
+function _reltime(ts) { return timeAgo(ts, { empty: '', clamp: true }); }
 
 // ─── v2.6.0: Host Configuration Management ────────────────────────────────────
 

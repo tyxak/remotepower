@@ -17,14 +17,8 @@ const _KMIP_KIND_LABELS = {
   generic: 'Generic KMIP',
 };
 
-function _kmipAgo(ts) {
-  if (!ts) return '—';
-  const secs = Math.max(0, Math.floor(Date.now() / 1000) - ts);
-  if (secs < 60) return 'just now';
-  if (secs < 3600) return _fmtAgo(Math.floor(secs / 60), 'minute');
-  if (secs < 86400) return _fmtAgo(Math.floor(secs / 3600), 'hour');
-  return _fmtAgo(Math.floor(secs / 86400), 'day');
-}
+// v7.4.0: was a private copy of timeAgo (see app-hostconfig.js _reltime).
+function _kmipAgo(ts) { return timeAgo(ts, { empty: '—', clamp: true }); }
 
 function _kmipDate(ts) {
   return ts ? _fmtAbsDate(ts) : '—';

@@ -37,6 +37,11 @@ comes with a check that keeps it fixed.
   hold it: one computes every theme's text colours against every background
   they are painted on, and one measures the real pages in each theme in the
   browser.
+- Hover a relative time ("3h ago") in a table, card or drawer to see the exact
+  time; with **Time display: Absolute**, the exact time shows and the hover
+  gives the relative one. Four places had this before, out of about seventy.
+  Three pages kept their own copy of the relative-time code, with an English
+  "just now" and no regard for the display setting; they use the shared one.
 - The in-app documentation viewer reads a wrapped paragraph as one, as GitHub
   and the wiki do. It broke every line where the source wraps at 80 columns,
   so most guides read with a break mid-sentence. The AI chat and the

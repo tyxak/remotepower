@@ -276,7 +276,8 @@ class TestClamavAndMacBind(unittest.TestCase):
         self.assertIn("c['last_scan_ts']", AGENT)
 
     def test_ui_renders_clamav_last_scan(self):
-        self.assertIn('last scan ${timeAgo(c.last_scan_ts)}', APP)
+        # v7.4.0: markup times go through timeAgoHtml (exact time on hover)
+        self.assertIn('last scan ${timeAgoHtml(c.last_scan_ts)}', APP)
 
     def test_ui_renders_iface_mac(self):
         self.assertIn('n.mac', APP)

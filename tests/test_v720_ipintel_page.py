@@ -59,6 +59,7 @@ def node(script, timeout=30):
         'const document = {getElementById: el};',
         'const tableCtl = {sortRows: (name, rows, fn) => rows};',
         'function timeAgo(t) { return t ? "5m ago" : "never"; }',
+        'function timeAgoHtml(t) { return t ? "5m ago" : "never"; }',
         'let _ipiData = {sensors: []};',
         *[srcpin.js_function(_JS, f) for f in fns]])
     out = subprocess.run(['node', '-e', prelude + '\n' + script], capture_output=True, text=True, timeout=timeout)

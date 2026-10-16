@@ -681,8 +681,8 @@ function _renderLogAcks() {
     `<td class="hint">${escHtml(a.device || 'whole fleet')}</td>` +
     `<td class="hint">${escHtml(a.unit || 'any unit')}</td>` +
     `<td class="ta-center">${a.hits || 0}</td>` +
-    `<td class="hint">${a.ts ? timeAgo(a.ts) : '—'}` +
-    (a.until ? `<div class="hint">expires ${timeAgo(a.until)}</div>` : '') + '</td>' +
+    `<td class="hint">${a.ts ? timeAgoHtml(a.ts) : '—'}` +
+    (a.until ? `<div class="hint">expires ${timeAgoHtml(a.until)}</div>` : '') + '</td>' +
     `<td><button class="btn-icon btn-xs" data-action="deleteLogAck" data-arg="${escAttr(a.key)}" title="Un-clear — this line alerts again">${_icon('undo', 14)}</button></td></tr>`),
     {colspan: 6});
 }

@@ -163,12 +163,12 @@ function _renderScapTable() {
     : '<span class="hint">—</span>';
   const rows = sorted.map(d => {
     if (!d.available) {
-      return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td><td>${reportCell(d)}</td></tr>`;
+      return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${timeAgoHtml(d.ts)}</td><td>${reportCell(d)}</td></tr>`;
     }
     const sc = d.score == null ? '—' : d.score + '%';
     const scCls = d.score == null ? '' : d.score >= 80 ? 'c-green' : d.score >= 50 ? 'c-amber' : 'c-red';
     const top = (d.failed_top || []).slice(0, 6).map(f => escHtml(f.id)).join(', ');
-    return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td><td>${reportCell(d)}</td></tr>`;
+    return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${timeAgoHtml(d.ts)}</td><td>${reportCell(d)}</td></tr>`;
   }).join('');
   out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th><th>Report</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('scap-thead', 'scap', _renderScapTable);

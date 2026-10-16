@@ -75,7 +75,7 @@ function _tkRowHtml(t, byId, childrenOf) {
     <td class="fs-12">${slaCell}</td>
     <td class="fs-12">${t.assignee ? escHtml(t.assignee) : '<span class="meta-sm-nm">Unassigned</span>'}</td>
     <td class="fs-12">${escHtml(t.device_name || '—')}</td>
-    <td class="fs-11 c-muted">${t.updated_at ? timeAgo(t.updated_at) : '—'}</td>
+    <td class="fs-11 c-muted">${t.updated_at ? timeAgoHtml(t.updated_at) : '—'}</td>
   </tr>`;
 }
 async function loadTickets() {
@@ -188,7 +188,7 @@ async function loadPortalTicketQueue() {
   if (list) {
     list.innerHTML = pending.map(p => `<div class="mb-8">
       <strong>${escHtml(p.subject || '(no subject)')}</strong>
-      <span class="hint">from ${escHtml(p.contact_name || p.contact_email || 'a portal contact')} · site ${escHtml(p.site || '—')} · ${timeAgo(p.created_at)}</span>
+      <span class="hint">from ${escHtml(p.contact_name || p.contact_email || 'a portal contact')} · site ${escHtml(p.site || '—')} · ${timeAgoHtml(p.created_at)}</span>
       ${p.message ? `<div class="fs-12 c-muted mt-4">${escHtml(p.message).slice(0, 300)}</div>` : ''}
       <div class="row-6 mt-6">
         <button class="btn-icon cell-sm" data-action="decidePortalTicket" data-arg="${escAttr(p.id)}" data-arg2="approve">Approve</button>

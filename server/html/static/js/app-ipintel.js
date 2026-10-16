@@ -612,7 +612,7 @@ function _ipiRenderAttackers() {
       <td>${escHtml(a.isp || '')}</td>
       <td>${hosts}</td>
       <td>${_ipiEvidenceHtml(a)}</td>
-      <td>${escHtml(timeAgo(a.last_seen))}</td>
+      <td>${timeAgoHtml(a.last_seen)}</td>
       <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
       <td><div class="ipi-actions">${btn}${banBtn}${unbanBtn}${ignoreBtn}</div></td>
     </tr>${_ipiOpen.has(a.ip) ? `<tr class="ipi-detail"><td colspan="10">${_ipiDetailHtml(a)}</td></tr>` : ''}`;
@@ -645,7 +645,7 @@ function _ipiRenderSources() {
       <td>${escHtml(String(r.lines || 0))}</td>
       <td>${escHtml(String(r.parsed || 0))}</td>
       <td>${escHtml(String(r.events || 0))}</td>
-      <td>${escHtml(timeAgo(r.at))}</td>
+      <td>${timeAgoHtml(r.at)}</td>
       <td class="${_IPI_STATE_CLASS[r.state] || 'hint'}">${_ipiPhrase(_IPI_STATE[r.state] || r.state || '')}</td>
     </tr>`).join('');
   }
@@ -692,7 +692,7 @@ function _ipiRenderBlocks() {
       <td>${escHtml(b.name || b.device_id)}</td>
       <td>${escHtml(b.score == null ? '—' : String(b.score))}</td>
       <td>${escHtml(b.by === 'auto' ? 'automatic' : (b.by || ''))}</td>
-      <td>${escHtml(timeAgo(b.at))}</td>
+      <td>${timeAgoHtml(b.at)}</td>
       <td>${escHtml(left < 60 ? '< 1m' : _fmtDuration(left))}</td>
       <td><button class="btn-icon" data-ip="${escAttr(b.ip)}" data-dev="${escAttr(b.device_id)}" aria-label="Lift block"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Unblock</button></td>
     </tr>`;
@@ -724,7 +724,7 @@ function _ipiRenderEdge() {
     return `<tr>
       <td>${_ipiPhrase(_IPI_FEED[r.feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
       <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}${r.key === 'ok' && f.mode && f.mode !== 'groups' ? `<div class="hint fs-11">${_ipiPhrase('Cloudflare refused the grouped view, so the events are read one at a time.')}</div>` : ''}</td>
-      <td>${on && f.at ? escHtml(timeAgo(f.at)) : ''}</td>
+      <td>${on && f.at ? timeAgoHtml(f.at) : ''}</td>
       <td>${escHtml(String(f.rows ?? f.hits ?? 0))}</td>
       <td>${escHtml(String(f.kept || 0))}</td>
       <td class="hint fs-11">${asideHtml}</td>
@@ -786,7 +786,7 @@ function _ipiRenderEdgeList() {
   }
   const st = cur.state;
   out.push(`<div><span class="${_IPI_LIST_STATE_CLASS[st] || 'hint'}">${_ipiPhrase(_IPI_LIST_STATE[st] || st)}</span>` +
-    `${cur.at ? ` · ${escHtml(timeAgo(cur.at))}` : ''}${cur.why ? ` · ${_ipiListWhy(cur.why)}` : ''}</div>`);
+    `${cur.at ? ` · ${timeAgoHtml(cur.at)}` : ''}${cur.why ? ` · ${_ipiListWhy(cur.why)}` : ''}</div>`);
   if (cur.needs_adopt && st !== 'needs_adopt') {
     out.push(`<div class="hint">${_ipiPhrase(_IPI_LIST_WHY[4])}</div>`);
   }

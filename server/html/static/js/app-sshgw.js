@@ -119,8 +119,8 @@ function _sshgwRenderKeys() {
       <td>${owner}${escHtml(r.name || '')}</td>
       <td>${escHtml(r.type || '')}</td>
       <td class="ff-mono fs-11">${escHtml(r.fingerprint || '')}</td>
-      <td>${escHtml(timeAgo(r.added))}</td>
-      <td>${escHtml(timeAgo(r.last_used, {empty: 'never'}))}</td>
+      <td>${timeAgoHtml(r.added)}</td>
+      <td>${timeAgoHtml(r.last_used, {empty: 'never'})}</td>
       <td><button class="btn-icon" data-fp="${escAttr(r.fingerprint || '')}" data-user="${escAttr(r.username || '')}" aria-label="Remove key"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg> Remove</button></td>
     </tr>`;
   }).join('');
@@ -150,8 +150,8 @@ function _sshgwRenderDevices() {
       <td>${escHtml(r.hostname || '')}</td>
       <td>${escHtml(r.os || '')}</td>
       <td><input type="checkbox" data-dev="${escAttr(r.device_id)}"${r.enabled ? ' checked' : ''}${disabled}${why} aria-label="Reachable through the gateway"></td>
-      <td>${escHtml(timeAgo(r.tunnel_seen, {empty: 'never'}))}</td>
-      <td>${escHtml(timeAgo(r.last_session, {empty: 'never'}))}</td>
+      <td>${timeAgoHtml(r.tunnel_seen, {empty: 'never'})}</td>
+      <td>${timeAgoHtml(r.last_session, {empty: 'never'})}</td>
     </tr>`;
   }).join('');
 }
@@ -172,7 +172,7 @@ function _sshgwRenderSessions() {
     return;
   }
   tb.innerHTML = rows.map(r => `<tr>
-      <td>${escHtml(timeAgo(r.started))}</td>
+      <td>${timeAgoHtml(r.started)}</td>
       <td>${escHtml(r.username || '')}</td>
       <td>${escHtml(names[r.device_id] || r.device_id || '')}</td>
       <td class="ff-mono">${escHtml(r.client_ip || '')}</td>

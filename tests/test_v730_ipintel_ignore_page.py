@@ -63,7 +63,7 @@ def node(script, timeout=30):
         'const tableCtl = {wireSortOnly() {}, sortRows(n, rows) { return rows; }};',
         'function _ipiEvidenceHtml() { return ""; } function _ipiEvidenceText() { return ""; }'
         ' function _ipiEvidenceWeight() { return 0; } function _ipiDetailHtml() { return ""; }'
-        ' function _ipiScoreClass() { return ""; } function timeAgo() { return ""; }'
+        ' function _ipiScoreClass() { return ""; } function timeAgo() { return ""; } function timeAgoHtml() { return ""; }'
         ' function _ipiRenderAttackerNote() {} function openIpIntelBan() {} function unbanIpIntel() {}'
         ' function blockIpIntel() {}',
         'const _IPI_BAN_WORD = {in_list: "in the edge blocklist", edge_ban: "banned at the edge", edge_wait: "w"};',

@@ -3313,7 +3313,7 @@ function renderDevices() {
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgoHtml(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen" title="${escAttr(_absTs(d.last_seen))}">Last seen: ${lastSeen}</div>
@@ -3839,7 +3839,7 @@ function _registerMonitorTable() {
       const _pauseBtn = m.paused
         ? `<button class="btn-icon isl-44" title="Resume probing" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="0"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>`
         : `<button class="btn-icon isl-44" title="Pause — stop probing but keep the monitor and its history" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>`;
-      return `<tr${m.paused ? ' class="c-muted"' : ''}><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td>${_st}</td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.paused ? '—' : (m.checked ? timeAgo(m.checked) : '—')}</td><td class="row-6">${_pauseBtn}<button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Clone — prefill a new monitor from this one" data-action="cloneMonitor" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
+      return `<tr${m.paused ? ' class="c-muted"' : ''}><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td>${_st}</td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.paused ? '—' : (m.checked ? timeAgoHtml(m.checked) : '—')}</td><td class="row-6">${_pauseBtn}<button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Clone — prefill a new monitor from this one" data-action="cloneMonitor" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -6972,7 +6972,23 @@ function _timeDisplayAbsolute() {
 function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty;
   const _n = parseInt(ts); if (!Number.isFinite(_n) || _n <= 0) return (opts && opts.empty !== undefined) ? opts.empty : 'never';
   if (_timeDisplayAbsolute()) return _fmtAbsTs(_n);
-  let diff = Math.floor(Date.now() / 1000 - _n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return _fmtAgo(diff, 'second'); if (diff < 3600) return _fmtAgo(Math.floor(diff / 60), 'minute'); if (diff < 86400) return _fmtAgo(Math.floor(diff / 3600), 'hour'); return _fmtAgo(Math.floor(diff / 86400), 'day'); }
+  return _relAgo(_n, opts); }
+function _relAgo(n, opts) {
+  let diff = Math.floor(Date.now() / 1000 - n); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return _fmtAgo(diff, 'second'); if (diff < 3600) return _fmtAgo(Math.floor(diff / 60), 'minute'); if (diff < 86400) return _fmtAgo(Math.floor(diff / 3600), 'hour'); return _fmtAgo(Math.floor(diff / 86400), 'day'); }
+// v7.4.0: the one rule for a time that stands in MARKUP — relative in place and
+// the exact time on hover; with the absolute display setting, the other way
+// round. A <time> element, so it carries a machine-readable datetime too.
+// timeAgo() stays the plain string for textContent and for sentences.
+// tests/test_v740_time_display holds the call sites to it.
+function timeAgoHtml(ts, opts) {
+  const n = parseInt(ts);
+  if (!Number.isFinite(n) || n <= 0) return escHtml(timeAgo(ts, opts));
+  const abs = _fmtAbsTs(n), rel = _relAgo(n, opts);
+  const [shown, tip] = _timeDisplayAbsolute() ? [abs, rel] : [rel, abs];
+  let iso = '';
+  try { iso = new Date(n * 1000).toISOString(); } catch (_) { /* out of range: no datetime */ }
+  return `<time datetime="${iso}" title="${escHtml(tip)}">${escHtml(shown)}</time>`;
+}
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
 // Everything is STORED in Celsius — the agent reports °C, thresholds are °C,
@@ -7042,7 +7058,7 @@ function _renderToastHistory() {
     `<div class="toast-hist-row th-${escAttr(t.type)}">`
     + `<span class="toast-hist-ic">${_icon(icons[t.type] || 'info', 13)}</span>`
     + `<span class="toast-hist-msg">${escHtml(t.msg)}</span>`
-    + `<span class="toast-hist-ts">${escHtml(timeAgo(t.ts, { clamp: true }))}</span>`
+    + `<span class="toast-hist-ts">${timeAgoHtml(t.ts, { clamp: true })}</span>`
     + '</div>').join('');
 }
 function toggleToastHistory() {
@@ -12639,7 +12655,7 @@ async function loadBatchJobs() {
       return `<div class="dash-card mb-8">
         <div class="row-8-center">
           <strong>${escHtml(j.label || j.kind)}</strong>
-          <span class="c-muted fs-12">${escHtml(timeAgo(j.created))}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
+          <span class="c-muted fs-12">${timeAgoHtml(j.created)}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
           ${badge}
           <button class="btn-icon" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
         </div>${det}
@@ -25020,7 +25036,7 @@ async function _loadAuditSection(key) {
           <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
             <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635 ${upg>0?'c-amber':'c-green'}">${upg}</div></div>
-            <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgo(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
+            <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgoHtml(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
           </div>
           <button class="btn-secondary" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
@@ -25112,7 +25128,7 @@ async function _loadAuditSection(key) {
             <span class="activity-dot ${cls}"></span>
             <div class="isl-445">
               <div class="fs-12">${escHtml((ev.event||'').replace(/_/g,' '))}</div>
-              <div class="meta-sm-nm">${ev.ts ? timeAgo(ev.ts) : ''}</div>
+              <div class="meta-sm-nm">${ev.ts ? timeAgoHtml(ev.ts) : ''}</div>
             </div>
           </div>`;
         }).join('');
@@ -25146,7 +25162,7 @@ async function _loadAuditSection(key) {
               <td class="ff-mono">${escHtml(a.ip)}</td>
               <td>${a.score == null ? '—' : escHtml(String(a.score))}${a.country ? ` <span class="hint">${escHtml(a.country)}</span>` : ''}</td>
               <td>${escHtml(String(a.here.count || 0))}</td>
-              <td>${escHtml(timeAgo(a.last_seen))}</td>
+              <td>${timeAgoHtml(a.last_seen)}</td>
               <td>${blocked.has(a.ip) ? 'yes' : 'no'}</td></tr>`).join('')
             + '</tbody></table></div>';
         } else {
@@ -25178,7 +25194,7 @@ async function _loadAuditSection(key) {
           : drifted.map(f =>
               `<div class="isl-643">
                 <code class="c-amber">${escHtml(f.path||f)}</code>
-                ${f.changed_at ? `<span class="meta-sm-nm"> · ${timeAgo(f.changed_at)}</span>` : ''}
+                ${f.changed_at ? `<span class="meta-sm-nm"> · ${timeAgoHtml(f.changed_at)}</span>` : ''}
                </div>`
             ).join('');
         break;
@@ -26064,11 +26080,11 @@ function _renderHardwareSection(id, hw, fc, ch) {
     <div id="hw-diag-status" class="mt-8"></div>`;
   if (st) {
     h += st.ok
-      ? `<div class="fs-12 mt-8">Last speed test: <b>${st.download_mbps}</b> Mbps down · <b>${st.upload_mbps}</b> Mbps up · ${st.ping_ms} ms ping <span class="c-muted">(${timeAgo(st.ts)})</span></div>`
+      ? `<div class="fs-12 mt-8">Last speed test: <b>${st.download_mbps}</b> Mbps down · <b>${st.upload_mbps}</b> Mbps up · ${st.ping_ms} ms ping <span class="c-muted">(${timeAgoHtml(st.ts)})</span></div>`
       : `<div class="fs-12 mt-8 c-amber">Last speed test failed: ${escHtml(st.error||'')}</div>`;
   }
   if ((disc.hosts||[]).length) {
-    h += `<div class="fs-12 mt-8">LAN scan (${escHtml(disc.method||'')}, ${timeAgo(disc.ts)}): ${disc.hosts.length} host${disc.hosts.length>1?'s':''}, <b>${unmanaged.length}</b> unmanaged.</div>`;
+    h += `<div class="fs-12 mt-8">LAN scan (${escHtml(disc.method||'')}, ${timeAgoHtml(disc.ts)}): ${disc.hosts.length} host${disc.hosts.length>1?'s':''}, <b>${unmanaged.length}</b> unmanaged.</div>`;
   }
   h += `</div>`;
 
@@ -26158,12 +26174,12 @@ function _renderDiagResult(kind, res) {
   if (kind === 'speedtest') {
     if (!res) return '';
     return res.ok
-      ? `<div class="diag-done c-green">${_icon('zap',13)} <b>${res.download_mbps}</b> Mbps down · <b>${res.upload_mbps}</b> Mbps up · ${res.ping_ms} ms ping ${res.jitter_ms!=null?`· ${res.jitter_ms} ms jitter`:''} <span class="c-muted">(${timeAgo(res.ts)})</span></div>`
+      ? `<div class="diag-done c-green">${_icon('zap',13)} <b>${res.download_mbps}</b> Mbps down · <b>${res.upload_mbps}</b> Mbps up · ${res.ping_ms} ms ping ${res.jitter_ms!=null?`· ${res.jitter_ms} ms jitter`:''} <span class="c-muted">(${timeAgoHtml(res.ts)})</span></div>`
       : `<div class="diag-done c-amber">Speed test ran but failed: ${escHtml(res.error || 'unknown')} — is <code>librespeed-cli</code> installed on the host?</div>`;
   }
   const n = (res.hosts || []).length;
   const unmanaged = (res.hosts || []).filter(x => !x.managed).length;
-  return `<div class="diag-done c-green">${_icon('search',13)} LAN scan (${escHtml(res.method||'')}): ${n} host(s), <b>${unmanaged}</b> unmanaged <span class="c-muted">(${timeAgo(res.ts)})</span>. See Network map → Unmanaged hosts.</div>`;
+  return `<div class="diag-done c-green">${_icon('search',13)} LAN scan (${escHtml(res.method||'')}): ${n} host(s), <b>${unmanaged}</b> unmanaged <span class="c-muted">(${timeAgoHtml(res.ts)})</span>. See Network map → Unmanaged hosts.</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -26518,7 +26534,7 @@ function _renderTimeline() {
       +   `<span class="tl-kind">${_escapeHtml((it.kind || '').replace(/_/g, ' '))}</span></div>`
       +   (it.detail ? `<div class="tl-detail">${_escapeHtml(it.detail)}</div>` : '')
       + `</div>`
-      + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${_escapeHtml(timeAgo(it.ts))}</div>`
+      + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${timeAgoHtml(it.ts)}</div>`
       + `</div>`;
   });
   let footer = '';
@@ -29010,9 +29026,7 @@ async function loadIgnoredItems() {
     { key: 'stale_containers', label: 'Stale containers', identify: e => `${e.device_id}/${e.container}` },
     { key: 'devices',          label: 'Devices',          identify: e => e.id },
   ];
-  const _ago = ts => { if (!ts) return ''; const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
-    if (s < 3600) return _fmtAgo(Math.floor(s/60), 'minute'); if (s < 86400) return _fmtAgo(Math.floor(s/3600), 'hour');
-    return _fmtAgo(Math.floor(s/86400), 'day'); };
+  const _ago = ts => timeAgo(ts, { empty: '', clamp: true });
   let html = '';
   for (const sec of sections) {
     const entries = data[sec.key] || [];

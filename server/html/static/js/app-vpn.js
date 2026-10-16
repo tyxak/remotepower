@@ -441,7 +441,7 @@ async function viewVpnClientHistory(cid, name) {
     + `<div class="hint"><span class="c-accent">■</span> received &nbsp; <span class="c-muted">■</span> sent</div>`
     + `<div class="hint mt-6">${escHtml(_fmtBytes(first.rx_bytes || 0))} → ${escHtml(_fmtBytes(last.rx_bytes || 0))} received, `
     + `${escHtml(_fmtBytes(first.tx_bytes || 0))} → ${escHtml(_fmtBytes(last.tx_bytes || 0))} sent, `
-    + `over ${samples.length} sample(s) (${timeAgo(first.ts)} to ${timeAgo(last.ts)})</div>`;
+    + `over ${samples.length} sample(s) (${timeAgoHtml(first.ts)} to ${timeAgoHtml(last.ts)})</div>`;
 }
 
 function openVpnClientCreate() {
