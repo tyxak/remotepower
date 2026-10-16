@@ -42,6 +42,12 @@ comes with a check that keeps it fixed.
   gives the relative one. Four places had this before, out of about seventy.
   Three pages kept their own copy of the relative-time code, with an English
   "just now" and no regard for the display setting; they use the shared one.
+- The **Monitor** page opens at once. It used to probe every monitor while you
+  waited, so it took as long as the slowest timeout: 4 seconds on the demo
+  fleet, and 35 to 50 seconds with a few hundred unreachable targets. It now
+  shows the newest check, which the background sweep made at most a couple
+  of intervals ago, and each row says when it was checked. **Check now**
+  probes, and so does adding, editing, pausing or removing a monitor.
 - The in-app documentation viewer reads a wrapped paragraph as one, as GitHub
   and the wiki do. It broke every line where the source wraps at 80 columns,
   so most guides read with a break mid-sentence. The AI chat and the

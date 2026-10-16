@@ -55,6 +55,7 @@ HISTORY_FILE     = DATA_DIR / 'history.json'
 SCHEDULE_FILE    = DATA_DIR / 'schedule.json'
 UPTIME_FILE      = DATA_DIR / 'uptime.json'
 MON_HIST_FILE    = DATA_DIR / 'monitor_history.json'
+MONITOR_LAST_FILE = DATA_DIR / 'monitor_last.json'  # v7.4.0: the last run's rows, for GET /api/monitor
 INTEG_STATE_FILE = DATA_DIR / 'integrations_state.json'  # v4.7.0: integration poll results/history
 CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # v1.10.0: Update output captures from `update` commands (apt/dnf/pacman runs).
@@ -27472,6 +27473,45 @@ def run_monitors_if_due():
 
     results = _execute_monitor_checks(monitors)
     _persist_monitor_results(results)
+    _monitor_last_save(monitors, results, now)
+
+
+def _monitor_set_fp(monitors):
+    """A fingerprint of the configured monitor set. Adding, editing, pausing or
+    removing a monitor changes it, so rows kept for another set are never served."""
+    try:
+        blob = json.dumps(monitors or [], sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        blob = repr(monitors)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def _monitor_last_save(monitors, results, stamp):
+    """v7.4.0: keep the rows of this run for GET /api/monitor to answer from.
+    `stamp` is the value this run wrote to config's last_monitor_run; the rows
+    are served only while that is still the newest run on record."""
+    try:
+        save(MONITOR_LAST_FILE, {'ts': int(stamp), 'fp': _monitor_set_fp(monitors),
+                                 'results': results})
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] monitor_last save failed: {e}\n')
+
+
+def _monitor_last_rows(cfg, monitors):
+    """The rows of the newest run, if they are for this monitor set and recent
+    (two sweep intervals), else None."""
+    last = load(MONITOR_LAST_FILE) or {}
+    try:
+        ts = int(last.get('ts') or 0)
+        newest = int(cfg.get('last_monitor_run') or 0)
+        interval = max(60, int(cfg.get('monitor_interval', 300) or 300))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (not ts or ts != newest or not isinstance(last.get('results'), list)
+            or last.get('fp') != _monitor_set_fp(monitors)
+            or not 0 <= int(time.time()) - ts < 2 * interval):
+        return None
+    return [dict(r) for r in last['results'] if isinstance(r, dict)]
 
 
 def handle_monitor_pause():
@@ -27524,17 +27564,17 @@ def handle_monitor_pause():
 
 
 def handle_monitor_run():
-    """``GET /api/monitor`` — run monitors NOW and return current state.
+    """``GET /api/monitor`` — the monitors' current state.
 
-    User-triggered: somebody opened the Monitor page and wants the
-    freshest possible data, not the cached output of the last
-    background sweep. We run all monitors synchronously (which can
-    take seconds for ping/http with timeouts) and return the results.
+    v7.4.0: answers from the newest run (the periodic sweep's, or an earlier
+    page's) when it covers the configured set and is under two sweep intervals
+    old. Probing on every open made the page wait for the slowest timeout, 4 s
+    on the demo fleet, every time. ``?run=1`` (the page's Check now button)
+    probes now, and so does a GET whose stored rows do not fit: none yet, a
+    monitor added, edited, paused or removed, or a sweep newer than the rows.
 
-    Side effect: also updates ``last_monitor_run`` so the periodic
-    runner doesn't immediately re-run. This means refreshing the
-    Monitor page resets the background-run schedule, which is fine —
-    the user just got fresh data.
+    A run updates ``last_monitor_run`` so the periodic runner doesn't
+    immediately re-run.
     """
     actor = require_auth()
     # Any signed-in role may open the Monitor page, and each call runs every monitor
@@ -27545,12 +27585,19 @@ def handle_monitor_run():
         respond(429, {'error': 'Monitors were just run — wait a moment and refresh'})
     cfg = load(CONFIG_FILE)
     monitors = cfg.get('monitors', [])
-    results = _execute_monitor_checks(monitors)
-    _persist_monitor_results(results)
-    # Update the timestamp so the background runner doesn't immediately
-    # re-check what we just returned.
-    with _LockedUpdate(CONFIG_FILE) as cfg2:
-        cfg2['last_monitor_run'] = int(time.time())
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    force = (qs.get('run') or [''])[0] in ('1', 'true', 'yes')
+    results = None if force else _monitor_last_rows(cfg, monitors)
+    from_last = results is not None
+    if results is None:
+        results = _execute_monitor_checks(monitors)
+        _persist_monitor_results(results)
+        # Update the timestamp so the background runner doesn't immediately
+        # re-check what we just returned.
+        stamp = int(time.time())
+        with _LockedUpdate(CONFIG_FILE) as cfg2:
+            cfg2['last_monitor_run'] = stamp
+        _monitor_last_save(monitors, results, stamp)
     # W4-14: server-run results are tagged 'server'; merge the last
     # satellite-probed results so the whole monitor set shows on one page.
     for r in results:
@@ -27572,7 +27619,7 @@ def handle_monitor_run():
                 # survives a pause (v6.4.0 polish)
                 'origin': (f"satellite:{m['via_satellite']}"
                            if m.get('via_satellite') else 'server')})
-    respond(200, {'monitors': results})
+    respond(200, {'monitors': results, 'from_last_run': from_last})
 
 
 def _satellite_monitor_display(monitors):

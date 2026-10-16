@@ -3890,11 +3890,13 @@ async function mailflowSave() {
   else toast((r && r.error) || 'Save failed', 'error');
 }
 
-async function runMonitor() {
+// v7.4.0: opening the page shows the newest run (the server answers from it
+// while it fits the configured set); Check now passes force and probes now.
+async function runMonitor(force) {
   _registerMonitorTable();
   const tbody = document.getElementById('monitor-tbody');
   tbody.innerHTML = _skeletonRows(7);
-  const data = await api('GET', '/monitor');
+  const data = await api('GET', force ? '/monitor?run=1' : '/monitor');
   if (!data) return;
   const results = data.monitors || [];
   monitorTargets = results;
