@@ -143,6 +143,7 @@ class TestServerAcme(unittest.TestCase):
     def setUpClass(cls):
         # Fresh DATA_DIR for these tests
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_acme_test_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         # Import after env set so DATA_DIR resolves correctly
         if 'api' in sys.modules:
@@ -154,7 +155,10 @@ class TestServerAcme(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def test_validate_domain_ok(self):
         self.assertTrue(self.api._acme_validate_domain('example.com'))
@@ -289,6 +293,7 @@ class TestAttentionAudit(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_attn_audit_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         # Need a fresh import so DATA_DIR resolves
         for mod in ('api',):
@@ -300,7 +305,10 @@ class TestAttentionAudit(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def _seed_device(self, dev_id='dev1', name='tviapp01'):
         # Minimal monitored device
@@ -419,6 +427,7 @@ class TestAcmeCancelPending(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_acme_cancel_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules: del sys.modules[mod]
@@ -429,7 +438,10 @@ class TestAcmeCancelPending(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def test_cancel_distinguishes_queue_vs_dispatched(self):
         # Set up: one pending action in CMDS_FILE with the right tag, plus
@@ -496,6 +508,7 @@ class TestDebugLogPost(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_dbglog_test_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules: del sys.modules[mod]
@@ -506,7 +519,10 @@ class TestDebugLogPost(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def test_respond_is_outside_try(self):
         # Static check: the respond(200, ...) inside handle_debug_log_post
@@ -546,6 +562,7 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_log_alert_attn_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules: del sys.modules[mod]
@@ -556,7 +573,10 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def _seed_device(self, dev_id='dev1', name='host1'):
         self.api.save(self.api.DEVICES_FILE, {dev_id: {
@@ -666,6 +686,7 @@ class TestCurrentUsernameDefined(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_username_test_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules: del sys.modules[mod]
@@ -676,7 +697,10 @@ class TestCurrentUsernameDefined(unittest.TestCase):
     def tearDownClass(cls):
         import shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def test_current_username_exists(self):
         self.assertTrue(callable(getattr(self.api, 'current_username', None)),

@@ -28,6 +28,7 @@ class _Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix='rp_offh_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmp
         os.environ.setdefault('REQUEST_METHOD', 'GET')
         os.environ.setdefault('PATH_INFO', '/')
@@ -40,7 +41,10 @@ class _Base(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def setUp(self):
         self.api.save(self.api.DEVICES_FILE, {})

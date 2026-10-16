@@ -56,6 +56,11 @@ comes with a check that keeps it fixed.
 
 ### Under the hood
 
+- The test suite no longer depends on the order its tests run in. Thirteen
+  test classes removed the data directory setting when they finished, so a
+  later test could run the server's start-up against the default
+  `/var/lib/remotepower`, which on a machine with a real install means writing
+  to it. They now put back what was there, and a test holds the rule.
 - The stylesheet loses the rules for 61 classes that no page, script or server
   template writes, among them `.fw-600-14`, which set 13px. A test now fails
   when a class in the stylesheet is written nowhere.

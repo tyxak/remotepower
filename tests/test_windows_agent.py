@@ -366,10 +366,14 @@ class TestHostFacts(unittest.TestCase):
 class TestCredsAndCommands(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = self.d
 
     def tearDown(self):
-        os.environ.pop('RP_DATA_DIR', None)
+        if self._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = self._prev_dd
 
     def test_poll_interval_command_updates_creds(self):
         agent.save_creds({'device_id': 'd1', 'token': 't', 'poll_interval': 60})

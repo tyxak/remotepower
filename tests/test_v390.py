@@ -69,6 +69,7 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v390_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         os.environ.setdefault('REQUEST_METHOD', 'GET')
         os.environ.setdefault('PATH_INFO', '/')
@@ -81,7 +82,10 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def _seed_admin(self):
         users = self.api.load(self.api.USERS_FILE)

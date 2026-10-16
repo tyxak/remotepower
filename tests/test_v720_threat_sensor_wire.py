@@ -58,8 +58,11 @@ def _log_line(ip, epoch, request, status):
 
 
 class TestTheSensorOverRealHttp(unittest.TestCase):
-    """One stack for the class. The tests run in the order of their numbers: each
-    one starts from where the one before left the server."""
+    """One stack for the class. Each test sets the state it needs and compares the
+    queue before and after itself, and the fresh install's default is captured in
+    setUpClass, before any test runs, so the tests pass in any order. (They used to
+    rely on running in the order of their numbers, and failed whenever
+    pytest-randomly shuffled them.)"""
 
     @classmethod
     def setUpClass(cls):
@@ -77,6 +80,10 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
         cls.linux = cls._enroll('e2e-web01', 'Debian GNU/Linux 12')
         cls.windows = cls._enroll('e2e-win01', 'Windows Server 2022')
         cls._write_the_host()
+        # the fresh install's answer, before any test has changed a setting
+        cls.default_linux_beat = cls.call('POST', '/api/heartbeat', {
+            'device_id': cls.linux['device_id'], 'token': cls.linux['token'], 'version': '7.2.0',
+            'hostname': cls.linux.get('name', ''), 'os': cls.linux['os']})[1]
 
     @classmethod
     def call(cls, method, path, body=None, token=None, raw=None):
@@ -139,13 +146,17 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
     # ── 1: off until the admin turns it on ─────────────────────────────────────
 
     def test_1_it_is_off_until_the_admin_turns_it_on(self):
+        self.assertNotIn('threat_sensor', self.default_linux_beat, 'the sensor is off on a fresh install')
+        status, _ = self.call('POST', '/api/ip-intel/settings', {'sensor_enabled': False}, self.admin)
+        self.assertEqual(status, 200)
         self.assertNotIn('threat_sensor', self.beat(self.linux))
+        before = self.intel()['queued']
         status, resp = self.call('POST', '/api/threat-events', {
             'device_id': self.linux['device_id'], 'token': self.linux['token'],
             'events': [{'ip': ATTACKER, 'src': {'web': 9}, 'tok': {'web': {'req:sqli': 9}}}]})
         self.assertEqual(status, 200, resp)
         self.assertIs(resp.get('enabled'), False, 'a switched-off intake says so and keeps nothing')
-        self.assertEqual(self.intel()['queued'], 0)
+        self.assertEqual(self.intel()['queued'], before)
 
     # ── 2: the setting reaches Linux hosts and nobody else ─────────────────────
 
@@ -161,6 +172,7 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
     def test_3_the_intake_refuses_what_is_not_a_device(self):
         good = {'ip': ATTACKER, 'src': {'web': 9}, 'tok': {'web': {'req:sqli': 9}}}
         mine = {'device_id': self.linux['device_id'], 'events': [good]}
+        before = self.intel()['queued']
         cases = {
             'wrong token': (dict(mine, token='wrong'), None),
             "another device's token": (dict(mine, token=self.windows['token']), None),
@@ -174,7 +186,7 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
             with self.subTest(what):
                 status, resp = self.call('POST', '/api/threat-events', raw=raw)
                 self.assertLess(status, 500, (status, resp))
-        self.assertEqual(self.intel()['queued'], 0, 'none of the refused posts left anything behind')
+        self.assertEqual(self.intel()['queued'], before, 'none of the refused posts left anything behind')
 
     # ── 4: a valid device is still not trusted with what it says ───────────────
 
@@ -184,6 +196,7 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
         compromised host, or an older agent, could send one. Post it directly."""
         status, _ = self.call('POST', '/api/ip-intel/settings', {'sensor_enabled': True}, self.admin)
         self.assertEqual(status, 200)
+        before = self.intel()['queued']
         status, resp = self.call('POST', '/api/threat-events', {
             'device_id': self.linux['device_id'], 'token': self.linux['token'],
             'events': [
@@ -193,7 +206,7 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
         self.assertEqual(status, 200, resp)
         self.assertEqual(resp.get('accepted'), 0, resp)
         self.assertEqual(resp.get('ignored'), {'cloudflare': 1, 'invalid': 1}, resp)
-        self.assertEqual(self.intel()['queued'], 0, 'something the intake ignored was queued anyway')
+        self.assertEqual(self.intel()['queued'], before, 'something the intake ignored was queued anyway')
 
     # ── 5: the agent's own thread, to the page ─────────────────────────────────
 

@@ -303,6 +303,7 @@ class TestV380TokenSafety(unittest.TestCase):
         if cgi_bin not in sys.path:
             sys.path.insert(0, cgi_bin)
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v380tok_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         if 'api' in sys.modules:
             del sys.modules['api']
@@ -313,7 +314,10 @@ class TestV380TokenSafety(unittest.TestCase):
     def tearDownClass(cls):
         import os, shutil
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
         sys.modules.pop('api', None)
 
     def test_query_string_token_sites_use_safe_compare(self):

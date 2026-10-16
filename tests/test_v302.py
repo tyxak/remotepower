@@ -26,6 +26,7 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v302_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         # Force a fresh import so DATA_DIR resolves against the tmpdir
         if 'api' in sys.modules: del sys.modules['api']
@@ -35,7 +36,10 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        os.environ.pop('RP_DATA_DIR', None)
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
 
 class TestLoadCache(_ApiTestBase):
