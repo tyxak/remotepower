@@ -477,8 +477,8 @@ RemotePower reports an address at once only when the Worker banned it, and this 
 | `robots.txt` is unchanged | The route for `/robots.txt` is missing | Add the route and deploy again. |
 | The password is used and the line says `login` | `CANARY_PASSWORD` is empty or under 12 characters, the request states no length or more than 4 KB, or the password differs | Check the variable, then send the password as `pwd=...` in a short `POST`. |
 | `.env` has no `ADMIN_PASSWORD` line | `CANARY_PASSWORD` is empty or under 12 characters | Set it and deploy again. |
-| Nothing at the decoy host | The Custom Domain was refused, or `DECOY_HOSTS` does not hold the name | Read what `npx wrangler deploy` said, and compare the two names. |
-| The decoy host shows your own site | The name is not in `DECOY_HOSTS` | Put it there and deploy again. |
+| The decoy host name does not resolve | The Custom Domain was not created. Cloudflare will not create one on a name that already has a CNAME record | Read what `npx wrangler deploy` said, and pick a name that does not exist. |
+| The decoy host shows an error page, or the log says `bait` or `login` instead of `decoy` | The name is not in `DECOY_HOSTS`, or is spelled differently there. The Worker then treats the visit as one to your site, and a decoy host has no site behind it | Put the name in `DECOY_HOSTS` exactly as in its route, and deploy again. |
 | A WordPress path answers `404` from your own site | Its route is off | Remove the `#` from the route, only if your site is not WordPress. |
 
 ## Go back to the first script

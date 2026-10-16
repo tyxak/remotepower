@@ -215,6 +215,8 @@ class TestTheScriptRuns(unittest.TestCase):
         add('d_other', C('/', host='other.example.com', env=ENV))
         add('d_notlisted', C('/', host='other2.example.com', env=ENV))
         add('d_empty', C('/', host=DECOY, env={'DECOY_HOSTS': ''}))
+        add('d_unlisted_env', C('/.env', host=DECOY, env={'DECOY_HOSTS': ''}))
+        add('d_unlisted_login', C('/wp-login.php', host=DECOY, env={'DECOY_HOSTS': ''}))
         # your own addresses
         add('own', C('/.env', ip='203.0.113.7', env=ENV))
         add('own_v6_case', C('/.env', ip='2001:db8::1', env=ENV))
@@ -458,10 +460,25 @@ class TestTheScriptRuns(unittest.TestCase):
     def test_a_decoy_host_sign_in_with_the_password_is_a_canary_use(self):
         self.assertEqual(self.kind('d_canary'), 'canary_use')
 
-    def test_a_host_that_is_not_listed_is_your_site(self):
+    def test_a_host_that_is_not_listed_is_passed_on(self):
+        """On a route that is your site. On a Custom Domain there is no site behind the
+        name, which the next test holds the troubleshooting table to."""
         for n in ('d_notlisted', 'd_empty'):
             r = self.r(n)
             self.assertEqual((r['body'], r['logs'], r['fetched']), ('origin page', [], 1), n)
+
+    def test_a_decoy_host_missing_from_the_list_is_what_the_troubleshooting_row_says(self):
+        """Left out of DECOY_HOSTS, a decoy host is treated as your site: a trap path is
+        logged as that trap, and anything else is passed on, which on a Custom Domain has
+        no site to reach. One row gives that cause, with those symptoms."""
+        rows = [r for r in _table(_section(_guide(), 'Troubleshooting')) if 'DECOY_HOSTS' in r[1]]
+        self.assertEqual(len(rows), 1, 'one row gives a name missing from DECOY_HOSTS as the cause')
+        symptom = rows[0][0]
+        for n in ('d_unlisted_env', 'd_unlisted_login'):
+            self.assertIn('`%s`' % self.kind(n), symptom, n)
+        self.assertEqual(self.r('d_empty')['fetched'], 1)
+        self.assertIn('error', symptom)
+        self.assertNotIn('your own site', symptom)
 
     # your own addresses, the log, the throttle ---------------------------------
 
