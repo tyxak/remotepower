@@ -28,6 +28,10 @@ comes with a check that keeps it fixed.
 
 ### Interface
 
+- The in-app documentation viewer reads a wrapped paragraph as one, as GitHub
+  and the wiki do. It broke every line where the source wraps at 80 columns,
+  so most guides read with a break mid-sentence. The AI chat and the
+  knowledge base keep a line break per newline.
 - Every section of **Settings → Alert parameters** links to its own part of
   the guide, which now describes each of the 24 sections and names its fields.
 

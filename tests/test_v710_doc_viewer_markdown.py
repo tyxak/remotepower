@@ -157,6 +157,28 @@ class TestDocViewerMarkdown(unittest.TestCase):
         self.assertNotIn(' id=', html)
         self.assertIn('[x](https://example.org)', html)
 
+    # v7.4.0: a paragraph's single newlines are wrapping in the docs, as GitHub and
+    # the wiki read them. The viewer turned each into a <br>, so every doc written
+    # at 80 columns broke mid-sentence in the app.
+    def test_a_wrapped_paragraph_reads_as_one_in_the_docs(self):
+        html = self.render('A sentence that wraps\nonto the next line.\n\nA second paragraph.')
+        self.assertIn('A sentence that wraps onto the next line.', html)
+        self.assertNotIn('<br>', html)
+
+    def test_two_trailing_spaces_still_break_a_line_in_the_docs(self):
+        self.assertIn('first<br>second', self.render('first  \nsecond'))
+
+    def test_the_model_and_kb_callers_keep_a_break_per_newline(self):
+        """Operator notes and model answers use single newlines as breaks."""
+        self.assertIn('a<br>b', self.render('a\nb', docs=False))
+
+    def test_a_real_wrapped_doc_renders_its_sentences_whole(self):
+        """Control on the corpus: a sentence the source wraps at 80 columns."""
+        text = (_ROOT / 'docs' / 'alert-parameters.md').read_text(encoding='utf-8')
+        self.assertIn('every numeric threshold\nthat decides', text, 'control: the source wraps here')
+        html = self.render(text)
+        self.assertIn('every numeric threshold that decides', html)
+
 
 @unittest.skipUnless(_HAVE_V8, 'py_mini_racer (V8) is not installed')
 class TestDocViewerWiring(unittest.TestCase):

@@ -16382,16 +16382,21 @@ function renderMarkdown(text, opts) {
   html = html.replace(/^&gt; (.+)$/gm,
     '<div class="isl-520">$1</div>');
 
-  // Paragraphs: turn blank-line-separated chunks into <p>, single newlines
-  // into <br>. Don't wrap content that's already block-level (lists,
-  // headers, code blocks, blockquotes).
+  // Paragraphs: turn blank-line-separated chunks into <p>. Don't wrap content
+  // that's already block-level (lists, headers, code blocks, blockquotes).
+  // A single newline is a <br> for the AI chat and the KB, where people and
+  // models use it as a break. In the product's docs it is wrapping, as GitHub and
+  // the wiki read it, so it joins with a space; two trailing spaces still break.
+  const _lines = (opts && opts.docs)
+    ? (s) => s.replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')
+    : (s) => s.replace(/\n/g, '<br>');
   const blocks = html.split(/\n{2,}/).map(b => {
     const trimmed = b.trim();
     if (!trimmed) return '';
       // `</?` — a block may START with a closing tag when a list or table ends
     // at a blank line; wrapping `</ul>` in a <p> showed stray markup.
     if (/^<\/?(?:div|ul|ol|pre|h[1-6]|blockquote|table)/i.test(trimmed)) return trimmed;
-    return `<p class="isl-521">${trimmed.replace(/\n/g, '<br>')}</p>`;
+    return `<p class="isl-521">${_lines(trimmed)}</p>`;
   });
   html = blocks.join('\n');
 
