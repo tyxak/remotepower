@@ -680,7 +680,7 @@ async function userAction(action) {
   if (action === 'delete' && !await uiConfirm(`Queue deletion of user "${username}"? (home dir is kept)`)) return;
   const r = await api('POST', `/devices/${id}/user-action`, body);
   if (r?.ok) { toast(`Queued: ${action} ${username} (runs on next heartbeat)`, 'success'); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ─── v3.6.0: host firewall management ────────────────────────────────────────
@@ -713,7 +713,7 @@ async function avScan(tool) {
   const id = document.getElementById('avscan-devid').value;
   const r = await api('POST', `/devices/${id}/av-scan`, { tool });
   if (r?.ok) toast(`${tool} scan queued — output appears in the host command history`, 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ─── v3.6.0: remote file manager (SFTP over the webterm daemon) ──────────────

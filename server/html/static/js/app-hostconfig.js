@@ -62,7 +62,7 @@ async function saveProfile() {
   if (!ids.length) { toast('Select at least one script', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles', { name, script_ids: ids });
   if (r?.ok) { toast('Profile created', 'success'); closeModal('cs-profile-create-modal'); loadMonitoringProfiles(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 let _csProfileSelDevs = new Set();   // selected device ids for apply
 function openProfileApply(pid, name) {
@@ -108,7 +108,7 @@ async function applyProfile() {
   if (!ids.length) { toast('Select at least one asset', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles/apply', { profile_id: pid, device_ids: ids });
   if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} host(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function deleteProfile(id, name) {
   // v6.3.0 (UX): undoable deferred delete — assigned scripts stay assigned, so

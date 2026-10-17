@@ -59,7 +59,7 @@ async function saveAnsiblePlaybook() {
   const d = id ? await api('PUT', '/ansible/playbooks/' + encodeURIComponent(id), body)
                : await api('POST', '/ansible/playbooks', body);
   if (d?.ok) { toast(id ? 'Playbook saved' : 'Playbook created', 'success'); closeModal('ansible-modal'); loadAnsible(); }
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 
 async function deleteAnsiblePlaybook(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens

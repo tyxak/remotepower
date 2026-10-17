@@ -284,7 +284,7 @@ async function vpnTunnelSave() {
     closeModal('vpn-tunnel-modal');
     _vpnTunnelEditId = null;
     loadVpn();
-  } else toast(data?.error || 'Failed', 'error');
+  } else failToast(data);
 }
 
 async function deleteVpnTunnel(id, name) {
@@ -299,7 +299,7 @@ async function deleteVpnTunnel(id, name) {
       document.getElementById('vpn-clients-card')?.classList.add('d-none');
     }
     loadVpn();
-  } else toast(data?.error || 'Failed', 'error');
+  } else failToast(data);
 }
 
 // ── Clients of the selected tunnel ───────────────────────────────────────────
@@ -535,7 +535,7 @@ function editVpnClient(id) {
     const data = await api('PATCH', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id) +
       '/clients/' + encodeURIComponent(id), { name });
     if (data?.ok) { toast('Client updated', 'info'); reloadVpnClients(); }
-    else toast(data?.error || 'Failed', 'error');
+    else failToast(data);
   });
 }
 
@@ -547,5 +547,5 @@ async function deleteVpnClient(id, name) {
   const data = await api('DELETE', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id) +
     '/clients/' + encodeURIComponent(id));
   if (data?.ok) { toast('Client deleted', 'info'); reloadVpnClients(); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }

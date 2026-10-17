@@ -324,7 +324,7 @@ async function loadDepSuggestions() {
 async function depSuggestAct(deviceId, upstreamId, action) {
   const r = await api('POST', '/dependency-suggestions', { device_id: deviceId, upstream_id: upstreamId, action });
   if (r && r.ok) { toast(action === 'accept' ? 'Dependency added' : 'Dismissed', 'success'); loadDepSuggestions(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v6.3.1: flow-verified declared-dependency link health.
@@ -394,7 +394,7 @@ async function loadLldpSuggestions() {
 async function lldpSuggestAct(deviceId, peerId, action) {
   const r = await api('POST', '/lldp-suggestions', { device_id: deviceId, peer_id: peerId, action });
   if (r && r.ok) { toast(action === 'accept' ? 'Topology edge added' : 'Dismissed', 'success'); loadLldpSuggestions(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function loadNetmap() {
@@ -849,8 +849,8 @@ async function saveCtWatch() {
     if (res) res.textContent = domains.length ? `Watching ${domains.length} domain${domains.length === 1 ? '' : 's'} — first check baselines silently.` : 'CT watch is off.';
     _loadCtWatch();
   } else {
-    toast(r?.error || 'Failed', 'error');
-    if (res) res.textContent = r?.error || 'Failed';
+    failToast(r);
+    if (res) res.textContent = failText(r);
   }
 }
 

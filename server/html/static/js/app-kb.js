@@ -66,7 +66,7 @@ async function _saveKbRunbooks(map, okMsg) {
     _kbRunbookMap = map; _renderKbRunbooks();
     toast(okMsg, 'success'); if (res) res.textContent = '';
   } else {
-    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+    failToast(r); if (res) res.textContent = failText(r);
   }
 }
 function addKbRunbookLink() {

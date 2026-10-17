@@ -264,7 +264,7 @@ async function saveBackupJob() {
     if (d.note) toast((id ? 'Job saved' : 'Job created') + ' — ' + d.note, 'warning');
     else toast(id ? 'Job saved' : 'Job created', 'success');
   }
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 
 // Structured file-backup jobs are a bash/rsync command — Linux only. The server
@@ -288,7 +288,7 @@ async function _backupRunBtn(btn) {
   if (targets.length > 1) {
     const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/run', {});
     if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} hosts — output appears in each host's command history${_backupSkipNote(d)}`, 'success');
-    else toast((d?.error || 'Failed') + _backupSkipNote(d), 'error');
+    else toast(failText(d) + _backupSkipNote(d), 'error');
     return;
   }
   // single device → run-and-wait with progress feedback
@@ -447,7 +447,7 @@ async function saveProxmoxBackupThreshold() {
   if (!days || days < 1 || days > 365) { toast('Enter 1–365 days', 'error', {transient: true}); return; }
   const d = await api('POST', '/proxmox/backups/threshold', { days });
   if (d?.ok) { toast(`Threshold set to ${d.warn_days} days`, 'success'); loadProxmoxBackups(); }
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 
 // W3-42: backup shrink-anomaly threshold.
@@ -455,7 +455,7 @@ async function saveBackupAnomalyPct() {
   const v = parseInt(document.getElementById('cfg-backup-anomaly-pct')?.value || '0', 10) || 0;
   const r = await api('POST', '/config', { backup_size_anomaly_pct: v });
   if (r && !r.error) toast(v ? `Shrink alert at ${v}% of median` : 'Shrink alert off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 function renderBackupMonitors(monitors) {
   _backupMonitors = monitors || [];
@@ -520,7 +520,7 @@ async function addBackupMonitor() {
     const _bdsr = document.getElementById('bm-drill-sample'); if (_bdsr) _bdsr.value = '';
     _backupEditIdx = -1;
     renderBackupMonitors(_backupMonitors);
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function removeBackupMonitor(idx) {
@@ -537,7 +537,7 @@ async function removeBackupMonitor(idx) {
     else if (_backupEditIdx > idx) _backupEditIdx -= 1;
     renderBackupMonitors(_backupMonitors);
     toast('Removed', 'info');
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function runBackupNow() {

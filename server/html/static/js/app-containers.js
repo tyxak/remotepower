@@ -197,13 +197,13 @@ async function ignoreImageUpdate(ref) {
       async () => { const u = await api('POST', '/image-updates/ignore', { ref, reason }); if (u?.ok) loadImageUpdates(); },
       'Image ignored');
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function unignoreImageUpdate(ref) {
   const r = await api('DELETE', '/image-updates/ignore', { ref });
   if (r && r.ok) { toast('Resumed update alerts', 'success'); loadImageUpdates(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v3.3.4: compose stacks ─────────────────────────────────────────────────
@@ -300,28 +300,28 @@ async function submitComposeStack() {
   }
   const r = await api('POST', '/compose/stacks', { name, device_id, yaml });
   if (r && r.ok) { toast('Stack created', 'success'); closeModal('compose-create-modal'); loadComposeStacks(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function composeStackAction(stackId, action) {
   if (action === 'down' && !await uiConfirm('Run `docker compose down` for this stack?')) return;
   const r = await api('POST', `/compose/stacks/${encodeURIComponent(stackId)}/action`, { action });
   if (r && r.ok) { toast(`${action} queued — runs on the host's next heartbeat (~60s)`, 'success'); loadComposeStacks(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function deleteComposeStack(stackId, name) {
   if (!await uiConfirm(`Delete stack "${name}"?\n\nThis only removes it from RemotePower — it does NOT stop running containers. Run "Down" first if you want to tear it down.`)) return;
   const r = await api('DELETE', `/compose/stacks/${encodeURIComponent(stackId)}`);
   if (r && r.ok) { toast('Stack deleted', 'success'); loadComposeStacks(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function enableComposeOnDevice(deviceId, deviceName) {
   if (!await uiConfirm(`Enable compose deploys on "${deviceName}"?\n\nThis lets RemotePower run uploaded compose files as root on that host.`)) return;
   const r = await api('PATCH', `/devices/${encodeURIComponent(deviceId)}/compose_enabled`, { compose_enabled: true });
   if (r && r.ok) { toast('Compose deploys enabled', 'success'); loadComposeStacks(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function viewComposeStack(stackId) {
@@ -329,7 +329,7 @@ async function viewComposeStack(stackId) {
   body.innerHTML = _skeletonBlock(5);
   openModal('compose-view-modal');
   const s = await api('GET', `/compose/stacks/${encodeURIComponent(stackId)}`);
-  if (!s || s.error) { body.innerHTML = `<div class="c-red">${escHtml((s && s.error) || 'Failed')}</div>`; return; }
+  if (!s || s.error) { body.innerHTML = `<div class="c-red">${escHtml(failText(s))}</div>`; return; }
   document.getElementById('compose-view-title').textContent = `Stack — ${s.name || ''}`;
   const out = s.last_output
     ? `<h4>Last run (${escHtml(s.last_action || '')}, rc=${s.last_rc != null ? s.last_rc : '?'})</h4><pre class="isl-514"><code>${escHtml(s.last_output)}</code></pre>`
@@ -810,7 +810,7 @@ async function unmuteContainer(btn) {
   const dev = btn.dataset.dev, container = btn.dataset.ctr, id = btn.dataset.mute;
   if (!id) { toast('This mute has already lapsed — reload the list', 'error', {transient: true}); return; }
   const r = await api('DELETE', '/alert-mutes/' + encodeURIComponent(id));
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   await _containersRedrawIfOpen();
   loadContainersOverview();
   const reBody = { device_id: dev, container };
@@ -842,7 +842,7 @@ async function containerAction(deviceId, runtime, containerId, action, displayNa
   const resp = await api('POST',
     '/devices/' + encodeURIComponent(deviceId) + '/containers/action',
     {runtime, action, container_id: containerId});
-  if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
+  if (!resp || resp.error) { failToast(resp); return; }
   toast(`${verb} queued — runs on next heartbeat (~60s)`, 'success');
 }
 

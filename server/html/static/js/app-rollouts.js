@@ -194,7 +194,7 @@ function _rrScope() {
 async function previewRebootPlan() {
   const box = document.getElementById('rr-plan');
   const r = await api('POST', '/rollouts/reboot-plan', { scope: _rrScope() });
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); if (box) box.textContent = (r && r.error) || 'Failed'; return; }
+  if (!r || !r.ok) { failToast(r); if (box) box.textContent = failText(r); return; }
   _rrRings = r.rings;
   box.innerHTML = `<div class="fw-500 mb-6">${r.device_count} host(s) → ${r.rings.length} wave(s)</div>`
     + r.rings.map(w => `<div class="mb-4"><span class="fw-500 fs-13">${escHtml(w.name)}</span> <span class="meta-sm-nm">${w.devices.map(d => escHtml(d.name)).join(', ')}</span></div>`).join('')
@@ -212,5 +212,5 @@ async function createRebootRollout() {
   };
   const r = await api('POST', '/rollouts', body);
   if (r && r.ok) { toast('Rolling-reboot rollout created', 'success'); _rrRings = null; document.getElementById('rr-plan').innerHTML = ''; loadRollouts(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }

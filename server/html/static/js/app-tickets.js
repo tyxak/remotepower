@@ -199,7 +199,7 @@ async function loadPortalTicketQueue() {
 
 async function decidePortalTicket(id, decision) {
   const r = await api('POST', `/portal/ticket-queue/${encodeURIComponent(id)}`, { decision });
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || r.error) { failToast(r); return; }
   toast(decision === 'approve' ? `Ticket #${r.number} created.` : 'Submission rejected.', 'success');
   loadPortalTicketQueue();
   if (decision === 'approve') loadTickets();
@@ -278,7 +278,7 @@ async function saveNewTicket() {
   if (_tkNewDevs.length) { body.device_id = _tkNewDevs[0].id; body.affected_devices = _tkNewDevs.map(d => d.id); }
   const r = await api('POST', '/tickets', body);
   if (r?.ok) { toast(`Ticket ${_tkNo(r.number)} created`, 'success'); closeModal('ticket-create-modal'); loadTickets(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function openTicket(tid) {
   const data = await api('GET', '/tickets/' + encodeURIComponent(tid));
@@ -462,7 +462,7 @@ async function saveTicketField(tid) {
     group: document.getElementById('tk-d-group')?.value || '',
     affected_devices: (window._tkDetailDevs || []).map(d => d.id),
   });
-  if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
+  if (!r?.ok) { failToast(r); return; }
   toast(r.alert_resolved ? 'Ticket updated — linked alert resolved' : 'Ticket updated', 'success');
   // If this master ticket was just closed, offer to close its open sub-tickets too.
   const openChildren = (window._tkCurrentChildren || []).filter(c => c.status !== 'resolved' && c.status !== 'closed');
@@ -488,7 +488,7 @@ async function takeTicket(tid) {
   const myTeam = (typeof _uiPrefs !== 'undefined' && _uiPrefs && _uiPrefs.team) || '';
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { assignee: getMe(), group: myTeam });
   if (r?.ok) { toast('Ticket assigned to you', 'success'); openTicket(tid); loadTickets(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function assignTicketGroup(tid) {
   // Hand off to the group currently picked in the Group dropdown.
@@ -497,7 +497,7 @@ async function assignTicketGroup(tid) {
   if (!await uiConfirm(`Assign this ticket to "${grp}"? This clears the assignee and sets it to Pending Internal.`)) return;
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { group: grp, assignee: '', status: 'pending_internal' });
   if (r?.ok) { toast('Ticket assigned to group', 'success'); openTicket(tid); loadTickets(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── Internal contact directory (team phonebook; unrelated to the ticket system) ──
@@ -567,7 +567,7 @@ async function saveContact() {
     ? await api('PATCH', '/contacts/' + encodeURIComponent(_ctEditId), body)
     : await api('POST', '/contacts', body);
   if (r?.ok) { toast(_ctEditId ? 'Contact updated' : 'Contact added', 'success'); closeModal('contact-modal'); loadContacts(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 // ── v6.3.0 (UX wave 1): bulk actions over the open-ticket tables ─────────────
 // Client-side loop of the same PATCHes the single-row flows use — no new
@@ -625,7 +625,7 @@ async function addTicketMessage(tid, direction) {
   if (!msg) { toast('Write something first', 'warning'); return; }
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { message: msg, direction });
   if (r?.ok) { toast('Added', 'success'); openTicket(tid); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function sendTicketEmail(tid) {
   const ta = document.getElementById('tk-d-msg');
@@ -636,7 +636,7 @@ async function sendTicketEmail(tid) {
   if (atts.length) payload.attachments = atts.map(a => ({ filename: a.filename, content_type: a.content_type, data_b64: a.data_b64 }));
   const r = await api('POST', '/tickets/' + encodeURIComponent(tid) + '/email', payload);
   if (r?.ok) { window._tkOutAttach = []; toast('Email sent to ' + r.to, 'success'); openTicket(tid); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v5.4.1: ticket attachments (in/out) ───────────────────────────────────────
@@ -769,7 +769,7 @@ async function deleteTicket(tid) {
   if (!await uiConfirm('Delete this ticket permanently?')) return;
   const r = await api('DELETE', '/tickets/' + encodeURIComponent(tid));
   if (r?.ok) { toast('Ticket deleted', 'success'); closeModal('ticket-detail-modal'); loadTickets(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function loadTicketImap() {
   const r = await api('GET', '/tickets/imap');
@@ -790,7 +790,7 @@ async function saveTicketImap() {
   const pw = v('tkimap-pass'); if (pw) body.password = pw;
   const r = await api('POST', '/tickets/imap', body);
   if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 // v5.4.1: one-time acknowledgement auto-reply for inbound-created tickets.
 async function loadTicketAutoreply() {
@@ -807,7 +807,7 @@ async function saveTicketAutoreply() {
   const r = await api('POST', '/tickets/autoreply', body);
   const res = document.getElementById('tkar-result');
   if (r?.ok) { toast('Auto-reply saved', 'success'); if (res) res.textContent = 'Saved.'; }
-  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
+  else { failToast(r); if (res) res.textContent = failText(r); }
 }
 // W1-26: canned replies — reusable composer snippets with insert-time
 // {ticket_id} / {customer} / {assignee} placeholder substitution.
@@ -857,8 +857,8 @@ async function _tkPostTemplates(tpls, okMsg) {
     toast(okMsg, 'success');
     if (res) res.textContent = '';
   } else {
-    toast(r?.error || 'Failed', 'error');
-    if (res) res.textContent = r?.error || 'Failed';
+    failToast(r);
+    if (res) res.textContent = failText(r);
   }
 }
 function saveTicketTemplate() {
@@ -909,7 +909,7 @@ async function _tkPostSchedules(scheds, okMsg) {
     _tkSchedules = r.schedules || scheds; _tkRenderSchedules();
     toast(okMsg, 'success'); if (res) res.textContent = '';
   } else {
-    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+    failToast(r); if (res) res.textContent = failText(r);
   }
 }
 function addTicketSchedule() {
@@ -973,7 +973,7 @@ async function saveBusinessHours() {
   const r = await api('POST', '/config', body);
   const res = document.getElementById('bh-result');
   if (r && !r.error) { toast('Business hours saved', 'success'); if (res) res.textContent = ''; }
-  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
+  else { failToast(r); if (res) res.textContent = failText(r); }
 }
 // W1-31: CSAT toggle lives in main config (ticket_csat_enabled).
 async function loadTicketCsat() {
@@ -987,7 +987,7 @@ async function saveTicketCsat() {
   if (!el) return;
   const r = await api('POST', '/config', { ticket_csat_enabled: !!el.checked });
   if (r && !r.error) toast(el.checked ? 'CSAT survey on' : 'CSAT survey off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function loadTicketSla() {
   const r = await api('GET', '/tickets/sla');
@@ -999,7 +999,7 @@ async function saveTicketSla() {
   [1, 2, 3, 4].forEach(p => { body[String(p)] = parseFloat(document.getElementById('tksla-' + p)?.value) || 0; });
   const r = await api('POST', '/tickets/sla', body);
   if (r?.ok) { toast('SLA targets saved', 'success'); loadTicketSla(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 function _tkTestResult(msg, ok) {
   const el = document.getElementById('tkimap-test-result');
@@ -1032,5 +1032,5 @@ function openDeviceTickets(id, name) {
 async function createTicketFromAlert(alertInternalId) {
   const r = await api('POST', '/tickets', { alert_id: alertInternalId });
   if (r?.ok) { toast(`Ticket ${_tkNo(r.number)}${r.existing ? ' (already existed)' : ' created'}`, 'success'); window.loadAlerts?.(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }

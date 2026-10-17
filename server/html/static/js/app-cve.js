@@ -162,7 +162,7 @@ async function createCveCampaign() {
     toast('Campaign created', 'success');
     ['camp-name', 'camp-owner', 'camp-cves'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     loadCveCampaigns();
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 async function deleteCveCampaign(cid) {
   // v6.3.0 (UX): undoable deferred delete — a campaign is a RemotePower-local
@@ -342,5 +342,5 @@ async function cveRealert() {
   if (r && r.ok) {
     toast(`Re-alerted ${r.devices} host(s)`, 'success');
     refreshAlertsBadge();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }

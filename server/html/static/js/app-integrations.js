@@ -112,7 +112,7 @@ async function saveRouterosConfig() {
   if (pw) body.password = pw;
   const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/routeros`, body);
   if (r?.ok) { toast('RouterOS config saved', 'success'); routerosReload(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v3.4.0: OPNsense card — mirrors the RouterOS firewall console ───────────
@@ -272,7 +272,7 @@ async function saveOpnsenseConfig() {
     // RouterOS twin (saveRouterosConfig -> routerosReload) does it correctly.
     const surf = _opnsenseSurface();
     if (surf.body) _renderOpnsenseCard(surf.body, surf.badge, data || {});
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 // Pick the active OPNsense surface — the full-width console modal if open,
@@ -295,7 +295,7 @@ async function loadOpnsenseFirewall() {
   if (!id || !body) return;
   body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense/firewall`);
-  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml(failText(data))}</div>`; return; }
   _opnFirewall = { filter: data.filter || [], nat: data.nat || [], errors: data.errors || {} };
   _renderOpnsenseFirewall(body);
 }
@@ -403,7 +403,7 @@ async function opnsenseRuleToggle(uuid, mode, table) {
     : (nat ? 'disable_nat_rule' : 'disable_filter_rule');
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action, arg: uuid });
   if (r && r.ok) { toast(`Rule ${mode}d`, 'success'); loadOpnsenseFirewall(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function opnsenseRuleDelete(uuid, table) {
@@ -471,7 +471,7 @@ async function saveDeviceSsh() {
   if (k.trim()) body.private_key = k;
   const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/ssh`, body);
   if (r && r.ok) toast('SSH credentials saved', 'success');
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function synologyUpgrade() {
@@ -579,7 +579,7 @@ async function loadRouterosFirewall() {
   if (!id || !body) return;
   body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/firewall`);
-  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml(failText(data))}</div>`; return; }
   _rosFirewall = { filter: data.filter || [], nat: data.nat || [] };
   _renderRouterosFirewall(body);
 }
@@ -715,7 +715,7 @@ async function routerosRuleToggle(ruleId, mode, table) {
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`,
     { action, arg: ruleId });
   if (r && r.ok) { toast(`Rule ${mode}d`, 'success'); loadRouterosFirewall(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function routerosRuleDelete(ruleId, table) {
@@ -784,7 +784,7 @@ async function loadRouterosQos() {
   if (!id || !body) return;
   body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/qos`);
-  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml(failText(data))}</div>`; return; }
   const rows = (data.simple || []).concat(data.tree || []);
   if (!rows.length) { body.innerHTML = '<div class="c-muted">No queues configured.</div>'; return; }
   let h = `<h4>Queues (${rows.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Name</th><th>Target / parent</th><th>Max limit</th><th>Rate</th></tr></thead><tbody>`;
@@ -801,7 +801,7 @@ async function routerosLiveRates() {
   if (!id || !body) return;
   body.innerHTML = '<div class="c-muted">Sampling ~1s…</div>';
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/traffic`);
-  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml(failText(data))}</div>`; return; }
   const fmt = (b) => {
     const u = ['bit/s', 'Kbit/s', 'Mbit/s', 'Gbit/s']; let i = 0; let v = b || 0;
     while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }

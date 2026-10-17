@@ -245,7 +245,7 @@ async function saveTimeEntry() {
     if (document.getElementById('page-timesheet')?.classList.contains('active')) loadTimesheet();
     _teReset();
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -505,7 +505,7 @@ async function addTimesheetWatcher() {
     document.getElementById('tw-watcher').value = '';
     document.getElementById('tw-value').value = '';
     loadTimesheetWatchers();
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function deleteTimesheetWatcher(id) {
@@ -701,7 +701,7 @@ async function wsGenerateInvoice(site, month) {
   if (r && r.ok) {
     toast('Invoice ' + r.number + ' created (' + r.locked_entries + ' entries locked)', 'success');
     billingTab('invoices');
-  } else { toast((r && r.error) || 'Failed', 'error'); }
+  } else { failToast(r); }
 }
 
 async function _billingInvoices() {
@@ -793,7 +793,7 @@ function invoiceExportPdf(iid) {
 async function invoiceSetStatus(iid, status) {
   const r = await api('PATCH', '/invoices/' + encodeURIComponent(iid), { status });
   if (r && r.ok) { toast('Invoice ' + status, 'success'); _billingInvoices(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 async function invoiceVoid(iid) {
   if (!await uiConfirm('Void this invoice? Its hours are freed so they can be re-billed.')) return;
@@ -907,7 +907,7 @@ async function saveBillingGlobals() {
   if (_whSecret) body.billing_webhook_secret = _whSecret;
   const r = await api('POST', '/billing/config', body);
   if (r && r.ok) { toast('Billing config saved', 'success'); window._bRateCard = card; }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 function _renderSiteCfg(sid) {
   const box = document.getElementById('bc-site-cfg');
@@ -978,5 +978,5 @@ async function saveSiteCfg(sid) {
   };
   const r = await api('POST', '/billing/config', { site });
   if (r && r.ok) { toast('Customer config saved', 'success'); _billingRates(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }

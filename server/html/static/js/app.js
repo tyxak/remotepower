@@ -1681,6 +1681,11 @@ function _clearEtagCache() { _etagCache.clear(); }
 const _canClone = typeof structuredClone === 'function';
 function _cloneBody(v) { return _canClone ? structuredClone(v) : v; }
 
+// v7.4.0: what api() last said about a failed request, so failToast() does not say it again.
+// `body` is the value the caller got back (an object, or null); a 401 is recorded apart, because
+// the login page that replaces the app is the message.
+let _apiFailureShown = {body: undefined, at: 0};
+let _apiSignedOutAt = 0;
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
@@ -1729,7 +1734,7 @@ async function api(method, path, body, extra) {
       && (path.startsWith('/alerts') || path.startsWith('/alert-mutes'))) {
     _bcast('alerts');
   }
-  if (r.status === 401) { doLogout(); return null; }
+  if (r.status === 401) { _apiSignedOutAt = Date.now(); doLogout(); return null; }
   if (_useEtag) {
     if (r.status === 304) {
       const hit = _etagCache.get(_ekey);
@@ -1760,6 +1765,7 @@ async function api(method, path, body, extra) {
       if (parsed && parsed.demo) {
         // toast is a function declaration in this file, so it is always there
         toast('Demo mode — read-only sandbox. Nothing was changed.', 'error');
+        _apiFailureShown = {body: parsed, at: Date.now()};
         return parsed;
       }
       // v3.0.3: F2 interceptor returns must_change_password: true on
@@ -1776,6 +1782,7 @@ async function api(method, path, body, extra) {
         // password field (the old comment claimed "Settings → Account", which
         // is not a settings tab at all). The Account page owns the form.
         try { gotoPasswordChange(); } catch (_) {}
+        _apiFailureShown = {body: parsed, at: Date.now()};
         return parsed;
       }
     } catch (_) { /* fall through to generic handler */ }
@@ -1812,6 +1819,7 @@ async function api(method, path, body, extra) {
       toast(`${method} ${path} failed — ${_why}`, 'error');
     }
     try { console.warn('[remotepower] api', method, path, r.status, _why); } catch (_) {}
+    _apiFailureShown = {body: _body, at: Date.now()};
   }
   return _body;
 }
@@ -3574,9 +3582,9 @@ function _prepApprovalFields(prefix) {
   if (r) r.value = '';
   if (t) t.value = '';
 }
-async function confirmShutdown() { const extra = _approvalFields('shutdown'); closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Shutdown queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
+async function confirmShutdown() { const extra = _approvalFields('shutdown'); closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Shutdown queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 3000); } else failToast(data); }
 
-async function confirmReboot() { const extra = _approvalFields('reboot'); closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Reboot queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
+async function confirmReboot() { const extra = _approvalFields('reboot'); closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget, ...extra}); if (data?.ok) { toast(data.approval_required ? 'Parked for a second admin' : 'Reboot queued', data.approval_required ? 'info' : 'success'); setTimeout(loadDevices, 5000); } else failToast(data); }
 
 // v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
 // Legacy emoji values stored on devices still render — _renderDeviceIcon
@@ -3588,7 +3596,7 @@ function _renderDeviceIcon(val) {
   return escHtml(val);
 }
 
-async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
+async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else failToast(data); }
 
 // v3.3.4: agentless reachability mode — reveal the manual Up/Down checkmark
 // only when "Manual" is picked.
@@ -3597,8 +3605,8 @@ function onReachabilityModeChange() {
   const row = document.getElementById('ds-manual-status-row');
   if (row) row.classList.toggle('d-none', mode !== 'manual');
 }
-async function clearMonitorAlerts() { if (!await uiConfirm({ message: 'Reset all monitor alert state? This allows alerts to re-fire.', confirmText: 'Reset', danger: true })) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
-async function clearWebhookLog() { if (!await uiConfirm({ message: 'Clear the webhook delivery log?', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearMonitorAlerts() { if (!await uiConfirm({ message: 'Reset all monitor alert state? This allows alerts to re-fire.', confirmText: 'Reset', danger: true })) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else failToast(data); }
+async function clearWebhookLog() { if (!await uiConfirm({ message: 'Clear the webhook delivery log?', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else failToast(data); }
 function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
@@ -4107,7 +4115,7 @@ async function _addHttpFlowMonitor(label) {
     _monitorEditIdx = -1; closeModal('monitor-add-modal');
     _warnStaleMonitors(res.monitor_warnings);
     runMonitor();
-  } else toast(res?.error || 'Failed', 'error');
+  } else failToast(res);
 }
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
@@ -4178,7 +4186,7 @@ async function addMonitor() {
     // as-is rather than blocking this save — but say so, or they rot unseen.
     _warnStaleMonitors(res.monitor_warnings);
     runMonitor();
-  } else toast(res?.error || 'Failed', 'error');
+  } else failToast(res);
 }
 
 function _warnStaleMonitors(warnings) {
@@ -4210,7 +4218,7 @@ async function removeMonitor(idx) {
     toast('Monitor deleted', 'info');
     _warnStaleMonitors(res.monitor_warnings);
     runMonitor();
-  } else toast(res?.error || 'Failed', 'error');
+  } else failToast(res);
 }
 // v6.1.2: pause/resume a monitor without deleting it (which used to be the only
 // way to stop it probing — and threw away its history).
@@ -4224,7 +4232,7 @@ async function toggleMonitorPause(label, paused) {
       _set(!want), _set(want),
       r.paused ? `Paused — ${label} is no longer probed` : `Resumed ${label}`);
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -4349,7 +4357,7 @@ async function saveSloObject() {
     _sloEditId = null;
     closeModal('slo-edit-modal');
     loadSloObjects();
-  } else toast(res?.error || 'Failed', 'error');
+  } else failToast(res);
 }
 async function removeSloObject(id) {
   const cfg = await api('GET', '/config'); if (!cfg) return;
@@ -4362,7 +4370,7 @@ async function removeSloObject(id) {
     .filter(m => (m.slo_ids || []).includes(id))
     .map(m => m.label);
   const res = await api('POST', '/config', { slo_objects: (cfg.slo_objects || []).filter(x => x.id !== id) });
-  if (!res?.ok) { toast(res?.error || 'Failed', 'error'); return; }
+  if (!res?.ok) { failToast(res); return; }
   loadSloObjects();
   const _restore = async () => {
     const c = await api('GET', '/config'); if (!c) return;
@@ -4563,8 +4571,8 @@ async function openUserAdd() {
   }
   openModal('user-add-modal');
 }
-async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { const _m = !username ? 'new-username' : 'new-password'; toast(!username ? 'Username is required' : 'Password is required', 'error', {transient: true}); const _e = document.getElementById(_m); if (_e) { _e.setAttribute('aria-invalid', 'true'); _e.focus(); } return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
-async function deleteUser(username) { if (!await uiConfirm({ message: `Delete user "${username}"?`, confirmText: 'Delete', danger: true })) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
+async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { const _m = !username ? 'new-username' : 'new-password'; toast(!username ? 'Username is required' : 'Password is required', 'error', {transient: true}); const _e = document.getElementById(_m); if (_e) { _e.setAttribute('aria-invalid', 'true'); _e.focus(); } return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') failToast(data); }
+async function deleteUser(username) { if (!await uiConfirm({ message: `Delete user "${username}"?`, confirmText: 'Delete', danger: true })) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else failToast(data); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
 // Server refuses to demote the last admin.
@@ -4576,7 +4584,7 @@ async function editUserRole(username, currentRole) {
   if (!await uiConfirm(msg)) return;
   const data = await withStepUp(() => api('PATCH', '/users/' + username, { role: newRole }));
   if (data?.ok) { toast(`${username} is now ${newRole}`, 'success'); loadUsers(); }
-  else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error');
+  else if (data?.code !== 'step_up_required') failToast(data);
 }
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
 // v6.4.2: the Account page's own "Change password" button. It must NOT dispatch
@@ -4611,7 +4619,7 @@ function gotoPasswordChange() {
     try { openPasswd(who); } catch (_) {}
   }, 150);
 }
-async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
+async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else failToast(data); }
 
 // v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
 // promoting an admin account) 403 with {code:'step_up_required'} unless the
@@ -5937,7 +5945,7 @@ async function saveSettings(btn) {
     loadSettings(); loadWebhookLog();
   } else {
     _restore('✗ Save failed', 2500);
-    toast(data?.error || 'Failed', 'error');
+    failToast(data);
   }
 }
 
@@ -6109,7 +6117,7 @@ async function toggleMaintenanceMode() {
     toast(enabled ? 'Maintenance mode ON — command dispatch paused' : 'Maintenance mode OFF', enabled ? 'info' : 'success');
     _applyMaintenanceBanner(data);
   } else {
-    toast(data?.error || 'Failed', 'error');
+    failToast(data);
     if (cb) cb.checked = !enabled;   // revert on failure
   }
 }
@@ -6148,7 +6156,7 @@ async function toggleLitigationHold() {
     toast(enabled ? 'Litigation hold ON — automated purging suspended' : 'Litigation hold OFF', enabled ? 'info' : 'success');
     loadLitigationHold();
   } else {
-    toast(data?.error || 'Failed', 'error');
+    failToast(data);
     if (cb) cb.checked = !enabled;   // revert on failure
   }
 }
@@ -6174,13 +6182,13 @@ async function loadWebhookDlq() {
 async function retryDlq(id) {
   const r = await api('POST', '/webhook/dlq/retry', { id });
   if (r?.ok) toast(r.succeeded ? 'Delivered' : 'Retry failed — still queued', r.succeeded ? 'success' : 'error');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
   loadWebhookDlq();
 }
 async function retryAllDlq() {
   const r = await api('POST', '/webhook/dlq/retry', { all: true });
   if (r?.ok) toast(`Retried ${r.retried}: ${r.succeeded} delivered, ${r.remaining} still failing`, r.remaining ? 'info' : 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
   loadWebhookDlq();
 }
 async function clearDlq() {
@@ -7147,6 +7155,27 @@ function toast(msg, type = 'info', opts = {}) {
     if (typeof opts.onTimeout === 'function') opts.onTimeout();
   }, ms);
 }
+// v7.4.0: the words for an action that did not go through, in one place. It replaced 238 toasts whose
+// fallback was the single word "Failed", which said nothing when the server had said nothing, and said
+// it twice when it had (api() already toasts every HTTP error as "POST /x failed — why").
+// Three cases are told apart:
+//   the server gave a reason            -> the reason
+//   it answered and gave none           -> "The server refused this and gave no reason."
+//   it did not answer (api() gave null) -> "The server did not answer."
+// failToast() stays quiet when api() has just announced this very failure, or has just signed the
+// person out (the login page is the message). It speaks for the refusals api() does not announce:
+// a 200 with {ok: false}, and calls made with {quiet: true}.
+function failText(r) {
+  const why = r && (r.error || r.message);
+  if (why) return String(why);
+  return r ? 'The server refused this and gave no reason.' : 'The server did not answer.';
+}
+function failToast(r, opts) {
+  const seen = _apiFailureShown;
+  if (seen.at && Date.now() - seen.at < 5000 && seen.body === (r === undefined ? null : r)) return;
+  if (!r && _apiSignedOutAt && Date.now() - _apiSignedOutAt < 5000) return;
+  toast(failText(r), 'error', opts);
+}
 // v6.3.0 (UX wave 1): standard failed-load state WITH a Retry button that
 // re-invokes the loader — replaces the static "Failed to load / refresh to
 // retry" dead ends. Works on a container div or a tbody (pass colspan for
@@ -7718,13 +7747,13 @@ async function addScheduleJob() {
     toast(cron ? `Recurring "${label}" scheduled (${cron})` : `"${label}" scheduled`, 'success');
     if (data.warning) toast(data.warning, 'info');   // v3.14.0: WoL guard-rail
     closeModal('schedule-add-modal'); loadSchedule();
-  } else toast(data?.error || 'Failed', 'error');
+  } else failToast(data);
 }
 // Delete via data-action-btn (raw dataset.id) NOT data-arg — a token_hex job id
 // that looks like a number in scientific notation ('1e5…') would otherwise be
 // coerced to Infinity by the data-arg dispatcher and the DELETE would 404.
 function _deleteJobBtn(btn) { return deleteJob(btn.dataset.id); }
-async function deleteJob(id) { id = String(id); const data = await api('DELETE', '/schedule/' + encodeURIComponent(id)); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
+async function deleteJob(id) { id = String(id); const data = await api('DELETE', '/schedule/' + encodeURIComponent(id)); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else failToast(data); }
 function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } { const w = document.getElementById('exec-wait'); if (w) w.checked = false; const rr = document.getElementById('exec-result'); if (rr) { rr.classList.add('d-none'); rr.innerHTML = ''; } } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
 // v3.3.0: schedule modal carries an editing id for in-place updates.
@@ -7813,7 +7842,7 @@ async function sendExecCmd() {
     if (res) { res.classList.remove('d-none'); res.innerHTML = '<div class="hint mt-8">Running on the host and waiting for the output…</div>'; }
     const data = await api('POST', '/exec/wait', body);
     if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
-    if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+    if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml(failText(data))}</div>`; return; }
     if (data.approval_required) { if (res) res.innerHTML = ''; toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); return; }
     if (data.timeout || data.shutdown) { if (res) res.innerHTML = `<div class="c-amber mt-8">${escHtml(data.message || 'No output within the wait window — the command runs on the next heartbeat; check the host’s command history.')}</div>`; return; }
     const out = data.output || {};
@@ -7828,7 +7857,7 @@ async function sendExecCmd() {
   if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
   if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); }
   else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
@@ -8018,8 +8047,8 @@ function nextAboutTip() { _renderAboutTip(); }
 
 async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber-ink)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green-ink)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 
-async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
-async function sendUpdate(id, name) { if (!await uiConfirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
+async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else failToast(data); }
+async function sendUpdate(id, name) { if (!await uiConfirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else failToast(data); }
 
 // v3.3.0: operator-triggered agent removal. Server queues an 'uninstall'
 // command; on next heartbeat (~60s) the agent stops + disables the
@@ -8052,7 +8081,7 @@ async function upgradePackages(id, name) {
   if (!await uiConfirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the host. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
   const data = await api('POST', '/upgrade-device', {device_ids: [id]});
   if (data?.ok) toast(`Package upgrade queued for ${name}. Output will appear in Update history shortly.`, 'success');
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 
 // ─── v1.12.0: per-device metric thresholds editor ───────────────────────────
@@ -8523,7 +8552,7 @@ async function loadDeviceMetrics() {
   tableCtl.render('snmp_metrics',   snmpRows);
 }
 
-async function clearHistory() { if (!await uiConfirm({ message: 'Clear all command history? This cannot be undone.', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearHistory() { if (!await uiConfirm({ message: 'Clear all command history? This cannot be undone.', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else failToast(data); }
 let selectedDevices = new Set();
 // v6.3.0 (UX wave 11): remember whether the last real click held Shift —
 // the data-action dispatcher doesn't pass the event through. Capture phase,
@@ -8884,7 +8913,7 @@ async function enablePush() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _urlB64ToUint8Array(window._vapidKey) });
     const r = await api('POST', '/push/subscribe', { subscription: sub.toJSON() });
-    if (r?.ok) { toast('Notifications enabled', 'success'); _initPushUI(); } else toast(r?.error || 'Failed', 'error');
+    if (r?.ok) { toast('Notifications enabled', 'success'); _initPushUI(); } else failToast(r);
   } catch (e) { toast('Could not enable notifications: ' + e, 'error'); }
 }
 async function disablePush() {
@@ -8897,7 +8926,7 @@ async function disablePush() {
 }
 async function testPush() {
   const r = await api('POST', '/push/test', {});
-  if (r?.ok) toast(`Test notification sent (${r.sent})`, 'success'); else toast(r?.error || 'Failed', 'error');
+  if (r?.ok) toast(`Test notification sent (${r.sent})`, 'success'); else failToast(r);
 }
 
 async function saveSignature() {
@@ -8952,7 +8981,7 @@ async function saveMyNotifyPrefs() {
   const r = await api('POST', '/my/notify-prefs', body);
   const res = document.getElementById('un-result');
   if (r && r.ok) { toast('Saved', 'success'); if (res) res.textContent = ''; loadMyNotifyPrefs(); }
-  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
+  else { failToast(r); if (res) res.textContent = failText(r); }
 }
 async function loadAccount() {
   const me = await loadMe();
@@ -9095,7 +9124,7 @@ async function revokeOtherSessions() {
   if (!await uiConfirm({ message: 'Sign out all other sessions? Only this browser will stay signed in.', confirmText: 'Sign out', danger: true })) return;
   const r = await api('POST', '/me/sessions/revoke-others');
   if (r && r.ok) { toast(`Signed out ${r.revoked} other session${r.revoked === 1 ? '' : 's'}`, 'success'); loadSessions(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function loadMyAckedAlerts() {
@@ -9181,7 +9210,7 @@ async function batchDelete() {
   if (!await uiConfirm({ message: `Delete ${n} host(s)? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
   const data = await api('POST', '/devices/bulk-delete', { device_ids: [...selectedDevices] });
   if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 
 // v5.0.0 (#F2): bulk add/remove tags across the selected devices.
@@ -9197,7 +9226,7 @@ async function batchTags() {
   if (!add.length && !remove.length) { toast('Nothing to change', 'info'); return; }
   const data = await api('POST', '/devices/bulk-tags', { device_ids: [...selectedDevices], add, remove });
   if (data?.ok) { toast(`Updated tags on ${data.updated} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 // ── v6.4.2: bulk attribute edit ─────────────────────────────────────────────
 // Until now the only bulk device writes were delete and tags; everything else
@@ -9251,7 +9280,7 @@ async function applyBatchAttrs() {
   }
   if (Object.keys(payload).length === 1) { toast('Nothing to change', 'info'); return; }
   const r = await api('POST', '/devices/bulk-attrs', payload);
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   closeBatchAttrs();
   // Report BOTH numbers: out-of-scope / cross-tenant ids are silently dropped
   // server-side, so "updated 8" against a selection of 10 is a real outcome the
@@ -9306,15 +9335,15 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
       toast(msg, 'success');
     }
     clearSelection(); setTimeout(loadDevices, 3000);
-  } else toast(data?.error || 'Failed', 'error'); }
+  } else failToast(data); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
-async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
+async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else failToast(r); }
 
-async function saveGroup() { const id = document.getElementById('group-device-id').value; const group = document.getElementById('group-input').value.trim(); const r = await api('PATCH', '/devices/' + id + '/group', {group}); if (r?.ok) { toast('Group saved', 'success'); closeModal('group-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
+async function saveGroup() { const id = document.getElementById('group-device-id').value; const group = document.getElementById('group-input').value.trim(); const r = await api('PATCH', '/devices/' + id + '/group', {group}); if (r?.ok) { toast('Group saved', 'success'); closeModal('group-modal'); loadDevices(); } else failToast(r); }
 
-async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
+async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else failToast(r); }
 
-async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
+async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else failToast(r); }
 // ─── v3.14.0: richer per-device metric charts ──────────────────────────────
 // Time-series area-line charts (CPU / memory / swap / disk) with a timestamped
 // x-axis + min/avg/max stats, plus a combined "all metrics" overlay. Built from
@@ -9773,7 +9802,7 @@ async function saveRetention() {
   const res = await api('POST', '/config', body);
   // api() RESOLVES on 400/403 — `if (res)` is truthy for {error:…}, so this
   // toasted success on a refusal (and double-toasted in demo mode).
-  if (!res || res.error) { toast(res?.error || 'Failed', 'error'); return; }
+  if (!res || res.error) { failToast(res); return; }
   toast('Retention settings saved', 'success');
 }
 async function runMaintenance() {
@@ -10205,7 +10234,7 @@ async function psCreate() {
     else toast(`Snapshot saved (${r.entry_count} packages)`, 'success');
     if (nameEl) nameEl.value = '';
     await psRefreshList();
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function psDelete(id) {
@@ -10229,7 +10258,7 @@ async function psPromote(id) {
 async function psDemote(id) {
   const r = await api('POST', `/patch-snapshots/${id}/promote`, { tag: null }).catch(() => null);
   if (r?.ok) { toast('Demoted', 'success'); psRefreshList(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function psDiff() {
@@ -10323,7 +10352,7 @@ async function createApiKey() {
     // scope + ip_allow sent explicitly (empty clears) so edit can remove them
     const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0, rotate_after_days: rdVal > 0 ? rdVal : 0, scope: _apiKeyScopeFromForm(), ip_allow: ipAllow};
     const data = await api('PATCH', '/apikeys/' + _apiKeyEditId, body);
-    if (data?.ok) { toast('Key updated', 'info'); closeModal('apikey-create-modal'); _apiKeyEditId = null; loadApiKeys(); } else toast(data?.error || 'Failed', 'error');
+    if (data?.ok) { toast('Key updated', 'info'); closeModal('apikey-create-modal'); _apiKeyEditId = null; loadApiKeys(); } else failToast(data);
     return;
   }
   const body = {name, role};
@@ -10332,7 +10361,7 @@ async function createApiKey() {
   if (rdVal > 0) body.rotate_after_days = rdVal;
   const sc = _apiKeyScopeFromForm(); if (sc) body.scope = sc;
   if (ipAllow) body.ip_allow = ipAllow;
-  const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+  const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else failToast(data); }
 // v6.3.1: undoable (deferred commit) — the key keeps working until the undo
 // window closes, so an accidental click never breaks a script mid-run.
 async function deleteApiKey(id) {
@@ -10857,7 +10886,7 @@ async function _postEnrolRules(rules, okMsg) {
     _enrolRules = rules; _renderEnrolRules();
     toast(okMsg, 'success'); if (res) res.textContent = '';
   } else {
-    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+    failToast(r); if (res) res.textContent = failText(r);
   }
 }
 function addEnrolRule() {
@@ -10915,7 +10944,7 @@ async function saveSite() {
     ? await api('PUT', '/sites/' + encodeURIComponent(id), body)
     : await api('POST', '/sites', body);
   if (data?.ok) { toast(id ? 'Site saved' : 'Site created', 'success'); closeModal('site-create-modal'); loadSites(); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 
 // W5-5: NOC world map — plot sites with coordinates (equirectangular projection).
@@ -10964,7 +10993,7 @@ async function saveDeviceSite() {
   const site = document.getElementById('device-site-select').value;
   const data = await api('PATCH', '/devices/' + id + '/site', {site});
   if (data?.ok) { toast('Site updated', 'success'); closeModal('device-site-modal'); loadDevices(); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 
 // ─── v3.6.0: auto-patch policies ─────────────────────────────────────────────
@@ -11122,13 +11151,13 @@ async function saveAutopatch() {
   const d = id ? await api('PUT', '/autopatch/' + encodeURIComponent(id), body)
                : await api('POST', '/autopatch', body);
   if (d?.ok) { toast(id ? 'Policy saved' : 'Policy created', 'success'); closeModal('autopatch-modal'); loadAutopatch(); }
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 async function _autopatchRunBtn(btn) {
   if (!await uiConfirm('Apply this policy now (queue upgrades to all targeted hosts)?')) return;
   const d = await api('POST', '/autopatch/' + encodeURIComponent(btn.dataset.id) + '/run', {});
   if (d?.ok) toast(`Queued upgrade on ${d.queued} host(s)`, 'success');
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   undoableDelete({
@@ -11218,7 +11247,7 @@ async function addCmdSnippet() {
     _cmdLibEditId = null;
     closeModal('cmdlib-add-modal');
     loadCmdLib();
-  } else toast(data?.error || 'Failed', 'error');
+  } else failToast(data);
 }
 // v6.3.0 (UX wave 1): undoable (deferred commit) — was an instant no-confirm delete.
 async function deleteCmdSnippet(id) {
@@ -11263,11 +11292,11 @@ async function regenerateRecoveryCodes() {
   if (!pw) return;
   const data = await api('POST', '/totp/recovery-codes', {password: pw});
   if (data?.ok && data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
-async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
+async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { failToast(data); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error', {transient: true}); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
-async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
+async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else failToast(data); }
 function filterDevices() {
   // v1.11.5: persist filter input across reloads. The actual filter logic
   // still lives in renderDevices(); this just captures the current value
@@ -11771,7 +11800,7 @@ function _renderPatchSlaStatus(rows) {
 async function _savePatchSla(rules, okMsg) {
   const r = await api('POST', '/config', { patch_sla: rules });
   if (r && !r.error) { _patchSlaRules = rules; _renderPatchSlaRules(); toast(okMsg, 'success'); loadPatchSla(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 function addPatchSlaRule() {
   const mt = document.getElementById('psla-mtype')?.value || 'all';
@@ -11867,7 +11896,7 @@ async function setPatchApproval(pkg, state) {
     if (!ok) return;
   }
   const r = await api('POST', '/patch-approvals', {packages: [name], state: want});
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   toast(`"${name}" ${want}`, 'success');
   loadPatchCatalog();
 }
@@ -11875,7 +11904,7 @@ async function setPatchApproval(pkg, state) {
 async function clearPatchApproval(pkg) {
   const name = String(pkg);
   const r = await api('POST', '/patch-approvals/delete', {packages: [name]});
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   toast(`Decision cleared for "${name}"`, 'success');
   loadPatchCatalog();
 }
@@ -13244,7 +13273,7 @@ function renderAuditLog() {
     : _auditLogCache;
   tableCtl.render('audit', rows);
 }
-async function revokeAllSessions() { if (!await uiConfirm({ message: 'Revoke ALL sessions? Everyone (including you) will need to log in again.', confirmText: 'Revoke all', danger: true })) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
+async function revokeAllSessions() { if (!await uiConfirm({ message: 'Revoke ALL sessions? Everyone (including you) will need to log in again.', confirmText: 'Revoke all', danger: true })) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else failToast(data); }
 async function clearAuditLog() {
   // v4.6.0: use the in-app password modal (uiPrompt type:'password') — the native
   // prompt() shows the typed password in clear text and can't be masked.
@@ -13256,7 +13285,7 @@ async function clearAuditLog() {
   if (!pw) return;
   const data = await api('DELETE', '/audit-log', { password: pw });
   if (data?.ok) { toast('Audit log cleared (pre-wipe archive saved)', 'success'); loadAuditLog(); }
-  else toast(data?.error || 'Failed', 'error');
+  else failToast(data);
 }
 // v4.6.0: generate a self-signed CA + server cert from Settings → Security.
 // Calls the admin-only /api/tls/gen-self-signed endpoint (Python cryptography),
@@ -13468,7 +13497,7 @@ async function addPasskey() {
                 clientDataJSON: _bufToB64u(cred.response.clientDataJSON) } };
   const res = await api('POST', '/webauthn/register/complete', { credential: payload, name });
   if (res?.ok) { toast('Passkey registered.', 'success'); loadPasskeys(); }
-  else toast(res?.error || 'Failed', 'error');
+  else failToast(res);
 }
 
 async function deletePasskey(id, name) {
@@ -13478,7 +13507,7 @@ async function deletePasskey(id, name) {
         confirmText: 'Remove', danger: true })) return;
   const res = await api('DELETE', '/webauthn/credentials/' + encodeURIComponent(id));
   if (res?.ok) { toast('Passkey removed.', 'success'); loadPasskeys(); }
-  else toast(res?.error || 'Failed', 'error');
+  else failToast(res);
 }
 
 async function loginWithPasskey() {
@@ -13839,7 +13868,7 @@ async function approveConfirmation(id) {
   })) return;
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/approve`, {});
   if (r && r.ok) { toast('Approved — action queued', 'success'); loadConfirmations(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function rejectConfirmation(id) {
@@ -13849,14 +13878,14 @@ async function rejectConfirmation(id) {
   if (note === null) return;     // cancelled — leave the action pending
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/reject`, { note });
   if (r && r.ok) { toast('Rejected', 'success'); loadConfirmations(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function clearConfirmations() {
   if (!await uiConfirm({ message: 'Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/confirmations', {});
   if (r && r.ok) { toast(`Cleared ${r.removed} entr${r.removed === 1 ? 'y' : 'ies'}`, 'success'); loadConfirmations(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 function _paintConfirmationsBadge(pending) {
@@ -14244,7 +14273,7 @@ async function saveIntegrations() {
       interval: iv ? parseInt(iv.value, 10) || 300 : 300,
       show_homelab: cb ? cb.checked : true,
     });
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); if (status) status.textContent = ''; return; }
+    if (!r || r.error) { failToast(r); if (status) status.textContent = ''; return; }
     if (status) status.textContent = 'Saved ✓';
     toast('Integrations saved', 'success');
     await loadIntegrations();
@@ -14923,7 +14952,7 @@ async function _editInboundWebhookBtn(btn) {
   };
   const r = await api('PATCH', '/inbound-webhooks/' + t.id, body);
   if (r?.ok) { toast('Inbound webhook updated', 'success'); loadInboundWebhooks(); }
-  else { toast(r?.error || 'Failed', 'error'); }
+  else { failToast(r); }
 }
 
 function openInboundWebhookCreate() {
@@ -15022,7 +15051,7 @@ async function createInboundWebhook() {
     openModal('inbound-webhook-show-modal');
     loadInboundWebhooks();
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -15084,14 +15113,14 @@ async function toggleInboundWebhook(id, enabledStr) {
     const _set = (v) => async () => { const u = await api('PATCH', `/inbound-webhooks/${encodeURIComponent(id)}`, { enabled: v }); if (u?.ok) loadInboundWebhooks(); };
     pushUndoableAction(`${enabled ? 'Enable' : 'Disable'} token`, _set(!enabled), _set(enabled), `Token ${enabled ? 'enabled' : 'disabled'}`);
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function revokeInboundWebhook(id, label) {
   if (!await uiConfirm({ message: `Revoke inbound webhook "${label}"? The URL will stop working immediately.`, confirmText: 'Revoke', danger: true })) return;
   const r = await api('DELETE', `/inbound-webhooks/${encodeURIComponent(id)}`);
   if (r && r.ok) { toast('Token revoked', 'success'); loadInboundWebhooks(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v3.2.0: Test OIDC discovery — POST /api/auth/oidc/test
@@ -15155,7 +15184,7 @@ async function saveOidcConfig() {
     toast('OIDC config saved', 'success');
     document.getElementById('oidc-client-secret').value = '';
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -15177,7 +15206,7 @@ async function saveSamlConfig() {
   if (ssoMap) payload.sso_group_roles = _parseGroupRoleMap(ssoMap.value);
   const r = await api('POST', '/config', payload);
   if (r && r.ok !== false) toast('SAML config saved', 'success');
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v4.1.0: per-sidebar-group "needs attention" count badges.
@@ -15469,7 +15498,7 @@ function openScriptAdd() {
 
 async function openScriptEdit(id) {
   const data = await api('GET', '/scripts/' + encodeURIComponent(id));
-  if (!data || data.error) { toast(data?.error || 'Failed', 'error'); return; }
+  if (!data || data.error) { failToast(data); return; }
   document.getElementById('script-edit-id').value = data.id;
   document.getElementById('script-edit-title').textContent = `Edit script — ${data.name||''}`;
   document.getElementById('script-edit-name').value = data.name || '';
@@ -15813,7 +15842,7 @@ async function runCompose(action) {
   if (action === 'down' && !await uiConfirm({ message: `Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`, confirmText: 'Compose down', danger: true })) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});
-  if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
+  if (!resp || resp.error) { failToast(resp); return; }
   toast(`compose ${action} queued — output arrives on next heartbeat`, 'success');
   document.getElementById('compose-result').textContent =
     `Queued: ${resp.queued}\nWaiting for the agent's next heartbeat (~60s)…\nResults appear on the host's System info → Command output panel.`;
@@ -16724,7 +16753,7 @@ let _driftPolicies = [];
 async function collectAllHostConfigs() {
   if (!await uiConfirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
   const r = await api('POST', '/host-config/collect-all', {});
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   toast(`Queued on ${r.queued} host(s) — current configs arrive in ~60s`, 'success');
 }
 function exportAllHostConfigs() {
@@ -16901,7 +16930,7 @@ async function fail2banJail(devId, jail, action) {
   if (!ok) return;
   try {
     const r = await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action, jail });
-    if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('Queued', 'success');
     _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
@@ -17061,23 +17090,23 @@ async function muteSecret(fp) {
       async () => { const u = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true }); if (u?.ok) loadSecrets(); },
       async () => { const u = await api('POST', '/secrets/mute', { fingerprint: fp }); if (u?.ok) loadSecrets(); },
       'Finding muted');
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 async function unmuteSecret(fp) {
   const r = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true });
-  if (r?.ok) { toast('Finding unmuted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+  if (r?.ok) { toast('Finding unmuted', 'info'); loadSecrets(); } else failToast(r);
 }
 // v4.1.0 (#55): mute / unmute every secret finding on a whole host.
 async function muteSecretHost(devId) {
   if (!devId) return;
   if (!await uiConfirm('Mute every secret finding on this host? It stops alerting and counting until you unmute.')) return;
   const r = await api('POST', '/secrets/host-mute', { device_id: devId });
-  if (r?.ok) { toast('Host muted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+  if (r?.ok) { toast('Host muted', 'info'); loadSecrets(); } else failToast(r);
 }
 async function unmuteSecretHost(devId) {
   if (!devId) return;
   const r = await api('POST', '/secrets/host-mute', { device_id: devId, unmute: true });
-  if (r?.ok) { toast('Host unmuted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+  if (r?.ok) { toast('Host unmuted', 'info'); loadSecrets(); } else failToast(r);
 }
 function _renderExposure() {
   const tbody = document.getElementById('exposure-tbody');
@@ -19276,7 +19305,7 @@ async function quickResolveAlert(id) {
       async () => { const u = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {}); if (u?.ok) { loadHome(); refreshAlertsBadge(); } },
       'Alert resolved');
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -20225,7 +20254,7 @@ async function _taxonomyBulkTags(ids, add, remove, okMsg) {
     await loadTaxonomy();
     loadDevices();
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -20308,7 +20337,7 @@ function _taxonomyGroupNames() {
 // operator has to be TOLD, which means a warning toast, not a success one.
 async function _taxonomyGroupOp(op, payload, okMsg) {
   const r = await api('POST', `/taxonomy/groups/${op}`, payload);
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   const orphans = Array.isArray(r.orphan_references) ? r.orphan_references : [];
   if (orphans.length) {
     const where = orphans.map(o => `${o.store} (${o.references})`).join(', ');
@@ -20407,7 +20436,7 @@ async function ignoreAttention(key, label, deviceId) {
       async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _naRefreshVisible(); },
       'Hidden from Needs Attention');
   } else {
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -20427,7 +20456,7 @@ async function snoozeAttention(key, label) {
       async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _naRefreshVisible(); },
       'Snoozed for 24h');
   } else {
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -21580,7 +21609,7 @@ async function snapshotCreate() {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'create',
       name: name, description: desc,
     });
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('Snapshot creation started', 'success');
     document.getElementById('snapshot-new-name').value = '';
     document.getElementById('snapshot-new-desc').value = '';
@@ -21607,7 +21636,7 @@ async function snapshotRollback(name) {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'rollback', name: name,
       confirm: typed.trim(),
     });
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('Rollback started', 'success');
     setTimeout(loadSnapshots, 1500);
   } catch (e) {
@@ -21623,7 +21652,7 @@ async function snapshotDelete(name) {
     const r = await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'delete', name: name,
     });
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('Snapshot deleted', 'success');
     setTimeout(loadSnapshots, 1000);
   } catch (e) {
@@ -21679,7 +21708,7 @@ async function saveMetricsPush() {
   };
   const r = await api('PUT', '/metrics/push/config', payload).catch(() => null);
   if (r?.ok) { toast(r.enabled ? `Metrics push enabled (every ${r.interval}s)` : 'Metrics push disabled', 'success'); loadMetricsPush(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v3.14.0 (#27): GitOps — desired-state drift config from a Git repo ──────────
@@ -21719,7 +21748,7 @@ async function saveGitops() {
     document.getElementById('cfg-gitops-auth').value = '';
     toast(r.enabled ? `GitOps enabled (every ${r.interval}s)` : 'GitOps disabled', 'success');
     loadGitops();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 async function saveBranding() {
   const payload = {
@@ -21730,7 +21759,7 @@ async function saveBranding() {
   if (r && r.ok) {
     toast('Branding saved', 'success');
     loadMe();   // re-applies the brand name + default accent immediately
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function saveScim() {
@@ -21747,7 +21776,7 @@ async function saveScim() {
     }
     toast(payload.scim_enabled ? 'SCIM enabled' : 'SCIM disabled', 'success');
     loadSettings();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function syncGitops(dry) {
@@ -21767,7 +21796,7 @@ async function saveBlastRadius() {
   const p = parseInt(document.getElementById('cfg-batch-max-percent').value, 10) || 0;
   const r = await api('POST', '/config', {batch_max_devices: n, batch_max_fleet_percent: p});
   if (r?.ok) toast((n || p) ? `Guardrail saved (max ${n || '∞'} hosts / ${p || '∞'}% of fleet)` : 'Guardrail disabled', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function saveHealthchecks() {
@@ -21780,7 +21809,7 @@ async function saveHealthchecks() {
   if (r?.ok) {
     toast(url ? `Healthchecks watchdog enabled (every ${interval}s)` : 'Healthchecks watchdog disabled', 'success');
   } else {
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -21833,7 +21862,7 @@ async function saveSshUsername() {
   }
   try {
     const r = await api('POST', '/ui-prefs', _uiPrefs);
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('SSH username saved', 'success');
   } catch (e) {
     toast('Save failed: ' + (e.message || String(e)), 'error');
@@ -22074,7 +22103,7 @@ async function revokeStatusToken() {
     const r = await api('POST', '/status-token', {enabled: false});
     // Repaint only on success: this used to show the endpoint as revoked
     // while the token was still live on the server.
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     const box = document.getElementById('status-token-box');
     if (box) box.innerHTML =
       '<button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>';
@@ -22160,14 +22189,14 @@ async function postIncident() {
     toast('Incident posted', 'success');
     ['incident-title', 'incident-body'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     loadIncidents();
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 async function updateIncident(iid) {
   const status = document.querySelector(`[data-inc-status="${CSS.escape(iid)}"]`)?.value || '';
   const body = document.querySelector(`[data-inc-update="${CSS.escape(iid)}"]`)?.value || '';
   const r = await api('PATCH', '/incidents/' + encodeURIComponent(iid), { status, body });
   if (r && r.ok) { toast('Incident updated', 'success'); loadIncidents(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function deleteIncident(iid) {
   undoableDelete({
@@ -22181,7 +22210,7 @@ async function saveIncidentRecipients() {
   const v = document.getElementById('cfg-incident-recipients')?.value || '';
   const r = await api('POST', '/config', { status_incident_recipients: v });
   if (r && !r.error) toast('Subscribers saved', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 function _renderSpShare(data) {
@@ -22288,7 +22317,7 @@ async function saveStatusPage() {
   } };
   try {
     const r = await api('POST', '/config', body);
-    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     toast('Status page saved', 'success');
   }
   catch (e) { toast('Failed: ' + (e.message || String(e)), 'error'); }
@@ -22665,7 +22694,7 @@ async function restoreConfigRevision(id) {
     loadSettings();
     loadAlertParams();
   } else {
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -22864,7 +22893,7 @@ async function saveAlertParams(btn) {
   }
   const r = await api('POST', '/config', payload);
   if (r?.ok) { toast('Settings saved', 'success'); loadAlertParams(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v3.2.3: canonical kind list moved server-side (CHANNEL_KINDS in api.py).
@@ -23039,7 +23068,7 @@ async function saveBruteForceSettings() {
     brute_force_window_seconds: windowMin * 60,
   });
   if (r?.ok) toast('Brute-force settings saved', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function saveDependencyAlerts() {
@@ -23053,7 +23082,7 @@ async function saveDependencyAlerts() {
     dependency_silence_min: silence,
   }).catch(() => null);
   if (r?.ok) toast(enabled ? 'Dependency link alerts on' : 'Dependency link alerts off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function saveAfterHours() {
@@ -23067,7 +23096,7 @@ async function saveAfterHours() {
   if (enabled && !workdays.length) { toast('Select at least one business day', 'error', {transient: true}); return; }
   const r = await api('POST', '/config', { after_hours: { enabled, start, end, events, workdays } }).catch(() => null);
   if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v5.8.0 (B3.3): render the on-call current holder + next handoffs + overrides.
@@ -23123,7 +23152,7 @@ async function saveOncall() {
   if (r?.ok) {
     toast('On-call & escalation saved', 'success');
     api('GET', '/oncall').then(rr => { const e = document.getElementById('oncall-current'); if (e && rr) e.textContent = rr.current || '(rotation off)'; }).catch(() => {});
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function saveQuietHours() {
@@ -23134,7 +23163,7 @@ async function saveQuietHours() {
   if (enabled && (!start || !end)) { toast('Set both a start and end time', 'error'); return; }
   const r = await api('POST', '/config', { quiet_hours: { enabled, start, end, min_severity } });
   if (r?.ok) toast(enabled ? `Quiet hours ${start}–${end}` : 'Quiet hours off', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // (v6.4.0: saveHealthAlertSettings removed as dead — the health-alert-threshold
@@ -23206,7 +23235,7 @@ async function addCloudAccount() {
     document.getElementById('cloud-akid').value = '';
     document.getElementById('cloud-secret').value = '';
     loadSettings();
-  } else { _cloudAccounts.pop(); toast(r?.error || 'Failed', 'error'); }
+  } else { _cloudAccounts.pop(); failToast(r); }
 }
 async function removeCloudAccount(idx) {
   // v6.4.3: splice a COPY and only adopt it once the server has accepted.
@@ -23217,7 +23246,7 @@ async function removeCloudAccount(idx) {
   _cloudAccounts.splice(idx, 1);
   const r = await _saveCloudAccounts();   // reads the module-level array
   if (r?.ok) { renderCloudAccounts(_cloudAccounts); toast('Removed', 'info'); }
-  else { _cloudAccounts = prev; toast(r?.error || 'Failed', 'error'); }
+  else { _cloudAccounts = prev; failToast(r); }
 }
 let _cloudImporting = false;
 async function runCloudImport(ev) {
@@ -23273,7 +23302,7 @@ async function addProcessWatch() {
     document.getElementById('pw-name').value = '';
     document.getElementById('pw-threshold').value = '80';
     renderProcessWatches(_processWatches);
-  } else { _processWatches.pop(); toast(r?.error || 'Failed', 'error'); }
+  } else { _processWatches.pop(); failToast(r); }
 }
 
 async function removeProcessWatch(idx) {
@@ -23285,7 +23314,7 @@ async function removeProcessWatch(idx) {
   next.splice(idx, 1);
   const r = await api('POST', '/config', {process_watches: next});
   if (r?.ok) { _processWatches = next; renderProcessWatches(_processWatches); toast('Removed', 'info'); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ══ v2.9.0: Device Drawer ═════════════════════════════════════════════════════
@@ -23606,7 +23635,7 @@ async function saveCanaryFiles() {
     toast(paths.length
       ? `${paths.length} canary path(s) saved — hosts report arm status on their next check-in`
       : 'Canary files off', 'success');
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 // W3-19: live high-res device view — arm the burst + poll the sample ring.
@@ -23948,7 +23977,7 @@ async function _drawerAdjustPoll() {
   if (isNaN(n) || n < 30) { toast('Must be ≥ 30 seconds', 'error'); return; }
   const r = await api('POST', `/devices/${_drawerDeviceId}`, {poll_interval: n});
   if (r?.ok) { toast('Poll interval updated', 'success'); if (_drawerDeviceData) _drawerDeviceData.poll_interval = n; }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── Settings tab (form) ───────────────────────────────────────────────────────
@@ -26218,7 +26247,7 @@ async function toggleQuarantine(id, on) {
     toast(r.quarantined ? 'Host quarantined — actions disabled.'
                         : 'Quarantine lifted.', 'success');
   } else {
-    toast((r && r.error) || 'Failed', 'error');
+    failToast(r);
     const cb = document.getElementById('ds-quarantine');
     if (cb) cb.checked = !on;   // revert on failure
   }
@@ -26324,7 +26353,7 @@ async function deviceRunbook(id, name, prefill) {
   _openAiInsight(`Runbook — ${name}`);
   const r = await api('POST', `/devices/${id}/runbook`, {trigger: trigger.trim()});
   if (r && r.ok) _fillAiInsight(r.runbook);
-  else { closeModal('ai-insight-modal'); toast((r && r.error) || 'Failed', 'error'); }
+  else { closeModal('ai-insight-modal'); failToast(r); }
 }
 
 // #11 CMDB doc draft (per-device). Triggered from the drawer.
@@ -26332,7 +26361,7 @@ async function deviceDocDraft(id, name) {
   _openAiInsight(`Doc draft — ${name}`);
   const r = await api('POST', `/devices/${id}/doc-draft`, {});
   if (r && r.ok) _fillAiInsight(r.markdown);
-  else { closeModal('ai-insight-modal'); toast((r && r.error) || 'Failed', 'error'); }
+  else { closeModal('ai-insight-modal'); failToast(r); }
 }
 
 // #9 fleet anomaly scan (AI page).
@@ -26819,7 +26848,7 @@ async function saveMetering() {
     return entry;
   }).filter(Boolean);
   const r = await api('POST', '/config', { software_meters: meters }).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || r.error) { failToast(r); return; }
   const st = document.getElementById('metering-status'); if (st) st.textContent = `${meters.length} meter(s) saved`;
   loadReportsMetering();
 }
@@ -27199,7 +27228,7 @@ async function toggleAutomationRule(id) {
                  host_cooldown_seconds: r.host_cooldown_seconds, max_hosts_per_hour: r.max_hosts_per_hour,
                  verify_seconds: r.verify_seconds, disable_after_failures: r.disable_after_failures };
   const res = await api('PUT', '/automation/rules/' + encodeURIComponent(id), rule).catch(() => null);
-  if (!res || res.error) { toast((res && res.error) || 'Failed', 'error'); return; }
+  if (!res || res.error) { failToast(res); return; }
   loadAutomation();
   const _set = (v) => async () => { const u = await api('PUT', '/automation/rules/' + encodeURIComponent(id), {...rule, enabled: v}).catch(() => null); if (u && !u.error) loadAutomation(); };
   pushUndoableAction(`${rule.enabled ? 'Enable' : 'Disable'} rule ${r.name || id}`,
@@ -27362,7 +27391,7 @@ async function duplicateFleetQuery(arg) {
   const r = await api('POST', '/query/templates',
                       {name: (q.name + ' copy').slice(0, 80), kind: 'fleet',
                        params: q.params || {}, shared: q.visibility === 'shared'});
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   toast('Query duplicated', 'success');
   loadFleetQuery();
 }
@@ -27377,7 +27406,7 @@ async function _fqResave(q, changes, okMsg) {
     params: q.params || {},
     shared: changes.shared != null ? changes.shared : (q.visibility === 'shared'),
   });
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return false; }
+  if (!r || !r.ok) { failToast(r); return false; }
   await api('DELETE', '/query/templates/' + encodeURIComponent(q.id)).catch(() => null);
   toast(okMsg, 'success');
   loadFleetQuery();
@@ -27564,7 +27593,7 @@ async function signingGenerate(force) {
                          danger: force === 'force' })) return;
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Generating…';
   const r = await api('POST', '/signing/generate', force === 'force' ? { force: true } : {}).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
+  if (!r || r.error) { failToast(r); if (st) st.textContent = ''; return; }
   toast('Signing key generated — now distribute the public key to agents', 'success');
   loadSigning();
 }
@@ -27577,7 +27606,7 @@ async function signingSignNow() {
   if (!pw) return;   // cancelled or empty
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Signing…';
   const r = await api('POST', '/signing/sign', { password: pw }).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
+  if (!r || r.error) { failToast(r); if (st) st.textContent = ''; return; }
   toast('Agent release signed', 'success');
   loadSigning();
 }
@@ -27594,7 +27623,7 @@ async function signingToggle(on) {
     body.password = pw;
   }
   const r = await api('POST', '/signing/toggle', body).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || r.error) { failToast(r); return; }
   toast(r.enabled ? 'Signature enforcement on' : 'Enforcement off', 'success');
   loadSigning();
 }
@@ -27624,7 +27653,7 @@ async function testRestore() {
   if (el) el.textContent = 'Testing…';
   const r = await api('POST', '/backup/test-restore');
   if (r?.ok) { toast('Backup restore test passed', 'success'); if (el) el.textContent = '✓ ' + (r.message || 'Restorable.'); }
-  else { toast(r?.error || 'Restore test failed', 'error'); if (el) el.textContent = (r?.error || r?.message || 'Failed'); }
+  else { toast(r?.error || 'Restore test failed', 'error'); if (el) el.textContent = failText(r); }
 }
 
 // v5.4.1 (C9): rotate the export-signing key used for the evidence pack +
@@ -27698,7 +27727,7 @@ async function rotateExportKey() {
   const r = await api('POST', '/security/rotate-export-key');
   const el = document.getElementById('export-key-result');
   if (r?.ok) { toast('Export-signing key rotated', 'success'); if (el) el.textContent = r.message || 'Rotated.'; }
-  else { toast(r?.error || 'Failed', 'error'); if (el) el.textContent = r?.error || 'Failed'; }
+  else { failToast(r); if (el) el.textContent = failText(r); }
 }
 
 function _sbomDeviceBtn(btn) {
@@ -27745,7 +27774,7 @@ async function savePduConfig() {
   };
   const r = await api('PATCH', `/devices/${devId}/pdu`, body);
   if (r?.ok) toast(body.kind ? 'PDU mapping saved' : 'PDU mapping cleared', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function pduControl(action) {
   const devId = document.getElementById('pdu-dev-id').value;
@@ -27783,7 +27812,7 @@ async function saveUpsDependency() {
   };
   const r = await api('PATCH', `/devices/${devId}/ups-dependency`, body);
   if (r?.ok) toast(body.source_device_id ? 'UPS dependency saved' : 'UPS dependency cleared', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // SBOM diff — snapshot the current package set, then compare a later state to it.
@@ -27791,7 +27820,7 @@ async function sbomCaptureBaseline(devId) {
   if (!await uiConfirm({ message: "Snapshot this host's current package set as the SBOM diff baseline?", confirmText: 'Snapshot' })) return;
   const r = await api('POST', `/devices/${devId}/sbom/baseline`, {});
   if (r?.ok) toast(`Baseline captured (${r.count} packages)`, 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function sbomShowDiff(devId, devName) {
@@ -28737,7 +28766,7 @@ async function addLogIgnorePattern() {
     // Roll back the mutation
     if (wasEdit) _logIgnorePatterns[_logIgnoreEditIdx] = prev;
     else _logIgnorePatterns.pop();
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -28760,7 +28789,7 @@ async function removeLogIgnorePattern(idx) {
     // refused delete stayed gone in memory and rode into the next save.
     _logIgnorePatterns = beforePats.slice();
     _renderLogIgnoreList();
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -28794,7 +28823,7 @@ async function saveDebugLogging(enabled) {
   if (r?.ok) {
     toast(enabled ? 'Debug logging enabled — logs at /var/lib/remotepower/debug.log' : 'Debug logging disabled', 'info');
     if (enabled) console.info('[RemotePower] Debug logging enabled. Server writes to debug.log; client logs to this console.');
-  } else toast(r?.error || 'Failed', 'error');
+  } else failToast(r);
 }
 
 function downloadDebugLog() {
@@ -28981,7 +29010,7 @@ window.saveDebugLogging = async function(enabled) {
   if (r?.ok) toast(enabled
     ? 'Debug logging enabled — open DevTools (F12) Console + tail /var/lib/remotepower/debug.log'
     : 'Debug logging disabled', 'info');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 };
 
 // ══ Report an issue → GitHub (no credentials, public-safe) ═══════════════════
@@ -29132,7 +29161,7 @@ async function ignoreContainerDevice(deviceId, name) {
       async () => { const u = await api('POST', '/ignored', { category: 'devices', id: deviceId, label: name }); if (u?.ok) loadContainersOverview(); },
       'Hidden (restore from Settings → Ignored items)');
   } else {
-    toast(r?.error || 'Failed', 'error');
+    failToast(r);
   }
 }
 
@@ -29270,7 +29299,7 @@ async function loadIgnoredItems() {
 async function unclearLogAckIgnored(key) {
   const r = await api('POST', '/logs/ack/delete', { key: key });
   if (r?.ok) { toast('Restored — this line alerts again', 'success'); loadIgnoredItems(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v6.4.0 (#4/#5): bulk-restore a whole ignored category in one click.
@@ -29304,12 +29333,12 @@ async function naSuppressAdd() {
   const value = (document.getElementById('nasup-value')?.value || '').trim();
   const r = await api('POST', '/na-suppress', { kind, scope, value });
   if (r?.ok) { toast('Suppression rule added', 'success'); loadIgnoredItems(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 async function naSuppressRemove(id) {
   const r = await api('POST', '/na-suppress/remove', { id });
   if (r?.ok) { toast('Rule removed', 'success'); loadIgnoredItems(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 
@@ -29327,7 +29356,7 @@ async function restoreIgnored(category, entry) {
       async () => { const u = await api('POST', '/ignored/remove', body); if (u?.ok) loadIgnoredItems(); },
       'Restored');
   }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v3.0.1: force-upgrade agent — re-deploy the current bundled binary
@@ -29339,7 +29368,7 @@ async function forceAgentUpgrade(deviceId, name) {
   if (!await uiConfirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/agent/force-upgrade`, {});
   if (r?.ok) toast(r.message || 'Force-upgrade scheduled', 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v3.0.1: collapsible sidebar — toggle and persist preference in localStorage

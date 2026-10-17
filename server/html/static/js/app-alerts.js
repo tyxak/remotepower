@@ -799,7 +799,7 @@ async function ackGroup(key) {
       async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Acknowledged ${r.acked}`);
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 async function resolveGroup(key) {
   const ids = (_alertsCache || []).filter(a =>
@@ -814,7 +814,7 @@ async function resolveGroup(key) {
       async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Resolved ${r.resolved}`);
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v5.6.0: mute = silence this exact (host, event) — replaces the per-row Ack
@@ -900,7 +900,7 @@ async function bulkAckAlerts() {
       async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Acknowledged ${r.acked}`);
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v6.4.2: ask what fixed it, THEN resolve. Separate entry point so the plain
@@ -957,7 +957,7 @@ async function resolveAlert(id, note) {
     });
     toast(_note ? 'Alert resolved — note saved' : 'Alert resolved', 'success',
           { action: { label: 'Undo', icon: 'undo', fn: doUnresolve } });
-  } else { revert(); toast((r && r.error) || 'Failed', 'error'); }
+  } else { revert(); failToast(r); }
 }
 
 // v6.3.0 (UX wave 1): optimistic single-alert ack with a real Undo — the row
@@ -994,7 +994,7 @@ function _ackAlertOptimistic(id) {
         redo: () => _ackAlertOptimistic(id),
       });
       toast('Acknowledged', 'success', { action: { label: 'Undo', icon: 'undo', fn: doUnack } });
-    } else { revert(); toast((r && r.error) || 'Failed', 'error'); }
+    } else { revert(); failToast(r); }
   }).catch(() => { revert(); toast('Failed', 'error'); });
 }
 
@@ -1034,7 +1034,7 @@ async function bulkResolveAlerts() {
       async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Resolved ${r.resolved}`);
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // v3.2.0 follow-up: bulk-purge resolved or all alerts
@@ -1046,7 +1046,7 @@ async function clearResolvedAlerts() {
   if (r && r.ok) {
     toast(`Cleared ${r.removed} resolved alert(s)`, 'success');
     loadAlerts(); refreshAlertsBadge();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function clearAllAlerts() {
@@ -1057,7 +1057,7 @@ async function clearAllAlerts() {
   if (r && r.ok) {
     toast(`Cleared ${r.removed} alert(s)`, 'success');
     loadAlerts(); refreshAlertsBadge();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 
 // ── v6.2.2: keyboard-driven inbox ────────────────────────────────────────────

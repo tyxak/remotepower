@@ -460,7 +460,7 @@ async function driftSetIgnore(path, ignored) {
     const devId = _driftCurrentDevice.id;
     const r = await api('POST', `/devices/${encodeURIComponent(devId)}/drift/ignore`,
               {path: path, ignored: ignored, reason: reason || ''});
-    if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+    if (!r || r.error) { failToast(r); return; }
     openDriftDetail(devId, _driftCurrentDevice.name);
     const _set = (v) => async () => { const u = await api('POST', `/devices/${encodeURIComponent(devId)}/drift/ignore`, {path, ignored: v, reason: reason || ''}); if (u && !u.error && _driftCurrentDevice && _driftCurrentDevice.id === devId) openDriftDetail(devId, _driftCurrentDevice.name); };
     pushUndoableAction(ignored ? `Ignore drift ${path}` : `Un-ignore drift ${path}`,

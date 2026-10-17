@@ -139,7 +139,7 @@ async function saveBlueprint() {
   const d = id ? await api('PUT', '/provisioning/blueprints/' + encodeURIComponent(id), body)
                : await api('POST', '/provisioning/blueprints', body);
   if (d?.ok) { toast(id ? 'Blueprint saved' : 'Blueprint created', 'success'); closeModal('blueprint-modal'); loadProvisioning(); }
-  else toast(d?.error || 'Failed', 'error');
+  else failToast(d);
 }
 
 async function deleteBlueprint(id) {

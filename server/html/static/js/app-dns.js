@@ -620,7 +620,7 @@ async function clearAcmeDnsCreds(providerKey) {
     credentials: creds,
   });
   if (r?.ok) { toast(`${providerKey} credentials cleared`, 'info'); openAcmeDnsCreds(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function loadAcme() {

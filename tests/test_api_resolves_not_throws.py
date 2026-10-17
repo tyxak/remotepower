@@ -85,9 +85,9 @@ class TestNoUncheckedSuccessToast(unittest.TestCase):
             "these mutating calls discard the response and then toast success "
             "— api() RESOLVES on 400/403, so the toast fires on a refusal:\n  "
             + "\n  ".join(problems)
-            + "\nGuard with the idiom already used at ~130 sites:\n"
+            + "\nGuard with the idiom already used at ~200 sites:\n"
             "    const r = await api('POST', …);\n"
-            "    if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }")
+            "    if (!r || r.error) { failToast(r); return; }")
 
     def test_the_detector_is_not_vacuous(self):
         """A gate that matches nothing is the false-green shape this codebase
@@ -107,7 +107,7 @@ class TestNoUncheckedSuccessToast(unittest.TestCase):
         deleted rather than satisfied."""
         sample = """
           const r = await api('POST', '/app-catalog/deploy', { device_id: d.id });
-          if (!r || r.error) { toast(r?.error || 'Failed', 'error'); return; }
+          if (!r || r.error) { failToast(r); return; }
           toast('Deploy queued', 'success');
         """.strip().splitlines()
         self.assertEqual(_unchecked_success_toasts(sample), [])

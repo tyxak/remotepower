@@ -338,7 +338,7 @@ async function spExecute() {
     closeModal('storage-prov-modal');
     return;
   }
-  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || !r.ok) { failToast(r); return; }
   toast('Provisioning command queued.', 'success');
   closeModal('storage-prov-modal');
   loadStorage();

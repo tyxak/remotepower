@@ -1575,7 +1575,7 @@ async function aiAnomalyScan() {
   const out = document.getElementById('ai-anomaly-results');
   out.innerHTML = '<div class="c-muted">Scanning the fleet…</div>';
   const r = await api('POST', '/ai/anomaly', {});
-  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
+  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml(failText(r))}</div>`; return; }
   const items = r.anomalies || [];
   if (!items.length) {
     out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} host(s).</div>`;
@@ -1616,7 +1616,7 @@ async function aiCronBuild() {
   // data-action button); a hand-rolled disable would suppress it.
   out.innerHTML = '<div class="c-muted">Thinking…</div>';
   const r = await api('POST', '/ai/cron', {description: desc});
-  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
+  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml(failText(r))}</div>`; return; }
   if (!r.valid) {
     out.innerHTML = `<div class="c-amber">Couldn't build a valid expression: ${escHtml(r.explanation || r.error || '')}</div>`;
     return;

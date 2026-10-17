@@ -160,7 +160,7 @@ async function toggleHostCheck(arg) {
         _set(!enabled), _set(enabled),
         `Check ${enabled ? 'enabled' : 'disabled'} on ${host}`);
     }
-  } else { toast((r && r.error) || 'Failed', 'error'); }
+  } else { failToast(r); }
 }
 
 // ── Custom checks (v4.1.0) ─────────────────────────────────────────────────
@@ -536,7 +536,7 @@ async function deleteProtectCheck(id, name) {
         confirmText: 'Delete', danger: true })) return;
   const r = await api('POST', '/checks/custom/delete', {id});
   if (r && r.ok) { toast('Check deleted', 'info'); loadProtectChecks(); }
-  else { toast((r && r.error) || 'Failed', 'error'); }
+  else { failToast(r); }
 }
 
 // ── Integrity Guard: the quarantine vault ──────────────────────────────────
@@ -627,7 +627,7 @@ async function rebaselineCheck(deviceId, checkId, scope) {
 async function _guardAction(deviceId, id, op, msg) {
   const r = await api('POST', '/guard/action', { device_id: deviceId, id: id, op: op });
   if (r && r.ok) { toast(msg, 'success'); loadGuardVault(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 function restoreQuarantine(deviceId, id) {
   return _guardAction(deviceId, id, 'restore', 'Restore queued — the agent applies it on its next check-in');
@@ -848,7 +848,7 @@ async function applyBaselineChecks() {
     toast(`Applied — ${r.added} check(s) added${r.added === 0 ? ' (already present)' : ''}`, 'success');
     closeModal('baseline-checks-modal');
     if (typeof loadChecks === 'function') loadChecks();
-  } else toast((r && r.error) || 'Failed', 'error');
+  } else failToast(r);
 }
 
 async function loadCustomCheckList() {
@@ -948,7 +948,7 @@ async function saveCustomCheck() {
     toast(_ccEditId ? 'Custom check saved' : 'Custom check added', 'success');
     _ccResetForm();
     loadCustomCheckList();
-  } else { toast((r && r.error) || 'Failed', 'error'); }
+  } else { failToast(r); }
 }
 // v6.3.1: undoable (deferred commit) — was a danger-confirm.
 async function deleteCustomCheck(id, name) {
@@ -1081,7 +1081,7 @@ async function advisoryAskAi() {
   // (hostnames, paths, URLs, matched log lines) to whatever provider is
   // configured, which may be off-box.
   const r = await api('POST', '/security/advisory/brief', { scope, target });
-  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (!r || r.error) { failToast(r); return; }
   if (typeof openAIModal !== 'function') { toast('The AI module is not loaded', 'error'); return; }
   // Straight to the AI modal with the redacted brief AS the message — the
   // 'security_advisory' system prompt is written to read exactly this shape.

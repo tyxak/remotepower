@@ -128,7 +128,7 @@ async function silenceNoisy(btn) {
     pushUndoableAction(`Silence ${btn.dataset.name || dev} · ${event}`, doUndo, doRedo,
       'Silenced' + (r.resolved ? ` · ${r.resolved} open cleared` : ''));
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 async function unmuteAlert(id) {
@@ -157,7 +157,7 @@ async function unmuteAlert(id) {
       toast('Mute lifted', 'info');
     }
   }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 
 // ── v6.4.2: the unified suppression view ─────────────────────────────────────

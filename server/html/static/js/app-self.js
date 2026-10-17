@@ -538,7 +538,7 @@ async function clearClientErrors() {
         confirmText: 'Clear' })) return;
   const r = await api('DELETE', '/client-error');
   if (r && r.ok) { toast(`Cleared ${r.cleared} entr${r.cleared === 1 ? 'y' : 'ies'}`, 'success'); _loadClientErrors(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else failToast(r);
 }
 // v6.4.2: when this version started running, and the last few transitions.
 //

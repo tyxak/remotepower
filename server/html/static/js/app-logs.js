@@ -640,7 +640,7 @@ async function saveLogAck() {
     scope: val('log-ack-scope'), days: parseInt(val('log-ack-days'), 10) || 0,
     note: val('log-ack-note'),
   });
-  if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
+  if (!r?.ok) { failToast(r); return; }
   closeModal('log-ack-modal');
   const what = _logAckCtx.pattern ? 'This rule will not fire here again'
                                  : 'This line will not alert again';
@@ -690,5 +690,5 @@ function _renderLogAcks() {
 async function deleteLogAck(key) {
   const r = await api('POST', '/logs/ack/delete', { key: key });
   if (r?.ok) { toast('Un-cleared — this line alerts again', 'success'); loadLogAcks(); }
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }

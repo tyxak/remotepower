@@ -17,7 +17,7 @@ async function firewallAction(action) {
   if (!port || port < 1 || port > 65535) { toast('Enter a valid port', 'error', {transient: true}); return; }
   const r = await api('POST', `/devices/${id}/firewall-action`, { backend, action, port, proto });
   if (r?.ok) toast(`Queued: ${backend} ${action} ${port}/${proto}`, 'success');
-  else toast(r?.error || 'Failed', 'error');
+  else failToast(r);
 }
 
 function aiFirewallAudit(devName) {

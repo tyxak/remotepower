@@ -145,6 +145,15 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   you stay where you are with the reason in a toast. A browser test types the wrong password
   into each of the four against the real server; it failed on all four before
   the change.
+- A failed action says what happened, once. 238 places ended a failed action
+  with a toast that read "Failed" when the server had given no reason, and with
+  a second copy of the reason when it had, because the dashboard already
+  announces every HTTP error. One helper now tells three cases apart: the
+  server's reason, "The server refused this and gave no reason.", and "The
+  server did not answer." It stays quiet when the error was just announced, or
+  when you have just been signed out and the login page is the message. A test
+  runs it in V8 with a clock it moves, and fails when a bare "Failed" fallback
+  comes back.
 - Server messages have one spelling and one status. "Host not found" was also
   written "host not found" 65 times, "invalid host id" answered 400 and 404, a
   bad status token 401 and 403, and "site not found" 400 and 404. A test now
