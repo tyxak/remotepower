@@ -21,6 +21,7 @@ from urllib.parse import parse_qs
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v730-edge-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
+import ipintel_store  # noqa: E402
 
 import ip_intel  # noqa: E402
 from test_ip_intel import ATTACKER, _Case  # noqa: E402
@@ -136,14 +137,13 @@ class _Edge(_Case):
         """One run of the edge sweep at a fixed time."""
         api = self.api
         if due:
-            st = api.load(api.IPINTEL_FILE) or {}
+            st = ipintel_store.read(api)
             st.setdefault('edge', {})['polled'] = 0
-            api.save(api.IPINTEL_FILE, st)
-            api._LOAD_CACHE.clear()
+            ipintel_store.write(api, st)
         with mock.patch('time.time', return_value=at):
             api.run_edge_intel_if_due()
         api._LOAD_CACHE.clear()
-        return api.load(api.IPINTEL_FILE) or {}
+        return ipintel_store.read(api)
 
     def call(self, fn, method='POST', body=None, role='admin'):
         self.api.verify_token = lambda _t=None: ('alice', role)
@@ -339,12 +339,11 @@ class TestTheSweep(_Edge):
     def _as_host_findings(self):
         """Re-label the queued edge findings as if an agent on d1 had reported them."""
         api = self.api
-        st = api.load(api.IPINTEL_FILE) or {}
+        st = ipintel_store.read(api)
         for q in st.get('queue') or []:
             q['device_id'] = 'd1'
             q.pop('evidence', None)
-        api.save(api.IPINTEL_FILE, st)
-        api._LOAD_CACHE.clear()
+        ipintel_store.write(api, st)
 
     def _ban_at_edge_run(self, tenanted):
         self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
@@ -481,14 +480,13 @@ class TestTheReportThreshold(_Edge):
         """The report sweep at the test's own clock. The shared sweep() runs at the
         real one, so evidence that poll() stamped at T would look days old to it and
         the day's ledger would have expired."""
-        st = self.api.load(self.api.IPINTEL_FILE) or {}
+        st = ipintel_store.read(self.api)
         st['last_sweep'] = 0
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         with mock.patch('time.time', return_value=at):
             self.api.run_ip_intel_if_due()
         self.api._LOAD_CACHE.clear()
-        return self.api.load(self.api.IPINTEL_FILE)
+        return ipintel_store.read(self.api)
 
     def test_one_refusal_is_reported_by_default(self):
         self.one_refusal()

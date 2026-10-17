@@ -22,6 +22,7 @@ from unittest import mock
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v730-ipclear-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
+import ipintel_store  # noqa: E402
 
 from test_v730_edge_blocklist_sync import T, _Lists, ips  # noqa: E402
 
@@ -62,14 +63,11 @@ class _Clear(_Lists):
 
     def put(self, **keys):
         api = self.api
-        st = api.load(api.IPINTEL_FILE) or {}
-        st.update(keys)
-        api.save(api.IPINTEL_FILE, st)
-        api._LOAD_CACHE.clear()
+        ipintel_store.update(api, **keys)
 
     def store(self):
         self.api._LOAD_CACHE.clear()
-        return self.api.load(self.api.IPINTEL_FILE) or {}
+        return ipintel_store.read(self.api)
 
     def clear(self, role='admin', at=T, **body):
         return self.call(self.api.handle_ip_intel_clear, body, role=role, at=at)
@@ -377,25 +375,28 @@ class TestAFloodOfSources(_Clear):
         sources = ['185.220.%d.%d' % (101 + i // 200, i % 200 + 1) for i in range(n)]
         lines = ['Failed password for root from %s port 4%d ssh2' % (ip, j) for ip in sources for j in range(4)]
         real = api._LockedUpdate
-        locks = []
+        locks = {'intake': 0, 'table': 0}
 
         def counting(path, *a, **k):
-            if path == api.IPINTEL_FILE:
-                locks.append(1)
+            if path == api.IPINTEL_INTAKE_FILE:
+                locks['intake'] += 1
+            elif path == api.IPINTEL_FILE:
+                locks['table'] += 1
             return real(path, *a, **k)
         with mock.patch.object(api, '_LockedUpdate', counting):
             api._detect_brute_force('d1', 'web01', 'sshd.service', lines)
         api._LOAD_CACHE.clear()
-        return len(locks), sources
+        return locks, sources
 
-    def test_a_burst_of_sources_is_one_write_of_the_store(self):
+    def test_a_burst_of_sources_is_one_write_of_the_intake(self):
         locks, sources = self.burst(30)
-        self.assertEqual(locks, 1, 'the store was rewritten once per source')
+        self.assertEqual(locks['intake'], 1, 'the intake was rewritten once per source')
+        self.assertEqual(locks['table'], 0, 'a heartbeat must not rewrite the table of addresses')
         self.assertEqual([q['ip'] for q in self.store()['queue']], sources)
 
-    def test_the_same_burst_on_a_full_store_is_one_write_too(self):
+    def test_the_same_burst_on_a_full_table_is_one_write_too(self):
         locks, _ = self.burst(30, store_attackers=300)
-        self.assertEqual(locks, 1)
+        self.assertEqual((locks['intake'], locks['table']), (1, 0))
         self.assertEqual(len(self.store()['queue']), 30)
 
     def test_private_sources_are_still_left_out_of_the_batch(self):

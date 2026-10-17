@@ -131,13 +131,14 @@ def ip_intel_note_attacks(dev_id, unit, sources, window_s):
     `sources` is [(ip, count), ...]. Cheap and silent: a disabled feature, a
     private address or a hostname is skipped.
 
-    The store is a single document and every write rewrites all of it: 46 ms at
-    1,000 recorded addresses, 250 ms at 5,000 (the cap), 640 ms when each address
-    carries a full day of evidence. A heartbeat that took one lock per source made
-    a botnet's burst of forty sources cost ten seconds on the request the host was
-    waiting for, and slowed every other writer meanwhile; one lock per heartbeat
-    costs one write whatever the burst. The queue is trimmed the way the sensor's
-    is, keeping what a ban engine decided on over the newest arrivals."""
+    The queue is written to the intake document (see _intake_ro), not the table
+    of addresses: every write rewrites the whole document it lands in, and that
+    table costs 57 to 125 ms to rewrite on SQLite and 132 to 334 ms on the JSON
+    backend with 5,000 addresses recorded. A heartbeat that took one lock per
+    source made a botnet's burst of forty sources cost ten seconds on the request
+    the host was waiting for; one lock per heartbeat costs one write whatever the
+    burst. The queue is trimmed the way the sensor's is, keeping what a ban engine
+    decided on over the newest arrivals."""
     try:
         pol = _policy()
         if not _any_enabled(pol):
@@ -153,10 +154,11 @@ def ip_intel_note_attacks(dev_id, unit, sources, window_s):
                          'at': now})
         if not rows:
             return
-        with A._LockedUpdate(A.IPINTEL_FILE) as st:
-            q = st.get('queue') if isinstance(st.get('queue'), list) else []
+        with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
+            _intake_adopt(intake)
+            q = intake['queue']
             q.extend(rows)
-            st['queue'] = _trim_queue(q)
+            intake['queue'] = _trim_queue(q)
     except Exception:  # nosec B110
         # Never let enrichment break brute-force detection.
         pass
@@ -192,21 +194,86 @@ def _trim_queue(q):
     return [q[i] for i in sorted(keep)]
 
 
-def _note_evidence_into(st, dev_id, events, status=None, now=None):
-    """The queueing half of ip_intel_note_evidence, over a store dict the caller
+# ── the intake: what arrives between sweeps ────────────────────────────────────
+#
+# The queue, each host's sensor record and the edge feeds' place in their logs
+# (`cursors`, by feed) are written whenever a heartbeat or a poll has something to
+# say. They live in a document of their own, a few hundred kilobytes at most, so
+# such a write costs what it carries and does not wait on the sweep or on the
+# table of addresses. The SQL backends cannot hold two locks at once (they share
+# one connection), so no operation here spans both documents: the sweep claims its
+# batch from the intake, and then works on the table in a second step.
+
+def _legacy_intake(st):
+    """The intake as the main store held it before it had a document of its own:
+    `queue` and `sensors` at the top, the feeds' places as `edge.cf_to` and
+    `edge.trap_to`."""
+    st = st if isinstance(st, dict) else {}
+    edge = st.get('edge') if isinstance(st.get('edge'), dict) else {}
+    cursors = {}
+    for feed in ('cf', 'trap'):
+        try:
+            t = int(edge.get(feed + '_to') or 0)
+        except (TypeError, ValueError, OverflowError):
+            t = 0
+        if t > 0:
+            cursors[feed] = t
+    return {'queue': st['queue'] if isinstance(st.get('queue'), list) else [],
+            'sensors': st['sensors'] if isinstance(st.get('sensors'), dict) else {},
+            'cursors': cursors}
+
+
+def _intake_ro():
+    """The intake, read-only. Until the first write after an upgrade the document
+    does not exist and the queue is still in the main store; that is read instead,
+    so the page and the sweep see the same queue either way."""
+    if A.backend_exists(A.IPINTEL_INTAKE_FILE):
+        intake = A._load_ro(A.IPINTEL_INTAKE_FILE) or {}
+        if intake.get('adopted'):
+            return intake
+    return _legacy_intake(_store_ro())
+
+
+def _intake_adopt(intake):
+    """Call first under the intake's lock. Takes over, once, what the main store
+    still holds (the older entries go first), and makes sure the three parts exist
+    and have the right shape. The main store's copies are dropped by the next
+    sweep; until then nothing reads them, because `adopted` is set."""
+    if not intake.get('adopted'):
+        old = _legacy_intake(_store_ro())
+        fresh = intake.get('queue') if isinstance(intake.get('queue'), list) else []
+        intake['queue'] = _trim_queue(list(old['queue']) + fresh)
+        sensors = intake.get('sensors') if isinstance(intake.get('sensors'), dict) else {}
+        for dev_id, rec in old['sensors'].items():
+            sensors.setdefault(dev_id, rec)
+        intake['sensors'] = sensors
+        cursors = intake.get('cursors') if isinstance(intake.get('cursors'), dict) else {}
+        for feed, t in old['cursors'].items():
+            cursors[feed] = max(int(cursors.get(feed) or 0), t)
+        intake['cursors'] = cursors
+        intake['adopted'] = True
+    for key, kind in (('queue', list), ('sensors', dict), ('cursors', dict)):
+        if not isinstance(intake.get(key), kind):
+            intake[key] = kind()
+    return intake
+
+
+def _note_evidence_into(intake, dev_id, events, status=None, now=None):
+    """The queueing half of ip_intel_note_evidence, over an intake dict the caller
     already holds the lock on, so a caller that has more to write (the edge
     feeds' cursor) can do both in one transaction. The edge ids are queued
     without the per-host hourly allowance and without a sensor record: they are
     not hosts, and their volume is bounded by the read itself."""
+    _intake_adopt(intake)
     now = int(now or time.time())
     status = status if isinstance(status, dict) else {}
     edge = dev_id in ip_intel.EDGE_DEVICES
     queued = throttled = 0
-    sensors = st.get('sensors') if isinstance(st.get('sensors'), dict) else {}
+    sensors = intake['sensors']
     rec = sensors.get(dev_id) if isinstance(sensors.get(dev_id), dict) else {}
     hour = now // 3600
     used = int((rec.get('hour') or {}).get('n') or 0) if (rec.get('hour') or {}).get('h') == hour else 0
-    q = st.get('queue') if isinstance(st.get('queue'), list) else []
+    q = intake['queue']
     index = {(x.get('ip'), x.get('device_id')): i for i, x in enumerate(q)
              if isinstance(x, dict) and isinstance(x.get('evidence'), dict)}
     for ev in events:
@@ -228,7 +295,7 @@ def _note_evidence_into(st, dev_id, events, status=None, now=None):
                       'count': threat_evidence.hostile_count(ev),
                       'window_s': threat_evidence.window_seconds(ev), 'at': now, 'evidence': ev})
             index[key] = len(q) - 1
-    st['queue'] = _trim_queue(q)
+    intake['queue'] = _trim_queue(q)
     if not edge:
         sensors[dev_id] = {
             'at': now, 'sources': list(status.get('sources') or []),
@@ -240,7 +307,6 @@ def _note_evidence_into(st, dev_id, events, status=None, now=None):
         for d in [d for d, r in sensors.items()
                   if isinstance(r, dict) and now - int(r.get('at') or 0) > SENSOR_STATUS_KEEP_S]:
             sensors.pop(d, None)
-        st['sensors'] = sensors
     return {'queued': queued, 'throttled': throttled}
 
 
@@ -250,8 +316,8 @@ def ip_intel_note_evidence(dev_id, events, status=None, now=None):
     have already been validated. An address already waiting for this host has the
     new evidence added to its entry, so a minute-by-minute attack is one entry,
     not sixty. Returns {'queued': n, 'throttled': n}."""
-    with A._LockedUpdate(A.IPINTEL_FILE) as st:
-        return _note_evidence_into(st, dev_id, events, status, now)
+    with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
+        return _note_evidence_into(intake, dev_id, events, status, now)
 
 
 # ── what other surfaces read ───────────────────────────────────────────────────
@@ -654,16 +720,32 @@ def run_ip_intel_if_due():
     has_expired = any(isinstance(b, dict) and int(b.get('until') or 0) <= now
                       for per in (st_ro.get('blocks') or {}).values() if isinstance(per, dict)
                       for b in per.values())
-    if not st_ro.get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now):
+    if not _intake_ro().get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now):
         return
 
     edge_fanout = 0      # host blocks queued this sweep for edge-found addresses
     commands = []        # (dev_id or None, command or None, audit action, detail)
 
     # ── phase 1 ──
+    # The batch is claimed from the intake first, ranked against the table as this
+    # sweep read it; the table's own step comes second. The SQL backends share one
+    # connection and cannot hold both locks, and the batch only has to be in this
+    # sweep's hands by then.
+    with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
+        _intake_adopt(intake)
+        ranked = st_ro.get('attackers') if isinstance(st_ro.get('attackers'), dict) else {}
+        batch, rest = _claim_batch(list(intake['queue']) + _ledger_catchup(st_ro, pol, now),
+                                   ranked, pol, now)
+        intake['queue'] = [q for q in rest if not (isinstance(q, dict) and q.get('_catchup'))]
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         st['last_sweep'] = now
-        queue = st.get('queue') if isinstance(st.get('queue'), list) else []
+        # What the intake adopted from this table is dropped here, once the intake
+        # holds it (the claim above adopted it).
+        for stale in ('queue', 'sensors'):
+            st.pop(stale, None)
+        if isinstance(st.get('edge'), dict):
+            for stale in ('cf_to', 'trap_to'):
+                st['edge'].pop(stale, None)
         blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
         for dev_id, per in list(blocks.items()):
             if not isinstance(per, dict):
@@ -680,8 +762,6 @@ def run_ip_intel_if_due():
         allowance = _budget_left(st, pol, today)
         report_allowance = _report_budget_left(st, pol, today)
         atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
-        batch, rest = _claim_batch(list(queue) + _ledger_catchup(st, pol, now), atts, pol, now)
-        st['queue'] = [q for q in rest if not (isinstance(q, dict) and q.get('_catchup'))]
         plan = []
         for item in batch:
             ip = ip_intel.parse_ip(item.get('ip')) if isinstance(item, dict) else None
@@ -792,7 +872,8 @@ def run_ip_intel_if_due():
             lead['archived'] = report['ev']
 
     # ── phase 3 ──
-    sensors = st_ro.get('sensors') if isinstance(st_ro.get('sensors'), dict) else {}
+    sensors = _intake_ro().get('sensors')
+    sensors = sensors if isinstance(sensors, dict) else {}
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         _add_spend(st, today, spent)
         atts = st.setdefault('attackers', {})
@@ -1035,11 +1116,11 @@ def _evidence_view(att):
     }
 
 
-def _sensor_rows(st, visible):
+def _sensor_rows(intake, visible):
     """Each visible host's sensor health: what its agent reads, and whether it
     could. Hosts the caller cannot see are not listed."""
     rows = []
-    for dev_id, rec in (st.get('sensors') if isinstance(st.get('sensors'), dict) else {}).items():
+    for dev_id, rec in (intake.get('sensors') if isinstance(intake.get('sensors'), dict) else {}).items():
         if dev_id not in visible or not isinstance(rec, dict):
             continue
         rows.append({'device_id': dev_id, 'name': (visible[dev_id] or {}).get('name') or dev_id,
@@ -1210,6 +1291,7 @@ def handle_ip_intel():
     limit = PAGE_ROWS if limit < 1 else min(ATTACKER_CAP, limit)
     visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     st = _store_ro()
+    intake = _intake_ro()
     # The edge feeds belong to the instance, not to a host: only the operator who
     # set them up sees what they queued.
     operator = is_admin and (not A._tenancy_enforced() or A._caller_is_superadmin())
@@ -1268,12 +1350,12 @@ def handle_ip_intel():
                     'attackers': attackers[:limit], 'attackers_total': len(attackers),
                     'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
-                    'sensors': _sensor_rows(st, visible),
+                    'sensors': _sensor_rows(intake, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
                     'ban_hosts': ban_hosts,
                     'can_ignore': bool(operator),
-                    'budget': budget, 'queued': len(st.get('queue') or [])})
+                    'budget': budget, 'queued': len(intake.get('queue') or [])})
 
 
 def handle_ip_intel_settings():
@@ -1610,13 +1692,17 @@ def handle_ip_intel_clear():
             else:
                 atts.pop(ip, None)
         st['attackers'] = atts
-        queue = st.get('queue') if isinstance(st.get('queue'), list) else []
+    # The queue is in the intake, a document of its own, so this is a second step.
+    # A clear that stops between the two is finished by clearing again.
+    with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
+        _intake_adopt(intake)
+        queue = intake['queue']
         if operator:
             keep = []
         else:
             keep = [q for q in queue if not (isinstance(q, dict) and q.get('device_id') in mine)]
         queue_cleared = len(queue) - len(keep)
-        st['queue'] = keep
+        intake['queue'] = keep
     A.audit_log(actor, 'ip_intel_clear',
                 f'cleared={cleared} kept_listed={kept_listed} remembered={remembered} '
                 f'queue={queue_cleared}'[:300])

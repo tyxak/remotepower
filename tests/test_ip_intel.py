@@ -19,8 +19,10 @@ os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-ipintel-'))
 
 _CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ip_intel  # noqa: E402
+import ipintel_store  # noqa: E402
 
 ATTACKER = '185.220.101.7'
 ATTACKER6 = '2a0b:f4c0:16c:1::77'
@@ -197,13 +199,12 @@ class _Case(unittest.TestCase):
         self.api._LOAD_CACHE.clear()
 
     def sweep(self):
-        st = self.api.load(self.api.IPINTEL_FILE) or {}
+        st = ipintel_store.read(self.api)
         st['last_sweep'] = 0
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         self.api.run_ip_intel_if_due()
         self.api._LOAD_CACHE.clear()
-        return self.api.load(self.api.IPINTEL_FILE)
+        return ipintel_store.read(self.api)
 
     def queued(self, dev):
         return [c if isinstance(c, str) else c.get('command', '')
@@ -217,7 +218,7 @@ class TestQueueing(_Case):
         lines = [f'Failed password for root from {ATTACKER} port 4{i} ssh2' for i in range(5)]
         api._detect_brute_force('d1', 'web01', 'sshd.service', lines)
         api._LOAD_CACHE.clear()
-        q = (api.load(api.IPINTEL_FILE) or {}).get('queue') or []
+        q = ipintel_store.read(api).get('queue') or []
         self.assertEqual([x['ip'] for x in q], [ATTACKER])
 
     def test_a_source_chosen_in_the_user_name_is_not_credited(self):
@@ -238,7 +239,7 @@ class TestQueueing(_Case):
             ]
         api._detect_brute_force('d1', 'web01', 'sshd.service', lines)
         api._LOAD_CACHE.clear()
-        q = (api.load(api.IPINTEL_FILE) or {}).get('queue') or []
+        q = ipintel_store.read(api).get('queue') or []
         self.assertEqual({x['ip'] for x in q}, {ATTACKER})
         bf = api.load(api.BRUTE_FORCE_FILE) or {}
         self.assertEqual(set(bf['d1']['sshd.service']), {ATTACKER})
@@ -265,10 +266,10 @@ class TestQueueing(_Case):
     def test_private_sources_and_a_disabled_feature_queue_nothing(self):
         self.attack(ip='10.1.2.3')
         self.attack(ip='host.example.com')
-        self.assertFalse((self.api.load(self.api.IPINTEL_FILE) or {}).get('queue'))
+        self.assertFalse(ipintel_store.read(self.api).get('queue'))
         self.policy(lookup_enabled=False)
         self.attack()
-        self.assertFalse((self.api.load(self.api.IPINTEL_FILE) or {}).get('queue'))
+        self.assertFalse(ipintel_store.read(self.api).get('queue'))
 
 
 class TestSweep(_Case):
@@ -335,8 +336,7 @@ class TestSweep(_Case):
         self.assertTrue(any(ATTACKER in c and 'deny from' in c for c in cmds), cmds)
         # expire it
         st['blocks']['d1'][ATTACKER]['until'] = int(time.time()) - 1
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         st = self.sweep()
         self.assertNotIn('d1', st.get('blocks') or {})
         self.assertTrue(any('ufw --force delete deny from ' + ATTACKER in c for c in self.queued('d1')))

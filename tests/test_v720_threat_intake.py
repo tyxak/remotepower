@@ -16,6 +16,7 @@ from pathlib import Path
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v720-intake-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
+import ipintel_store  # noqa: E402
 
 import ip_intel  # noqa: E402
 import threat_evidence as te  # noqa: E402
@@ -57,7 +58,7 @@ class _Intake(_Case):
 
     def store(self):
         self.api._LOAD_CACHE.clear()
-        return self.api.load(self.api.IPINTEL_FILE) or {}
+        return ipintel_store.read(self.api)
 
     def queue(self):
         return self.store().get('queue') or []
@@ -205,7 +206,7 @@ class TestWhatOneHostCanDo(_Intake):
         self.assertEqual((d['accepted'], d['throttled']), (0, 1), 'still the same hour')
         s = self.store()
         s['sensors']['d1']['hour'] = {'h': 1, 'n': 5}            # a long time ago
-        self.api.save(self.api.IPINTEL_FILE, s)
+        ipintel_store.write(self.api, s)
         self.api._LOAD_CACHE.clear()
         self.assertEqual(self.post([raw_event(ip='45.1.2.2')])[1]['accepted'], 1)
 
@@ -245,7 +246,7 @@ class TestWhatOneHostCanDo(_Intake):
         s = self.store()
         s['sensors'] = {'d9': {'at': int(time.time()) - 31 * 86400, 'sources': []},
                         'd8': {'at': int(time.time()) - 86400, 'sources': []}}
-        self.api.save(self.api.IPINTEL_FILE, s)
+        ipintel_store.write(self.api, s)
         self.api._LOAD_CACHE.clear()
         self.post([raw_event()])
         self.assertEqual(set(self.store()['sensors']), {'d1', 'd8'})

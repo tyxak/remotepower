@@ -944,8 +944,19 @@ def build_sshgw_sessions() -> dict:
 
 
 def build_ip_intel() -> dict:
-    """Attackers with provider verdicts, a few reports and active blocks.
-    Addresses are from the documentation ranges, so nothing real is named."""
+    """The table of addresses: attackers with provider verdicts, a few reports and
+    active blocks. Addresses are from the documentation ranges, so nothing real is
+    named. What arrives between sweeps is the intake, `build_ip_intel_intake`."""
+    return _ip_intel_documents()[0]
+
+
+def build_ip_intel_intake() -> dict:
+    """The intake: the queue, each Linux host's sensor record in every state the page
+    can show, and the edge feeds' places in their logs."""
+    return _ip_intel_documents()[1]
+
+
+def _ip_intel_documents() -> tuple:
     rng = _seeded_random('ip-intel')
     linux = [d for d in FAKE_DEVICES if _demo_sshgw_opted_in(d)]
     isps = ['Example Hosting GmbH', 'Demo Cloud LLC', 'Sample Telecom', 'Placeholder VPS']
@@ -1140,11 +1151,14 @@ def build_ip_intel() -> dict:
                 'sniffcat': {'at': now() - 1500, 'n': 44, 'ips': ''}},
         'calls': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())), 'abuseipdb': 1, 'sniffcat': 1},
     }
-    return {'attackers': attackers, 'blocks': blocks, 'queue': [], 'sensors': sensors,
-            'edge': edge, 'edgelist': edgelist, 'edgeban': edgeban,
-            'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
-                       'abuseipdb': 18, 'sniffcat': 18},
-            'last_sweep': now()}
+    table = {'attackers': attackers, 'blocks': blocks,
+             'edge': edge, 'edgelist': edgelist, 'edgeban': edgeban,
+             'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
+                        'abuseipdb': 18, 'sniffcat': 18},
+             'last_sweep': now()}
+    intake = {'adopted': True, 'queue': [], 'sensors': sensors,
+              'cursors': {'cf': now() - 330, 'trap': now() - 330}}
+    return table, intake
 
 
 def build_devices() -> dict:
@@ -7074,6 +7088,7 @@ BUILDERS = {
     'sshgw_sessions.json':         build_sshgw_sessions,
     'sshgw_state.json':            build_sshgw_state,
     'ip_intel.json':               build_ip_intel,
+    'ip_intel_intake.json':        build_ip_intel_intake,
     'fleet_events.json':           build_fleet_events,
     'drift_state.json':            build_drift,
     'health_history.json':         build_health_history,

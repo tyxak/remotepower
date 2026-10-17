@@ -851,9 +851,14 @@ WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
 # gateway sessions, and per-device tunnel/session timestamps for the page.
 SSHGW_SESSIONS_FILE = DATA_DIR / 'sshgw_sessions.json'
 SSHGW_STATE_FILE    = DATA_DIR / 'sshgw_state.json'
-# AbuseIPDB / SniffCat (ip_intel_handlers.py): the queue the brute-force
-# detector feeds, per-address reputation and reports, active blocks, budget.
+# AbuseIPDB / SniffCat (ip_intel_handlers.py): per-address reputation and
+# reports, active blocks, budget.
 IPINTEL_FILE        = DATA_DIR / 'ip_intel.json'
+# What arrives between sweeps: the queue of addresses waiting for a lookup, each
+# host's sensor record and the edge feeds' place in their logs. Written on every
+# heartbeat that has something to say, so it is its own small document and does
+# not make each of those writes rewrite the whole table above.
+IPINTEL_INTAKE_FILE = DATA_DIR / 'ip_intel_intake.json'
 
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -1133,6 +1138,7 @@ for _ii_name in (
         'handle_ip_intel_ignore',
         'ip_intel_annotate', 'ip_intel_by_device',
         'ip_intel_policy', 'ip_intel_note_evidence', '_note_evidence_into',
+        '_intake_ro', '_intake_adopt',
 ):
     globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
 del _ii_name

@@ -150,6 +150,8 @@ builtins = [
     "_ingest_dns_creds_harvest",
     "_ingest_flow",
     "_ingest_log_sweep",
+    "_intake_adopt",
+    "_intake_ro",
     "_ip_intel_http",
     "_ipam_assignments",
     "_ipam_occupancy",

@@ -76,6 +76,15 @@ comes with a check that keeps it fixed.
 - Threat intel's **Ignore** button refuses an address that is not public. Such
   an address is never looked up, reported or blocked, so the entry it stored
   could never match anything. The Settings list can still name private networks.
+- A heartbeat that reports attackers no longer rewrites Threat intel's whole
+  table. The queue of addresses waiting for a lookup, each host's log-sensor
+  status and the place the Cloudflare and honeypot feeds have reached in their
+  logs shared one document with every recorded address, and each write rewrote
+  all of it, under the lock the sweep and the page wait on. With 5,000
+  addresses recorded that took 57 to 125 ms on SQLite and 132 to 334 ms on the
+  file backend, on every heartbeat from a host with something to report. They
+  now have a document of their own, and the same write takes 0.1 to 0.2 ms. An
+  existing install moves over at its first write, in order, and loses nothing.
 - The customer portal shows why opening a ticket or sending a reply failed on
   the page, not in a browser alert, which browsers suppress after a few and
   which cannot be styled. The dashboard's last native alert is gone too.

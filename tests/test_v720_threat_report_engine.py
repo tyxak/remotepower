@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v720-engine-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
+import ipintel_store  # noqa: E402
 
 import ip_intel  # noqa: E402
 import threat_evidence as te  # noqa: E402
@@ -72,7 +73,7 @@ class _Engine(_Case):
 
     def store(self):
         self.api._LOAD_CACHE.clear()
-        return self.api.load(self.api.IPINTEL_FILE) or {}
+        return ipintel_store.read(self.api)
 
     def answer_with(self, abuse=None, sniff=None):
         """Replace the providers' answer to a REPORT; lookups still work."""
@@ -279,8 +280,7 @@ class TestWhenAnAddressIsReported(_Engine):
         st.setdefault('queue', []).append({'ip': '104.16.5.5', 'device_id': 'd1', 'unit': 'threat-sensor',
                                            'count': 9, 'window_s': 600, 'at': int(time.time()),
                                            'evidence': te.normalize_event(raw_event('104.16.5.5', **strong))})
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         self.sweep()
         self.assertEqual(self.posts(), [])
         self.assertIn('never-block', self.att()['errors']['abuseipdb'])
@@ -317,8 +317,7 @@ class TestTheLedger(_Engine):
         self.sweep()
         st = self.store()
         st['attackers'][ATTACKER]['ev']['first'] = int(time.time()) - 2 * 86400
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         self.feed(web(n=6))
         self.sweep()
         self.assertEqual(self.posts(), [], 'six and six are not twelve when one lot is two days old')
@@ -382,8 +381,7 @@ class TestTheServicesAnswers(_Engine):
         self.assertEqual(len(self.post_to('sniffcat')), n, 'it did not ask again inside the window')
         st = self.store()
         st['attackers'][ATTACKER]['retry']['sniffcat'] = int(time.time()) - 1
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         self.feed(web(n=12))
         self.sweep()
         self.assertEqual(len(self.post_to('sniffcat')), n + 1, 'and did once the window had passed')
@@ -452,8 +450,7 @@ class TestSpendingTheAllowance(_Engine):
         st = self.store()
         st['attackers'] = {f'45.2.{i // 250}.{i % 250 + 1}': {'checked_at': now, 'verdict': {'score': 10}}
                            for i in range(120)}
-        self.api.save(self.api.IPINTEL_FILE, st)
-        self.api._LOAD_CACHE.clear()
+        ipintel_store.write(self.api, st)
         for i in range(120):
             self.feed(web(ip=f'45.2.{i // 250}.{i % 250 + 1}', n=5))
         self.sweep()

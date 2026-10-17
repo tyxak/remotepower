@@ -277,6 +277,12 @@ def run_edge_intel_if_due():
         edge['polled'] = now
         st['edge'] = edge
         prev = dict(edge)
+    # Each feed's place in its log is kept with the queue it feeds (the intake), not
+    # in the table of addresses.
+    places = A._intake_ro().get('cursors')
+    places = places if isinstance(places, dict) else {}
+    for feed, _dev in FEEDS:
+        prev[feed + '_to'] = int(places.get(feed) or 0)
 
     got = {}
     if pol.get('edge_cf_events'):
@@ -284,11 +290,25 @@ def run_edge_intel_if_due():
     if pol.get('edge_trap'):
         got['trap'] = _safely(_poll_trap, token, pol, prev, now)
 
+    # The evidence and the feeds' places in their logs go in ONE transaction, in the
+    # intake: a crash cannot replay a window that was queued or skip one that was not.
+    with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
+        A._intake_adopt(intake)
+        for feed, dev in FEEDS:
+            r = got.get(feed)
+            if r is None:
+                continue
+            events = r.pop('events', None) or []
+            if events:
+                A._note_evidence_into(intake, dev, events, None, now)
+            if r.get('state') == 'ok' and r.get('to'):
+                intake['cursors'][feed] = int(r['to'])
+
     announce = []                         # (event, payload), fired after the lock is released
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         edge = st.get('edge') if isinstance(st.get('edge'), dict) else {}
         health = edge.get('health') if isinstance(edge.get('health'), dict) else {}
-        for feed, dev in FEEDS:
+        for feed, _dev in FEEDS:
             r = got.get(feed)
             h = health.get(feed) if isinstance(health.get(feed), dict) else {}
             if r is None or r.get('state') not in FEED_FAILING:
@@ -312,9 +332,6 @@ def run_edge_intel_if_due():
                 # though it were still being made.
                 edge[feed] = {'state': 'off', 'at': now}
                 continue
-            events = r.pop('events', None) or []
-            if events:
-                A._note_evidence_into(st, dev, events, None, now)
             if feed == 'cf':
                 if r.get('zone_list') is not None:
                     edge['zones'] = r.pop('zone_list')[:edge_evidence.MAX_ZONES]
@@ -323,8 +340,6 @@ def run_edge_intel_if_due():
                     edge['rules'] = r.pop('rules')
             r.pop('zone_list', None)
             r.pop('zones_at', None)
-            if r.get('state') == 'ok' and r.get('to'):
-                edge[feed + '_to'] = int(r['to'])
             r.pop('to', None)
             edge[feed] = r
         edge['health'] = health
