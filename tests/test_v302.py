@@ -590,7 +590,9 @@ class TestAcmeNoCertsRowsFiltering(unittest.TestCase):
 class TestUrlBarSync(unittest.TestCase):
     """v3.0.2: clicking through pages used to leave the URL hash stuck at
     whatever switchSettingsTab last wrote (e.g. #settings/notifs). Now
-    showPage updates the hash via history.replaceState."""
+    showPage updates the hash. v7.4.0: through _syncPageHash, which pushes an
+    entry for a change of page (so Back works) and replaces for everything else
+    (test_v740_back_button.py holds the rules)."""
 
     def test_show_page_writes_url_hash(self):
         js = client_js()
@@ -598,8 +600,11 @@ class TestUrlBarSync(unittest.TestCase):
         # unsaved-settings guard grew showPage past the old 3000-char slice.
         from tests import srcpin
         block = srcpin.js_function(js, 'showPage')
-        self.assertIn('history.replaceState', block,
-            'showPage must call history.replaceState to keep URL bar in sync')
+        self.assertIn('_syncPageHash(', block,
+            'showPage must sync the URL bar through _syncPageHash')
+        sync = srcpin.js_function(js, '_syncPageHash')
+        self.assertIn('history.replaceState', sync)
+        self.assertIn('history.pushState', sync)
 
     def test_settings_tab_uses_replace_state(self):
         """switchSettingsTab should use replaceState, not pushState/assign,

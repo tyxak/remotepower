@@ -37,6 +37,14 @@ comes with a check that keeps it fixed.
   hold it: one computes every theme's text colours against every background
   they are painted on, and one measures the real pages in each theme in the
   browser.
+- The Back button goes to the page you came from. It used to leave the app,
+  because every move between pages rewrote the one history entry; now a move to
+  another page adds an entry, and Back and Forward walk them. Things that
+  refine the page you are on do not add entries, so Back does not have to undo
+  them: switching a Settings tab, applying a saved view, opening a host's
+  drawer. If you press Back with unsaved Settings changes and choose to stay,
+  the address bar goes back to Settings instead of naming the page you did not
+  leave.
 - Hover a relative time ("3h ago") in a table, card or drawer to see the exact
   time; with **Time display: Absolute**, the exact time shows and the hover
   gives the relative one. Four places had this before, out of about seventy.

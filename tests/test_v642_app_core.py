@@ -465,8 +465,10 @@ class TestBarePageHashRouting(unittest.TestCase):
     def test_listener_is_registered_and_uses_replacestate_routing(self):
         src = app_js()
         self.assertIn("window.addEventListener('hashchange', _routeBarePageHash)", src)
-        # the single-history-entry contract: routing goes through showPage,
-        # which replaceStates — never a pushState of its own.
+        # Back and Forward arrive here, so a route made from history must not
+        # add an entry: it goes through showPage with {replace: true} and never
+        # pushes a state of its own (7.4.0: showPage pushes for a user's change
+        # of page; test_v740_back_button.py holds that rule).
         self.assertNotIn("pushState", js_function(src, "_routeBarePageHash"))
 
 

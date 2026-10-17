@@ -23,8 +23,12 @@ so the claim cannot quietly become true again.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import js_function  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 _HTML = ROOT / "server" / "html" / "index.html"
@@ -132,13 +136,11 @@ class TestTheRenderer(unittest.TestCase):
         cls.body = cls.body[:cls.body.index("\n}\n")]
 
     def test_it_runs_on_every_page_entry(self):
-        sp = self.js[self.js.index("function showPage(name, btn) {"):]
-        sp = sp[:sp.index("\nfunction ", 10)]
+        sp = js_function(self.js, "showPage")
         self.assertIn("_renderPageRelated(name)", sp)
 
     def test_navigation_survives_a_failure_in_it(self):
-        sp = self.js[self.js.index("function showPage(name, btn) {"):]
-        sp = sp[:sp.index("\nfunction ", 10)]
+        sp = js_function(self.js, "showPage")
         i = sp.index("_renderPageRelated(name)")
         self.assertIn("try {", sp[i - 40:i])
 

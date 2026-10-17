@@ -1182,7 +1182,7 @@ function _routeFromHashOnBoot() {
                   && !document.querySelector('template[data-page-tpl="' + page + '"]'))) {
       return;   // unknown -> stay home
     }
-    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
+    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined, { replace: true });
     if (page === 'settings') {
       const tab = raw.split('/')[1];
       if (tab) { try { switchSettingsTab(tab); } catch (_) {} }
@@ -2729,7 +2729,33 @@ window.addEventListener('beforeunload', (e) => {
   if (window._settingsDirty) { e.preventDefault(); e.returnValue = ''; }
 });
 
-function showPage(name, btn) {
+// v7.4.0: the URL bar follows the visible page, and Back follows the pages. A
+// change of page pushes a history entry, so Back returns to the page before.
+// Refining the page you are on (a settings tab, a saved view, the device drawer)
+// and routing that comes FROM history (Back, Forward, a pasted hash, the boot
+// restore) rewrite the current entry instead, so Back never unwinds those:
+// callers in that second group pass {replace: true}. Back and Forward themselves
+// change the hash before showPage runs, so it finds the hash already right and
+// writes nothing.
+function _syncPageHash(name, wasPage, opts) {
+  try {
+    const newHash = (name === 'settings' && location.hash.startsWith('#settings'))
+      ? location.hash      // switchSettingsTab owns #settings/<tab>
+      : '#' + name;
+    if (location.hash === newHash) return;
+    if (wasPage !== name && !(opts && opts.replace)) history.pushState(null, '', newHash);
+    else history.replaceState(null, '', newHash);
+  } catch (_) { /* private mode, file://, etc — non-fatal */ }
+}
+// The hash of the page that is on screen, so the URL can be put back in step
+// with it when a navigation that already moved the URL is called off.
+function _visiblePageHash() {
+  const cur = document.querySelector('.page.active');
+  const name = cur ? cur.id.replace(/^page-/, '') : 'home';
+  return (name === 'settings' && location.hash.startsWith('#settings')) ? location.hash : '#' + name;
+}
+
+function showPage(name, btn, opts) {
   // A disabled module's page must not be reachable by deep link / bookmark /
   // command palette either — the nav entry is gone, but the route isn't.
   if (_moduleOffFor(name)) {
@@ -2746,9 +2772,13 @@ function showPage(name, btn) {
       message: 'You have unsaved Settings changes. Leave without saving?',
       confirmText: 'Leave', danger: true,
     }).then(ok => {
-      if (!ok) return;
+      if (!ok) {
+        // Back or Forward already moved the URL; put it back on the page that stayed.
+        try { history.replaceState(null, '', _visiblePageHash()); } catch (_) {}
+        return;
+      }
       window._settingsDirty = false;
-      showPage(name, btn);
+      showPage(name, btn, opts);
     });
     return;
   }
@@ -2757,7 +2787,7 @@ function showPage(name, btn) {
   // Early return BEFORE any DOM mutation, so the re-entry runs the whole
   // (idempotent) body against a ready module.
   if (!_pageJsReady(name)) {
-    _loadPageJs(name).then(() => showPage(name, btn));
+    _loadPageJs(name).then(() => showPage(name, btn, opts));
     return;
   }
   // v5.6.x lazy pages: heavy, boot-safe pages ship as inert <template>s and
@@ -2769,6 +2799,7 @@ function showPage(name, btn) {
   }
   _markNavSeen(name);
   _stopPagePollers();   // v5.0.1 perf: stop the leaving page's continuous pollers
+  const _wasPage = ((document.querySelector('.page.active') || {}).id || '').replace(/^page-/, '');
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   // v5.4.1 (H3): aria-current="page" tracks the active nav for assistive tech
   // (class-only active state is invisible to a screen reader).
@@ -2780,26 +2811,11 @@ function showPage(name, btn) {
   try { _paintCrumb(_navBtn, name); } catch (_) {}   // v6.0.0: topbar breadcrumb
   try { _setPageWatermark(name, _navBtn); } catch (_) {}   // faint page-icon watermark
   try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
-  // v3.0.2: keep the URL bar in sync with the visible page. Without this,
-  // the hash sticks at whatever switchSettingsTab last wrote (e.g.
-  // #settings/notifs) and stays there as you click through Home, Devices,
-  // Logs etc. replaceState (not pushState) so back-button doesn't trap
-  // the user in deep history of every page they tabbed through.
-  try {
-    if (name === 'settings') {
-      // switchSettingsTab will set #settings/<tab>; leave hash alone here
-      // so we don't fight with it. Just ensure we're at the settings root
-      // when arriving cold.
-      if (!location.hash.startsWith('#settings')) {
-        history.replaceState(null, '', '#settings');
-      }
-    } else {
-      const newHash = '#' + name;
-      if (location.hash !== newHash) {
-        history.replaceState(null, '', newHash);
-      }
-    }
-  } catch (_) { /* private mode, file://, etc — non-fatal */ }
+  // v3.0.2: keep the URL bar in sync with the visible page. Without this, the
+  // hash sticks at whatever switchSettingsTab last wrote (e.g. #settings/notifs)
+  // and stays there as you click through Home, Devices, Logs etc. v7.4.0: a new
+  // page also gets a history entry, so Back returns to it (see _syncPageHash).
+  _syncPageHash(name, _wasPage, opts);
   // v2.0: auto-expand the sidebar group containing this nav button so
   // the active item is always visible (avoids the surprise of clicking
   // a saved bookmark and seeing nothing highlighted in the sidebar).
@@ -7223,20 +7239,20 @@ window.addEventListener('hashchange', () => {
   const m = (location.hash || '').match(/^#alerts\/([A-Za-z0-9_-]{1,64})$/);
   if (!m) return;
   window._pendingAlertDeepLink = m[1];
-  showPage('alerts', document.querySelector('.nav-btn[data-page="alerts"]'));
+  showPage('alerts', document.querySelector('.nav-btn[data-page="alerts"]'), { replace: true });
 });
 
 // v6.4.2: a BARE page hash (#thermal, #risk, #settings/notifs) pasted into an
 // already-running tab used to change the URL and nothing else — page routing
 // from the hash only ran at boot (_routeFromHashOnBoot), and the only
 // hashchange listeners were the alert and device deep links above. Route bare
-// page hashes here too, through showPage(): it syncs the hash with
-// replaceState, never pushState, so the single-history-entry Back behaviour it
-// documents is preserved (this listener adds no entries of its own).
+// page hashes here too, through showPage(). Back and Forward arrive here as well,
+// and a route that comes from history must not add an entry of its own, so this
+// passes {replace: true}.
 function _routeBarePageHash() {
   try {
-    const raw = (location.hash || '').replace(/^#/, '');
-    if (!raw) return;
+    // no hash at all is the entry the app was opened on, which is Home
+    const raw = (location.hash || '').replace(/^#/, '') || 'home';
     if (raw.startsWith('device/') || raw.startsWith('devices?')) return;  // own handlers
     if (/^alerts\//.test(raw)) return;                                    // own handler
     const page = raw.split(/[/?]/)[0];
@@ -7252,7 +7268,7 @@ function _routeBarePageHash() {
     // clones it, so count the template as known (same rule as boot routing).
     if (!document.getElementById('page-' + page)
         && !document.querySelector('template[data-page-tpl="' + page + '"]')) return;
-    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
+    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined, { replace: true });
     if (tab) { try { switchSettingsTab(tab); } catch (_) {} }
   } catch (_) { /* non-fatal */ }
 }
@@ -11471,7 +11487,7 @@ function _applyInitialViewHash() {
     if (!m || !_VIEW_PAGES[m[1]]) return;
     const page = m[1];
     const name = decodeURIComponent(m[2]);
-    showPage(page, document.querySelector(`.nav-btn[data-page="${page}"]`));
+    showPage(page, document.querySelector(`.nav-btn[data-page="${page}"]`), { replace: true });
     // Give the page's loader time to populate its dropdowns so the restored
     // select values stick, then apply the saved view.
     setTimeout(() => applyDeviceView(name, page), 400);
@@ -11490,7 +11506,7 @@ function _openDeviceFromHash() {
     const id = decodeURIComponent(m[1]);
     const tab = (m[2] === 'audit' || m[2] === 'actions') ? m[2] : 'actions';
     if (_drawerDeviceId === id) { switchDrawerTab(tab); return true; }
-    showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+    showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'), { replace: true });
     openDeviceDrawer(id, '', tab);
     return true;
   } catch (_) { return false; }
