@@ -1098,7 +1098,8 @@ def _evidence_view(att):
     seen = []
     for fam in threat_evidence.SOURCES:
         if src.get(fam) or tok.get(fam) or (fam == 'f2b' and ev.get('ban')) \
-                or (fam == 'cs' and ev.get('dec')) or (fam == 'trap' and ev.get('trp')):
+                or (fam == 'cs' and ev.get('dec')) \
+                or (fam == threat_evidence.trap_family(ev) and ev.get('trp')):
             seen.append({'id': fam, 'n': int(src.get(fam) or 0)})
     rules = {}
     for toks in tok.values():
@@ -1117,8 +1118,9 @@ def _evidence_view(att):
 
 
 def _sensor_rows(intake, visible):
-    """Each visible host's sensor health: what its agent reads, and whether it
-    could. Hosts the caller cannot see are not listed."""
+    """Each visible host's sensor health: what its agent reads, or what the server
+    read from its syslog, and whether it could. Hosts the caller cannot see are not
+    listed."""
     rows = []
     for dev_id, rec in (intake.get('sensors') if isinstance(intake.get('sensors'), dict) else {}).items():
         if dev_id not in visible or not isinstance(rec, dict):
@@ -1350,6 +1352,7 @@ def handle_ip_intel():
                     'attackers': attackers[:limit], 'attackers_total': len(attackers),
                     'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
+                    'appliance_enabled': bool(pol.get('appliance_enabled')),
                     'sensors': _sensor_rows(intake, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
@@ -1371,7 +1374,7 @@ def handle_ip_intel_settings():
     changed = []
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
-        for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled',
+        for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled', 'appliance_enabled',
                   'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules',
                   'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
                   'block_edge_hosts'):
@@ -1649,7 +1652,9 @@ def handle_ip_intel_clear():
       * addresses the Edge blocklist takes from this table (see _held_by_blocklist);
       * when an address was last reported, for a day (see _reported_marker);
       * settings and keys, the day's lookup and report counts, the feeds' place in
-        their logs and each host's sensor status.
+        their logs and each host's sensor status;
+      * the scans a firewall has only half counted (ip_intel_scan.json): thirty
+        minutes of soft state that expires by itself.
     """
     actor = A.require_admin_auth()
     if A.method() != 'POST':

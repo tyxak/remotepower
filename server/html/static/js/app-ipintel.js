@@ -22,12 +22,13 @@ const _IPI_CLASS = {
   waf: 'requests blocked by a web application firewall', mail_brute: 'mail login brute force',
   ftp_brute: 'FTP brute force', service_brute: 'service login brute force', port_scan: 'port scanning',
   canary: 'using a credential planted in a decoy file', decoy_login: 'signing in to a decoy service',
-  ddos: 'HTTP request flooding',
+  ddos: 'HTTP request flooding', decoy_port: 'connecting to a decoy port',
 };
 const _IPI_SOURCE = {
   web: 'Web server log', err: 'Web server error log', waf: 'WAF audit log',
   f2b: 'fail2ban log', cs: 'CrowdSec alerts', fw: 'Firewall log',
   cf: 'Cloudflare firewall events', trap: 'Edge honeypot',
+  ids: 'Intrusion detection alerts', dp: 'Decoy port',
 };
 // The edge feeds (Cloudflare's firewall events and the honeypot's log): what each is
 // called, how its state reads, why a line was set aside, and what a connection test
@@ -251,6 +252,7 @@ async function loadIpIntel() {
   _ipiAdmin = !!_ipiData.is_admin;
   document.getElementById('ipintel-settings-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;
+  document.getElementById('ipintel-appliance-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
   document.getElementById('ipintel-clear-btn').hidden = !_ipiAdmin;
@@ -277,6 +279,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-block-edge-hosts', s.block_edge_hosts);
   chk('ipintel-sensor', s.sensor_enabled);
   set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
+  chk('ipintel-appliance', s.appliance_enabled);
   set('ipintel-min-score', s.block_min_score ?? 90);
   set('ipintel-ttl', s.block_ttl_hours ?? 24);
   set('ipintel-max-hour', s.block_max_per_hour ?? 20);
@@ -448,7 +451,8 @@ function _ipiEvidenceHtml(a) {
     `<span class="ipi-chip">${_ipiPhrase(_ipiClassName(c.id))} <span class="hint">×${escHtml(String(c.n))}</span></span>`).join('');
   const notes = [];
   if (e.confirmed) {
-    const who = e.confirmed === 'the edge honeypot' ? _ipiPhrase('the edge honeypot') : escHtml(e.confirmed);
+    const who = (e.confirmed === 'the edge honeypot' || e.confirmed === 'a decoy port')
+      ? _ipiPhrase(e.confirmed) : escHtml(e.confirmed);
     notes.push(`${_ipiPhrase('confirmed by')} ${who}`);
   }
   if (e.ans) notes.push(`<span class="c-amber">${_ipiPhrase('answered')} ${escHtml(String(e.ans))}</span>`);
@@ -633,9 +637,12 @@ function _ipiRenderSources() {
     at: r.at || 0, state: r.state || '',
   }));
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="9" class="hint">${escHtml(_ipiData.sensor_enabled
+    const empty = _ipiData.sensor_enabled
       ? 'No host has reported its logs yet. Agents pick the setting up on their next heartbeat.'
-      : 'The log sensor is off. An administrator can turn it on under Log sensor.')}</td></tr>`;
+      : _ipiData.appliance_enabled
+        ? 'No firewall or router has sent a line RemotePower reads yet.'
+        : 'The log sensor is off. An administrator can turn it on under Log sensor.';
+    tb.innerHTML = `<tr><td colspan="9" class="hint">${escHtml(empty)}</td></tr>`;
   } else {
     tb.innerHTML = rows.map(r => `<tr>
       <td>${escHtml(r.host)}</td>
@@ -936,6 +943,7 @@ async function saveIpIntelSettings() {
     block_edge_hosts: v('ipintel-block-edge-hosts').checked,
     sensor_enabled: v('ipintel-sensor').checked,
     sensor_paths: v('ipintel-sensor-paths').value,
+    appliance_enabled: v('ipintel-appliance').checked,
     block_min_score: v('ipintel-min-score').value,
     block_ttl_hours: v('ipintel-ttl').value,
     block_max_per_hour: v('ipintel-max-hour').value,

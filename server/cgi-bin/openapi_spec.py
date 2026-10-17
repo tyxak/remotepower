@@ -1332,7 +1332,10 @@ def _path_ingest() -> dict[str, Any]:
                 "description": (
                     "Accepts `{lines: [...]}` OR a bare JSON array "
                     "of lines — both shapes are supported on "
-                    "purpose, because forwarders differ."
+                    "purpose, because forwarders differ. A JSON array "
+                    "of CrowdSec alert objects (each names a `scenario`), "
+                    "as CrowdSec's HTTP notification posts it, is "
+                    "accepted too and becomes one line per alert."
                 ),
                 "parameters": [_tok],
                 "responses": _ok,

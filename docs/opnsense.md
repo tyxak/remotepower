@@ -73,6 +73,9 @@ firewall by IP address, and the token stays on the server. [How that works](inbo
    address (`journalctl -u remotepower-syslogd -n 20`).
 
 Once logs arrive, [log-watch.md](log-watch.md) shows how to alert on them.
+[Firewall sources](firewall-sources.md) shows how to have Threat intel read the
+same logs for port scans, Suricata and CrowdSec alerts and failed sign-ins, and
+report the addresses behind them.
 
 ## Send traffic records (NetFlow)
 

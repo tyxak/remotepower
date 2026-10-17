@@ -859,6 +859,10 @@ IPINTEL_FILE        = DATA_DIR / 'ip_intel.json'
 # heartbeat that has something to say, so it is its own small document and does
 # not make each of those writes rewrite the whole table above.
 IPINTEL_INTAKE_FILE = DATA_DIR / 'ip_intel_intake.json'
+# The appliance sensor (appliance_sensor_handlers.py): how many refused packets each
+# address has sent each firewall or router in the last half hour, and the day's line
+# counts. Soft state: losing it only restarts the counting.
+IPINTEL_SCAN_FILE   = DATA_DIR / 'ip_intel_scan.json'
 
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -900,6 +904,7 @@ import ssrf_ip
 import tls_monitor
 # v4.8.0: DMARC posture monitor — DNS-only SPF/DKIM/DMARC record grading.
 import ip_reputation
+import appliance_evidence      # firewall and router syslog -> threat evidence (pure)
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
@@ -1184,6 +1189,21 @@ for _tsn_name in (
 ):
     globals()[_tsn_name] = getattr(threat_sensor_handlers_mod, _tsn_name)
 del _tsn_name
+
+# v7.4.0: the appliance sensor. A firewall or router has no agent, but its syslog
+# is already on the server; this reads those lines for refused packets, decoy-port
+# hits, intrusion detection and CrowdSec alerts and queues what they say for Threat
+# intel like a host's sensor does. Off until asked for.
+_as_spec = _tk_ilu.spec_from_file_location(
+    'appliance_sensor_handlers', Path(__file__).parent / 'appliance_sensor_handlers.py')
+appliance_sensor_handlers_mod = _tk_ilu.module_from_spec(_as_spec)
+_as_spec.loader.exec_module(appliance_sensor_handlers_mod)
+appliance_sensor_handlers_mod.bind(globals())
+for _as_name in (
+        'appliance_sensor_ingest', 'crowdsec_alert_lines',
+):
+    globals()[_as_name] = getattr(appliance_sensor_handlers_mod, _as_name)
+del _as_name
 
 # v7.0.0: Autonomous remediation loop — policy, shadow receipts, blast radius.
 _ao_spec = _tk_ilu.spec_from_file_location(
@@ -39335,12 +39355,19 @@ _BRUTE_PATTERNS = {
         # Generic 401/403 (broad — only relevant on auth endpoints)
         re.compile(r'^(\S+).*" 40[13] '),
     ],
+    # A firewall's or router's own logins, as its syslog says them (RouterOS, the
+    # OPNsense web interface). A failed RouterOS SSH login joins the SSH patterns so it
+    # keeps the SSH category when it is reported.
+    'syslog': list(appliance_evidence.LOGIN_PATTERNS['other']),
 }
+_BRUTE_PATTERNS['ssh'] += appliance_evidence.LOGIN_PATTERNS['ssh']
 
 # Unit names that carry SSH auth messages
 _SSH_UNITS   = {'ssh.service', 'sshd.service', 'openssh.service'}
 # Unit names that carry web access logs
 _WEB_UNITS   = {'nginx.access', 'apache2.access'}
+# The unit a device's syslog lands under (see handle_syslog_in)
+_SYSLOG_UNITS = {'syslog'}
 
 # Rolling window and threshold (configurable via DEFAULT_METRIC_THRESHOLDS area)
 BRUTE_WINDOW_SECONDS = 300    # 5-minute rolling window
@@ -39426,6 +39453,8 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
         patterns = _BRUTE_PATTERNS['ssh']
     elif unit in _WEB_UNITS:
         patterns = _BRUTE_PATTERNS['web']
+    elif unit in _SYSLOG_UNITS:
+        patterns = _BRUTE_PATTERNS['syslog']
     else:
         return
 
@@ -61868,6 +61897,19 @@ def handle_syslog_in(token_str):
         body = get_json_body()   # accepts EITHER {lines:[...]} OR a bare JSON array of lines
         if isinstance(body, dict) and isinstance(body.get('lines'), list):
             raw_lines = [str(x) for x in body['lines'][:_SYSLOG_MAX_LINES_PER_POST]]
+        elif (_crowdsec := crowdsec_alert_lines(body)) is not None:
+            # CrowdSec's HTTP notification posts its alerts as JSON objects; they
+            # become one line each, in a fixed shape (see appliance_evidence)
+            raw_lines = _crowdsec
+            if not raw_lines:
+                # all simulated, or none a scenario of its own: nothing to keep, and
+                # not a mistake CrowdSec should hear about. It is still a delivery, so
+                # the token shows it: CrowdSec's own test notification ends here, and
+                # a setup that works must not look dead.
+                _syslog_token_seen(token_str, int(time.time()))
+                _log_inbound('syslog', match.get('id'), match.get('label'), '200',
+                             f'crowdsec: nothing to keep dev={dev.get("name", dev_id)}')
+                respond(200, {'ok': True, 'lines_received': 0})
         elif isinstance(body, list):
             raw_lines = [str(x) for x in body[:_SYSLOG_MAX_LINES_PER_POST]]
     if not raw_lines:
@@ -61925,7 +61967,24 @@ def handle_syslog_in(token_str):
     except Exception as e:
         log_json('error', 'syslog rule eval failed', error=str(e))
 
+    # Firewalls and routers: refused packets, decoy ports, IDS and CrowdSec alerts,
+    # failed logins. Never allowed to fail the intake.
+    try:
+        appliance_sensor_ingest(dev_id, dev, new_msgs, now)
+    except Exception as e:
+        log_json('error', 'appliance sensor failed', error=str(e))
+
     # Bump token stats
+    _syslog_token_seen(token_str, now)
+
+    _log_inbound('syslog', match.get('id'), match.get('label'), '200',
+                 f'lines={len(new_entries)} dev={dev.get("name", dev_id)}')
+    respond(200, {'ok': True, 'lines_received': len(new_entries)})
+
+
+def _syslog_token_seen(token_str, now):
+    """Count one delivery on a syslog token: the Hits and Last seen columns of the
+    Inbound webhooks page. Never raises."""
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
@@ -61933,12 +61992,8 @@ def handle_syslog_in(token_str):
                     t['last_seen'] = now
                     t['hit_count'] = int(t.get('hit_count', 0)) + 1
                     break
-    except Exception:
+    except Exception:  # nosec B110 - a counter must not fail the intake
         pass
-
-    _log_inbound('syslog', match.get('id'), match.get('label'), '200',
-                 f'lines={len(new_entries)} dev={dev.get("name", dev_id)}')
-    respond(200, {'ok': True, 'lines_received': len(new_entries)})
 
 
 def _snmp_trap_rule_match(oid, value, dev_id, rules):

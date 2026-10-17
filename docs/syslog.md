@@ -202,6 +202,10 @@ exists for appliances you *can't* put an agent on.
 
 Check `src-address` on the action if the router has several WAN/LAN addresses.
 
+To have Threat intel read the router's firewall log, a decoy port and failed
+sign-ins, see [Firewall sources](firewall-sources.md#mikrotik-routeros). It
+uses different logging rules from the ones above.
+
 ### OPNsense
 
 OPNsense has no setting for the source address of a log target: it sends from the
@@ -209,7 +213,9 @@ address of the interface that leads to the server, and that is the address the
 device record needs. The full steps, with the fields to fill in, are in
 [opnsense.md](opnsense.md#send-the-firewalls-logs). In short, **System ‣ Settings
 ‣ Logging**, add a target with transport **UDP (IPv4)**, the server's address and
-port `5514`. You do not enter the token on OPNsense.
+port `5514`. You do not enter the token on OPNsense. To have Threat intel read
+the firewall log and Suricata alerts, see
+[Firewall sources](firewall-sources.md#opnsense).
 
 ### pfSense
 

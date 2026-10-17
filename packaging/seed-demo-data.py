@@ -1069,6 +1069,49 @@ def _ip_intel_documents() -> tuple:
             att['errors'] = {'abuseipdb': f'not reported: {n} of 10 attempts so far',
                              'sniffcat': f'not reported: {n} of 10 attempts so far'}
         attackers[ip] = att
+    # The firewall's own syslog (v7.4.0): a scan it refused, two hits on its decoy port,
+    # Suricata and CrowdSec alerts. They sit on the OPNsense row, with a score under the
+    # blocking line, so each reads the way any other host's evidence does. The comments
+    # are the text threat_evidence builds (test_v740_appliance_sensor compares them).
+    arng = _seeded_random('ip-intel', 'appliance')
+    appliance_rows = (
+        ({'src': {'fw': 38}, 'tok': {'fw': {'fw:scan': 38}}}, 'port scanning', 38, 'firewall log', [14], [4], True),
+        ({'src': {'dp': 2}, 'tok': {'dp': {'dp:hit': 2}}, 'trp': 1}, 'connecting to a decoy port', 2, 'decoy port',
+         [14], [4], True),
+        ({'src': {'ids': 14}, 'tok': {'ids': {'ids:scanner': 9, 'ids:rce': 5}}, 'cve': ['CVE-2021-44228']},
+         'remote code execution attempts and vulnerability scanning (CVE-2021-44228)', 14, 'intrusion detection',
+         [15, 21, 19], [13, 21, 5], True),
+        ({'src': {'cs': 6}, 'tok': {'cs': {'cs:crowdsecurity/ssh-bf': 6}}, 'dec': 1}, 'SSH brute force', 6, 'CrowdSec',
+         [18, 22], [17, 18], True),
+        ({'src': {'ids': 3}, 'tok': {'ids': {'ids:probe': 3}}}, 'probing for exposed files and admin pages', 3,
+         'intrusion detection', [], [], False),
+    )
+    for k, (base, phrase, n, seen_by, abuse, sniff, reported) in enumerate(appliance_rows):
+        ip = f'192.0.2.{40 + k}'
+        seen = now() - arng.randint(300, 86400)
+        score = arng.choice([55, 62, 71, 78, 84]) if reported else arng.choice([8, 17, 29])
+        ev = dict({'ip': ip, 'first': seen - 600, 'last': seen, 'ans': 0, 'blk': 0, 'ban': [],
+                   'dec': 0, 'trp': 0, 'cve': []}, **base)
+        att = {'first_seen': seen - 600, 'last_seen': seen, 'checked_at': seen,
+               'devices': {'fw01': {'count': n, 'unit': 'threat-sensor', 'at': seen,
+                                    'not_blocked': f'score {score} is below 90'}},
+               'verdict': {'score': score, 'reports': arng.randint(2, 900),
+                           'country': arng.choice(['NL', 'RU', 'US', 'CN']), 'isp': arng.choice(isps),
+                           'usage': 'Data Center/Web Hosting/Transit',
+                           'providers': {'abuseipdb': {'score': score, 'reports': 12},
+                                         'sniffcat': {'score': max(0, score - 10), 'reports': 3}}},
+               'reported': {'abuseipdb': seen, 'sniffcat': seen} if reported else {}, 'errors': {}}
+        if reported:
+            att['ev_reported'] = {'at': seen, 'ev': ev}
+            text = f"{phrase}: {n} attempts within 10 minutes, seen by {seen_by} (reported by RemotePower)"
+            att['report_log'] = [
+                {'at': seen, 'prov': 'abuseipdb', 'cats': abuse, 'comment': text, 'ok': True},
+                {'at': seen, 'prov': 'sniffcat', 'cats': sniff, 'comment': text, 'ok': True}]
+        else:
+            att['ev'] = ev
+            att['errors'] = {'abuseipdb': f'not reported: {n} of 10 attempts so far',
+                             'sniffcat': f'not reported: {n} of 10 attempts so far'}
+        attackers[ip] = att
     edge = {
         'polled': now() - 240, 'at': now() - 240,
         'cf': {'state': 'ok', 'at': now() - 240, 'rows': 38, 'kept': 16, 'mode': 'events',
@@ -1112,6 +1155,13 @@ def _ip_intel_documents() -> tuple:
             'at': now() - rng.randint(20, 600), 'sources': web, 'events': 6 + k, 'dropped': 0,
             'throttled': 0, 'ignored': ({'cloudflare': 412} if k % 3 == 0 else {}),
             'hour': {'h': now() // 3600, 'n': 6 + k}}
+    # The firewall is read from its syslog, not by an agent (v7.4.0): one row per kind of
+    # line the receiver understood. It has no web server, so its record is these rows only.
+    sensors['fw01'] = {
+        'at': now() - 40, 'events': 5, 'dropped': 0, 'throttled': 0, 'ignored': {},
+        'hour': {'h': now() // 3600, 'n': 5},
+        'sources': [_src('fw', 'syslog', lines=6120, events=2), _src('ids', 'syslog', lines=214, events=2),
+                    _src('cs', 'syslog', lines=9, events=1)]}
     # A ban by hand (v7.3.0): the operator banned the first host-seen address with a score
     # of 90 or more at the edge, and on the host that saw it. The list holds it, and the
     # host has its block, so the row shows both the marker and an Unban button.
@@ -2849,6 +2899,9 @@ def build_config() -> dict:
         # reports and blocks. No provider keys: the demo never calls out.
         'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
                      'block_enabled': True, 'sensor_enabled': True,
+                     # v7.4.0 firewall sources: on, so the card is ticked beside the
+                     # firewall rows the intake document carries
+                     'appliance_enabled': True,
                      # v7.3.0 edge feeds: on, with no token, so the page shows its state
                      # and nothing ever calls out.
                      'edge_enabled': True, 'edge_account_id': 'd' * 32,

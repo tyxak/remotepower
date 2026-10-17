@@ -38,9 +38,13 @@ Source families are `web` (access logs), `err` (web server error logs),
 `waf` (ModSecurity), `f2b` (fail2ban), `cs` (CrowdSec) and `fw` (the host's
 firewall log); these come from an agent. `cf` (Cloudflare's own firewall events)
 and `trap` (the edge honeypot's hits) come from the server's edge feeds and are
-never accepted from an agent. The same hostile request shows up in several of
+never accepted from an agent. `ids` (an intrusion detection system's alerts) and
+`dp` (hits on a decoy port) come from the server's own reading of a firewall's or
+router's syslog (appliance_evidence), which also reads `fw` and `cs`, and are never
+accepted from an agent either. The same hostile request shows up in several of
 them, so the number used in a report is the LARGEST family count, never the sum.
-The honeypot's own decision (it banned the address) rides in `trp`.
+The honeypot's own decision (it banned the address) rides in `trp`, and so does a
+decoy port's (the address hit it twice: nothing innocent connects to it).
 """
 
 import ipaddress
@@ -52,7 +56,11 @@ import time
 # on, so it cannot claim that Cloudflare or the honeypot decided anything.
 AGENT_SOURCES = ("web", "err", "waf", "f2b", "cs", "fw")
 EDGE_SOURCES = ("cf", "trap")
-SOURCES = AGENT_SOURCES + EDGE_SOURCES
+# What only the server's own reading of a firewall's or router's syslog produces,
+# and what it may speak for: it reads firewall and CrowdSec lines as well.
+APPLIANCE_ONLY_SOURCES = ("ids", "dp")
+APPLIANCE_SOURCES = ("fw", "cs") + APPLIANCE_ONLY_SOURCES
+SOURCES = AGENT_SOURCES + EDGE_SOURCES + APPLIANCE_ONLY_SOURCES
 
 # Words for "seen by ...". The access log and the error log are both "the web
 # server log" to a reader, so the two share a phrase and it is said once.
@@ -65,6 +73,8 @@ SOURCE_PHRASE = {
     "fw": "firewall log",
     "cf": "Cloudflare WAF",
     "trap": "edge honeypot",
+    "ids": "intrusion detection",
+    "dp": "decoy port",
 }
 
 # Attack classes. `abuseipdb` and `sniffcat` are the category ids each service
@@ -149,6 +159,13 @@ CLASSES = {
         "weight": 2,
     },
     "port_scan": {"phrase": "port scanning", "abuseipdb": (14,), "sniffcat": (4,), "weight": 2},
+    # A port on a firewall or router that nothing legitimate uses.
+    "decoy_port": {
+        "phrase": "connecting to a decoy port",
+        "abuseipdb": (14,),
+        "sniffcat": (4,),
+        "weight": 3,
+    },
     # The three below are what the edge honeypot and Cloudflare can say that a
     # host's own logs cannot.
     "canary": {
@@ -180,6 +197,7 @@ _WHAT = {
     "ftp_brute": "FTP login",
     "service_brute": "login",
     "port_scan": "port",
+    "decoy_port": "port",
 }
 _WEB_CLASSES = (
     "sqli",
@@ -249,6 +267,24 @@ _REQ_KINDS = {
 
 # Matched with fullmatch(), never match() with a `$`: `$` also matches before a
 # trailing newline, so `req:sqli\n` would pass a `^req:sqli$` check.
+# The classes an intrusion detection alert can be reduced to. The server's own reader
+# picks one from the signature and the classification, so the token carries the class.
+IDS_CLASSES = (
+    "port_scan",
+    "scanner",
+    "probe",
+    "sqli",
+    "xss",
+    "traversal",
+    "rce",
+    "flood",
+    "ssh_brute",
+    "login_brute",
+    "ftp_brute",
+    "mail_brute",
+    "service_brute",
+)
+
 _TOKEN_RE = {
     "req": re.compile(r"req:(sqli|xss|traversal|rce|probe|scanner|login|flood)"),
     "crs": re.compile(r"crs:(\d{3,9})"),
@@ -262,6 +298,10 @@ _TOKEN_RE = {
     "cf": re.compile(r"cf:(waf|custom|ratelimit|ddos|bot|ua)"),
     # What the edge honeypot's hit was, by the trap that caught it.
     "trap": re.compile(r"trap:(" + "|".join(sorted(TRAP_KINDS)) + r")"),
+    # An intrusion detection alert, by the class its signature stands for.
+    "ids": re.compile(r"ids:(" + "|".join(IDS_CLASSES) + r")"),
+    # A hit on a decoy port.
+    "dp": re.compile(r"dp:(hit)"),
 }
 _JAIL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
@@ -438,6 +478,10 @@ def token_class(token):
         return CF_KINDS.get(val)
     if kind == "trap":
         return TRAP_KINDS.get(val)
+    if kind == "ids":
+        return val
+    if kind == "dp":
+        return "decoy_port"
     return None
 
 
@@ -532,7 +576,7 @@ def normalize_event(raw, now=None, families=AGENT_SOURCES):
         ev["ban"] = _uniq(j for j in jails if isinstance(j, str) and _JAIL_RE.fullmatch(j))[
             :_MAX_JAILS
         ]
-    if "trap" in families:
+    if "trap" in families or "dp" in families:
         ev["trp"] = _count(raw.get("trp"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []
     ev["cve"] = _uniq(c for c in cves if isinstance(c, str) and _CVE_RE.fullmatch(c))[:_MAX_CVES]
@@ -648,16 +692,27 @@ def report_classes(ev):
     return set(cls)
 
 
+def trap_family(ev):
+    """'dp' when the trap decision `trp` was a decoy port's, else 'trap'. The two
+    share the counter; an address the edge honeypot also saw has the honeypot's say."""
+    src, tok = ev.get("src") or {}, ev.get("tok") or {}
+    if src.get("trap") or tok.get("trap"):
+        return "trap"
+    if src.get("dp") or tok.get("dp"):
+        return "dp"
+    return "trap"
+
+
 def confirmed_by(ev):
     """Who already decided this address is hostile: 'fail2ban', 'CrowdSec', 'the
-    edge honeypot' or ''. A honeypot decision is its own ban (the address
-    tripped a trap that has no innocent visitor), not a count of hits."""
+    edge honeypot', 'a decoy port' or ''. A honeypot decision is its own ban (the
+    address tripped a trap that has no innocent visitor), not a count of hits."""
     if ev.get("ban"):
         return "fail2ban"
     if _count(ev.get("dec")):
         return "CrowdSec"
     if _count(ev.get("trp")):
-        return "the edge honeypot"
+        return "a decoy port" if trap_family(ev) == "dp" else "the edge honeypot"
     return ""
 
 
@@ -744,7 +799,7 @@ def seen_by(ev):
             saw = saw or ev.get("ban")
         if fam == "cs":
             saw = saw or ev.get("dec")
-        if fam == "trap":
+        if fam == trap_family(ev):
             saw = saw or ev.get("trp")
         if saw:
             fams.append(fam)

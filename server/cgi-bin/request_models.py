@@ -2646,6 +2646,7 @@ if _AVAILABLE:
         report_enabled: Any = None
         block_enabled: Any = None
         sensor_enabled: Any = None
+        appliance_enabled: Any = None
         sensor_paths: Any = None
         block_min_score: Any = None
         block_ttl_hours: Any = None

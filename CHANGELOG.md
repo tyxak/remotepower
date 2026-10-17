@@ -7,9 +7,50 @@ releases only; for an older release the entry below is the record.
 
 ## v7.4.0 — "F1nishMatters" — unreleased (test)
 
-A release about finish. It adds no new subsystem. What is already there should
-read, look and behave better in every theme and every language, and each fix
-comes with a check that keeps it fixed.
+A release about finish. What is already there should read, look and behave
+better in every theme and every language, and each fix comes with a check that
+keeps it fixed. One thing is new: Threat intel can read the syslog of a firewall
+or router.
+
+### Firewall sources
+
+Threat intel reads the syslog of a firewall or router and reports the addresses
+behind what it finds, the way it does for your hosts' logs. A firewall has no
+agent, but it already sends its logs to RemotePower, and the server reads them
+there. Off until you turn it on, under **Security → Threat intel → Firewalls and
+routers**. It reads and reports; it blocks nothing on the firewall or router.
+
+- Refused packets from OPNsense, pfSense and MikroTik RouterOS. An address that
+  tries 10 different ports, or is refused 25 times, within 30 minutes is queued.
+  Only inbound TCP with a SYN, FIN or Xmas flag set counts, from a public
+  address. A flood can forge the source of UDP and ICMP, and a packet with ACK or
+  RST set answers somebody else's.
+- A decoy port on a MikroTik: one firewall rule with the log prefix `rp-trap`.
+  Two connections to it are reported at once.
+- Suricata alerts from OPNsense, filed under the attack the signature names.
+  Reputation-list matches, policy rules and anything outbound are dropped.
+- CrowdSec alerts from OPNsense, posted by its HTTP notification to a syslog
+  token's URL. Only a ban from the firewall's own scenarios counts as a decision,
+  as on a host. A post with nothing to keep still counts on the token, so
+  CrowdSec's own test notification shows that it arrived.
+- Failed sign-ins to RouterOS and to the OPNsense web interface and SSH, through
+  the brute-force counter. A host that has an agent is left out, so its failures
+  are not counted twice.
+- The Log sources card lists a firewall's rows under its name, as day totals
+  (UTC), and says so in its hint.
+- A guide, `docs/firewall-sources.md`, with the setup for each source, the log
+  lines it reads and what to check when nothing shows. A test runs its example
+  lines through the reader and compares its report texts with the ones the
+  server writes. It found that the Suricata classifier filed "brute force" and
+  "external source" as remote code execution, because `rce` matched the end of
+  "force" and "source"; the pattern is bounded now. A second test feeds each
+  reader crafted lines of the longest size the intake keeps and holds a post of
+  them under half a second. The first Suricata pattern took 165 ms for one such
+  line, 33 seconds for a post, because a lazy match before a run of spaces
+  backtracks quadratically; the line is read from its two ends now.
+- Only the refused-packet reader has met a real device (an OPNsense). The
+  RouterOS, Suricata and CrowdSec readers follow those products' documented
+  formats.
 
 ### Guides
 

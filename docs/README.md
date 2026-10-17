@@ -189,6 +189,9 @@ holds long-form docs that don't fit there.
 - **[edge-sources.md](edge-sources.md)** — Edge sources: set up the Cloudflare
  token and feeds that let Threat intel read what Cloudflare refused, step by
  step, with troubleshooting.
+- **[firewall-sources.md](firewall-sources.md)** — Firewall sources: let Threat
+ intel read the syslog of an OPNsense or MikroTik, for port scans, a decoy port,
+ Suricata and CrowdSec alerts and failed sign-ins, step by step.
 - **[honeypot-worker.md](honeypot-worker.md)** — Run a honeypot Worker on
  Cloudflare: one script and one config file that answer decoy paths and write
  the log Threat intel reads, step by step.

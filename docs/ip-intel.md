@@ -17,7 +17,8 @@ If you also run a web server, a WAF, fail2ban or CrowdSec, the
 [log sensor](#the-log-sensor) lets RemotePower read what those logs say about
 each address, so a report says what the address actually did. If you run
 Cloudflare or a honeypot, [edge sources](#edge-sources) bring in what they saw
-too.
+too, and a firewall or router that sends its syslog to RemotePower can be read
+as [firewall sources](#firewalls-and-routers).
 
 ## How it works
 
@@ -167,6 +168,26 @@ host would not match it.
   fail2ban, CrowdSec or the WAF flagged it.
 - Network work is limited to 25 addresses a sweep, strongest first, so a short
   daily allowance goes to the addresses that earned it.
+
+## Firewalls and routers
+
+A firewall or router has no agent, but it can send its syslog to RemotePower, and
+the server can read that for the same evidence a host's sensor sends: addresses
+that scanned it, connected to a decoy port, tripped Suricata or CrowdSec, or
+failed to sign in. Switch it on under **Security → Threat intel → Firewalls and
+routers**. It reads and reports; it blocks nothing on the firewall or router. Off
+until you turn it on.
+
+| Source | What counts |
+|---|---|
+| Refused packets (OPNsense, pfSense, MikroTik RouterOS) | 10 different ports, or 25 refused packets, within 30 minutes |
+| A decoy port (MikroTik RouterOS) | Two connection attempts; reported at once |
+| Suricata alerts (OPNsense) | An alert whose signature names an attack |
+| CrowdSec alerts (OPNsense) | One of its own scenarios raised the alert |
+| Failed sign-ins (RouterOS, OPNsense) | The brute-force threshold |
+
+The setup for each, the formats it reads and what to check when nothing shows
+are in [Firewall sources: OPNsense and MikroTik](firewall-sources.md).
 
 ## Edge sources
 
@@ -475,7 +496,7 @@ The answer says how many addresses went and how many of each of these it kept:
 | Blocks on hosts and bans at the edge | Each expires by itself and has its own **Unblock** or **Unban**. The sweep still lifts what runs out. |
 | Addresses the [edge blocklist](#the-edge-blocklist) takes from the table | The list is kept equal to its sources, so forgetting one would take it out of your Cloudflare list at the next sync. Turn off **Found by RemotePower** under **Edge blocklist** first if you want those gone too. |
 | The date an address was last reported, for a day | Without it, the next time the address attacks it would be reported again. |
-| Settings and keys, the day's counts, where the feeds had read to, and each host's sensor status | They are not addresses. |
+| Settings and keys, the day's counts, where the feeds had read to, each host's sensor status, and the scans a firewall has only half counted | They are not addresses. The half-counted scans expire within 30 minutes. |
 
 An address that attacks again after a clear is recorded again from the start.
 
@@ -508,6 +529,7 @@ settings or run a manual lookup, which spends the install's daily quota.
 | Log sources: `No permission` | The agent cannot read the file. It runs as root normally, so check how it was started. |
 | Log sources: `Not understood` | Most lines did not match the log's format. Check the `log_format` and that it prints the address, the request and the status. |
 | Log sources: `Cannot be read` | fail2ban logs to syslog or the journal, or ModSecurity writes one file per transaction. Log to a single file. |
+| Log sources: a firewall or router, `Not understood` | Its syslog lines arrived and none could be read. See [Troubleshooting](firewall-sources.md#troubleshooting) in the firewall guide. |
 | Edge feeds: `Refused by Cloudflare` | Cloudflare refused the firewall events for a zone, grouped and one by one. The line names the zone. Check that the token has **Zone → Analytics → Read** and that its zone list includes that zone. |
 | Edge feeds: `Reading`, with a note that the events are read one at a time | Expected on a Free plan. The grouped view is refused, so each event is read and grouped here. A read carries up to 2,500 events per zone. |
 | Edge feeds: `No permission` | The token cannot read that. **Test connection** shows which check failed; add the permission listed under [Set up the edge feeds](#set-up-the-edge-feeds). |

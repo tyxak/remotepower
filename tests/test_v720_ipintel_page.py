@@ -426,28 +426,43 @@ class TestSeeder(unittest.TestCase):
         seed = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(seed)
         d = seed.build_ip_intel()
+        intake = seed.build_ip_intel_intake()
+        self.assertTrue(seed.build_config()['ip_intel']['appliance_enabled'],
+                        'the demo carries a firewall\'s rows, so its switch is on beside them')
         json.dumps(d)
+        json.dumps(intake)
+        sensors = intake['sensors']
         with_ev = [a for a in d['attackers'].values() if a.get('ev') or a.get('ev_reported')]
         self.assertGreaterEqual(len(with_ev), 5)
+
+        def reads_syslog(dev):
+            return any(s.get('path') == 'syslog' for s in (sensors.get(dev) or {}).get('sources', []))
+
         for a in with_ev:
             ev = a.get('ev') or a['ev_reported']['ev']
-            # an edge feed's evidence is read with the server's own families, a host's
-            # with an agent's: each must be accepted by the reader that would meet it
+            # an edge feed's evidence is read with the server's own families, a firewall's
+            # syslog with the appliance reader's, a host's with an agent's: each must be
+            # accepted by the reader that would meet it
             edge = any(str(dev).startswith('edge:') for dev in a.get('devices', {}))
-            fams = te.EDGE_SOURCES if edge else te.AGENT_SOURCES
+            appliance = any(reads_syslog(dev) for dev in a.get('devices', {}))
+            fams = te.EDGE_SOURCES if edge else te.APPLIANCE_SOURCES if appliance else te.AGENT_SOURCES
             self.assertIsNotNone(
                 te.normalize_event(dict(ev, ip='185.220.101.7'), now=int(time.time()), families=fams),
                 'the demo evidence must be something the server would accept')
         self.assertTrue(any(str(dev).startswith('edge:') for a in d['attackers'].values()
                             for dev in a.get('devices', {})), 'the demo carries edge attackers')
         self.assertTrue(d['edge']['cf']['state'] and d['edge']['trap']['state'])
-        states = {s['state'] for r in d['sensors'].values() for s in r['sources']}
+        states = {s['state'] for r in sensors.values() for s in r['sources']}
         self.assertTrue({'ok', 'idle', 'denied', 'unparsed', 'missing'} <= states, states)
-        self.assertTrue(any((r.get('ignored') or {}).get('cloudflare') for r in d['sensors'].values()))
+        self.assertTrue(any((r.get('ignored') or {}).get('cloudflare') for r in sensors.values()))
         self.assertTrue(any(a.get('report_log') for a in d['attackers'].values()))
-        for r in d['sensors'].values():
+        agents = {dev: r for dev, r in sensors.items() if not reads_syslog(dev)}
+        self.assertGreaterEqual(len(agents), 8, 'the scan must look at the hosts an agent reports for')
+        for r in agents.values():
             self.assertEqual(len(tsh._clean_sources(r['sources'])), len(r['sources']),
                              'every seeded source passes the server\'s own sanitiser')
+        self.assertTrue({s['kind'] for dev in sensors if reads_syslog(dev) for s in sensors[dev]['sources']}
+                        <= set(te.APPLIANCE_SOURCES), 'a firewall\'s rows are kinds its reader produces')
 
 
 class TestTheEvidenceChipIsSquare(unittest.TestCase):

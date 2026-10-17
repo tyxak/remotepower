@@ -81,6 +81,7 @@ DEFAULTS = {
     'ignore_classes': [],         # attack classes: an address is not reported when this is all it did
     'sensor_enabled': False,      # Linux agents read web server, WAF, fail2ban and CrowdSec logs
     'sensor_paths': [],           # extra log files for them, each under /var/log
+    'appliance_enabled': False,   # read the syslog of firewalls and routers (v7.4.0)
     # The edge feeds (v7.3.0): the server reads Cloudflare's firewall events and
     # the honeypot Worker's log with a read-only API token and queues what they
     # say like a host's sensor does. Reporting only; nothing here blocks.

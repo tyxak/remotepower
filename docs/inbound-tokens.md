@@ -15,7 +15,7 @@ why you could not find one.
 | You want | Kind | What the sender is given | Port | Pinned to a device |
 |---|---|---|---|---|
 | Logs from a firewall, switch, NAS or printer | Syslog | nothing: it sends plain UDP syslog | UDP 5514 | required |
-| Logs from a tool that can POST (rsyslog `omhttp`, fluent-bit, Vector) | Syslog | the URL `/api/syslog/in/<token>` | your dashboard's HTTPS port | required |
+| Logs from a tool that can POST (rsyslog `omhttp`, fluent-bit, Vector, CrowdSec's HTTP notification) | Syslog | the URL `/api/syslog/in/<token>` | your dashboard's HTTPS port | required |
 | Traffic records from a router or firewall | NetFlow/IPFIX | nothing: it exports plain UDP flows | UDP 2055 | required |
 | Alerts from Grafana, Alertmanager, Authentik, n8n, Home Assistant | Alert webhook | the URL `/api/webhook/in/<token>` | your dashboard's HTTPS port | optional |
 | SNMP traps | SNMP trap receiver | the URL `/api/snmp/trap/<token>`, called by a handler script you write | your dashboard's HTTPS port | required |
@@ -133,5 +133,8 @@ addresses costs bandwidth and not memory.
   traffic.
 - [syslog.md](syslog.md) and [flow.md](flow.md): the receivers, their settings
   and the other senders (rsyslog, MikroTik, ESXi, Cisco).
+- [Firewall sources](firewall-sources.md): Threat intel reading a firewall's
+  syslog, including the one case where the token does go on the firewall: a
+  CrowdSec notification.
 - [agentless-devices.md](agentless-devices.md): records for devices with no
   agent.

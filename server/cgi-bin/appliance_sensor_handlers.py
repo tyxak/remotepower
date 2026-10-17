@@ -1,0 +1,173 @@
+"""RemotePower — Appliance sensor: threat evidence from the syslog of firewalls and routers
+
+A bound-module carve-out following the tls_ct_handlers / dmarc_handlers /
+rack_ipam_handlers pattern:
+
+  - api.py execs a PRIVATE instance and binds its own ``globals()`` here, so
+    every api service is reached as ``A.<name>`` — a DYNAMIC attribute lookup,
+    which keeps the test suite's monkeypatching of api.respond / api.save / …
+    working, and resolves identically under the CGI (__main__) and
+    imported-module (wsgi.py/scheduler.py) models.
+  - api.py then from-imports every public + private name back into its own
+    globals, so the route tables, main()'s _safe() cadence and scheduler.py's
+    CADENCE tuple keep resolving the names unchanged.
+  - Calls BETWEEN these functions ALSO go through ``A.`` so a test that patches
+    one of them is seen by its caller.
+
+Constants stay in api.py and are read here through A. Pure logic goes in a
+sibling module (imported directly, like dmarc_monitor / tls_monitor).
+"""
+
+
+class _ApiNamespace:
+    __slots__ = ('_g',)
+
+    def __init__(self, g):
+        self._g = g
+
+    def __getattr__(self, name):
+        try:
+            return self._g[name]
+        except KeyError:
+            raise AttributeError(f'api namespace has no {name!r}') from None
+
+
+A = None
+
+
+def bind(api_globals):
+    """Called once by api.py right after importing this module, with
+    api's ``globals()``."""
+    global A
+    A = _ApiNamespace(api_globals)
+
+
+import threading
+import time
+
+import appliance_evidence
+import threat_evidence
+
+STATUS_EVERY_S = 60        # how often a device's source counts are written, without a hit to write
+KEEP_DEVICE_S = 7 * 86400  # a device that has sent nothing for this long is forgotten
+
+# The day's line counts per device, kept in this process and written with the scan
+# state. A batch that settles nothing (a pass, a line nobody reads) would otherwise
+# cost a write of the whole scan document for a number.
+_pending = {}              # device id -> {kind: [lines, parsed, events]}
+_noted = {}                # device id -> when this process last wrote the device's status
+_lock = threading.Lock()
+
+# What a failed login looks like, cheaply: the counter below compiles real patterns,
+# but loads the config to know its threshold, and this runs on every batch.
+_LOGIN_MARKS = ('login failure', 'Failed password', 'Invalid user', 'authentication failure',
+                'authentication error', 'Connection closed by invalid user')
+
+
+def _remember(dev_id, stats):
+    with _lock:
+        row = _pending.setdefault(dev_id, {})
+        for kind, d in stats.items():
+            c = row.setdefault(kind, [0, 0, 0])
+            c[0] += d['lines']
+            c[1] += d['parsed']
+            c[2] += d['events']
+
+
+def _take(dev_id):
+    with _lock:
+        return _pending.pop(dev_id, {})
+
+
+def _enabled():
+    """The operator's switch, read without building the whole policy: this runs on
+    every syslog batch from every device, and the switch is off unless asked for."""
+    stored = (A._config_ro() or {}).get('ip_intel')
+    return bool(isinstance(stored, dict) and stored.get('appliance_enabled'))
+
+
+def _login_failures(dev_id, name, lines):
+    """A firewall's or router's own logins that failed. The brute-force counter has
+    the thresholds, the alert and the queue for Threat intel; it only needs to be
+    shown the lines. A failed SSH login keeps its SSH category, the rest are counted
+    under `syslog`."""
+    if not any(mark in line for line in lines for mark in _LOGIN_MARKS):
+        return
+    A._detect_brute_force(dev_id, name, 'sshd.service', lines)
+    A._detect_brute_force(dev_id, name, 'syslog', lines)
+
+
+def crowdsec_alert_lines(body):
+    """Lines for the Logs tab from what CrowdSec's HTTP notification posts: a list of
+    alerts, or one. An empty list when none is worth keeping, and None when the body
+    is not CrowdSec's at all, so the caller treats it as it treated it before. Every
+    object has to name a scenario: a log shipper's records are objects too (fluent-bit
+    posts `[{"date": ..., "log": ...}]`), and the endpoint keeps those as lines."""
+    if isinstance(body, dict) and 'scenario' in body:
+        body = [body]
+    if not (isinstance(body, list) and body
+            and all(isinstance(x, dict) and 'scenario' in x for x in body[:5])):
+        return None
+    return appliance_evidence.crowdsec_lines(body[:A._SYSLOG_MAX_LINES_PER_POST])
+
+
+def appliance_sensor_ingest(dev_id, dev, lines, now=None):
+    """Read a batch of a device's new syslog lines for evidence about the addresses
+    behind them. Called by the syslog intake after the lines are in the log buffer,
+    for every device, and does nothing unless Threat intel's `appliance_enabled` is
+    on. What it finds joins the queue the agents' sensors feed, so lookups, reports
+    and the daily limits are the ones the rest of Threat intel uses.
+
+    Three kinds of line are read (see appliance_evidence for the formats): refused
+    and decoy-port packets, which only mean something once an address has done it
+    enough times, so they are counted over thirty minutes in a small document of
+    their own; intrusion detection and CrowdSec alerts, which settle themselves; and
+    failed logins, which the brute-force counter takes."""
+    if not lines or not _enabled():
+        return
+    now = int(now or time.time())
+    # A host with an agent has its logins counted from the journal already, and the
+    # same failures forwarded as syslog would be counted a second time.
+    if not (isinstance(dev, dict) and not dev.get('agentless')):
+        _login_failures(dev_id, str((dev or {}).get('name') or dev_id), lines)
+    hits, events, stats = appliance_evidence.scan(lines)
+    if not stats:
+        return
+    for ev in events:
+        ev['first'] = ev['last'] = now
+    _remember(dev_id, stats)
+    status_due = now - _noted.get(dev_id, 0) >= STATUS_EVERY_S
+    if not (hits or events or status_due):
+        return
+    day = time.strftime('%Y-%m-%d', time.gmtime(now))
+    counts = _take(dev_id)
+    with A._LockedUpdate(A.IPINTEL_SCAN_FILE) as st:
+        rec = st.get(dev_id) if isinstance(st.get(dev_id), dict) else {}
+        table = rec.get('scan') if isinstance(rec.get('scan'), dict) else {}
+        fresh = appliance_evidence.track(table, hits, now)
+        if fresh:
+            counts.setdefault('fw', [0, 0, 0])[2] += len(fresh)
+        today = rec.get('n') if rec.get('day') == day and isinstance(rec.get('n'), dict) else {}
+        for kind, c in counts.items():
+            row = today.setdefault(kind, [0, 0, 0])
+            for i in range(3):
+                row[i] += c[i]
+        rec.update({'scan': table, 'day': day, 'n': today, 'at': now})
+        st[dev_id] = rec
+        for d in [d for d, r in st.items() if isinstance(r, dict) and now - int(r.get('at') or 0) > KEEP_DEVICE_S]:
+            st.pop(d, None)
+        rows = [{'kind': k, 'path': 'syslog', 'lines': c[0], 'parsed': c[1], 'events': c[2],
+                 'state': 'ok' if c[1] else 'unparsed'}
+                for k, c in sorted(today.items()) if c[0]]
+    ignored, evs = {}, []
+    for raw in events + fresh:
+        ev = threat_evidence.normalize_event(raw, now=now, families=threat_evidence.APPLIANCE_SOURCES)
+        if ev is None:
+            ignored['invalid'] = ignored.get('invalid', 0) + 1
+        elif threat_evidence.infra_reason(ev['ip']):
+            ignored['cloudflare'] = ignored.get('cloudflare', 0) + 1
+        else:
+            evs.append(ev)
+    if evs or status_due:
+        _noted[dev_id] = now
+        A.ip_intel_note_evidence(dev_id, evs, {'sources': rows, 'ignored': ignored, 'dropped': 0}, now)
