@@ -12372,6 +12372,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
 <script defer src="static/js/app-self.js?v=7.4.0-4"></script>
+<!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
+     first hover; it has no page and no entry in the lazy map. -->
+<script defer src="static/js/app-tooltip.js?v=7.4.0-4"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page

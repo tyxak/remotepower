@@ -6229,6 +6229,16 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 #dev-hovercard .dev-hovercard-row { display: flex; gap: 8px; margin: 2px 0; }
 #dev-hovercard .dev-hovercard-label { color: var(--muted); min-width: 46px; font-size: 12px; }
 #dev-hovercard .dev-hovercard-hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+/* v7.4.0: the tooltip that stands in for the browser's own (app-tooltip.js).
+   Body-level and fixed, above modals and toasts. It takes the pointer only so it
+   can stay open while it is being read (WCAG 1.4.13). */
+#rp-tooltip {
+  position: fixed; z-index: 10050; max-width: 320px; padding: 6px 9px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--hair);
+  border-radius: 8px; box-shadow: var(--shadow-1);
+  font-size: 12px; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere;
+}
+#rp-tooltip[hidden] { display: none; }
 /* v4.1.0: per-host alert grouping + root-cause folding */
 .alerts-group-row { background: var(--panel-2, rgba(127,127,127,0.06)); }
 .alerts-group-row td { border-top: 2px solid var(--border); }

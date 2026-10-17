@@ -99,6 +99,16 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   gives the relative one. Four places had this before, out of about seventy.
   Three pages kept their own copy of the relative-time code, with an English
   "just now" and no regard for the display setting; they use the shared one.
+- Tooltips are the app's own. The browser's tooltip appears after about a
+  second, never on a touch screen, and in its own colours. Hover an element with
+  a title and the same words now show after 350 ms in the theme's colours;
+  keyboard focus shows them too, and so does a long press on a touch screen. The
+  title stays in the markup, so nothing changes if the script does not load.
+  While a tooltip is up, an icon-only control keeps its accessible name as an
+  `aria-label` and a control with text gets the tooltip as its description, the
+  title goes back as soon as the pointer or focus leaves, Escape dismisses the
+  tooltip, and it stays open while the pointer is over it (WCAG 1.4.13). Form
+  fields keep the browser's tooltip, and `data-no-tip` opts an element out.
 - The **Monitor** page opens at once. It used to probe every monitor while you
   waited, so it took as long as the slowest timeout: 4 seconds on the demo
   fleet, and 35 to 50 seconds with a few hundred unreachable targets. It now
