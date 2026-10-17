@@ -42,11 +42,20 @@ storage and the UI all live in the app server — the daemon is a thin shim.
    unprivileged). Override with `RP_FLOW_BIND` in the unit.
 4. **Point the exporter at it.** On the router/firewall, configure NetFlow/IPFIX
    export to `<remotepower-host>:2055`. (Cisco: `ip flow-export destination …
-   2055` / `flow exporter`; MikroTik: `/ip traffic-flow target`; pfSense/OPNsense:
-   the softflowd/pflow plugin.)
+   2055` / `flow exporter`; MikroTik: `/ip traffic-flow target`; OPNsense:
+   **Reporting ‣ NetFlow**, see [opnsense.md](opnsense.md#send-traffic-records-netflow);
+   pfSense: the softflowd package.)
 
 The token is the device scope — no RBAC on the ingest path, exactly like syslog.
 Unmapped exporters are dropped and logged (at most once per 10 min each).
+
+**The exporter never holds the token.** It sends plain UDP, and the receiver
+finds the token from the exporter's IP address. If you are looking for a place
+to paste the token into the router, there is none:
+[Inbound tokens](inbound-tokens.md#syslog-and-netflow-where-the-token-goes)
+explains why, and [OPNsense](opnsense.md#send-traffic-records-netflow) has the
+steps for a firewall. NetFlow carries traffic counts, not logs; for a
+firewall's log lines you also need the [syslog receiver](syslog.md).
 
 ## Where it shows up
 

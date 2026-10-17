@@ -26,6 +26,14 @@ comes with a check that keeps it fixed.
   two login routes it really serves. "Block what it finds" says that a reported
   address waits for the next list sync.
 
+- **Inbound tokens** (`docs/inbound-tokens.md`) explains the five kinds of token
+  and the one thing the Settings page never said: a firewall's syslog and
+  NetFlow arrive as plain UDP, and the token is never entered on the firewall,
+  because RemotePower recognises the sender by its IP address. **OPNsense** now
+  has the steps for sending its logs and NetFlow, with the fields to fill in and
+  how to read the server's journal when nothing arrives. The syslog guide no
+  longer tells you to set a source address that OPNsense does not have.
+
 ### Interface
 
 - Text is readable in every theme. Eleven of the thirteen themes had text
@@ -65,6 +73,14 @@ comes with a check that keeps it fixed.
 
 ### Fixes
 
+- The Inbound webhooks table tells the truth about NetFlow and ITSM tokens. It
+  labelled both *alert*, and the dialog shown after creating a NetFlow token
+  gave it an alert URL and an alert example. It also named a token's device only
+  by its internal id. The table now shows the device's name and IP, and flags in
+  amber a syslog or NetFlow token whose device has no IP, which is the most
+  common reason a firewall's logs never arrive. The dialog after creating a
+  syslog or NetFlow token now says that the token is not entered on the device,
+  and lists the next steps with the port and the service to check.
 - A virtualization platform that cannot be reached says so. The page showed
   "No VMs.", as if the platform had answered with none; it now shows the
   reason, in words: "Could not reach vCenter lab: the host name does not

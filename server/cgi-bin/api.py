@@ -61544,12 +61544,22 @@ def handle_inbound_webhooks_list():
     """GET /api/inbound-webhooks — admin-only. Returns tokens without secret."""
     require_admin_auth()
     cfg = load(INBOUND_WEBHOOKS_FILE)
+    devices = _load_ro(DEVICES_FILE) or {}     # read-only: only looked up below
     redacted = []
     for t in cfg.get('tokens', []):
         if not _inbound_token_visible(t):
             continue
         copy = {k: v for k, v in t.items() if k != 'token'}
         copy['token_preview'] = str(t.get('token') or '')[:12] + '…'
+        # A bare device id tells an operator nothing, and the UDP receivers find
+        # a syslog or flow token by the DEVICE'S IP (see _inbound_map_defect), so
+        # the table needs the name, the IP, and whether that lookup can succeed.
+        dev = devices.get(t.get('scope_device_id')) if t.get('scope_device_id') else None
+        if isinstance(dev, dict):
+            copy['scope_device_name'] = str(dev.get('name') or '')
+            copy['scope_device_ip'] = str(dev.get('ip') or '')
+        if t.get('kind') in ('syslog', 'flow'):
+            copy['receiver_defect'] = _inbound_map_defect(t, devices)
         redacted.append(copy)
     respond(200, {'tokens': redacted})
 

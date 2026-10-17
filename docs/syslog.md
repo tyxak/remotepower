@@ -12,6 +12,13 @@ synthetic `syslog` unit, and both evaluate your per-device and global
 `log_alert` rules. See [log-watch.md](log-watch.md) for the buffer and rule
 editor.
 
+> **Where does the token go?** If a firewall, switch or printer sends the
+> syslog, nowhere. It sends plain UDP, and the receiver on the RemotePower
+> server finds the token from the sender's IP address. Only a tool that posts
+> over HTTP uses the token as a URL. [Inbound tokens](inbound-tokens.md) has the
+> whole picture, and [OPNsense](opnsense.md#send-the-firewalls-logs) has the
+> steps for a firewall.
+
 ## Two ways in
 
 ### 1. HTTP push (rsyslog / fluent-bit / any HTTP client)
@@ -122,6 +129,12 @@ Send a test datagram from an accepted source (or the appliance itself):
 logger -n <server-ip> -P 5514 -d "hello from $(hostname)"
 ```
 
+On FreeBSD (OPNsense, pfSense) `logger` takes different flags:
+
+```
+logger -h <server-ip> -P 5514 -t remotepower-test "hello"
+```
+
 Within a couple of seconds the line appears in that device's **Logs** tab (the
 log-watch buffer) and drives its log-alert rules. If nothing shows up, the
 journal names the reason — see *Checking it arrived* below, which lists each
@@ -135,9 +148,14 @@ listen port (use `514` if you moved it). Two rules apply to every client:
 - **Send from the IP the device record carries.** The source address *is* the
   authentication, so a box with several interfaces must send from the one in the
   device's `ip` field — most daemons let you pin it, and the examples do.
-- **Prefer UDP.** The listener is UDP-only; a client configured for TCP or TLS
-  syslog will connect to nothing. Use the HTTP push path instead when you need a
-  reliable or encrypted transport.
+- **Prefer UDP, over IPv4.** The listener is UDP-only and IPv4-only; a client
+  configured for TCP, TLS or IPv6 will connect to nothing. Use the HTTP push path
+  instead when you need a reliable or encrypted transport.
+- **Send to the server's own address.** UDP does not pass through an HTTP proxy
+  such as Cloudflare, so a hostname that points at the proxy never reaches the
+  receiver.
+- **The Docker image does not run the receiver.** It belongs to the standard
+  systemd install (`install-server.sh --with-syslogd`).
 
 ### rsyslog (most Linux distributions)
 
@@ -184,11 +202,21 @@ exists for appliances you *can't* put an agent on.
 
 Check `src-address` on the action if the router has several WAN/LAN addresses.
 
-### OPNsense / pfSense
+### OPNsense
 
-*System → Settings → Logging / Remote Logging* → add a destination
-`<server-ip>:5514`, transport **UDP**, and select the log categories to send.
-Set *Source address* to the interface whose IP the device record carries.
+OPNsense has no setting for the source address of a log target: it sends from the
+address of the interface that leads to the server, and that is the address the
+device record needs. The full steps, with the fields to fill in, are in
+[opnsense.md](opnsense.md#send-the-firewalls-logs). In short, **System ‣ Settings
+‣ Logging**, add a target with transport **UDP (IPv4)**, the server's address and
+port `5514`. You do not enter the token on OPNsense.
+
+### pfSense
+
+**Status ‣ System Logs ‣ Settings**, tick *Enable Remote Logging*, set *Source
+Address* to the interface address the device record carries, set *IP Protocol* to
+IPv4, and add `<server-ip>:5514` under *Remote log servers*. Choose what to send
+under *Remote Syslog Contents*.
 
 ### VMware ESXi
 
@@ -258,4 +286,6 @@ which shares this behaviour exactly.
 
 - [log-watch.md](log-watch.md) — the buffer, live tail, and alert rules.
 - [agentless-devices.md](agentless-devices.md) — records for devices with no agent.
-- [integrations.md](integrations.md) — inbound-webhook tokens.
+- [inbound-tokens.md](inbound-tokens.md) — what each kind of inbound token is
+  for, and why a UDP sender never holds one.
+- [opnsense.md](opnsense.md) — sending an OPNsense firewall's logs and traffic.

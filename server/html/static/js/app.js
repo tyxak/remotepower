@@ -14796,6 +14796,67 @@ async function loadInboundWebhooks() {
   }
 }
 
+// What each kind of inbound token is called in the table, where its URL lives and
+// what the "token created" dialog says. One table, because the pill, the URL and
+// the title used to be three separate lists and flow and ITSM were missing from the
+// pill's: a NetFlow token showed up as "alert".
+const _INBOUND_KINDS = {
+  alert:     { pill: 'sev-low',    label: 'alert',     path: '/api/webhook/in/', title: 'Alert webhook token created' },
+  syslog:    { pill: 'sev-medium', label: 'syslog',    path: '/api/syslog/in/',  title: 'Syslog token created' },
+  snmp_trap: { pill: 'sev-medium', label: 'snmp trap', path: '/api/snmp/trap/',  title: 'SNMP trap token created' },
+  flow:      { pill: 'sev-medium', label: 'netflow',   path: '/api/flow/in/',    title: 'NetFlow/IPFIX token created' },
+  itsm:      { pill: 'sev-low',    label: 'itsm',      path: '/api/itsm/in/',    title: 'ITSM callback token created' },
+};
+// Syslog and flow tokens are not typed into the sender. A sidecar listens for the
+// sender's UDP packets and finds the token by the DEVICE's IP address, so what the
+// operator has to get right is the device's IP and the sender's destination.
+const _INBOUND_UDP = {
+  syslog: { port: 5514, unit: 'remotepower-syslogd', how: 'Syslog goes out as plain UDP',
+            noun: 'logs', sender: "the device's remote syslog" },
+  flow:   { port: 2055, unit: 'remotepower-flowd', how: 'NetFlow goes out as plain UDP',
+            noun: 'flow records', sender: "the router's NetFlow or IPFIX export" },
+};
+// The words for the Type column.
+function _inboundKindPill(kind) {
+  const k = _INBOUND_KINDS[kind];
+  return k ? `<span class="sev-pill ${k.pill}">${k.label}</span>`
+           : `<span class="sev-pill sev-low">${_escapeHtml(String(kind || '?'))}</span>`;
+}
+// The Scope cell: the device's name and IP, and for a token a UDP receiver looks up,
+// whether that lookup can succeed (receiver_defect, from the server).
+function _inboundScopeCell(t) {
+  if (!t.scope_device_id) return t.scope_tag ? `tag ${_escapeHtml(t.scope_tag)}` : 'any';
+  const name = t.scope_device_name || t.scope_device_id;
+  // The name and the IP are each kept whole but may sit on two lines, so the column
+  // gives way to the rest of the table before the row grows past the card.
+  let html = `<span class="nowrap">device ${_escapeHtml(name)}</span>`;
+  if (t.scope_device_ip) html += ` <span class="nowrap c-muted">· ${_escapeHtml(t.scope_device_ip)}</span>`;
+  if (t.receiver_defect === 'no_ip') {
+    html += '<div class="c-amber">No IP set: nothing can arrive</div>';
+  } else if (t.receiver_defect === 'no_device') {
+    html += '<div class="c-amber">The device is gone</div>';
+  }
+  return html;
+}
+// The numbered steps after creating a syslog or flow token. Pure, so the wording
+// can be tested; `dev` is the pinned device ({name, ip}) and `host` the name or
+// address the sender should use.
+function _inboundSetupSteps(kind, dev, host) {
+  const u = _INBOUND_UDP[kind];
+  if (!u) return null;
+  const name = (dev && dev.name) || 'the device';
+  const ip = (dev && dev.ip) || '';
+  return {
+    lead: `Do not enter this token on the device. ${u.how}, and RemotePower recognises the sender by its IP address.`,
+    steps: [
+      ip ? `Check that ${name} has the IP address its ${u.noun} come from. It is set to ${ip}.`
+         : `Set the IP of ${name} to the address its ${u.noun} come from. It has none yet, so nothing can arrive.`,
+      `Point ${u.sender} at ${host}, UDP port ${u.port}. If this dashboard is behind a proxy, use the server's own address.`,
+      `Check that the receiver is running on the server: systemctl status ${u.unit}`,
+    ],
+  };
+}
+
 function _renderInboundWebhooks(tokens) {
   const tbody = document.getElementById('inbound-webhooks-tbody');
   if (!tbody) return;
@@ -14814,14 +14875,8 @@ function _renderInboundWebhooks(tokens) {
     return;
   }
   tbody.innerHTML = tokens.map(t => {
-    const kind = t.kind || 'alert';
-    const kindPill = kind === 'syslog'
-      ? '<span class="sev-pill sev-medium">syslog</span>'
-      : kind === 'snmp_trap'
-      ? '<span class="sev-pill sev-medium">snmp trap</span>'
-      : '<span class="sev-pill sev-low">alert</span>';
-    const scope = t.scope_device_id ? `device ${_escapeHtml(t.scope_device_id)}` :
-                  t.scope_tag ? `tag ${_escapeHtml(t.scope_tag)}` : 'any';
+    const kindPill = _inboundKindPill(t.kind || 'alert');
+    const scope = _inboundScopeCell(t);
     const lastSeen = t.last_seen ? _formatTs(t.last_seen) : '<span class="c-muted">—</span>';
     const status = t.enabled ?
       '<span class="sev-pill sev-success">enabled</span>' :
@@ -14898,9 +14953,9 @@ function updateInboundWebhookKindHint() {
   if (kind === 'snmp_trap') {
     if (hint) hint.textContent = 'SNMP trap tokens receive JSON {traps:[{oid,value,agent}]} forwarded by an snmptrapd handler; traps attach to the pinned device and raise snmp_trap_received.';
   } else if (kind === 'syslog') {
-    if (hint) hint.textContent = 'Syslog tokens receive RFC 3164/5424 lines (JSON {lines:[...]} or plain text) and append to the device\'s log_watch under unit="syslog".';
+    if (hint) hint.textContent = 'For logs from a firewall, switch or NAS. The device sends plain UDP syslog to this server (port 5514) and you do not enter the token on it: RemotePower matches the sender\'s IP address to the device you pin here, so that device needs the right IP. Lines land on its Logs tab. A log shipper that posts over HTTP can use the token as a URL instead.';
   } else if (kind === 'flow') {
-    if (hint) hint.textContent = 'Flow tokens receive NetFlow/IPFIX rollups from remotepower-flowd; the pinned device\'s IP must match the exporter. See docs/flow.md.';
+    if (hint) hint.textContent = 'For traffic records from a router or firewall. The device exports NetFlow or IPFIX to this server (UDP port 2055) and you do not enter the token on it: RemotePower matches the exporter\'s IP address to the device you pin here, so that device needs the right IP.';
   } else if (kind === 'itsm') {
     if (hint) hint.textContent = 'ITSM tokens close the loop the other way: point your Jira / ServiceNow / Zendesk issue-updated webhook at this URL and closing the ticket resolves the RemotePower alert it came from. No device pin needed.';
   } else {
@@ -14918,8 +14973,8 @@ async function createInboundWebhook() {
   if (!label) { toast('Label required', 'error', {transient: true}); return; }
   const kind = document.getElementById('inbound-wh-kind').value;
   const scope_device_id = document.getElementById('inbound-wh-device').value || null;
-  if ((kind === 'syslog' || kind === 'snmp_trap') && !scope_device_id) {
-    toast(`${kind === 'snmp_trap' ? 'SNMP trap' : 'Syslog'} tokens must be pinned to a device`, 'error');
+  if ((kind === 'syslog' || kind === 'snmp_trap' || kind === 'flow') && !scope_device_id) {
+    toast(`${kind === 'snmp_trap' ? 'SNMP trap' : kind === 'flow' ? 'NetFlow' : 'Syslog'} tokens must be pinned to a device`, 'error');
     return;
   }
   // v6.4.2: only alert tokens have a payload shape to adapt.
@@ -14929,14 +14984,13 @@ async function createInboundWebhook() {
                       { label, scope_device_id, kind, source_format });
   if (r && r.ok && r.token) {
     closeModal('inbound-webhook-create-modal');
-    const path = kind === 'syslog' ? '/api/syslog/in/' : kind === 'snmp_trap' ? '/api/snmp/trap/'
-      : kind === 'itsm' ? '/api/itsm/in/' : '/api/webhook/in/';
-    _lastCreatedInboundWebhookUrl = `${location.origin}${path}${r.token}`;
+    const spec = _INBOUND_KINDS[kind] || _INBOUND_KINDS.alert;
+    _lastCreatedInboundWebhookUrl = `${location.origin}${spec.path}${r.token}`;
     document.getElementById('inbound-wh-url').textContent = _lastCreatedInboundWebhookUrl;
-    document.getElementById('inbound-wh-show-title').textContent =
-      kind === 'syslog' ? 'Syslog ingestion token created'
-      : kind === 'snmp_trap' ? 'SNMP trap token created'
-      : kind === 'itsm' ? 'ITSM callback token created' : 'Alert webhook token created';
+    document.getElementById('inbound-wh-show-title').textContent = spec.title;
+    const pinned = (window._devicesCache || devices || [])
+      .find(d => (d.id || d.device_id) === scope_device_id) || null;
+    _paintInboundSetup(kind, pinned);
     const ex = document.getElementById('inbound-wh-example');
     if (kind === 'snmp_trap') {
       ex.textContent =
@@ -14954,6 +15008,11 @@ async function createInboundWebhook() {
         `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
         '  -H \'Content-Type: text/plain\' \\\n' +
         '  --data-binary $\'<14>foo bar\\n<11>err line\\n\'';
+    } else if (kind === 'flow') {
+      ex.textContent = '# remotepower-flowd posts a rollup like this; an exporter never does.\n' +
+        `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
+        '  -H \'Content-Type: application/json\' \\\n' +
+        '  -d \'{"flows":120,"total_bytes":4800000,"total_packets":9000,"talkers":[{"ip":"192.0.2.10","bytes":3000000,"pkts":5000}],"conversations":[],"protos":{"tcp":4500000}}\'';
     } else {
       ex.textContent =
         `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
@@ -14965,6 +15024,49 @@ async function createInboundWebhook() {
   } else {
     toast((r && r.error) || 'Failed', 'error');
   }
+}
+
+// Fill the "what to do next" block of the created-token dialog, or hide it for the
+// kinds that are used as a plain URL. Built with textContent: the device's name and
+// IP are the operator's data, and this is the one place they reach a dialog.
+function _paintInboundSetup(kind, dev) {
+  const box = document.getElementById('inbound-wh-setup');
+  const urlHint = document.getElementById('inbound-wh-url-hint');
+  const exHint = document.getElementById('inbound-wh-example-hint');
+  const plan = _inboundSetupSteps(kind, dev, location.hostname);
+  if (box) {
+    box.textContent = '';
+    box.classList.toggle('d-none', !plan);
+    if (plan) {
+      const lead = document.createElement('p');
+      lead.className = 'hint mb-8';
+      const b = document.createElement('strong');
+      b.textContent = plan.lead;
+      lead.appendChild(b);
+      const ol = document.createElement('ol');
+      ol.className = 'hint';
+      plan.steps.forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        ol.appendChild(li);
+      });
+      const more = document.createElement('p');
+      more.className = 'hint mt-6';
+      more.appendChild(document.createTextNode('Nothing arrives? '));
+      const a = document.createElement('a');
+      a.href = 'docs/inbound-tokens.md';
+      a.className = 'c-accent';
+      a.textContent = 'Documentation';
+      more.appendChild(a);
+      box.appendChild(lead);
+      box.appendChild(ol);
+      box.appendChild(more);
+    }
+  }
+  if (urlHint) urlHint.textContent = plan
+    ? 'Only a sender that posts over HTTP needs this URL. Copy it now if you do: the secret is shown only once.'
+    : 'Copy this URL now — the secret is shown only once.';
+  if (exHint) exHint.textContent = plan ? 'Example of the HTTP form:' : 'Example payload:';
 }
 
 function copyInboundWebhookUrl() {

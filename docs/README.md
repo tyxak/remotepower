@@ -159,6 +159,9 @@ holds long-form docs that don't fit there.
  (subnets, derived occupancy, reservations, duplicate-IP/MAC conflict alerts).
 - **[agentless-devices.md](agentless-devices.md)** — Manual records for
  switches, APs, printers, IPMI cards.
+- **[inbound-tokens.md](inbound-tokens.md)** — Inbound tokens: the five kinds,
+ which senders get a URL and which never hold a token (syslog and NetFlow from a
+ firewall arrive as UDP), and what to check when nothing arrives.
 - **[syslog.md](syslog.md)** — Syslog ingestion from agentless appliances: the
  HTTP receiver and the native `remotepower-syslogd` UDP listener.
 - **[flow.md](flow.md)** — Agentless network flow visibility: the
@@ -268,8 +271,8 @@ holds long-form docs that don't fit there.
  supported, and the known limitations — for procurement reviews.
 - **[mitigation.md](mitigation.md)** — One-click mitigation runners for
  common findings.
-- **[opnsense.md](opnsense.md)** — OPNsense firewall integration (and the
- RouterOS sibling).
+- **[opnsense.md](opnsense.md)** — OPNsense: send its logs and NetFlow to
+ RemotePower, and manage its rules over the API (and the RouterOS sibling).
 - **[integrations.md](integrations.md)** — Homelab software integrations: poll
  Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more for
  health → Alerts (read-only, SSRF-guarded).

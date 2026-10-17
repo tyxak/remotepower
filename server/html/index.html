@@ -2103,11 +2103,13 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Inbound webhooks &amp; syslog</div>
-            <p class="hint">Two token types share this table: <a href="docs/syslog.md" class="c-accent">Documentation</a></p>
+            <p class="hint">Five kinds of token share this table. Two of them work differently from the rest: a firewall, switch or router never gets the token. <a href="docs/inbound-tokens.md" class="c-accent">Documentation</a></p>
             <ul class="hint">
-              <li><strong>Alert webhook</strong> — POST JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code>. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
-              <li><strong>Syslog ingestion</strong> — POST RFC 3164/5424 lines (JSON <code>{lines:[…]}</code> or plain text) to <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to the device's log_watch under unit <code>syslog</code>; existing log_alert rules fire as normal. For rsyslog (<code>omhttp</code>), fluent-bit (HTTP output), or any tool that can POST. Must be pinned to a device.</li>
+              <li><strong>Alert webhook</strong> — the sender POSTs JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code> and you paste that URL into it. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
+              <li><strong>Syslog</strong> — logs from a firewall, switch or NAS arrive as plain UDP on port 5514 (<code>remotepower-syslogd</code>). <strong>Do not enter the token on the device.</strong> RemotePower matches the sender's IP address to the device this token is pinned to, so that device needs the right IP. A log shipper that can POST can use <code>/api/syslog/in/&lt;token&gt;</code> instead (RFC 3164/5424 lines, JSON <code>{lines:[…]}</code> or plain text). Lines go to the device's Logs tab and its log_alert rules.</li>
+              <li><strong>NetFlow/IPFIX</strong> — traffic records from a router or firewall arrive as plain UDP on port 2055 (<code>remotepower-flowd</code>). Same rule: no token on the router; the pinned device's IP is what identifies it.</li>
               <li><strong>SNMP trap receiver</strong> — POST decoded traps as JSON (<code>{traps:[{oid,value,agent}]}</code>) to <code>/api/snmp/trap/&lt;token&gt;</code> from an <code>snmptrapd</code> handler script. Traps attach to the pinned device, show on its SNMP view, and raise an <code>snmp_trap_received</code> alert — at the severity your trap rules give them (below). Must be pinned to a device.</li>
+              <li><strong>ITSM callback</strong> — Jira, ServiceNow or Zendesk call <code>/api/itsm/in/&lt;token&gt;</code> when a ticket is closed, and the alert it came from is resolved.</li>
             </ul>
             <div class="section-header">
               <div class="section-title">Tokens</div>
@@ -10402,9 +10404,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <!-- v3.2.0 (B2/B6): inbound token display modal (shown ONCE after create) -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="inbound-wh-show-title" id="inbound-webhook-show-modal"><div class="modal">
   <div class="modal-title" id="inbound-wh-show-title">Inbound token created</div>
-  <p class="hint">Copy this URL now — the secret is shown only once.</p>
+  <div id="inbound-wh-setup" class="d-none"></div>
+  <p class="hint mt-8" id="inbound-wh-url-hint">Copy this URL now — the secret is shown only once.</p>
   <pre id="inbound-wh-url" class="code-pill ff-mono inbound-wh-url-pre"></pre>
-  <p class="hint">Example payload:</p>
+  <p class="hint" id="inbound-wh-example-hint">Example payload:</p>
   <pre id="inbound-wh-example" class="code-pill ff-mono fs-12 inbound-wh-example-pre"></pre>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="copyInboundWebhookUrl">Copy URL</button>

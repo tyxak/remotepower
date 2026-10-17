@@ -253,7 +253,7 @@ class TestDocsPointAtRealSettingsTabs(unittest.TestCase):
                 # Another product's settings, reached from our setup guide:
                 # the UniFi controller, Synology DSM, and a switch/firewall's
                 # remote-logging screen.
-                if p.name in ("integrations.md", "kmip.md", "syslog.md"):
+                if p.name in ("integrations.md", "kmip.md", "syslog.md", "inbound-tokens.md", "flow.md", "opnsense.md"):
                     continue
                 out.append(f"{p.name}: Settings -> {tail[:34].strip()}")
         return out
