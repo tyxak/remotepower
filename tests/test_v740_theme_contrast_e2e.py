@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import browser_required  # noqa: E402
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
 
 try:
     from playwright.async_api import async_playwright
@@ -50,7 +51,10 @@ except ImportError:
     _HAVE_AXE = False
 
 _DEPS = _HAVE_PLAYWRIGHT and _HAVE_AXE
-_GATE = _DEPS or browser_required.required()
+# The shared probe launches a browser once, so a box with the package and no
+# Chromium skips instead of erroring; under RP_BROWSER_REQUIRE the class runs and
+# setUpClass fails with the real reason (a missing package, or a missing browser).
+_GATE = browser_available() or browser_required.required()
 _ROOT = Path(__file__).resolve().parent.parent
 
 # Populated pages with the widest spread of components: status pills, severity
@@ -152,7 +156,7 @@ async def _walk(base, todo, script, plant_theme):
             await browser.close()
 
 
-@unittest.skipUnless(_GATE, 'playwright + axe-core-python not installed')
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestEveryThemeReadsAtAA(unittest.TestCase):
 
     @classmethod
