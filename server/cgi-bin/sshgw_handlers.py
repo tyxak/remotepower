@@ -62,7 +62,6 @@ import hmac
 import os
 import secrets
 import time
-import urllib.parse
 
 import sshgw
 

@@ -318,14 +318,20 @@ format:
 	$(PY) -m isort $(LINT_SRC)
 	$(PY) -m black $(LINT_SRC)
 
-# F821 (undefined name) over ALL shipped server + agent + sidecar Python — not
-# just the black/mypy baseline. This is the detector CLAUDE.md names for its
+# pyflakes (F) and the syntax/IO errors (E9) over ALL shipped server + agent +
+# sidecar Python and the tests — not just the black/mypy baseline. F821 is the
+# detector CLAUDE.md names for its
 # first false-green class (a source-TEXT test proves a line EXISTS, never that
 # the name in it RESOLVES: the agent's `apply_host_config` shipped with an
 # undefined `_re` that killed the whole apply while every substring assertion
 # passed). It worked on the agent and was DEAD on the server — api.py returned
 # 238 hits, all false positives from the 30 runtime-bound *_handlers.py modules,
 # so a genuine typo there was invisible in the noise.
+#
+# Since 7.4.0 the whole F family runs, not F821 alone: a repeated dict key and a
+# test class defined twice (the first never runs) were both found by it, along
+# with a hundred unused names. Correctness only: no style rules (E, W), no
+# complexity, no naming.
 #
 # TWO passes, because ruff's `builtins` is a GLOBAL setting and not per-file:
 # api.py gets the generated 513-name exemption; every other file gets none, so
@@ -341,7 +347,7 @@ format:
 # whatever its extension. client/remotepower-agent is left out on purpose: it is
 # byte-identical to client/remotepower-agent.py (test_agent_extensionless_
 # matches_py enforces that), so linting it twice only costs time.
-RUFF_F821_SRC := server/cgi-bin client server/flow server/syslog server/push server/sshgw \
+RUFF_SRC := server/cgi-bin client server/flow server/syslog server/push server/sshgw \
                  server/kmip tools mcp tests packaging server/webterm \
                  packaging/remotepower-wg-apply server/remotepower-passwd \
                  server/cgi-bin/remotepower-tls-check
@@ -350,9 +356,9 @@ lint:
 	$(PY) -m isort --check-only $(LINT_SRC)
 	$(PY) -m black --check $(LINT_SRC)
 	$(PY) -m mypy $(TYPECHECK_SRC)
-	$(PY) -m ruff check --select F821 \
+	$(PY) -m ruff check --select F,E9 \
 	  --config tools/ruff-api-builtins.toml server/cgi-bin/api.py
-	$(PY) -m ruff check --select F821 $(RUFF_F821_SRC) \
+	$(PY) -m ruff check --select F,E9 $(RUFF_SRC) \
 	  --exclude server/cgi-bin/api.py
 
 typecheck:

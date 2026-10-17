@@ -20,7 +20,6 @@ what makes the file read as though the rule is enforced.
 import ast
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import unittest

@@ -123,8 +123,9 @@ class TestTheGateIsStillWired(unittest.TestCase):
         self.assertIsNotNone(m, 'lint target not found in the Makefile')
         self.recipe = m.group(1)
 
-    def test_lint_runs_f821_on_api_py_with_the_exemption(self):
-        self.assertIn('--select F821', self.recipe)
+    def test_lint_runs_the_pyflakes_family_on_api_py_with_the_exemption(self):
+        # F (not F821 alone) and E9, since 7.4.0
+        self.assertIn('--select F,E9', self.recipe)
         self.assertIn('tools/ruff-api-builtins.toml', self.recipe)
         self.assertIn('server/cgi-bin/api.py', self.recipe)
 
@@ -133,8 +134,9 @@ class TestTheGateIsStillWired(unittest.TestCase):
         the exemption were applied repo-wide a typo of any of the 513 names
         would be silently accepted in every other file."""
         self.assertIn('--exclude server/cgi-bin/api.py', self.recipe)
-        m = re.search(r'^RUFF_F821_SRC\s*:=\s*((?:.*\\\n)*.*)$', self.mk, re.M)
-        self.assertIsNotNone(m, 'RUFF_F821_SRC not found')
+        self.assertEqual(self.recipe.count('--select F,E9'), 2, 'both passes select F,E9')
+        m = re.search(r'^RUFF_SRC\s*:=\s*((?:.*\\\n)*.*)$', self.mk, re.M)
+        self.assertIsNotNone(m, 'RUFF_SRC not found')
         scope = m.group(1).replace('\\', ' ').split()
         # The shipped Python that a runtime NameError would actually break,
         # plus tests/ — where an undefined name hides best, since a typo in a

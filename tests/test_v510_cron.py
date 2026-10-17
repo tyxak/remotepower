@@ -103,7 +103,6 @@ class TestAgentCronOps(unittest.TestCase):
         # A cron line full of shell metacharacters must survive verbatim — proving
         # it never went through a shell.
         line = '0 3 * * * /bin/sh -c "backup && echo done | tee /var/log/b.log; date"'
-        r = self.m._handle_file_op  # sanity: file op exists too
         out = self.m._handle_cron_op(self._cmd('set', 'root', line + '\n'))
         self.assertEqual(out['rc'], 0)
         self.assertEqual(self.calls[0][:3], ['crontab', '-u', 'root'])

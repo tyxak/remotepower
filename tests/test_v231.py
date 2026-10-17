@@ -92,7 +92,6 @@ class TestBackupRedaction(unittest.TestCase):
         api.require_admin_auth = lambda **kw: 'admin'
         buf = io.BytesIO()
         real_stdout = sys.stdout
-        real_buffer = real_stdout.buffer if hasattr(real_stdout, 'buffer') else None
 
         class _FakeStdout:
             def __init__(self): self.buffer = buf

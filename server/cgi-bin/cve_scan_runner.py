@@ -13,7 +13,6 @@ freezes the UI" bug).
 Usage:  cve_scan_runner.py <actor> [<device_id>]
         (an empty/omitted device_id scans the whole fleet)
 """
-import os
 import sys
 from pathlib import Path
 

@@ -1589,7 +1589,7 @@ class TestGuidedCisRemediation(_HandlerBase):
         api._invalidate_load_cache(api.CONFIG_FILE)
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-patches'}
-        r = self.call(api.handle_compliance_remediate)
+        self.call(api.handle_compliance_remediate)
         self.assertFalse(self._parked)
         # queued straight to the device
         cmds = api.load(api.CMDS_FILE) or {}

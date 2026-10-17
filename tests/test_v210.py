@@ -393,7 +393,7 @@ class TestScriptCRUD(_TestBase):
         body = api.load(api.SCRIPTS_FILE)['scripts'][0]['body']
         self.assertNotIn('\x00', body)
         # Tabs + newlines are preserved
-        c2 = self._add(name='ws', body='echo a\n\techo b')
+        self._add(name='ws', body='echo a\n\techo b')
         body2 = api.load(api.SCRIPTS_FILE)['scripts'][1]['body']
         self.assertIn('\n', body2)
         self.assertIn('\t', body2)
@@ -401,7 +401,6 @@ class TestScriptCRUD(_TestBase):
     def test_add_records_audit_entry(self):
         self._add(name='audited', body='echo hi')
         log = api.load(api.AUDIT_LOG_FILE)
-        events = log.get('events', []) or log if isinstance(log, list) else log.get('events', [])
         # The audit format varies by version; check the file isn't empty
         self.assertTrue(log, "audit log should have content after script_create")
 
@@ -414,7 +413,7 @@ class TestScriptCRUD(_TestBase):
         self.assertTrue(ls.body[0]['dangerous'])
 
     def test_list_omits_body(self):
-        c = self._add(name='small', body='echo hi')
+        self._add(name='small', body='echo hi')
         ls = self._list()
         self.assertEqual(ls.status, 200)
         self.assertEqual(len(ls.body), 1)

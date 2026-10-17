@@ -236,7 +236,7 @@ class TestHandleFleetEvents(_Base):
             AssertionError("must not call require_admin_auth"))
         _set_method('GET', '')
         try: api.handle_fleet_events()
-        except (_Captured, api.HTTPError) as c: pass
+        except (_Captured, api.HTTPError): pass
         # If we got here without AssertionError, the test passes
 
     def test_event_name_filter(self):

@@ -134,7 +134,6 @@ def main() -> int:
 
     # Edge-triggered webhook firing: read previous results to detect crossings.
     prev_results = _load(RESULTS)
-    now = int(time.time())
 
     issues = []
     for tid, t in targets.items():

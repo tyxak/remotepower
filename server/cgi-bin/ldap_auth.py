@@ -217,7 +217,7 @@ def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
     member_of_lower = [g.lower() for g in member_of]
 
     if required_group and required_group.lower() not in member_of_lower:
-        raise LdapAuthDenied(f'user not in required group')
+        raise LdapAuthDenied('user not in required group')
 
     role = 'admin' if (admin_group and admin_group.lower() in member_of_lower) else 'viewer'
 

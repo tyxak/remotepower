@@ -99,6 +99,12 @@ comes with a check that keeps it fixed.
 - The stylesheet loses the rules for 61 classes that no page, script or server
   template writes, among them `.fw-600-14`, which set 13px. A test now fails
   when a class in the stylesheet is written nowhere.
+- `make lint` checks the whole pyflakes family over every Python file, tests
+  included, where it checked undefined names alone. It found a test class
+  defined twice in `test_ip_intel.py` and a seeder dictionary that set
+  `integrations_interval` twice, and about a hundred unused imports and
+  variables went with them. `api.py` is still checked against the list of names
+  its handler modules bind at run time.
 - Swagger UI 5.33.1 → 5.33.3 for the API reference page.
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's
   cache marker, counter included, and `verify` checks every page against it. It

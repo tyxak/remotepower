@@ -63,7 +63,6 @@ class TestHttpFlowMonitor(_HandlerBase):
     """W4-13: multi-step HTTP flow monitor."""
 
     def _serve(self):
-        state = {}
 
         class H(http.server.BaseHTTPRequestHandler):
             def _send(self, code, body=b'', extra=None):

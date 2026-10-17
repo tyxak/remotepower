@@ -177,7 +177,6 @@ class TestNotifyBodyBuildersNeverCrash(unittest.TestCase):
             sig = inspect.signature(fn)
             # call with the args each builder accepts (they vary: some take priority,
             # dest, safe_payload) — pass only what the signature names.
-            kwargs = {}
             avail = {'event': event, 'title': title, 'message': message,
                      'priority': prio, 'dest': {}, 'safe_payload': {}}
             args = []

@@ -1541,7 +1541,7 @@ def _bazarr(inst, c):
     return {
         "status": status,
         "version": ver,
-        "detail": f"up" + (f" · {issues} health issues" if issues else ""),
+        "detail": "up" + (f" · {issues} health issues" if issues else ""),
         "metrics": {"health_issues": issues},
     }
 

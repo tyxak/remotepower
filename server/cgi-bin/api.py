@@ -872,7 +872,7 @@ import smtp_notifier
 import ldap_auth
 # v1.9.0: CMDB vault — symmetric crypto for asset credentials. The cryptography
 # library is imported lazily inside the module so this import always succeeds.
-import cmdb_vault
+import cmdb_vault  # noqa: F401  (reached as A.cmdb_vault by the bound modules)
 # v5.2.0: WG Access (road-warrior WireGuard) pure helpers.
 import wg_access
 # v1.10.0: OpenAPI spec — handwritten dict served at /api/openapi.json,
@@ -899,7 +899,6 @@ import ssrf_ip
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
 # v4.8.0: DMARC posture monitor — DNS-only SPF/DKIM/DMARC record grading.
-import dmarc_monitor
 import ip_reputation
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
@@ -914,7 +913,7 @@ except Exception as _e:   # pragma: no cover - defensive
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import dns_control as dns_control_mod  # v6.2.0: Pi-hole/AdGuard blocking control (pure)
 import notify as notify_mod    # notification-channel payload builders (pure)
-import filebackup as filebackup_mod   # v6.3.0: structured file-backup command gen (pure)
+import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
@@ -1711,15 +1710,15 @@ for _rp_name in (
 ):
     globals()[_rp_name] = getattr(reports_handlers_mod, _rp_name)
 del _rp_name
-from checks import (
+from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
-    CHECK_BASELINE_CATALOG, PROTECT_CATEGORIES, baseline_kind, drifted_files,
+    CHECK_BASELINE_CATALOG, baseline_kind, drifted_files,
 )
 # Back-compat namespace binding — call sites and the test suite reference
 # these through the api module; the implementations live in notify.py.
-from notify import (
-    ITSM_FORMATS, _auto_detect_format, _itsm_basic, _parse_itsm_response,
+from notify import (  # noqa: F401  (test_notify_module pins api._ts_fmt)
+    ITSM_FORMATS, _auto_detect_format, _parse_itsm_response,
     _build_discord_body, _build_slack_body, _build_teams_body,
     _build_ntfy_body, _build_github_body, _build_pagerduty_body,
     _build_opsgenie_body, _build_pushover_body, _build_jira_body,
@@ -1763,12 +1762,10 @@ import posture_signals
 import sbom as sbom_mod
 # Pure input-sanitisation leaf helpers (extracted from this file). Imported back
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
-from sanitize import (
+from sanitize import (  # noqa: F401  (A.gunzip_bounded in scap_handlers; api.MAX_HOSTNAME_LEN in test_sanitize)
     _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
     _sanitize_version, _canary_path_ok, canary_path_safe, gunzip_bounded,
-    as_list,
-    MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
-    _IP_RE, _MAC_RE, _VER_RE,
+    as_list, MAX_HOSTNAME_LEN, _MAC_RE,
 )
 
 # Default values — overridable via /api/config (v1.8.4)
@@ -4194,7 +4191,7 @@ def handle_maintenance_run():
         except Exception as e:
             db = {'error': str(e)}
     audit_log(actor, 'maintenance_run',
-              detail=(f'litigation_hold active — nothing pruned' if litigation_hold
+              detail=('litigation_hold active — nothing pruned' if litigation_hold
                       else f'pruned={sum(pruned.values())} backend={_storage_backend()}'))
     respond(200, {'ok': True, 'pruned': pruned, 'db': db,
                   'litigation_hold': litigation_hold,
@@ -11109,7 +11106,7 @@ def handle_portal_session():
     _portal_gate()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.PortalSessionRequest)
+    _read_valid(request_models.PortalSessionRequest)
     nonce = str(get_json_obj().get('token', '')).strip()
     if not nonce:
         respond(400, {'error': 'token required'})
@@ -11291,7 +11288,7 @@ def handle_portal_ticket(number):
     if is_reply:
         if method() != 'POST':
             respond(405, {'error': 'Method not allowed'})
-        body = _read_valid(request_models.PortalTicketRequest)
+        _read_valid(request_models.PortalTicketRequest)
         message = _sanitize_str(str(get_json_obj().get('message', '')), 8000).strip()
         if not message:
             respond(400, {'error': 'message required'})
@@ -15195,7 +15192,7 @@ def handle_device_notes(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = _read_valid(request_models.DeviceNotesRequest)
+    _read_valid(request_models.DeviceNotesRequest)
     notes = _sanitize_str(get_json_obj().get('notes', ''), MAX_NOTES_LEN)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -16018,7 +16015,7 @@ def handle_smart_group(name):
         audit_log(actor, 'smart_group_delete', detail=f'name={name}')
         respond(200, {'ok': True})
     if method() == 'PATCH':
-        body = _read_valid(request_models.SmartGroupRequest)
+        _read_valid(request_models.SmartGroupRequest)
         rules = _validate_smart_rules(get_json_obj().get('rules') or {})
         if not rules:
             respond(400, {'error': 'at least one rule is required'})
@@ -17509,7 +17506,7 @@ def handle_site_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.SiteCreateRequest)
+    _read_valid(request_models.SiteCreateRequest)
     name = _sanitize_str(get_json_obj().get('name', ''), MAX_SITE_NAME_LEN)
     name = name.strip()
     if not name:
@@ -18047,7 +18044,7 @@ def handle_device_site(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = _read_valid(request_models.DeviceSiteRequest)
+    _read_valid(request_models.DeviceSiteRequest)
     site_id = str(get_json_obj().get('site', '') or '').strip()
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -20120,7 +20117,7 @@ def handle_device_group(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = _read_valid(request_models.DeviceGroupRequest)
+    _read_valid(request_models.DeviceGroupRequest)
     raw = _sanitize_str(get_json_obj().get('group', ''), MAX_GROUP_LEN)
     # Allow alphanumeric, hyphen, underscore, forward-slash for namespaces
     group = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)[:MAX_GROUP_LEN]
@@ -20138,7 +20135,7 @@ def handle_device_poll_interval(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     try:
-        body = _read_valid(request_models.DevicePollIntervalRequest)
+        _read_valid(request_models.DevicePollIntervalRequest)
         interval = int(get_json_obj().get('poll_interval', 60))
     except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'poll_interval must be an integer'})
@@ -20188,7 +20185,7 @@ def handle_device_icon(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = _read_valid(request_models.DeviceIconRequest)
+    _read_valid(request_models.DeviceIconRequest)
     icon = _sanitize_str(get_json_obj().get('icon', ''), 32)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -20254,7 +20251,7 @@ def handle_device_decommission(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)
-    body = _read_valid(request_models.DeviceDecommissionRequest)
+    _read_valid(request_models.DeviceDecommissionRequest)
     dc = bool(get_json_obj().get('decommissioned', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -25960,13 +25957,10 @@ def _run_traceroute(target):
     """W4-15: run traceroute (or tracepath) to `target` and return
     (hops, error). hops = [{n, ip, ms}]. target is already charset-sanitised by
     _sanitize_monitor_target, and passed as a single argv element (no shell)."""
-    tool = None
     if _which('traceroute'):
         cmd = ['traceroute', '-n', '-q', '1', '-w', '2', '-m', '20', '--', target]
-        tool = 'traceroute'
     elif _which('tracepath'):
         cmd = ['tracepath', '-n', target]
-        tool = 'tracepath'
     else:
         return [], 'no traceroute/tracepath on the server'
     try:
@@ -41433,7 +41427,7 @@ def handle_device_live_start(dev_id):
     open)."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    actor = require_admin_auth()
+    require_admin_auth()
     devices = load(DEVICES_FILE) or {}
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -41507,7 +41501,7 @@ def handle_device_custom_metrics(dev_id):
 def handle_device_sudo_log(dev_id):
     """GET /api/devices/{id}/sudo-log — the device's privileged-command trail
     (admin or auditor; read-only)."""
-    role = require_auth()
+    require_auth()
     _, _role = verify_token(get_token_from_request())
     rd = _resolve_role(_role)
     if not (rd.get('admin') or _role == 'auditor'):
@@ -66905,8 +66899,8 @@ def handle_prometheus_metrics():
         log_json('error', 'metrics scrape failed', error=str(e))
         body = f'remotepower_info{{version="{SERVER_VERSION}"}} 1\n'
         scrape_error = 1
-    body += f'# HELP remotepower_scrape_error Whether the last scrape hit an internal error (1/0).\n'
-    body += f'# TYPE remotepower_scrape_error gauge\n'
+    body += '# HELP remotepower_scrape_error Whether the last scrape hit an internal error (1/0).\n'
+    body += '# TYPE remotepower_scrape_error gauge\n'
     body += f'remotepower_scrape_error {scrape_error}\n'
 
     print('Status: 200 OK')
@@ -73697,7 +73691,6 @@ def handle_debug_log_post():
     # for every single dbg() flush.
     logged = 0
     try:
-        import datetime as _dt
         with open(DEBUG_LOG_FILE, 'a') as f:
             for entry in entries[:200]:
                 tag = _sanitize_str(str(entry.get('tag', 'ui'))[:32], 32)

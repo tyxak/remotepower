@@ -234,7 +234,6 @@ class TestWebAuthn(_Base):
         self.assertEqual(api.load(api.USERS_FILE)['alice'].get('webauthn_credentials'), [])
 
     def test_unavailable_returns_503(self):
-        orig = api._webauthn
         api._WEBAUTHN_MOD = False   # simulate lib absent
         try:
             api.method = lambda: 'POST'

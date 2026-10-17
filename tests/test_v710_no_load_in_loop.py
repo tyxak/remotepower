@@ -18,7 +18,6 @@ tool for that one.
 """
 import ast
 import functools
-import sys
 import unittest
 from pathlib import Path
 

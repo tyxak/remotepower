@@ -100,7 +100,7 @@ class TestTheRegistriesStayTheConvergencePoint(unittest.TestCase):
     def test_each_registry_drives_real_controls(self):
         """A registry whose ids are not in the markup is a table nobody
         renders — coverage on paper only."""
-        ids = _markup_ids()
+        _markup_ids()
         for name in self.REGISTRIES:
             # Array OR object literal: MODULE_SETTINGS is `[...]`,
             # _RETENTION_FIELDS is `{...}`. Assuming one shape is how the

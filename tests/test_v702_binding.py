@@ -55,7 +55,6 @@ sys.path.insert(0, str(_ROOT / "tests"))
 
 import api  # noqa: E402
 import advisory  # noqa: E402
-import rag_index  # noqa: E402
 import srcpin  # noqa: E402
 
 _AOH = api.autonomy_ops_handlers_mod

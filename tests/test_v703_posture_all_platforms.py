@@ -26,7 +26,6 @@ the part worth guarding: False means "reported, and it is off", None means "this
 host never told us". Collapsing them puts a host whose probes all failed into a
 list of findings it does not belong in.
 """
-import importlib.util
 import os
 import sys
 import tempfile

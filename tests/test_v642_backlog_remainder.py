@@ -112,7 +112,7 @@ class TestPrometheusSeriesIdentityIsTheDeviceId(unittest.TestCase):
     metric could not be joined to any other series (which key on device id)."""
 
     def test_two_same_named_devices_stay_distinct(self):
-        pe = _mod("prom_v642_rem", _CGI / "prometheus_export.py")
+        _mod("prom_v642_rem", _CGI / "prometheus_export.py")
         src = (_CGI / "prometheus_export.py").read_text()
         self.assertIn("device_id", src,
                       "the series must be keyed on the id, not the display name")
@@ -177,7 +177,7 @@ class TestReportCsvEscapesFormulae(unittest.TestCase):
     def test_the_guard_covers_all_four_lead_characters(self):
         import srcpin
         try:
-            body = srcpin.py_function(src := (_CGI / "api.py").read_text(), "_csv_safe")
+            body = srcpin.py_function((_CGI / "api.py").read_text(), "_csv_safe")
         except Exception:
             self.skipTest("guard is inline rather than a named helper")
         for ch in ("=", "+", "-", "@"):

@@ -15,7 +15,6 @@ some unrelated reason would read as "no leak".
 import asyncio
 import importlib.util
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path

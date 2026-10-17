@@ -504,7 +504,7 @@ class TestAIChatEndpoint(_Base):
         self.assertEqual(self._chat_calls[0]['max_tokens'], 500)
 
     def test_max_tokens_smaller_request_honoured(self):
-        r = self._chat({'messages': [{'role': 'user', 'content': 'hi'}],
+        self._chat({'messages': [{'role': 'user', 'content': 'hi'}],
                         'max_tokens': 200})
         self.assertEqual(self._chat_calls[0]['max_tokens'], 200)
 

@@ -40,8 +40,6 @@ import json
 import math
 import os
 import random
-import secrets
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -1867,7 +1865,6 @@ def build_packages() -> dict:
 
 def build_cmdb() -> dict:
     """CMDB metadata + multi-doc examples."""
-    rng = random.Random(7)
     out = {}
 
     runbook_proxmox = """# Proxmox runbook
@@ -2788,7 +2785,6 @@ def build_config() -> dict:
         # in _DEMO_INTEGRATIONS / build_integrations_state; integration_notified
         # marks the already-down ones so the first real poll doesn't re-alert.
         'show_homelab':          True,
-        'integrations_interval': 300,
         'integrations':          _DEMO_INTEGRATIONS,
         # Belt and braces beside the stamped cadence markers: a demo left
         # running without the re-seed timer would otherwise poll all 19 .lab

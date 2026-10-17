@@ -195,7 +195,6 @@ class TestHoverActionsRemoved(_AssetTests):
 
     def test_no_hover_actions_in_minimal_row(self):
         # The minimal devices row no longer emits a <span class="row-actions">
-        idx = self.js.find('function _renderDevicesMinimal')
         # The renderRow lives in tableCtl.register up the file —
         # find the dev-row template
         chunk = self.js[self.js.find("class=\"dev-row "):

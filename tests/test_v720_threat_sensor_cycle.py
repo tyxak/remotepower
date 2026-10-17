@@ -261,7 +261,6 @@ class TestOnePass(_Host):
     def setUp(self):
         super().setUp()
         tree_nginx(self)
-        T = ts_nginx
         seclog = ''.join(
             combined(A1, NOW - 90 + i, 'GET /.env HTTP/1.1', 404, 'zgrab/0.x') + f' rt=0.00{i % 10}\n' for i in range(6))
         seclog += ''.join(combined(A3, NOW - 80 + i, "GET /?id=1' union select 1,2-- HTTP/1.1", 403) + ' rt=0.001\n'
@@ -482,7 +481,7 @@ class TestThread(unittest.TestCase):
         self.assertGreaterEqual(len(self.saved), 3)
 
     def test_disabled_means_the_logs_are_not_touched(self):
-        holder = self.run_thread({'enabled': False}, lambda: False, timeout=0.3)
+        self.run_thread({'enabled': False}, lambda: False, timeout=0.3)
         self.assertEqual((self.seen_states, self.submits), ([], []))
 
     def test_a_collector_that_raises_does_not_kill_the_thread(self):

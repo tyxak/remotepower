@@ -172,7 +172,7 @@ def handle_app_catalog_custom_delete():
     """POST /api/app-catalog/custom/delete {id} — remove a custom app (admin only).
     Curated apps cannot be removed."""
     actor = A.require_admin_auth()
-    body = A._read_valid(A.request_models.AppCatalogCustomDeleteRequest)
+    A._read_valid(A.request_models.AppCatalogCustomDeleteRequest)
     app_id = A._sanitize_str(A.get_json_obj().get('id', ''), 64, allow_empty=False)
     if app_id in _APP_CATALOG_BY_ID:
         A.respond(400, {'error': 'built-in catalog apps cannot be removed'})

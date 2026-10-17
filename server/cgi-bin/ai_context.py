@@ -24,7 +24,6 @@ tags so the model can tell where the preamble ends and the operator's
 actual task begins.
 """
 
-import json
 import time
 
 import checks

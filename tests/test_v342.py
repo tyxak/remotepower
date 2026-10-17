@@ -672,7 +672,6 @@ class TestV342SettingsActions(unittest.TestCase):
                       ('DEVICES_FILE', 'devices.json')):
             setattr(api, a, _P(d) / fn)
         api.require_auth = lambda **k: 'admin'
-        captured = {}
         _orig_respond = api.respond
         api.respond = lambda code, body=None: (_ for _ in ()).throw(_StopResp(code, body))
         api.save(api.USERS_FILE, {'admin': {'must_change_password': True}})

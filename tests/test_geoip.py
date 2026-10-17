@@ -48,9 +48,7 @@ def enc_arr(items):
 def _build_mmdb():
     """A 1-node IPv4 DB (record_size 24) where every address resolves to one
     country record."""
-    node_bytes = 6            # 24-bit records × 2
-    node_count = 1
-    search_tree_size = node_count * node_bytes
+    node_count = 1            # one node: 24-bit records, 6 bytes
     # data record: {'country': {'iso_code':'US','names':{'en':'United States'}}}
     country = enc_map([
         ('iso_code', enc_str('US')),

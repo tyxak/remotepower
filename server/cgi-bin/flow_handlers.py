@@ -42,7 +42,6 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 
-import hmac
 import time
 
 # The flowd sidecar already caps its rollup; the server re-caps (never trust the

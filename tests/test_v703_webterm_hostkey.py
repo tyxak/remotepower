@@ -31,7 +31,6 @@ on the mismatch case there must be none.
 """
 import asyncio
 import importlib.util
-import os
 import sys
 import tempfile
 import unittest

@@ -11,7 +11,6 @@ an alert open, coalesce and close. The two things asked of every one of them:
 it fires on the TRANSITION only (never once per poll), and the recover closes the
 alert that was opened (and only that one).
 """
-import json
 import os
 import sys
 import tempfile

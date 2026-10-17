@@ -943,7 +943,7 @@ class TestSnmpModule(unittest.TestCase):
             self.assertEqual(self.snmp._decode_integer(body), n)
 
     def test_get_request_response_parse(self):
-        msg = self.snmp._build_get_request('public', 42,
+        self.snmp._build_get_request('public', 42,
             ['1.3.6.1.2.1.1.5.0', '1.3.6.1.2.1.1.1.0'])
         # Construct a matching response
         vbs = (

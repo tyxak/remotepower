@@ -254,7 +254,6 @@ class TestSecurityAssets(unittest.TestCase):
                          f'app.js auto-loads external scripts/stylesheets: {ext}')
 
     def test_no_inline_event_handlers_in_appjs(self):
-        appjs_path = _ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
         appjs = client_js()
         # Only flag occurrences not on comment lines
         code_lines = [l for l in appjs.splitlines() if not l.strip().startswith('//')]

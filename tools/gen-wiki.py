@@ -22,7 +22,6 @@ What it does:
     last-5 release-notes list) to <version>. _Footer.md is left untouched.
 """
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -88,13 +87,12 @@ def _bump_nav(wiki: Path, version: str):
     sb = wiki / "_Sidebar.md"
     if sb.exists():
         lines = sb.read_text().splitlines()
-        out, in_rel, done = [], False, False
+        out, _in_rel, done = [], False, False
         for ln in lines:
             if re.match(r"\s*-\s*\[v\d+\.\d+\.\d+\]", ln):
                 if not done:
                     out += [f"- [{v}]({v})" for v in last5]
                     done = True
-                in_rel = True
                 continue
             out.append(ln)
         sb.write_text("\n".join(out) + "\n")

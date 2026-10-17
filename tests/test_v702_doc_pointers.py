@@ -24,7 +24,6 @@ count, and `test_the_population_is_derived_not_guessed` fails if the derivation
 ever collapses.
 """
 
-import os
 import re
 import unittest
 from pathlib import Path

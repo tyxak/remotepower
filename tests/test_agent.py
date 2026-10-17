@@ -136,7 +136,6 @@ class TestGetPatchInfo(unittest.TestCase):
              patch('pathlib.Path.exists', return_value=True), \
              patch('subprocess.check_output', return_value=fake_output):
             # Patch only apt path
-            original_exists = Path.exists
             def mock_exists(self):
                 if str(self) == '/usr/bin/apt-get':
                     return True

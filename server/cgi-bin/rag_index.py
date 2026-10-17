@@ -1773,7 +1773,7 @@ def build_vpn_corpus(store, now=0):
         else:
             rst = t.get('reach_scope_type') or 'none'
             reach = ('dashboard only' if rst in ('none', '')
-                     else (f"entire fleet" if rst == 'all'
+                     else ("entire fleet" if rst == 'all'
                            else f"{rst} {t.get('reach_scope_value', '')}".strip()))
         state = 'enabled' if t.get('enabled', True) else 'DISABLED'
         rollup.append(

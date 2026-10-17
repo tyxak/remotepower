@@ -956,7 +956,6 @@ class TestMonitorChecks(unittest.TestCase):
     def _fake_db_socket(self, recv_bytes, peer='198.51.100.7'):
         """A minimal stand-in for socket.create_connection's return value."""
         captured = {'sent': b''}
-        test = self
         class _S:  # noqa
             def __enter__(self_): return self_
             def __exit__(self_, *a): return False

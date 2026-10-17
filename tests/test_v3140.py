@@ -1020,7 +1020,7 @@ class TestIncidentAutoPromotion(_HandlerBase):
     def test_partial_clear_does_not_resolve(self):
         api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
                                    'incident_device_threshold': 2})
-        ids = self._seed_alerts('service_down', 3)
+        self._seed_alerts('service_down', 3)
         api.run_incident_promotion_if_due()
         alerts = api.load(api.ALERTS_FILE)
         alerts['alerts'][0]['resolved_at'] = int(api.time.time())   # only ONE of three
@@ -2977,7 +2977,7 @@ class TestSsoGroupRolesTenantGate(_HandlerBase):
 
     def test_tenant_admin_cannot_change_instance_wide_map(self):
         api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'tenant_id': 'acme'}})
-        r = self._save({'engineers': 'admin'})
+        self._save({'engineers': 'admin'})
         self.assertEqual(self.cap['s'], 403)
         self.assertNotIn('sso_group_roles', api.load(api.CONFIG_FILE) or {})
 
@@ -4534,7 +4534,7 @@ class TestQueryEngineHandlers(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
     def test_batch_over_cap_400s(self):
-        r = self._batch([{'entity': 'devices'}] * (api.QUERY_BATCH_MAX + 1))
+        self._batch([{'entity': 'devices'}] * (api.QUERY_BATCH_MAX + 1))
         self.assertEqual(self.cap['s'], 400)
 
     def test_batch_at_cap_ok(self):

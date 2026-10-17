@@ -89,7 +89,7 @@ class TestPortalGate(_Base):
         api._invalidate_load_cache(api.CONFIG_FILE)
         api.method = lambda: 'POST'
         api.get_json_obj = lambda: {'email': 'a@b.c'}
-        out = self.call(api.handle_portal_magic_link)
+        self.call(api.handle_portal_magic_link)
         self.assertEqual(self._last.status, 404)
 
 
@@ -292,7 +292,7 @@ class TestMagicLinkHostHeader(_Base):
         self._env_val['HTTP_HOST'] = 'evil.attacker.tld'
         api.method = lambda: 'POST'
         api.get_json_obj = lambda: {'email': 'a@x.io'}
-        out = self.call(api.handle_portal_magic_link)
+        self.call(api.handle_portal_magic_link)
         self.assertEqual(self._last.status, 200)             # same answer as any other address
         self.assertEqual(sent, [])                           # and nothing was mailed
         self.assertEqual((api.load(api.PORTAL_STATE_FILE) or {}).get('nonces') or {}, {})

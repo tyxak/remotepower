@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-
 import ip_intel  # noqa: E402
 import threat_evidence as te  # noqa: E402
 from test_ip_intel import ATTACKER  # noqa: E402
-from test_v720_threat_report_engine import SECOND, SQLI, THIRD, _Engine, raw_event, web  # noqa: E402
+from test_v720_threat_report_engine import SECOND, _Engine, raw_event, web  # noqa: E402
 from test_v730_edge_blocklist_sync import T, _Lists  # noqa: E402
 
 OTHER_NET = '203.0.113.50'

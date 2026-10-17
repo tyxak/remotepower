@@ -110,7 +110,7 @@ class TestLogSubmitEmptyArrays(unittest.TestCase):
         """Exercise the core logic of handle_log_submit without HTTP plumbing."""
         dev_id = 'dev-aaaaaaaaaaaaaa'
         devices = api_module.load(api_module.DEVICES_FILE)
-        dev = devices[dev_id]
+        assert dev_id in devices
         now = int(time.time())
         log_store = api_module.load(api_module.LOG_WATCH_FILE)
         dev_buf = log_store.get(dev_id) or {'units': {}, 'updated_at': now}

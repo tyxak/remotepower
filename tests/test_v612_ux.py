@@ -115,7 +115,6 @@ class TestNumericUptime(unittest.TestCase):
     def test_the_sanitizer_persists_it(self):
         # safe_si is a whitelist: a field the agent sends but the sanitizer
         # drops silently never reaches the UI.
-        si = {"uptime": "up 3 weeks", "uptime_seconds": 1814400}
         src = (_CGI / "api.py").read_text()
         i = src.index("safe_si['uptime'] = ")
         self.assertIn("safe_si['uptime_seconds']", src[i : i + 900])

@@ -156,9 +156,7 @@ class TestAgentConsoleCommandsRun(unittest.TestCase):
         """The end-to-end proof: the queued command, fed to the real Windows
         agent argv builder, invokes PowerShell with the bare script — not
         PowerShell with a literal `ps:` in front."""
-        import importlib.util as _u
         win_path = ROOT / "client" / "remotepower-agent-win.py"
-        spec = _u.spec_from_file_location("rpwin", win_path)
         # command_argv is pure and importable off-Windows.
         src = win_path.read_text()
         # Guard: `exec:ps:X` runs X in PowerShell with a literal ps: — the bug.
@@ -310,7 +308,6 @@ class TestItsmCloseLoopActuallyFires(unittest.TestCase):
         self.assertIn("OPS-12", attempts[0])
 
     def test_no_dest_makes_no_attempt(self):
-        attempts = []
         api._ssrf_safe_opener = lambda **k: (_ for _ in ()).throw(AssertionError("should not open"))
         try:
             r = api._itsm_close_ticket({"ticket_ref": "OPS-1", "ticket_dest": "gone"})

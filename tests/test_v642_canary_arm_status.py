@@ -187,7 +187,7 @@ class TestAllThreeAgentsAgree(unittest.TestCase):
     def test_the_same_four_states(self):
         for a in _AGENTS:
             with self.subTest(agent=a):
-                ns = _load_canary_ns(a)
+                _load_canary_ns(a)
                 src = (_CLIENT / a).read_text()
                 for s in ("armed", "watching", "failed", "pending"):
                     self.assertIn(f"'{s}'", src, f"{a} lost the {s} state")

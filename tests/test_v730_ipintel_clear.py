@@ -351,7 +351,6 @@ class TestWhoMayClear(_Clear):
         self.assertIn(A1, self.store()['attackers'])
 
     def test_a_body_of_the_wrong_shape_is_not_a_server_error(self):
-        api = self.api
         self.put(attackers={A1: att(seen('d1'))})
         for body in ({'x': [1, 2], 'y': {'z': 1}}, {'cleared': 'all'}):
             self.assertEqual(self.clear(**body)[0], 200)

@@ -4041,7 +4041,6 @@ def _docker_listing(cmd_path, runtime_name):
         cmd_path, [d.get('ID', '') for d in parsed])
 
     items = []
-    now = int(time.time())
     for d in parsed:
         # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
         image_full = d.get('Image', '')
@@ -6951,7 +6950,6 @@ def get_cert_files():
     openssl = _which('openssl')
     if not openssl:
         return []
-    import glob as _glob
     # v3.14.0 fix: scan only the host's OWN service certs — NOT the system CA
     # trust bundle (/etc/ssl/certs, /etc/pki/ca-trust, …), which holds hundreds
     # of CA certs and flooded the cert inventory/alerts.
@@ -9923,7 +9921,7 @@ def _run_service_action(cmd):
     except ValueError:
         return {'cmd': cmd, 'output': 'malformed service action', 'rc': 2}
     if action not in ('restart', 'start', 'stop') or not unit:
-        return {'cmd': cmd, 'output': f'refused: bad action/unit', 'rc': 2}
+        return {'cmd': cmd, 'output': 'refused: bad action/unit', 'rc': 2}
     log.info(f"Service action: systemctl {action} {unit}")
     try:
         r = subprocess.run(['systemctl', action, '--', unit],
@@ -11908,7 +11906,6 @@ def _ts_apc_regex(fmt):
             continue
         letter, param = val
         prev_lit = parts[i - 1][1] if i else ''
-        next_lit = parts[i + 1][1] if i + 1 < len(parts) else ''
         quoted = prev_lit.endswith('"')
         if letter == '%':
             out.append(re.escape('%'))
@@ -13727,7 +13724,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # shape (the {'busy': True} marker the server returns instead
             # of the usual {'command': ..., 'poll_interval': ...} payload).
             if resp.get('busy') is True:
-                log.debug(f"Server busy (HTTP 202) — retry on next poll")
+                log.debug("Server busy (HTTP 202) — retry on next poll")
                 # Skip command-processing and follow-up block; the next
                 # heartbeat will re-send everything that mattered.
                 cmd = None
@@ -14288,7 +14285,7 @@ def main():
     if args.action == 'status':
         creds = load_credentials()
         if creds:
-            print(f"Enrolled : Yes")
+            print("Enrolled : Yes")
             print(f"Server   : {creds['server_url']}")
             print(f"Device   : {creds['name']} ({creds['device_id']})")
             print(f"Version  : {VERSION}")

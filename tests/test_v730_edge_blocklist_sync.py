@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
 
 import edge_blocklist as eb  # noqa: E402
-from test_ip_intel import ATTACKER, _Case  # noqa: E402
+from test_ip_intel import _Case  # noqa: E402
 
 T = 1_790_000_000
 ACCT = 'a' * 32

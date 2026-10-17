@@ -19,7 +19,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -32,7 +31,7 @@ import ipintel_store  # noqa: E402
 import threat_evidence as te  # noqa: E402
 from test_ip_intel import ATTACKER, _Case  # noqa: E402
 from test_v720_threat_intake import raw_event  # noqa: E402
-from test_v730_edge_intel import SECOND, THIRD, T, _Edge  # noqa: E402
+from test_v730_edge_intel import SECOND, T, _Edge  # noqa: E402
 
 OTHER = '185.220.101.9'
 

@@ -350,7 +350,7 @@ class TestEnterpriseHardening2(unittest.TestCase):
                                               'user': 'api', 'role': 'admin', 'active': True}})
             api.save(api.DEVICES_FILE, {})
             result = {}
-            with api._LockedUpdate(api.DEVICES_FILE) as devices:
+            with api._LockedUpdate(api.DEVICES_FILE):
                 self.assertTrue(api._locks_held())
                 result['auth'] = api.verify_token('PLAINKEY0002')
                 # deferred -- must NOT have migrated yet while the lock is open

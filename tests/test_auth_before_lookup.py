@@ -5,7 +5,6 @@ told anyone on the network which device ids, tickets, scans, backup jobs, tags
 and groups exist. Authentication now comes first. Each case is shown red by
 moving the lookup back above the check.
 """
-import io
 import json
 import os
 import sys

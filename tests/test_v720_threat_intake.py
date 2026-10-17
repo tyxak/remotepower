@@ -5,7 +5,6 @@ in (only a device speaking for itself), what is let through (only the fixed
 vocabulary), and what one host can do to the install (not spend its report
 budget on invented sources).
 """
-import json
 import os
 import sys
 import tempfile
@@ -19,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-
 import ipintel_store  # noqa: E402
 
 import ip_intel  # noqa: E402
-import threat_evidence as te  # noqa: E402
 from test_ip_intel import ATTACKER, _Case  # noqa: E402
 
 CLOUDFLARE = '104.16.5.5'

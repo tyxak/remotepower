@@ -45,7 +45,6 @@ class TestRegistryWiring(unittest.TestCase):
     def test_match_key_whitelisted_and_recover_wired(self):
         # dep_edge must be in _record_alert's payload whitelist (else the open
         # alert never carries it and dependency_restored can't find it).
-        src = api._record_alert.__doc__ or ""
         # inspect the source directly for the whitelisted key
         import inspect
         body = inspect.getsource(api._record_alert)

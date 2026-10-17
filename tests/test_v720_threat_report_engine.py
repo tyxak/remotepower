@@ -15,7 +15,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v720-engine-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))

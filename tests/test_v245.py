@@ -138,8 +138,6 @@ class TestAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = client_js()
-        loader = importlib.machinery.SourceFileLoader(
-            'agent_v245', str(_ROOT / 'client' / 'remotepower-agent'))
         cls.agent_src = Path(_ROOT / 'client' / 'remotepower-agent').read_text()
 
     def test_frontend_button(self):

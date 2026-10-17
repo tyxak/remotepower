@@ -19,7 +19,6 @@ without a real host (the runner is injectable).
 """
 import json
 import os
-import shlex
 import subprocess
 import tempfile
 

@@ -69,7 +69,6 @@ Uptime tracking, user counts, and api key counts can be added later if needed.
 """
 
 import math
-import time
 
 import checks   # v7.0.3: the shared accepted-risk predicate
 

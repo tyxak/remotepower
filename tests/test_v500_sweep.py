@@ -247,7 +247,7 @@ class TestAlertCoalescing(unittest.TestCase):
                          'different integrations are different conditions')
 
     def test_resolved_alert_does_not_absorb_new_firing(self):
-        a1 = api._record_alert('integration_down', {'label': 'Radarr', 'severity': 'medium',
+        api._record_alert('integration_down', {'label': 'Radarr', 'severity': 'medium',
                                                     'integration_id': 'radarr-1'})
         rows = api.load(api.ALERTS_FILE)
         rows['alerts'][0]['resolved_at'] = int(time.time())

@@ -163,7 +163,6 @@ class TestExportRedaction(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         api.DATA_DIR = tmp
         api.save(tmp / 'config.json', cfg)
-        captured = {}
 
         def _fake_admin(*a, **k):
             return 'admin'

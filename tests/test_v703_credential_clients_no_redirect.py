@@ -18,7 +18,6 @@ instead: every module that attaches a credential header to an outbound request
 must build an opener that refuses redirects, and the enumeration has a control
 so it cannot go blind.
 """
-import ast
 import re
 import unittest
 from pathlib import Path

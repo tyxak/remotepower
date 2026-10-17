@@ -20,7 +20,6 @@ lives in api.py. Keep it that way.
 """
 
 import hmac
-import os
 import secrets
 
 # Constants — bumping these is a breaking change. The vault file records

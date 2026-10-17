@@ -608,7 +608,6 @@ class TestLockedUpdateReadsFreshInsideTheLock(unittest.TestCase):
         api.save(p, {"a": {"name": "a"}})
         api.load(p)                       # warm the per-request memoiser
         # Another process commits between our read and our lock.
-        raw = api._json_path(p) if hasattr(api, "_json_path") else None
         with api._LockedUpdate(p) as devices:
             pass
         # Simulate the concurrent commit through the same API, then re-enter.
@@ -622,9 +621,7 @@ class TestLockedUpdateReadsFreshInsideTheLock(unittest.TestCase):
                          "pre-lock snapshot")
 
     def test_the_lock_invalidates_the_cache_before_loading(self):
-        import srcpin
         src = (_CGI / "api.py").read_text()
-        body = srcpin.py_function(src, "_JsonLockedUpdate") if False else None
         i = src.index("class _JsonLockedUpdate")
         block = src[i:src.index("\nclass ", i + 10)]
         enter = block[block.index("def __enter__"):]
