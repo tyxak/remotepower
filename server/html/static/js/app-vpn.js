@@ -391,14 +391,14 @@ async function _vpnRenderReach() {
     el.textContent = 'Reaches: the dashboard only.';
     return;
   }
-  const scope = type === 'all' ? 'all devices' : (type + ' = ' + (st.reach_scope_value || ''));
+  const scope = type === 'all' ? 'all hosts' : (type + ' = ' + (st.reach_scope_value || ''));
   const names = (st.reach_devices || []).map(d => (d.name || d.ip) + ' (' + d.ip + ')');
-  let txt = 'Reaches: the dashboard + ' + (st.reach_count || 0) + ' device'
+  let txt = 'Reaches: the dashboard + ' + (st.reach_count || 0) + ' host'
           + ((st.reach_count === 1) ? '' : 's') + ' [' + scope + ']';
   if (names.length) {
     txt += ' — ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ', …' : '');
   } else {
-    txt += ' — no devices in scope have a known IP yet';
+    txt += ' — no hosts in scope have a known IP yet';
   }
   el.textContent = txt;
 }

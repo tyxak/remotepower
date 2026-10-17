@@ -11,7 +11,7 @@ parameters**.
 - The **Trend (~24h)** sparkline in each row comes from the live sample ring —
   one reading per hardware cycle, roughly the last day.
 - Sustained over-threshold temperatures raise a thermal alert; thresholds
-  are tunable per device.
+  are tunable per host.
 - Unmonitored hosts are listed and flagged (inventory principle) — only
   monitored hosts alert.
 
@@ -51,7 +51,7 @@ machine that might really be overheating.
   showing a spike that was never real.
 
 It stays in the per-sensor table, greyed, with **Restore** to count it again.
-The list is per device and is stored alongside that device's metric thresholds,
+The list is per host and is stored alongside that host's metric thresholds,
 so resetting your thresholds does not un-ignore a pin you muted.
 
 ## The temperature timeline
@@ -72,7 +72,7 @@ Pick the window with the four buttons above the chart:
 
 Those are the three tiers RemotePower keeps, and each one is trimmed to its own
 retention: 5-minute points for 8 days, hourly for 30 days, daily for about two
-years. That is the same layout the per-device metrics history uses, so a
+years. That is the same layout the per-host metrics history uses, so a
 temperature question and a CPU question are answered over the same spans.
 
 The line the row's sparkline draws and the line the timeline draws come from
@@ -97,7 +97,7 @@ Two things the caption under the chart tells you:
 
 ## Pinpointing a window
 
-Both this chart and the per-device metrics chart on
+Both this chart and the per-host metrics chart on
 [Trends](trends.md) support the same time-pinpointing control, for when you
 know roughly when something happened and want to look at exactly that.
 

@@ -19,23 +19,23 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   Compliance, Pentest, AI executor, Autonomy) makes every route under its prefix return **404** at the
   dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
   off, not merely hidden from the sidebar.
-- **Tenant isolation.** Where tenancy is enforced, a device id belonging to another
+- **Tenant isolation.** Where tenancy is enforced, a host id belonging to another
   tenant returns **404** (not 403 — a 403 would confirm the id exists), and every
   fleet-wide aggregate is filtered to your tenant.
 - **Write contention returns a retryable 503**, never a 500. Back off and retry.
 - **Conditional GET.** Some read endpoints honour `If-None-Match` and answer **304**
   when nothing changed.
 
-### Devices
+### Hosts
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/devices` | | List enrolled devices |
-| `DELETE` | `/api/devices/:id` | admin | Remove a device |
-| `PATCH` | `/api/devices/:id/tags` | admin | Set device tags |
-| `PATCH` | `/api/devices/:id/notes` | admin | Set device notes |
-| `PATCH` | `/api/devices/:id/group` | admin | Set device group |
+| `GET` | `/api/devices` | | List enrolled hosts |
+| `DELETE` | `/api/devices/:id` | admin | Remove a host |
+| `PATCH` | `/api/devices/:id/tags` | admin | Set host tags |
+| `PATCH` | `/api/devices/:id/notes` | admin | Set host notes |
+| `PATCH` | `/api/devices/:id/group` | admin | Set host group |
 | `PATCH` | `/api/devices/:id/poll_interval` | admin | Set poll interval hint |
-| `PATCH` | `/api/devices/:id/alert-delay` | admin | Per-device extra grace (minutes) before a device_offline alert (0=default, ≤1440) |
+| `PATCH` | `/api/devices/:id/alert-delay` | admin | Per-host extra grace (minutes) before a device_offline alert (0=default, ≤1440) |
 | `GET` | `/api/devices/:id/sysinfo` | | Cached sysinfo + journal |
 | `GET` | `/api/devices/:id/uptime` | | Uptime event history |
 | `GET` | `/api/devices/:id/output` | | Custom command output |
@@ -57,8 +57,8 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 |--------|----------|------|-------------|
 | `POST` | `/api/login` | - | Login, returns session token |
 | `POST` | `/api/enroll/pin` | admin | Generate enrollment PIN |
-| `POST` | `/api/enroll/register` | - | Register device with PIN (pass `device_id` for re-enroll) |
-| `POST` | `/api/heartbeat` | device | Client keepalive + fetch commands |
+| `POST` | `/api/enroll/register` | - | Register host with PIN (pass `device_id` for re-enroll) |
+| `POST` | `/api/heartbeat` | host | Client keepalive + fetch commands |
 
 ### Schedule
 | Method | Endpoint | Auth | Description |
@@ -119,7 +119,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `GET` | `/api/patch-report` | | Full patch report (JSON) |
 | `GET` | `/api/patch-report/csv` | | Patch report as CSV (`?group=X&device_id=Y`) |
 | `GET` | `/api/patch-report/xml` | | Patch report as XML (`?group=X&device_id=Y`) |
-| `GET` | `/api/patch-report/device/:id` | | Per-device patch detail |
+| `GET` | `/api/patch-report/device/:id` | | Per-host patch detail |
 | `DELETE` | `/api/history` | admin | Clear command history |
 | `GET` | `/api/audit-log` | admin/auditor | Security audit log |
 | `DELETE` | `/api/audit-log` | admin | Clear audit log |
@@ -162,11 +162,11 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 ### Fleet & server control (v5.0.0)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/devices/bulk-delete` | admin | Delete many devices by id list |
+| `POST` | `/api/devices/bulk-delete` | admin | Delete many hosts by id list |
 | `POST` | `/api/devices/bulk-tags` | admin | Add and/or remove tags across a selection |
 | `PATCH` | `/api/devices/:id/decommissioned` | admin | Retire/restore an asset (forces `monitored=false`) |
 | `GET` | `/api/board` | | NOC status-board rollups (`?by=group\|site\|tag`) |
-| `GET` | `/api/network-metrics` | | Per-device RX/TX throughput (`?by=fleet\|group\|tag\|site`) |
+| `GET` | `/api/network-metrics` | | Per-host RX/TX throughput (`?by=fleet\|group\|tag\|site`) |
 | `GET` | `/api/network-map` | | Topology; supports `?site=&group=&tag=` scope filter |
 | `GET`/`POST` | `/api/maintenance-mode` | get any / set admin | Read or toggle runtime maintenance mode |
 | `POST` | `/api/server/self-update` | admin | Run the configured update script |
@@ -181,8 +181,8 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `GET` | `/api/health` | - | Unauthenticated liveness probe. Returns `{"status":"ok"}` and **no version** *(v6.4.1)* — for orchestrators and load balancers |
 | `GET` | `/api/security/advisory` | | "What to fix first" — the prioritized cross-layer list; `?scope=` for fleet / group / tag / host. See [security-advisory.md](security-advisory.md) |
 | `POST` | `/api/security/advisory/brief` | | Server-side-redacted brief for the optional AI ordering pass (titles/severities/counts only — never evidence) |
-| `POST` | `/api/devices/:id/snmp/walk` | admin | SNMP **OID browser** — walk any subtree with the device's stored credentials; audited, capped per walk *(v6.4.1)*. See [monitors.md](monitors.md) |
-| `POST` | `/api/devices/:id` | | Save device settings from the drawer, including the display **name** *(rename, v6.4.1)* |
+| `POST` | `/api/devices/:id/snmp/walk` | admin | SNMP **OID browser** — walk any subtree with the host's stored credentials; audited, capped per walk *(v6.4.1)*. See [monitors.md](monitors.md) |
+| `POST` | `/api/devices/:id` | | Save host settings from the drawer, including the display **name** *(rename, v6.4.1)* |
 | `GET` | `/api/devices/:id/flows` | | NetFlow/IPFIX top talkers, conversations and protocol breakdown. See [flow.md](flow.md) |
 | `POST` | `/api/flow/in/:token` | token | Flow ingest from the `remotepower-flowd` receiver |
 | `GET`/`POST` | `/api/kmip/*` | admin | The KMIP key server — status, config, clients (issue / revoke / re-issue / delete), key inventory, activity log, export / import / reset. See [kmip.md](kmip.md) *(v6.4.1)* |

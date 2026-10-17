@@ -48,7 +48,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   them under half a second. The first Suricata pattern took 165 ms for one such
   line, 33 seconds for a post, because a lazy match before a run of spaces
   backtracks quadratically; the line is read from its two ends now.
-- Only the refused-packet reader has met a real device (an OPNsense). The
+- Only the refused-packet reader has met a real firewall (an OPNsense). The
   RouterOS, Suricata and CrowdSec readers follow those products' documented
   formats.
 
@@ -77,6 +77,18 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 ### Interface
 
+- A machine you manage is a host everywhere. The interface said "device" in some
+  places and "host" in others for the same thing. Pages, buttons, messages,
+  e-mails, exports, the guides and the agent's own output now say host, in all
+  six languages. Names that other programs read are unchanged: API paths and
+  JSON fields (`/api/devices`, `device_id`), file names, XML element names, the
+  `{device}` variable of a log-rule message and the `device` field of a webhook
+  body. The CSV exports show a Host column where they showed Device. "Device"
+  stays where it is not one of your hosts: a USB device, a disk, the phone you
+  sign in on, a passkey, and the devices of another product such as Syncthing.
+  The shortcut `g d` still opens the host list, so nobody has to relearn it. A
+  test reads every page, script, server message, guide and translation, and
+  fails when "device" comes back into a sentence.
 - Text is readable in every theme. Eleven of the thirteen themes had text
   below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
   grey metadata to status words: Nord's red text was 2.45:1 on its own panels,
@@ -126,11 +138,11 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 - The Inbound webhooks table tells the truth about NetFlow and ITSM tokens. It
   labelled both *alert*, and the dialog shown after creating a NetFlow token
-  gave it an alert URL and an alert example. It also named a token's device only
-  by its internal id. The table now shows the device's name and IP, and flags in
-  amber a syslog or NetFlow token whose device has no IP, which is the most
+  gave it an alert URL and an alert example. It also named a token's host only
+  by its internal id. The table now shows the host's name and IP, and flags in
+  amber a syslog or NetFlow token whose host has no IP, which is the most
   common reason a firewall's logs never arrive. The dialog after creating a
-  syslog or NetFlow token now says that the token is not entered on the device,
+  syslog or NetFlow token now says that the token is not entered on the host,
   and lists the next steps with the port and the service to check.
 - A virtualization platform that cannot be reached says so. The page showed
   "No VMs.", as if the platform had answered with none; it now shows the

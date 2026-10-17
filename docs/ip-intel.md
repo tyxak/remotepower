@@ -429,7 +429,7 @@ On the host, the block uses whichever firewall is active: `ufw`, then
 These addresses are **never** blocked:
 
 - private, loopback, link-local and other non-public ranges;
-- every address your devices report as their own;
+- every address your hosts report as their own;
 - the addresses on your UI IP allow-list (Settings → Security);
 - anything on the **Never block** list on the Threat intel page;
 - addresses people signed in to RemotePower from in the last 30 days, and

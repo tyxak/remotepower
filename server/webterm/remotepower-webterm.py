@@ -714,8 +714,8 @@ class WebtermSession:
             await self._send_json(websocket, {
                 'type': 'error',
                 'message': (
-                    'The host presented an SSH key RemotePower has not seen '
-                    'for this device, so the connection was refused before '
+                    'The host presented an SSH key RemotePower does not have '
+                    'on file, so the connection was refused before '
                     'your password was sent. If the host was rebuilt or its '
                     'keys were rotated, wait for the agent to report the new '
                     'key, then reconnect.')})

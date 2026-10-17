@@ -28,7 +28,7 @@ whether the host is being attacked right now.
 - **Your own checks count.** A custom check in a critical or warning state
   adds to the host's score — a warning at half the weight of a critical, capped
   so forty failing checks do not swamp everything else. The verdict is the one
-  the Checks page shows, including per-device assignment, the disabled list and
+  the Checks page shows, including per-host assignment, the disabled list and
   an accepted baseline, so the two cannot disagree.
 - **A canary that could not be placed is a finding; one that is watching a real
   file is not.** If the agent could not create the decoy, you have a honeytoken

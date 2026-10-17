@@ -1,5 +1,5 @@
 [Unit]
-Description=RemotePower agentless syslog receiver (UDP -> per-device ingest API)
+Description=RemotePower agentless syslog receiver (UDP -> per-host ingest API)
 Documentation=https://github.com/tyxak/remotepower
 After=network-online.target remotepower-wsgi.service
 Wants=network-online.target

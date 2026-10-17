@@ -89,12 +89,31 @@ class TestUnknownPathsAre404(unittest.TestCase):
                 self.assertEqual(m.group(1).split()[-1], '=404',
                                  'every unknown path answers 200 with index.html again')
 
+    @staticmethod
+    def _pushes_a_fragment(url):
+        return bool(re.match(r"""^(newHash|['"`]#)""", url.strip()))
+
     def test_the_app_still_has_no_path_routes(self):
         """The 404 is only safe while the dashboard routes by #fragment. A
-        history.pushState route would need the fallback back."""
+        history.pushState to a path would need the fallback back. Since 7.4.0 the
+        app does push history entries (Back follows the pages), so the rule is
+        narrower: every push must carry a fragment, never a path."""
         js = '\n'.join(p.read_text(encoding='utf-8')
                        for p in (ROOT / 'server/html/static/js').glob('app*.js'))
-        self.assertNotRegex(js, r'history\.pushState\(')
+        urls = re.findall(r"history\.pushState\(\s*[^,()]+,\s*[^,()]*,\s*([^()]*?)\)", js)
+        self.assertEqual(len(urls), js.count('history.pushState('),
+                         'a pushState call this check cannot read')
+        for url in urls:
+            self.assertTrue(self._pushes_a_fragment(url), f'pushState to {url!r} is not a #fragment')
+        # newHash, the only variable it may push, is built from '#' + page
+        self.assertRegex(js, r"const newHash = [^;]*'#' \+ name")
+
+    def test_the_fragment_check_refuses_a_path(self):
+        """Control: the check above can say no."""
+        for bad in ("'/devices'", "location.pathname + '/x'", "`/${name}`"):
+            self.assertFalse(self._pushes_a_fragment(bad), bad)
+        for good in ("newHash", "'#devices'", "`#${name}`"):
+            self.assertTrue(self._pushes_a_fragment(good), good)
 
 
 class TestEveryMethodTheDashboardSendsIsAllowed(unittest.TestCase):

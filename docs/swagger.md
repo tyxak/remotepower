@@ -19,7 +19,7 @@ nicer experience.
    Authorize step.
 
 That's it. The endpoints are grouped into tags down the page —
-**Auth**, **Devices**, **Commands**, **Checks**, **CVE**, **CMDB**,
+**Auth**, **Hosts**, **Commands**, **Checks**, **CVE**, **CMDB**,
 **Vault**, **Credentials**, **Virtualization**, **Reporting** and
 **Other**. Click any operation to expand it,
 fill in path / query parameters, and **Try it out** fires it against
@@ -126,7 +126,7 @@ npx openapi-typescript openapi.json -o api.d.ts
 oapi-codegen -package remotepower openapi.json > client.go
 ```
 
-The spec uses `$ref` for shared schemas (Error, Device, CmdbAsset,
+The spec uses `$ref` for shared schemas (Error, Host, CmdbAsset,
 Credential, etc.) so generators that respect refs produce reasonable
 output. It does **not** use callbacks, OAuth, or anything else
 exotic — header-based auth and JSON bodies, that's it.

@@ -11,7 +11,7 @@ The Server status page (`/api/self/status`) closes the "who monitors the monitor
 
 **Process** — server version, PID, resident memory (RSS).
 
-**Devices** — monitored count, current offline count, freshest and oldest heartbeat ages, configured online TTL.
+**Hosts** — monitored count, current offline count, freshest and oldest heartbeat ages, configured online TTL.
 
 **Webhook delivery** — success rate over the last 24h and 7d, total entries logged. Drops below 95% usually mean a destination is rejecting your payloads (rate limit, invalid format, dead URL) and the operator needs to investigate.
 
@@ -76,7 +76,7 @@ anyway.
 | Section | Source |
 |---|---|
 | Process | `os.getpid()`, `/proc/self/status` for RSS |
-| Devices | `devices.json` |
+| Hosts | `devices.json` |
 | Webhook delivery | `webhook_log.json` (last `MAX_WEBHOOK_LOG` entries, default 500) |
 | Disk | `DATA_DIR.iterdir()` + `os.statvfs()` |
 | Audit log | `audit_log.json`, `audit_log_archive.jsonl.gz` |
@@ -201,8 +201,8 @@ Two things make that tally trustworthy rather than decorative:
   it meant. The name list is capped, with a `+N more` tail on a large fleet.
   Where the server can tell *why* from here it says so rather than guessing:
   neither receiver is addressed by its token — both sidecars map a datagram to a
-  token by the sender's **source IP**, matched against the enrolled device's
-  `ip` — so a token whose device has no IP, whose device is gone, or that is
+  token by the sender's **source IP**, matched against the enrolled host's
+  `ip` — so a token whose host has no IP, whose host is gone, or that is
   disabled can never receive anything, and is reported as wired to nothing
   rather than as a quiet exporter. See [flow.md](flow.md) and
   [syslog.md](syslog.md).

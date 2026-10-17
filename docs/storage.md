@@ -7,7 +7,7 @@ appear (flagged) so nothing hides.
 
 ## Storage health (ZFS / mdadm / btrfs)
 
-**Storage health** lists every pool/array — Device, Pool, Type, State, Capacity
+**Storage health** lists every pool/array — Host, Pool, Type, State, Capacity
 %, Last scrub — with **degraded/faulted pools first**. A **`storage_degraded`**
 event fires when a pool goes bad and **`storage_recovered`** when it heals;
 **`scrub_overdue`** fires when a ZFS scrub is older than `scrub_overdue_days`
@@ -51,7 +51,7 @@ limits are the point:
   forced**, the same hook guided CIS remediation uses. If change-approval is
   enabled at all, provisioning is subject to four-eyes.
 
-Requires the **`command`** permission for the target device.
+Requires the **`command`** permission for the target host.
 
 ## Related hardware pages
 
@@ -71,4 +71,4 @@ flagged):
 - Viewing all of the above needs normal authentication (unmonitored hosts are
   shown, flagged, in the inventory views).
 - Storage maintenance and power control require the **`command`** permission for
-  the target device and are audit-logged; a viewer can look but not act.
+  the target host and are audit-logged; a viewer can look but not act.

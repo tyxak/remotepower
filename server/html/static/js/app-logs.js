@@ -36,7 +36,7 @@ async function refreshLogsFilters() {
   const devs = await api('GET', '/devices?slim=1');
   const list = devs?.devices || devs || [];
   logsState.devicesCache = list;
-  devSel.innerHTML = '<option value="">All devices</option>' +
+  devSel.innerHTML = '<option value="">All hosts</option>' +
     list.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}${d.group ? ' ['+escHtml(d.group)+']' : ''}</option>`).join('');
   devSel.value = prevDev;
 }
@@ -84,17 +84,17 @@ async function pollLogsTail(initial) {
     let msg;
     if (data.stats.devices_reporting === 0) {
       msg = '<div class="empty-state">'
-          + 'No devices are submitting logs yet.<br>'
+          + 'No hosts are submitting logs yet.<br>'
           + '<span class="fs-11">1) Configure watched services on the <a href="#" data-action-btn="_homeNavAction" data-home-act="services" data-prevent-default class="c-accent">Services page</a>. '
           + '2) Agents submit every ~5 min. 3) Agent must be v1.8.0+ and have journalctl access.</span></div>';
     } else if (data.stats.total_lines === 0) {
       msg = `<div class="empty-state">`
-          + `${data.stats.devices_reporting} device(s) are reporting, but watched units have been quiet.<br>`
+          + `${data.stats.devices_reporting} host(s) are reporting, but watched units have been quiet.<br>`
           + `<span class="fs-11">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
     } else {
       msg = `<div class="empty-state">`
           + `${data.stats.total_lines} line(s) in the buffer, but none match the current filter.<br>`
-          + `<span class="fs-11">Try clearing the device/unit filters above.</span></div>`;
+          + `<span class="fs-11">Try clearing the host/unit filters above.</span></div>`;
     }
     document.getElementById('logs-viewer').innerHTML = msg;
   }
@@ -212,7 +212,7 @@ async function runLogSearch() {
     if (!byDev[r.device_id]) byDev[r.device_id] = {name: r.name, lines: []};
     byDev[r.device_id].lines.push(r);
   }
-  let html = `<div class="hint-mb">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} device${Object.keys(byDev).length===1?'':'s'}</div>`;
+  let html = `<div class="hint-mb">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} host${Object.keys(byDev).length===1?'':'s'}</div>`;
   for (const [dev_id, g] of Object.entries(byDev)) {
     html += `<details open class="mb-8"><summary class="isl-423">${escHtml(g.name)} <span class="meta-sm-nm">(${g.lines.length})</span></summary>`;
     html += g.lines.map(l => {
@@ -288,7 +288,7 @@ async function loadPerDeviceLogRules() {
   document.getElementById('logs-stat-rules').textContent = data.rules.length + globalCount;
   document.getElementById('logs-stat-rules').dataset.deviceCount = data.rules.length;
   if (!data.rules.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No per-host rules configured.</td></tr>';
     return;
   }
   const rules = tableCtl.sortRows('logs_rules_device', data.rules.slice(), r => ({
@@ -363,7 +363,7 @@ async function openAddRuleModal() {
   _logRuleEditing = null;
   const isGlobal = (logsRulesTab === 'global');
   document.getElementById('log-rule-modal-title').textContent =
-    isGlobal ? 'Add fleet-wide log alert rule' : 'Add per-device log alert rule';
+    isGlobal ? 'Add fleet-wide log alert rule' : 'Add per-host log alert rule';
   document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
   document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
   document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
@@ -393,7 +393,7 @@ function _editLogRuleBtn(btn) {
   logsRulesTab = isGlobal ? 'global' : 'device';
   _logRuleEditing = {scope: data.scope, rule: r};
   document.getElementById('log-rule-modal-title').textContent =
-    isGlobal ? 'Edit fleet-wide log alert rule' : 'Edit per-device log alert rule';
+    isGlobal ? 'Edit fleet-wide log alert rule' : 'Edit per-host log alert rule';
   document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
   document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
   document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
@@ -475,7 +475,7 @@ async function saveLogRule() {
   // Per-device rule. For both add and edit, we POST the full
   // services-config back to the server.
   const devId = document.getElementById('log-rule-device').value;
-  if (!devId) { toast('Device is required', 'error', {transient: true}); return; }
+  if (!devId) { toast('Host is required', 'error', {transient: true}); return; }
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
   let log_watch = existing.log_watch || [];
@@ -554,7 +554,7 @@ function _toggleLogRuleSource() {
 }
 
 async function deleteLogRule(devId, unit, pattern) {
-  if (!await uiConfirm(`Remove per-device rule for ${unit}?\n\nPattern: ${pattern}`)) return;
+  if (!await uiConfirm(`Remove per-host rule for ${unit}?\n\nPattern: ${pattern}`)) return;
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
   const log_watch = (existing.log_watch || []).filter(r => !(r.unit === unit && r.pattern === pattern));

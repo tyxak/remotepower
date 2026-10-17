@@ -89,7 +89,7 @@ the alert's age against each tier; any tier the alert has aged past (and not
 already fired) sends a re-notification:
 
 ```
-ESCALATION tier 2 — unacknowledged 63m: Device Offline: web-1 · on-call: alice
+ESCALATION tier 2 — unacknowledged 63m: Host Offline: web-1 · on-call: alice
 ```
 
 The message rides the **original alert's event** through

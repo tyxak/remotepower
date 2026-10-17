@@ -1,6 +1,6 @@
 # Syslog ingestion
 
-Devices that can't run an agent — switches, firewalls, printers, NAS boxes,
+Hosts that can't run an agent — switches, firewalls, printers, NAS boxes,
 appliances — almost always speak **syslog**. RemotePower accepts their log
 lines two ways and runs them through the same log-watch buffer and alert-rule
 engine as agent-shipped journal lines, so a matching line pages you exactly
@@ -8,7 +8,7 @@ like any other host would.
 
 Both paths land in the rolling **Monitoring → Logs** buffer (6 hours by default,
 tunable — see [log-watch.md](log-watch.md)) under a
-synthetic `syslog` unit, and both evaluate your per-device and global
+synthetic `syslog` unit, and both evaluate your per-host and global
 `log_alert` rules. See [log-watch.md](log-watch.md) for the buffer and rule
 editor.
 
@@ -23,16 +23,16 @@ editor.
 
 ### 1. HTTP push (rsyslog / fluent-bit / any HTTP client)
 
-Point an HTTP log shipper at the per-device ingest endpoint:
+Point an HTTP log shipper at the per-host ingest endpoint:
 
 ```
 POST /api/syslog/in/{token}
 ```
 
 The token is an **inbound-webhook token of kind `syslog`**, created under
-**Settings → Integrations → Inbound webhooks** and pinned to one device. The
-token's scope decides which device the lines attach to — the URL carries no
-device id. The body is either `{"lines": ["…", "…"]}` or a bare JSON array of
+**Settings → Integrations → Inbound webhooks** and pinned to one host. The
+token's scope decides which host the lines attach to — the URL carries no
+host id. The body is either `{"lines": ["…", "…"]}` or a bare JSON array of
 lines; up to 200 lines per POST. Each line's RFC 3164 / RFC 5424 `<PRI>`
 prefix is parsed for severity (emerg…debug); a line with no valid `<PRI>` is
 kept whole at severity *info*.
@@ -44,15 +44,15 @@ rsyslog `omhttp`, fluent-bit, Vector, or a one-off shipper.
 
 Most appliances only emit classic UDP syslog and can't add an auth header. The
 optional **`remotepower-syslogd`** sidecar listens for UDP datagrams, maps each
-datagram's **source IP** to the enrolled device that carries that IP, and
+datagram's **source IP** to the enrolled host that carries that IP, and
 forwards the raw lines over loopback to the same `POST /api/syslog/in/{token}`
 endpoint. Parsing, buffering, rule evaluation and token accounting all stay in
 one place — the daemon is a thin network shim with no state of its own.
 
 For a source to be accepted it needs **both**:
 
-- an enrolled device whose **`ip`** equals the datagram's source address, and
-- an enabled inbound-webhook token of **kind `syslog`** pinned to that device.
+- an enrolled host whose **`ip`** equals the datagram's source address, and
+- an enabled inbound-webhook token of **kind `syslog`** pinned to that host.
 
 Unknown sources are dropped and logged at most once per 10 minutes each, so a
 misconfigured sender can't flood the journal. Lines are batched per source and
@@ -86,12 +86,12 @@ it into `/etc/systemd/system/` the same way.)*
 A source is only accepted if **both** are true (this is the auth model — there is
 no header to forge), so set these up first:
 
-1. **A device record carrying the appliance's IP.** Add the appliance under
-   *Devices → Add* as an [agentless device](agentless-devices.md) whose `ip`
+1. **A host record carrying the appliance's IP.** Add the appliance under
+   *Hosts → Add* as an [agentless host](agentless-devices.md) whose `ip`
    field is the exact source address its datagrams come from.
-2. **A syslog token pinned to that device.** Under *Settings → Integrations →
-   Inbound webhooks*, create a token of **kind `syslog`** scoped to the device.
-   The daemon resolves source IP → device → token itself; the token never touches
+2. **A syslog token pinned to that host.** Under *Settings → Integrations →
+   Inbound webhooks*, create a token of **kind `syslog`** scoped to the host.
+   The daemon resolves source IP → host → token itself; the token never touches
    the appliance.
 
 Then point the appliance's syslog target at the server on the listen port.
@@ -135,7 +135,7 @@ On FreeBSD (OPNsense, pfSense) `logger` takes different flags:
 logger -h <server-ip> -P 5514 -t remotepower-test "hello"
 ```
 
-Within a couple of seconds the line appears in that device's **Logs** tab (the
+Within a couple of seconds the line appears in that host's **Logs** tab (the
 log-watch buffer) and drives its log-alert rules. If nothing shows up, the
 journal names the reason — see *Checking it arrived* below, which lists each
 drop message and what to do about it.
@@ -145,9 +145,9 @@ drop message and what to do about it.
 Below, `<server-ip>` is the host running `remotepower-syslogd` and `5514` is the
 listen port (use `514` if you moved it). Two rules apply to every client:
 
-- **Send from the IP the device record carries.** The source address *is* the
+- **Send from the IP the host record carries.** The source address *is* the
   authentication, so a box with several interfaces must send from the one in the
-  device's `ip` field — most daemons let you pin it, and the examples do.
+  host's `ip` field — most daemons let you pin it, and the examples do.
 - **Prefer UDP, over IPv4.** The listener is UDP-only and IPv4-only; a client
   configured for TCP, TLS or IPv6 will connect to nothing. Use the HTTP push path
   instead when you need a reliable or encrypted transport.
@@ -210,7 +210,7 @@ uses different logging rules from the ones above.
 
 OPNsense has no setting for the source address of a log target: it sends from the
 address of the interface that leads to the server, and that is the address the
-device record needs. The full steps, with the fields to fill in, are in
+host record needs. The full steps, with the fields to fill in, are in
 [opnsense.md](opnsense.md#send-the-firewalls-logs). In short, **System ‣ Settings
 ‣ Logging**, add a target with transport **UDP (IPv4)**, the server's address and
 port `5514`. You do not enter the token on OPNsense. To have Threat intel read
@@ -220,7 +220,7 @@ the firewall log and Suricata alerts, see
 ### pfSense
 
 **Status ‣ System Logs ‣ Settings**, tick *Enable Remote Logging*, set *Source
-Address* to the interface address the device record carries, set *IP Protocol* to
+Address* to the interface address the host record carries, set *IP Protocol* to
 IPv4, and add `<server-ip>:5514` under *Remote log servers*. Choose what to send
 under *Remote Syslog Contents*.
 
@@ -237,7 +237,7 @@ esxcli network firewall ruleset set --ruleset-id=syslog --enabled=true
 Almost all expose a single "syslog server" field in their web UI: enter
 `<server-ip>`, set the port to `5514`, pick UDP, and save. If the appliance only
 allows port 514, move the listener to 514 (see *Configuration* above) rather
-than fighting the device.
+than fighting the host.
 
 ### Windows
 
@@ -253,12 +253,12 @@ journalctl -u remotepower-syslogd -f
 ```
 
 - Lines flowing, nothing in the UI → the batch is in flight; wait a couple of
-  seconds and refresh the device's **Logs** tab.
-- `dropping syslog from unknown source <ip>: no enrolled device has this IP` →
-  fix the device record's `ip`, or the sender's source address.
-- `dropping syslog from <ip>: the device IS enrolled but has no enabled syslog
+  seconds and refresh the host's **Logs** tab.
+- `dropping syslog from unknown source <ip>: no enrolled host has this IP` →
+  fix the host record's `ip`, or the sender's source address.
+- `dropping syslog from <ip>: the host IS enrolled but has no enabled syslog
   ingest token` → create one under *Settings → Integrations → Inbound webhooks*
-  (kind `syslog`), scoped to that device.
+  (kind `syslog`), scoped to that host.
 - Nothing at all in the journal → the datagrams aren't arriving. Check the
   server's firewall (`sudo ss -lun | grep 5514` should show the listener) and
   that the client is really using UDP.
@@ -273,17 +273,17 @@ both).
 ## A source that can never receive (v7.0.0)
 
 The receiver maps an incoming line to a token by the datagram's **source IP**,
-matched against the enrolled device's `ip` field — the sender is never
-addressed by the token itself. So a token whose device has an empty `ip`, whose
-device has been deleted, or that is simply disabled, is dropped from the source
+matched against the enrolled host's `ip` field — the sender is never
+addressed by the token itself. So a token whose host has an empty `ip`, whose
+host has been deleted, or that is simply disabled, is dropped from the source
 map: nothing it is pointed at can ever arrive, however correctly the appliance
 is configured.
 
 Server status used to count such a token as one of N working "source(s)". It
 now names it and *why* — "1 of 2 source(s) wired to nothing · fw01 (no IP on
-the device, so the receiver cannot map its packets)" — and the receiver no
+the host, so the receiver cannot map its packets)" — and the receiver no
 longer reports itself healthy while one of its sources is wired to nothing. The
-fix is on the **device**: set its IP to the address the syslog packets come
+fix is on the **host**: set its IP to the address the syslog packets come
 from. It also raises `ingest_source_unmappable` (cleared by
 `ingest_source_mapped`), per token. See the same table in [flow.md](flow.md#never-exported-is-usually-not-the-router),
 which shares this behaviour exactly.
@@ -291,7 +291,7 @@ which shares this behaviour exactly.
 ## See also
 
 - [log-watch.md](log-watch.md) — the buffer, live tail, and alert rules.
-- [agentless-devices.md](agentless-devices.md) — records for devices with no agent.
+- [agentless-devices.md](agentless-devices.md) — records for hosts with no agent.
 - [inbound-tokens.md](inbound-tokens.md) — what each kind of inbound token is
   for, and why a UDP sender never holds one.
 - [opnsense.md](opnsense.md) — sending an OPNsense firewall's logs and traffic.

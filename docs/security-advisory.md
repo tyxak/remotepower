@@ -56,8 +56,8 @@ carries a credential, and the Drift page already shows them behind its own view.
 
 Build it for **the whole fleet**, a **group**, a **tag**, or a **single host**.
 The scope is always filtered to what your role and tenant can see — a
-host-scoped request for a device you cannot see returns "not found", not
-"forbidden", so the advisory never reveals that a device exists.
+host-scoped request for a host you cannot see returns "not found", not
+"forbidden", so the advisory never reveals that a host exists.
 
 ## Reading the list
 

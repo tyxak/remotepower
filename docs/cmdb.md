@@ -12,7 +12,7 @@ least it's quick.
 
 ## What this is
 
-Every enrolled device gets an optional metadata layer on top of the
+Every enrolled host gets an optional metadata layer on top of the
 existing `devices.json` record. You can tag it with an asset ID
 (your inventory tag, sticker on the chassis, whatever), describe what
 it actually does (`web`, `db`, `dc`, `logging`), point at its
@@ -33,7 +33,7 @@ there, ready to fill in.
 
 ## The metadata layer
 
-Open the **CMDB** tab in the sidebar. Every enrolled device appears in
+Open the **CMDB** tab in the sidebar. Every enrolled host appears in
 the table, even ones with nothing filled in yet. Click **Open** on a
 row to edit:
 
@@ -80,9 +80,9 @@ row to edit:
 ### Decommissioning an asset *(v5.0.0)*
 
 Tick **Decommissioned** on the asset (or `PATCH /api/devices/{id}/decommissioned
-{"decommissioned": true}`) when a host is retired. It greys out across the device
+{"decommissioned": true}`) when a host is retired. It greys out across the host
 list (card and minimal views) and the CMDB table with a *DECOMMED* badge, and it
-is **fully silenced**: setting it forces `monitored = false`, so every per-device
+is **fully silenced**: setting it forces `monitored = false`, so every per-host
 alert, health-score impact and SLA computation is suppressed. Clearing the flag
 restores monitoring automatically (no need to re-enable it by hand).
 
@@ -312,10 +312,10 @@ written. You get a 409, the vault is exactly as it was, and a
 usually means an earlier rotation did not finish; restore the vault metadata
 from a backup before trying again.
 
-Rotation re-encrypts **every** store keyed by this passphrase — per-device
+Rotation re-encrypts **every** store keyed by this passphrase — per-host
 credentials, scoped credentials, DNS provider tokens, and the KMIP CA and
 server-certificate private keys plus any stored key material. Before v7.0.0 it
-re-encrypted only the per-device credentials, so a completely successful
+re-encrypted only the per-host credentials, so a completely successful
 rotation permanently orphaned the rest.
 
 If any stored secret fails to decrypt under the old passphrase, the rotation

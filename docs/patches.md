@@ -5,9 +5,9 @@ which hosts have updates waiting, and which packages are involved.
 
 ## The report
 
-- Each online device with inventory data shows its count of pending updates,
+- Each online host with inventory data shows its count of pending updates,
   security-flagged updates, and whether a reboot is required.
-- The headline **percentage up-to-date counts only online devices with data** —
+- The headline **percentage up-to-date counts only online hosts with data** —
   hosts that haven't reported inventory are excluded rather than skewing it.
 - **Inventory search** finds a package (optionally an exact name/version) across
   the fleet, and the **patch catalog** inverts the table: pending updates
@@ -16,7 +16,7 @@ which hosts have updates waiting, and which packages are involved.
 ## Acting on updates
 
 - Install, uninstall, or **hold / unhold** (pin) named packages on a target
-  scope (device / group / tag / site) straight from this page — package names
+  scope (host / group / tag / site) straight from this page — package names
   only, no shell.
 - To apply updates **automatically** on a schedule, define an
   [Auto-patch](auto-patch.md) policy.
@@ -27,7 +27,7 @@ which hosts have updates waiting, and which packages are involved.
 
 - Package **vulnerabilities** (CVEs) are tracked separately on the
   [CVE Findings](cve.md) page.
-- Updates respect [maintenance windows](maintenance.md) and device quarantine.
+- Updates respect [maintenance windows](maintenance.md) and host quarantine.
 
 ## Permissions
 

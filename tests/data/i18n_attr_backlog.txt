@@ -148,7 +148,7 @@ road-warriors
 root
 root@pam!remotepower
 rotate-nginx-logs.sh
-search agent device
+search agent host
 sec-ops=auditor finance-team=finance sre=admin
 services:  app:  image: nginx:latest  ports:  - 8080:80
 services:  myapp:  image: org/myapp:latest  restart: unless-stopped  ports:  - "8080:80"

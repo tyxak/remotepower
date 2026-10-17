@@ -474,7 +474,7 @@ class TestTaxonomyCounts(_V8):
         c = self._ready()
         c.eval("_renderTaxonomy()")
         txt = c.eval("__dom['taxonomy-summary'].textContent")
-        self.assertIn("4 device(s)", txt)
+        self.assertIn("4 host(s)", txt)
         self.assertIn("2 group(s)", txt)
         self.assertIn("1 ungrouped", txt)
         self.assertIn("2 tag(s)", txt)

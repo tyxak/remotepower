@@ -43,10 +43,10 @@ are operating in:
 
 - The operator runs a small fleet of Linux servers and workstations.
   Agents on each host poll the server every 60 seconds (configurable
-  per device). Commands are queued and execute on the next heartbeat,
+  per host). Commands are queued and execute on the next heartbeat,
   with output returning on the heartbeat after that.
 - Storage is flat JSON files, not a database. Configuration lives in
-  config.json; device state in devices.json; webhook events in
+  config.json; host state in devices.json; webhook events in
   webhook_log.json; scheduled jobs in schedule.json.
 - The server runs under nginx + gunicorn/Flask (server/cgi-bin/wsgi.py).
   Feature code stays near-stdlib Python — flask/gunicorn/psycopg are the
@@ -54,13 +54,13 @@ are operating in:
   dependencies for a feature unless explicitly asked.
 - There is a script library (multi-line bash, stored in scripts.json)
   that goes through bash -n syntax checking and a dangerous-pattern
-  detector before save. Scripts can be batch-run across devices,
+  detector before save. Scripts can be batch-run across hosts,
   scheduled (one-shot or cron), and version-tracked.
 - There is a CMDB built in (asset metadata, encrypted credentials
   vault with AES-GCM + PBKDF2, Markdown docs per asset, network
-  topology map, agentless device records).
+  topology map, agentless host records).
 - CVE scanning is OSV.dev-backed; results have severity, fixed
-  version, references, and a per-CVE ignore list per device.
+  version, references, and a per-CVE ignore list per host.
 - TLS / DNS expiry monitor runs server-side; alerts via webhook.
 
 When the operator asks for diagnostics, prefer concrete shell
@@ -70,8 +70,8 @@ inventing tools or paths you don't have evidence for — if you don't
 know whether something is installed, say "check whether X is
 installed, then ..." rather than assuming.
 
-The operator can see the dashboard, the device's recent commands,
-the device's journal, watched services, containers, CVE findings,
+The operator can see the dashboard, the host's recent commands,
+the host's journal, watched services, containers, CVE findings,
 patch status, and metrics. Don't ask them to look at things they
 likely already see; cut to what to do."""
 
@@ -285,7 +285,7 @@ def build_fleet_context(devices, max_devices=80, now=None, ttl=300):
     for d in devs[:max_devices]:
         lines.append('- ' + _device_one_liner(d, now=now, ttl=ttl))
     if len(devs) > max_devices:
-        lines.append(f"... ({len(devs) - max_devices} more devices omitted)")
+        lines.append(f"... ({len(devs) - max_devices} more hosts omitted)")
 
     return '\n'.join(lines)
 
@@ -306,7 +306,7 @@ def build_retrieved_context(chunks):
         return ''
     lines = [
         "The following snippets were retrieved from this deployment's own "
-        "infrastructure index (device state, docs, CMDB, history) because "
+        "infrastructure index (host state, docs, CMDB, history) because "
         "they appear relevant to the operator's request. Treat them as "
         "ground truth about THIS fleet. When you rely on one, cite it by "
         "its bracketed id, e.g. [live/web01#cves].",

@@ -4,10 +4,10 @@ Ask arbitrary questions of your fleet. Build a condition tree, run it, save it
 as a template, share it with your organisation.
 
 It is **read-only**, and it is scoped to what you can already see — a query
-cannot return a device your role or tenant would hide from you elsewhere.
+cannot return a host your role or tenant would hide from you elsewhere.
 
 Not to be confused with **[Fleet Query](fleet-query.md)**, which is the quick
-one-line device filter in the toolbar. Data Explorer is the one with nested
+one-line host filter in the toolbar. Data Explorer is the one with nested
 AND/OR conditions across ten entities.
 
 ## The ten entities
@@ -46,7 +46,7 @@ Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains`
 `exists` means *present and not empty*, which is worth knowing for the
 tri-state fields below.
 
-## Device fields
+## Host fields
 
 ### Identity and inventory
 
@@ -144,7 +144,7 @@ will never find one.
 
 `status` is the runtime's own wording, which differs between Docker, Podman and
 Kubernetes (`Up 3 days`, `running`, `Ready`). `running` is the normalised
-boolean, and it is the same test the Devices page counts with, so the two
+boolean, and it is the same test the Hosts page counts with, so the two
 cannot disagree.
 
 ### `alerts`
@@ -157,7 +157,7 @@ first fired and `ts` is the most recent occurrence — they differ for a repeati
 alert, and `first_seen` is the one to measure how long something has been
 broken.
 
-Alerts are the one entity where a row need not belong to a device: a fleet-level
+Alerts are the one entity where a row need not belong to a host: a fleet-level
 condition such as a failed backup has no `device_id`, and those rows stay
 visible to you.
 

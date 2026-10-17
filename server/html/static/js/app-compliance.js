@@ -63,8 +63,8 @@ async function loadComplianceBaseline() {
     const remSorted = tableCtl.sortRows('cis_remediation', remRows,
       x => ({ device: x.device, check: x.title }));
     remHtml = `<div class="section-title mt-24">Remediation</div>
-      <div class="page-subtitle">One-click fixes for failing checks. Each is queued through your existing approval + audit pipeline (a reboot still needs 4-eyes when that's on), and only on hosts where you've turned on <em>Automatic remediation</em> in device settings.</div>
-      <div class="table-card"><table><thead id="cis-rem-thead"><tr><th data-col="device">Device</th><th data-col="check">Failing check</th><th>Action</th></tr></thead><tbody>` +
+      <div class="page-subtitle">One-click fixes for failing checks. Each is queued through your existing approval + audit pipeline (a reboot still needs 4-eyes when that's on), and only on hosts where you've turned on <em>Automatic remediation</em> in host settings.</div>
+      <div class="table-card"><table><thead id="cis-rem-thead"><tr><th data-col="device">Host</th><th data-col="check">Failing check</th><th>Action</th></tr></thead><tbody>` +
       remSorted.map(x => `<tr>
         <td>${escHtml(x.device)}</td>
         <td>${escHtml(x.title)}</td>
@@ -73,7 +73,7 @@ async function loadComplianceBaseline() {
           : `<span class="hint">remediation off for this host</span>`}</td>
       </tr>`).join('') + `</tbody></table></div>`;
   }
-  body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} device(s) evaluated.</div>
+  body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} host(s) evaluated.</div>
     <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>${remHtml}`;
   tableCtl.wireSortOnly('cis-baseline-thead', 'cis_baseline', loadComplianceBaseline);
   if (remRows.length) tableCtl.wireSortOnly('cis-rem-thead', 'cis_remediation', loadComplianceBaseline);
@@ -170,7 +170,7 @@ function _renderScapTable() {
     const top = (d.failed_top || []).slice(0, 6).map(f => escHtml(f.id)).join(', ');
     return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${timeAgoHtml(d.ts)}</td><td>${reportCell(d)}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th><th>Report</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Host</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th><th>Report</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('scap-thead', 'scap', _renderScapTable);
 }
 
@@ -275,7 +275,7 @@ async function runScapScan() {
   const scapScope = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
   if (!await uiConfirm(`Run the OpenSCAP "${profile}" scan on ${scapScope}? Each host runs oscap in the background; results arrive on the next heartbeat.`)) return;
   const body = await _fleetTargetBody(type, value);
-  if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching devices', 'error'); return; }
+  if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching hosts', 'error'); return; }
   body.profile = profile;
   const r = await api('POST', '/scap/scan', body).catch(() => null);
   if (r?.ok) {
@@ -295,7 +295,7 @@ async function runInstall() {
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
   if (!await uiConfirm(`Install "${pkgs}" on ${scopeLabel}?`)) return;
   const body = await _fleetTargetBody(type, value);
-  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
   if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
@@ -311,7 +311,7 @@ async function runUninstall() {
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
   if (!await uiConfirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the package(s) via the host's package manager.`)) return;
   const body = await _fleetTargetBody(type, value);
-  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/uninstall', body).catch(() => null);
   if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
@@ -329,7 +329,7 @@ async function _runHold(hold) {
   const verb = hold ? 'Hold' : 'Unhold';
   if (!await uiConfirm(`${verb} "${pkgs}" on ${scopeLabel}?`)) return;
   const body = await _fleetTargetBody(type, value);
-  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', hold ? '/packages/hold' : '/packages/unhold', body).catch(() => null);
   if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
@@ -346,7 +346,7 @@ async function openInstallModal() {
   const sel = document.getElementById('oti-device');
   const tg = await _fleetTargets();
   sel.innerHTML = tg.devices.map(d =>
-    `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('') || '<option value="">(no devices)</option>';
+    `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('') || '<option value="">(no hosts)</option>';
   onOtiTargetChange();
   openModal('one-time-install-modal');
 }
@@ -364,9 +364,9 @@ async function runOneTimeInstall() {
   let body, scope;
   if (type === 'device') {
     const id = document.getElementById('oti-device').value;
-    if (!id) { toast('Pick a device', 'error', {transient: true}); return; }
+    if (!id) { toast('Pick a host', 'error', {transient: true}); return; }
     body = { device_ids: [id] };
-    scope = 'this device';
+    scope = 'this host';
   } else {
     const val = document.getElementById('oti-target-value').value.trim();
     if (!val) { toast('Enter a ' + type, 'error'); return; }

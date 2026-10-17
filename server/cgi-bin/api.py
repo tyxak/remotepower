@@ -1997,10 +1997,10 @@ _AUTOHEAL_GAPS = frozenset({
 
 EVENT_REGISTRY = {
     'device_offline': dict(
-        label='Device went offline', kind='offline', title='Device Offline',
+        label='Host went offline', kind='offline', title='Host Offline',
         severity='critical', priority=4, tags='red_circle,computer'),
     'device_online': dict(
-        label='Device came back online', kind='online', title='Device Online',
+        label='Host came back online', kind='online', title='Host Online',
         resolves=('device_offline',), tags='green_circle,computer'),
     # v6.4.2: a host JOINING the fleet was the one lifecycle moment nothing
     # recorded — the audit log could show a re-enrollment or a decommission but
@@ -2009,8 +2009,8 @@ EVENT_REGISTRY = {
     # (lifecycle='point'), so there is nothing to clear.
     'device_enrolled': dict(
         lifecycle='point',
-        label='A new device enrolled into the fleet', kind='enrollment',
-        title='Device Enrolled', severity='low', tags='sparkles,computer'),
+        label='A new host enrolled into the fleet', kind='enrollment',
+        title='Host Enrolled', severity='low', tags='sparkles,computer'),
     'agent_stopped': dict(
         label='Agent stopped (host was still up)', kind='agentlifecycle',
         title='Agent Stopped', severity='high'),
@@ -2037,7 +2037,7 @@ EVENT_REGISTRY = {
         label='Patch SLA back in compliance (recovered)', kind='patches',
         title='Patch SLA Recovered', resolves=('patch_sla_violation',)),
     'cve_found': dict(
-        label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
+        label='New CVEs detected on a host', kind='cve', title='New CVEs Detected',
         severity=None, priority=5, tags='rotating_light,shield'),
     'cve_cleared': dict(
         label='No CVEs left in the alert severity filter (recovered)',
@@ -2106,10 +2106,10 @@ EVENT_REGISTRY = {
         title='Resource Recovered', resolves=('metric_warning', 'metric_critical'),
         tags='green_circle,bar_chart'),
     'command_queued': dict(
-        label='Command queued for a device', default=False, kind='command',
+        label='Command queued for a host', default=False, kind='command',
         title='Command Queued', tags='arrow_forward'),
     'command_executed': dict(
-        label='Command executed on a device', default=False, kind='command',
+        label='Command executed on a host', default=False, kind='command',
         title='Command Executed', tags='white_check_mark'),
     'drift_detected': dict(
         lifecycle='point',
@@ -2269,13 +2269,13 @@ EVENT_REGISTRY = {
         label='Network appliance configuration changed', kind='drift',
         title='Appliance Config Changed', severity='medium', tags='pencil'),
     'snmp_unreachable': dict(
-        label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Device Unreachable',
+        label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Host Unreachable',
         severity='high', symptom=True),
     'snmp_dead': dict(
         label='SNMP poll failing for 6+ hours (not a transient blip)', kind='snmp',
-        title='SNMP Device Dead', severity='critical', symptom=True),
+        title='SNMP Host Dead', severity='critical', symptom=True),
     'snmp_recover': dict(
-        label='SNMP polling recovered', kind='snmp', title='SNMP Device Recovered',
+        label='SNMP polling recovered', kind='snmp', title='SNMP Host Recovered',
         resolves=('snmp_unreachable', 'snmp_dead')),
     # v6.4.2: severity is payload-derived so an operator's trap rule can raise a
     # UPS "on battery" to critical and leave a chatty linkDown at low, instead of
@@ -2320,11 +2320,11 @@ EVENT_REGISTRY = {
         label='Running kernel is current again (recovered)', kind='hardware',
         resolves=('kernel_outdated',)),
     'health_degraded': dict(
-        label='Device health score dropped below threshold', kind='health',
-        title='Device Health Degraded', severity=None, symptom=True),
+        label='Host health score dropped below threshold', kind='health',
+        title='Host Health Degraded', severity=None, symptom=True),
     'health_recovered': dict(
-        label='Device health score recovered above threshold', kind='health',
-        title='Device Health Recovered', resolves=('health_degraded',)),
+        label='Host health score recovered above threshold', kind='health',
+        title='Host Health Recovered', resolves=('health_degraded',)),
     'port_exposed_world': dict(
         label='Service exposed to a world-reachable address', kind='exposure',
         title='Service Exposed to the World', severity='high', priority=4,
@@ -2370,7 +2370,7 @@ EVENT_REGISTRY = {
     # precisely because they have no way to tell the two apart. Now they do.
     'hostkey_changed': dict(
         lifecycle='point',
-        label='SSH host key changed on a device', kind='ssh_key',
+        label='SSH host key changed on a host', kind='ssh_key',
         title='SSH Host Key Changed', severity='high', priority=5,
         tags='rotating_light,key'),
     # v6.1.2: WAN / public IP. Your IP changes and nothing tells you — the VPN
@@ -2393,7 +2393,7 @@ EVENT_REGISTRY = {
     # a Proxmox-homelab classic that produces baffling intermittent networking.
     'mac_conflict': dict(
         lifecycle='point',
-        label='The same MAC address is on two devices', kind='network',
+        label='The same MAC address is on two hosts', kind='network',
         title='Duplicate MAC Address', severity='high', priority=4,
         tags='warning,electric_plug'),
     # v6.1.2: inbound dead-man's-switch — an off-fleet job stopped checking in.
@@ -2804,7 +2804,7 @@ EVENT_REGISTRY = {
         title='IP Reputation Cleared', resolves=('ip_blacklisted',)),
     'ip_conflict': dict(
         lifecycle='point',
-        label='The same IP address is assigned to two or more devices (IPAM)',
+        label='The same IP address is assigned to two or more hosts (IPAM)',
         kind='network', title='IP Address Conflict', severity='high',
         tags='warning,network'),
     'resolver_unhealthy': dict(
@@ -7571,12 +7571,12 @@ def _enforce_device_scope():
     # v3.14.0 P2: tenant isolation — checked before role scope, and applies even
     # to tenant admins (whose role scope is None).
     if not _tenant_visible(dev):
-        respond(403, {'error': 'Device belongs to another tenant'})
+        respond(403, {'error': 'Host belongs to another tenant'})
     scope = _caller_scope()
     if scope is None:
         return
     if not _device_in_scope(scope, dev):
-        respond(403, {'error': 'Device outside your role scope'})
+        respond(403, {'error': 'Host outside your role scope'})
 
 
 def _scope_block_device(dev_id):
@@ -7587,10 +7587,10 @@ def _scope_block_device(dev_id):
     if dev is None:
         return
     if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation
-        respond(403, {'error': 'Device belongs to another tenant'})
+        respond(403, {'error': 'Host belongs to another tenant'})
     scope = _caller_scope()
     if scope is not None and not _device_in_scope(scope, dev):
-        respond(403, {'error': 'Device outside your role scope'})
+        respond(403, {'error': 'Host outside your role scope'})
 
 
 def get_mcp_attribution():
@@ -9703,10 +9703,10 @@ notify_mod.configure(
 # Adding a new KIND? Add the (kind, label, group) row below.
 CHANNEL_KIND_DEFS = (
     # (kind, label, group)
-    ('offline', 'Device offline', 'operational'),
+    ('offline', 'Host offline', 'operational'),
     ('agentlifecycle', 'Agent stopped / started', 'operational'),
-    ('enrollment', 'Device enrolled', 'operational'),   # v6.4.2
-    ('online', 'Device came online', 'operational'),
+    ('enrollment', 'Host enrolled', 'operational'),   # v6.4.2
+    ('online', 'Host came online', 'operational'),
     ('monitor', 'Monitor target up/down', 'operational'),
     ('patches', 'Pending patches', 'operational'),
     ('cve', 'CVE findings', 'operational'),
@@ -9735,7 +9735,7 @@ CHANNEL_KIND_DEFS = (
     ('snmp', 'SNMP polling', 'operational'),
     ('mcp', 'MCP confirmation expired', 'operational'),
     ('hardware', 'Hardware health (SMART/kernel)', 'operational'),
-    ('health', 'Device health score', 'operational'),
+    ('health', 'Host health score', 'operational'),
     # v3.11.0: attack-surface / posture / storage kinds
     ('exposure', 'World-exposed services', 'operational'),
     ('software_policy', 'Software policy', 'operational'),
@@ -10098,7 +10098,7 @@ def _alert_title(event, payload):
     p = payload or {}
     name = p.get('device_name') or p.get('name') or p.get('host') or ''
     if event == 'device_offline':
-        return f'Device offline: {name}'
+        return f'Host offline: {name}'
     if event in ('vpn_client_disconnected', 'vpn_handshake_stale'):
         cn = p.get('client_name') or p.get('client_id') or 'client'
         tn = p.get('tunnel_name') or ''
@@ -10212,7 +10212,7 @@ def _alert_title(event, payload):
     if event == 'snmp_dead':
         return f'SNMP DEAD ({p.get("hours", "?")}h silent): {name} ({p.get("host", "?")})'
     if event == 'mcp_confirmation_expired':
-        return f'MCP confirmation expired: {p.get("action", "?")} on {name or "(no device)"}'
+        return f'MCP confirmation expired: {p.get("action", "?")} on {name or "(no host)"}'
     if event == 'health_degraded':
         return f'Health degraded on {name}: score {p.get("score", "?")}/100'
     if event == 'health_recovered':
@@ -10386,7 +10386,7 @@ def _alert_title(event, payload):
         return (f'New certificate for {p.get("domain","?")}: CN {p.get("cn","?")}, '
                 f'issuer {p.get("issuer","?")}')
     if event == 'ip_conflict':
-        return f'IP conflict: {p.get("ip","?")} — {p.get("detail") or "assigned to multiple devices"}'
+        return f'IP conflict: {p.get("ip","?")} — {p.get("detail") or "assigned to multiple hosts"}'
     if event == 'smart_failure':
         _d = p.get('disks') or p.get('disk')
         _ds = ', '.join(str(x) for x in _d) if isinstance(_d, (list, tuple)) else (_d or '?')
@@ -13130,7 +13130,7 @@ def fire_webhook(event, payload):
                             first_url = e['url']; break
                 if first_url:
                     _log_webhook(event, first_url, 'suppressed',
-                                 f'device "{dev.get("name", dev_id)}" is unmonitored')
+                                 f'host "{dev.get("name", dev_id)}" is unmonitored')
                 return
         except Exception:
             pass
@@ -15174,9 +15174,9 @@ def handle_device_delete(dev_id):
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if not _purge_device(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     respond(200, {'ok': True})
 
 
@@ -15192,7 +15192,7 @@ def handle_device_tags(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceTagsRequest)
     tags = body.get('tags', [])
     if not isinstance(tags, list):
@@ -15201,7 +15201,7 @@ def handle_device_tags(dev_id):
     tags = [t for t in tags if t]  # drop empty after sanitize
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['tags'] = tags
     respond(200, {'ok': True, 'tags': tags})
 
@@ -15211,12 +15211,12 @@ def handle_device_notes(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _read_valid(request_models.DeviceNotesRequest)
     notes = _sanitize_str(get_json_obj().get('notes', ''), MAX_NOTES_LEN)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['notes'] = notes
     respond(200, {'ok': True, 'notes': notes})
 
@@ -15240,10 +15240,10 @@ def handle_device_save_bulk(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         body = _read_valid(request_models.DeviceSaveBulkRequest)
         if not isinstance(body, dict):
             respond(400, {'error': 'body must be a JSON object'})
@@ -15487,10 +15487,10 @@ def handle_device_metric_thresholds(dev_id):
     """
     _actor = require_admin_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     dev = devices[dev_id]
 
     if method() == 'GET':
@@ -16261,7 +16261,7 @@ def _te_validate_and_build(actor, body, ticket=None):
             respond(400, {'error': 'bad device_id'})
         dev = device_get(device_id) or {}
         if not dev:
-            respond(400, {'error': 'device not found'})
+            respond(400, {'error': 'host not found'})
         device_name = dev.get('name', '')
         if not site_id:
             site_id = dev.get('site') or ''
@@ -16269,7 +16269,7 @@ def _te_validate_and_build(actor, body, ticket=None):
         respond(400, {'error': 'site not found'})
     if billable and not site_id:
         respond(400, {'error': 'billable hours need a customer — pick a site, '
-                               'or a device that belongs to one'})
+                               'or a host that belongs to one'})
     tag = _sanitize_str(str(body.get('tag') or ''), 32).strip()
     category = ''
     if not billable:
@@ -17302,7 +17302,7 @@ def _csv_emit(filename, header, rows):
 def _csv_time_entries(rows):
     ts = time.strftime('%Y%m%d-%H%M%S')
     _csv_emit(f'time-entries-{ts}.csv',
-              ['Date', 'User', 'Hours', 'Billable', 'Site', 'Device', 'Tag',
+              ['Date', 'User', 'Hours', 'Billable', 'Site', 'Host', 'Tag',
                'Ticket', 'Category', 'Rate', 'Note', 'Invoiced'],
               [[r.get('date'), r.get('user'), r.get('hours'),
                 'yes' if r.get('billable') else 'no', r.get('site_id'),
@@ -17878,20 +17878,20 @@ def handle_tenancy_readiness():
     if enforced:
         device_layer = 'app + database (RLS)' if rls else 'app only'
     stores = [
-        {'key': 'devices', 'label': 'Devices', 'isolated': enforced, 'layer': device_layer,
+        {'key': 'devices', 'label': 'Hosts', 'isolated': enforced, 'layer': device_layer,
          'note': 'Primary tenant boundary — every store below inherits its scoping '
-                 'from a device id you can only discover within your own tenant.'},
+                 'from a host id you can only discover within your own tenant.'},
         {'key': 'device_derived', 'label': 'Metrics, history/alerts, entity records',
          'isolated': enforced, 'layer': device_layer,
-         'note': 'Keyed by device id; scoped indirectly via the devices boundary '
+         'note': 'Keyed by host id; scoped indirectly via the hosts boundary '
                  '(app layer) and directly via RLS on entity/listrow/metric_samples '
                  'when database-level isolation is on.'},
         {'key': 'tickets', 'label': 'Tickets', 'isolated': False, 'layer': 'none',
          'note': 'Single shared store — not tenant-partitioned at any layer.'},
         {'key': 'cmdb', 'label': 'CMDB assets & credentials', 'isolated': True,
          'layer': 'app',
-         'note': 'Records are keyed by device id, so each one inherits its '
-                 "device's tenant and every handler gates on it. The store "
+         'note': 'Records are keyed by host id, so each one inherits its '
+                 "host's tenant and every handler gates on it. The store "
                  'itself is one document (no row-level partition), so a '
                  'superadmin restoring a backup restores every tenant.'},
         {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': False,
@@ -17919,12 +17919,12 @@ def handle_tenancy_readiness():
         {'key': 'enrolment', 'label': 'Enrolment PINs & tokens', 'isolated': enforced,
          'layer': 'app' if enforced else 'none',
          'note': "A PIN or token records the tenant of the admin who created it, and a "
-                 "device enrolled with it joins that tenant. Tenant admins list and "
+                 "host enrolled with it joins that tenant. Tenant admins list and "
                  "revoke only their own."},
         {'key': 'inbound', 'label': 'Inbound webhook & ingest tokens', 'isolated': enforced,
          'layer': 'app' if enforced else 'none',
-         'note': "A token pinned to a device belongs to that device's tenant. Tokens "
-                 "with no device attribute across the fleet and are the platform "
+         'note': "A token pinned to a host belongs to that host's tenant. Tokens "
+                 "with no host attribute across the fleet and are the platform "
                  "operator's."},
     ]
     respond(200, {'ok': True, 'tenancy_enforced': enforced, 'tenancy_rls': rls,
@@ -18063,12 +18063,12 @@ def handle_device_site(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _read_valid(request_models.DeviceSiteRequest)
     site_id = str(get_json_obj().get('site', '') or '').strip()
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         if site_id:
             sites = load(SITES_FILE)
             if site_id not in sites:
@@ -18118,7 +18118,7 @@ def handle_device_user_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('ssh', [dev_id])
     body = _read_valid(request_models.DeviceUserActionRequest)
     action = str(body.get('action', '')).strip()
@@ -18202,7 +18202,7 @@ def handle_device_firewall_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceFirewallActionRequest)
     backend = str(body.get('backend', 'ufw')).strip().lower()
@@ -18391,7 +18391,7 @@ def handle_device_firewall_rule(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceFirewallRuleRequest)
     backend = str(body.get('backend', '')).strip().lower()
@@ -18533,7 +18533,7 @@ def handle_device_files(dev_id):
     Opt-in (config.file_manager.enabled). Reads stay allowed under quarantine /
     audit-mode (read-only, useful for incident response); mutations do not."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     fm = _file_mgr_cfg()
     # v6.0.0: always on (the opt-in toggle is gone); the allow-listed roots +
@@ -18564,12 +18564,12 @@ def handle_device_files(dev_id):
         respond(403, {'error': 'path is outside the allowlisted file-manager roots'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if op in _FILE_MGR_OPS_WRITE:
         if _device_quarantined(devices[dev_id]):
-            respond(409, {'error': 'Device is quarantined — file writes are disabled.'})
+            respond(409, {'error': 'Host is quarantined — file writes are disabled.'})
         if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
-            respond(409, {'error': 'Device is in audit (read-only) mode — file writes are disabled.'})
+            respond(409, {'error': 'Host is in audit (read-only) mode — file writes are disabled.'})
     parts = ['files', op, _base64.urlsafe_b64encode(path.encode()).decode()]
     if op == 'write':
         c = '' if content is None else str(content)
@@ -18671,7 +18671,7 @@ def handle_files_archive_start(dev_id):
     /files/archive-chunk asynchronously — poll /files/archive-status for
     progress, then GET /files/archive-download once status is 'done'."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     fm = _file_mgr_cfg()
     roots = [str(r) for r in (fm.get('roots') or [])
@@ -18684,9 +18684,9 @@ def handle_files_archive_start(dev_id):
         respond(403, {'error': 'path is outside the allowlisted file-manager roots'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if _device_quarantined(devices[dev_id]):
-        respond(409, {'error': 'Device is quarantined — archiving is disabled.'})
+        respond(409, {'error': 'Host is quarantined — archiving is disabled.'})
     job_id = secrets.token_urlsafe(16)
     now = int(time.time())
     with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
@@ -18722,7 +18722,7 @@ def handle_files_archive_start(dev_id):
 def handle_files_archive_status(dev_id):
     """GET /api/devices/{id}/files/archive-status?job=<id>"""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     require_perm('command', [dev_id])
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     job_id = (qs.get('job', [''])[0] or '').strip()
@@ -18739,7 +18739,7 @@ def handle_files_archive_cancel(dev_id):
     loop checks job status on its NEXT chunk POST and stops (see
     handle_files_archive_chunk); there is no way to interrupt it mid-chunk."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.FilesArchiveCancelRequest)
     job_id = str(body.get('job_id', '')).strip()
@@ -18767,7 +18767,7 @@ def handle_files_archive_download(dev_id):
     the existing backup-export/diagnostics-bundle downloads — fine at the
     _FILE_ARCHIVE_TOTAL_MAX (200MB) cap."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     job_id = (qs.get('job', [''])[0] or '').strip()
@@ -18798,13 +18798,13 @@ def handle_files_archive_chunk(dev_id):
     to keep going, so a cancel/failure/size-cap breach is discovered on the
     NEXT chunk, not mid-transfer."""
     if not _validate_id(dev_id):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
     body = _read_valid(request_models.FilesArchiveChunkRequest)
     dev_token = str(body.get('token', '')).strip()
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _device_token_ok(dev, dev_token):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
     _mtls_ok, _mtls_why = _agent_mtls_ok(dev_id)
     if not _mtls_ok:
         respond(403, {'error': _mtls_why})
@@ -18906,7 +18906,7 @@ def handle_device_cron_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceCronActionRequest)
     op = str(body.get('op', '')).strip().lower()
@@ -18978,7 +18978,7 @@ def handle_device_storage_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceStorageActionRequest)
     kind = str(body.get('kind', '')).strip().lower()
@@ -19135,7 +19135,7 @@ def handle_device_storage_provision(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceStorageProvisionRequest)
     recipe = str(body.get('recipe', '')).strip()
@@ -19163,7 +19163,7 @@ def handle_device_fail2ban_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DeviceFail2banActionRequest)
     action = str(body.get('action', '')).strip().lower()
@@ -19899,7 +19899,7 @@ def handle_ansible_playbook_run(pb_id):
     ids = [i for i in ids if i in devices and devices[i].get('ip')
            and not _device_quarantined(devices[i])]
     if not ids:
-        respond(400, {'error': 'No target devices with a known IP.'})
+        respond(400, {'error': 'No target hosts with a known IP.'})
     actor = require_perm('script', ids)
 
     ssh_user = re.sub(r'[^a-zA-Z0-9._\-]', '', str(body.get('ssh_user', '')))[:32]
@@ -20136,14 +20136,14 @@ def handle_device_group(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _read_valid(request_models.DeviceGroupRequest)
     raw = _sanitize_str(get_json_obj().get('group', ''), MAX_GROUP_LEN)
     # Allow alphanumeric, hyphen, underscore, forward-slash for namespaces
     group = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)[:MAX_GROUP_LEN]
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['group'] = group
     respond(200, {'ok': True, 'group': group})
 
@@ -20153,7 +20153,7 @@ def handle_device_poll_interval(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     try:
         _read_valid(request_models.DevicePollIntervalRequest)
         interval = int(get_json_obj().get('poll_interval', 60))
@@ -20162,7 +20162,7 @@ def handle_device_poll_interval(dev_id):
     interval = max(10, min(3600, interval))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['poll_interval'] = interval
     # CMDS_FILE is a separate store — its own (sequential, non-nested) lock.
     with _LockedUpdate(CMDS_FILE) as cmds:
@@ -20182,7 +20182,7 @@ def handle_device_alert_delay(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     try:
         mins = int((get_json_obj()).get('offline_alert_delay_min', 0))
     except (TypeError, ValueError, OverflowError):
@@ -20194,7 +20194,7 @@ def handle_device_alert_delay(dev_id):
             devices[dev_id]['offline_alert_delay_min'] = mins
             found = True
     if not found:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     audit_log(actor, 'device_alert_delay', f'device={dev_id} delay_min={mins}')
     respond(200, {'ok': True, 'offline_alert_delay_min': mins})
 
@@ -20204,12 +20204,12 @@ def handle_device_icon(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _read_valid(request_models.DeviceIconRequest)
     icon = _sanitize_str(get_json_obj().get('icon', ''), 32)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['icon'] = icon
     respond(200, {'ok': True, 'icon': icon})
 
@@ -20219,12 +20219,12 @@ def handle_device_monitored(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceMonitoredRequest)
     monitored = bool(body.get('monitored', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['monitored'] = monitored
     # If disabling monitoring, clear any pending offline notification
     if not monitored:
@@ -20269,13 +20269,13 @@ def handle_device_decommission(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _scope_block_device(dev_id)
     _read_valid(request_models.DeviceDecommissionRequest)
     dc = bool(get_json_obj().get('decommissioned', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['decommissioned'] = dc
         devices[dev_id]['monitored'] = False if dc else True
     if dc:
@@ -20307,12 +20307,12 @@ def handle_device_require_confirmation(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceRequireConfirmationRequest)
     require = bool(body.get('require_confirmation', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['require_confirmation'] = require
     audit_log(requester, 'device_require_confirmation',
               f'dev={dev_id} require_confirmation={require}')
@@ -20328,12 +20328,12 @@ def handle_device_compose_enabled(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceComposeEnabledRequest)
     enabled = bool(body.get('compose_enabled', False))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['compose_enabled'] = enabled
     audit_log(requester, 'device_compose_enabled',
               f'dev={dev_id} compose_enabled={enabled}')
@@ -20755,7 +20755,7 @@ def handle_enroll_register():
                 _cap = MAX_DEVICES
             if _cap and len(devices) >= _cap:
                 pending_audit = ('enroll_denied',
-                                 f'fleet at device cap ({_cap}) ip={_get_client_ip()}')
+                                 f'fleet at host cap ({_cap}) ip={_get_client_ip()}')
                 outcome = ('denied_cap', _cap)
             else:
                 dev_id = secrets.token_urlsafe(12)
@@ -20797,10 +20797,10 @@ def handle_enroll_register():
                       + (f', group {_grp}' if _grp else ''),
         })
     if outcome[0] == 'denied_cap':
-        respond(403, {'error': f'Device limit reached (max_devices={outcome[1]}). '
-                               'Raise the cap in Settings or retire unused devices.'})
+        respond(403, {'error': f'Host limit reached (max_devices={outcome[1]}). '
+                               'Raise the cap in Settings or retire unused hosts.'})
     if outcome[0] == 'denied':
-        respond(403, {'error': 'Existing device token required for re-enrollment'})
+        respond(403, {'error': 'Existing host token required for re-enrollment'})
     if outcome[0] == 'reenroll':
         respond(200, {'ok': True, 'device_id': outcome[1],
                       'token': outcome[2], 'reregistered': True})
@@ -20892,7 +20892,7 @@ def _agent_mtls_ok(dev_id):
         if not fp:
             return (False, 'mutual TLS: client certificate fingerprint missing')
         if not hmac.compare_digest(pin, fp):
-            return (False, 'mutual TLS: client certificate does not match the device pin')
+            return (False, 'mutual TLS: client certificate does not match the host pin')
     return (True, '')
 
 
@@ -20950,7 +20950,7 @@ def handle_heartbeat():
         pass
 
     if not _validate_id(dev_id):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
 
     # v5.0.0 (#C1): mutual-TLS gate — when enabled, every agent request must
     # carry a CA-verified client cert (and match the device pin if set). Checked
@@ -20970,7 +20970,7 @@ def handle_heartbeat():
         _now = int(time.time())
         _d = device_get(dev_id)
         if not _d or not _device_token_ok(_d, dev_token):
-            respond(403, {'error': 'Unauthorized device'})
+            respond(403, {'error': 'Unauthorized host'})
         if not _d.get('agent_stopping_at'):       # edge-trigger; ignore repeats
             with _DeviceUpdate(dev_id) as _du:
                 if _du.get(dev_id):
@@ -21052,7 +21052,7 @@ def handle_heartbeat():
         if not dev or not _device_token_ok(dev, dev_token):
             # respond() raises SystemExit; __exit__ skips the save, releases
             # the lock. No partial write on disk.
-            respond(403, {'error': 'Unauthorized device'})
+            respond(403, {'error': 'Unauthorized host'})
         # v5.4.1: migrate a legacy plaintext token to a hash on first authenticated
         # heartbeat (we already hold the device lock + are mutating dev). The agent
         # keeps sending its plaintext token; only the stored copy becomes a hash.
@@ -24080,13 +24080,13 @@ def handle_device_pdu(dev_id):
     """GET/PATCH /api/devices/{id}/pdu — smart-PDU/plug outlet mapping used to
     power-cycle a (possibly hung) host. PATCH is admin-only + audited."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     m = method()
     if m == 'GET':
         require_auth()
         devs = load(DEVICES_FILE)
         if dev_id not in devs:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         respond(200, {'pdu': devs[dev_id].get('pdu') or {}})
     if m != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
@@ -24103,7 +24103,7 @@ def handle_device_pdu(dev_id):
         respond(400, {'error': 'invalid outlet'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         if kind and host:
             devices[dev_id]['pdu'] = {'kind': kind, 'host': host, 'outlet': outlet}
         else:
@@ -24119,7 +24119,7 @@ def handle_device_power_control(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.DevicePowerControlRequest)
     action = str(body.get('action', '')).strip().lower()
@@ -24127,10 +24127,10 @@ def handle_device_power_control(dev_id):
         respond(400, {'error': 'action must be on, off or cycle'})
     dev = _load_ro(DEVICES_FILE).get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     pdu = dev.get('pdu') or {}
     if not (pdu.get('kind') and pdu.get('host')):
-        respond(400, {'error': 'No PDU configured for this device — set one first'})
+        respond(400, {'error': 'No PDU configured for this host — set one first'})
     steps = ['off', 'on'] if action == 'cycle' else [action]
     results = []
     for i, step in enumerate(steps):
@@ -24179,7 +24179,7 @@ def handle_service_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.ServiceActionRequest)
     unit = str(body.get('unit', '')).strip()
@@ -24199,7 +24199,7 @@ def handle_process_kill(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     body = _read_valid(request_models.ProcessKillRequest)
     pid = str(body.get('pid', '')).strip()
@@ -24307,12 +24307,12 @@ def _command_block_reason(dev, command):
                      f'paused. They will resume once maintenance ends.')
     # v3.4.0: never queue actions for a quarantined device.
     if _device_quarantined(dev):
-        return (409, 'Device is quarantined — exec/reboot/actions are disabled.')
+        return (409, 'Host is quarantined — exec/reboot/actions are disabled.')
     # v4.11.0: an audit-mode (read-only) agent refuses every command locally.
     # Refuse to even queue one so the operator gets a clear error now instead of a
     # deferred "refused" result. The flag rides the heartbeat sysinfo.
     if (dev.get('sysinfo') or {}).get('audit_mode'):
-        return (409, 'Device is in audit (read-only) mode — exec/reboot/actions are '
+        return (409, 'Host is in audit (read-only) mode — exec/reboot/actions are '
                      'disabled. Remove /etc/remotepower/audit-mode on the host to '
                      're-enable.')
     # v6.4.3: same reasoning as audit mode one line up — the agent would answer
@@ -24331,7 +24331,7 @@ def _queue_command(dev_id, command, actor, force_approval=False,
                    reason=None, ticket_ref=None):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _blocked = _command_block_reason(devices[dev_id], command)
     if _blocked:
         _status, _msg = _blocked
@@ -24467,7 +24467,7 @@ def _queue_command_batch(dev_ids, command, actor):
     if _needs_approval(_kind):
         for dev_id in dev_ids:
             if not _validate_id(dev_id) or dev_id not in devices:
-                results[dev_id] = {'ok': False, 'error': 'Device not found'}
+                results[dev_id] = {'ok': False, 'error': 'Host not found'}
                 continue
             cid = _park_for_approval(dev_id, command, actor, _kind)
             results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}
@@ -24482,15 +24482,15 @@ def _queue_command_batch(dev_ids, command, actor):
     with _LockedUpdate(CMDS_FILE) as cmds:
         for dev_id in dev_ids:
             if not _validate_id(dev_id):
-                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Invalid host ID'}; continue
             if dev_id not in devices:
-                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host not found'}; continue
             if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
-                results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host is quarantined'}; continue
             # v5.0.1: mirror _queue_command — refuse to enqueue onto an audit-mode
             # (read-only) host so bulk ops report a clear error, not false success.
             if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
-                results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host is in audit (read-only) mode'}; continue
             # v6.4.3: and mirror the OS-support gate, so a mixed-platform batch
             # reports the hosts whose agent cannot run this verb instead of
             # counting them as queued successes.
@@ -24531,7 +24531,7 @@ def _queue_command_map(dev_cmds, actor):
     if _needs_approval(_kind):
         for dev_id, command in dev_cmds.items():
             if not _validate_id(dev_id) or dev_id not in devices:
-                results[dev_id] = {'ok': False, 'error': 'Device not found'}
+                results[dev_id] = {'ok': False, 'error': 'Host not found'}
                 continue
             cid = _park_for_approval(dev_id, command, actor, _kind)
             results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}
@@ -24540,13 +24540,13 @@ def _queue_command_map(dev_cmds, actor):
     with _LockedUpdate(CMDS_FILE) as cmds:
         for dev_id, command in dev_cmds.items():
             if not _validate_id(dev_id):
-                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Invalid host ID'}; continue
             if dev_id not in devices:
-                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host not found'}; continue
             if _device_quarantined(devices[dev_id]):
-                results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host is quarantined'}; continue
             if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
-                results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host is in audit (read-only) mode'}; continue
             # v6.4.3: and mirror the OS-support gate, so a mixed-platform batch
             # reports the hosts whose agent cannot run this verb instead of
             # counting them as queued successes.
@@ -24578,13 +24578,13 @@ def handle_device_ups_dependency(dev_id):
     PATCH is admin-only + audited. Presence of the stored object is what
     "enables" it for this device, matching handle_device_pdu's convention."""
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     m = method()
     if m == 'GET':
         require_auth()
         devs = load(DEVICES_FILE)
         if dev_id not in devs:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         respond(200, {'ups_dependency': devs[dev_id].get('ups_dependency') or {}})
     if m != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
@@ -24595,10 +24595,10 @@ def handle_device_ups_dependency(dev_id):
     if source_id and not _validate_id(source_id):
         respond(400, {'error': 'invalid source_device_id'})
     if source_id == dev_id:
-        respond(400, {'error': 'a device cannot depend on its own UPS'})
+        respond(400, {'error': 'a host cannot depend on its own UPS'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         if source_id:
             # v7.0.2: `dev_id` rides main()'s _enforce_device_scope because the
             # route is under /api/devices/<id>/. `source_id` arrives in the
@@ -24611,7 +24611,7 @@ def handle_device_ups_dependency(dev_id):
             if source_id not in _scope_filter_devices(
                     {source_id: devices.get(source_id)} if source_id in devices
                     else {}):
-                respond(400, {'error': 'source device not found'})
+                respond(400, {'error': 'source host not found'})
             devices[dev_id]['ups_dependency'] = {'source_device_id': source_id, 'ups_name': ups_name}
         else:
             devices[dev_id].pop('ups_dependency', None)
@@ -24754,7 +24754,7 @@ def handle_command_queue_clear(dev_id):
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     idx_raw = (qs.get('index') or [''])[0]
     with _LockedUpdate(CMDS_FILE) as cmds:
@@ -24797,7 +24797,7 @@ def handle_command_queue_clear_all():
             cmds[dev_id] = []
             cleared_devs += 1
     audit_log(actor, 'command_queue_clear_all',
-              f'cleared {removed} queued command(s) across {cleared_devs} device(s)')
+              f'cleared {removed} queued command(s) across {cleared_devs} host(s)')
     respond(200, {'ok': True, 'removed': removed, 'devices': cleared_devs})
 
 
@@ -24806,7 +24806,7 @@ def _check_exec_allowlist(dev_id, cmd_str, devices):
     allowed = devices[dev_id].get('allowed_commands', [])
     if allowed:
         if cmd_str not in allowed:
-            return False, 'Command not in allowed_commands list for this device'
+            return False, 'Command not in allowed_commands list for this host'
     else:
         # Denylist fallback
         for b in ['rm -rf /', 'mkfs', '> /dev/sd', 'dd if=', ':(){:|:&};:']:
@@ -24818,7 +24818,7 @@ def _check_exec_allowlist(dev_id, cmd_str, devices):
 def handle_shutdown():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
-    if not ids: respond(400, {'error': 'No valid device targets'})
+    if not ids: respond(400, {'error': 'No valid host targets'})
     actor = require_perm('shutdown', ids)   # v3.4.2 RBAC: power action
     # v6.4.3: thread the operator's justification onto a parked change.
     # _approval_context has existed since v6.4.2 with ZERO call sites, so the
@@ -24833,14 +24833,14 @@ def handle_shutdown():
         _res = _queue_command_batch(ids, 'shutdown', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('shutdown',
-                                                  f'Shut down {len(ids)} device(s)',
+                                                  f'Shut down {len(ids)} host(s)',
                                                   'shutdown', actor, _res)})
 
 
 def handle_reboot():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
-    if not ids: respond(400, {'error': 'No valid device targets'})
+    if not ids: respond(400, {'error': 'No valid host targets'})
     actor = require_perm('reboot', ids)
     _why, _tkt = _approval_context(body)      # v6.4.3 — see handle_shutdown
     if len(ids) == 1:
@@ -24850,7 +24850,7 @@ def handle_reboot():
         _res = _queue_command_batch(ids, 'reboot', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('reboot',
-                                                  f'Reboot {len(ids)} device(s)',
+                                                  f'Reboot {len(ids)} host(s)',
                                                   'reboot', actor, _res)})
 
 
@@ -24915,7 +24915,7 @@ def handle_update_device():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.UpdateDeviceRequest)
     body = get_json_body(); ids = _resolve_targets(body)
-    if not ids: respond(400, {'error': 'No valid device targets'})
+    if not ids: respond(400, {'error': 'No valid host targets'})
     actor = require_perm('patch', ids)
     # v5.0.0 (#F4): block an update that would be a cross-major downgrade (agent
     # newer than server) unless explicitly forced — prevents version mismatches.
@@ -24934,7 +24934,7 @@ def handle_update_device():
         _res = _queue_command_batch(ids, 'update', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('agent_update',
-                                                  f'Update agent on {len(ids)} device(s)',
+                                                  f'Update agent on {len(ids)} host(s)',
                                                   'update', actor, _res)})
 
 
@@ -24959,10 +24959,10 @@ def handle_uninstall_agent(dev_id):
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         dev_name = devices[dev_id].get('name', dev_id)
         # v6.4.3: this handler appends to CMDS_FILE directly and so never
         # reaches _command_block_reason — the per-platform verb gate does not
@@ -24974,7 +24974,7 @@ def handle_uninstall_agent(dev_id):
     if _vu:
         respond(409, {'error': f'The {_OS_LABEL.get(_vu[1], _vu[1])} agent has no '
                                'self-uninstall path — remove it on the host and then '
-                               'delete the device here.'})
+                               'delete the host here.'})
     # v3.14.0: 4-eyes — park the uninstall for a second admin when enabled.
     # (Done before marking the record so an un-approved request leaves no trace.)
     if _needs_approval('uninstall'):
@@ -24985,7 +24985,7 @@ def handle_uninstall_agent(dev_id):
                       'detail': 'Parked — a second admin must approve it.'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['agent_uninstalled']    = True
         devices[dev_id]['agent_uninstalled_at'] = int(time.time())
         devices[dev_id]['agent_uninstalled_by'] = actor
@@ -25221,7 +25221,7 @@ def handle_upgrade_device():
     """
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
-    if not ids: respond(400, {'error': 'No valid device targets'})
+    if not ids: respond(400, {'error': 'No valid host targets'})
     actor = require_perm('patch', ids)   # v3.4.2 RBAC
 
     # v7.0.2: `cmds` is a SNAPSHOT used to decide (queue depth, duplicate
@@ -25234,10 +25234,10 @@ def handle_upgrade_device():
     _up_why, _up_tkt = _approval_context(body)   # v6.4.3 — see handle_shutdown
     for dev_id in ids:
         if not _validate_id(dev_id):
-            results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+            results[dev_id] = {'ok': False, 'error': 'Invalid host ID'}; continue
         dev = devices.get(dev_id)
         if not dev:
-            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+            results[dev_id] = {'ok': False, 'error': 'Host not found'}; continue
         # v6.2.0 (BUG): this was hoisted OUT of the loop as a single bash
         # `exec:{_UPGRADE_CMD}` with no OS branch — so a Windows or macOS host
         # was sent a shell script, which its agent dutifully handed to
@@ -25300,7 +25300,7 @@ def handle_upgrade_device():
     # so it records its own.
     respond(200, {'ok': True, 'results': results,
                   'job_id': _record_batch_job('upgrade',
-                                              f'Upgrade packages on {len(ids)} device(s)',
+                                              f'Upgrade packages on {len(ids)} host(s)',
                                               'upgrade', actor, results)})
 
 
@@ -25406,7 +25406,7 @@ def _handle_pkg_action(kind):
                                + ' — allowed: letters, digits, . _ + : @ / -'})
     ids = _resolve_targets(body)
     if not ids:
-        respond(400, {'error': 'No valid device targets'})
+        respond(400, {'error': 'No valid host targets'})
     actor = require_perm('packages', ids)   # install/uninstall/hold is an exec action
     _verbs = {'install': 'install', 'uninstall': 'uninstall', 'hold': 'hold', 'unhold': 'unhold'}
     verb = _verbs.get(kind, 'install')
@@ -25486,7 +25486,7 @@ def _send_wol(dev):
     v3.14.0 power scheduler."""
     mac = str(dev.get('mac') or '').strip()
     if not mac:
-        return False, 'No MAC address on record for this device'
+        return False, 'No MAC address on record for this host'
     if not _MAC_RE.match(mac):
         return False, 'Invalid MAC address format'
     magic = b'\xff' * 6 + bytes.fromhex(mac.replace(':', '').replace('-', '')) * 16
@@ -25527,9 +25527,9 @@ def handle_wol():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.WolRequest)
     dev_id = str(body.get('device_id', '')).strip()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     _scope_block_device(dev_id)   # body-supplied id, not under /api/devices/ — tenant/scope gate
     ok, info = _send_wol(devices[dev_id])
     if not ok:
@@ -25539,9 +25539,9 @@ def handle_wol():
 
 def handle_sysinfo(dev_id):
     require_auth()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     dev = device_get(dev_id)   # v4.3.0: single-row read
-    if not dev: respond(404, {'error': 'Device not found'})
+    if not dev: respond(404, {'error': 'Host not found'})
     respond(200, {'sysinfo': dev.get('sysinfo', {}), 'journal': dev.get('journal', []),
                   # v3.8.0: surface why the host last restarted (boot_reason)
                   'last_boot_reason': dev.get('last_boot_reason', ''),
@@ -25588,7 +25588,7 @@ def handle_sysinfo_batch():
 
 def handle_metrics(dev_id):
     require_auth()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
     # v3.14.0: ?range=<seconds> serves the long-retention time-series (DB
     # backends), downsampled to keep the chart readable. No range / JSON backend
@@ -26189,7 +26189,7 @@ def _execute_monitor_checks(monitors):
             if matched == 0:
                 results.append({'label': label, 'type': mtype,
                                 'target': f'{tkind}:{tval}', 'ok': True,
-                                'detail': f'no devices in {tkind} "{tval}"',
+                                'detail': f'no hosts in {tkind} "{tval}"',
                                 'checked': int(time.time())})
             continue
         # Host-targeted (default).
@@ -35023,7 +35023,7 @@ def handle_self_status():
         flags.append(f'memory > {_mem_warn}%')
     if isinstance(out.get('devices'), dict) and out['devices'].get('monitored'):
         if perf.get('devices_online_pct', 100) < _online_warn:
-            flags.append(f'< {_online_warn}% devices online')
+            flags.append(f'< {_online_warn}% hosts online')
     if isinstance(out.get('webhooks', {}).get('last_24h'), dict):
         rate = out['webhooks']['last_24h'].get('rate')
         # rate is None when every event was suppressed/disabled/filtered —
@@ -36239,7 +36239,7 @@ def _record_uptime(dev_id, name, is_online):
 
 def handle_uptime(dev_id):
     require_auth()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     uptime = load(UPTIME_FILE); dev = uptime.get(dev_id, {})
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id), 'events': dev.get('events', [])})
 
@@ -37028,7 +37028,7 @@ def _validate_scheduled_command(command, dev_id):
                     ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items', [])
                     if isinstance(c, dict)}
         if cname not in reported:
-            respond(400, {'error': "container not in this device's reported list "
+            respond(400, {'error': "container not in this host's reported list "
                                    '(refresh the listing if you just added it)'})
         return
     respond(400, {'error': 'Invalid command'})
@@ -37043,9 +37043,9 @@ def handle_schedule_add():
     run_at  = body.get('run_at', 0)
     cron    = _sanitize_str(body.get('cron', ''), 64)
 
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
 
@@ -37096,9 +37096,9 @@ def handle_schedule_update(job_id):
     command = str(body.get('command', '')).strip()
     run_at  = body.get('run_at', 0)
     cron    = _sanitize_str(body.get('cron', ''), 64)
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
     if cron:
@@ -37304,7 +37304,7 @@ def handle_custom_cmd():
 
     # Support batch targets (device_ids, tag, group) just like shutdown/reboot
     ids = _resolve_targets(body)
-    if not ids: respond(400, {'error': 'No valid device targets'})
+    if not ids: respond(400, {'error': 'No valid host targets'})
     actor = require_perm('command', ids)   # v3.4.2 RBAC: arbitrary exec
 
     devices = load(DEVICES_FILE)
@@ -37325,7 +37325,7 @@ def handle_custom_cmd():
             conf_ids.append(_create_confirmation(
                 'exec_command', dev_id, {'command': _queued},
                 actor, None, None))
-        audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} device(s)')
+        audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} host(s)')
         respond(202, {'ok': False, 'approval_required': True,
                       'confirmation_ids': conf_ids,
                       'message': 'Change queued for approval by another admin.'})
@@ -37340,9 +37340,9 @@ def handle_custom_cmd():
         results = {}
         for dev_id in ids:
             if not _validate_id(dev_id):
-                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Invalid host ID'}; continue
             if dev_id not in devices:
-                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+                results[dev_id] = {'ok': False, 'error': 'Host not found'}; continue
             ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
             if not ok:
                 results[dev_id] = {'ok': False, 'error': reason}; continue
@@ -37369,7 +37369,7 @@ def handle_custom_cmd():
 
 def handle_cmd_output(dev_id):
     require_auth()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     outputs = load(CMD_OUTPUT_FILE)
     respond(200, {'outputs': outputs.get(dev_id, [])})
 
@@ -37387,10 +37387,10 @@ def handle_device_update_logs(dev_id: str) -> None:
     """
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     logs = load(UPDATE_LOGS_FILE)
     respond(200, {
         'device_id': dev_id,
@@ -37411,10 +37411,10 @@ def handle_device_containers(dev_id: str) -> None:
     """
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     store = load(CONTAINERS_FILE)
     entry = store.get(dev_id) or {}
     items = entry.get('items', [])
@@ -37811,13 +37811,13 @@ def _ssh_preflight(dev_id):
     devs = load(DEVICES_FILE) or {}
     dev = devs.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if dev_id not in _scope_filter_devices(devs):
         respond(403, {'error': 'Out of scope'})
     host = dev.get('ssh_host') or dev.get('ip') or dev.get('hostname') or ''
     user = dev.get('ssh_user') or ''
     if not (host and user):
-        respond(400, {'error': 'Device has no SSH user / host configured.'})
+        respond(400, {'error': 'Host has no SSH user / host configured.'})
     return cfg, dev, host, user, int(dev.get('ssh_port') or 22), key
 
 
@@ -38060,7 +38060,7 @@ def handle_image_cve_scan():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'device not found'})
+                respond(404, {'error': 'host not found'})
             targets = [target]
         else:
             # Only hosts that actually run containers — trivy on a host with no
@@ -38131,9 +38131,9 @@ def handle_disk_usage_scan(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if not dev:
-            respond(404, {'error': 'device not found'})
+            respond(404, {'error': 'host not found'})
         if dev.get('agentless'):
-            respond(400, {'error': 'agentless devices cannot run a disk scan'})
+            respond(400, {'error': 'agentless hosts cannot run a disk scan'})
         # v6.4.2: the du collector is Linux/macOS only — the Windows agent has no
         # reader for force_du_scan at all, so the heartbeat popped the flag and
         # threw it away while the operator got a green "runs it on the next
@@ -38168,7 +38168,7 @@ def handle_secrets_scan_now():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'device not found'})
+                respond(404, {'error': 'host not found'})
             targets = [target]
         else:
             # Any host with an agent (secrets scan isn't container-specific);
@@ -38312,7 +38312,7 @@ def handle_pii_scan_now():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'device not found'})
+                respond(404, {'error': 'host not found'})
             targets = [target]
         else:
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
@@ -39626,10 +39626,10 @@ def handle_device_containers_clear(dev_id: str) -> None:
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
 
     store = load(CONTAINERS_FILE)
     had_entry = dev_id in store
@@ -39666,11 +39666,11 @@ def handle_device_compose_list(dev_id):
     """List the compose projects this device reported in its heartbeat."""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     projects = dev.get('compose_projects', []) or []
     respond(200, {
         'device_id': dev_id,
@@ -39756,7 +39756,7 @@ def handle_device_docker_prune(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = get_json_obj()
     _rm_ok, _rm_err = request_models.validate(request_models.DockerPruneRequest, body)
     if not _rm_ok:
@@ -39812,9 +39812,9 @@ def handle_device_docker_prune(dev_id):
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _tenant_visible(dev):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if dev.get('agentless'):
-        respond(400, {'error': 'cannot run docker on an agentless device'})
+        respond(400, {'error': 'cannot run docker on an agentless host'})
 
     # Join with `;` (not `&&`) so every selected prune runs even when an earlier
     # one has nothing to reclaim; an `echo @@RP:<target>` marker before each lets
@@ -39882,7 +39882,7 @@ def handle_device_compose_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceComposeActionRequest)
     action = str(body.get('action', '')).strip().lower()
     project_dir = str(body.get('dir', '')).strip()
@@ -39895,9 +39895,9 @@ def handle_device_compose_action(dev_id):
     devices = _load_ro(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if dev.get('agentless'):
-        respond(400, {'error': 'cannot run compose on agentless device'})
+        respond(400, {'error': 'cannot run compose on agentless host'})
 
     # Path must match a project the agent reported. This is *the* security
     # check — if it weren't here, a stolen admin token could ask any
@@ -39914,7 +39914,7 @@ def handle_device_compose_action(dev_id):
             reported_dirs.add(cd)
     if project_dir not in reported_dirs:
         respond(400, {
-            'error': 'dir not in this device\'s reported compose projects '
+            'error': 'dir not in this host\'s reported compose projects '
                      '(refresh the listing if you just added the project)'
         })
 
@@ -39985,7 +39985,7 @@ def handle_device_container_action(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceContainerActionRequest)
     action = str(body.get('action', '')).strip().lower()
     container_id = str(body.get('container_id', '')).strip()
@@ -40005,9 +40005,9 @@ def handle_device_container_action(dev_id):
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if dev.get('agentless'):
-        respond(400, {'error': 'cannot run container actions on agentless device'})
+        respond(400, {'error': 'cannot run container actions on agentless host'})
     # v6.4.2: refuse here what the target cannot do, instead of queueing it and
     # returning a success the operator will believe. `update` recreates a
     # container from its inspect output and only the Linux/podman agent
@@ -40044,7 +40044,7 @@ def handle_device_container_action(dev_id):
                 reported_ids.add(full[:12])
     if container_id not in reported_ids:
         respond(400, {'error':
-                      'container_id not in this device\'s reported container '
+                      'container_id not in this host\'s reported container '
                       'list (refresh the listing if you just started it)'})
 
     cmd_payload = f'container:{runtime}:{action}:{container_id}'
@@ -41281,7 +41281,7 @@ def handle_agentless_create() -> None:
 
     with _LockedUpdate(DEVICES_FILE) as devices:
         if connected_to and connected_to not in devices:
-            respond(400, {'error': f'connected_to: device {connected_to} not found'})
+            respond(400, {'error': f'connected_to: host {connected_to} not found'})
 
         new_id = 'al_' + secrets.token_hex(6)
         devices[new_id] = {
@@ -41322,14 +41322,14 @@ def handle_device_connected_to(dev_id: str) -> None:
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         body = _read_valid(request_models.DeviceConnectedToRequest)
         target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
         if target == dev_id:
-            respond(400, {'error': 'a device cannot connect to itself'})
+            respond(400, {'error': 'a host cannot connect to itself'})
         if target and target not in devices:
             respond(400, {'error': f'device {target} not found'})
         devices[dev_id]['connected_to'] = target
@@ -41348,19 +41348,19 @@ def handle_device_depends_on(dev_id: str) -> None:
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         body = _read_valid(request_models.DeviceDependsOnRequest)
         raw = body.get('depends_on') or []
         if not isinstance(raw, list):
-            respond(400, {'error': 'depends_on must be a list of device ids'})
+            respond(400, {'error': 'depends_on must be a list of host ids'})
         ups = []
         for u in raw[:50]:
             u = _sanitize_str(u, 64)
             if u == dev_id:
-                respond(400, {'error': 'a device cannot depend on itself'})
+                respond(400, {'error': 'a host cannot depend on itself'})
             if u and u in devices and u not in ups:
                 ups.append(u)
         devices[dev_id]['depends_on'] = ups
@@ -41420,7 +41420,7 @@ def handle_reboot_plan():
         # ordered waves itself.
         respond(400, {'error': 'scope.type must be all, group, tag, smart, site or ids'})
     if not ids:
-        respond(400, {'error': 'no eligible devices in scope'})
+        respond(400, {'error': 'no eligible hosts in scope'})
     waves = _reboot_wave_plan(ids, devices)
     rings = []
     for i, w in enumerate(waves):
@@ -41459,7 +41459,7 @@ def handle_device_live_start(dev_id):
     require_admin_auth()
     devices = load(DEVICES_FILE) or {}
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     now = int(time.time())
     with _LockedUpdate(LIVE_FILE) as store:
         store[dev_id] = {'until': now + LIVE_WINDOW_SECONDS + 30}
@@ -41477,7 +41477,7 @@ def handle_device_live_sample(dev_id):
     body = _read_valid(request_models.DeviceLiveSampleRequest)
     tok = str(body.get('token') or '') or (get_token_from_request() or '')
     if not dev or not _device_token_ok(dev, tok):
-        respond(403, {'error': 'invalid device token'})
+        respond(403, {'error': 'invalid host token'})
     now = int(time.time())
 
     def _n(v):
@@ -42082,12 +42082,12 @@ def handle_tunnel_add() -> None:
     body = _read_valid(request_models.TunnelAddRequest)
     ends = body.get('endpoints') or []
     if not (isinstance(ends, list) and len(ends) == 2):
-        respond(400, {'error': 'endpoints must be a list of exactly 2 device IDs'})
+        respond(400, {'error': 'endpoints must be a list of exactly 2 host IDs'})
     a, b = ends
     if not isinstance(a, str) or not isinstance(b, str) or not a or not b:
         respond(400, {'error': 'endpoints must be two non-empty strings'})
     if a == b:
-        respond(400, {'error': 'a tunnel cannot have the same device on both ends'})
+        respond(400, {'error': 'a tunnel cannot have the same host on both ends'})
     # Scope-filtered so a tenant admin cannot assert a relationship between
     # two hosts they do not own; "not found" is the same answer they get for
     # an id that does not exist, which is the right amount of information.
@@ -42104,7 +42104,7 @@ def handle_tunnel_add() -> None:
     for t in raw.values():
         existing = sorted(t.get('endpoints') or [])
         if existing == canonical:
-            respond(409, {'error': 'tunnel already exists between these devices'})
+            respond(409, {'error': 'tunnel already exists between these hosts'})
     new_id = 'tun_' + secrets.token_hex(6)
     raw[new_id] = {'endpoints': canonical, 'created_at': int(time.time()), 'created_by': actor}
     save(TUNNELS_FILE, raw)
@@ -42304,9 +42304,9 @@ def handle_link_delete(link_id: str) -> None:
 
 def handle_device_allowlist(dev_id):
     require_admin_auth()
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     if method() == 'GET':
         respond(200, {'allowed_commands': devices[dev_id].get('allowed_commands', [])})
     if method() == 'POST':
@@ -43622,7 +43622,7 @@ def _rag_device_resolver():
                 if a:
                     alias[str(a)] = str(canonical)
     except Exception as e:
-        sys.stderr.write(f'rag: device resolver build failed: {e}\n')
+        sys.stderr.write(f'rag: host resolver build failed: {e}\n')
     return lambda k: alias.get(str(k), k)
 
 
@@ -44427,7 +44427,7 @@ def _rag_retrieve_pg(cfg, query):
                 merged.append(c)
             chunks = merged
     except Exception as e:
-        sys.stderr.write(f'rag: pg device-focus failed: {e}\n')
+        sys.stderr.write(f'rag: pg host-focus failed: {e}\n')
     return _rag_budget_trim(chunks, int(rag.get('max_chars', 6000)))
 
 
@@ -44942,7 +44942,7 @@ def handle_device_hardware(dev_id):
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     hw = (load(HARDWARE_FILE) or {}).get(dev_id, {})
     # Drop the internal alert-state booleans from the API surface.
     hw = {k: v for k, v in hw.items() if not k.startswith('_')}
@@ -44979,7 +44979,7 @@ def handle_device_speedtest(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     _queue_command(dev_id, 'speedtest', actor)   # also enforces quarantine
 
 
@@ -44994,7 +44994,7 @@ def handle_device_netscan(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceNetscanRequest)
     subnet = str(body.get('subnet', '')).strip()
     cmd = 'netscan'
@@ -45184,7 +45184,7 @@ def handle_device_forecast(dev_id):
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
     samples = rec.get('samples', [])
     _min_r2 = _forecast_min_r2()      # one config read, two projections
@@ -45253,7 +45253,7 @@ def handle_device_changes(dev_id):
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = max(1, min(90, int(qs.get('days', ['1'])[0])))
@@ -45270,12 +45270,12 @@ def handle_device_quarantine(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceQuarantineRequest)
     on = bool(body.get('quarantined', False))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         devices[dev_id]['quarantined'] = on
         name = devices[dev_id].get('name', dev_id)
     audit_log(actor, 'device_quarantine', f'dev={dev_id} quarantined={on}')
@@ -45288,7 +45288,7 @@ def handle_device_helm(dev_id):
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     rec = (load(HELM_FILE) or {}).get(dev_id, {})
     respond(200, {'releases': rec.get('releases', []), 'ts': rec.get('ts')})
 
@@ -45302,7 +45302,7 @@ def handle_device_runbook(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DeviceRunbookRequest)
     trigger = str(body.get('trigger', '')).strip()
     if not trigger:
@@ -45331,11 +45331,11 @@ def handle_device_doc_draft(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     hw = (load(HARDWARE_FILE) or {}).get(dev_id, {})
     containers = (load(CONTAINERS_FILE) or {}).get(dev_id, {})
     state = {
@@ -45410,7 +45410,7 @@ def handle_ai_anomaly():
         if isinstance(pend, int):
             parts.append(f"pending_updates={pend}")
         lines.append(' '.join(parts))
-    summary = '\n'.join(lines) if lines else 'No devices.'
+    summary = '\n'.join(lines) if lines else 'No hosts.'
     system, messages = ai_insights.anomaly_prompt(summary)
     result, used, cap = _ai_run(actor, system, messages, 'anomaly')
     anomalies = ai_insights.parse_anomaly_response(result['text'])
@@ -46143,7 +46143,7 @@ def handle_runbook_generate(dev_id):
     devices = load(DEVICES_FILE)
     snapshot = _build_runbook_snapshot(dev_id, devices)
     if not snapshot:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
 
     # Prepend project + fleet context if the operator has it enabled.
     # Runbook quality benefits a lot from fleet awareness ("this is
@@ -46179,7 +46179,7 @@ def handle_runbook_generate(dev_id):
     # _build_runbook_snapshot; the cap here is belt-and-braces in case
     # an unusual device has extra-large sysinfo fields we didn't trim.
     user_msg = (
-        f"Generate a runbook for device '{snapshot['name']}'. "
+        f"Generate a runbook for host '{snapshot['name']}'. "
         f"Use only the fields present in the snapshot below — do not "
         f"infer or invent.\n\n"
         f"```json\n{json.dumps(snapshot, default=str)[:12000]}\n```"
@@ -46551,7 +46551,7 @@ def handle_mailwatch_set(dev_id):
     """
     require_admin_auth()
     if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device id'})
+        respond(400, {'error': 'invalid host id'})
         return
     body = _read_valid(request_models.MailwatchSetRequest)
     raw_paths = body.get('paths')
@@ -46582,7 +46582,7 @@ def handle_mailwatch_set(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'device not found'})
+            respond(404, {'error': 'host not found'})
             return
         dev['mailbox_paths'] = clean_paths
         if 'dashboard' in body:
@@ -46880,7 +46880,7 @@ def handle_av_status(dev_id):
     """GET /api/devices/{id}/av — stored AV/malware posture for one host."""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     respond(200, {'ok': True, 'av': _entity_read_one(AV_FILE, dev_id, None) or {}})
 
 
@@ -46891,7 +46891,7 @@ def handle_av_scan(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_perm('command', [dev_id])
     tool = str((get_json_obj()).get('tool', 'clamav')).strip().lower()
     if tool == 'clamav':
@@ -48448,7 +48448,7 @@ def handle_monitoring_profile_apply():
     pid = str(body.get('profile_id', ''))
     device_ids = [str(x) for x in as_list(body.get('device_ids')) if _validate_id(str(x))][:500]
     if not device_ids:
-        respond(400, {'error': 'select at least one device'})
+        respond(400, {'error': 'select at least one host'})
     cfg = load(CONFIG_FILE) or {}
     prof = next((p for p in (cfg.get('monitoring_profiles') or []) if p.get('id') == pid), None)
     if not prof:
@@ -48999,7 +48999,7 @@ def handle_device_checks(dev_id):
     dev = device_get(dev_id)
     _scope = _caller_scope()
     if not dev or (_scope is not None and not _device_in_scope(_scope, dev)):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
     cfg = load(CONFIG_FILE) or {}
     disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
     hw = (load(HARDWARE_FILE) or {}).get(dev_id) if backend_exists(HARDWARE_FILE) else {}
@@ -52070,12 +52070,12 @@ def handle_device_metrics_history(dev_id):
     Auth: require_auth, scoped (a scoped role only sees its own devices)."""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     scope = _caller_scope()
     if scope is not None:
         dev = device_get(dev_id) or {}
         if not _device_in_scope(scope, dev):
-            respond(403, {'error': 'Device outside your role scope'})
+            respond(403, {'error': 'Host outside your role scope'})
     # v3.13.0: the store shape is {dev_id: {'samples': [...]}} — the old
     # `.get(dev_id) or []` handed a dict to `samples[-120:]` (a no-op/throw), so
     # the per-device Trends chart was effectively broken. Read 'samples'.
@@ -53519,16 +53519,16 @@ def handle_force_package_scan(dev_id):
     """
     require_admin_auth()
     if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device id'})
+        respond(400, {'error': 'invalid host id'})
         return
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'device not found'})
+            respond(404, {'error': 'host not found'})
             return
         dev['force_package_scan'] = True
     respond(200, {'ok': True,
-                  'message': 'Package scan queued — the device sends a '
+                  'message': 'Package scan queued — the host sends a '
                              'fresh inventory within the next minute or two.'})
 
 
@@ -54104,7 +54104,7 @@ def handle_drift_ignore(dev_id):
     """
     require_admin_auth()
     if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device id'})
+        respond(400, {'error': 'invalid host id'})
         return
     body = _read_valid(request_models.DriftIgnoreRequest)
     path = str(body.get('path') or '').strip()
@@ -54283,10 +54283,10 @@ def handle_drift_fetch_content(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     body = _read_valid(request_models.DriftFetchContentRequest)
     paths = body.get('paths') or []
     if not isinstance(paths, list):
@@ -54352,7 +54352,7 @@ def handle_drift_get_content(dev_id):
     """
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     path = (qs.get('path') or [''])[0]
     if not path or not path.startswith('/'):
@@ -54592,12 +54592,12 @@ def _scan_target_for_device(dev):
     Returns (target, error); target is '' when unusable."""
     ip = _sanitize_ip(dev.get('ip', '') or '')
     if not ip:
-        return '', 'device has no known address to scan'
+        return '', 'host has no known address to scan'
     try:
         if _ip_class_blocked(ip, allow_loopback=False):
-            return '', 'device address is in a blocked class (metadata/link-local/loopback)'
+            return '', 'host address is in a blocked class (metadata/link-local/loopback)'
     except ValueError:
-        return '', 'device address is not a valid IP'
+        return '', 'host address is not a valid IP'
     return ip, ''
 
 
@@ -54873,7 +54873,7 @@ def handle_scans_create():
         _scope_block_device(dev_id)
         dev = device_get(dev_id)
         if not isinstance(dev, dict):
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         # CARDINAL CONTROL: target derived from the enrolled device, server-side.
         target, terr = _scan_target_for_device(dev)
         if terr:
@@ -55614,7 +55614,7 @@ def handle_scan_schedules_create():
         # from scheduling a recurring scan against another tenant's host.
         _scope_block_device(dev_id)
         if not isinstance(load(DEVICES_FILE).get(dev_id), dict):
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
     elif st_id:
         if is_host:
             respond(400, {'error': 'host-audit tools run on an enrolled host — use device_id'})
@@ -56141,12 +56141,12 @@ def handle_longpoll_exec():
     except (ValueError, TypeError, OverflowError):
         timeout = 90
 
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     if not cmd_str: respond(400, {'error': 'cmd required'})
     if len(cmd_str) > 512: respond(400, {'error': 'cmd too long'})
 
     devices = load(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     # SECURITY: this handler resolves device_id from the BODY and is NOT under
     # /api/devices/<id>/… (so main()'s _enforce_device_scope never runs) — without
     # this a tenant admin (scope=None) or a scoped operator could queue an
@@ -56722,7 +56722,7 @@ def handle_fleet_query():
 def _fleet_query_bytes(rows, fmt):
     """Render fleet-query rows as CSV or XML bytes. Pure (unit-testable);
     returns (data, content_type, filename)."""
-    cols = [('name', 'Device'), ('group', 'Group'), ('os', 'OS'),
+    cols = [('name', 'Host'), ('group', 'Group'), ('os', 'OS'),
             ('version', 'Agent'), ('online', 'Online'), ('pending', 'Pending'),
             ('cpu', 'CPU%'), ('mem', 'Mem%'), ('cve_high', 'CVE'),
             ('pkg_match', 'Matched package')]
@@ -56999,12 +56999,12 @@ def handle_compliance_remediate():
     devices = load(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     if dev_id not in _scope_filter_devices(devices):
         respond(403, {'error': 'Out of scope'})
     if not dev.get('remediation_enabled'):
         respond(403, {'error': 'Automatic remediation is not enabled for this '
-                               'device. Turn it on in the device settings first.'})
+                               'host. Turn it on in the host settings first.'})
     rem = _cis_remediation(check_id, dev)
     if not rem:
         respond(400, {'error': 'No automatic remediation is available for this check.'})
@@ -57429,9 +57429,9 @@ def handle_patch_report_device(dev_id):
     """Return detailed patch report for a single device."""
     require_auth()
     _scope_block_device(dev_id)   # v3.5.0 RBAC v2
-    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
-    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    if dev_id not in devices: respond(404, {'error': 'Host not found'})
     dev = devices[dev_id]
     now = int(time.time())
     si = dev.get('sysinfo', {})
@@ -57527,7 +57527,7 @@ def handle_patch_report_csv():
     import csv, io
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(['Device', 'Hostname', 'Group', 'OS', 'Online', 'Pkg Manager',
+    writer.writerow(['Host', 'Hostname', 'Group', 'OS', 'Online', 'Pkg Manager',
                      'Pending Updates', 'Security Updates', 'Patch Status', 'Last Seen'])
     for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '')).lower()):
         si = dev.get('sysinfo', {})
@@ -57918,7 +57918,7 @@ def handle_patch_snapshot_enforce(sid):
     if only_device:
         devices = {k: v for k, v in devices.items() if k == only_device}
         if not devices:
-            respond(404, {'error': 'device not found, or not covered by this snapshot\'s tag'})
+            respond(404, {'error': 'host not found, or not covered by this snapshot\'s tag'})
     pkg_store = load(PACKAGES_FILE) or {}
     dev_cmds = {}
     results = {}
@@ -58516,7 +58516,7 @@ def handle_security_posture():
         add('host_disk_encrypted', "This server's disk is encrypted", _hde,
             ('the volume holding ' + str(DATA_DIR) + ' is on a dm-crypt/LUKS mapping')
             if _hde else
-            ('the volume holding ' + str(DATA_DIR) + ' is NOT encrypted — device '
+            ('the volume holding ' + str(DATA_DIR) + ' is NOT encrypted — host '
              'tokens, the credential vault and backups sit on it in the clear if '
              'the disk is removed'),
             'Encrypt the volume holding the data directory (LUKS). This cannot '
@@ -59127,11 +59127,11 @@ def _auto_promote_incident_for_cluster(event, alert_ids, device_ids, actor):
     label = spec.get('title') or event.replace('_', ' ').title()
     now = int(time.time())
     iid = 'inc_' + secrets.token_hex(5)
-    rec = {'id': iid, 'title': f'{label} — {len(device_ids)} devices affected'[:160],
+    rec = {'id': iid, 'title': f'{label} — {len(device_ids)} hosts affected'[:160],
            'impact': _incident_impact_from_severity(sev), 'status': 'investigating',
            'created_at': now, 'updated_at': now,
            'updates': [{'ts': now, 'status': 'investigating',
-                        'body': f'Auto-opened: {len(device_ids)} devices reported '
+                        'body': f'Auto-opened: {len(device_ids)} hosts reported '
                                 f'"{label}" at the same time.'}],
            'auto_promoted': True, 'root_event': event,
            'alert_ids': list(alert_ids), 'device_ids': list(device_ids)}
@@ -60357,12 +60357,12 @@ def handle_alert_mutes():
     # cross-tenant device_id / alert_id isn't confirmed to exist.
     _mdev = (load(DEVICES_FILE) or {}).get(device_id, {})
     if not _tenant_visible(_mdev):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
     # v6.2.3: also honour role/API-key scope (a scoped admin may only mute its own
     # devices' alerts) — 404 (not 403) to keep hiding cross-scope existence.
     _mscope = _caller_scope()
     if _mscope is not None and not _device_in_scope(_mscope, _mdev):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
     # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
     # which the mute lapses on its own. Mutes were permanent-only, so "silence
     # this while I rebuild the NAS this weekend" meant remembering to come back
@@ -61104,8 +61104,8 @@ def handle_setup_status():
         {'id': 'admin-password', 'title': 'Set a strong admin password',
          'detail': 'Change the seeded/default admin credentials before going further.',
          'page': 'users', 'required': True, 'done': pw_done},
-        {'id': 'first-device', 'title': 'Enroll your first device',
-         'detail': 'Install the agent on a host and enroll it with a PIN, or add an agentless device.',
+        {'id': 'first-device', 'title': 'Enroll your first host',
+         'detail': 'Install the agent on a host and enroll it with a PIN, or add an agentless host.',
          'page': 'devices', 'required': True, 'done': n_dev > 0,
          'count': n_dev},
         {'id': 'notifications', 'title': 'Configure a notification channel',
@@ -61616,8 +61616,8 @@ def handle_inbound_webhooks_create():
         _scope_block_device(scope_dev)
     elif _tenant_gate() is not None:
         # Unpinned tokens attribute across the whole fleet (by tag or payload).
-        respond(403, {'error': 'Pick one of your devices for this token. Tokens '
-                               'without a device are managed by the platform operator.'})
+        respond(403, {'error': 'Pick one of your hosts for this token. Tokens '
+                               'without a host are managed by the platform operator.'})
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
     if kind not in ('alert', 'syslog', 'snmp_trap', 'flow', 'itsm'):
@@ -61706,7 +61706,7 @@ def handle_inbound_webhook_toggle(token_id):
             # is the same cross-tenant write.
             _scope_block_device(_sd)
         elif _tenant_gate() is not None:
-            respond(403, {'error': 'Tokens without a device are managed by the '
+            respond(403, {'error': 'Tokens without a host are managed by the '
                                    'platform operator.'})
     _visible_ids = _inbound_tokens_visible_ids()
     try:
@@ -61879,16 +61879,16 @@ def handle_syslog_in(token_str):
     dev_id = match.get('scope_device_id')
     if not dev_id:
         _log_inbound('syslog', match.get('id'), match.get('label'),
-                     '400', 'token not pinned to device')
-        respond(400, {'error': 'syslog tokens must be pinned to a device — recreate with scope_device_id'})
+                     '400', 'token not pinned to host')
+        respond(400, {'error': 'syslog tokens must be pinned to a host — recreate with scope_device_id'})
     # v6.4.3: a single-key lookup on a continuously-hit ingest endpoint. The
     # token is required to be device-pinned four lines up, so this was never a
     # scan — it deepcopied the whole fleet to read one entry, per inbound POST.
     dev = device_get(dev_id)
     if not dev:
         _log_inbound('syslog', match.get('id'), match.get('label'),
-                     '404', 'target device deleted')
-        respond(404, {'error': 'token target device no longer exists'})
+                     '404', 'target host deleted')
+        respond(404, {'error': 'token target host no longer exists'})
 
     # Parse body: JSON first, then plain text fallback
     raw_lines = []
@@ -62066,13 +62066,13 @@ def handle_snmp_trap_in(token_str):
         respond(400, {'error': f'this token is a {match.get("kind", "alert")} token — use the corresponding URL'})
     dev_id = match.get('scope_device_id')
     if not dev_id:
-        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'token not pinned to device')
-        respond(400, {'error': 'snmp_trap tokens must be pinned to a device'})
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'token not pinned to host')
+        respond(400, {'error': 'snmp_trap tokens must be pinned to a host'})
     devs = load(DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '404', 'target device deleted')
-        respond(404, {'error': 'token target device no longer exists'})
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '404', 'target host deleted')
+        respond(404, {'error': 'token target host no longer exists'})
 
     body = get_json_body()   # accepts {traps:[...]}, a single trap dict, OR a bare JSON array
     raw = []
@@ -62289,7 +62289,7 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
     if action in ('reboot_device', 'run_saved_script', 'exec_command', 'queue_command',
                   'ai_exec_action'):
         if device_id not in devs:
-            return {'ok': False, 'error': 'device not found'}
+            return {'ok': False, 'error': 'host not found'}
         # v6.2.0: was a bare quarantine check — it did NOT honour maintenance mode
         # or audit mode, so an approved confirmation could fire a command at a host
         # mid-drain, or at an agent that would refuse it locally anyway. Now shares
@@ -62490,7 +62490,7 @@ def _mcp_handle(action, destructive):
         respond(400, {'error': 'valid device_id required'})
     devs = load(DEVICES_FILE)
     if device_id not in devs:
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
     # v6.1.1 (broad sweep, adversarial self-review): this route isn't under
     # /api/devices/, so _enforce_device_scope() never runs for it -- without
     # an explicit check here an MCP-role caller could target ANY tenant's
@@ -62673,7 +62673,7 @@ def handle_ai_exec_propose():
     # Cross-tenant/out-of-scope device → 404, never confirm the id exists.
     devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
 
     catalog = _ai_exec_catalog()
     if not catalog:
@@ -64466,7 +64466,7 @@ def handle_device_timeline(dev_id):
     devices = _load_ro(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not isinstance(dev, dict):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
         return
     _qs, limit, kind_filter = _timeline_parse_qs()
     since, until = _timeline_window(_qs)
@@ -64727,12 +64727,12 @@ def handle_packages_submit():
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
 
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _device_token_ok(dev, dev_token):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
 
     raw_pkgs = body.get('packages') or []
     if not isinstance(raw_pkgs, list):
@@ -65051,7 +65051,7 @@ def handle_exposure_mute():
         except (TypeError, ValueError, OverflowError):
             respond(400, {'error': 'port must be an integer'}); return
     if not rule:
-        respond(400, {'error': 'specify at least one of device / process / proto / port'})
+        respond(400, {'error': 'specify at least one of host / process / proto / port'})
         return
     # A rule naming a device was scope-checked above. One without a device
     # silences that process/port on EVERY host, so under tenancy it belongs to
@@ -65573,7 +65573,7 @@ def _build_posture_digest():
         f'RemotePower fleet posture — {server_name}',
         time.strftime('%Y-%m-%d %H:%M:%S %Z'),
         '',
-        f'Devices monitored : {len(monitored)}',
+        f'Hosts monitored : {len(monitored)}',
         f'Offline           : {len(offline)}' + (f'  ({", ".join(offline[:10])})' if offline else ''),
         f'Pending updates   : {pending}',
         f'Reboots required  : {len(reboots)}' + (f'  ({", ".join(reboots[:10])})' if reboots else ''),
@@ -65583,7 +65583,7 @@ def _build_posture_digest():
         '',
         'Open the dashboard for full detail.',
     ]
-    subject = (f'[{server_name}] Fleet posture — {len(monitored)} devices, '
+    subject = (f'[{server_name}] Fleet posture — {len(monitored)} hosts, '
                f'{len(offline)} offline, {crit} critical CVEs')
     return subject, '\n'.join(lines)
 
@@ -66387,7 +66387,7 @@ def handle_sbom_baseline(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     actor = require_admin_auth()
     idx, collected = _sbom_pkg_index(dev_id)
     if not idx:
@@ -66405,7 +66405,7 @@ def handle_sbom_diff(dev_id):
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     require_auth()
     base = (load(SBOM_BASELINE_FILE).get(dev_id) or {})
     if not base.get('packages'):
@@ -66427,11 +66427,11 @@ def handle_sbom_device(dev_id):
     """GET /api/devices/{id}/sbom?format=cyclonedx|spdx — SBOM for one host."""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     fmt = _sbom_format_from_query()
     doc = _build_sbom_doc(dev_id, dev, fmt)
     _stream_json_download(doc, sbom_mod.filename_for(dev, fmt))
@@ -67822,7 +67822,7 @@ def _validate_maintenance_body(body):
         respond(400, {'error': 'scope must be one of: '
                                + ', '.join(_MAINTENANCE_SCOPES)})
     if scope == 'device' and not _validate_id(target):
-        respond(400, {'error': 'device-scoped window requires a valid target device_id'})
+        respond(400, {'error': 'host-scoped window requires a valid target device_id'})
     # v7.0.2: every non-global scope needs something to match on. A blank target
     # on a tag- or site-scoped window would match no device rather than all of
     # them, which is a window that silently does nothing.
@@ -69059,10 +69059,10 @@ def handle_services_device(dev_id):
     """GET /api/devices/{id}/services"""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
 
     store = load(SERVICES_FILE)
     hist  = load(SERVICE_HIST_FILE)
@@ -69095,10 +69095,10 @@ def handle_services_config(dev_id):
     if not actor:
         require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
 
     if method() == 'GET':
         respond(200, {
@@ -69231,12 +69231,12 @@ def handle_log_submit():
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
 
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _device_token_ok(dev, dev_token):
-        respond(403, {'error': 'Unauthorized device'})
+        respond(403, {'error': 'Unauthorized host'})
 
     units_in = body.get('units') or {}
     if not isinstance(units_in, dict):
@@ -69543,10 +69543,10 @@ def handle_log_device(dev_id):
     """GET /api/devices/{id}/logs — full captured buffer for one device."""
     require_auth()
     if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     devices = _load_ro(DEVICES_FILE)
     if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
+        respond(404, {'error': 'Host not found'})
     log_store = load(LOG_WATCH_FILE)
     buf = log_store.get(dev_id) or {'units': {}, 'updated_at': 0}
     respond(200, {
@@ -70282,7 +70282,7 @@ def handle_tasks_add():
     # the two handlers share _sanitize_task, so only one of them enforced it.
     if clean.get('device_id') and not _tenant_visible(
             device_get(clean['device_id']) or {}):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
 
     now = int(time.time())
     task = {
@@ -70328,7 +70328,7 @@ def handle_tasks_update(task_id):
     # see.
     if clean.get('device_id') and not _tenant_visible(
             device_get(clean['device_id']) or {}):
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
 
     for k in ('title', 'description', 'state', 'device_id'):
         if k in clean:
@@ -70577,7 +70577,7 @@ def handle_vault_checkout() -> None:
     # an id you cannot see exists.
     devs = _scope_filter_devices(load(DEVICES_FILE) or {})
     if dev_id not in devs:
-        respond(404, {'error': 'device not found'})
+        respond(404, {'error': 'host not found'})
     try:
         hours = float(body.get('hours') or _CHECKOUT_DEFAULT_HOURS)
     except (TypeError, ValueError, OverflowError):
@@ -73010,9 +73010,9 @@ def run_sidecar_watch_if_due():
             if _bad and not _was:
                 bad_marks[_tid] = True
                 _lbl = str(_t.get('label') or '').strip() or _tid
-                _why = ('the device it is scoped to no longer exists'
+                _why = ('the host it is scoped to no longer exists'
                         if _defect == 'no_device'
-                        else 'the device it is scoped to has no IP address')
+                        else 'the host it is scoped to has no IP address')
                 pending.append(('ingest_source_unmappable', {
                     'name': get_server_name(), 'token_id': _tid, 'label': _lbl,
                     'kind': _t.get('kind'),
@@ -73512,7 +73512,7 @@ def handle_device_host_config_get(dev_id):
     require_auth()
     with _locked_update(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         hc = devices[dev_id].get('host_config', {})
     # Current state lives in a separate per-device file — keeps devices.json small
     current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
@@ -73557,7 +73557,7 @@ def handle_device_host_config_put(dev_id):
 
     with _locked_update(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         hc = devices[dev_id].setdefault('host_config', {})
         hc['desired']    = desired
         hc['desired_at'] = int(time.time())
@@ -73598,7 +73598,7 @@ def handle_device_host_config_current(dev_id):
     require_auth()
     with _locked_update(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            respond(404, {'error': 'Host not found'})
         hc = devices[dev_id].get('host_config', {})
     current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
     current_data = {}
@@ -73639,10 +73639,10 @@ def handle_host_config_collect_all():
     # Host config is agent-only — drop agentless devices.
     targets = [d for d in targets if not (devices.get(d) or {}).get('agentless')]
     if not targets:
-        respond(400, {'error': 'no matching agent devices'})
+        respond(400, {'error': 'no matching agent hosts'})
     _queue_command_batch(targets, 'exec:remotepower-agent send_current_configs', actor)
     audit_log(actor, 'host_config_collect_all',
-              f'{len(targets)} device(s) ({target.get("type")}:{target.get("value")})')
+              f'{len(targets)} host(s) ({target.get("type")}:{target.get("value")})')
     respond(200, {'ok': True, 'queued': len(targets)})
 
 
@@ -73840,7 +73840,7 @@ def handle_iac_request():
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'device not found'}); return
+            respond(404, {'error': 'host not found'}); return
         if agent_cats:
             # v6.4.3: `force_iac_collect` is read by the Linux agent only. On a
             # Windows/macOS host the flag was set, never consumed, and the page
@@ -74048,7 +74048,7 @@ def handle_iac_generate():
     devs = _scope_filter_devices(load(DEVICES_FILE) or {})
     dev = devs.get(dev_id, {})
     if not dev:
-        respond(404, {'error': 'device no longer exists'}); return
+        respond(404, {'error': 'host no longer exists'}); return
 
     # Merge server-side categories on top of agent-collected ones
     all_data = dict(coll.get('data') or {})
@@ -74076,7 +74076,7 @@ def handle_iac_generate():
     }
 
     prompt = (
-        f"Convert the device state JSON below into a single complete "
+        f"Convert the host state JSON below into a single complete "
         f"{_IAC_FORMAT_HINTS[fmt]} file.\n\n"
         f"=== HOW TO RESPOND ===\n"
         f"Whatever reasoning you need to do, do it. Then output your final code\n"
@@ -74107,7 +74107,7 @@ def handle_iac_generate():
             f"\n=== USER'S EXTRA INSTRUCTIONS (apply where compatible) ===\n"
             f"{user_instructions}\n"
         )
-    prompt += f"\n=== INPUT DEVICE STATE (JSON) ===\n{json.dumps(payload, indent=2)[:120000]}\n"
+    prompt += f"\n=== INPUT HOST STATE (JSON) ===\n{json.dumps(payload, indent=2)[:120000]}\n"
 
     # Use the existing AI provider — reuses Settings → AI configuration
     cfg = _ai_cfg()
@@ -74225,7 +74225,7 @@ _AI_PROMPT_LABELS = {
     'audit_script':           'Audit script (security)',
     'generate_script':        'Generate script',
     'triage_cve':             'Triage CVE',
-    'investigate_device':    'Investigate device',
+    'investigate_device':    'Investigate host',
     'explain_alert':          'Explain webhook alert',
     'investigate_alert':      'Investigate alert',
     'routeros_firewall_rule': 'RouterOS — draft firewall rule',
@@ -74235,7 +74235,7 @@ _AI_PROMPT_LABELS = {
     'prioritise_patches':     'Prioritise pending patches',
     'prioritise_cves':        'Prioritise CVEs',
     'explain_container_logs': 'Explain container logs',
-    'generate_runbook':       'Generate device runbook',
+    'generate_runbook':       'Generate host runbook',
     'iac_generate':           'IaC Generator',
     # v4.10.0: 20 new AI features
     'ai_briefing':            'Daily fleet briefing',
@@ -74554,7 +74554,7 @@ def handle_force_agent_upgrade(dev_id):
     dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
     with _LockedUpdate(DEVICES_FILE) as devs:
         if dev_id not in devs:
-            respond(404, {'error': 'device not found'}); return
+            respond(404, {'error': 'host not found'}); return
         devs[dev_id]['force_agent_upgrade'] = True
     audit_log(actor, 'agent_force_upgrade', detail=f'device={dev_id}')
     respond(200, {'ok': True, 'message':
@@ -74577,7 +74577,7 @@ def handle_force_acme_rescan(dev_id):
     dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
     with _LockedUpdate(DEVICES_FILE) as devs:
         if dev_id not in devs:
-            respond(404, {'error': 'device not found'}); return
+            respond(404, {'error': 'host not found'}); return
         # v6.4.3: acme.sh state is read by the Linux agent only — the Windows
         # and macOS agents document force_acme_rescan as a key they ignore. The
         # flag was set anyway, the toast said "queued", and it never fired.
@@ -74774,7 +74774,7 @@ ACME_DNS_CREDENTIAL_FIELDS = {
     ],
     'dns_rfc2136': [
         {'name': 'NSUPDATE_KEY',    'label': 'TSIG keyfile path on the agent', 'required': True,
-         'hint': 'Absolute path to a keyfile on the device — secret stays on-host.'},
+         'hint': 'Absolute path to a keyfile on the host — secret stays on-host.'},
         {'name': 'NSUPDATE_SERVER', 'label': 'Nameserver',                     'required': True,
          'hint': 'Authoritative DNS server that accepts dynamic updates.'},
     ],
@@ -75171,7 +75171,7 @@ _MITIGATE_PLAYBOOKS = {
             'systemctl status remotepower-agent --no-pager 2>&1 | head -15 || true'
         ),
         'fix': None,
-        'fix_label': 'Update the agent (via the device drawer → Update agent)',
+        'fix_label': 'Update the agent (via the host drawer → Update agent)',
         'ai_prompt_key': 'mitigate_agent_version',
         'ai_default': True,
         'destructive': False,
@@ -75350,10 +75350,10 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
     and there is no verify sweep for this path.
     """
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid device id'}); return None
+        respond(404, {'error': 'invalid host id'}); return None
     devices = load(DEVICES_FILE) or {}
     if dev_id not in devices:
-        respond(404, {'error': 'device not found'}); return None
+        respond(404, {'error': 'host not found'}); return None
     # v7.0.2 (SECURITY): the /api/mitigate/<id>/... routes are NOT under
     # /api/devices/, so main()'s pre-dispatch _enforce_device_scope never sees
     # them, and require_perm() — the only gate the two write entry points had —
@@ -75504,7 +75504,7 @@ def handle_mitigate_status(dev_id, action_id):
                                   # a scoped operator/viewer could otherwise read
                                   # another scope's 256 KB diagnostic capture.
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid device id'}); return
+        respond(404, {'error': 'invalid host id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         respond(400, {'error': 'invalid action id'}); return
     log_path = _mitigate_log_path(dev_id, action_id)
@@ -75565,7 +75565,7 @@ def handle_mitigate_ai(dev_id, action_id):
     _scope_block_device(dev_id)   # v4.4.0: scope-guard a non-/api/devices/ route
                                   # (sends another scope's diagnostic output to AI).
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid device id'}); return
+        respond(404, {'error': 'invalid host id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         respond(400, {'error': 'invalid action id'}); return
     log_path = _mitigate_log_path(dev_id, action_id)
@@ -75587,7 +75587,7 @@ def handle_mitigate_ai(dev_id, action_id):
     devices = _load_ro(DEVICES_FILE) or {}
     dev_name = (devices.get(dev_id) or {}).get('name', dev_id)
     user_prompt = (
-        f"Alert: {pb.get('label', kind)} on device {dev_name}\n"
+        f"Alert: {pb.get('label', kind)} on host {dev_name}\n"
         f"Target: {target or '(n/a)'}\n\n"
         f"Diagnostic output (rc={meta.get('rc')}):\n"
         f"```\n{captured}\n```\n\n"

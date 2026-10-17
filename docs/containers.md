@@ -5,7 +5,7 @@
 Every enrolled agent detects Docker, Podman, and Kubernetes pods on
 the host it's running on, normalises the output across runtimes, and
 posts the list back to the server. The Containers tab shows fleet-
-wide status with per-device drill-down. RemotePower's job here is
+wide status with per-host drill-down. RemotePower's job here is
 visibility — what's running and is it healthy. Starting, stopping,
 exec'ing, log-streaming: that's Portainer, k9s, and kubectl. They
 exist, they're good at it, and reproducing them inside RemotePower
@@ -15,8 +15,8 @@ would be inventing a different product.
 
 ## What you'll see
 
-The Containers page lists every device that has reported containers,
-with summary counts per device:
+The Containers page lists every host that has reported containers,
+with summary counts per host:
 
 - **Total** — every container the agent could see
 - **Running** — anything with status containing "running" or "Up"
@@ -24,7 +24,7 @@ with summary counts per device:
 - **Restarting** — anything with `restart_count >= 5` (gets a red badge)
 - **Runtimes** — which runtimes contributed to the count
 
-Click into a device to see the full list. Each entry shows the
+Click into a host to see the full list. Each entry shows the
 image and tag (e.g. `nginx:1.25-alpine`), status, restart count,
 namespace (for Kubernetes pods), runtime tag, and ports. Containers
 with five or more restarts get an amber badge; more concerning
@@ -32,7 +32,7 @@ behaviour gets red.
 
 **v1.11.4:** rows with stale data (no fresh heartbeat report within
 the configured TTL) are dimmed and tagged with an amber `STALE`
-pill next to the timestamp. The per-device modal also shows a
+pill next to the timestamp. The per-host modal also shows a
 prominent banner explaining what stale means and where to look.
 
 ---
@@ -74,7 +74,7 @@ If you want it more often, change `CONTAINER_CHECK_EVERY` near the
 top of `client/remotepower-agent`. The probes are cheap on the
 agent side (about 100 ms total when all three runtimes are
 present); the limit is mostly avoiding pointless heartbeat
-bandwidth on devices where containers don't change often.
+bandwidth on hosts where containers don't change often.
 
 **v1.11.4:** when a runtime is detected on the host, the agent
 **always** sends the `containers` field — even when the list is
@@ -89,8 +89,8 @@ the next heartbeat.
 
 ## Caps
 
-- 100 entries per device, per runtime (agent-side)
-- 100 entries per device, total (server-side, applied again as
+- 100 entries per host, per runtime (agent-side)
+- 100 entries per host, total (server-side, applied again as
   defence in depth)
 - 256 chars per container name, 512 chars per image string,
   20 ports per container
@@ -168,7 +168,7 @@ Webhook payload:
 
 ### `containers_stale`
 
-Fired when a device hasn't reported container data within
+Fired when a host hasn't reported container data within
 `container_stale_ttl` seconds (default 900s = 15 min). Fires
 once per stale period — the notification flag is cleared the
 moment fresh container data arrives, so the next stale event
@@ -176,11 +176,11 @@ will fire a new alert.
 
 Two suppression rules:
 
-- **Skip offline devices.** If the device hasn't sent any
+- **Skip offline hosts.** If the host hasn't sent any
   heartbeat at all (so `device_offline` already fired or will
   fire), the staleness of its container data isn't a separate
-  alert — the device is dead, you already know.
-- **Skip unmonitored devices.** Devices flagged
+  alert — the host is dead, you already know.
+- **Skip unmonitored hosts.** Hosts flagged
   `monitored=false` are ignored by all RemotePower
   alerting; this stays consistent.
 
@@ -268,7 +268,7 @@ For a fleet-wide rule instead of a per-host one, the config key
 `container_alert_excludes` takes a list of name substrings and
 suppresses matching containers on every host.
 
-Two limits worth knowing. A mute is keyed on `(device, container
+Two limits worth knowing. A mute is keyed on `(host, container
 name)` and is **namespace-blind**, so two Kubernetes pods with the
 same name in different namespaces on one node share one mute — the
 alert-state diff keys on namespace, the mute does not. And the mute
@@ -328,7 +328,7 @@ can never run. Manage containers on a Mac from the host.
 - **No exec, and no live log stream.** Start / stop / restart /
   pause / update and an on-demand log *snapshot* are supported (see
   below); an interactive shell and a `docker logs -f` style follow
-  are not. Use the SSH link on the device for those.
+  are not. Use the SSH link on the host for those.
 - **Image scanning is separate from package CVEs.** The host CVE
   scanner runs against installed packages; container images are
   scanned by Trivy on the agent, on a roughly daily cadence and on
@@ -344,7 +344,7 @@ can never run. Manage containers on a Mac from the host.
 
 ## API
 
-`GET /api/containers` — fleet-wide overview, one entry per device
+`GET /api/containers` — fleet-wide overview, one entry per host
 with summary counts. Same shape used by the Containers page:
 
 ```json
@@ -366,7 +366,7 @@ with summary counts. Same shape used by the Containers page:
 ]
 ```
 
-`GET /api/devices/{id}/containers` — full list for one device:
+`GET /api/devices/{id}/containers` — full list for one host:
 
 ```json
 {
@@ -414,14 +414,14 @@ container with `docker rm` (or stopping the daemon, or anything else
 that takes a container off the host) shows up on the dashboard
 within one report cycle, default ~5 minutes.
 
-**Manual.** Click "Clear data" in the per-device modal, or call:
+**Manual.** Click "Clear data" in the per-host modal, or call:
 
 ```bash
 curl -X DELETE https://your-server/api/devices/{id}/containers \
      -H "X-Token: $TOKEN"
 ```
 
-Admin-only. Removes the device's entry from `containers.json` and
+Admin-only. Removes the host's entry from `containers.json` and
 clears the `containers_stale_notified` flag (so the next time it
 goes stale, you get a fresh webhook). The actual containers on the
 host are not touched — this is a dashboard-state operation only.
@@ -430,7 +430,7 @@ The agent will repopulate the list on its next heartbeat if it's
 still alive. If the agent is dead or removed, the entry stays
 gone. Use this when:
 
-- Decommissioning a host but keeping the device record (e.g.
+- Decommissioning a host but keeping the host record (e.g.
   converting to agentless).
 - You just ran `docker rm` and don't want to wait the ~5 minutes
   for the next heartbeat to refresh the dashboard.
@@ -438,7 +438,7 @@ gone. Use this when:
   re-arm it for the next stale event without waiting for fresh
   data → stale → notified again.
 
-Deleting the entire device via `DELETE /api/devices/{id}` also
+Deleting the entire host via `DELETE /api/devices/{id}` also
 cleans up the container entry and the stale-notified flag (new in
 v1.11.4 — pre-v1.11.4 these were left as orphans).
 
@@ -457,21 +457,21 @@ overwrite with current state.
 so wait ~5 minutes after upgrading the agent. Check the agent
 journal: `journalctl -u remotepower-agent -e | grep -i container`.
 
-**STALE pill on a device that's clearly online.** Most likely the
+**STALE pill on a host that's clearly online.** Most likely the
 agent is on an old version that doesn't send empty lists, but the
-device currently has zero containers running. Upgrade the agent.
-If the agent is already v1.11.4+ and the device shows STALE, look
+host currently has zero containers running. Upgrade the agent.
+If the agent is already v1.11.4+ and the host shows STALE, look
 at `journalctl -u remotepower-agent` — the container probes
 might be hitting their 5-second timeout.
 
 **One container is missing.** Most likely the agent's runtime probe
-hit the 5s timeout. Check `docker ps` from the device manually — if
+hit the 5s timeout. Check `docker ps` from the host manually — if
 that hangs or takes >5s, the agent will skip the listing entirely
 that heartbeat and try again on the next.
 
 **Kubernetes pods missing on a known cluster.** Kubectl needs a
 kubeconfig. Run `sudo -u root kubectl get pods --all-namespaces` on
-the device — if that fails, the agent's listing will too. For
+the host — if that fails, the agent's listing will too. For
 single-node k3s, the kubeconfig is at `/etc/rancher/k3s/k3s.yaml`
 and only readable by root by default; the agent runs as root, so
 this is usually fine.
@@ -486,7 +486,7 @@ alerting, monitor them via `docker events` separately.
 runtime returned. Different Docker versions render status
 differently ("Up 2 hours" vs "running" depending on `--format`),
 and the server-side `summarise()` handles common variants but
-isn't exhaustive. Look at the per-device modal — the raw status
+isn't exhaustive. Look at the per-host modal — the raw status
 string is shown unchanged there.
 
 **`container_stopped` fires when a container restarts.** If a

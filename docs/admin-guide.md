@@ -96,7 +96,7 @@ sudo bash install-client.sh
 ```
 
 It asks for the server URL and a 6-digit enrolment PIN. Generate the
-PIN from the dashboard (Devices → enrol). The agent installs as a
+PIN from the dashboard (Hosts → enrol). The agent installs as a
 systemd service (`remotepower-agent.service`), enabled and started.
 
 Check it afterwards:
@@ -164,8 +164,8 @@ see [https.md](https.md).
 
 ### 4.4 Restrict the command allow-list
 
-Per device, the command allow-list bounds what can be executed. Keep
-it as narrow as the device's role needs.
+Per host, the command allow-list bounds what can be executed. Keep
+it as narrow as the host's role needs.
 
 ### 4.5 Secrets via environment variables
 
@@ -190,25 +190,25 @@ tails a unit, and `rp deploy` / `rp repair` update or restore it. See
 
 ### 5.1 The dashboard
 
-The Home page is the daily view: fleet status tiles (devices online,
-pending updates, drift events, CVE findings, and — if a device is
+The Home page is the daily view: fleet status tiles (hosts online,
+pending updates, drift events, CVE findings, and — if a host is
 promoted — unread mail), a "needs attention" column, and recent
-fleet activity. Drill into any device for sysinfo, journals, CVEs,
+fleet activity. Drill into any host for sysinfo, journals, CVEs,
 drift, services and command output.
 
 ### 5.2 Running commands
 
-Devices page → a device's action menu: shutdown, reboot,
+Hosts page → a host's action menu: shutdown, reboot,
 Wake-on-LAN, package upgrade, arbitrary commands, scheduled jobs.
-Batch actions run across multiple selected devices. Everything is
-recorded in the fleet event log and the per-device command history.
+Batch actions run across multiple selected hosts. Everything is
+recorded in the fleet event log and the per-host command history.
 
 ### 5.3 Monitoring
 
 - **CVE scanning** — automatic, OSV-backed. Use "Scan packages now"
-  on a device to refresh its inventory immediately after patching.
+  on a host to refresh its inventory immediately after patching.
 - **Drift detection** — watched config files are hashed every heartbeat;
-  review and accept baselines on the device detail.
+  review and accept baselines on the host detail.
 - **External monitors** — ping/TCP/HTTP probes, TLS/DNS expiry.
 - **Mailbox monitor** — Settings → Mailbox monitor.
 - **Alerts** — state changes fire webhooks (Settings → Notifications).
@@ -238,10 +238,10 @@ A few controls worth knowing about:
 - **Two-person break-glass** for the most sensitive vault credentials: one admin
   requests a reveal, a second approves, the whole exchange is audit-logged and
   raises a `vault_break_glass` alert.
-- **Mutual-TLS agent auth** — pin a per-device client certificate and optionally
+- **Mutual-TLS agent auth** — pin a per-host client certificate and optionally
   enforce it fleet-wide so the server only accepts heartbeats from a known agent.
 - **Maintenance mode** (Settings → Advanced) — pause command dispatch during an
-  upgrade without devices flapping offline.
+  upgrade without hosts flapping offline.
 - **Self-update script** (Settings → Install) — an absolute path the **Run
   update** button executes; see [upgrading.md](upgrading.md).
 - **Backup encryption** — AES-256-GCM at rest via `RP_BACKUP_PASSPHRASE` (put it
@@ -322,7 +322,7 @@ an older version simply ignores fields it does not recognise.
 
 | Symptom | First thing to check |
 |---|---|
-| A device shows offline | `systemctl status remotepower-agent` on the host; then `journalctl -u remotepower-agent` |
+| A host shows offline | `systemctl status remotepower-agent` on the host; then `journalctl -u remotepower-agent` |
 | Agent can't reach the server | TLS trust, the server URL, firewalling on the path agent → server |
 | 403 on the dashboard | Session expired — log in again; check the system clock if TOTP fails |
 | A pushed config (drift, mailbox) doesn't take effect | Agent version — a config push only works on an agent new enough to know the field |

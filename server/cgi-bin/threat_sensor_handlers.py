@@ -119,10 +119,10 @@ def handle_threat_events():
     dev_id = str(body.get('device_id', '')).strip()
     token = str(body.get('token', '')).strip()
     if not A._validate_id(dev_id):
-        A.respond(403, {'error': 'Unauthorized device'})
+        A.respond(403, {'error': 'Unauthorized host'})
     dev = A.device_get(dev_id)
     if not isinstance(dev, dict) or not A._device_token_ok(dev, token):
-        A.respond(403, {'error': 'Unauthorized device'})
+        A.respond(403, {'error': 'Unauthorized host'})
     pol = A.ip_intel_policy()
     if not pol.get('sensor_enabled') or dev.get('agentless') or A._device_os_family(dev) != 'linux':
         # Not an error: the agent may not have heard that it was switched off yet.

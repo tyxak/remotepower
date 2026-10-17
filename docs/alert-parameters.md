@@ -32,8 +32,8 @@ input's placeholder). Each section has its own **Save**.
   and snapshot age, mail-queue depth, inode / file-descriptor / conntrack
   fullness, TLS and cert-file expiry days, contract / OS end-of-life days,
   AV-signature staleness, disk-fill forecast horizon, the Windows/macOS
-  **CPU-busy warn/critical %** *(v6.4.0 — Linux uses per-device load-ratio
-  thresholds in the device Thresholds modal instead)*, and more.
+  **CPU-busy warn/critical %** *(v6.4.0 — Linux uses per-host load-ratio
+  thresholds in the host Thresholds modal instead)*, and more.
 - **Laptop offline grace** *(v6.3.0, Reachability)* — extra hours of
   silence allowed before a **laptop-chassis** host becomes an offline
   candidate. Agents report their DMI chassis class; set this to a commute's
@@ -42,7 +42,7 @@ input's placeholder). Each section has its own **Save**.
   like everything else.
 - **Health grade cutoffs** — the score boundaries for **good / fair / poor /
   critical** (default 90 / 70 / 40). The dashboard paints the fleet score ring
-  and the per-device heat-map at exactly these boundaries, so the colours always
+  and the per-host heat-map at exactly these boundaries, so the colours always
   match your grades.
 - **Risk & reliability levels** — the score cutoffs for the critical/high/medium
   risk badges and the "likely to fail" reliability card.
@@ -83,7 +83,7 @@ Fields: Temperature (°C), UPS battery (%), UPS runtime (s, 0=off), Server disk
 How many pending updates are a finding, and how many hosts one incident must
 touch to count as fleet-wide.
 
-Fields: Pending updates, Incident device count.
+Fields: Pending updates, Incident host count.
 
 ### Storage & backup
 
@@ -206,7 +206,7 @@ updates warn ≥, Recent-OOM window (s).
 ### Containers & SNMP
 
 How many container restarts alert or mark a container as restarting, and the
-fleet's default SNMP CPU limits. A device's own threshold override wins.
+fleet's default SNMP CPU limits. A host's own threshold override wins.
 
 Fields: Restart delta ≥ (alert), Restart count ≥ (restarting), SNMP CPU warn %,
 SNMP CPU crit %.
@@ -235,7 +235,7 @@ under %, CIS swap under %, DMARC min pass %.
 What turns the top bar's health pill for the RemotePower server itself: load
 above cores times the ratio, memory use, and the share of hosts online.
 
-Fields: High-load ratio (× cores), Memory warn %, Devices online warn %.
+Fields: High-load ratio (× cores), Memory warn %, Hosts online warn %.
 
 ### Reliability tuning
 

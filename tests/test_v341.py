@@ -136,7 +136,7 @@ class TestV341HealthHistoryAndAlerts(unittest.TestCase):
         # CHANNEL_KINDS routing (silent if missed → no routing row)
         self.assertIn("kind='health'", row)
         # _webhook_title (silent-ish if missed → falls back to raw event)
-        self.assertIn("title='Device Health Degraded'", row)
+        self.assertIn("title='Host Health Degraded'", row)
         # recover mapping
         ridx = self.API.find("'health_recovered': dict(")
         self.assertGreater(ridx, 0, 'health_recovered missing from EVENT_REGISTRY')

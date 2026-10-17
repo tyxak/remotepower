@@ -9,11 +9,11 @@ at risk before it fails — most urgent first:
 - **Unstable hosts** — hosts restarting unusually often (reboot-frequency
   anomaly), which often precedes PSU/RAM/thermal failure.
 
-Tracked/unstable disk state also appears in the device drawer's SMART view.
+Tracked/unstable disk state also appears in the host drawer's SMART view.
 Unmonitored hosts are shown and flagged; only monitored hosts raise the
 `disk_predict_fail` alert.
 
-## Device reliability prediction *(v6.2.0)*
+## Host reliability prediction *(v6.2.0)*
 
 The page's third card, **Hosts likely to fail**, folds every failure signal into
 one composite score per host (0–100, higher = more likely to fail) with an

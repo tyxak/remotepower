@@ -130,8 +130,8 @@ class TestRenderers(TestPeriodSection):
         """The period block was inserted mid-renderer; pin the neighbours so a
         future edit there cannot quietly delete them."""
         _subj, body = api._render_report_email(self.rep)
-        for expected in ("Fleet health score", "Devices", "Needs attention",
-                         "Patches", "CVEs", "Lowest-scoring devices"):
+        for expected in ("Fleet health score", "Hosts", "Needs attention",
+                         "Patches", "CVEs", "Lowest-scoring hosts"):
             self.assertIn(expected, body, f"{expected!r} lost from the email body")
 
     def test_the_csv_carries_it(self):

@@ -28,10 +28,15 @@ def edge(**kw):
 
 
 class TestFamilies(unittest.TestCase):
-    def test_the_two_sets_do_not_overlap_and_make_up_the_whole(self):
-        self.assertEqual(set(te.AGENT_SOURCES) & set(te.EDGE_SOURCES), set())
-        self.assertEqual(set(te.SOURCES), set(te.AGENT_SOURCES) | set(te.EDGE_SOURCES))
-        self.assertEqual(set(te.EDGE_SOURCES), {'cf', 'trap'})
+    def test_the_three_sets_do_not_overlap_and_make_up_the_whole(self):
+        # v7.4.0: what only the server's reading of a firewall's syslog can say is a third set.
+        agent, edge, appliance = set(te.AGENT_SOURCES), set(te.EDGE_SOURCES), set(te.APPLIANCE_ONLY_SOURCES)
+        self.assertEqual(agent & edge, set())
+        self.assertEqual(agent & appliance, set())
+        self.assertEqual(edge & appliance, set())
+        self.assertEqual(set(te.SOURCES), agent | edge | appliance)
+        self.assertEqual(edge, {'cf', 'trap'})
+        self.assertEqual(appliance, {'ids', 'dp'})
 
     def test_every_family_has_words(self):
         for fam in te.SOURCES:

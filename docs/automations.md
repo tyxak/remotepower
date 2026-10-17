@@ -3,7 +3,7 @@
 *(engine v3.4.2; actions extended in v5.6.0 "HeapMatters")*
 
 The **Automation** page (Automation → Automation) runs **event-driven rules**:
-*when an event fires on a matching device, run one or more actions.* Rules are
+*when an event fires on a matching host, run one or more actions.* Rules are
 evaluated as part of the event-firing path, so they react as soon as an event
 happens — with a per-rule **cooldown** to dampen flapping. Rules are admin-only
 and every action is audited.
@@ -12,7 +12,7 @@ and every action is audited.
 
 - **Match** — one or more **events** (e.g. `service_down`, `readonly_fs`,
   `fail2ban_ban`; blank = any) and/or **severities** (critical/high/medium/low),
-  optionally narrowed to a **device group** and/or **tags**.
+  optionally narrowed to a **host group** and/or **tags**.
 - **Actions** — one or more of the below.
 - **Cooldown** — minimum seconds between firings of the same rule (default 60).
 
@@ -20,13 +20,13 @@ and every action is audited.
 
 | Action | What it does |
 | --- | --- |
-| **Run script** | Queues a saved custom script on the event's device (honours quarantine / audit-mode at dispatch). |
+| **Run script** | Queues a saved custom script on the event's host (honours quarantine / audit-mode at dispatch). |
 | **Notify** | Re-dispatches the event to a named webhook destination. |
-| **Open a ticket** *(v5.6.0)* | Opens a helpdesk ticket for the event's device (requires the ticket system enabled). Priority follows the event severity unless you pick one. Deduped per rule so a flapping event doesn't pile up tickets. |
-| **Add a tag** *(v5.6.0)* | Adds a tag to the event's device — handy for auto-classifying ("seen-flapping", "needs-review"). |
-| **Mute the alert** *(v5.6.0)* | Mutes *this event from this host* — the same `(device, event)` silence the Alerts **X** button creates. Useful to self-suppress a known-noisy source. |
+| **Open a ticket** *(v5.6.0)* | Opens a helpdesk ticket for the event's host (requires the ticket system enabled). Priority follows the event severity unless you pick one. Deduped per rule so a flapping event doesn't pile up tickets. |
+| **Add a tag** *(v5.6.0)* | Adds a tag to the event's host — handy for auto-classifying ("seen-flapping", "needs-review"). |
+| **Mute the alert** *(v5.6.0)* | Mutes *this event from this host* — the same `(host, event)` silence the Alerts **X** button creates. Useful to self-suppress a known-noisy source. |
 
-The three v5.6.0 actions compose subsystems you already have (tickets, device
+The three v5.6.0 actions compose subsystems you already have (tickets, host
 tags, alert mutes), so they add **no new webhook event** and run on the same
 lock-safe path as the existing script/notify actions.
 

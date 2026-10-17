@@ -15,7 +15,7 @@ shared, so processes, ports, packages, disks and config all reflect the host.
 
 ## Quick start (two values, one command)
 
-1. In the RemotePower UI: **Enroll device → Generate Docker compose**. Copy the
+1. In the RemotePower UI: **Enroll host → Generate Docker compose**. Copy the
    generated `docker-compose.yml` (your server URL and a one-time token are
    already filled in).
 2. On the Docker host, save it and run:
@@ -39,7 +39,7 @@ from the repo, setting `RP_SERVER` and `RP_ENROLL_TOKEN`.
 |----------|----------|---------|---------|
 | `RP_SERVER` | first boot | — | Server URL, e.g. `https://remote.example.com` |
 | `RP_ENROLL_TOKEN` | first boot | — | One-time enrollment token (also accepts `REMOTEPOWER_ENROLL_TOKEN`) |
-| `RP_DEVICE_NAME` | no | host's hostname | Device display name |
+| `RP_DEVICE_NAME` | no | host's hostname | Host display name |
 | `RP_CA_FINGERPRINT` | no | — | Pin a self-signed server's CA (SHA-256); the agent fetches `/ca.crt` and refuses a mismatch |
 | `RP_INTERVAL` | no | `60` | Heartbeat interval (seconds) |
 | `HOST_ROOT` | no | `/host` | Where the host rootfs is mounted |
@@ -115,4 +115,4 @@ Credentials persist in the volume, so the agent comes straight back up enrolled.
 docker compose down
 docker volume rm <project>_rp-agent-creds     # also forget the enrollment
 ```
-Then delete the device in the RemotePower UI.
+Then delete the host in the RemotePower UI.

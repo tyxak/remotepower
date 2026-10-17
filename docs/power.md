@@ -9,7 +9,7 @@ fleet. Hosts currently **on battery** are listed first.
   IPMI, smart-UPS load). The fleet total is live.
 - **Laptop battery** *(v6.3.0)* — for hosts with a battery (`BAT*` power
   supplies) the agent reports charge %, charging status, cycle count and
-  current-vs-design **wear** — shown as a Battery pill in the device
+  current-vs-design **wear** — shown as a Battery pill in the host
   drawer's System info. Servers and VMs are unaffected. External UPSes
   remain the separate NUT/apcupsd channel above.
 - **Energy cost** — set your electricity price on the page to convert the
@@ -28,17 +28,17 @@ configured threshold (Settings → Security → **UPS auto-shutdown**, default
 UPS returns to line power.
 
 Optionally, and **off by default**, crossing into critical can trigger a
-graceful shutdown of *other* devices that depend on that UPS — e.g. a NAS
+graceful shutdown of *other* hosts that depend on that UPS — e.g. a NAS
 and a hypervisor sharing one UPS, where the NAS agent is the one that can
 actually read `upsc`. Two things must both be true for anything to happen:
 
 1. **Settings → Security → UPS auto-shutdown** is turned on fleet-wide.
-2. The dependent device has a **UPS dependency** set (device drawer → UPS
-   dependency), pointing at the device that reports the UPS.
+2. The dependent host has a **UPS dependency** set (host drawer → UPS
+   dependency), pointing at the host that reports the UPS.
 
 The shutdown is queued as the same command the manual **Shut down** button
 uses, and bypasses change-approval (Settings → Security) — this
 is an unattended safety response to a UPS that is about to lose power, not
 an operator-initiated change, so parking it for a second admin to approve
-would defeat the point. Quarantined and audit-mode devices are still
+would defeat the point. Quarantined and audit-mode hosts are still
 skipped, same as every other command path.

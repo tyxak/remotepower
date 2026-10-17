@@ -15,7 +15,7 @@ RPO ≈ 0** (synchronous replication) or **RPO ≤ seconds** (asynchronous).
 
 | State | Where | HA answer |
 | --- | --- | --- |
-| Every logical store (devices, alerts, config, tickets, …) | PostgreSQL | Streaming replication — this is the whole ballgame |
+| Every logical store (hosts, alerts, config, tickets, …) | PostgreSQL | Streaming replication — this is the whole ballgame |
 | App workers (gunicorn) | Stateless | Run on both nodes; only the active one receives traffic |
 | Maintenance sweeps | The out-of-band scheduler | **Singleton** — must run on the active node ONLY (two schedulers double-fire webhooks and races) |
 | Sidecars (webterm, scanner, push, syslogd, flowd, kmipd) | Per-node daemons | Installed on both; enabled with the active role |
@@ -83,7 +83,7 @@ Rehearse this until it's boring — it is the whole point of the setup:
    so it belongs in the failover step and not in a follow-up ticket (see
    [kmip.md](kmip.md)).
 5. **Verify**: Server-status page → storage backend reachable, scheduler
-   heartbeat fresh, Distributed-subsystems rows green; a test device shows a
+   heartbeat fresh, Distributed-subsystems rows green; a test host shows a
    fresh heartbeat; `GET /api/self/status` clean.
 6. **Re-establish replication** the other way once node A is repaired
    (`pg_rewind` or re-basebackup), and fail back in a maintenance window —
@@ -104,17 +104,17 @@ backups answer "the data is wrong".
 The reference topology is sized against an explicit target —
 verify on your hardware rather than trusting ours:
 
-- **Target: 1,000 devices at a 60 s poll** ≈ 17 heartbeats/s sustained (plus
+- **Target: 1,000 hosts at a 60 s poll** ≈ 17 heartbeats/s sustained (plus
   UI traffic). On the recommended Postgres backend this is dominated by the
   heartbeat handler's store writes.
-- **Load-test recipe**: enroll one throwaway device, capture its heartbeat
-  body, then replay it at rate with unique device ids from a test enrolment
+- **Load-test recipe**: enroll one throwaway host, capture its heartbeat
+  body, then replay it at rate with unique host ids from a test enrolment
   batch (`ab`/`wrk`/a 20-line Python loop against `POST /api/heartbeat`)
   against a **staging copy** — never the live control plane. Watch: p95
   heartbeat latency (< 250 ms is healthy), gunicorn worker saturation
   (`docs/scaling.md` Step 3), Postgres write throughput, and the Server-status
   self-observability page for sweeps starting to lag.
-- Beyond ~1–2k devices: raise the poll interval (Step 2), add relay
+- Beyond ~1–2k hosts: raise the poll interval (Step 2), add relay
   satellites for remote segments (Step 5), and consult `scaling.md` Step 4
   for the multi-node app tier behind a load balancer (the same floating-IP
   pattern, load-balanced instead of active/passive).

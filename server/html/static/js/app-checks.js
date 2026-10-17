@@ -391,7 +391,7 @@ async function ccHostSearch() {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d => `<div class="dev-combo-item" data-action="pickCcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="dev-combo-empty">No matching devices.</div>';
+    : '<div class="dev-combo-empty">No matching hosts.</div>';
   box.hidden = false;
 }
 function pickCcHost(id, name) {
@@ -406,7 +406,7 @@ function ccKindChanged() {
   const inp = document.getElementById('cc-target');
   const pick = document.getElementById('cc-host-pick');
   const isHost = kind === 'host';
-  if (lbl) lbl.textContent = isHost ? 'Device' : kind === 'tag' ? 'Tag' : 'Group';
+  if (lbl) lbl.textContent = isHost ? 'Host' : kind === 'tag' ? 'Tag' : 'Group';
   // A host target is ALWAYS a device search typeahead (never type a raw id);
   // tag/group keep the plain text input.
   if (inp) {
@@ -665,7 +665,7 @@ function bcKindChanged() {
   document.getElementById('bc-target-grp')?.classList.toggle('hidden', k === 'all');
   const isHost = k === 'host';
   const lbl = document.getElementById('bc-target-label');
-  if (lbl) lbl.textContent = isHost ? 'Device' : k === 'tag' ? 'Tag' : 'Group';
+  if (lbl) lbl.textContent = isHost ? 'Host' : k === 'tag' ? 'Tag' : 'Group';
   // For a host the plain input is hidden and only holds the picked device id —
   // the visible control is the device typeahead. tag/group keep the text input.
   const inp = document.getElementById('bc-target');
@@ -690,7 +690,7 @@ async function bcHostSearch() {
   matches = matches.slice(0, 25);
   box.innerHTML = matches.length
     ? matches.map(d => `<div class="dev-combo-item" data-action="pickBcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="dev-combo-empty">No matching devices.</div>';
+    : '<div class="dev-combo-empty">No matching hosts.</div>';
   box.hidden = false;
 }
 // v6.3.1: un-apply an applied catalog check straight from the card. Deferred
@@ -992,7 +992,7 @@ async function advHostSearch() {
     (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
   box.innerHTML = matches.length
     ? matches.slice(0, 25).map(d => `<div class="dev-combo-item" data-action="pickAdvHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="dev-combo-empty">No matching devices.</div>';
+    : '<div class="dev-combo-empty">No matching hosts.</div>';
   box.hidden = false;
 }
 function pickAdvHost(id, name) {

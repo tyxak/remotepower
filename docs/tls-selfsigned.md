@@ -1,6 +1,6 @@
 # TLS for RemotePower — real certs, and the self-signed CA path
 
-RemotePower requires HTTPS to enrol a real agent: the device token and command
+RemotePower requires HTTPS to enrol a real agent: the host token and command
 output must never travel in cleartext, and all three agents enforce a TLS 1.2
 floor and full certificate verification. This page covers how to get a cert onto
 the server and trusted by the agents.

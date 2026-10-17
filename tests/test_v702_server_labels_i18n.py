@@ -199,7 +199,7 @@ class TestServerLabelsAreTranslated(unittest.TestCase):
                            'DICT parse found almost nothing')
         # One key from each quote style block.
         self.assertIn('Dashboard', self.keys)
-        self.assertIn('Device went offline', self.keys)
+        self.assertIn('Host went offline', self.keys)
         self.assertNotIn('zzz not a key in any dictionary', self.keys)
 
     def test_population_is_derived_and_nonempty(self):
@@ -287,6 +287,11 @@ class TestServerLabelsAreTranslated(unittest.TestCase):
         self.assertGreater(len('x' * (self.cap + 1)), self.cap)
 
 
+# Labels whose translation is the English word itself: German says "offline" too. They come back
+# from the engine unchanged and are correct. An entry that stops being identical is stale.
+_SAME_IN_LANGUAGE = {'de': {'Host offline'}}
+
+
 @unittest.skipUnless(_NODE, 'node not installed')
 class TestLabelsRoundTripThroughTheRealEngine(unittest.TestCase):
     """Ask i18n.js itself, rather than asserting a key is present and hoping.
@@ -350,10 +355,19 @@ console.log(JSON.stringify(out));
                          'this gate checks')
 
     def test_every_label_round_trips_through_the_real_engine(self):
-        gaps = {lang: v for lang, v in self.untranslated.items() if v}
+        gaps = {lang: [s for s in v if s not in _SAME_IN_LANGUAGE.get(lang, ())]
+                for lang, v in self.untranslated.items()}
+        gaps = {lang: v for lang, v in gaps.items() if v}
         self.assertEqual(gaps, {}, 'the real engine returns these unchanged: '
                          + json.dumps({k: v[:10] for k, v in gaps.items()},
                                       indent=2, ensure_ascii=False))
+
+    def test_the_same_in_language_list_is_not_stale(self):
+        for lang, labels in _SAME_IN_LANGUAGE.items():
+            still = set(labels) & set(self.untranslated[lang])
+            self.assertEqual(still, set(labels),
+                             f'{lang}: these are translated now, so they no longer need listing: '
+                             f'{sorted(set(labels) - still)}')
 
     def test_a_string_with_no_entry_is_reported(self):
         """Control on the harness: prove it can say no.
@@ -362,7 +376,7 @@ console.log(JSON.stringify(out));
         perfect one produce the same output for a translated string. Only an
         UNtranslated one separates them.
         """
-        self.assertNotIn('Device went offline', self.untranslated['de'])
+        self.assertNotIn('Host went offline', self.untranslated['de'])
         # Re-run with a string that is certainly absent.
         r = subprocess.run(
             [_NODE, '-e', '''

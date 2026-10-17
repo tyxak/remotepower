@@ -75,7 +75,7 @@ const _STORAGE_MAINT_ACTIONS = {
     { a: 'scrub',     l: 'Scrub',          mut: 1 },
     { a: 'balance',   l: 'Balance (50%)',  mut: 1 },
     { a: 'usage',     l: 'Usage',          mut: 0 },
-    { a: 'devstats',  l: 'Device stats',   mut: 0 },
+    { a: 'devstats',  l: 'Host stats',   mut: 0 },
     { a: 'snapshots', l: 'List snapshots', mut: 0 },
   ],
 };
@@ -305,7 +305,7 @@ function _spParams() {
 async function spPreview() {
   const devId = document.getElementById('sp-device-select')?.value;
   const recipe = document.getElementById('sp-recipe')?.value;
-  if (!devId) { toast('Pick a device', 'error', {transient: true}); return; }
+  if (!devId) { toast('Pick a host', 'error', {transient: true}); return; }
   const r = await api('POST', `/devices/${encodeURIComponent(devId)}/storage-provision`,
     { recipe, params: _spParams(), dry_run: true }).catch(e => ({ error: String(e) }));
   const out = document.getElementById('sp-preview');

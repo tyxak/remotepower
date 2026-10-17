@@ -60,12 +60,12 @@ def _no_coverage(facts, coverage_key):
 def _patch_control(facts):
     bad = facts.get('pending_patches_devices') or []
     if bad:
-        return FAIL, f"{len(bad)} device(s) over the patch threshold: " + \
+        return FAIL, f"{len(bad)} host(s) over the patch threshold: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
     if _no_coverage(facts, 'patch_data_devices'):
         return NOT_ASSESSED, ("No host has reported package/update status yet — patch "
                     "posture is not assessed (run a package scan).")
-    return PASS, "No device exceeds its pending-patch threshold."
+    return PASS, "No host exceeds its pending-patch threshold."
 
 
 def _cve_control(facts):
@@ -273,7 +273,7 @@ def _intrusion_control(facts):
 
 def _vault_control(facts):
     if facts.get('encrypted_vault', True):
-        return PASS, "Stored device secrets are held in the encrypted vault."
+        return PASS, "Stored host secrets are held in the encrypted vault."
     return NA, "No credential vault in use."
 
 
@@ -355,7 +355,7 @@ def _privileged_command_control(facts):
     if facts.get('devices', 0) > 0:
         return NOT_ASSESSED, ("No host has reported a privileged-command trail — "
                               "sudo/doas accountability is not assessed.")
-    return NOT_ASSESSED, "No devices are enrolled."
+    return NOT_ASSESSED, "No hosts are enrolled."
 
 
 def _regulated_data_control(facts):

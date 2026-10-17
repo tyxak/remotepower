@@ -35,7 +35,7 @@ async function loadMonitoringProfiles() {
   const data = await api('GET', '/monitoring-profiles');
   const profiles = (data && data.profiles) || [];
   const nameById = {}; (_csData?.scripts || []).forEach(s => { nameById[s.id] = s.name; });
-  if (!profiles.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">' + _icon('layers', 28) + '</div><div class="empty-title">No profiles yet</div><div class="empty-text">Bundle a set of scripts into a reusable host profile, then apply it to a device, group, or tag.</div></div>'; return; }
+  if (!profiles.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">' + _icon('layers', 28) + '</div><div class="empty-title">No profiles yet</div><div class="empty-text">Bundle a set of scripts into a reusable host profile, then apply it to a host, group, or tag.</div></div>'; return; }
   el.innerHTML = profiles.map(p => {
     const names = (p.script_ids || []).map(id => nameById[id] || id).join(', ');
     return `<div class="row-8-center mb-6 flex-between">
@@ -107,7 +107,7 @@ async function applyProfile() {
   const ids = Array.from(_csProfileSelDevs);
   if (!ids.length) { toast('Select at least one asset', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles/apply', { profile_id: pid, device_ids: ids });
-  if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} device(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
+  if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} host(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
   else toast(r?.error || 'Failed', 'error');
 }
 async function deleteProfile(id, name) {
@@ -197,7 +197,7 @@ function renderCustomScriptsPage() {
 
   if (!rows.length && !noResultRows.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${
-      filterText || statusFilter !== 'all' ? 'No results match the filter.' : 'No custom script results yet. Assign a script to a device and wait one run cycle (5 min).'
+      filterText || statusFilter !== 'all' ? 'No results match the filter.' : 'No custom script results yet. Assign a script to a host and wait one run cycle (5 min).'
     }</td></tr>`;
     return;
   }
@@ -285,7 +285,7 @@ async function openCustomScriptModal(scriptId) {
 async function _buildCsDevicePicker(scriptId) {
   const container = document.getElementById('cs-device-picker');
   if (!container) return;
-  container.innerHTML = '<span class="hint">Loading devices…</span>';
+  container.innerHTML = '<span class="hint">Loading hosts…</span>';
 
   // Get assigned_devices for this script (if editing) — always fetch so
   // we don't need _csData to be loaded first.
@@ -314,8 +314,8 @@ async function _buildCsDevicePicker(scriptId) {
   const agentDevs = (devs || []).filter(d => !d.agentless);
   if (!agentDevs.length) {
     container.innerHTML = fetchFailed
-      ? '<span class="hint">Could not load devices — check your connection and reopen.</span>'
-      : '<span class="hint">No devices enrolled.</span>';
+      ? '<span class="hint">Could not load hosts — check your connection and reopen.</span>'
+      : '<span class="hint">No hosts enrolled.</span>';
     return;
   }
 
@@ -408,7 +408,7 @@ async function deleteCustomScript() {
   const sid  = document.getElementById('cs-modal-id').value;
   const name = document.getElementById('cs-modal-name').value;
   if (!sid) return;
-  if (!await uiConfirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  if (!await uiConfirm(`Delete script "${name}"? This removes it from all hosts.`)) return;
   const r = await api('DELETE', `/custom-scripts/${sid}`);
   if (!r) return;
   closeModal('custom-script-modal');
@@ -420,7 +420,7 @@ async function deleteCustomScript() {
 async function csDeleteScript(sid) {
   const script = (_csData && _csData.scripts || []).find(s => s.id === sid);
   const name   = script ? script.name : sid;
-  if (!await uiConfirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  if (!await uiConfirm(`Delete script "${name}"? This removes it from all hosts.`)) return;
   const r = await api('DELETE', `/custom-scripts/${sid}`);
   if (!r) return;
   toast('Script deleted', 'success');

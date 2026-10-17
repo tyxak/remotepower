@@ -29,7 +29,7 @@ The endpoint is tenant-filtered, so on a multi-tenant install each tenant admin
 reviews their own roster and sees nobody else's.
 
 Do the same for machine identities — the **API keys** page — which are the ones
-reviews usually forget. Each key carries its device **scope**, source-IP
+reviews usually forget. Each key carries its host **scope**, source-IP
 allowlist, expiry, rate limit and rotation lineage (`rotated_from` /
 `rotated_to`), and is tenant-scoped like the user roster. Note there is **no
 last-used timestamp on a key** — `created` and `expires_at` are what you have, so

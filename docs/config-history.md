@@ -28,6 +28,6 @@ inside the configuration are handled exactly as they are everywhere else — the
 are never echoed back on read; restoring a revision restores the whole
 configuration state, including any secret values that were set at the time.
 
-Device records, alerts and other operational stores are not part of this
+Host records, alerts and other operational stores are not part of this
 history — this is specifically the *configuration* audit trail. For a per-alert
-or per-device audit, see the audit log and the alert timeline.
+or per-host audit, see the audit log and the alert timeline.

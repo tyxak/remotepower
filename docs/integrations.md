@@ -31,27 +31,27 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 An integration watches a **service**; that service runs on a **machine**. Until
 you say which machine, RemotePower has no way to connect the two — a poll result
 carries the instance's label and nothing else, so `integration_down` fired as a
-fleet-level event with no device attached to it.
+fleet-level event with no host attached to it.
 
 An instance now takes an optional **`device_id`** (a host already enrolled in
 RemotePower) and an optional **`site`**, set on the instance object you send to
 `POST /api/integrations` and returned by `GET /api/integrations`. Both default to
 empty, and an unbound instance behaves exactly as it always did. Binding is
 admin-only and validated against the fleet — an unknown id is rejected, and one
-belonging to a device you cannot see is refused rather than confirmed to exist.
+belonging to a host you cannot see is refused rather than confirmed to exist.
 
 Everything binding buys follows from one change: the `integration_down` and
 `integration_recovered` payloads now carry that `device_id` (and `site`), which
 is what the rest of the alert pipeline keys on.
 
 - **Maintenance windows suppress it.** Both events joined the suppressible set,
-  so a **device** or **group** window covering the bound host now holds the
+  so a **host** or **group** window covering the bound host now holds the
   outbound notification (webhook and e-mail) the same way it holds a
   `device_offline`. This is the case worth binding for: rebooting one box during
   a declared window used to notify once per self-hosted app running on it — five
   services on that NAS, five pages, inside the window the operator had just
-  declared. Only a *global* window could ever catch them, because a device-scoped
-  one had no device to match against.
+  declared. Only a *global* window could ever catch them, because a host-scoped
+  one had no host to match against.
 - **Per-(host, event) mutes reach it.** A mute is keyed `(device_id, event)`, so
   an unbound integration alert had no host to mute it *against* — the row's mute
   button had nothing to send. Bound, muting `integration_down` for that host from
@@ -65,7 +65,7 @@ is what the rest of the alert pipeline keys on.
   rather than to a bare label.
 
 Recovery still matches on the integration id,: if you bind an
-instance *after* its down-alert was recorded, the stored alert has no device
+instance *after* its down-alert was recorded, the stored alert has no host
 while the recovery carries one, and requiring both to match would strand that
 alert open forever.
 
@@ -126,10 +126,10 @@ alert open forever.
   beside your homelab integrations ("federation-lite"). Point URL at the peer's
   base (`https://peer.example.com`) and paste a **viewer-role API key** generated
   on that instance (Admin → API Keys) as the secret. It reads only the peer's
-  **public health** — `GET /api/nav-counts` (device count, offline hosts, open
+  **public health** — `GET /api/nav-counts` (host count, offline hosts, open
   alerts, control-plane health) plus the no-auth `/api/public-info` for the
   version — and shows the tile OK when the peer is reachable and healthy,
-  WARNING when the peer reports offline devices / open alerts / a degraded
+  WARNING when the peer reports offline hosts / open alerts / a degraded
   control-plane, and CRITICAL only when it's unreachable or the key is rejected.
   This is **read-only off-site visibility, not federation**: there is no shared
   identity and no cross-instance control.

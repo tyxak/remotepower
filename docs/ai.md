@@ -185,7 +185,7 @@ Per-button max_tokens overrides are also applied client-side so a
 | Explain alert | 800 |
 | Explain TLS / Triage CVE | 800–1000 |
 | Explain command output / Find the problem / Explain script | 1500 |
-| Investigate device / Audit script / Prioritise patches | 2000 |
+| Investigate host / Audit script / Prioritise patches | 2000 |
 | Generate script | 4000 |
 
 The server still respects your configured global cap — the
@@ -219,7 +219,7 @@ Explain/Investigate buttons below. The firewall auditor is also reachable as an
 ## Hail-mary log sweep — "Diagnose from logs" *(v6.4.0)*
 
 For the *"something is wrong on this host but I don't know where"* moment,
-the device drawer has **Diagnose from logs**:
+the host drawer has **Diagnose from logs**:
 
 1. **Collect** sets a one-shot `force_log_sweep` flag; on its next heartbeat
    the agent snapshots `/var/log/*` and `/var/log/*/*` — only files modified
@@ -230,7 +230,7 @@ the device drawer has **Diagnose from logs**:
 2. At ingest the server **re-caps every size and redacts credential
    material** line-by-line (`password=…`, `Authorization: Bearer …`,
    `api_key: …`, `https://user:pass@…` → `[REDACTED]`). One sweep is kept
-   per device; you can browse the per-file tails in the modal.
+   per host; you can browse the per-file tails in the modal.
 3. **Diagnose** sends a ≤48 KB excerpt (highest-scored files first) to your
    configured provider under the `log_sweep_rca` prompt and renders the
    verdict, per-file findings and next steps.
@@ -248,8 +248,8 @@ Endpoints: `POST /api/devices/{id}/log-sweep/run` (admin),
 
 The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a
 bounded investigate loop: instead of answering from a static context blob, the
-model requests evidence through a fixed menu of **read-only, device-scoped
-tools** — device summary, journal tail, watched services, the host's other
+model requests evidence through a fixed menu of **read-only, host-scoped
+tools** — host summary, journal tail, watched services, the host's other
 open alerts, recent command output, a regex search over the 6 h log buffer,
 and the latest hail-mary sweep — replying with strict JSON (one tool call or
 a final verdict) each round, hard-capped at 4 tool calls, every tool result
@@ -291,13 +291,13 @@ Settings → AI assistant → Prompts.
 
 | Location | Label | What gets sent |
 |---|---|---|
-| Device dropdown (⋯ menu) | ** Investigate** | sysinfo + last 30 journal lines + last 10 commands |
-| Device detail → Command output | ** Explain** | command + output + device name |
-| Device detail → Journal panel | ** Find the problem** | error/warning lines with 2-line context, or last 50 lines |
+| Host dropdown (⋯ menu) | ** Investigate** | sysinfo + last 30 journal lines + last 10 commands |
+| Host detail → Command output | ** Explain** | command + output + host name |
+| Host detail → Journal panel | ** Find the problem** | error/warning lines with 2-line context, or last 50 lines |
 | Services → service detail | ** Diagnose** *(failed services only)* | unit name + state + last 30 log lines |
 | TLS → table row | ** Triage** *(warning/critical/error only)* | host + port + expiry + issuer + starttls type |
-| Patches → table row | ** Prioritise** *(devices with pending updates only)* | upgradable package list from latest apt/dnf check |
-| CVEs → finding row | ** Triage** | CVE id + package + version + summary + device |
+| Patches → table row | ** Prioritise** *(hosts with pending updates only)* | upgradable package list from latest apt/dnf check |
+| CVEs → finding row | ** Triage** | CVE id + package + version + summary + host |
 | Notifications → webhook log row | ** Explain** | event type + raw detail |
 | Scripts → edit modal | ** Generate from prompt** | natural-language description |
 | Scripts → edit modal | ** Explain** | the script body |
@@ -405,7 +405,7 @@ explain_script — script body
 audit_script — script body, security focus
 generate_script — natural language → bash
 triage_cve — CVE id + package context
-investigate_device — device snapshot
+investigate_device — host snapshot
 explain_alert — webhook payload
 free_form — generic, used by the AI page
 diagnose_service — failed systemd unit + logs

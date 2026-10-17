@@ -43,7 +43,7 @@ semantics. Everything below notes which mechanism a command targets.
 
 ### One-liner (recommended)
 
-In the dashboard: **Add device → Quick install** copies a one-liner with a
+In the dashboard: **Add host → Quick install** copies a one-liner with a
 one-time enrollment token baked in. On the target host, in an **elevated**
 PowerShell:
 
@@ -87,7 +87,7 @@ Two credentials enroll a host; **don't mix up the flags**:
 
 - **Enrollment token** — a long (16–256 char) one-time string, e.g. the `t=…`
   value baked into the one-liner. Pass with **`--token`** / `-Token`.
-- **PIN** — a **6-digit** code from **Add device**. Pass with **`--pin`** /
+- **PIN** — a **6-digit** code from **Add host**. Pass with **`--pin`** /
   `-Pin`.
 
 A 6-digit value passed to `--token` is rejected by the server (tokens must be
@@ -170,10 +170,10 @@ never call it by hand.)
 
 ### From the dashboard (recommended)
 
-**Devices → the host → Uninstall agent** queues an `uninstall` command. On its
+**Hosts → the host → Uninstall agent** queues an `uninstall` command. On its
 next heartbeat the agent removes **both** persistence mechanisms (service *and*
 scheduled task) and deletes its credentials, then stops reporting. Delete the
-device row afterward.
+host row afterward.
 
 ### With the installer script
 
@@ -202,7 +202,7 @@ Remove-Item -Recurse -Force "C:\Program Files\RemotePower" -ErrorAction Silently
 Remove-Item -Recurse -Force "C:\ProgramData\RemotePower" -ErrorAction SilentlyContinue
 ```
 
-Then delete the device from the dashboard. Leaving `psutil` / `pywin32` /
+Then delete the host from the dashboard. Leaving `psutil` / `pywin32` /
 Python installed is harmless; remove them separately if you installed them only
 for the agent.
 
@@ -352,7 +352,7 @@ inline (which had no restart trigger). Bring it back with `schtasks /run /tn
 RemotePowerAgent`; switching to the service removes the failure mode entirely (the
 SCM restarts the agent after any self-update exit).
 
-### The device shows a terminal icon, or no green "verified" badge
+### The host shows a terminal icon, or no green "verified" badge
 
 Cosmetic and server-side — the fixes ship with the server. Redeploy the server
 (`git pull &&./deploy-server.sh`); the content-hash cache-bust also clears a
@@ -381,7 +381,7 @@ Start-Service RemotePowerAgent
   `schtasks`, `taskkill`, `cmd`, `sc`) is invoked by **absolute path**, never bare
   name — the agent runs as SYSTEM, so a writable `%PATH%` entry would otherwise be
   a privilege-escalation vector *(v6.2.0)*.
-- The credential file (`agent.json`, holds the device token) has its ACL locked to
+- The credential file (`agent.json`, holds the host token) has its ACL locked to
   **SYSTEM + Administrators** via locale-proof SIDs, inheritance stripped, written
   before the first token is stored.
 - HTTPS is required; TLS 1.2 floor; 3xx redirects are never followed (no
@@ -398,7 +398,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 
 | File | Purpose |
 |---|---|
-| `agent.json` | credentials (server URL, device id, token) — ACL-locked |
+| `agent.json` | credentials (server URL, host id, token) — ACL-locked |
 | `agent.log` | rotating agent log *(v6.2.0)* |
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
 | `audit-mode` | marker: read-only mode (refuse write commands) |

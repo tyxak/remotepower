@@ -2327,7 +2327,7 @@ _STATS: dict = {
     "netdata": [("alarms_critical", "Critical", "num"), ("alarms_warning", "Warning", "num")],
     "grafana": [("database_ok", "Database", "flag")],
     "remotepower": [
-        ("devices", "Devices", "int"),
+        ("devices", "Hosts", "int"),
         ("offline", "Offline", "num"),
         ("alerts_open", "Open alerts", "num"),
     ],

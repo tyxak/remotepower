@@ -283,13 +283,13 @@ def handle_acme_detail(dev_id, domain):
     A.require_auth()
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'}); return
+        A.respond(404, {'error': 'invalid host id'}); return
     if not A._acme_validate_domain(domain):
         A.respond(400, {'error': 'invalid domain'}); return
     store = A.load(A.ACME_STATE_FILE) or {}
     rec = store.get(dev_id)
     if not rec:
-        A.respond(404, {'error': 'no acme state reported for device'}); return
+        A.respond(404, {'error': 'no acme state reported for host'}); return
     cert = next((c for c in (rec.get('certs') or []) if c.get('domain') == domain), None)
     if not cert:
         A.respond(404, {'error': 'cert not found in last scan'}); return
@@ -352,7 +352,7 @@ def handle_acme_log(dev_id, action_id):
     # (_enforce_device_scope) doesn't cover it — block out-of-scope roles here.
     A._scope_block_device(dev_id)
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'}); return
+        A.respond(404, {'error': 'invalid host id'}); return
     log_path = A._acme_log_path(dev_id, action_id)
     if not log_path.is_file():
         A.respond(404, {'error': 'log not found'}); return
@@ -370,7 +370,7 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
     actor = A.require_admin_auth()
     devices = A.load(A.DEVICES_FILE) or {}
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'}); return None
+        A.respond(404, {'error': 'host not found'}); return None
     # v6.3.0 security fix: these ACME write routes live under /api/acme/, NOT
     # /api/devices/, so main()'s _enforce_device_scope() never covers them. A
     # tenant admin (role scope None) could otherwise queue an exec: (issue/
@@ -439,7 +439,7 @@ def handle_acme_force_renew(dev_id, domain):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'}); return
     if not A._validate_id(dev_id) or not A._acme_validate_domain(domain):
-        A.respond(400, {'error': 'invalid device or domain'}); return
+        A.respond(400, {'error': 'invalid host or domain'}); return
     store = A.load(A.ACME_STATE_FILE) or {}
     rec = store.get(dev_id) or {}
     home = rec.get('home') or '/root/.acme.sh'
@@ -462,7 +462,7 @@ def handle_acme_revoke(dev_id, domain):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'}); return
     if not A._validate_id(dev_id) or not A._acme_validate_domain(domain):
-        A.respond(400, {'error': 'invalid device or domain'}); return
+        A.respond(400, {'error': 'invalid host or domain'}); return
     store = A.load(A.ACME_STATE_FILE) or {}
     rec = store.get(dev_id) or {}
     home = rec.get('home') or '/root/.acme.sh'
@@ -496,7 +496,7 @@ def handle_acme_cancel(dev_id, action_id):
     """
     A.require_admin_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'}); return
+        A.respond(404, {'error': 'invalid host id'}); return
     # v6.3.0 security fix: cancel bypasses _acme_queue_command's gate — apply
     # the same tenant + role-scope block (route is under /api/acme/, not covered
     # by _enforce_device_scope).
@@ -571,7 +571,7 @@ def handle_acme_ignore(dev_id, action_id):
     """
     A.require_admin_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'}); return
+        A.respond(404, {'error': 'invalid host id'}); return
     # v5.0.1 (SECURITY): this route isn't under /api/devices/, so the global
     # device-scope chokepoint doesn't cover it. Block cross-scope deletes the
     # same way the acme detail/log read siblings do (was an IDOR).
@@ -622,7 +622,7 @@ def handle_acme_issue(dev_id):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'}); return
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'}); return
+        A.respond(400, {'error': 'invalid host id'}); return
     body = A._read_valid(A.request_models.AcmeIssueRequest)
     domain = str(body.get('domain') or '').strip().lower()
     if not A._acme_validate_domain(domain):

@@ -37,15 +37,15 @@
     new URLSearchParams(location.search).forEach(function (v, k) {
       if (k !== 'format' && v) parts.push(k + '=' + v);
     });
-    return parts.length ? 'Filters: ' + parts.join(', ') : 'Filters: none (all devices)';
+    return parts.length ? 'Filters: ' + parts.join(', ') : 'Filters: none (all hosts)';
   }
 
   function render(data) {
     const rows = data.devices || [];
     el('fq-meta').textContent = 'Generated ' + new Date().toLocaleString()
-      + ' · ' + (data.total != null ? data.total : rows.length) + ' device(s)';
+      + ' · ' + (data.total != null ? data.total : rows.length) + ' host(s)';
     el('fq-criteria').textContent = criteria();
-    const head = '<tr><th>Device</th><th>Group</th><th>OS</th><th>Agent</th>'
+    const head = '<tr><th>Host</th><th>Group</th><th>OS</th><th>Agent</th>'
       + '<th>Online</th><th>Pending</th><th>CPU%</th><th>Mem%</th><th>CVE</th></tr>';
     const body = rows.map(function (d) {
       return '<tr><td>' + esc(d.name) + '</td>'
@@ -60,7 +60,7 @@
     }).join('');
     el('fq-table').innerHTML = rows.length
       ? '<table data-rows="print"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>'
-      : '<p>No devices match the criteria.</p>';
+      : '<p>No hosts match the criteria.</p>';
     el('fq-foot').textContent =
       'RemotePower fleet query — generated on demand. '
       + 'Figures reflect the latest data RemotePower has collected.';

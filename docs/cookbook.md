@@ -9,7 +9,7 @@ Each recipe is self-contained and links to the reference guide for the detail.
 - [Set up 3-2-1 backups you can trust](#set-up-3-2-1-backups-you-can-trust)
 - [Page me only for real problems (tame the noise)](#page-me-only-for-real-problems)
 - [Monitor a Proxmox node and its guests](#monitor-a-proxmox-node-and-its-guests)
-- [Watch a switch/printer with no agent (SNMP)](#watch-an-agentless-device-with-snmp)
+- [Watch a switch/printer with no agent (SNMP)](#watch-an-agentless-host-with-snmp)
 - [Onboard a segmented site with a satellite](#onboard-a-segmented-site-with-a-satellite)
 - [Watch a GitHub repo for new issues](#watch-a-github-repo-for-new-issues)
 - [Keep certificates from expiring](#keep-certificates-from-expiring)
@@ -20,25 +20,25 @@ Each recipe is self-contained and links to the reference guide for the detail.
 
 ## Monitor a new host end-to-end
 
-1. **Enrol the agent.** Dashboard → **Devices → Enroll device**. Copy the
+1. **Enrol the agent.** Dashboard → **Hosts → Enroll host**. Copy the
    one-line install command (or generate a PIN) and run it on the target:
    ```bash
    wget -qO- "https://your-server/install?t=<token>" | sudo sh
    ```
    The host appears by hostname within ~60 s.
-2. **Confirm it's reporting.** Open the device drawer → **System Info**: CPU,
+2. **Confirm it's reporting.** Open the host drawer → **System Info**: CPU,
    memory, disk, kernel, top processes. If it's a container host, the
    **Containers** section lists them.
-3. **Set thresholds (optional).** Device drawer → **Settings** → metric warn/crit
+3. **Set thresholds (optional).** Host drawer → **Settings** → metric warn/crit
    percentages. Fleet-wide defaults live in **Settings → Alert parameters**.
-4. **Add it to a group/site.** Device drawer → tags/group/site — this is what
+4. **Add it to a group/site.** Host drawer → tags/group/site — this is what
    scopes reports, SLAs and maintenance windows later.
 
 Reference: [agentless-devices.md](agentless-devices.md), [fleet-management.md](fleet-management.md).
 
 ## Watch a service and get paged when it dies
 
-1. **Add the unit to the watch list.** Device drawer → **Services** → add the
+1. **Add the unit to the watch list.** Host drawer → **Services** → add the
    systemd unit (e.g. `nginx.service`). Or set a fleet default under
    **Monitoring → Service baselines** so every matching host watches it with no
    per-host editing.
@@ -62,7 +62,7 @@ The rule: **3** copies, on **2** different media/targets, **1** off-site.
    is also proven *restorable*, not just fresh.
 3. **Add an off-site leg** — a monitor whose target is a remote/PBS/S3/rsync
    destination. RemotePower infers the "off-site" leg from the target.
-4. **Read the score.** Device drawer → **Backups**: the **3-2-1 rule** chip row
+4. **Read the score.** Host drawer → **Backups**: the **3-2-1 rule** chip row
    shows which legs pass. It's informational — the `backup_stale` /
    `backup_verify_failed` events are what page you.
 
@@ -82,7 +82,7 @@ Noise is the #1 reason people stop reading alerts. Tune it:
 3. **Set per-severity escalation.** **Settings → Notifications → Escalation** —
    only page after N minutes unacknowledged, per severity.
 4. **Suppress during known work.** Create a **maintenance window** (below) so
-   expected churn doesn't alert at all. A window can cover a device, a group, a
+   expected churn doesn't alert at all. A window can cover a host, a group, a
    **site**, a **tag**, a smart group, or the whole fleet — so "all of this
    customer's hosts on Saturday" is one window, not one per host.
 
@@ -90,7 +90,7 @@ Reference: [alert-tuning.md](alert-tuning.md), [automations.md](automations.md).
 
 ## Monitor a Proxmox node and its guests
 
-1. **Add the node as a device** (agent install on the PVE host, or agentless).
+1. **Add the node as a host** (agent install on the PVE host, or agentless).
 2. **Add a Proxmox Backup Server integration** — **Settings → Integrations** →
    type **Proxmox Backup Server**, point it at the PBS API with a token. Datastore
    health + fullest-datastore % show as a tile.
@@ -101,13 +101,13 @@ Reference: [alert-tuning.md](alert-tuning.md), [automations.md](automations.md).
 
 Reference: [integrations.md](integrations.md), [virtualization.md](virtualization.md).
 
-## Watch an agentless device with SNMP
+## Watch an agentless host with SNMP
 
 For switches, APs, printers, IPMI/BMC cards, NAS boxes — anything that can't run
 the agent.
 
-1. **Add the device** with its IP (Devices → add, or import from a network scan).
-2. **Enable SNMP.** Device drawer → **Settings → SNMP polling** → tick enable.
+1. **Add the host** with its IP (Hosts → add, or import from a network scan).
+2. **Enable SNMP.** Host drawer → **Settings → SNMP polling** → tick enable.
    - **SNMPv2c:** enter the community string.
    - **SNMPv3:** pick the version, set the user, auth protocol + password
      (MD5/SHA-1/SHA-2) and optional AES privacy. Passwords are write-only.

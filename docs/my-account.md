@@ -45,7 +45,7 @@ on you will be asked to enrol at your next sign-in. For the wider picture, read
 | --- | --- |
 | **Appearance** | The theme for *this browser*. **Follow system** tracks your operating system's light/dark setting; **Time of day** switches on the clock instead, which is what you want when the OS is pinned to dark. The accent colour tints buttons and highlights on top of any theme. |
 | **Display units** | Whether timestamps read as *3d ago* or as an absolute time, and whether temperatures are shown in Celsius or Fahrenheit. Readings are stored and alerted on in Celsius either way, so switching the unit cannot move a threshold. |
-| **SSH preferences** | Your default SSH username, used by the quick-SSH link on the Devices page so you don't retype it. |
+| **SSH preferences** | Your default SSH username, used by the quick-SSH link on the Hosts page so you don't retype it. |
 
 ## Time tracking
 

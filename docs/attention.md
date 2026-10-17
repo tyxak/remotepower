@@ -39,9 +39,9 @@ more there are with a link through to the full list. Everything else is here.
   one-line detail. Columns sort; the ordering for severity is by rank
   (critical > warning > info), not alphabetically, because alphabetical would
   read critical < info < warning.
-- **Filters** for severity, kind and device, plus a free-text box over host,
+- **Filters** for severity, kind and host, plus a free-text box over host,
   kind and detail. The per-severity totals above the table double as one-click
-  filters. The kind and device pickers are rebuilt from the loaded rows on each
+  filters. The kind and host pickers are rebuilt from the loaded rows on each
   refresh, so they only ever offer values that actually occur — and they keep
   your current selection if it still exists, because a kind can vanish between
   refreshes precisely *because* you just fixed it.
@@ -49,15 +49,15 @@ more there are with a link through to the full list. Everything else is here.
   you just fixed has really cleared.
 - **The same per-item actions as the card**: jump to the page the item is about,
   **Investigate** (diagnostic + AI suggestion, when the kind has a mitigation
-  playbook and the item has a device), **Snooze** for 24 hours, **×** to ignore
-  permanently, and for `log_alert` items an "open Logs filtered to this device
+  playbook and the item has a host), **Snooze** for 24 hours, **×** to ignore
+  permanently, and for `log_alert` items an "open Logs filtered to this host
   and unit" shortcut plus a clear-this-line control.
 - **Nothing is queued.** The list is recomputed from current fleet state on every
   load, so an item disappears the moment its cause clears — there is no "resolve"
   button because there is nothing stored to resolve.
 - The list is **scoped to what you can see**. A role- or tenant-scoped operator
-  gets only items for their own devices; fleet-level items (TLS expiry and
-  friends, which have no device to attribute) are kept for everyone.
+  gets only items for their own hosts; fleet-level items (TLS expiry and
+  friends, which have no host to attribute) are kept for everyone.
 
 `GET /api/attention` returns `{items, counts, total}` — `counts` is the
 per-severity tally, `total` the number of items after scoping.
@@ -76,9 +76,9 @@ load-bearing in that map: muting `av_warning` must not also hide an
 `av_infected` item of the same kind.
 
 **Health is derived from these items, and only from these items.** Every
-monitored device starts at 100 and loses points per item by severity (25 for a
+monitored host starts at 100 and loses points per item by severity (25 for a
 critical, 8 for a warning, 2 for an info by default — tunable under Settings →
-Alert parameters); the fleet score is the mean over monitored devices. That is
+Alert parameters); the fleet score is the mean over monitored hosts. That is
 why silencing an item *lifts the score*: there is exactly one source of truth for
 "what is wrong", and the score cannot disagree with the list. It is also why an
 item you have no way to silence permanently depresses a host's score — see the
@@ -93,7 +93,7 @@ blend into health. See [health-score.md](health-score.md) and [risk.md](risk.md)
 |---|---|---|
 | Channel routing | a whole kind, fleet-wide, per channel | Settings → Notifications — untick *Needs Attention* for that kind |
 | Ignore / snooze | one item | the × (permanent, reviewable under Settings → Ignored items) or the bell (24 h) on the row |
-| Suppression rule | a kind across the fleet, a group, a tag or one device | Settings → Ignored items → *Suppression rules* (`/api/na-suppress`) — one managed entry instead of 500 per-item ignores |
+| Suppression rule | a kind across the fleet, a group, a tag or one host | Settings → Ignored items → *Suppression rules* (`/api/na-suppress`) — one managed entry instead of 500 per-item ignores |
 | Alert mute | one `(host, event)` pair | [Alert tuning](alert-tuning.md) — also silences the inbox, webhooks, e-mail and push |
 
 They are applied in that order at the end of `_compute_attention()`, and each
@@ -111,9 +111,9 @@ active. Anything else in `fleet_events` is past-tense only.
 | Kind | Source | Severity range |
 |---|---|---|
 | `offline` | `last_seen` outside TTL | critical |
-| `patches` | `upgradable > 0` on device record | info / warning |
+| `patches` | `upgradable > 0` on host record | info / warning |
 | `cve` | findings in `cve_findings.json`, ignoring `cve_ignore.json` | warning / critical |
-| `drift` | `drift_detected` set on device | warning |
+| `drift` | `drift_detected` set on host | warning |
 | `mailbox` | mailbox count exceeds threshold | warning |
 | `brute_force` | active state in `brute_force.json` | critical |
 | `snapshot` | snapshot age > threshold | warning |
@@ -123,12 +123,12 @@ active. Anything else in `fleet_events` is past-tense only.
 | `reboot` | `/run/reboot-required` exists in sysinfo | warning |
 | `agent_version` | agent version ≠ server version | info |
 | `service_down` | systemd unit in `services.json` not active | warning / critical |
-| `failed_units` | systemd `failed` units reported in the device's sysinfo | warning |
+| `failed_units` | systemd `failed` units reported in the host's sysinfo | warning |
 | `monitor_down` | last monitor probe `ok: false` | critical |
 | `custom_script_fail` | custom script reports non-zero rc in latest result | warning |
 | `custom_check` | a custom check's latest result is warning/critical | warning / critical |
 | `mount` | a watched mount is missing or **stalled** (not responding) | warning / critical |
-| `hardware` | SMART failure and other hardware findings on the device record | warning / critical |
+| `hardware` | SMART failure and other hardware findings on the host record | warning / critical |
 | `reliability` | the reliability scorer rates the host likely to fail | warning / critical |
 | `av_posture` | ClamAV infected files, or AV/real-time protection off | warning / critical |
 | `agent_integrity` | running agent binary hash ≠ the published build | critical |
@@ -148,7 +148,7 @@ active. Anything else in `fleet_events` is past-tense only.
 To make a new state-derived condition show in NA:
 
 1. Append to `_compute_attention()` in `server/cgi-bin/api.py` with `severity`,
-   `kind`, `device` (device name string), `summary`, and optionally `target` for
+   `kind`, `device` (host name string), `summary`, and optionally `target` for
    parameterised mitigation.
 2. Add a `PAGE_FOR` entry in `app.js` so clicking the row lands on the page the
    item is about. The Home card and the full page share that one table.
@@ -164,7 +164,7 @@ To make a new state-derived condition show in NA:
 
 The decorator step at the end of `_compute_attention` automatically:
 
-- adds `device_id` (looked up from the device-name reverse map),
+- adds `device_id` (looked up from the host-name reverse map),
 - adds `mitigation_kind` / `mitigation_target` if the kind is in
   `_MITIGATE_PLAYBOOKS`,
 - filters items through the channel-routing matrix, the global Ignored list,

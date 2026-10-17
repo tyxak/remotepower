@@ -417,7 +417,7 @@ class TestServerWiring(unittest.TestCase):
     def test_quarantine_enforced(self):
         # both the queue-time guard and the dispatch chokepoint must check it
         self.assertIn('def _device_quarantined', self.API)
-        self.assertIn("Device is quarantined", self.API)
+        self.assertIn("Host is quarantined", self.API)
         self.assertIn("saved_dev.get('quarantined')", self.API)
 
     def test_data_files_defined(self):

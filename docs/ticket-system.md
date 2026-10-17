@@ -28,16 +28,16 @@ tickets are where you left them.
 | **Status** | Ongoing · Pending customer · Pending internal · Resolved · Closed. |
 | **Assignee & group** | Who owns it, and which team it belongs to. |
 | **SLA** | A response-time target derived from the priority (see below). |
-| **Devices** | One or more affected hosts, attached from your fleet. |
+| **Hosts** | One or more affected hosts, attached from your fleet. |
 | **Parent / sub-tickets** | A ticket can be a child of a master ticket. |
 
 ## Creating tickets
 
 - **From an alert** — the Alerts inbox has a **Ticket** button on each alert. It
-  opens an Incident linked to that alert, inheriting its severity, device and
+  opens an Incident linked to that alert, inheriting its severity, host and
   title, and assigns it to you.
 - **By hand** — the **New ticket** button on the Tickets page. Pick the type,
-  priority and affected devices.
+  priority and affected hosts.
 - **From email** — if you point the ticket mailbox at an inbox (below), a message
   that doesn't match an existing ticket opens a brand-new one automatically, so
   customers can raise tickets just by emailing you.
@@ -56,7 +56,7 @@ alert is resolved for you** — the loop closes without a second click.
 The Tickets page is organised into four tables — **New** (untriaged), **My open
 tickets**, **My team's open tickets**, and **Other** (everyone else's open work
 plus everything closed) — each searchable and sortable. Search matches the number,
-subject, device, group and assignee.
+subject, host, group and assignee.
 
 ## SLA targets
 
@@ -96,7 +96,7 @@ The ticket system can send and receive email through your existing mail server.
   opens a new ticket when there's no match. Auto-replies, bulk mail and the
   system's own outgoing messages are skipped, so nothing loops.
 
-Recipients are resolved from your CMDB — a contact email on the device, then its
+Recipients are resolved from your CMDB — a contact email on the host, then its
 documentation, then its notes — so you usually don't have to type an address.
 
 ## The conversation

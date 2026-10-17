@@ -86,7 +86,7 @@ Most list/create/update/delete resources follow the same shape:
 | Auto-patch      | `/api/autopatch`              | GET POST PUT DELETE|
 | Backup jobs     | `/api/backup-jobs`            | GET POST PUT DELETE|
 | Ansible playbooks | `/api/ansible/playbooks`    | GET POST PUT DELETE|
-| Devices         | `/api/devices`                | GET (+ PATCH sub-resources) |
+| Hosts         | `/api/devices`                | GET (+ PATCH sub-resources) |
 
 The full machine-readable contract is the OpenAPI spec at `/api/openapi.json`
 (rendered at `/swagger.html`). Generate a typed client from that if you'd

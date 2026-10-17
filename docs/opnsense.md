@@ -15,9 +15,9 @@ between OPNsense releases; the settings are the same.
 
 ## Add the firewall to RemotePower
 
-All three start from one device record.
+All three start from one host record.
 
-1. Go to **Devices** and click **+ Agentless device**.
+1. Go to **Hosts** and click **+ Agentless host**.
 2. Give it a name, set **Type** to *Firewall*, and fill in **IP**.
 
 For the API, the IP is where RemotePower connects. For logs and traffic it
@@ -41,7 +41,7 @@ firewall by IP address, and the token stays on the server. [How that works](inbo
    the receiver.
 2. **Create a Syslog token.** In RemotePower, go to **Settings → Integrations →
    Inbound webhooks**, click **New token**, set **Type** to *Syslog ingestion*,
-   and under **Pin to device** choose the firewall. Do not copy the token
+   and under **Pin to host** choose the firewall. Do not copy the token
    anywhere. Its type must be *syslog*: an *alert* token does not receive logs.
 3. **Tell OPNsense where to send.** Go to **System ‣ Settings ‣ Logging**, open
    the **Targets** tab (it is called **Remote** in some releases), and add a
@@ -68,7 +68,7 @@ firewall by IP address, and the token stays on the server. [How that works](inbo
    Within a few seconds the token's **Hits** goes up, and the line appears on the
    firewall's **Logs** tab. If it does not, the
    [symptoms table](inbound-tokens.md#reading-the-symptoms) matches what you see
-   on the server to what to change. The most common cause is that the device's IP
+   on the server to what to change. The most common cause is that the host's IP
    is not the address the packets come from; the server's journal names that
    address (`journalctl -u remotepower-syslogd -n 20`).
 
@@ -80,19 +80,19 @@ report the addresses behind them.
 ## Send traffic records (NetFlow)
 
 NetFlow shows which hosts talk to which, and how much, as a live view on the
-firewall's device drawer. It is not a log and it does not carry one. The steps
+firewall's host drawer. It is not a log and it does not carry one. The steps
 mirror the logs:
 
 1. **Install the flow receiver** on the RemotePower server: run the installer
    with `--with-flowd`, or follow the [manual steps](flow.md#setup). It listens
    on UDP 2055. Open that port for the OPNsense address.
-2. **Create a NetFlow/IPFIX token** pinned to the same firewall device. One
-   device can carry a syslog token and a NetFlow token side by side.
+2. **Create a NetFlow/IPFIX token** pinned to the same firewall host. One
+   host can carry a syslog token and a NetFlow token side by side.
 3. **Turn on the exporter in OPNsense.** Go to **Reporting ‣ NetFlow**, choose the
    interfaces to watch, set the version to *IPFIX* (NetFlow v9 also works), and
    add RemotePower as the destination: the server's address and port 2055, in
    the form `192.0.2.10:2055`. Save and apply.
-4. **Check.** Open the firewall in **Devices** and look for the **Network flows**
+4. **Check.** Open the firewall in **Hosts** and look for the **Network flows**
    card. The **Server status** page lists a *Flow receiver* row that says whether
    it is running and how many exporters it can receive from.
 
@@ -113,7 +113,7 @@ and delete** filter rules and outbound (source) NAT rules.
    pick (or create) a user scoped to the firewall pages → **API keys** →
    `+` to generate. OPNsense downloads an `apikey.txt` containing the key
    and secret.
-2. In RemotePower, open the agentless device → **Audit → OPNsense**.
+2. In RemotePower, open the agentless host → **Audit → OPNsense**.
 3. Tick **Enable OPNsense API**, paste the **API key** and **API secret**,
    set the port (default `443`), and **Save**. The secret is stored
    write-only — it's never returned to the browser; leave the field blank
@@ -153,8 +153,8 @@ Reference: <https://docs.opnsense.org/development/api.html>
 
 - **Admin-only + audited.** Every add/delete/toggle goes through an
   admin-only endpoint and is written to the audit log (`device_opnsense_action`).
-- **Per-device opt-in.** Nothing reaches a firewall until you enable
-  OPNsense on that specific device and store its credentials.
+- **Per-host opt-in.** Nothing reaches a firewall until you enable
+  OPNsense on that specific host and store its credentials.
 - **Field allow-list.** Added rules are restricted to a whitelist of
   OPNsense rule fields, so a crafted (or AI-drafted) rule can't smuggle in
   arbitrary attributes.

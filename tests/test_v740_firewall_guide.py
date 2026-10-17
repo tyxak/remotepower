@@ -138,7 +138,7 @@ class TestTheNumbersAreTheCodes(unittest.TestCase):
         self.assertIn(f'{ae.WINDOW_S // 60} minutes', row('Time an address is counted over'))
         self.assertIn(str(_const('_SYSLOG_MAX_LINES_PER_POST')), row('Lines in one post'))
         self.assertIn(_n(_const('_SYSLOG_MAX_LINE')), row('Line length kept'))
-        self.assertIn(_n(iih.SENSOR_EVENTS_PER_HOUR), row('Addresses queued from one device'))
+        self.assertIn(_n(iih.SENSOR_EVENTS_PER_HOUR), row('Addresses queued from one host'))
         self.assertIn('UTC', row('Counts on the Log sources card'))
 
     def test_the_cut_off_of_a_long_line_is_the_intakes(self):
@@ -344,7 +344,7 @@ class TestTheGuideSaysWhatItDoesNotKnow(unittest.TestCase):
     def test_only_the_pf_reader_has_met_a_real_device(self):
         g = _flat(_guide())
         self.assertIn('has been run against a real OPNsense', g)
-        self.assertIn('have not yet read a live device', g)
+        self.assertIn('have not yet read a live firewall or router', g)
         src = (_ROOT / 'tests' / 'test_v740_appliance_evidence.py').read_text(encoding='utf-8')
         self.assertIn('no device of those\nkinds has been read yet', src)
 

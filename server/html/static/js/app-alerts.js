@@ -133,9 +133,9 @@ function _renderAlertsControls() {
       + _ALERT_SEV_CHOICES.map(([v, l]) =>
           `<option value="${escAttr(v)}">${escHtml(l)}</option>`).join('')
       + `</select>`
-      + `<select id="alerts-filter-device" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by device">`
-      + `<option value="">All devices</option></select>`
-      + `<button class="btn-icon d-none" id="alerts-clear-filters" data-action="clearAlertFilters" title="Clear the search, severity and device filters">${_icon('x', 12)} Clear filters</button>`;
+      + `<select id="alerts-filter-device" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by host">`
+      + `<option value="">All hosts</option></select>`
+      + `<button class="btn-icon d-none" id="alerts-clear-filters" data-action="clearAlertFilters" title="Clear the search, severity and host filters">${_icon('x', 12)} Clear filters</button>`;
     host.dataset.built = '1';
     _fillAlertDeviceFilter();
   }
@@ -158,7 +158,7 @@ async function _fillAlertDeviceFilter() {
   const sorted = devs.slice().sort((a, b) =>
     String(a.name || a.id || '').localeCompare(String(b.name || b.id || '')));
   sel.innerHTML = '';
-  sel.appendChild(new Option('All devices', ''));
+  sel.appendChild(new Option('All hosts', ''));
   for (const d of sorted) {
     if (!d || !d.id) continue;
     sel.appendChild(new Option(String(d.name || d.id), String(d.id)));
@@ -1197,7 +1197,7 @@ async function triageFeedback(alertId, dir) {
 async function triageProposeFix(alertId) {
   const a = (_alertsCache || []).find(x => String(x.id) === String(alertId));
   const v = a && a.ai_triage && a.ai_triage.verdict;
-  if (!a || !v || !a.device_id) { toast('No verdict/device to propose from', 'info'); return; }
+  if (!a || !v || !a.device_id) { toast('No verdict/host to propose from', 'info'); return; }
   const context = `Alert: ${a.title || a.event || ''}\n`
     + `AI triage root cause: ${v.root_cause || ''}\n`
     + `Recommended action: ${v.recommended_action || ''}`;

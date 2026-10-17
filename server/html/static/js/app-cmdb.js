@@ -172,7 +172,7 @@ function _renderScopedCreds() {
       <td><span class="group-badge">${escHtml(c.scope_type)}</span> ${escHtml(c.scope_value)}</td>
       <td>${escHtml(c.label)}</td>
       <td class="ff-mono">${escHtml(c.username || '—')}</td>
-      <td class="hint" title="devices this credential is inherited by">${c.applies_to || 0}</td>
+      <td class="hint" title="hosts this credential is inherited by">${c.applies_to || 0}</td>
       <td>
         <button class="btn-icon cell-sm" data-action="scopedCredReveal" data-arg="${escAttr(c.id)}" title="Reveal — copies the password to the clipboard (audited)">Reveal</button>
         <button class="btn-icon cell-sm c-danger-outline" data-action="scopedCredDelete" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.label)}" title="Delete">${_icon('trash', 12)}</button>
@@ -755,7 +755,7 @@ async function pollCmdbSnmp() {
   if (!deviceId) return;
   const enabled = document.getElementById('cmdb-snmp-enabled').checked;
   if (!enabled) {
-    _showSnmpInlineError('SNMP is disabled on this device. Tick "Enable SNMP polling" and Save first.');
+    _showSnmpInlineError('SNMP is disabled on this host. Tick "Enable SNMP polling" and Save first.');
     return;
   }
   // Disable the button + show in-progress so the user knows we're working

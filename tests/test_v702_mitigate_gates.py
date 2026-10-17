@@ -304,7 +304,7 @@ class TestAnsibleTargetScope(_TenantBase):
         api._LOAD_CACHE.clear()
         status, body = self._run({"type": "all"})
         self.assertEqual(status, 400)
-        self.assertIn("No target devices", (body or {}).get("error", ""))
+        self.assertIn("No target hosts", (body or {}).get("error", ""))
 
     def test_site_excludes_other_tenants(self):
         devs = self.devices()
@@ -313,7 +313,7 @@ class TestAnsibleTargetScope(_TenantBase):
         api._LOAD_CACHE.clear()
         status, body = self._run({"type": "site", "value": "hq"})
         self.assertEqual(status, 400)
-        self.assertIn("No target devices", (body or {}).get("error", ""))
+        self.assertIn("No target hosts", (body or {}).get("error", ""))
 
     def test_all_still_finds_own_tenant(self):
         status, body = self._run({"type": "all"})

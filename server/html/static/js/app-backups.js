@@ -108,7 +108,7 @@ function _backupRenderDeviceChecks(filter) {
       || (dv.group || '').toLowerCase().includes(q) || (dv.ip || '').toLowerCase().includes(q));
   box.innerHTML = rows.length ? rows.map(dv =>
     `<label class="click-row"><input type="checkbox" class="backupjob-devchk" value="${escAttr(dv.id)}"${_backupSelDevs.has(dv.id) ? ' checked' : ''}> <span>${escHtml(dv.name)}</span> <span class="meta-sm-nm">${escHtml(dv.group || '')}</span></label>`
-  ).join('') : '<div class="empty-state">No devices match.</div>';
+  ).join('') : '<div class="empty-state">No hosts match.</div>';
 }
 function _backupWireDeviceFilter() {
   const box = document.getElementById('backupjob-devices');
@@ -243,7 +243,7 @@ async function saveBackupJob() {
     device_ids: deviceIds,
   };
   if (!body.name) { toast('Name is required', 'error', {transient: true}); return; }
-  if (!deviceIds.length) { toast('Select at least one device', 'error', {transient: true}); return; }
+  if (!deviceIds.length) { toast('Select at least one host', 'error', {transient: true}); return; }
   if (type === 'file') {
     body.spec = _backupBuildSpec();
     if (!body.spec.paths.length) { toast('Add at least one source path', 'error', {transient: true}); return; }
@@ -287,7 +287,7 @@ async function _backupRunBtn(btn) {
   const id = btn.dataset.id;
   if (targets.length > 1) {
     const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/run', {});
-    if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} devices — output appears in each device's command history${_backupSkipNote(d)}`, 'success');
+    if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} hosts — output appears in each host's command history${_backupSkipNote(d)}`, 'success');
     else toast((d?.error || 'Failed') + _backupSkipNote(d), 'error');
     return;
   }
@@ -302,7 +302,7 @@ async function _backupRunBtn(btn) {
       _backupProgressDone(rc === 0 || rc === undefined ? 'ok' : 'error',
         (out || 'Backup finished.') + (rc !== undefined ? `\n\n(exit code ${rc})` : ''));
     } else if (d.running) {
-      _backupProgressDone('running', d.message || 'Still running — output will appear in the device command history.');
+      _backupProgressDone('running', d.message || 'Still running — output will appear in the host command history.');
     } else if (d.error) {
       _backupProgressDone('error', d.error);
     } else {
@@ -392,7 +392,7 @@ async function restoreBackupJob(id) {
   if (confirm === null) return;
   const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/restore',
     { device_id: devId, restore_path: path.trim(), confirm: confirm.trim(), archive: archive ? archive.trim() : '' });
-  if (d?.ok) toast('Restore queued — output appears in the device command history', 'success');
+  if (d?.ok) toast('Restore queued — output appears in the host command history', 'success');
   else toast(d?.error || 'Failed to queue restore', 'error');
 }
 

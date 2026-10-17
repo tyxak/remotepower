@@ -106,7 +106,7 @@ class TestTheTable(unittest.TestCase):
 
     def test_a_deleted_device_is_flagged_and_a_disabled_token_is_not_nagged(self):
         gone = self.ctx.eval("_inboundScopeCell({scope_device_id:'al_1', receiver_defect:'no_device'})")
-        self.assertIn('The device is gone', gone)
+        self.assertIn('The host is gone', gone)
         self.assertIn('al_1', gone, 'with no name to show, the id is all there is')
         off = self.ctx.eval("_inboundScopeCell({scope_device_id:'al_1', scope_device_name:'fw', "
                             "scope_device_ip:'192.0.2.1', receiver_defect:'disabled'})")
@@ -133,7 +133,7 @@ class TestTheSetupSteps(unittest.TestCase):
 
     def test_syslog_says_not_to_enter_the_token_and_gives_the_port_and_unit(self):
         plan = self.plan('syslog')
-        self.assertIn('Do not enter this token on the device', plan['lead'])
+        self.assertIn('Do not enter this token on the host', plan['lead'])
         text = ' '.join(plan['steps'])
         self.assertIn('rp.example.net', text)
         self.assertIn('UDP port 5514', text)
@@ -182,7 +182,7 @@ class TestTheCreatedDialog(unittest.TestCase):
         box = "document.getElementById('inbound-wh-setup')"
         self.assertFalse(self.ctx.eval(f"{box}.classList.contains('d-none')"))
         text = self.ctx.eval(f"{box}.textContent")
-        self.assertIn('Do not enter this token on the device', text)
+        self.assertIn('Do not enter this token on the host', text)
         self.assertIn('UDP port 5514', text)
         self.assertIn('Only a sender that posts over HTTP needs this URL',
                       self.ctx.eval("document.getElementById('inbound-wh-url-hint').textContent"))

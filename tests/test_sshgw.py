@@ -112,7 +112,7 @@ class TestTargets(unittest.TestCase):
     def test_ambiguous_name_is_refused_not_guessed(self):
         did, why = sshgw.resolve_target(self.DEVS, 'dup')
         self.assertIsNone(did)
-        self.assertIn('2 devices', why)
+        self.assertIn('2 hosts', why)
 
     def test_unknown_and_invalid(self):
         self.assertIsNone(sshgw.resolve_target(self.DEVS, 'nope')[0])

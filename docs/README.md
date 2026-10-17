@@ -82,7 +82,7 @@ holds long-form docs that don't fit there.
   change state that belongs to the whole install; signed alert-email links took
   their address from the request; a crafted SSH user name could make threat
   intel blame someone else; the agent's WebSocket channels followed redirects
-  with the device token; and nginx refused every dashboard edit sent with PUT.
+  with the host token; and nginx refused every dashboard edit sent with PUT.
 - **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot
@@ -146,14 +146,14 @@ holds long-form docs that don't fit there.
  16 read + 5 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
  linting, batch execution.
-- **[compose.md](compose.md)** — docker compose dropdown on device cards.
+- **[compose.md](compose.md)** — docker compose dropdown on host cards.
 - **[docker-agent.md](docker-agent.md)** — run the agent as a container to
  monitor a Docker host (no host install; one-click compose from the UI).
 - **[containers.md](containers.md)** — Docker / Podman / Kubernetes pod
  listings.
 - **[network-map.md](network-map.md)** — Manual topology graph from
  `connected_to` links, with a site/group/tag scope filter for big fleets.
-- **[network-metrics.md](network-metrics.md)** — Per-device RX/TX throughput,
+- **[network-metrics.md](network-metrics.md)** — Per-host RX/TX throughput,
  rolled up fleet-wide or by group / tag / site.
 - **[ipam.md](ipam.md)** — Racks (elevation view, asset placement) and IPAM
  (subnets, derived occupancy, reservations, duplicate-IP/MAC conflict alerts).
@@ -165,7 +165,7 @@ holds long-form docs that don't fit there.
 - **[syslog.md](syslog.md)** — Syslog ingestion from agentless appliances: the
  HTTP receiver and the native `remotepower-syslogd` UDP listener.
 - **[flow.md](flow.md)** — Agentless network flow visibility: the
- `remotepower-flowd` NetFlow/IPFIX receiver, exporter setup, and the per-device
+ `remotepower-flowd` NetFlow/IPFIX receiver, exporter setup, and the per-host
  top-talkers/conversations view *(v6.4.0)*.
 - **[kmip.md](kmip.md)** — The built-in KMIP key server: keep Synology DSM /
  TrueNAS / vSphere encryption keys off the appliance that holds the encrypted
@@ -254,7 +254,7 @@ holds long-form docs that don't fit there.
  across the fleet.
 - **[attention.md](attention.md)** — The "Needs attention" roll-up and its
  full page: what feeds it, how items clear, and the four ways to quiet one.
-- **[bulk-operations.md](bulk-operations.md)** — Multi-device commands,
+- **[bulk-operations.md](bulk-operations.md)** — Multi-host commands,
  tag/group targeting, batch patching.
 - **[custom-scripts.md](custom-scripts.md)** — Custom monitoring scripts:
  server-defined bash health checks with fleet-wide results.
@@ -310,7 +310,7 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[dashboard.md](dashboard.md)** — The home dashboard: widgets, what each one
  counts, and how to customise the layout.
 - **[sites.md](sites.md)** — Sites and the fleet world map.
-- **[links.md](links.md)** — Per-device quick links to your other tools.
+- **[links.md](links.md)** — Per-host quick links to your other tools.
 - **[timeline.md](timeline.md)** — The fleet activity timeline.
 - **[status-board.md](status-board.md)** — The public/NOC status board.
 
@@ -358,11 +358,11 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[navigation.md](navigation.md)** — Finding your way around: the All-pages
  map, the sidebar, the command palette and the search box, and which to use
  when.
-- **[fleet-query.md](fleet-query.md)** — Fleet Query: the quick device-only
+- **[fleet-query.md](fleet-query.md)** — Fleet Query: the quick host-only
  filter in the toolbar.
 - **[data-explorer.md](data-explorer.md)** — Data Explorer: nested AND/OR
- conditions across devices, CVEs, drift, packages, listening ports, services,
- containers and alerts; the 45 device fields you can query (posture, telemetry,
+ conditions across hosts, CVEs, drift, packages, listening ports, services,
+ containers and alerts; the 45 host fields you can query (posture, telemetry,
  inventory) and why the posture booleans are tri-state. Saved query
  templates.
 

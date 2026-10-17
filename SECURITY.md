@@ -35,7 +35,7 @@ log into — holds root.
 
 Two ambient capabilities are the exception worth naming, because "unprivileged"
 should not be read as "no capabilities at all". The app server and the scheduler
-hold `CAP_NET_RAW`, which is what lets them ping an agentless device for
+hold `CAP_NET_RAW`, which is what lets them ping an agentless host for
 reachability, and `CAP_NET_ADMIN`, which is what reads WireGuard peer statistics
 directly when `RP_WG_DIRECT` is set. An install that uses neither agentless
 reachability nor the WireGuard Access page can delete the `AmbientCapabilities=`

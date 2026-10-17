@@ -27,13 +27,13 @@ function _renderDnsAgentBar() {
   if (!el) return;
   const devs = _dnsAcmeDevices || [];
   if (!devs.length) {
-    el.innerHTML = '<span class="hint">No agent devices enrolled — install the agent (running as root) on the host that holds your acme.sh DNS credentials.</span>';
+    el.innerHTML = '<span class="hint">No agent hosts enrolled — install the agent (running as root) on the host that holds your acme.sh DNS credentials.</span>';
     return;
   }
   _dnsSelectedAgent = null;
-  el.innerHTML = '<span class="hint">Import token from a device\'s acme.sh into the vault:</span> '
+  el.innerHTML = '<span class="hint">Import token from a host\'s acme.sh into the vault:</span> '
     + '<span class="dns-agent-search-wrap">'
-    + '<input id="dns-agent-search" class="form-input isl-177" type="text" autocomplete="off" placeholder="Search devices…" aria-label="search agent device">'
+    + '<input id="dns-agent-search" class="form-input isl-177" type="text" autocomplete="off" placeholder="Search hosts…" aria-label="search agent host">'
     + '<div id="dns-agent-results" class="dns-agent-results hidden"></div>'
     + '</span> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>'
     + ' <span id="dns-agent-status" class="hint"></span>';
@@ -64,7 +64,7 @@ function _renderDnsAgentResults(term) {
   box.innerHTML = matches.length
     ? matches.map(d =>
         `<div class="pointer mb-8" data-action="pickDnsAgent" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.online ? '' : ' <span class="hint">(offline)</span>'}${d.acme ? ' <span class="hint">· acme.sh</span>' : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
+    : '<div class="empty-state">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 
@@ -78,7 +78,7 @@ function pickDnsAgent(id, name) {
 async function dnsImportFromAgent() {
   const did = _dnsSelectedAgent ? _dnsSelectedAgent.id : '';
   const dname = _dnsSelectedAgent ? _dnsSelectedAgent.name : did;
-  if (!did) { toast('Search for and pick a device', 'error'); return; }
+  if (!did) { toast('Search for and pick a host', 'error'); return; }
   if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Fleet → CMDB), then unlock it here.', 'error'); return; }
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   if (!await uiConfirm({ title: 'Import from agent', message: `Ask ${dname}'s agent to read its acme.sh DNS credentials and import them into the vault (encrypted)? The agent reads account.conf locally and returns them over the authenticated heartbeat.`, confirmText: 'Import' })) return;
@@ -676,7 +676,7 @@ function _acmeRenderTable() {
   const hint = document.getElementById('acme-suppressed-hint');
   if (hint) {
     if (suppressed_unavailable > 0) {
-      hint.textContent = `${suppressed_unavailable} device${suppressed_unavailable === 1 ? '' : 's'} without acme.sh hidden`;
+      hint.textContent = `${suppressed_unavailable} host${suppressed_unavailable === 1 ? '' : 's'} without acme.sh hidden`;
       hint.style.display = 'block';
     } else {
       hint.style.display = 'none';
@@ -711,7 +711,7 @@ function _acmeRenderTable() {
     if (r._kind === 'unavailable') {
       return `<tr class="isl-671">
         <td>${escHtml(r.device_name)}</td>
-        <td colspan="6" class="isl-672">acme.sh not installed on this device</td>
+        <td colspan="6" class="isl-672">acme.sh not installed on this host</td>
         <td></td>
       </tr>`;
     }
@@ -967,7 +967,7 @@ function acmeOpenIssue(presetDeviceId) {
   const devSel = document.getElementById('acme-issue-device');
   const eligibleDevs = (_acmeData.devices || []).filter(d => d.available);
   if (!eligibleDevs.length) {
-    toast('No devices have acme.sh installed. Install it on a device and wait for the next scan (~1 hour).', 'error');
+    toast('No hosts have acme.sh installed. Install it on a host and wait for the next scan (~1 hour).', 'error');
     return;
   }
   devSel.innerHTML = eligibleDevs.map(d =>
@@ -1012,7 +1012,7 @@ function _acmeUpdateTokenHint() {
     'dns_porkbun':  'Porkbun requires <code>PORKBUN_API_KEY</code> + <code>PORKBUN_SECRET_API_KEY</code>.',
   };
   document.getElementById('acme-issue-token-hint').innerHTML = hints[dns] ||
-    'API credentials must be exported in the agent\'s environment or written to <code>~/.acme.sh/account.conf</code> on the device.';
+    'API credentials must be exported in the agent\'s environment or written to <code>~/.acme.sh/account.conf</code> on the host.';
 }
 
 function acmeIssueStep(delta) {
@@ -1102,7 +1102,7 @@ async function acmeCancelAction(actionId) {
 
 async function acmeIgnoreAction(actionId) {
   if (!_acmeDetailContext) return;
-  if (!await uiConfirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the device is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
+  if (!await uiConfirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the host is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
   const r = await api('POST',
     `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/ignore/${encodeURIComponent(actionId)}`);
   if (!r) { toast('Ignore request failed', 'error'); return; }

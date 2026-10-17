@@ -4731,10 +4731,10 @@ def build_rollouts() -> dict:
         'history': [
             {'ts': t0, 'msg': 'created — upgrade, 3 ring(s), manual promote'},
             {'ts': t0, 'msg': 'started'},
-            {'ts': t0 + 60, 'msg': 'ring 1/3 "canary" dispatched to 2 device(s)'},
+            {'ts': t0 + 60, 'msg': 'ring 1/3 "canary" dispatched to 2 host(s)'},
             {'ts': t0 + 1800, 'msg': 'ring 1 done — 2/2 verified'},
             {'ts': now() - 1260, 'msg': 'manually promoted to ring 2'},
-            {'ts': now() - 1200, 'msg': 'ring 2/3 "pilot" dispatched to 4 device(s)'}],
+            {'ts': now() - 1200, 'msg': 'ring 2/3 "pilot" dispatched to 4 host(s)'}],
         'created_by': 'alice', 'created_at': t0, 'updated_at': now() - 1200,
     }
     script_done = {
@@ -4752,7 +4752,7 @@ def build_rollouts() -> dict:
         'history': [
             {'ts': now() - 86400 * 5 - 120, 'msg': 'created — script, 1 ring(s), auto promote'},
             {'ts': now() - 86400 * 5 - 60, 'msg': 'started'},
-            {'ts': now() - 86400 * 5, 'msg': 'ring 1/1 "web" dispatched to 1 device(s)'},
+            {'ts': now() - 86400 * 5, 'msg': 'ring 1/1 "web" dispatched to 1 host(s)'},
             {'ts': now() - 86400 * 5 + 600, 'msg': 'ring 1 done — 1/1 verified'},
             {'ts': now() - 86400 * 5 + 600, 'msg': 'rollout complete'}],
         'created_by': 'bob', 'created_at': now() - 86400 * 5 - 120,
@@ -5308,7 +5308,7 @@ def build_kb() -> dict:
             '## Disaster recovery\n\n1. Fetch the latest `remotepower_data_*.tar.gz.enc` '
             'from off-host storage.\n2. Decrypt with the passphrase from the vault '
             '(`RP_BACKUP_PASSPHRASE`).\n3. Stop the server, restore the data dir, '
-            '`systemctl start`.\n4. Run **restore-verify** and confirm device count + '
+            '`systemctl start`.\n4. Run **restore-verify** and confirm host count + '
             'last-seen look right.\n', author='bob', created_days=18),
     ]
     return {'articles': articles}
@@ -5347,7 +5347,7 @@ def build_blueprints() -> dict:
             'runcmd:\n'
             '  - curl -fsSL ${rp_server_url}/install | sh -s -- agent \\\n'
             '      --server ${rp_server_url} --name ${rp_device_name}\n',
-            [{'name': 'rp_device_name', 'label': 'Device name', 'default': '',
+            [{'name': 'rp_device_name', 'label': 'Host name', 'default': '',
               'secret': False}], created_days=32),
         _bp(3, 'Ansible — baseline hardening', 'Config/Ansible', 'ansible',
             '---\n- hosts: all\n  become: true\n  vars:\n'

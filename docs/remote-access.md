@@ -8,7 +8,7 @@ apply.
 
 ## Web terminal (SSH in the browser)
 
-Open a device's drawer and click **Run command** to get an xterm.js terminal
+Open a host's drawer and click **Run command** to get an xterm.js terminal
 connected to that host over SSH.
 
 - A small daemon (`remotepower-webterm.service`) brokers the WebSocket; nginx
@@ -24,7 +24,7 @@ connected to that host over SSH.
 ### The host's SSH key is checked first *(v7.0.3)*
 
 Before your password is sent, RemotePower compares the SSH key the host presents
-against the key fingerprints it already has on file for that device. The agent
+against the key fingerprints it already has on file for that host. The agent
 reports them with every heartbeat, so on an enrolled host this needs no setup.
 
 - **The key matches.** The session opens as usual.
@@ -33,7 +33,7 @@ reports them with every heartbeat, so on an enrolled host this needs no setup.
   happened. If the host was rebuilt or its keys were rotated, wait for the agent
   to report the new key, then reconnect. If nothing about the host changed,
   treat it as you would any other host-key warning.
-- **RemotePower has no keys for the device.** This is the case for an agentless
+- **RemotePower has no keys for the host.** This is the case for an agentless
   host, or an agent that has not reported since enrolling. The session opens and
   the audit entry records it as `host_key=unverified` with the fingerprint that
   was presented, so a later change is visible.
@@ -76,7 +76,7 @@ strict public-key pattern before anything is queued.
 - Every action is **queued as an audited host command** — it applies on the
   host's next check-in, is recorded in the audit log, and is **skipped on a
   quarantined host** (writes) and refused by an **audit-mode** agent.
-- Destructive/interactive actions honour the per-device **4-eyes
+- Destructive/interactive actions honour the per-host **4-eyes
   confirmation** gate (`require_confirmation`) where enabled.
 - No inbound firewall rule is ever needed on the client — the agent always dials
   out to the server over HTTPS.
@@ -88,7 +88,7 @@ OpenSSH Server was installed and exposed separately — which RemotePower's own
 Windows onboarding never does — so on most Windows fleets the terminal button
 used to present a login form that could only fail to connect.
 
-**Agent console** (device drawer → *Agent console*) runs commands through the
+**Agent console** (host drawer → *Agent console*) runs commands through the
 agent's existing run-and-wait exec channel instead: **no SSH server, no inbound
 port, no second credential**. Pick PowerShell or `cmd.exe` on Windows, or the
 shell elsewhere, type a command, read the output, run the next one.
@@ -110,5 +110,5 @@ For a full interactive desktop on Windows, use the **RDP tunnel** from the same
 drawer.
 
 Every command goes through the same path as the drawer's *Run command*:
-admin-only, per-device allowlist enforced, and audit-logged. The console is not
+admin-only, per-host allowlist enforced, and audit-logged. The console is not
 a way around those controls.

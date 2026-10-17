@@ -2,7 +2,7 @@
 
 The **Monitoring → Forecast** page projects when a host runs out of headroom —
 on disk, and (since v6.4.2) on memory, swap and CPU load — from a compact daily
-metrics snapshot kept per device (roughly six months of history).
+metrics snapshot kept per host (roughly six months of history).
 
 For every mount it fits a least-squares trend of used-GB over time and
 extrapolates to the mount's capacity, yielding a days-to-full estimate and a
@@ -11,7 +11,7 @@ same noise gate, runs over the non-disk series to give **resource headroom**.
 
 ## What you see per row
 
-- **Device / Mount** — the host and mountpoint.
+- **Host / Mount** — the host and mountpoint.
 - **Used** — current used / total GB and percent.
 - **Trend** — growth in GB/day from the fitted line.
 - **Fills in** — the days-to-full estimate, or one of:
@@ -77,7 +77,7 @@ The noise gate is the same operator-tunable R² floor as the disk projection
 
 ## API
 
-- `GET /api/devices/<id>/forecast` — projection for one device: `mounts`,
+- `GET /api/devices/<id>/forecast` — projection for one host: `mounts`,
   `resources` and `sample_days`.
 - `GET /api/forecast` — the fleet-wide forecast that backs the page. Each mount
   carries `current_gb`, `total_gb`, `current_percent`, `trend_gb_per_day`,

@@ -30,7 +30,7 @@ opened exactly as they were.
 
 ## The command palette — `Ctrl-K` or `/`
 
-For when you know what you want. It searches pages, devices, open alerts, CVE
+For when you know what you want. It searches pages, hosts, open alerts, CVE
 findings and actions, so `reboot`, `terminal` or a hostname all work. It is the
 fastest route once the product is familiar.
 

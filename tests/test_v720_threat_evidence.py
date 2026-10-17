@@ -203,6 +203,8 @@ class TestRuleTables(unittest.TestCase):
         reachable |= {te.crs_class(i) for i in range(900000, 1000000, 1000)} - {None}
         # v7.3.0: the edge feeds reach classes through their own token kinds.
         reachable |= (set(te.TRAP_KINDS.values()) | set(te.CF_KINDS.values())) - {None}
+        # v7.4.0: a firewall's decoy port, and the classes an intrusion-detection line names.
+        reachable |= {te.token_class('dp:hit')}
         self.assertEqual(set(te.CLASSES) - reachable, set(), 'a class no token can produce')
         for name, c in te.CLASSES.items():
             self.assertTrue(c['abuseipdb'] and c['sniffcat'], name)
@@ -282,7 +284,9 @@ class TestEvidenceMath(unittest.TestCase):
                  'mail_brute': 'jail:postfix', 'ftp_brute': 'jail:proftpd',
                  'service_brute': 'jail:mysqld-auth', 'port_scan': 'jail:portscan',
                  # v7.3.0: the three only the edge can say (a server feed, not an agent)
-                 'canary': 'trap:canary', 'decoy_login': 'trap:decoylogin', 'ddos': 'cf:ddos'}
+                 'canary': 'trap:canary', 'decoy_login': 'trap:decoylogin', 'ddos': 'cf:ddos',
+                 # v7.4.0: the one only a firewall or router can say (the server reads its syslog)
+                 'decoy_port': 'dp:hit'}
         self.assertEqual(set(token), set(te.CLASSES), 'a class with no token in this test')
         for cls, tok in token.items():
             fam = tok.split(':', 1)[0]
@@ -290,6 +294,10 @@ class TestEvidenceMath(unittest.TestCase):
                 e = te.normalize_event({'ip': ATTACKER, 'first': NOW - 600, 'last': NOW,
                                         'tok': {fam: {tok: 5}}}, now=NOW,
                                        families=te.EDGE_SOURCES)
+            elif fam == 'dp':
+                e = te.normalize_event({'ip': ATTACKER, 'first': NOW - 600, 'last': NOW,
+                                        'tok': {fam: {tok: 5}}}, now=NOW,
+                                       families=te.APPLIANCE_SOURCES)
             else:
                 e = ev(tok={'web': {tok: 5}})
             self.assertEqual(list(te.classes(e)), [cls], cls)

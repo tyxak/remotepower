@@ -11,7 +11,7 @@ v3.0.2 adds VI-flavoured keybinds throughout the UI. Press `?` from any page to 
 | `?` | Show this cheat sheet |
 | `Esc` | Close any open modal |
 
-The palette searches pages, devices (using the cached list from the Devices page), and quick actions (Bulk actions, Run backup now, Show shortcuts). Arrow keys to navigate, `Enter` to activate.
+The palette searches pages, hosts (using the cached list from the Hosts page), and quick actions (Bulk actions, Run backup now, Show shortcuts). Arrow keys to navigate, `Enter` to activate.
 
 ## Navigation (g-prefix)
 
@@ -20,7 +20,7 @@ Press `g`, then one more key, within 1.5 seconds:
 | Sequence | Destination |
 |---|---|
 | `g h` | Home |
-| `g d` | Devices |
+| `g d` | Hosts |
 | `g l` | Logs |
 | `g s` | Settings |
 | `g c` | CVEs |
@@ -39,4 +39,4 @@ Press `g`, then one more key, within 1.5 seconds:
 
 ## Why VI-flavoured
 
-You said VI over Nano. The single-letter mnemonic prefix matches GitHub, Gmail, GitLab, etc. — `g d` for "go devices" reads naturally and doesn't collide with browser shortcuts.
+You said VI over Nano. The single-letter mnemonic prefix matches GitHub, Gmail, GitLab, etc. and doesn't collide with browser shortcuts. `g d` still opens the host list: the `d` is left over from when that page was called Devices, and the key stays so nobody has to relearn it.

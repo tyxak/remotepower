@@ -73,16 +73,38 @@ class TestExecWaitApprovalGate(unittest.TestCase):
         cfg['change_approval_enabled'] = False
         api.save(api.CONFIG_FILE, cfg)
         api._LOAD_CACHE.clear()
-        # Drive only up to the point the slot is created: _longpoll_wait would
-        # block, so stub it to return immediately.
-        _orig_wait = api._longpoll_wait
-        api._longpoll_wait = lambda dev_id, timeout: ('timeout', None)
+        # The handler runs its own poll loop (time.time() against a deadline, one
+        # time.sleep(1) per pass), not _longpoll_wait, so stubbing _longpoll_wait
+        # changed nothing and this test waited the whole default 90 seconds. A
+        # clock that only moves when the handler sleeps makes the wait instant,
+        # and the sleep is the place to look at the slot the handler is waiting on.
+        slots = []
+
+        class _Clock:
+            def __init__(self, real):
+                self._real, self._t = real, real.time()
+
+            def time(self):
+                return self._t
+
+            def sleep(self, seconds):
+                slots.append('d1' in (api.load(api.LONGPOLL_FILE) or {}))
+                self._t += 1000          # past the deadline: the next check ends the wait
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        real_time = api.time
+        api.time = _Clock(real_time)
         try:
             r = self._run({'device_id': 'd1', 'cmd': 'uptime'})
         finally:
-            api._longpoll_wait = _orig_wait
-        # Not an approval response — it went down the wait path.
+            api.time = real_time
+        # Not an approval response: it went down the wait path ...
         self.assertNotEqual(r['status'], 202)
+        # ... and there was a slot for the agent's answer to land in while it waited.
+        self.assertEqual(slots, [True])
+        self.assertTrue(r['data'].get('timeout'))
 
 
 if __name__ == '__main__':

@@ -99,7 +99,7 @@ reaches your handler:
    enforcement boundary; the API is.
 5. **Tenant scope** — in a multi-tenant install, `_enforce_device_scope()` and the
    per-handler `_scope_filter_devices()` confine a tenant admin to their own
-   devices, even for fleet-wide aggregate views.
+   hosts, even for fleet-wide aggregate views.
 6. **Dispatch** — your handler runs and produces a response via `respond(status,
    dict)`, which raises an `HTTPError` that unwinds the stack cleanly. (A neat
    consequence: a success `respond()` inside a `try/except Exception` gets *caught*
@@ -132,7 +132,7 @@ Underneath, three backends implement that contract:
   atomically with an `flock` and a rolling `.bak` sibling for crash recovery.
   Simple, greppable, zero setup.
 - **SQLite** — WAL mode, stdlib `sqlite3`. Hot entities are stored **row per
-  entity**, so a heartbeat updates one device's row instead of rewriting a whole
+  entity**, so a heartbeat updates one host's row instead of rewriting a whole
   file. In-place, reversible migration from the file backend.
 - **PostgreSQL** (the single-node default since v6.1.0) — multi-host DSN failover,
   optional read replicas, a PgBouncer pooler, and — if you turn it on — row-level
@@ -292,9 +292,9 @@ the *defenses*, not any single feature:
   IDs that get interpolated into an outbound URL are reduced to a single
   URL-encoded path segment so they can't smuggle in an absolute URL.
 - **Tenant isolation as a chokepoint.** Rather than sprinkle checks everywhere,
-  device resolution funnels through `_scope_filter_devices()`, which folds in both
+  host resolution funnels through `_scope_filter_devices()`, which folds in both
   role scope and tenant filtering — even for a tenant admin who otherwise resolves
-  to "no scope." Fleet-wide aggregate views route their device set through it, and
+  to "no scope." Fleet-wide aggregate views route their host set through it, and
   per-scope caches include the tenant in their key.
 - **RBAC that fails closed.** Roles are resolved through a single helper; a custom
   operator role that is neither "viewer" nor "admin" is gated on its actual

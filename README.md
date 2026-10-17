@@ -39,7 +39,7 @@ listens on the managed host.
 </tr>
 <tr>
 <td align="center"><b>Monitoring</b><br><a href="docs/screenshots/Monitoring.png"><img src="docs/screenshots/Monitoring.png" width="400"></a></td>
-<td align="center"><b>Device metrics</b><br><a href="docs/screenshots/Metrics.png"><img src="docs/screenshots/Metrics.png" width="400"></a></td>
+<td align="center"><b>Host metrics</b><br><a href="docs/screenshots/Metrics.png"><img src="docs/screenshots/Metrics.png" width="400"></a></td>
 </tr>
 <tr>
 <td align="center"><b>CVEs</b><br><a href="docs/screenshots/CVEs.png"><img src="docs/screenshots/CVEs.png" width="400"></a></td>
@@ -101,7 +101,7 @@ Node.js, no Redis, no Kubernetes. `install-server.sh` or `docker compose up`
 provisions PostgreSQL, the app server, a maintenance scheduler and a scanner
 satellite, with no flags required.
 
-A single small box handles a couple of hundred devices with no tuning. The
+A single small box handles a couple of hundred hosts with no tuning. The
 same box carries several thousand agents once you adjust the poll interval and
 the worker count — before load-balanced app nodes, read replicas or relay
 satellites come into it. See [docs/scaling.md](docs/scaling.md) for the
@@ -130,7 +130,7 @@ On the box, manage the stack with `rp`: `rp status`, the live `rp tui`
 dashboard, and `sudo rp doctor` for a one-shot health check. See
 [docs/cli.md](docs/cli.md).
 
-**Add a device — one line.** Take the command from *Add device → Quick install
+**Add a host — one line.** Take the command from *Add host → Quick install
 command* in the dashboard, then run it on the target host:
 
 ```bash
@@ -150,7 +150,7 @@ macOS agents, the demo vhost, advanced TLS and uninstall are covered in
 
 **Try it first.** A read-only demo runs at
 [demoremote.tvipper.com](https://demoremote.tvipper.com), seeded with synthetic
-devices, alerts and CVEs. Log in with `demo` / `demo`. It resets every few
+hosts, alerts and CVEs. Log in with `demo` / `demo`. It resets every few
 hours.
 
 ## What you can do with it
@@ -173,7 +173,7 @@ hours.
   tamper-evident audit log, a strict CSP, and an instance-wide view of who is
   signed in. A built-in KMIP key server keeps NAS and hypervisor encryption keys
   off the appliance they unlock. RemotePower also grades its own host's disk
-  encryption, since that is where every device token and the credential vault
+  encryption, since that is where every host token and the credential vault
   live.
 - **Scan for CVEs** — backed by OSV.dev, prioritised with CISA KEV and EPSS,
   with SBOM export in CycloneDX and SPDX.

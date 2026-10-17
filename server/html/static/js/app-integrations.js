@@ -432,12 +432,12 @@ async function _renderSynologyCard(body, badge) {
   if (sy.model || sy.dsm_version) {
     h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · ' + escHtml(sy.dsm_version) : ''}${sy.upgrade === 'available' ? ' · <span class="c-amber">DSM update available</span>' : ''}</div>`;
   } else {
-    h += '<div class="hint mb-6">DSM health appears here once the device is polled over SNMP. The SSH upgrade below works independently of SNMP.</div>';
+    h += '<div class="hint mb-6">DSM health appears here once the host is polled over SNMP. The SSH upgrade below works independently of SNMP.</div>';
   }
 
   h += `<h4 class="mt-12">DSM upgrade (SSH)</h4>
     <div class="hint mb-6">Synology has no API to trigger a DSM upgrade, so this runs it over SSH (root). One button: it checks for a DSM update and, if found, applies it and <strong>reboots the NAS</strong>. Save SSH credentials once — a key (recommended) or a password (needs sshpass on the server).</div>
-    <label class="click-row-6"><input type="checkbox" id="ssh-enabled" ${sshCfg.enabled ? 'checked' : ''}><span class="fs-12">Enable SSH for this device</span></label>
+    <label class="click-row-6"><input type="checkbox" id="ssh-enabled" ${sshCfg.enabled ? 'checked' : ''}><span class="fs-12">Enable SSH for this host</span></label>
     <div class="row-6 mt-6">
       <input class="form-input mw-200" id="ssh-user" placeholder="username" value="${escAttr(sshCfg.username || 'root')}">
       <input class="form-input mw-200" id="ssh-port" type="number" placeholder="22" value="${sshCfg.port || 22}">
@@ -834,7 +834,7 @@ async function loadNetconfig() {
     .catch(() => null);
   if (!r) { box.innerHTML = '<div class="hint">Failed to load the config archive.</div>'; return; }
   if (!r.kind) {
-    box.innerHTML = '<div class="hint">This device has no RouterOS or OPNsense API configured, so there is no running config to archive.</div>';
+    box.innerHTML = '<div class="hint">This host has no RouterOS or OPNsense API configured, so there is no running config to archive.</div>';
     return;
   }
   _netconfRevs = r.revisions || [];
@@ -922,7 +922,7 @@ function netconfigDownload(revId) {
 async function routerosAction(action, arg) {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (action === 'reboot' && !await uiConfirm('Reboot this RouterOS device?')) return;
+  if (action === 'reboot' && !await uiConfirm('Reboot this RouterOS host?')) return;
   if (action === 'disable_interface' &&
       !await uiConfirm('Disable this interface? If it carries your access you could lock yourself out.')) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action, arg });

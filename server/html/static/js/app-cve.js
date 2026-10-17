@@ -213,7 +213,7 @@ async function triggerCVEScan(devId, btn) {
     if (btn) { btn.disabled = false; btn.innerHTML = origText; }
     return;
   }
-  toast(`Scan started${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
+  toast(`Scan started${r.total ? ` (${r.total} host${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
   // Poll progress with a NON-OVERLAPPING self-scheduling loop: the next request
   // is queued only AFTER the previous one resolves. A plain setInterval fires
   // every 2s regardless, so a slow/blocked server piles up hundreds of pending
@@ -257,7 +257,7 @@ async function openDeviceCVE(devId, devName) {
   // field (the scanner's own note, rendered inline below).
   if (!data || !Array.isArray(data.findings)) {
     _errorState('cve-detail-body', () => openDeviceCVE(devId, devName),
-      {msg: (data && data.error) || 'Could not load CVE findings for this device.'});
+      {msg: (data && data.error) || 'Could not load CVE findings for this host.'});
     return;
   }
   const sevColor = {critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
@@ -304,7 +304,7 @@ async function _confirmCveIgnore() {
     const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
     if (result && result.ok) {
       closeModal('cve-ignore-modal');
-      toast(`${vulnId} ignored (${scope === 'global' ? 'fleet-wide' : 'this device'})`, 'success');
+      toast(`${vulnId} ignored (${scope === 'global' ? 'fleet-wide' : 'this host'})`, 'success');
       openDeviceCVE(devId, devName);
       loadCVEReport();
     }
@@ -317,7 +317,7 @@ function aiTriageCve(cveId, packageName, version, deviceName, description) {
   openAIModal({
     title:    `Triage ${cveId}`,
     system:   'triage_cve',
-    userMsg:  `CVE: ${cveId}\nDevice: ${deviceName}\nAffected package: ${packageName} ${version}\n\nDescription:\n${description || '(no description available — assess based on the CVE ID alone)'}`,
+    userMsg:  `CVE: ${cveId}\nHost: ${deviceName}\nAffected package: ${packageName} ${version}\n\nDescription:\n${description || '(no description available — assess based on the CVE ID alone)'}`,
     context:  `cve:${cveId}`,
     maxTokens: 1000,
   });
@@ -340,7 +340,7 @@ async function cveRealert() {
     + 're-alert on their own).')) return;
   const r = await api('POST', '/cve/realert', {});
   if (r && r.ok) {
-    toast(`Re-alerted ${r.devices} device(s)`, 'success');
+    toast(`Re-alerted ${r.devices} host(s)`, 'success');
     refreshAlertsBadge();
   } else toast((r && r.error) || 'Failed', 'error');
 }

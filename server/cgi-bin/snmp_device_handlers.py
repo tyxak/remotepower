@@ -49,10 +49,10 @@ def handle_device_snmp(dev_id):
     # which device ids exist.
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -178,7 +178,7 @@ def handle_device_snmp(dev_id):
                                  'set it in the same PATCH, or untick "enabled"'})
                 if not (dev.get('ip') or dev.get('hostname') or dev.get('host')):
                     A.respond(400, {
-                        'error': 'device has no ip/hostname; cannot poll'})
+                        'error': 'host has no ip/hostname; cannot poll'})
             dev['snmp'] = snmp_cfg
             store[dev_id] = dev
         A.audit_log(actor, 'device_snmp_config',
@@ -193,14 +193,14 @@ def handle_device_snmp_poll(dev_id):
     actor = A.require_admin_auth()
     if A.method() != 'POST': A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     target = A._device_snmp_target(dev)
     if not target:
-        A.respond(400, {'error': 'SNMP not configured/enabled on this device'})
+        A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
     entry = A._do_snmp_poll(dev_id, dev)
     A.audit_log(actor, 'device_snmp_poll', f'device={dev_id} ok={entry.get("last_ok") is not None}')
     A.respond(200, {'ok': True, 'data': entry})
@@ -218,14 +218,14 @@ def handle_device_snmp_deep(dev_id):
     A.require_admin_auth()
     if A.method() != 'GET': A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     target = A._device_snmp_target(dev)
     if not target:
-        A.respond(400, {'error': 'SNMP not configured/enabled on this device'})
+        A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
     host, community, port = target
     import snmp as snmp_mod
     out = {'host': host, 'port': port, 'errors': {}}
@@ -360,14 +360,14 @@ def handle_device_snmp_walk(dev_id):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     target = A._device_snmp_target(dev)
     if not target:
-        A.respond(400, {'error': 'SNMP not configured/enabled on this device'})
+        A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
     body = A.get_json_obj()
     oid = _validate_walk_oid(body.get('oid') or '1.3.6.1.2.1.1')
     if not oid:
@@ -457,7 +457,7 @@ def _clean_trap_rule(raw, existing_id=''):
             A.respond(400, {'error': f'value_match is not a valid regex: {str(e)[:120]}'})
     dev = A._sanitize_str(str(raw.get('device_id', '')), 64)
     if dev and not A._validate_id(dev):
-        A.respond(400, {'error': 'device_id is not a valid device id'})
+        A.respond(400, {'error': 'device_id is not a valid host id'})
     return {
         'id':          existing_id or ('trap-' + A.secrets.token_hex(6)),
         'name':        A._sanitize_str(str(raw.get('name', '')), 60) or oid.lstrip('.'),
@@ -819,10 +819,10 @@ def handle_device_snmp_interfaces(dev_id):
     """
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     hist = (A.load(A.SNMP_IF_HIST_FILE) or {}).get(dev_id) or {}
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     want = A._sanitize_str((qs.get('iface') or [''])[0], 128)

@@ -4,7 +4,7 @@
 
 Multi-line bash scripts, kept separate from the existing single-line
 Command Library. Lint with `bash -n` and a dangerous-command sweep before
-they leave the dashboard; run on a single device from the device
+they leave the dashboard; run on a single host from the host
 dropdown, or on a multi-select batch from the action bar.
 
 ## Why a separate page
@@ -25,7 +25,7 @@ Scripts have a different shape:
  often runbooks. Every CRUD operation and every dispatch writes an
  audit log entry.
 - **Multi-select-friendly.** The batch action bar's "Run script" button
- fans the same script out to every selected device with a single click
+ fans the same script out to every selected host with a single click
  and a single audit-log entry.
 
 ## Storage
@@ -193,7 +193,7 @@ doing its job, the operator can override at dispatch time with
 - It doesn't validate `set -euo pipefail` is present (recommended but
  not required).
 - It doesn't check that commands referenced in the script actually exist
- on the target devices — that's the device's responsibility.
+ on the target hosts — that's the host's responsibility.
 
 ## UI
 
@@ -218,35 +218,35 @@ shebang + `set -euo pipefail` skeleton pre-filled.
 
 Two entry points:
 
-- Device dropdown → **Run script…**
-- Batch action bar → **Run script** (only visible when devices are
+- Host dropdown → **Run script…**
+- Batch action bar → **Run script** (only visible when hosts are
  selected)
 
 Both open the same modal. Pick a script from the dropdown; if it has
 dangerous patterns the consent checkbox appears. Click Queue.
 
 The modal closes immediately and a batch-job status modal opens that
-polls `/api/exec/batch/<id>` every 10 s. Output appears per-device as
+polls `/api/exec/batch/<id>` every 10 s. Output appears per-host as
 each agent's next heartbeat returns it.
 
 ### Batch-job status modal
 
-One row per target device showing:
+One row per target host showing:
 
 - Name
 - Status pill (`pending`, `rc=0`, `rc=1`, or a reason if skipped:
  `not_found`, `agentless`)
-- For completed devices: the script output (capped at 32 KB) and the
+- For completed hosts: the script output (capped at 32 KB) and the
  finished-at timestamp
 
-Polling stops automatically once every queued device has returned
+Polling stops automatically once every queued host has returned
 output, or after 1 hour (the job's TTL). Close button stops polling.
 
 ## Staged rollouts & one-click rollback (v5.0.0)
 
 When you roll a script out in stages, you can attach a **rollback script** to the
 rollout. After it completes, a **Rollback** button appears on the rollout card;
-clicking it queues the rollback script on every device the original rollout
+clicking it queues the rollback script on every host the original rollout
 reached, so a bad change can be reverted fleet-wide in one click. Rollouts can also
 be **health-gated** (opt-in): a canary batch that trips a health check auto-halts
 the rollout (`rollout_halted`) before it reaches the rest of the fleet.
@@ -270,10 +270,10 @@ default 300s. See [agent-commands.md](agent-commands.md).
  log bodies to a terminal naïvely.
 - **Audit log entry** on every create / update / delete / batch dispatch.
 
-There is currently **no per-device allowlist** for scripts. The
+There is currently **no per-host allowlist** for scripts. The
 existing exec allowlist matches exact one-liners; arbitrary script
-bodies wouldn't match. If you need a device that can't run scripts,
-don't grant the dispatcher admin role on that fleet. A per-device
+bodies wouldn't match. If you need a host that can't run scripts,
+don't grant the dispatcher admin role on that fleet. A per-host
 script-policy feature is on the roadmap.
 
 ## Examples

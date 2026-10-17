@@ -297,7 +297,7 @@ def handle_autonomy_preview():
     devices = A.load(A.DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     radius = _blast_radius_for(dev_id, dev, devices)
     tenant = A._device_tenant(dev)
     policy = _policy_for(tenant)
@@ -1157,7 +1157,7 @@ def _verify_due_receipts(now):
     for r in due:
         dev = devices.get(r.get('device_id'))
         if not dev:
-            verdicts[_key(r)] = (False, 'device is gone', False)
+            verdicts[_key(r)] = (False, 'host is gone', False)
             continue
         after = _check_summary_for(r['device_id'], dev)
         worse = autonomy.verification_failed(r.get('before_checks') or {}, after)

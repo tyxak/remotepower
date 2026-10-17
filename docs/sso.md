@@ -268,7 +268,7 @@ Practical consequences for a federated multi-tenant deployment:
   tenant; anything in `default` that is not your own platform staff is an
   unintended superadmin.
 
-The full tenant onboarding workflow — creating tenants, assigning devices,
+The full tenant onboarding workflow — creating tenants, assigning hosts,
 per-tenant branding, what is and is not actually isolated — is in
 [scaling.md](scaling.md#multi-tenancy--one-instance-several-customers).
 

@@ -3,7 +3,7 @@
 **Monitoring → Timeline** merges fleet events, command runs, current CVE
 posture and — for admins and auditors — operator-side changes into one
 chronological stream. The "what happened around 03:40" view. Scope it to the
-whole fleet or a single device.
+whole fleet or a single host.
 
 - Every entry links to its source (alert, command output, drift diff, …).
 - **Point it at the incident.** Pick a moment in **Around** and a window
@@ -19,10 +19,10 @@ whole fleet or a single device.
 
 | Source | Rows |
 |---|---|
-| Fleet events | every fired event whose payload names the device |
+| Fleet events | every fired event whose payload names the host |
 | Command runs | operator and scheduled command output, including server-queued package upgrades |
-| CVE findings | one current-posture row per device (state, not an event — a re-scan of already-known CVEs fires nothing, so an event-sourced view would never show them) |
-| Audit log | **admins and auditors only** — the change-shaped entries: config saves, maintenance windows, rule and threshold edits, mitigations, device and firewall changes |
+| CVE findings | one current-posture row per host (state, not an event — a re-scan of already-known CVEs fires nothing, so an event-sourced view would never show them) |
+| Audit log | **admins and auditors only** — the change-shaped entries: config saves, maintenance windows, rule and threshold edits, mitigations, host and firewall changes |
 
 The audit rows answer "what changed right before this broke", which the event
 stream alone cannot. They are shown only to callers who can already read
@@ -47,4 +47,4 @@ Timestamps in milliseconds are accepted and coerced. Responses echo the
 resolved `since` / `until` so a client can show the window it actually got.
 
 The same data feeds the dashboard activity feed (recent slice) and the
-per-device history in the drawer; the Timeline is the full merged view.
+per-host history in the drawer; the Timeline is the full merged view.

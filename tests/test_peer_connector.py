@@ -145,7 +145,7 @@ class TestPeerConnector(unittest.TestCase):
     def test_stat_chips_render(self):
         chips = I.format_stats("remotepower", {"devices": 12, "offline": 1, "alerts_open": 3})
         labels = {ch["label"]: ch["value"] for ch in chips}
-        self.assertEqual(labels.get("Devices"), "12")
+        self.assertEqual(labels.get("Hosts"), "12")
         self.assertEqual(labels.get("Offline"), "1")
         self.assertEqual(labels.get("Open alerts"), "3")
 

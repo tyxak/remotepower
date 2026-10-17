@@ -1,15 +1,15 @@
 # Scheduled Commands
 
-**Scheduling → Schedule** queues a **shutdown** or **reboot** on a device to run
+**Scheduling → Schedule** queues a **shutdown** or **reboot** on a host to run
 at a specific future time, instead of dispatching it immediately.
 
 ## How it works
 
-- Add a job: pick a device, the action (shutdown / reboot), and the date/time.
+- Add a job: pick a host, the action (shutdown / reboot), and the date/time.
   Times are interpreted in the **server timezone** (shown next to the field).
-- Pending jobs are listed with Device, Command, Scheduled-for and By (the actor
+- Pending jobs are listed with Host, Command, Scheduled-for and By (the actor
   who queued it). Delete a job any time before it fires.
-- At the scheduled moment the command is placed on the device's normal
+- At the scheduled moment the command is placed on the host's normal
   [command queue](agent-commands.md) and delivered on the agent's next
   heartbeat — so it rides the same audit log, permission checks, quarantine and
   4-eyes controls as any other host command.

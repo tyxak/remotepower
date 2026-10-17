@@ -24,7 +24,7 @@ async function _thermalSetIgnore(devArg, label, ignore) {
   if (!lbl) return;
   const cur = await api('GET', `/devices/${encodeURIComponent(devId)}/metric-thresholds`);
   // api() RESOLVES on 4xx rather than throwing — detect the refusal on the body.
-  if (!cur || cur.error) { toast(cur?.error || 'Could not read this device’s sensor settings', 'error'); return; }
+  if (!cur || cur.error) { toast(cur?.error || 'Could not read this host’s sensor settings', 'error'); return; }
   const set = new Set(Array.isArray(cur.sensor_ignores) ? cur.sensor_ignores.map(String) : []);
   if (ignore) set.add(lbl); else set.delete(lbl);
   const r = await api('PATCH', `/devices/${encodeURIComponent(devId)}/metric-thresholds`,

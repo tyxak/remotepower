@@ -513,7 +513,7 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
         # noise, and live metrics are better answered from the dashboard
         # than from a stale index). Disk usage gets its own hardware chunk.
         si = dev.get('sysinfo') or {}
-        summary = [f"Device {name} (id {dev_id})"]
+        summary = [f"Host {name} (id {dev_id})"]
         # Network identity — the operator routinely asks "what IP / hostname
         # does X have". These are stable enough to embed (an IP changes far
         # less often than load/cpu) and are exactly what a who/where question
@@ -2242,7 +2242,7 @@ def build_network_map_corpus(devices, discovery, now=0, lldp=None, peers=None):
     if deps:
         docs.append(make_doc(
             'netmap/deps', 'network_map', 'dependencies',
-            f"Device dependency links ({len(deps)}):\n" + '\n'.join(deps[:300]),
+            f"Host dependency links ({len(deps)}):\n" + '\n'.join(deps[:300]),
             title='Network dependency links', ts=now))
     # Unmanaged hosts discovered on the LAN.
     seen = []

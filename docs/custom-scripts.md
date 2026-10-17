@@ -3,7 +3,7 @@
 *(v2.5.0)*
 
 Define arbitrary bash scripts server-side, assign them to any enrolled
-devices, and get fleet-wide pass/fail status every five minutes — no
+hosts, and get fleet-wide pass/fail status every five minutes — no
 SSH, no Ansible, no separate monitoring stack.
 
 ---
@@ -11,12 +11,12 @@ SSH, no Ansible, no separate monitoring stack.
 ## How it works
 
 1. An admin creates a script in the **Custom Scripts** page (sidebar).
-2. The server pushes the script body to assigned devices via their
+2. The server pushes the script body to assigned hosts via their
  regular heartbeat response.
 3. The agent runs each assigned script every **5 minutes** using
  `/bin/bash`, captures stdout + stderr (merged), and reports results
  in the next heartbeat.
-4. The server stores the latest result per device per script and shows
+4. The server stores the latest result per host per script and shows
  it on the Custom Scripts page.
 5. Status changes fire **edge-triggered webhooks** — once on
  OK → FAIL, once on FAIL → OK.
@@ -45,7 +45,7 @@ scripts simple: succeed or fail.
 1. **Custom Scripts → New script**
 2. Fill in **Name** (required) and **Description** (optional).
 3. Paste the bash body into the **Script body** field.
-4. Pick devices using the **device picker**.
+4. Pick hosts using the **host picker**.
 5. **Save**.
 
 The script is delivered to assigned agents on their next heartbeat
@@ -95,7 +95,7 @@ that mode exists to block.
 
 ### Platform support *(v6.4.1)*
 
-Scripts are assigned by **device**, not by OS, and until v6.4.1 only the Linux
+Scripts are assigned by **host**, not by OS, and until v6.4.1 only the Linux
 agent read them — so a script assigned to a Windows or Mac host silently did
 nothing and its results page stayed empty forever. All three agents run them now.
 
@@ -127,7 +127,7 @@ a visible red result rather than silence, so an unrunnable
 assignment can't look like a passing one.
 
 The same script can therefore target one OS family at a time. To cover a mixed
-fleet, create one script per platform and assign each to the right devices.
+fleet, create one script per platform and assign each to the right hosts.
 
 ---
 
@@ -138,15 +138,15 @@ fleet, create one script per platform and assign each to the right devices.
 | Column | Meaning |
 |--------|---------|
 | Script | Script name (click the definition card to edit) |
-| Device | Enrolled device that ran it |
-| Group | Device group for filtering |
+| Host | Enrolled host that ran it |
+| Group | Host group for filtering |
 | Status | ● OK or ● FAIL with time of last status change |
 | Last output | First 80 chars of stdout/stderr — click for full output |
 | Last run | When the script last executed |
 | Duration | Wall-clock time for the script to complete |
 
 The **definitions panel** below the table shows one card per script
-with aggregate pass/fail counts across all assigned devices.
+with aggregate pass/fail counts across all assigned hosts.
 
 ---
 
@@ -177,7 +177,7 @@ fatigue from a persistently broken check.
 
 **First-run:** no alert is fired when a script produces its first
 result, regardless of outcome. This avoids a flood of `_fail` events
-when you assign a new script to many devices at once.
+when you assign a new script to many hosts at once.
 
 ---
 
@@ -186,7 +186,7 @@ when you assign a new script to many devices at once.
 | Limit | Value |
 |-------|-------|
 | Scripts fleet-wide | 50 |
-| Scripts per device | 10 |
+| Scripts per host | 10 |
 | Script body | 32 KB |
 | Output captured | 4 KB |
 | Run cadence | Every 5 minutes |
@@ -298,7 +298,7 @@ POST /api/custom-scripts Create a script (admin)
 GET /api/custom-scripts/:id Full script detail including body
 PUT /api/custom-scripts/:id Update name, description, body, or assignments (admin)
 DELETE /api/custom-scripts/:id Delete script and clear all stored results (admin)
-GET /api/custom-scripts/results Fleet-wide current results (all devices × all scripts)
+GET /api/custom-scripts/results Fleet-wide current results (all hosts × all scripts)
 ```
 
 ### POST /api/custom-scripts — body shape

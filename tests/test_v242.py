@@ -145,7 +145,7 @@ class TestDocumentation(unittest.TestCase):
     def test_new_doc_cards_present(self):
         # The four documentation topics requested.
         for kw in ('Proxmox virtualization', 'Proxmox LXC containers',
-                   'Snapshots &amp; rollback', 'Quick SSH from the Devices page'):
+                   'Snapshots &amp; rollback', 'Quick SSH from the Hosts page'):
             self.assertIn(kw, self.html, f'doc card missing: {kw}')
 
     def test_doc_cards_well_formed(self):

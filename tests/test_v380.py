@@ -159,7 +159,7 @@ class TestV380Bugs(unittest.TestCase):
         api._LOAD_CACHE.clear()
         res = api._mcp_execute('reboot_device', 'gone', {}, 'admin', None, None)
         self.assertFalse(res['ok'])
-        self.assertIn('device not found', res['error'])
+        self.assertIn('host not found', res['error'])
 
         # A device quarantined while the confirmation sat pending.
         api.save(api.DEVICES_FILE, {'d1': {'name': 'web01', 'quarantined': True}})

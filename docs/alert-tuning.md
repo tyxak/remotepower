@@ -10,7 +10,7 @@ On the **Alerts** page and the dashboard "Open alerts" widget, each alert row
 has an **X "Mute"** button (it replaced the per-row *Ack*; bulk "Ack selected",
 ticket auto-ack and escalation are unchanged).
 
-Muting silences **one exact alert from one host** — the specific `(device,
+Muting silences **one exact alert from one host** — the specific `(host,
 event)` pair, e.g. *rkhunter warnings on tviapp01*. While a mute is in effect:
 
 - no inbox row, no webhook, and — for the Needs-Attention kinds that map to

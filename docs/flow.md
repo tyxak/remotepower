@@ -7,8 +7,8 @@ is talking to what, and how much" per exporter: top talkers, top conversations,
 and a protocol breakdown, updated every few seconds. Agentless.
 
 It is the flow sibling of the [syslog receiver](syslog.md): a small UDP sidecar
-that maps each exporter's source IP to an enrolled device, aggregates the flow
-records, and forwards a compact rollup to the per-device ingest API. Parsing,
+that maps each exporter's source IP to an enrolled host, aggregates the flow
+records, and forwards a compact rollup to the per-host ingest API. Parsing,
 storage and the UI all live in the app server — the daemon is a thin shim.
 
 ## What it parses
@@ -25,11 +25,11 @@ storage and the UI all live in the app server — the daemon is a thin shim.
 
 ## Setup
 
-1. **Enrol the exporter** as an agentless device in RemotePower with its **`ip`
+1. **Enrol the exporter** as an agentless host in RemotePower with its **`ip`
    set to the address the flow packets will come from** (the router's source
-   IP). The daemon maps datagrams to devices by that IP.
+   IP). The daemon maps datagrams to hosts by that IP.
 2. **Create a flow token**: Settings → Integrations → Inbound webhooks → add a
-   token with **kind = `flow`**, scoped to that device.
+   token with **kind = `flow`**, scoped to that host.
 3. **Install + run the receiver** (bundled with the server install; the
    `deploy-server.sh` refresh copies it):
    ```bash
@@ -46,7 +46,7 @@ storage and the UI all live in the app server — the daemon is a thin shim.
    **Reporting ‣ NetFlow**, see [opnsense.md](opnsense.md#send-traffic-records-netflow);
    pfSense: the softflowd package.)
 
-The token is the device scope — no RBAC on the ingest path, exactly like syslog.
+The token is the host scope — no RBAC on the ingest path, exactly like syslog.
 Unmapped exporters are dropped and logged (at most once per 10 min each).
 
 **The exporter never holds the token.** It sends plain UDP, and the receiver
@@ -59,7 +59,7 @@ firewall's log lines you also need the [syslog receiver](syslog.md).
 
 ## Where it shows up
 
-Device drawer → **Network flows**: the latest window's top talkers (by bytes),
+Host drawer → **Network flows**: the latest window's top talkers (by bytes),
 top conversations (`src → dst:port/proto`), the protocol split, and totals.
 `GET /api/devices/{id}/flows` returns `{latest, history}` (a short rolling
 history of total-bytes/flows for a trend). The receiver appears on the
@@ -69,7 +69,7 @@ Server-status **Distributed subsystems** card once sources are enrolled.
 
 The daemon re-aggregates to the top ~20 talkers/conversations per flush, and the
 server re-caps every size on ingest (never trusts the sender). Only the **latest
-rollup** plus a short (**~4 minutes**) history of totals is kept per device —
+rollup** plus a short (**~4 minutes**) history of totals is kept per host —
 this is a live traffic view, not a long-term flow archive. For long-term flow
 retention, export to a dedicated collector (nfdump/nfcapd, Elastiflow) in
 parallel.
@@ -113,15 +113,15 @@ which of three routers it meant.
 
 The exporter does not hold the token — **the sidecar does**. `remotepower-flowd`
 maps an incoming datagram to a token by its **source IP**, matched against the
-enrolled device's `ip` field. Anything that breaks that lookup drops the token
+enrolled host's `ip` field. Anything that breaks that lookup drops the token
 from the map, and then nothing can ever arrive no matter how correctly the
 router is configured:
 
 | What Server status says | What it means |
 | --- | --- |
-| `no IP on the device, so the receiver cannot map its packets` | The device this token is scoped to has an empty `ip`. The receiver has nothing to match the datagram's source address against. Set the device's IP to the address the flow packets come *from*. |
+| `no IP on the host, so the receiver cannot map its packets` | The host this token is scoped to has an empty `ip`. The receiver has nothing to match the datagram's source address against. Set the host's IP to the address the flow packets come *from*. |
 | `token disabled` | The token exists but is switched off under Settings → Integrations → Inbound webhooks. |
-| `the device it is scoped to no longer exists` | The device was deleted and the token outlived it. Revoke the token or re-scope it. |
+| `the host it is scoped to no longer exists` | The host was deleted and the token outlived it. Revoke the token or re-scope it. |
 | `never exported` (no reason given) | The mapping is sound, so the silence is upstream: the router isn't sending, or udp/2055 is blocked between it and the receiver. |
 
 The first three also raise **`ingest_source_unmappable`** (cleared by
@@ -146,7 +146,7 @@ dependency link). Once an edge is declared, this feature watches it:
   agent's peer-connection report **or** any exporter's NetFlow/IPFIX flows);
 - it is **broken** (`dependency_missing` alert) when it was carrying traffic and
   then went silent for the configured window **while both hosts stayed online** —
-  a firewall change, a route drop or a crashed listener the device-offline alert
+  a firewall change, a route drop or a crashed listener the host-offline alert
   never catches;
 - it **recovers** (`dependency_restored`, auto-resolving the alert) when traffic
   returns;

@@ -232,6 +232,6 @@ DOCDRAFT_SYSTEM = (
 
 
 def docdraft_prompt(device_name, observed_state):
-    user = (f"Device: {device_name}\n\nObserved state (JSON):\n"
+    user = (f"Host: {device_name}\n\nObserved state (JSON):\n"
             f"{observed_state}\n\nWrite the asset documentation in Markdown.")
     return DOCDRAFT_SYSTEM, [{'role': 'user', 'content': user[:24000]}]

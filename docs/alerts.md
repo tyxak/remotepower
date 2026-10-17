@@ -4,7 +4,7 @@
 severity lands here, grouped by host, until it is acknowledged, resolved, or
 auto-resolved by its matching recover event (`device_online`,
 `service_recover`, `custom_script_recover`, …). An alert also resolves when the
-condition behind it is removed rather than recovered: **deleting a device**
+condition behind it is removed rather than recovered: **deleting a host**
 resolves all of its open alerts, **deleting a custom check or script** resolves
 its alerts fleet-wide, and **accepting or disabling** a protect/baseline check
 fires `custom_check_recovered` so its alert closes — so nothing lingers pointing
@@ -43,11 +43,11 @@ looking.
   upgrade.
 - **Group by host** — folds symptom alerts under their probable root cause
   (a `device_offline` folds the service/port alerts it likely caused).
-- **Filters** — state dropdown + free-text filter by device, event or title.
+- **Filters** — state dropdown + free-text filter by host, event or title.
 - **Open a ticket** — with the [ticket system](ticket-system.md), an alert
   row can spawn a linked ticket; opening one auto-acknowledges the alert.
 - **Triage** *(v6.4.0)* — runs a bounded agentic investigation on the alert:
-  the model gathers evidence through read-only, device-scoped tools and stores
+  the model gathers evidence through read-only, host-scoped tools and stores
   a root-cause verdict with its evidence trail on the row. Optionally automatic
   for new alerts (off by default, with a severity floor and a daily cap). See
   [ai.md](ai.md).
@@ -121,7 +121,7 @@ ack_comment_enabled}`. All parameters are optional:
 | `status` | `open` | `open` \| `ack` \| `resolved` \| `all` |
 | `limit` | 200 | clamped to 1–1000 |
 | `offset` | 0 | *(v6.4.2)* clamped ≥ 0 — before this, row 201 was simply unreachable |
-| `q` | — | *(v6.4.2)* case-insensitive substring over device name, event and title |
+| `q` | — | *(v6.4.2)* case-insensitive substring over host name, event and title |
 | `severity` | — | *(v6.4.2)* `critical`/`high`/`medium`/`low`; repeat the parameter or comma-separate for several |
 | `device_id` | — | *(v6.4.2)* exact match |
 | `mine` | — | only alerts *you* acknowledged |
@@ -129,7 +129,7 @@ ack_comment_enabled}`. All parameters are optional:
 Rows come back newest first. Filtering runs **after** the visibility filter, so
 `total` counts only rows you are allowed to see — page through it with `offset`
 until `offset + len(alerts) >= total`. RBAC scope and tenant isolation apply
-throughout: an alert for a device outside your scope or tenant is not returned,
+throughout: an alert for a host outside your scope or tenant is not returned,
 and addressing it by id returns 404 rather than 403.
 
 ## Turning the inbox off
@@ -146,7 +146,7 @@ supported setup — your phone still pings, there is just no inbox to triage.
 ## Ignored items — and keeping them from piling up *(v6.4.0)*
 
 Hiding a Needs-Attention card (the × on the card) sends it to **Settings →
-Ignored items**, alongside hidden stale containers, devices, ignored CVEs and
+Ignored items**, alongside hidden stale containers, hosts, ignored CVEs and
 cleared log lines. On a large fleet that list used to grow without bound —
 so it now maintains itself:
 
@@ -154,13 +154,13 @@ so it now maintains itself:
   has been gone past a short grace window (the drift resolved, the disk
   recovered, the point-in-time event aged out). You only keep the ignores you
   still need.
-- **Device cleanup.** Deleting or decommissioning a host drops every ignore
+- **Host cleanup.** Deleting or decommissioning a host drops every ignore
   scoped to it — no tombstones from fleet churn.
 - **Last active.** Each ignore shows when its condition was last actually seen,
   so a stale one is obvious, and every category has a bulk **Restore all**.
 - **Class-level suppression.** When the same benign signal fires on many hosts,
   add one **suppression rule** (Settings → Ignored items) that silences a whole
-  *kind* across the fleet, a group, a tag or a device — one entry instead of
+  *kind* across the fleet, a group, a tag or a host — one entry instead of
   one ignore per host.
 
 You should also need to ignore *less*, because more alerts now clear themselves:

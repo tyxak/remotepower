@@ -7,11 +7,11 @@ first using real exploit signals — not just CVSS.
 ## The CVE page
 
 The page opens with a severity summary (Critical / High / Medium / Low +
-devices-scanned) and a KEV-feed status bar, then a per-device findings table:
+hosts-scanned) and a KEV-feed status bar, then a per-host findings table:
 
 | Column | Meaning |
 | --- | --- |
-| **Device / Group** | The host and its group |
+| **Host / Group** | The host and its group |
 | **Ecosystem** | The OSV ecosystem detected from `/etc/os-release` + package manager (Ubuntu, Debian, Rocky, AlmaLinux, Red Hat, Alpine) |
 | **KEV** | Count in CISA's **Known Exploited Vulnerabilities** catalog — actively exploited in the wild |
 | **Critical / High / Medium / Low** | Finding counts by severity |
@@ -19,11 +19,11 @@ devices-scanned) and a KEV-feed status bar, then a per-device findings table:
 
 Rows sort **KEV first, then severity, then EPSS** so the dangerous
 items rise to the top. Toolbar: **Refresh**, **AI prioritise**, **Scan all
-devices**, **Re-alert backlog**, and **Fleet SBOM** (CycloneDX / SPDX).
+hosts**, **Re-alert backlog**, and **Fleet SBOM** (CycloneDX / SPDX).
 
 ## Scanning
 
-- **Scan all devices** (or a single host from its drawer) runs in a **detached
+- **Scan all hosts** (or a single host from its drawer) runs in a **detached
   subprocess** (`cve_scan_runner.py`) so a long scan never blocks the request or
   hangs the browser; poll progress with `GET /api/cve/scan-status`.
 - The scanner (`cve_scanner.py`) **deduplicates packages across the whole fleet**

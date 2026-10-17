@@ -44,7 +44,7 @@ Named availability targets that remote probes attach to. Define an object —
 name, target % (say 99.9), rolling window in days — under **Monitoring → SLA /
 SLO objects**, then tick it on each probe whose checks should count toward it
 (checkboxes in the probe editor; any type, and a tag/group probe's fanned-out
-per-device checks all count). The panel shows each object's check-weighted
+per-host checks all count). The panel shows each object's check-weighted
 **availability**, **error budget remaining** and **burn rate** over its own
 window — filterable by name/probe and by compliance (breached / meeting / no
 data), sortable on every column. An object with no measured checks reads *no
@@ -79,7 +79,7 @@ running set and alert on deviation.
 
 Two layers, both firing **`log_alert`**:
 
-- **Per-device** log-watch rules (`log_watch`): `{unit, pattern, threshold,
+- **Per-host** log-watch rules (`log_watch`): `{unit, pattern, threshold,
   severity}` — the agent tails the unit's journal and reports matches.
 - **Fleet-wide** rules (**`/api/logs/rules/global`**): a pattern + threshold +
   optional `exclude_pattern` and a `file:/path/to/log` synthetic unit for tailing
@@ -87,7 +87,7 @@ Two layers, both firing **`log_alert`**:
 
 ## Inbound receivers (syslog & SNMP traps)
 
-Devices and appliances can push to tokenised, admin-created endpoints (tokens
+Hosts and appliances can push to tokenised, admin-created endpoints (tokens
 start with `rpwi_`, managed as inbound webhooks):
 
 - **Syslog** — `POST /api/syslog/in/{token}` accepts `{lines:[…]}`, a bare JSON
@@ -117,16 +117,16 @@ sets the alert severity, or `ignore` to drop the trap without alerting at all.
   name is part of the alert's identity, so a UPS on battery and a chatty
   linkDown from the same switch no longer fold into one row where acknowledging
   the noise buries the outage.
-- A rule can be scoped to a single device, or left fleet-wide.
+- A rule can be scoped to a single host, or left fleet-wide.
 - Traps matching no rule keep the old behaviour: one coalesced `medium` alert
   per host.
 - **Test before you wait for 3am.** `POST /api/snmp/trap-rules/test` with
   `{oid, value}` (or the Test box on the settings pane) reports which rule would
   match and what it would do — a mistyped OID prefix otherwise looks exactly
-  like a correct one until the device happens to emit.
+  like a correct one until the host happens to emit.
 
 `GET/POST /api/snmp/trap-rules`, `PATCH/DELETE /api/snmp/trap-rules/{id}`.
-- **SNMP polling** is separate: per device, `POST …/snmp/poll` and a deep
+- **SNMP polling** is separate: per host, `POST …/snmp/poll` and a deep
   inspection at `GET …/snmp/deep`.
 
 ## Resolver health & watchdog
@@ -152,7 +152,7 @@ token** (Settings → Advanced), which is the usual choice for a scrape config.
 from a small seeded fleet; ready-made dashboards live in
 [`contrib/grafana/`](../contrib/grafana/).
 
-Every per-device family carries `device`, `name` and `group` labels, so a
+Every per-host family carries `device`, `name` and `group` labels, so a
 dashboard can slice by host or by group without a join.
 
 | Family | What it exposes |
@@ -192,7 +192,7 @@ metrics. Each block is emitted only when the underlying store has data.
 | `remotepower_device_reliability_score`, `remotepower_reliability_devices` | `level` on the rollup | Predicted hardware failure — see [disk-health.md](disk-health.md) |
 | `remotepower_compliance_pass_ratio`, `remotepower_compliance_devices_evaluated` | — | Fleet baseline compliance, severity-weighted, as a 0–1 ratio |
 | `remotepower_device_compliance_pass_ratio` | — | Per-host, omitted when no check applied (a 0 would read as total failure) |
-| `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Device counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
+| `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Host counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
 | `remotepower_device_bruteforce_sources` | — | Sources currently over the brute-force threshold on the host; quiet hosts are omitted |
 | `remotepower_device_known_attackers_unblocked`, `remotepower_device_ip_blocks_active` | — | Known-abusive sources that attacked the host this week and are not blocked, and blocks in place — see [ip-intel.md](ip-intel.md) |
 | `remotepower_sshgw_devices_opted_in`, `remotepower_sshgw_tunnels_connected`, `remotepower_sshgw_sessions_24h` | — | SSH gateway reach, live agent tunnels and recent sessions, emitted only when the module is on — see [sshgw.md](sshgw.md) |

@@ -12,7 +12,7 @@ quarantined hosts on its own would be its own incident.
 
 ## Case A — a managed host is compromised
 
-**1. Contain the host without losing it.** Open the device drawer →
+**1. Contain the host without losing it.** Open the host drawer →
 **Quarantine** (or `PATCH /api/devices/{id}/quarantine {"quarantined": true}`).
 Queued commands are dropped server-side while quarantined and no new action can
 be dispatched — but the agent keeps checking in, so you keep telemetry and do not
@@ -28,14 +28,14 @@ the network, that is a firewall or switch action.
 
 | Where | What it gives you |
 |---|---|
-| The **Timeline** page, scoped to the device | Everything RemotePower observed for this host, in one ordered view. The device drawer and the command palette both deep-link into it. |
-| Device drawer → **Audit** tab | Every action *RemotePower* took on this host, with the actor. This is the "was it us?" question, without leaving the device. |
+| The **Timeline** page, scoped to the host | Everything RemotePower observed for this host, in one ordered view. The host drawer and the command palette both deep-link into it. |
+| Host drawer → **Audit** tab | Every action *RemotePower* took on this host, with the actor. This is the "was it us?" question, without leaving the host. |
 | **Protect** (Integrity Guard) | File changes it caught and quarantined. Linux only. |
 | Drift, listening ports, SSH-key baseline | What differs from the last known-good baseline, which is usually the fastest read. |
 | **Command history** | What was executed through the product, by whom, with output. |
 
-**3. Rotate what the host held.** A compromised host had its **device token**.
-Re-enrolling issues a new one; deleting the device invalidates the old one along
+**3. Rotate what the host held.** A compromised host had its **host token**.
+Re-enrolling issues a new one; deleting the host invalidates the old one along
 with its telemetry. If the host carried credentials from the CMDB vault, treat
 those as disclosed and rotate them at the source — RemotePower can tell you which
 assets referenced it, but rotating a switch password is a switch action.
@@ -65,7 +65,7 @@ from admins — it returns `*_set` booleans — so a stolen session is not
 automatically a stolen secret set, but assume disclosure if the host itself was
 reached.
 
-**3. Understand the blast radius.** Every device token lives on this host, so a
+**3. Understand the blast radius.** Every host token lives on this host, so a
 full compromise of the control plane is a compromise of the ability to run
 commands on the fleet. The audit log is hash-chained, so a tampered entry is
 detectable — verify the chain rather than assuming the log is intact or assuming

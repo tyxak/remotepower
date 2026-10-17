@@ -11,7 +11,7 @@ The top table lists every host that reports firewall data, one row each:
 
 | Column | Meaning |
 | --- | --- |
-| **Device** | Host name (unmonitored hosts still show, flagged) |
+| **Host** | Host name (unmonitored hosts still show, flagged) |
 | **Backends** | Which firewall tools are present — `nftables`, `iptables`, `ufw`, `firewalld`, `ebtables` — with the default policy on hover |
 | **State** | `active` / `inactive` / `unknown` (unknown = the agent couldn't read the ruleset without root — never counted as "off") |
 | **Rules** | Total rule count across backends |
@@ -62,7 +62,7 @@ As with firewall edits, each action is queued through the audited command pipeli
 
 - **Viewing** firewall and fail2ban posture needs only normal authentication.
 - **Editing** (rules, bans, jails) requires the **`command`** permission for the
-  target device — a viewer cannot make changes. Custom scoped operator roles can
+  target host — a viewer cannot make changes. Custom scoped operator roles can
   edit only hosts in their scope.
 - Rule specs and references are **strictly validated server-side**, so a rule
   field can never inject a second shell command. A spec you *type* accepts only
@@ -77,7 +77,7 @@ As with firewall edits, each action is queued through the audited command pipeli
 ## Appliance configuration archive *(v6.4.2)*
 
 RemotePower can keep a versioned copy of each **RouterOS** and **OPNsense**
-device's running configuration — the RANCID/Oxidized job, done from the
+host's running configuration — the RANCID/Oxidized job, done from the
 appliance integrations you already configured.
 
 Switch it on under **Settings → Security → Appliance config archive**. It is
@@ -85,11 +85,11 @@ off by default: archiving authenticates to every appliance in the fleet and
 stores its full configuration, which may embed secrets.
 
 - Runs **daily** (`netconfig_backup_interval_s` tunes it), keeps the last **10
-  revisions per device**, and raises **`netconfig_changed`** when a config
+  revisions per host**, and raises **`netconfig_changed`** when a config
   differs from the last archived copy.
 - An **identical** config is not archived again — only the "last verified"
-  timestamp moves, so a quiet device is distinguishable from a broken poll.
-- The **first** archive of a device is a baseline and fires nothing; otherwise
+  timestamp moves, so a quiet host is distinguishable from a broken poll.
+- The **first** archive of a host is a baseline and fires nothing; otherwise
   switching the feature on would alert on every appliance at once.
 - Each appliance's drawer gets a **Configuration archive** panel: back up now,
   view a revision, download it, or diff it against the one before.

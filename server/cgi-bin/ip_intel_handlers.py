@@ -1566,7 +1566,7 @@ def handle_ip_intel_block():
     actor = A.require_perm('command', [dev_id])
     dev = A.device_get(dev_id)
     if not isinstance(dev, dict):
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
     if dev.get('agentless') or A._device_os_family(dev) != 'linux':
         A.respond(409, {'error': 'Blocking is available on Linux agents only'})
     pol = _policy()

@@ -1829,20 +1829,21 @@ class TestSnmpAlertsMonitored(_ApiTestBase):
         self.api.save(self.api.DEVICES_FILE, {})
 
     def _patch_poll(self, dev_id, dev, raises=None, sysname='sw'):
-        """Stub the SNMP module to either return synthetic data or raise."""
-        import snmp
-        orig_poll = snmp.poll_system
-        def fake_poll(*a, **kw):
-            if raises:
-                raise raises
-            return {'sysDescr': 'Test', 'sysName': sysname,
-                    'sysUpTime': 100000, 'sysContact': '', 'sysLocation': '',
-                    'sysObjectID': '1.3.6.1.4.1.1', '_oids': {}}
-        snmp.poll_system = fake_poll
-        try:
-            return self.api._do_snmp_poll(dev_id, dev)
-        finally:
-            snmp.poll_system = orig_poll
+        """Hand _do_snmp_poll what the network half would have produced: the exception
+        it raises when the device is silent, or the dict it returns when it answers.
+
+        Stubbing snmp.poll_system alone left the processor, storage, UCD and Synology
+        reads to go out as real UDP to the device's address, 2 s each: one test took
+        28 s and sent SNMP queries to 10.0.0.1 on whatever network ran the suite."""
+        if raises:
+            collected = raises
+        else:
+            collected = {
+                'result': {'sysDescr': 'Test', 'sysName': sysname,
+                           'sysUpTime': 100000, 'sysContact': '', 'sysLocation': '',
+                           'sysObjectID': '1.3.6.1.4.1.1', '_oids': {}},
+                'processors': [], 'storage': [], 'vendor': {}, 'ucd': {}, 'synology': {}}
+        return self.api._do_snmp_poll(dev_id, dev, collected=collected)
 
     def test_unreachable_fires_only_on_second_fail(self):
         dev = {'name': 'sw', 'ip': '10.0.0.1', 'monitored': True,

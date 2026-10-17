@@ -84,7 +84,7 @@ anything, if you want to see the plan first.
   was already active, it just prints the restart reminder for the new code.
 
 Before any upgrade you can flip **Settings → Advanced → Maintenance mode** to
-pause new command dispatch (heartbeats and browsing keep working, so devices
+pause new command dispatch (heartbeats and browsing keep working, so hosts
 don't flap offline), then turn it off when you're done.
 
 ## Guided self-update from the dashboard

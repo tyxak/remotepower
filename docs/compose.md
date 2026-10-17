@@ -2,7 +2,7 @@
 
 *(v2.1.0)*
 
-Per-device buttons for **Up / Down / Restart / Pull / Logs (last 50)**
+Per-host buttons for **Up / Down / Restart / Pull / Logs (last 50)**
 on every `docker-compose.yml` the agent finds under `/opt`, `/home`,
 `/docker`, or `/srv`. Discovery is push-based — the agent scans on its
 own schedule and reports the project list in the heartbeat. The server
@@ -20,7 +20,7 @@ roots:
 
 with `-maxdepth 4`. So a project at `/opt/stack/postgres/docker-compose.yml`
 is found; one at `/opt/stack/postgres/db/files/compose.yml` (five levels)
-is not. Cap is 50 projects per device — anything beyond is dropped.
+is not. Cap is 50 projects per host — anything beyond is dropped.
 
 Files matched:
 
@@ -86,9 +86,9 @@ stale entry the server had cached.
    the wrong place.
 3. **Length limit.** `MAX_COMPOSE_PATH_LEN = 1024` for each of
    `path` and `dir`.
-4. **Per-device cap.** First 50 entries kept, rest dropped.
+4. **Per-host cap.** First 50 entries kept, rest dropped.
 
-Stored on the device record:
+Stored on the host record:
 
 ```json
 {
@@ -105,7 +105,7 @@ via `GET /api/devices/<id>/compose`.
 
 ### `GET /api/devices/<id>/compose`
 
-List the compose projects this device reported in its last heartbeat.
+List the compose projects this host reported in its last heartbeat.
 
 ```json
 {
@@ -137,7 +137,7 @@ Validates:
 - `action` ∈ `{up, down, restart, pull, logs}` — the only actions the
   agent recognises (see below).
 - `dir` is non-empty and ≤ 1024 chars.
-- `dir` **is one of the directories the agent reported in this device's
+- `dir` **is one of the directories the agent reported in this host's
   last heartbeat.** This is the security boundary: even a stolen admin
   token can't aim `compose:up` at `/etc` or `/var`. Defence-in-depth —
   the agent enforces the same check independently.
@@ -146,7 +146,7 @@ If `dir` isn't in the reported set, you get:
 
 ```json
 {
-  "error": "dir not in this device's reported compose projects (refresh the listing if you just added the project)"
+  "error": "dir not in this host's reported compose projects (refresh the listing if you just added the project)"
 }
 ```
 
@@ -174,13 +174,13 @@ When the agent dequeues `compose:<action>:<dir>` it:
 6. Output capped at 64 KB.
 
 Output is returned via the existing exec channel, so it lands in the
-device's **Command output** panel the same way an `exec:` command's
+host's **Command output** panel the same way an `exec:` command's
 output would.
 
 ## UI
 
-Device card → **⋯ dropdown** → **docker compose (N)** appears whenever
-the device's reported `compose_projects_count > 0`. If the agent hasn't
+Host card → **⋯ dropdown** → **docker compose (N)** appears whenever
+the host's reported `compose_projects_count > 0`. If the agent hasn't
 reported yet, the entry doesn't show at all.
 
 The modal shows:
@@ -194,7 +194,7 @@ The modal shows:
 
 When an action is queued, the area shows a "Waiting for next
 heartbeat" message. The actual `docker compose` output is read from the
-device's `cmd_output` and rendered alongside the device's other command
+host's `cmd_output` and rendered alongside the host's other command
 output.
 
 ## Security caveats
@@ -205,7 +205,7 @@ output.
 - **Image pulls are unrestricted.** Anyone with admin role can trigger
   a `compose pull` that downloads any image listed in any reported
   compose file. The compose files themselves are not vetted by the
-  dashboard — what's on disk on the device is what runs.
+  dashboard — what's on disk on the host is what runs.
 - **No private-registry credential handling here.** If `compose pull`
   needs auth, the agent's user already needs `docker login` to have
   been done out-of-band. The dashboard doesn't store, distribute, or
@@ -220,9 +220,9 @@ output.
 - **No project add/remove from the UI.** Discovery is push-only; if you
   want a project to appear in the listing, drop a `docker-compose.yml`
   under one of the four scan roots and wait for the next scan.
-- **No exec-into-container support.** Use the device's webterm or
+- **No exec-into-container support.** Use the host's webterm or
   a custom command for that.
 - **No image-tag pinning enforcement.** Whatever is in the compose file
   is what compose runs.
-- **No per-project policy.** Every project on a device is acted upon
+- **No per-project policy.** Every project on a host is acted upon
   by the same admin role.

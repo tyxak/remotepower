@@ -223,10 +223,10 @@ rsync -a ./site/ deploy@web01.rp:/var/www/site/
 ```
 
 A name matches a server's RemotePower name, its hostname (short or full), or
-its device id. `web01.rp` and `web01.example.com.rp` both reach a server whose
+its host id. `web01.rp` and `web01.example.com.rp` both reach a server whose
 hostname is `web01.example.com`. Use a name, not an IP address: the gateway
 doesn't look up servers by address. If two servers you can reach share a name,
-the gateway refuses rather than guessing. Use the device id in that case.
+the gateway refuses rather than guessing. Use the host id in that case.
 
 ### The first connection asks twice
 
@@ -313,7 +313,7 @@ its own messages.
 
 | You see | Meaning |
 |---|---|
-| `channel open failed: no device named "x"` | No server you're allowed to reach has that name. Most often **Allow SSH** isn't ticked for it. Also: it's quarantined or decommissioned, your role's scope or tenant doesn't include it, or you used an IP address. |
+| `channel open failed: no host named "x"` | No server you're allowed to reach has that name. Most often **Allow SSH** isn't ticked for it. Also: it's quarantined or decommissioned, your role's scope or tenant doesn't include it, or you used an IP address. |
 | `… is not connected to the gateway` | The server is allowed, but its agent hasn't opened a tunnel. See the next two rows. |
 | A server stays at "never" in the **Tunnel** column | On that server run `journalctl -u remotepower-agent \| grep sshgw`. The agent says when it is allowed but the `websockets` package is missing. Other usual causes: the agent is older than 7.1.0, `/etc/remotepower/sshgw-disabled` exists, or your web server has no `/api/sshgw/tunnel` route or blocks the server's address (step 2). |
 | `sshd is not reachable on local port 22` | The tunnel works, but nothing listens on that port on the server. Start sshd, or set `RP_SSHGW_PORT`. |

@@ -2,7 +2,7 @@
 #
 # RemotePower — unified installer & wizard (v5.0.1)
 #
-# ONE script for server install + device onboarding. nginx stays the front door —
+# ONE script for server install + host onboarding. nginx stays the front door —
 # this script writes the vhost + TLS so the operator never hand-edits nginx.
 #
 #     remotepower install     interactive wizard (default): nginx + app + TLS + admin
@@ -11,7 +11,7 @@
 #                             already-current install, or convert a pre-6.1.0
 #                             CGI/SCGI install to gunicorn+Flask — self-detects
 #                             which one applies, including a demo vhost if present
-#     remotepower agent ...    print / SSH-push the device-enrol one-liner
+#     remotepower agent ...    print / SSH-push the host-enrol one-liner
 #     remotepower doctor      preflight / health check
 #   NOT YET WIRED: `tls` / `passwd` are stubs — for those today use
 #   tools/gen-ca.sh + `make tls-selfsigned`.
@@ -105,7 +105,7 @@ Commands:
                 to just deploy new code or convert a pre-6.1.0 CGI/SCGI
                 install to gunicorn+Flask, and upgrades a demo vhost too
   doctor         Run preflight checks only
-  agent          Print the one-line device-enrol command
+  agent          Print the one-line host-enrol command
 
 Options:
   --host H       Server hostname / domain (default: autodetect)
@@ -499,8 +499,8 @@ summary_card() {
     _box "Login    ${ADMIN_USER}  ·  (the password you set)"
   fi
   _box ""
-  _box "Add your first device — generate a token in the"
-  _box "dashboard (Add device), then on the target host:"
+  _box "Add your first host — generate a token in the"
+  _box "dashboard (Add host), then run this on that host:"
   _box ""
   _box "  curl -fsSL ${url}/install | sudo sh -s -- \\"
   _box "      --token <token>"
@@ -542,9 +542,9 @@ cmd_uninstall() {
   rm -rf "$(_p "$WWW")"; step_ok "web + backend removed (${WWW})"
   rm -rf "$(_p "$RPETC")/tls"; step_ok "TLS certs removed (${RPETC}/tls)"
   if [ "$PURGE" = 1 ]; then
-    rm -rf "$(_p "$DATA")"; step_no "DATA PURGED (${DATA}) — users / devices / history are gone"
+    rm -rf "$(_p "$DATA")"; step_no "DATA PURGED (${DATA}) — users / hosts / history are gone"
   else
-    step_wait "kept your data: ${DATA} (users / devices / history) — re-run with --purge to wipe it"
+    step_wait "kept your data: ${DATA} (users / hosts / history) — re-run with --purge to wipe it"
   fi
   echo; note "RemotePower server uninstalled."; echo
 }
@@ -642,7 +642,7 @@ cmd_agent() {
     echo; return $rc
   fi
   # default: just show the one-liner(s)
-  banner; section "Add a device"
+  banner; section "Add a host"
   note "Generate an enrolment token in the dashboard, then run on the target host:"
   echo; printf "   curl -fsSL %s/install | sudo sh -s -- --token <token>\n\n" "${HOST:+https://$HOST}"
   note "…or push it from here over SSH:"

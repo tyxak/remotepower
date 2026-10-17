@@ -60,7 +60,7 @@ even when the version number does not.
 Run these across the project, not only over recent commits.
 
 - [ ] **Every signal an agent collects lands somewhere a person can see it** —
-      the device drawer, the pages, search, alerts, reports, the AI context.
+      the host drawer, the pages, search, alerts, reports, the AI context.
       A signal that is collected and displayed nowhere is the most common gap.
 - [ ] **Security review.** Nothing critical, high or medium ships, and nothing
       exploitable at any severity. Pay attention to tenant boundaries: an

@@ -201,7 +201,7 @@
     }
     if (num(dev.total) != null) {
       var dc = el('div', 'status-card');
-      dc.appendChild(el('div', 'status-card-k', 'Devices online'));
+      dc.appendChild(el('div', 'status-card-k', 'Hosts online'));
       dc.appendChild(el('div', 'status-card-v',
         (num(dev.online) != null ? dev.online : '?') + ' / ' + dev.total));
       cards.appendChild(dc);

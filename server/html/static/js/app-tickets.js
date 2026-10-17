@@ -221,7 +221,7 @@ function _tkRenderCreateChips() {
   const box = document.getElementById('tk-create-dev-chip');
   box.innerHTML = _tkNewDevs.length
     ? _tkNewDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDev" data-arg="${escAttr(d.id)}" title="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ')
-    : '<span class="meta-sm-nm">No devices attached.</span>';
+    : '<span class="meta-sm-nm">No hosts attached.</span>';
 }
 // v6.4.2: the device picker only needs {id, name, ip, group} and was fetching
 // the FULL non-slim /devices payload — sysinfo (mounts, top_processes,
@@ -363,9 +363,9 @@ async function openTicket(tid) {
       <button class="btn-secondary" data-action="assignTicketGroup" data-arg="${escAttr(tid)}" title="Hand off to a group — clears the assignee and sets the ticket to Pending Internal">Assign to group…</button>
     </div>
     <div class="form-group">
-      <label class="form-label">Affected devices</label>
+      <label class="form-label">Affected hosts</label>
       <div id="tk-d-dev-chips" class="mb-6 scroll-cap-sm"></div>
-      <input type="text" id="tk-d-dev-search" class="form-input mb-6" placeholder="Search a device to add…" autocomplete="off" aria-label="Search a device to add to the ticket">
+      <input type="text" id="tk-d-dev-search" class="form-input mb-6" placeholder="Search a host to add…" autocomplete="off" aria-label="Search a host to add to the ticket">
       <div id="tk-d-dev-results" class="scroll-cap-sm"></div>
     </div>
     ${parentBlock}${childrenBlock}${alertLink}
@@ -415,7 +415,7 @@ function _tkRenderDetailChips() {
   if (!box) return;
   box.innerHTML = (window._tkDetailDevs || []).length
     ? window._tkDetailDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDetailDev" data-arg="${escAttr(d.id)}" title="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ')
-    : '<span class="meta-sm-nm">No devices attached.</span>';
+    : '<span class="meta-sm-nm">No hosts attached.</span>';
 }
 async function _tkDetailDevResults(term) {
   const box = document.getElementById('tk-d-dev-results');

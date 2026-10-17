@@ -17,13 +17,13 @@ since v6.2.0.
 
 - **Force an update now, on the host:** `sudo remotepower-agent update`.
 - **Force from the server:** the upgrade/exec flow can queue an `update` command
-  to a device; it runs on the device's next heartbeat.
-- **Spot stale agents:** the Devices page shows an **"N agents outdated"**
+  to a host; it runs on the host's next heartbeat.
+- **Spot stale agents:** the Hosts page shows an **"N agents outdated"**
   chip whenever any agent runs an older version than the newest in the
   fleet — click it to filter to exactly those hosts, then queue updates.
 - **Verify integrity:** `sudo remotepower-agent integrity` compares the running
   binary's hash to the server's. The dashboard also shows an integrity badge per
-  device (verified / mismatch).
+  host (verified / mismatch).
 
 ## Restarting the agent
 
@@ -52,38 +52,38 @@ tampered/compromised file server.
 
 ## Command queue (what's waiting for an agent)
 
-**Admin → Command Queue** shows every device with commands still waiting to be
+**Admin → Command Queue** shows every host with commands still waiting to be
 delivered on its next heartbeat — the type (exec / reboot / poll / compose /
 acme / …) and a readable summary. Handy when a host is offline and you want to
 see, or cancel, what's pending. You can cancel an individual queued command or
-clear a device's whole queue. Anything already delivered to the agent has left
+clear a host's whole queue. Anything already delivered to the agent has left
 the queue. `GET /api/command-queue`,
 `DELETE /api/devices/<id>/command-queue[?index=N]` (admin-only, audited).
 
 ## Install / uninstall software
 
 From the **Patches** page (or the Rollouts page's one-time install): install or
-remove repo packages on a device, or across a whole **group or tag**, through
+remove repo packages on a host, or across a whole **group or tag**, through
 the host's own package manager (apt / dnf / yum / zypper / pacman / apk). Targets
-are chosen from dropdowns of the fleet's real groups/tags/devices. Each run is
+are chosen from dropdowns of the fleet's real groups/tags/hosts. Each run is
 tracked as a batch job with per-host status on the Rollouts page.
 
 - **Install:** `POST /api/install`. **Uninstall:** `POST /api/uninstall` (removes
   the named packages only — no dependency auto-removal or config purge).
-- Gated on the `exec` permission, and honours device quarantine and maintenance
+- Gated on the `exec` permission, and honours host quarantine and maintenance
   change-windows like any queued command.
 
 ## Reboot, shutdown, Wake-on-LAN
 
-Per-device actions from the device drawer / Devices page. Reboot and shutdown are
+Per-host actions from the host drawer / Hosts page. Reboot and shutdown are
 power actions gated on the `reboot` permission and (for `require_confirmation`
-devices) queued for human approval. Wake-on-LAN sends a magic packet to the
-device's recorded MAC.
+hosts) queued for human approval. Wake-on-LAN sends a magic packet to the
+host's recorded MAC.
 
 ## Enrolment auto-placement rules
 
 New agents don't have to land ungrouped. Under **Fleet → Sites →
-Auto-placement rules**, define rules that stamp a device's **group**, **site**
+Auto-placement rules**, define rules that stamp a host's **group**, **site**
 and **tags** the moment it enrols, matched by either:
 
 - **Hostname** — a regex tested against the reported hostname (`^web-`,
@@ -95,26 +95,26 @@ The **first** matching rule applies. Precedence is on purpose: an enrolment
 **token**'s `default_group` / `default_tags` always win — a rule only fills a
 group that would otherwise be empty and *adds* tags, and freely sets the site
 (tokens have no site). Rules run **only at first enrolment**; they never
-re-place an already-known device (re-enrolment preserves its group/site/tags).
+re-place an already-known host (re-enrolment preserves its group/site/tags).
 Stored in config (`enrol_rules`); hostname regexes and CIDRs are validated when
 you save.
 
 ## Quarantine
 
-A per-device switch that disables exec / reboot / all actions, enforced
+A per-host switch that disables exec / reboot / all actions, enforced
 server-side at the command-dispatch chokepoint and audited — isolate a suspect
-host in one click. Quarantined devices drop queued commands rather than running
+host in one click. Quarantined hosts drop queued commands rather than running
 them when quarantine lifts.
 
 ## SLA targets
 
-On the **Reports → Uptime (SLA)** card you can set a target uptime % per device,
+On the **Reports → Uptime (SLA)** card you can set a target uptime % per host,
 tag, group, or a fleet default (most specific wins); each row shows whether it's
 met or breached. `GET`/`PUT /api/fleet/sla-targets`.
 
 ## OpenSCAP compliance scans
 
-Queue an `oscap` scan by device / group / tag with a chosen profile. The content
+Queue an `oscap` scan by host / group / tag with a chosen profile. The content
 must match the host's OS: Ubuntu uses Canonical's `usg` (install it; the agent
 drives it automatically for CIS/STIG profiles), Debian uses `ssg-debian` + the
 ANSSI BP-028 profiles, RHEL/Fedora use `scap-security-guide`. A scan that finds
@@ -123,7 +123,7 @@ no applicable rules reports why and what to install.
 ## Investigate (AI mitigation) from Needs Attention
 
 Items in Needs Attention that have a mitigation playbook show an **Investigate**
-button: it queues a read-only diagnostic on the device, then runs an AI analysis
+button: it queues a read-only diagnostic on the host, then runs an AI analysis
 that proposes a fix command (which you confirm before it runs). Roughly 21 kinds
 are covered: disk, memory, swap, cpu, pending patches, config drift, service
 down, reboot required, brute-force attempts, CVE findings, and stopped/restarting

@@ -33,7 +33,7 @@ sudo systemctl restart remotepower-agent
 # Metrics only appear after the first sysinfo poll (~60s)
 ```
 
-**Device shows offline after enrolling**
+**Host shows offline after enrolling**
 ```bash
 journalctl -u remotepower-agent -f
 curl -v https://your-server/api/heartbeat
@@ -43,7 +43,7 @@ curl -v https://your-server/api/heartbeat
 - Executes on the client's next poll (up to 60s by default)
 - Agent must run as root: `systemctl cat remotepower-agent | grep User`
 
-**Re-enroll creates a new device instead of updating**
+**Re-enroll creates a new host instead of updating**
 - Use `sudo remotepower-agent re-enroll` (not `enroll`)
 - The existing `device_id` from `/etc/remotepower/credentials` must be present
 

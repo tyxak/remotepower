@@ -21,7 +21,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | Password policy — length / classes / HaveIBeenPwned breach check **(operator)** | CC6.1 | A.5.17 |
 | Joiner/mover/leaver — SCIM deprovision revokes access + live sessions at once | CC6.2, CC6.3 | A.5.16, A.5.18 |
 | Session controls — concurrent-session caps, idle timeout, active-session revoke | CC6.1 | A.8.5 |
-| Service accounts — API keys hashed at rest, per-key device **scope**, source-IP allowlist, rate limit, expiry | CC6.1 | A.5.16, A.8.2 |
+| Service accounts — API keys hashed at rest, per-key host **scope**, source-IP allowlist, rate limit, expiry | CC6.1 | A.5.16, A.8.2 |
 | Privileged access — two-person break-glass credential reveal (audited) | CC6.1 | A.8.2, A.8.18 |
 | Remote administrative access — the compliance report attests resolved **sshd** posture per host — a root **password**, password authentication or empty passwords fail. `PermitRootLogin prohibit-password` (root by key, and Debian's default) is reported as a note on the pass rather than a failure, because a control that fires on every stock Debian host gets ignored. Mapped to PCI 2.2.7, SOC 2 CC6.1 and Essential Eight E8-5; hosts that do not report sshd are `not assessed`, never `pass` *(v7.0.0)* | CC6.1, CC6.6 | A.5.15, A.8.2, A.8.5 |
 | governance switches step-up gated — changing four-eyes approval, MFA-required roles, the WORM sink, audit retention/forwarding, the IP allowlist, SSO-only, tenancy or read-only mode requires the admin to re-verify their password/TOTP, and is audit-logged by name *(v6.4.2)* | CC6.1, CC8.1 | A.5.15, A.8.2, A.8.15 |
@@ -32,7 +32,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 |---|---|---|
 | Encryption at rest — AES-256-GCM DR backups; opt-in config-secret encryption (`RP_CONFIG_KEY`) | CC6.7 | A.8.24 |
 | Secrets sourcing — backup/config keys from env **or** an external command (Vault/KMS) | CC6.7 | A.8.24 |
-| Credentials at rest — API keys, device tokens, enrolment tokens stored as SHA-256 hashes | CC6.1 | A.8.24 |
+| Credentials at rest — API keys, host tokens, enrolment tokens stored as SHA-256 hashes | CC6.1 | A.8.24 |
 | Encryption in transit — TLS 1.2 floor; mutual-TLS agent authentication; CSP / HSTS | CC6.7 | A.8.20, A.8.24 |
 
 ## Logging, monitoring & evidence
@@ -108,7 +108,7 @@ as your audit artifacts.
 
 **Encryption at rest of the control-plane host itself** (A.8.24 / CC6.7) is yours
 too: RemotePower encrypts the CMDB vault and — with `RP_CONFIG_KEY` — config
-secrets, but device tokens, API-key hashes and DR backups live in `RP_DATA_DIR` on
+secrets, but host tokens, API-key hashes and DR backups live in `RP_DATA_DIR` on
 whatever volume you gave it. **Settings → Security posture** grades that volume
 (v7.0.0) so the gap is visible rather than assumed; inside a container it reports
 "cannot be determined", which is an instruction to check the host, not a pass.

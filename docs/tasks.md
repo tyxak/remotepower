@@ -2,14 +2,14 @@
 
 **Scheduling → Tasks** is a **shared kanban board** for the team — track
 work-in-progress by dragging cards between columns, and optionally tie a card to
-a device.
+a host.
 
 ## How it works
 
 - Columns represent stages of work (e.g. To do → In progress → Done); **drag a
   card** between columns to change its state.
 - Cards are shared across all users — it's a team board, not a personal to-do.
-- **Link a task to a device** to keep context: the card carries the device so
+- **Link a task to a host** to keep context: the card carries the host so
   you can jump to it from the board.
 
 ## Tasks vs. tickets
@@ -24,7 +24,7 @@ a requester and an SLA.
 ## Related
 
 - [Calendar](calendar.md) — shared dated events.
-- Link a task to a device to cross-reference [CMDB](cmdb.md) context.
+- Link a task to a host to cross-reference [CMDB](cmdb.md) context.
 
 ## Permissions
 

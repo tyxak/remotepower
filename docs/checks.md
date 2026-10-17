@@ -19,7 +19,7 @@ sortable, filterable table.
   that generates a host-scoped remediation runbook through the AI advisor:
   step-by-step fix instructions with verification steps, built from the
   check's name, group, status and output. Uses your configured AI provider.
-- **Posture radar** *(v6.3.0)* — the device drawer's Audit tab opens with a
+- **Posture radar** *(v6.3.0)* — the host drawer's Audit tab opens with a
   radar built from these same rows: each check group (core, resources,
   security, services, hardware, …) is an axis, scored by its share of
   healthy checks. A host's shape shows *where* it is weak at a glance.
@@ -59,14 +59,14 @@ sortable, filterable table.
     signing key, so switching it off is a routine decision rather than an
     oversight. A host with no EFI variable to read — a BIOS/CSM boot, a
     container, a virtual machine without UEFI firmware — stays silent whichever
-    way the setting is left. The state still appears on the device drawer as a
+    way the setting is left. The state still appears on the host drawer as a
     plain fact; the setting controls the check and the advisory finding.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code
   maps to OK/WARN/CRIT.
 
-The same engine feeds the per-device checks view in the device drawer and
+The same engine feeds the per-host checks view in the host drawer and
 the dashboard checks-rollup widget.
 
 ## Baseline checks
@@ -85,7 +85,7 @@ Applying is idempotent — a check already present for that scope is skipped.
 Defaults suit a Debian/Ubuntu fleet and are editable from the Check catalog
 afterwards (e.g. `crond.service` on RHEL, `firewalld`/`nftables`). Besides the
 fleet/group/tag scopes you can also target **a specific host**, picked by a
-device search rather than typed as a raw id.
+host search rather than typed as a raw id.
 
 ## Two baseline pickers
 

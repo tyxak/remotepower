@@ -20,7 +20,7 @@ async function loadDriftPolicies() {
   if (!body) return;
   const data = await api('GET', '/drift-policies').catch(() => null);
   _driftPolicies = (data && data.policies) || [];
-  if (!_driftPolicies.length) { body.innerHTML = '<div class="c-muted">No enforcement policies — drift is monitor-only unless set per device.</div>'; return; }
+  if (!_driftPolicies.length) { body.innerHTML = '<div class="c-muted">No enforcement policies — drift is monitor-only unless set per host.</div>'; return; }
   const modeLabel = { apply: 'Apply every poll', enforce: 'Correct on drift' };
   body.innerHTML = _driftPolicies.map((p, i) =>
     `<div class="rdef-row">
@@ -62,7 +62,7 @@ async function loadDriftProfiles() {
   _driftProfiles = data.profiles || [];
   _driftAssignments = data.assignments || [];
   if (!_driftProfiles.length) {
-    body.innerHTML = '<div class="c-muted fs-14">No drift profiles yet. Create one to apply a reusable watched-file set to a device, tag, or group.</div>';
+    body.innerHTML = '<div class="c-muted fs-14">No drift profiles yet. Create one to apply a reusable watched-file set to a host, tag, or group.</div>';
     return;
   }
   const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
@@ -153,14 +153,14 @@ function _ensureDriftAssignModal() {
     <input type="hidden" id="drift-assign-pid">
     <div class="form-group"><label class="form-label" for="drift-assign-type">Apply to</label>
       <select id="drift-assign-type" class="form-input">
-        <option value="device">Device</option>
+        <option value="device">Host</option>
         <option value="group">Group</option>
         <option value="tag">Tag</option>
       </select></div>
     <div class="form-group"><label class="form-label" for="drift-assign-value">Name / value</label>
-      <input id="drift-assign-value" class="form-input" list="drift-assign-options" placeholder="group / tag name, or device id">
+      <input id="drift-assign-value" class="form-input" list="drift-assign-options" placeholder="group / tag name, or host id">
       <datalist id="drift-assign-options"></datalist></div>
-    <p class="hint">An explicit per-device file list (set in the device drawer) always overrides a profile.</p>
+    <p class="hint">An explicit per-host file list (set in the host drawer) always overrides a profile.</p>
     <div class="modal-actions">
       <button class="btn-secondary" data-action="closeModal" data-arg="drift-assign-modal">Cancel</button>
       <button class="btn-primary" data-action="assignDriftProfile">Assign</button>
@@ -199,7 +199,7 @@ async function assignDriftProfile() {
   const pid = document.getElementById('drift-assign-pid').value;
   const scope_type = document.getElementById('drift-assign-type').value;
   const scope_value = document.getElementById('drift-assign-value').value.trim();
-  if (!scope_value) { toast('Enter a device, group, or tag', 'error', {transient: true}); return; }
+  if (!scope_value) { toast('Enter a host, group, or tag', 'error', {transient: true}); return; }
   const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: pid});
   if (!r || r.error) { toast('Assign failed: ' + (r?.error || 'unknown'), 'error'); return; }
   closeModal('drift-assign-modal');
@@ -227,7 +227,7 @@ async function loadDrift() {
     _renderDrift(data.devices || []);
     const totalDrift = (data.devices || []).reduce((s, d) => s + (d.drifted || 0), 0);
     const totalMissing = (data.devices || []).reduce((s, d) => s + (d.missing || 0), 0);
-    summary.textContent = `${(data.devices || []).length} devices reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
+    summary.textContent = `${(data.devices || []).length} hosts reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
   } catch (e) {
     _errorState(tbody, loadDrift, {msg: `Failed to load: ${String(e)}`, colspan: 7});
   }
@@ -326,8 +326,8 @@ async function openDriftDetail(devId, devName) {
 
     if (fileKeys.length === 0) {
       body.innerHTML = `<div class="empty-p20">
-        No drift report received yet for this device.<br>
-        <span class="fs-12">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the device has checked in.</span>
+        No drift report received yet for this host.<br>
+        <span class="fs-12">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the host has checked in.</span>
       </div>`;
       return;
     }
@@ -340,8 +340,8 @@ async function openDriftDetail(devId, devName) {
 
     // v3.13.0: explain where this device's watched list comes from.
     const _srcLabel = {
-      'device-override': 'per-device override (set in the device drawer)',
-      'profile:device':  'drift profile (assigned to this device)',
+      'device-override': 'per-host override (set in the host drawer)',
+      'profile:device':  'drift profile (assigned to this host)',
       'profile:tag':     'drift profile (assigned to a tag)',
       'profile:group':   'drift profile (assigned to its group)',
       'default':         'global default',
@@ -472,7 +472,7 @@ async function driftSetIgnore(path, ignored) {
 
 async function driftAcceptAll() {
   if (!_driftCurrentDevice) return;
-  if (!await uiConfirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
+  if (!await uiConfirm('Accept current hashes as new baseline for all drifted files on this host?\n\nFuture changes from these new baselines will count as drift.')) return;
   try {
     const r = await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {all: true});
@@ -565,7 +565,7 @@ async function _refreshDriftDiff() {
         <div class="empty-state-title">No content captured yet</div>
         <div class="empty-state-body">
           Click <strong>Fetch current content</strong> to queue a <code>cat ${escHtml(path)}</code>
-          command on the device. After the agent's next heartbeat (typically within
+          command on the host. After the agent's next heartbeat (typically within
           ~60 seconds) the output arrives and is stored for the diff.
           <br><br>
           The first fetch becomes the baseline. A second fetch after another change
@@ -626,7 +626,7 @@ async function driftFetchCurrent() {
       return;
     }
     if ((resp.not_watched || []).includes(path)) {
-      status.textContent = 'Path is not in the watched-files list for this device';
+      status.textContent = 'Path is not in the watched-files list for this host';
       fetchBtn.disabled = false;
       return;
     }

@@ -199,10 +199,10 @@ def handle_app_catalog_deploy():
         A.respond(404, {'error': 'unknown app'})
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A._scope_block_device(device_id)
     if not devices[device_id].get('compose_enabled', False):
-        A.respond(403, {'error': 'compose deploys are disabled on this device — enable them first'})
+        A.respond(403, {'error': 'compose deploys are disabled on this host — enable them first'})
     name, yaml = tpl['id'], tpl['yaml']
     with A._LockedUpdate(A.COMPOSE_STACKS_FILE) as stacks:
         existing = next((sid for sid, st in stacks.items()
@@ -297,11 +297,11 @@ def handle_compose_stack_create():
     A._scope_block_device(device_id)
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     stacks = A.load(A.COMPOSE_STACKS_FILE) or {}
     for s in stacks.values():
         if s.get('device_id') == device_id and s.get('name') == name:
-            A.respond(409, {'error': f'a stack named "{name}" already exists on this device'})
+            A.respond(409, {'error': f'a stack named "{name}" already exists on this host'})
     stack_id = 's-' + os.urandom(6).hex()
     stacks[stack_id] = {
         'name': name, 'device_id': device_id, 'yaml': yaml,
@@ -345,9 +345,9 @@ def handle_compose_stack_action(stack_id):
     A._scope_block_device(device_id)       # a scoped role can't act on a foreign device's stack
     dev = A.device_get(device_id)
     if not dev:
-        A.respond(404, {'error': 'target device not found'})
+        A.respond(404, {'error': 'target host not found'})
     if not dev.get('compose_enabled', False):
-        A.respond(403, {'error': 'compose deploys are disabled on this device — enable them first'})
+        A.respond(403, {'error': 'compose deploys are disabled on this host — enable them first'})
     s['status'] = 'deploying'
     s['last_action'] = action
     s['last_action_ts'] = int(time.time())
@@ -376,8 +376,8 @@ def handle_compose_fetch():
     stack_id = str(body.get('stack_id', '')).strip()
     dev = A.device_get(device_id)
     if not dev or not A._device_token_ok(dev, token):
-        A.respond(403, {'error': 'Unauthorized device'})
+        A.respond(403, {'error': 'Unauthorized host'})
     s = (A.load(A.COMPOSE_STACKS_FILE) or {}).get(stack_id)
     if not s or s.get('device_id') != device_id:
-        A.respond(404, {'error': 'stack not found for this device'})
+        A.respond(404, {'error': 'stack not found for this host'})
     A.respond(200, {'ok': True, 'name': s.get('name', ''), 'yaml': s.get('yaml', '')})

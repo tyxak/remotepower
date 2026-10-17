@@ -162,8 +162,8 @@ async function saveRollout() {
 }
 
 async function rolloutAction(id, action) {
-  if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
-  if (action === 'rollback' && !await uiConfirm('Roll back? This starts a NEW rollout running the rollback script on every device this rollout reached.')) return;
+  if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their hosts.')) return;
+  if (action === 'rollback' && !await uiConfirm('Roll back? This starts a NEW rollout running the rollback script on every host this rollout reached.')) return;
   const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
   if (r?.ok) { toast(action === 'rollback' ? 'Rollback started' : `Rollout ${action} ok`, 'success'); loadRollouts(); }
   else toast(r?.error || `Failed to ${action}`, 'error');
@@ -196,7 +196,7 @@ async function previewRebootPlan() {
   const r = await api('POST', '/rollouts/reboot-plan', { scope: _rrScope() });
   if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); if (box) box.textContent = (r && r.error) || 'Failed'; return; }
   _rrRings = r.rings;
-  box.innerHTML = `<div class="fw-500 mb-6">${r.device_count} device(s) → ${r.rings.length} wave(s)</div>`
+  box.innerHTML = `<div class="fw-500 mb-6">${r.device_count} host(s) → ${r.rings.length} wave(s)</div>`
     + r.rings.map(w => `<div class="mb-4"><span class="fw-500 fs-13">${escHtml(w.name)}</span> <span class="meta-sm-nm">${w.devices.map(d => escHtml(d.name)).join(', ')}</span></div>`).join('')
     + `<div class="row-6 mt-8"><button class="btn-primary" data-action="createRebootRollout">Create rolling-reboot rollout</button></div>`;
 }

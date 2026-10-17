@@ -94,8 +94,8 @@ function _selfNameExporters(fl) {
 // all mean "nothing can ever arrive here", whatever the sender does.
 function _selfWhySilent(e, neverLabel) {
   return e.disabled ? 'token disabled'
-    : e.no_device ? 'the device it is scoped to no longer exists'
-    : e.no_ip ? 'no IP on the device, so the receiver cannot map its packets'
+    : e.no_device ? 'the host it is scoped to no longer exists'
+    : e.no_ip ? 'no IP on the host, so the receiver cannot map its packets'
     : e.last_seen ? _selfFmtAgo(e.last_seen) : neverLabel;
 }
 
@@ -172,7 +172,7 @@ function _selfSidecarRows(s) {
         : { label: 'Syslog receiver', state: 'warn',
             status: 'Running — no sources mapped',
             detail: 'the daemon is up but its source map is empty, so every '
-                  + 'packet is dropped. Enrol a device with a kind=syslog '
+                  + 'packet is dropped. Enrol a host with a kind=syslog '
                   + 'inbound token; if one exists, check the daemon log for a '
                   + '"storage backend detection failed" warning.',
             link: _SELF_TOKENS_LINK })
@@ -708,14 +708,14 @@ async function loadSelfStatus() {
         ${mem.used_pct != null ? `<tr><td class="c-muted-padded">System memory</td><td>${mem.used_pct}% used · ${_selfFmtBytes((mem.total_kb - mem.available_kb)*1024)} of ${_selfFmtBytes(mem.total_kb*1024)} ${memBar}</td></tr>` : ''}
         ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">Worker process RSS</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
         ${sess.active != null ? `<tr><td class="c-muted-padded">Active sessions</td><td>${sess.active}</td></tr>` : ''}
-        <tr><td class="c-muted-padded">Devices online</td><td>${onlinePctText}</td></tr>
+        <tr><td class="c-muted-padded">Hosts online</td><td>${onlinePctText}</td></tr>
         ${s.process?.pid ? `<tr><td class="c-muted-padded">PID</td><td>${s.process.pid}</td></tr>` : ''}
       </table>
       ${flagsHtml}
     </div>
 
     <div class="dash-card">
-      <div class="section-title">Devices</div>
+      <div class="section-title">Hosts</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
         <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713" data-color="${offlineSev}">${dev.offline ?? '—'}</span></td></tr>

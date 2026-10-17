@@ -275,7 +275,7 @@ def render_event_email(server_name: str, event: str, payload: dict, message: str
         f'Event:   {event}',
     ]
     if 'device_id' in payload:
-        body_lines.append(f'Device:  {payload.get("name") or payload.get("device_name") or payload["device_id"]}')
+        body_lines.append(f'Host:  {payload.get("name") or payload.get("device_name") or payload["device_id"]}')
     if 'unit' in payload:
         body_lines.append(f'Unit:    {payload["unit"]}')
     if 'pattern' in payload:
@@ -294,8 +294,8 @@ def render_event_email(server_name: str, event: str, payload: dict, message: str
 
 def _event_subject_prefix(event: str) -> str:
     return {
-        'device_offline':   'Device offline',
-        'device_online':    'Device online',
+        'device_offline':   'Host offline',
+        'device_online':    'Host online',
         'monitor_down':     'Monitor down',
         'monitor_up':       'Monitor recovered',
         'patch_alert':      'Patches available',

@@ -318,7 +318,7 @@ class PushServer:
     async def handler(self, websocket):
         dev_id, presented = self._extract_credentials(websocket)
         if not dev_id or not presented or not self.devices.check_token(dev_id, presented):
-            log.warning("push: rejected connection (bad/missing device credentials)")
+            log.warning("push: rejected connection (bad/missing host credentials)")
             await websocket.close(code=4401, reason='unauthorized')
             return
         # v6.1.1: a device reconnecting (agent restart, network blip) replaces

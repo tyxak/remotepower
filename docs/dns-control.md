@@ -15,7 +15,7 @@ is modelled as a *timed* action:
 - the driver **always** sends a timer (30 s – 4 h), clamped in the driver itself,
   not merely in the handler, so the bound does not depend on a caller remembering;
 - the blocker **re-enables itself** when the timer lapses — the safe state is
-  restored by the remote device, not by a sweep here that might never run;
+  restored by the remote host, not by a sweep here that might never run;
 - there is **no disable-forever action**. Not an oversight; a decision.
 
 Pausing is **admin-only** and **audit-logged with the window**, so "who turned the

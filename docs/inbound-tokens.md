@@ -1,6 +1,6 @@
 # Inbound tokens
 
-An inbound token lets one sender, or one device, send data to RemotePower
+An inbound token lets one sender, or one host, send data to RemotePower
 without logging in. You create them under **Settings → Integrations →
 Inbound webhooks**, and they all start with `rpwi_`.
 
@@ -12,7 +12,7 @@ why you could not find one.
 
 ## Which kind do you need?
 
-| You want | Kind | What the sender is given | Port | Pinned to a device |
+| You want | Kind | What the sender is given | Port | Pinned to a host |
 |---|---|---|---|---|
 | Logs from a firewall, switch, NAS or printer | Syslog | nothing: it sends plain UDP syslog | UDP 5514 | required |
 | Logs from a tool that can POST (rsyslog `omhttp`, fluent-bit, Vector, CrowdSec's HTTP notification) | Syslog | the URL `/api/syslog/in/<token>` | your dashboard's HTTPS port | required |
@@ -35,13 +35,13 @@ runs on the RemotePower server:
 ```
 OPNsense ──UDP──▶ remotepower-syslogd ──▶ RemotePower
  192.0.2.1  :5514   1. reads the packet's source address, 192.0.2.1
-                    2. finds the device whose IP is 192.0.2.1
-                    3. finds that device's syslog token
+                    2. finds the host whose IP is 192.0.2.1
+                    3. finds that host's syslog token
                     4. posts the lines to /api/syslog/in/<token>
 ```
 
 `remotepower-flowd` does the same for NetFlow on UDP 2055. The token is the
-link between the device and the receiver. You never type it anywhere else.
+link between the host and the receiver. You never type it anywhere else.
 
 That gives you four things that all have to be right:
 
@@ -51,24 +51,24 @@ That gives you four things that all have to be right:
    steps in [syslog.md](syslog.md) and [flow.md](flow.md). The Docker image does
    not run them. NetFlow does not carry logs, so a running `remotepower-flowd`
    does nothing for syslog.
-2. **The device has the right IP.** Add the firewall under **Devices → +
-   Agentless device** with type *Firewall*, and put in the IP address its
+2. **The host has the right IP.** Add the firewall under **Hosts → +
+   Agentless host** with type *Firewall*, and put in the IP address its
    packets come from. See [Which address?](#which-address-does-the-firewall-send-from)
    below.
-3. **The device has a token of the right kind.** A *Syslog* token for logs, a
-   *NetFlow/IPFIX* token for traffic, **pinned to that device**. One device can
+3. **The host has a token of the right kind.** A *Syslog* token for logs, a
+   *NetFlow/IPFIX* token for traffic, **pinned to that host**. One host can
    have both. A token of another kind does nothing here.
 4. **The sender points at the receiver.** The server's address, the receiver's
    UDP port, and UDP rather than TCP.
 
-The table on the Inbound webhooks page shows the device's name and IP next to
-each token, and says so in amber when a syslog or flow token's device has no IP. The
+The table on the Inbound webhooks page shows the host's name and IP next to
+each token, and says so in amber when a syslog or flow token's host has no IP. The
 **Server status** page has a *Syslog receiver* and a *Flow receiver* row that
 say whether the receiver is running and how many of its sources can receive.
 
 ## Which address does the firewall send from?
 
-The IP on the device record has to be the **source address of the packets**, and
+The IP on the host record has to be the **source address of the packets**, and
 a firewall often has several addresses. OPNsense does not let you choose one for
 a log target: it uses the address of the interface that leads to the server. If
 the server is on your LAN, that is the firewall's LAN address; if it is across a
@@ -82,7 +82,7 @@ journalctl -u remotepower-syslogd -n 20
 ```
 
 `dropping syslog from unknown source 192.0.2.1` names the address. Put that on
-the device.
+the host.
 
 ## Reading the symptoms
 
@@ -90,16 +90,16 @@ the device.
 |---|---|---|
 | Hits stay at 0 and `systemctl status remotepower-syslogd` says *could not be found* or *inactive* | The receiver is not installed or not running | Install it (point 1 above) |
 | Nothing from `sudo tcpdump -ni any udp port 5514` on the server | The packets never arrive | Check the sender's target (UDP, the right port, saved and applied), the server's firewall, and that the sender uses the server's own address, not a hostname behind a proxy such as Cloudflare. UDP does not pass through an HTTP proxy |
-| `dropping syslog from unknown source <ip>` in the journal | No device has that IP | Set the device's IP to `<ip>` |
-| `the device IS enrolled but has no enabled syslog ingest token` | The device has no enabled token of the right kind | Create a *Syslog* token pinned to it, or enable the one you have |
-| `flow from unmapped exporter <ip> dropped` | The same, for NetFlow | Set the IP, and create a *NetFlow/IPFIX* token pinned to the device |
-| Amber text on the token: *No IP set: nothing can arrive* | The receiver cannot match any packet to it | Fill in the device's IP |
+| `dropping syslog from unknown source <ip>` in the journal | No host has that IP | Set the host's IP to `<ip>` |
+| `the host IS enrolled but has no enabled syslog ingest token` | The host has no enabled token of the right kind | Create a *Syslog* token pinned to it, or enable the one you have |
+| `flow from unmapped exporter <ip> dropped` | The same, for NetFlow | Set the IP, and create a *NetFlow/IPFIX* token pinned to the host |
+| Amber text on the token: *No IP set: nothing can arrive* | The receiver cannot match any packet to it | Fill in the host's IP |
 | The token's Type reads *alert* but you made a NetFlow token | Versions before 7.4.0 showed NetFlow and ITSM tokens as *alert* | Nothing is wrong with the token; update |
 | Lines arrive but no alert fires | Receiving works; no `log_alert` rule matches | See [log-watch.md](log-watch.md) |
 
 The journal only complains about a source once every ten minutes, and it says
 nothing about packets that were accepted. The proof that it works is the token's
-**Hits** and **Last seen** moving, and the lines on the device's **Logs** tab
+**Hits** and **Last seen** moving, and the lines on the host's **Logs** tab
 (or the **Network flows** card for NetFlow). Hits counts batches the receiver
 forwarded, not single lines.
 
@@ -114,7 +114,7 @@ let only the firewall's address reach the receiver's port:
 sudo ufw allow from 192.0.2.1 to any port 5514 proto udp
 ```
 
-The receivers drop packets from any address that is not on a device record, and
+The receivers drop packets from any address that is not on a host record, and
 they cap how much they remember about unknown senders, so a flood of forged
 addresses costs bandwidth and not memory.
 
@@ -124,7 +124,7 @@ addresses costs bandwidth and not memory.
   a new one. The UDP receivers pick the new token up within half a minute.
 - **Disable** turns a token off without deleting it. A disabled token is
   dropped by the receivers.
-- Deleting the device leaves the token behind with nothing to receive for; the
+- Deleting the host leaves the token behind with nothing to receive for; the
   table flags it. Revoke it.
 
 ## See also
@@ -136,5 +136,5 @@ addresses costs bandwidth and not memory.
 - [Firewall sources](firewall-sources.md): Threat intel reading a firewall's
   syslog, including the one case where the token does go on the firewall: a
   CrowdSec notification.
-- [agentless-devices.md](agentless-devices.md): records for devices with no
+- [agentless-devices.md](agentless-devices.md): records for hosts with no
   agent.

@@ -7,14 +7,14 @@ Keyboard specifics live in [keyboard-shortcuts.md](keyboard-shortcuts.md).
 
 ## Undo instead of "are you sure?"
 
-Low-risk deletes (contacts, links, command-library snippets, saved device
+Low-risk deletes (contacts, links, command-library snippets, saved host
 views) no longer interrupt with a confirmation dialog. The row disappears
 immediately and the toast offers **Undo** for a few seconds. The delete is
 *deferred*: the API call only fires when the toast expires, and Undo cancels
 it outright — so an interrupted delete always fails toward "still there",
 never silent loss. Closing the tab flushes pending deletes first.
 
-Destructive fan-out operations (device removal, Docker prune, VM rollback,
+Destructive fan-out operations (host removal, Docker prune, VM rollback,
 alert purges) keep their explicit — sometimes typed —
 confirmations. Undo is for the deletes you do ten times a day.
 
@@ -67,7 +67,7 @@ live table shows *what* moved.
 
 ## Selection
 
-Device batch selection supports **shift-click range select** (click one
+Host batch selection supports **shift-click range select** (click one
 checkbox, shift-click another — everything between follows, respecting the
 active filter and sort in both densities), **Escape to clear** the
 selection (only when no modal/drawer/palette owns the key), and a
@@ -79,11 +79,11 @@ visible is selected, indeterminate on a partial selection.
 - **Per-alert deep links** — the link icon on an alert row copies
   `#alerts/<id>`; opening it lands on the inbox with that alert scrolled
   into view and highlighted. Made for tickets and chat.
-- **Device deep links** — an open drawer's URL is `#device/<id>/<tab>`;
+- **Host deep links** — an open drawer's URL is `#device/<id>/<tab>`;
   paste it into a runbook and it opens straight there. `[` and `]` step
-  between devices without closing the drawer.
-- **Command palette scopes** — `>` limits to actions, `#` to devices.
-  Recently-viewed devices lead the list; pinned (starred) devices lead
+  between hosts without closing the drawer.
+- **Command palette scopes** — `>` limits to actions, `#` to hosts.
+  Recently-viewed hosts lead the list; pinned (starred) hosts lead
   everything.
 - **"While you were away"** — refocusing a tab after 30+ minutes shows a
   one-line digest of what changed (new alerts, hosts gone offline).
@@ -101,7 +101,7 @@ visible is selected, indeterminate on a partial selection.
 Sparklines fade under their line so trend direction reads at a glance.
 Axis charts (Trends, forecasts) have a **hover crosshair**: a dashed line
 snaps to the nearest data point and a tooltip shows every series' value
-with the full timestamp. The device drawer's **Audit tab opens with a
+with the full timestamp. The host drawer's **Audit tab opens with a
 posture radar** — each check group (core, resources, security, services,
 hardware, …) is an axis scored by its share of healthy checks, so a host's
 shape shows *where* it is weak before you read a single row.

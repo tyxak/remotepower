@@ -6,7 +6,7 @@ your hosts, **freshness + integrity monitoring** of backups you already run, and
 
 ## Backup jobs
 
-**Backups** (sidebar) lists scheduled jobs — Name, Device, Schedule, Last run,
+**Backups** (sidebar) lists scheduled jobs — Name, Host, Schedule, Last run,
 Enabled, Actions. A job is a backup command (restic / borg / rsync / tar, auto
 -detected) plus a cron schedule, queued to a host through the audited command
 pipeline.
@@ -14,21 +14,21 @@ pipeline.
 - `GET/POST /api/backup-jobs`, `PUT/DELETE /api/backup-jobs/{id}`, and
   **Run now** (`POST /api/backup-jobs/{id}/run`).
 - Cron expressions are validated; up to 200 jobs per fleet.
-- **Apply one job to many devices (a baseline).** Pick one or more devices when
+- **Apply one job to many hosts (a baseline).** Pick one or more hosts when
   you create the job — the same backup runs on every one, on demand or on the
-  schedule. (Cross-tenant / out-of-scope devices are filtered out for you.)
-- **On-demand feedback.** For a single-device job, **Run now** waits for the
+  schedule. (Cross-tenant / out-of-scope hosts are filtered out for you.)
+- **On-demand feedback.** For a single-host job, **Run now** waits for the
   agent's output and shows it in a progress dialog (including rsync's progress
   lines); a backup that outlasts the wait window keeps running and its output
-  lands in the device's command history. A multi-device run queues on all and
+  lands in the host's command history. A multi-host run queues on all and
   reports the count.
 - **Last-run status.** The jobs table shows each job's last **outcome** — ✓
   succeeded / ✗ failed (with the exit code) / running / never — not just a
   timestamp, so a job that silently errors every night is obvious at a glance.
-  For a multi-device job the badge summarises per-host results.
+  For a multi-host job the badge summarises per-host results.
 - **Restore browser.** For tar jobs, **Restore** lists the archives at the
   destination (newest first, the latest pre-selected) so you pick one instead of
-  typing the filename; for a multi-device job you first choose which host to
+  typing the filename; for a multi-host job you first choose which host to
   restore to. `POST /api/backup-jobs/{id}/archives`.
 
 ### File backup (structured — no shell required)
@@ -47,7 +47,7 @@ The server **generates the command** from those fields and validates every value
 against a strict allowlist (absolute paths only, no shell metacharacters, no
 traversal) — the operator never supplies shell text, and **no credential ever
 appears in the generated command** (it runs as root on the host, so this matters).
-rsync progress is captured in the command output, visible in the device's command
+rsync progress is captured in the command output, visible in the host's command
 history.
 
 **Restore on demand** — a file-backup job has a **Restore** action that pulls the
@@ -102,7 +102,7 @@ the server after a loss:
   archive is built by walking the data directory, which tells the whole story
   only on the single-file JSON backend. SQLite adds a consistent database
   snapshot; Postgres — the installer default — keeps nothing in the data
-  directory at all, so its archives previously contained no devices, alerts,
+  directory at all, so its archives previously contained no hosts, alerts,
   config, tickets, tokens or vault. Every database backend now also exports its
   logical documents into the archive under the same filenames the JSON backend
   uses, which means one archive shape restores onto any backend. `stores` in the

@@ -129,25 +129,25 @@ def _user_may_reach(username, user_rec, dev):
             return False, "role lacks the 'ssh' permission"
         scope = rd.get('scope') or {'type': 'all'}
         if scope.get('type', 'all') != 'all' and not A._device_in_scope(scope, dev):
-            return False, 'device outside role scope'
+            return False, 'host outside role scope'
     if A._tenancy_enforced():
         tenant = A._user_tenant(username)
         superadmin = role == 'admin' and tenant == A.DEFAULT_TENANT
         if not superadmin and A._device_tenant(dev) != tenant:
-            return False, 'device belongs to another tenant'
+            return False, 'host belongs to another tenant'
     return True, ''
 
 
 def _device_gateway_ok(dev):
     """(True, '') when the device may be reached through the gateway at all."""
     if not isinstance(dev, dict):
-        return False, 'unknown device'
+        return False, 'unknown host'
     if not dev.get('sshgw_enabled'):
-        return False, 'device is not opted in to the SSH gateway'
+        return False, 'host is not opted in to the SSH gateway'
     if dev.get('decommissioned'):
-        return False, 'device is decommissioned'
+        return False, 'host is decommissioned'
     if A._device_quarantined(dev):
-        return False, 'device is quarantined'
+        return False, 'host is quarantined'
     return True, ''
 
 
@@ -322,13 +322,13 @@ def handle_device_sshgw(dev_id):
     turning it on gives every user whose role holds 'ssh' a path to this host's
     sshd. The host's own sshd still decides who may log in."""
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
         dev = A.device_get(dev_id)
         if dev is None:
-            A.respond(404, {'error': 'Device not found'})
+            A.respond(404, {'error': 'Host not found'})
         st = (A._load_ro(A.SSHGW_STATE_FILE) or {}).get(dev_id) or {}
         A.respond(200, {'ok': True, 'enabled': bool(dev.get('sshgw_enabled')),
                         'module_enabled': A._module_on('sshgw'),
@@ -342,7 +342,7 @@ def handle_device_sshgw(dev_id):
     with A._DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not isinstance(dev, dict):
-            A.respond(404, {'error': 'Device not found'})
+            A.respond(404, {'error': 'Host not found'})
         if enabled and not A._sshgw_is_linux(dev):
             A.respond(409, {'error': 'The SSH gateway tunnel is available on Linux agents only'})
         dev['sshgw_enabled'] = enabled
@@ -408,10 +408,10 @@ def handle_sshgw_agent_check():
     body = A._read_valid(A.request_models.SshgwAgentCheckRequest)
     dev_id = str(body.get('device_id') or '')
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if dev is None or not A._device_token_ok(dev, str(body.get('token') or '')):
-        A.respond(403, {'ok': False, 'error': 'device authentication failed'})
+        A.respond(403, {'ok': False, 'error': 'host authentication failed'})
     ok, why = _device_gateway_ok(dev)
     if not ok:
         A.respond(403, {'ok': False, 'error': why})
@@ -463,7 +463,7 @@ def handle_sshgw_authorize():
             reachable[did] = dev
     dev_id, why = sshgw.resolve_target(reachable, target)
     if not dev_id:
-        _deny(why or 'no such device')
+        _deny(why or 'no such host')
     session_id = secrets.token_hex(8)
     now = int(time.time())
     with A._LockedUpdate(A.USERS_FILE) as store:
@@ -502,7 +502,7 @@ def handle_sshgw_audit():
         'reason': s(str(body.get('reason') or ''), 128),
     }
     if row['device_id'] and not A._validate_id(row['device_id']):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     with A._LockedUpdate(A.SSHGW_SESSIONS_FILE) as store:
         rows = store.get('sessions') if isinstance(store.get('sessions'), list) else []
         rows.append(row)

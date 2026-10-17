@@ -123,7 +123,7 @@ def handle_guard_action():
         targets = [d for d, dev in devs.items()
                    if isinstance(dev, dict) and A._custom_check_applies(cdef, d, dev)]
         if not targets:
-            A.respond(404, {'error': 'no devices in scope for this check'})
+            A.respond(404, {'error': 'no hosts in scope for this check'})
         # Integrity Guard is Linux-only: both the Windows and macOS agents list
         # `guard_actions` among the keys they ignore. Queuing it
         # for one of those hosts is the success-toast-then-silence class — 200,
@@ -151,7 +151,7 @@ def handle_guard_action():
                                  f'{_skipped[0] if _skipped else did} is not a '
                                  'Linux host', 'skipped': _skipped})
     if not _queue_guard_action(did, qid, op):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A.audit_log(actor, 'guard_action', f'device={did} id={qid} op={op}')
     A.respond(200, {'ok': True, 'devices': 1})
 

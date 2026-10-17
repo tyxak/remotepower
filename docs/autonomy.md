@@ -98,7 +98,7 @@ is stale is not what lets it patch.
 
 The guest is matched by name: `mail01.example.com` is the guest called `mail01`. If
 two guests share a name, nothing matches — a guess is not a safety precondition.
-Set `proxmox_guest` on the device record to pin it explicitly. Whichever evidence
+Set `proxmox_guest` on the host record to pin it explicitly. Whichever evidence
 applied is written on the receipt, naming the guest and the age, because "this
 host is recoverable" is not a claim worth making without saying which machine's
 backup said so.
@@ -192,7 +192,7 @@ a private path to a host.
   instead of writing a receipt that claims it acted.
 * Act on an alert that does not say *which* thing broke. "A service failed"
   with no unit name refuses as `missing_parameter`.
-* Touch a device outside the acting tenant.
+* Touch a host outside the acting tenant.
 * Decide for itself whether it worked. That judgement belongs to the same
   per-host checks engine you already use; if failing checks increase, the
   receipt says so and `remediation_failed` fires. It does not undo anything —

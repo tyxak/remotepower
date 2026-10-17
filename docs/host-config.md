@@ -10,7 +10,7 @@ current state every 15 minutes so the server can detect drift.
 
 ## How it works
 
-1. An admin opens **Devices → device dropdown → Host Config**.
+1. An admin opens **Hosts → host dropdown → Host Config**.
 2. The modal loads the current desired config (if any) and shows drift
    from the last agent report.
 3. The admin edits one or more sections and clicks **Save & push to agent**.
@@ -50,7 +50,7 @@ No SSH. No Ansible. No extra network ports.
 
 ### Opening
 
-**Devices** page → three-dot or action menu on any device → **Host Config**.
+**Hosts** page → three-dot or action menu on any host → **Host Config**.
 
 The modal loads:
 - Current desired config (what the server will push)

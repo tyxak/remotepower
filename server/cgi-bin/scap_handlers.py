@@ -60,7 +60,7 @@ def handle_scap_scan():
     body = A._read_valid(A.request_models.ScapScanRequest)
     ids = A._resolve_targets(body)
     if not ids:
-        A.respond(400, {'error': 'No valid device targets'})
+        A.respond(400, {'error': 'No valid host targets'})
     actor = A.require_perm('patch', ids)
     profile = A._sanitize_str(body.get('profile', 'cis'), 80) or 'cis'
     # v6.4.0: OpenSCAP is Linux-only — the Windows/macOS agents can't run it and
@@ -96,11 +96,11 @@ def handle_scap_report():
     dev_id = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not A._validate_id(dev_id):
-        A.respond(403, {'error': 'Unauthorized device'})
+        A.respond(403, {'error': 'Unauthorized host'})
     devices = A.load(A.DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not A._device_token_ok(dev, dev_token):
-        A.respond(403, {'error': 'Unauthorized device'})
+        A.respond(403, {'error': 'Unauthorized host'})
     rec = {
         'ts': int(time.time()),
         'profile': A._sanitize_str(body.get('profile', ''), 80),
@@ -172,11 +172,11 @@ def handle_scap_report_download(dev_id):
     stored gzip, decompressed, as text/html."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'}); return
+        A.respond(404, {'error': 'invalid host id'}); return
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
     path = A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz'
     if not path.exists():
-        A.respond(404, {'error': 'no report on file for this device'}); return
+        A.respond(404, {'error': 'no report on file for this host'}); return
     try:
         # Bounded on the way out as well as in: a report stored before v7.0.2
         # was never size-checked, and this handler is the place it would go off.

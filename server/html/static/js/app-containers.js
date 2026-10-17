@@ -258,7 +258,7 @@ function _registerComposeStacksTable() {
       } else {
         actions =
           `<span class="hint">deploys off</span> ` +
-          `<button class="btn-icon btn-xs" data-action="enableComposeOnDevice" data-arg="${escAttr(s.device_id)}" data-arg2="${escAttr(s.device_name)}" title="Allow compose deploys on this device">Enable</button>` +
+          `<button class="btn-icon btn-xs" data-action="enableComposeOnDevice" data-arg="${escAttr(s.device_id)}" data-arg2="${escAttr(s.device_name)}" title="Allow compose deploys on this host">Enable</button>` +
           view + del;
       }
       return `<tr>
@@ -269,7 +269,7 @@ function _registerComposeStacksTable() {
         <td class="nowrap">${actions}</td>
       </tr>`;
     },
-    emptyMsg: 'No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.',
+    emptyMsg: 'No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a host.',
   });
 }
 
@@ -285,7 +285,7 @@ async function openComposeCreate() {
   sel.innerHTML = list
     .filter(d => !d.agentless)
     .map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}${d.compose_enabled ? '' : ' (deploys off)'}</option>`)
-    .join('') || '<option value="">No agent devices</option>';
+    .join('') || '<option value="">No agent hosts</option>';
   document.getElementById('compose-create-name').value = '';
   document.getElementById('compose-create-yaml').value = '';
   openModal('compose-create-modal');
@@ -296,7 +296,7 @@ async function submitComposeStack() {
   const device_id = document.getElementById('compose-create-device').value;
   const yaml = document.getElementById('compose-create-yaml').value;
   if (!name || !device_id || !yaml.trim()) {
-    toast('Name, device, and compose file are all required', 'error', {transient: true}); return;
+    toast('Name, host, and compose file are all required', 'error', {transient: true}); return;
   }
   const r = await api('POST', '/compose/stacks', { name, device_id, yaml });
   if (r && r.ok) { toast('Stack created', 'success'); closeModal('compose-create-modal'); loadComposeStacks(); }
@@ -306,7 +306,7 @@ async function submitComposeStack() {
 async function composeStackAction(stackId, action) {
   if (action === 'down' && !await uiConfirm('Run `docker compose down` for this stack?')) return;
   const r = await api('POST', `/compose/stacks/${encodeURIComponent(stackId)}/action`, { action });
-  if (r && r.ok) { toast(`${action} queued — runs on the device's next heartbeat (~60s)`, 'success'); loadComposeStacks(); }
+  if (r && r.ok) { toast(`${action} queued — runs on the host's next heartbeat (~60s)`, 'success'); loadComposeStacks(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -469,11 +469,11 @@ function _registerContainersOverviewTable() {
         <td class="hint-nowrap">${reported}${staleBadge}</td>
         <td><div class="row-4-center">
           <button class="btn-icon" data-action="containersOpen" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" >View</button>
-          <button class="btn-icon c-muted" title="Hide this device from the Containers page" data-action="ignoreContainerDevice" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          <button class="btn-icon c-muted" title="Hide this host from the Containers page" data-action="ignoreContainerDevice" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div></td>
       </tr>`;
     },
-    emptyMsg: 'No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',
+    emptyMsg: 'No hosts have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',
     emptyMsgFiltered: 'No containers match the filter.',
   });
 }
@@ -499,7 +499,7 @@ async function containersOpen(deviceId, name) {
     ? `<div class="isl-452">
          Container data is stale (last reported: ${escHtml(reportedHuman)}).
          Agent reports every ~5 min when a runtime is installed; check
-         <code>journalctl -u remotepower-agent</code> on the device.
+         <code>journalctl -u remotepower-agent</code> on the host.
        </div>`
     : '';
   // v6.1.2: `docker system df` — where the disk actually went, plus the
@@ -852,7 +852,7 @@ async function containerAction(deviceId, runtime, containerId, action, displayNa
 // after removing containers via `docker rm`.
 async function containersClearCurrent() {
   if (!_containersOpenDeviceId) return;
-  if (!await uiConfirm('Clear stored container data for this device?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {
+  if (!await uiConfirm('Clear stored container data for this host?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {
     return;
   }
   const deviceId = _containersOpenDeviceId;

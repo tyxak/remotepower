@@ -35,7 +35,7 @@ function _registerScansTable() {
       const removeBtn = ` <button class="btn-icon cell-sm c-danger-outline" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">${_icon('trash',14)}</button>`;
       return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}${cell(sc.info, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
-    emptyMsg: 'No scans yet. Pick an enrolled device and queue one.',
+    emptyMsg: 'No scans yet. Pick an enrolled host and queue one.',
     emptyMsgFiltered: 'No scans match the filter.',
   });
 }
@@ -64,7 +64,7 @@ async function _renderScanDeviceResults(term) {
   box.innerHTML = matches.length
     ? matches.map(d =>
         `<div class="pointer mb-8" data-action="pickScanDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
+    : '<div class="empty-state">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 
@@ -220,7 +220,7 @@ async function queueScan() {
     const typed = (document.getElementById('scan-device-search') || {}).value || '';
     toast(typed.trim()
             ? `Pick "${typed.trim()}" from the dropdown — typing the name alone does not select it.`
-            : 'Search and pick a device to scan first.',
+            : 'Search and pick a host to scan first.',
           'error', {transient: true});
     document.getElementById('scan-device-search')?.focus();
     return;
@@ -528,7 +528,7 @@ async function loadScanSchedules() {
   box.innerHTML = scheds.map(s => {
     const when = s.next_run ? _fmtAbsTs(s.next_run) : '—';
     const last = s.last_run ? _fmtAbsTs(s.last_run) : 'never';
-    const tgt = s.device_id ? 'device' : (s.scan_target_id ? 'verified target' : '—');
+    const tgt = s.device_id ? 'host' : (s.scan_target_id ? 'verified target' : '—');
     const paused = s.enabled === false;
     const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
     const nextStr = paused ? '' : ` · next ${escHtml(when)}`;
@@ -551,7 +551,7 @@ async function _createScanSchedule(extra) {
 }
 
 async function addScanSchedule() {
-  if (!_scanSelectedDevice) { toast('Search and pick a device first (or use a verified target’s Schedule button).', 'info'); return; }
+  if (!_scanSelectedDevice) { toast('Search and pick a host first (or use a verified target’s Schedule button).', 'info'); return; }
   _createScanSchedule({ device_id: _scanSelectedDevice.id });
 }
 
@@ -598,7 +598,7 @@ async function loadNetscanSchedules() {
   if (!data || data.error) return;
   const scheds = data.schedules || [];
   if (!scheds.length) {
-    box.innerHTML = '<div class="empty-state">No scheduled LAN discovery. Pick a device above, enter a subnet, and Add schedule.</div>';
+    box.innerHTML = '<div class="empty-state">No scheduled LAN discovery. Pick a host above, enter a subnet, and Add schedule.</div>';
     return;
   }
   box.innerHTML = scheds.map(s => {
@@ -610,7 +610,7 @@ async function loadNetscanSchedules() {
 }
 
 async function addNetscanSchedule() {
-  if (!_scanSelectedDevice) { toast('Search and pick a device above first.', 'info'); return; }
+  if (!_scanSelectedDevice) { toast('Search and pick a host above first.', 'info'); return; }
   const subnetEl = document.getElementById('netscan-sched-subnet');
   const subnet = subnetEl && subnetEl.value.trim();
   if (!subnet) { toast('Enter a subnet, e.g. 192.168.1.0/24.', 'info'); return; }

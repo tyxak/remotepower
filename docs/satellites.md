@@ -9,9 +9,9 @@ forwards their `/api/*` traffic to the central server.
 agent ──(https)──▶ satellite ──https──▶ RemotePower server
 ```
 
-Two independent identities ride along: the **agent's device token** still
-authenticates the device end-to-end (the satellite never sees a usable
-credential it could impersonate the device with), and the **satellite token**
+Two independent identities ride along: the **agent's host token** still
+authenticates the host end-to-end (the satellite never sees a usable
+credential it could impersonate the host with), and the **satellite token**
 identifies *which relay* the traffic came through — so you can see and revoke a
 satellite independently of its agents.
 
@@ -82,7 +82,7 @@ RP_CA_BUNDLE=/etc/remotepower/satellite-ca.crt   # set in the agent's environmen
 
 ### Revoke
 Delete the satellite in the UI — its token stops being accepted immediately.
-The agents behind it keep their own device tokens; re-point them at another
+The agents behind it keep their own host tokens; re-point them at another
 satellite or the server.
 
 ---
@@ -93,7 +93,7 @@ satellite or the server.
 |-----|----------------|
 | agent → satellite | `RP_TLS_CERT` + `RP_TLS_KEY` on the satellite → agents use `https://…:8800`. Use a cert the agents trust (internal CA / LE); for self-signed, give agents `RP_CA_BUNDLE`. |
 | satellite → server | HTTPS automatically whenever `RP_UPSTREAM` is `https://` (the default). The satellite verifies the server cert unless `RP_UPSTREAM_INSECURE=1`. |
-| device token | end-to-end: the agent's bearer token rides inside the (TLS) request; the satellite relays it but can't mint its own. |
+| host token | end-to-end: the agent's bearer token rides inside the (TLS) request; the satellite relays it but can't mint its own. |
 
 Only run the agent→satellite hop in plaintext on a trusted segment LAN — the
 relay prints a warning when it starts without a cert.
@@ -103,7 +103,7 @@ relay prints a warning when it starts without a cert.
 The opt-in [agent push channel](push.md) — a wake-only "poll now" nudge that cuts
 command-dispatch latency — works through a satellite. The relay byte-tunnels the
 WebSocket for the single path `/api/push/connect`, and only when the request is a
-real upgrade (it is not a general WS proxy). The handshake and the agent's device
+real upgrade (it is not a general WS proxy). The handshake and the agent's host
 token pass through untouched, so the push daemon's own token check stays the auth
 that matters end to end; the satellite adds its `X-RP-Satellite` token to the
 upgrade exactly as it does to every relayed API call.

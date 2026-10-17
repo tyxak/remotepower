@@ -178,7 +178,7 @@ const api = async () => (__PAYLOAD__);
         for b in self.out['buttons']:
             self.assertIn('<svg', b['html'],
                           "the icon name must exist in app.js's _ICONS map")
-            self.assertIn('Add as device', b['html'])
+            self.assertIn('Add as host', b['html'])
 
     def test_no_inline_handler_or_style_attribute(self):
         # CSP: script-src 'self'; style-src 'self' — an inline on*= or style=

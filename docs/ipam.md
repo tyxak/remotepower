@@ -10,7 +10,7 @@ Two related inventory features, both living on the **Sites & teams** page
 - **IP address management (IPAM)** — define your subnets and get a derived
   occupancy view of every address in use, plus static reservations. A
   background sweep raises an alert when the same IP — or the same MAC — shows
-  up on two devices.
+  up on two hosts.
 
 Neither feature changes anything on the hosts. Racks and subnets are pure
 records; occupancy and conflicts are *derived* from what the fleet already
@@ -45,7 +45,7 @@ curl -sSf -X PUT https://your-server/api/cmdb/dev-abc123 \
 ```
 
 `rack_unit: 0` (or `rack_id: ""`) unplaces the asset. Deleting a rack
-automatically unplaces every asset that referenced it — the devices themselves
+automatically unplaces every asset that referenced it — the hosts themselves
 are untouched.
 
 ### The elevation view
@@ -74,7 +74,7 @@ banner — the classic "two people racked something in U12 on paper" mistake.
 - **Notes** — max 512 chars.
 
 Up to 1000 subnets. Writes are admin-only; reads need any signed-in user.
-Deleting a subnet removes only the definition — devices are unaffected.
+Deleting a subnet removes only the definition — hosts are unaffected.
 
 ### Occupancy
 
@@ -82,22 +82,22 @@ Click **Occupancy** on a subnet row. `GET /api/ipam/subnets/{id}/occupancy`
 builds the address inventory by collecting every address the server already
 knows about and keeping the ones inside the subnet:
 
-- the device record's primary IP (source `device`),
+- the host record's primary IP (source `device`),
 - each CMDB interface IP (source `nic`),
 - each CMDB interface NAT IP (source `nat`),
 - plus any static **reservations** on the subnet.
 
 The header shows `used / reserved / free of total` (IPv4 subnets of /30 or
 larger subtract the network and broadcast addresses from the total). An IP
-held by more than one distinct device is marked as a **conflict** in red. The
-device set is filtered through your role scope and tenant, so you only count
-addresses of devices you can see.
+held by more than one distinct host is marked as a **conflict** in red. The
+host set is filtered through your role scope and tenant, so you only count
+addresses of hosts you can see.
 
 ### Reservations
 
 Reservations are a per-subnet `{ip: label}` map (max 500 entries, labels up to
 128 chars) for addresses that are spoken for but not held by an enrolled
-device — a gateway, a DHCP pool boundary, that printer nobody enrolls. They
+host — a gateway, a DHCP pool boundary, that printer nobody enrolls. They
 show in the occupancy table with their label. There is no UI editor;
 manage them via the API:
 
@@ -116,18 +116,18 @@ The same `PATCH` also updates `vlan`, `notes` and `site`.
 A maintenance sweep (`run_ipam_conflicts_if_due`) runs at most every
 **5 minutes** and checks two things:
 
-- **Duplicate IP** — the same address assigned to two or more devices,
+- **Duplicate IP** — the same address assigned to two or more hosts,
   *judged only inside a defined subnet* (without a subnet there's no "same
   network" to judge against). Fires **`ip_conflict`**.
-- **Duplicate MAC** — the same MAC address (from the device record and its
-  interfaces; decommissioned devices excluded) on two devices. This half runs
+- **Duplicate MAC** — the same MAC address (from the host record and its
+  interfaces; decommissioned hosts excluded) on two hosts. This half runs
   **whether or not any subnet is defined** — a duplicate MAC is wrong
   everywhere, and it's almost always a cloned VM whose NIC was never
   regenerated. Fires **`mac_conflict`**.
 
 Both events are severity **high**, kind **network**: they land in the Alerts
 inbox and fan out to your webhook destinations under the normal `network`
-channel routing. Payloads name the IP/MAC and the devices involved. The
+channel routing. Payloads name the IP/MAC and the hosts involved. The
 detection is **edge-triggered** — each conflict fires once when first seen
 (state kept in `ipam_state.json`), stays quiet while it persists, and will
 fire again if it clears and later returns. There is no auto-resolve event;
@@ -135,7 +135,7 @@ acknowledge/resolve the alert once you've fixed the address plan (or
 regenerated the cloned NIC).
 
 There are no config keys for any of this — the sweep is always on and does
-nothing until it has devices (and, for the IP half, subnets) to look at.
+nothing until it has hosts (and, for the IP half, subnets) to look at.
 
 ---
 
@@ -154,7 +154,7 @@ All paths under `/api`, auth via the usual `X-Token` header.
 | GET    | `/ipam/subnets` | any | List subnets (site-scoped roles see only their sites). |
 | POST   | `/ipam/subnets` | admin | Body: `{cidr, site, vlan, notes}`. Returns `{id}`. |
 | PATCH  | `/ipam/subnets/{id}` | admin | Update `vlan` / `notes` / `site` / `reservations`. |
-| DELETE | `/ipam/subnets/{id}` | admin | Definition only; devices unaffected. |
+| DELETE | `/ipam/subnets/{id}` | admin | Definition only; hosts unaffected. |
 | GET    | `/ipam/subnets/{id}/occupancy` | any | Derived address inventory. |
 
 Rack and subnet writes are audit-logged (`rack_create` / `rack_update` /

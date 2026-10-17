@@ -26,7 +26,7 @@ covers quarantine/audit-mode/dedup — runs exactly as before; the nudge just
 makes it run sooner. Two consequences:
 
 - If the push channel is never installed, misconfigured, or the daemon
-  crashes, nothing breaks. Every device just falls back to (never leaves)
+  crashes, nothing breaks. Every host just falls back to (never leaves)
   its normal poll cadence — this is a pure latency optimization, not a new
   point of failure for command delivery.
 - The daemon is a separate async process (`server/push/remotepower-push.py`,
@@ -97,7 +97,7 @@ steps:
    right next to it — this is a TCP-reachability check from the server to
    the daemon's own port (8766 by default). It confirms the daemon is
    running and its port is up; it does **not** prove nginx is proxying
-   `/api/push/connect` correctly or that a real device can authenticate.
+   `/api/push/connect` correctly or that a real host can authenticate.
 3. An agent only picks up `push_enabled: true` on its *next* heartbeat (up
    to `poll_interval`, default 60s). Once it does, the daemon's journal
    logs `push: <device_id> connected (N total)`. If nothing shows up after
@@ -105,7 +105,7 @@ steps:
    host actually has `websockets` installed (it degrades silently, no
    error, if the package is missing).
 4. The real functional test is **latency, not just connectivity**: queue a
-   command against a connected device. With push working it runs in well
+   command against a connected host. With push working it runs in well
    under a second; without it (or with the toggle off), it waits up to
    `poll_interval` seconds for the agent's next scheduled poll. Comparing
    that latency on vs. off is what actually proves the nudge is doing its
@@ -114,7 +114,7 @@ steps:
 
 ## Auth model
 
-An agent authenticates to the push daemon with the exact same device token
+An agent authenticates to the push daemon with the exact same host token
 it already sends on every heartbeat (`DEVICES_FILE[dev_id]['token_hash']` —
 the daemon ports the identical constant-time comparison logic from
 `api.py`'s `_device_token_ok()`, since it's a separate process and can't
@@ -143,7 +143,7 @@ The satellite now **byte-tunnels** the WebSocket:
   request really is a WebSocket upgrade. It is not a general WS proxy.
 - The tunnel is byte-level — no frame parsing, no protocol knowledge. The
   handshake, the `X-RP-Push-Token` header and ping/pong pass through
-  untouched, so **the daemon's device-token check remains the only auth that
+  untouched, so **the daemon's host-token check remains the only auth that
   matters end to end**; the satellite adds its own `X-RP-Satellite` token to
   the upgrade request exactly as it does to every relayed API call.
 - If the tunnel can't be established, the agent just doesn't get early wakes —
@@ -174,7 +174,7 @@ an *installed* server (not the repo test tree), so verify them on the box:
    fails. On a private (IP-allowlisted) vhost, include your allowlist in the
    location too, exactly like the webterm block.
 2. **The daemon is backend-aware.** Under the default Postgres/SQLite backend the
-   `*.json` files don't exist on disk — the daemon reads device tokens through
+   `*.json` files don't exist on disk — the daemon reads host tokens through
    the app's storage layer. It locates `server/cgi-bin/storage*.py` automatically
    (repo layout, `/var/www/remotepower/cgi-bin`, …; override with `RP_CGI_BIN`)
    and, on Postgres, pulls the DSN from the storage marker
@@ -190,15 +190,15 @@ an *installed* server (not the repo test tree), so verify them on the box:
 
 ## Operational notes
 
-- The daemon reads device/command state through the active storage backend
+- The daemon reads host/command state through the active storage backend
   (v6.1.1) — flat JSON files under the JSON backend, or the DB under
   Postgres/SQLite — read-only, sharing only the data directory with the app.
 - Token rotation (or a brand-new enrollment) takes effect on the very next
-  connection attempt — the daemon's device cache is keyed on the file's
+  connection attempt — the daemon's host cache is keyed on the file's
   own mtime, not a time-based TTL, so there's no window where a just-
   rotated token still authenticates.
 - A wake nudge for the same still-pending command is throttled to at most
-  once every 30 seconds per device (new work always nudges immediately
+  once every 30 seconds per host (new work always nudges immediately
   regardless of that cooldown) — bounds how often a connected agent gets
   woken while one command sits queued for a while.
 - Disabling `push_enabled` after an agent's listener thread has already

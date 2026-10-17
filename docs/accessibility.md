@@ -43,8 +43,8 @@ Three sources, all reproducible from the repository:
   above walks an *empty* install, where a table has no rows and a status pill
   has no state — so anything that only exists inside a populated row was
   structurally invisible to it. A second pass now seeds the demo dataset, ages
-  half the devices so both the online and offline presentations render, and
-  re-audits Devices, Alerts, Monitors, Containers and CMDB. It found 48
+  half the hosts so both the online and offline presentations render, and
+  re-audits Hosts, Alerts, Monitors, Containers and CMDB. It found 48
   contrast failures on the first run that the empty-install sweep had never
   been able to see; the ceiling is now zero, and the assertion names the
   offending nodes rather than reporting a count.
@@ -80,7 +80,7 @@ as the more interesting half of this document.
   dialogs), move focus to the first focusable control on open, and **restore
   focus to the opener** on close. Every dialog also gets an injected top-right
   close button labelled `Close dialog`.
-- The **device drawer** does the same: `role="dialog"`, Tab trap, Escape to
+- The **host drawer** does the same: `role="dialog"`, Tab trap, Escape to
   close, focus moved in on open and restored to the opener on close.
 - **Sortable table headers** are focusable (`tabindex="0"`), activate on Enter
   or Space, and expose their state via `aria-sort`
@@ -148,7 +148,7 @@ counterpart, which is half of this criterion)*.
 
 **Everywhere else — roughly 180 validation paths — still does not.** A
 client-side validation failure like "Name is required", "Pick at least one
-device" or "Username and password required" is delivered as a **toast**: a
+host" or "Username and password required" is delivered as a **toast**: a
 transient message in the polite live region at the corner of the screen, which
 **auto-dismisses after 3.5 seconds** and is not associated with the field that
 caused it. Nothing marks the field, and focus does not move, so a screen-reader
@@ -191,7 +191,7 @@ seeded pass described above found 48 contrast failures the moment there was
 data to render — all of them stray `opacity` declarations dimming text that was
 already muted, none of them visible without rows.
 
-Still not opened by the gate: the ~133 modal overlays and the device drawer.
+Still not opened by the gate: the ~133 modal overlays and the host drawer.
 A violation inside one of those remains invisible to automation.
 
 ### 3. Four dialogs bypass the modal manager and get no focus trap
@@ -279,7 +279,7 @@ do not read this as either a pass or a fail.
 | 1.3.2 Meaningful Sequence | A | Supports | DOM order matches visual order; full-viewport overlays are body-level children by rule. |
 | 1.3.3 Sensory Characteristics | A | Supports | Instructions never depend on shape, position or colour alone. |
 | 1.3.4 Orientation | AA | Supports | No orientation lock; the layout reflows to mobile. |
-| 1.3.5 Identify Input Purpose | AA | Partially supports | Login fields use standard `autocomplete`; most operational fields (device names, thresholds, filters) have no WCAG-defined input purpose to identify. |
+| 1.3.5 Identify Input Purpose | AA | Partially supports | Login fields use standard `autocomplete`; most operational fields (host names, thresholds, filters) have no WCAG-defined input purpose to identify. |
 | 1.4.1 Use of Colour | A | Supports | Status is carried by text/badges alongside colour; the active nav item uses `aria-current`, not colour alone. |
 | 1.4.3 Contrast (Minimum) | AA | Supports | Default theme: enforced by the axe `color-contrast` rule on rendered pages, no exemptions. Other themes: every accent/surface pairing checked at the token level by `tests/test_v642_css.py`. |
 | 1.4.4 Resize Text | AA | Supports | Relative layout; no `user-scalable=no`. |
@@ -323,7 +323,7 @@ do not read this as either a pass or a fail.
 | 3.2.4 Consistent Identification | AA | Supports | Actions with the same function use the same icon and label everywhere. |
 | **3.3.1 Error Identification** | **A** | **Partially supports** | Four forms (sign-in, step-up, add-user, Alert parameters) mark the offending field with `aria-invalid`, style it visibly and move focus to it. The remaining ~180 validation paths deliver an auto-dismissing toast with no `aria-invalid`, no `aria-describedby` and no association to the field (limitation 1). |
 | 3.3.2 Labels or Instructions | A | Supports | Every control in the static interface has an accessible name and most have hint text; the command palette input gained an `aria-label` in v6.4.2 rather than relying on its placeholder. |
-| 3.3.3 Error Suggestion | AA | Partially supports | Message text usually says what to fix ("Pick at least one device"); it is not programmatically attached to the field. |
+| 3.3.3 Error Suggestion | AA | Partially supports | Message text usually says what to fix ("Pick at least one host"); it is not programmatically attached to the field. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Supports | Destructive fan-out operations require explicit — sometimes typed — confirmation; low-risk deletes are deferred with Undo; configuration history allows rollback. |
 
 ### Robust

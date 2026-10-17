@@ -89,10 +89,10 @@ def handle_device_routeros(dev_id):
     # which device ids exist.
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -153,7 +153,7 @@ def handle_device_routeros_firewall(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'filter': [], 'nat': [], 'enabled': False})
@@ -172,7 +172,7 @@ def handle_device_routeros_qos(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'simple': [], 'tree': [], 'enabled': False})
@@ -191,7 +191,7 @@ def handle_device_routeros_traffic(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'interfaces': []})
@@ -209,13 +209,13 @@ def handle_device_routeros_action(dev_id):
     management command, gated on the device's routeros opt-in. Audited."""
     actor = A.require_admin_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
-        A.respond(403, {'error': 'RouterOS not enabled/configured on this device'})
+        A.respond(403, {'error': 'RouterOS not enabled/configured on this host'})
     body = A._read_valid(A.request_models.DeviceRouterosActionRequest)
     act = A._sanitize_str(body.get('action', ''), 32)
     arg = A._sanitize_str(str(body.get('arg', '')), 128) or None
@@ -314,10 +314,10 @@ def handle_device_opnsense(dev_id):
     # which device ids exist.
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -383,7 +383,7 @@ def handle_device_opnsense_firewall(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._opnsense_target(dev)
     if not tgt:
         A.respond(200, {'filter': [], 'nat': [], 'enabled': False})
@@ -402,13 +402,13 @@ def handle_device_opnsense_action(dev_id):
     firewall management, gated on the device's opnsense opt-in. Audited."""
     actor = A.require_admin_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._opnsense_target(dev)
     if not tgt:
-        A.respond(403, {'error': 'OPNsense not enabled/configured on this device'})
+        A.respond(403, {'error': 'OPNsense not enabled/configured on this host'})
     body = A._read_valid(A.request_models.DeviceOpnsenseActionRequest)
     act = A._sanitize_str(body.get('action', ''), 32)
     arg = A._sanitize_str(str(body.get('arg', '')), 64) or None
@@ -474,7 +474,7 @@ def _netconf_fetch(dev_id, dev):
         host, key, secret, verify = A._opnsense_target(dev)
         res = mod.action(host, key, secret, 'export', verify=verify)
     else:
-        raise RuntimeError('no appliance API configured on this device')
+        raise RuntimeError('no appliance API configured on this host')
     return str((res or {}).get('export') or '')
 
 
@@ -554,10 +554,10 @@ def handle_device_netconfig(dev_id):
     else:
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     if _m == 'GET':
         revs = (A.load(A.NETCONFIG_ARCHIVE_FILE) or {}).get(dev_id) or []
         A.respond(200, {
@@ -567,7 +567,7 @@ def handle_device_netconfig(dev_id):
             'max_revisions': _NETCONF_MAX_REVISIONS,
         })
     if not A._netconf_kind(dev):
-        A.respond(400, {'error': 'no RouterOS or OPNsense API configured on this device'})
+        A.respond(400, {'error': 'no RouterOS or OPNsense API configured on this host'})
     try:
         text = A._netconf_fetch(dev_id, dev)
     except Exception as e:
@@ -585,7 +585,7 @@ def handle_device_netconfig_revision(dev_id, rev_id):
     — one archived config, or a unified diff against another revision."""
     A.require_admin_auth()      # the body is the appliance's full config
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     revs = (A.load(A.NETCONFIG_ARCHIVE_FILE) or {}).get(dev_id) or []
     by_id = {r.get('id'): r for r in revs if isinstance(r, dict)}
     rev = by_id.get(A._sanitize_str(str(rev_id or ''), 32))

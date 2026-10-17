@@ -229,7 +229,7 @@ function openWebTerm(id, name) {
              + 'install it.\n\nOpen the agent console instead? It runs '
              + 'PowerShell or cmd.exe through the agent, with no SSH server, no '
              + 'inbound port and no second credential. (For a full desktop, use '
-             + 'the RDP tunnel from this device\'s drawer.)',
+             + 'the RDP tunnel from this host\'s drawer.)',
       confirmText: 'Open agent console',
       cancelText: 'Use SSH anyway',
     }).then(ok => {
@@ -712,7 +712,7 @@ async function openAvScan(id, name) {
 async function avScan(tool) {
   const id = document.getElementById('avscan-devid').value;
   const r = await api('POST', `/devices/${id}/av-scan`, { tool });
-  if (r?.ok) toast(`${tool} scan queued — output appears in the device command history`, 'success');
+  if (r?.ok) toast(`${tool} scan queued — output appears in the host command history`, 'success');
   else toast(r?.error || 'Failed', 'error');
 }
 

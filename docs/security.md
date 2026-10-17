@@ -8,11 +8,11 @@ service, elevation of privilege) rather than by feature, see
 - Use HTTPS for anything internet-facing
 - Session tokens are configurable (default 30-day remember-me / 24-hour standard); API keys default to never-expire — set a per-key expiry, or rotate manually if compromised
 - Enrollment PINs are single-use, expire after 10 minutes
-- Device tokens are 256-bit random secrets
+- Host tokens are 256-bit random secrets
 - Passwords hashed with **bcrypt** (cost 12), with a **PBKDF2-HMAC-SHA256** (600 000 iterations, OWASP 2023 minimum) fallback where bcrypt is unavailable; legacy hashes auto-upgraded on next login
 - Webhook URLs (legacy single + multi-destination) stored server-side only, redacted from backup exports
 - CMDB vault uses AES-GCM with PBKDF2-derived keys; passphrase never persisted server-side
-- Custom commands run as root - use the per-device command allowlist for untrusted operators
+- Custom commands run as root - use the per-host command allowlist for untrusted operators
 - Viewer role users cannot queue commands, change config, or access API keys
 - `apikeys.json`, `tokens.json`, and `users.json` are owned by the app-server user mode `700` - protect your server
 - Agent state files (`/var/lib/remotepower/` mode `0700`) use `O_NOFOLLOW` on every read/write to defeat symlink attacks from local non-root users
@@ -47,7 +47,7 @@ are kept:
   installs, signed alert-email links that took their address from the request,
   a crafted SSH user name that could make threat intel blame an address of the
   attacker's choosing, and the agent's WebSocket channels following redirects
-  with the device token. Also a functional bug the web-server scans turned up:
+  with the host token. Also a functional bug the web-server scans turned up:
   the shipped nginx configuration refused every dashboard edit sent with PUT.
 
 Each review found real defects, and every one of them was fixed before the
@@ -67,9 +67,9 @@ could not already run with that permission.
 The trust boundary around the agents and the secrets store:
 
 - **Mutual-TLS agent authentication.** Agents can present a CA-verified **client
-  certificate** on every connection, pinned per device, so the server accepts
+  certificate** on every connection, pinned per host, so the server accepts
   heartbeats only from a known agent — not merely from anyone holding an
-  enrolment token. Optional and additive; enable it per device or enforce it
+  enrolment token. Optional and additive; enable it per host or enforce it
   fleet-wide once every agent has a certificate.
 - **Encrypted disaster-recovery backups.** Data backups can be encrypted **at
   rest with AES-256-GCM**, with the key derived via **PBKDF2-SHA256** from a
@@ -116,9 +116,9 @@ running instance in each review.
 > operator pins a release public key and enables *require-signed-updates*
 > (opt-in). On its own the server-supplied SHA-256 is an integrity check, not an
 > authenticity one — so a server compromise could push a binary. Enable signed
-> updates on internet-exposed or multi-tenant deployments. Devices managed over
+> updates on internet-exposed or multi-tenant deployments. Hosts managed over
 > RouterOS/MikroTik default to the vendor self-signed cert (TLS verification is a
-> per-device opt-in, `routeros.verify`); enable it where the device has a trusted cert.
+> per-host opt-in, `routeros.verify`); enable it where the host has a trusted cert.
 
 ---
 
@@ -130,18 +130,18 @@ keys are database rows rather than files. The most security-relevant of them:
 | File | Contents |
 |------|----------|
 | `users.json` | Admin accounts + bcrypt hashes + roles |
-| `devices.json` | Enrolled devices, MAC, group, notes, cached sysinfo + journal |
+| `devices.json` | Enrolled hosts, MAC, group, notes, cached sysinfo + journal |
 | `tokens.json` | Active browser sessions (24 h standard / 30 d remember-me TTL), keyed by SHA-256 of the token |
 | `apikeys.json` | Named API keys — stored as a SHA-256 `key_hash` (the raw key is shown once at creation and never persisted) |
 | `pins.json` | Pending enrollment PINs |
-| `commands.json` | Pending command queue per device |
+| `commands.json` | Pending command queue per host |
 | `config.json` | Webhook URL, WoL settings, monitor targets, patch threshold |
 | `history.json` | Command log (last 200 entries by default; tunable) |
 | `schedule.json` | Scheduled jobs (one-shot + recurring cron) |
-| `uptime.json` | Online/offline state changes per device |
+| `uptime.json` | Online/offline state changes per host |
 | `monitor_history.json` | Check results per monitor target (last 300 by default; tunable) |
-| `cmd_output.json` | Custom command output per device (last 100) |
-| `metrics.json` | CPU/RAM/disk snapshots per device (last 1440) |
+| `cmd_output.json` | Custom command output per host (last 100) |
+| `metrics.json` | CPU/RAM/disk snapshots per host (last 1440) |
 | `cmd_library.json` | Saved command snippets |
 | `longpoll.json` | Pending long-poll output slots (transient) |
 
@@ -207,7 +207,7 @@ defences in place (kept current):
 - **API keys** are 320-bit, **stored hashed at rest** (SHA-256 `key_hash`; a
   legacy plaintext key is migrated to a hash on first use) and compared by hash
   with `hmac.compare_digest`, shown to the operator only at creation, support
-  per-key expiry, an optional per-key device scope and a source-IP allowlist, and
+  per-key expiry, an optional per-key host scope and a source-IP allowlist, and
   are capped at 50 per server.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
   exists for self-signed CAs.
@@ -245,7 +245,7 @@ defences in place (kept current):
 
 - Outbound webhook URLs are validated for `http`/`https` scheme.
 - Per-event toggles, CVE severity filters, maintenance-window suppression, and
-  per-device "unmonitored" gating all apply uniformly to legacy single-URL and
+  per-host "unmonitored" gating all apply uniformly to legacy single-URL and
   multi-destination configurations.
 - The `webhook_block_local` setting (on by default, in **Settings → Security**)
   refuses POSTs to link-local and unspecified addresses, which covers cloud
@@ -346,7 +346,7 @@ deny  all;
 **Caveat:** agents POST to `/api/heartbeat` (and enroll / download), so the
 allowlist **must include every agent's source IP** (your LAN/VPN) or they stop
 reporting. If agents roam on arbitrary public IPs, don't blanket-allowlist
-`/api/` — rely on the built-in per-device token auth and put the admin surface
+`/api/` — rely on the built-in per-host token auth and put the admin surface
 behind a VPN/SSO instead. Never IP-restrict `/api/csp-report` (you'd lose CSP
 reports from real browsers). The shipped `server/conf/remotepower.conf` carries
 this guidance inline.
@@ -452,7 +452,7 @@ Recommended for production deployments beyond the secure defaults:
       gate (≥ 12 characters, 2 of 4 character classes) and **store it
       separately** — RemotePower cannot recover it.
 - [ ] **Encrypt the control-plane host's own disk.** The data directory holds
-      every device token, the CMDB credential vault, API-key hashes and the
+      every host token, the CMDB credential vault, API-key hashes and the
       backups — a stolen or decommissioned disk hands over the fleet, and no
       application-level control can undo that. **Settings → Security posture**
       reports the state of the volume `RP_DATA_DIR` sits on; a host

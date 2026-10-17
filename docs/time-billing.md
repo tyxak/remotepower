@@ -7,7 +7,7 @@ fees. Built on one shared time-entry ledger so nothing is double-counted.
 ## Concepts
 
 - **Time entry** — one logged block of work: hours (in **0.25-hour steps**),
-  date, who, a **billable** flag, an optional **customer (site)** / device /
+  date, who, a **billable** flag, an optional **customer (site)** / host /
   ticket link, and a note (billable) or **category** (internal).
 - **Customer = site.** Invoices are raised per **site**. A billable entry always
   resolves to exactly one site (the payer); `device` and `tag` are attribution
@@ -21,7 +21,7 @@ fees. Built on one shared time-entry ledger so nothing is double-counted.
 ## Logging hours
 
 **On a ticket** — open a ticket, click **Log hours**, type the hours, choose
-billable (debtable) or internal. The customer is taken from the ticket's device's
+billable (debtable) or internal. The customer is taken from the ticket's host's
 site; admins/finance can also pick a rate. The ticket shows a running total.
 
 **On your timesheet** — open **Timesheet** (Planning → Timesheet, or *My Account

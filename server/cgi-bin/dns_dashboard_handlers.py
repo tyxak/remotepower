@@ -321,14 +321,14 @@ def handle_dns_import_from_agent():
         body = {}
     dev_id = str(body.get('device_id', '')).strip()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     if not A.device_get(dev_id):
-        A.respond(404, {'error': 'unknown device'})
+        A.respond(404, {'error': 'unknown host'})
     A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     with A._DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not isinstance(dev, dict):
-            A.respond(404, {'error': 'unknown device'})
+            A.respond(404, {'error': 'unknown host'})
         # v6.4.3: the harvest is implemented in the Linux agent only (it reads
         # acme.sh's on-disk credential files). Queueing it against a Windows or
         # macOS host returned "queued — refresh in a moment" forever.
@@ -341,7 +341,7 @@ def handle_dns_import_from_agent():
         devices[dev_id] = dev
     A.audit_log(actor, 'dns_import_from_agent_requested', detail=f'device={dev_id}')
     A.respond(200, {'ok': True, 'queued': True,
-                    'message': 'Queued — the device will report its DNS credentials on its '
+                    'message': 'Queued — the host will report its DNS credentials on its '
                                'next heartbeat. Refresh in a moment.'})
 
 

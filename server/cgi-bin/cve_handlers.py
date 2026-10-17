@@ -94,7 +94,7 @@ def handle_cve_realert():
                           for f in alerted[:5]],
         })
         fired += 1
-    A.audit_log(actor, 'cve_realert', f'{fired} device(s) re-alerted')
+    A.audit_log(actor, 'cve_realert', f'{fired} host(s) re-alerted')
     A.respond(200, {'ok': True, 'devices': fired})
 
 
@@ -418,11 +418,11 @@ def handle_cve_device(dev_id):
     """GET /api/devices/{id}/cve — detailed findings for one device."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
 
     dev = A.device_get(dev_id)   # v4.3.0: single-row read
     if dev is None:
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
 
     findings_all = A.load(A.CVE_FINDINGS_FILE)
     ignore_data  = A.load(A.CVE_IGNORE_FILE)

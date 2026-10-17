@@ -1178,13 +1178,13 @@ SYSTEM_PROMPTS = {
     ),
     'investigate_device': (
         "You are a Linux operations assistant. Given a snapshot of a "
-        "device's recent state (metrics, journal tail, recent "
+        "host's recent state (metrics, journal tail, recent "
         "commands), identify anything anomalous and what to check "
         "next. 3–5 short bullet points. If nothing's wrong, say so."
     ),
     'explain_alert': (
         "You are a Linux operations assistant. Given a webhook alert "
-        "payload (event type, device, raw details), rewrite it as a "
+        "payload (event type, host, raw details), rewrite it as a "
         "single short paragraph an on-call engineer can understand in "
         "5 seconds. Include severity assessment."
     ),
@@ -1212,7 +1212,7 @@ SYSTEM_PROMPTS = {
     'investigate_alert': (
         "You are a Linux operations assistant helping an on-call "
         "engineer triage a single monitoring alert. Given the alert's "
-        "severity, event type, affected device, timestamp, and raw "
+        "severity, event type, affected host, timestamp, and raw "
         "details, respond with: (1) one sentence on what the alert "
         "means, (2) the most likely cause, (3) 2-4 concrete next "
         "steps or commands to verify and resolve it. Prefer real "
@@ -1458,7 +1458,7 @@ SYSTEM_PROMPTS = {
         "You are an SRE triaging a RemotePower agent that is older than the "
         "server. You will be shown the running agent version and its service "
         "status. State in ONE sentence whether an update is safe to apply now. "
-        "The agent updates through RemotePower's own update flow (device drawer "
+        "The agent updates through RemotePower's own update flow (host drawer "
         "-> Update agent), so DO NOT propose a manual download/install command — "
         "recommend the update action instead, or NONE if the service looks "
         "unhealthy and needs inspection first. Wrap any proposed diagnostic "
@@ -1478,7 +1478,7 @@ SYSTEM_PROMPTS = {
         "You are a hardware/storage engineer triaging a SMART or kernel hardware "
         "alert. You will be shown per-disk SMART health + attributes, disk/IO "
         "errors from dmesg, and the block-device list. Identify in ONE sentence "
-        "which device is failing and the key indicator (reallocated/pending "
+        "which host is failing and the key indicator (reallocated/pending "
         "sectors, CRC errors, NVMe wear, medium errors). Recommend the action "
         "(plan a replacement, back up now, run an extended self-test). Propose at "
         "most ONE diagnostic command (e.g. `smartctl -t long /dev/sdX`) — never a "
@@ -1633,7 +1633,7 @@ SYSTEM_PROMPTS = {
         "disk restart frequency and SSD/NVMe endurance across the fleet, "
         "identify hardware likely to fail and a rough timeframe. Cite the "
         "specific signal (rising reallocated/pending sectors, CRC errors, "
-        "endurance %, power-on hours). Recommend replace/monitor per device. "
+        "endurance %, power-on hours). Recommend replace/monitor per host. "
         "Only flag real risk; if nothing is degrading, say so."
     ),
     # Incident reasoning
@@ -1855,7 +1855,7 @@ SYSTEM_PROMPTS = {
         "reveal secret values; refer to credentials by name/id only."
     ),
     'network_review': (
-        "You are a network architect. Given the network map (device dependency "
+        "You are a network architect. Given the network map (host dependency "
         "links via connected_to) and the unmanaged hosts agents have seen on the "
         "LAN, identify single points of failure, high blast-radius dependencies "
         "(a change to X affects many), and unmanaged hosts that should be enrolled "

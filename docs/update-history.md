@@ -9,15 +9,15 @@ upgrade and hope. v1.10.0 captures the output and lets you read it.
 
 ## What this is
 
-Every time you trigger a package upgrade on a device — via the
+Every time you trigger a package upgrade on a host — via the
 **Upgrade packages** button or `POST /api/upgrade-device` — the agent
 runs the appropriate distro command (`apt-get upgrade`, `dnf upgrade`,
 `pacman -Syu`), captures the combined stdout+stderr, and posts it
 back on the next heartbeat (~60s after the run completes). The
-server stores the last 10 runs per device in `update_logs.json`
+server stores the last 10 runs per host in `update_logs.json`
 along with timestamps and exit code.
 
-The device dropdown menu has an **Update history** link that opens
+The host dropdown menu has an **Update history** link that opens
 a modal with each run as a collapsible entry. The most recent run is
 expanded; older runs are collapsed but one click away. The entry
 shows: timestamp, package manager (`apt`/`dnf`/`pacman`), duration,
@@ -57,7 +57,7 @@ This keeps backward compatibility — nothing existing breaks — at the
 cost of a small write amplification, which doesn't matter for a
 flat-file app handling tens of writes per minute.
 
-**Rolling buffer, not append-only.** 10 runs per device. New run,
+**Rolling buffer, not append-only.** 10 runs per host. New run,
 oldest evicted. If you want long-term retention, scrape the endpoint
 and store the results elsewhere — that's what the audit log is for
 on the security side, and it's a perfectly fine pattern here too.
@@ -138,7 +138,7 @@ maybe — it'll be cut off. Bump `MAX_CMD_OUT_BYTES` cap detection in
 **Output is empty / shows "(no output captured)".**
 Either the run hasn't completed yet (it's still in flight), or the
 agent died before it could post. Check the agent's systemd journal:
-`journalctl -u remotepower-agent -e` on the device.
+`journalctl -u remotepower-agent -e` on the host.
 
 **Old agents work?**
 Yes. Pre-v1.10.0 agents will truncate at 4 KB but still post the
@@ -167,7 +167,7 @@ update path (`Agent update` in the dropdown) handles this.
 }
 ```
 
-Keyed by `device_id`. Each device gets a list capped at 10 entries
+Keyed by `device_id`. Each host gets a list capped at 10 entries
 (by default; tunable via `MAX_UPDATE_LOGS_PER_DEVICE` in `api.py`).
 Entries within the list are oldest-first. The file is created lazily
 on first heartbeat with upgrade output — there's no migration step

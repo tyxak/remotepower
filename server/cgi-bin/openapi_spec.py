@@ -145,7 +145,7 @@ def _schemas() -> dict[str, Any]:
         },
         "Device": {
             "type": "object",
-            "description": "An enrolled device, keyed by ``device_id``.",
+            "description": "An enrolled host, keyed by ``device_id``.",
             "properties": {
                 "id": {"type": "string"},
                 "name": {"type": "string"},
@@ -317,12 +317,12 @@ def _path_devices() -> dict[str, Any]:
     return {
         "/devices": {
             "get": {
-                "tags": ["Devices"],
-                "summary": "List enrolled devices",
+                "tags": ["Hosts"],
+                "summary": "List enrolled hosts",
                 "operationId": "listDevices",
                 "responses": {
                     "200": {
-                        "description": "All enrolled devices.",
+                        "description": "All enrolled hosts.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -338,8 +338,8 @@ def _path_devices() -> dict[str, Any]:
         },
         "/devices/{device_id}": {
             "delete": {
-                "tags": ["Devices"],
-                "summary": "Remove an enrolled device",
+                "tags": ["Hosts"],
+                "summary": "Remove an enrolled host",
                 "operationId": "deleteDevice",
                 "parameters": [
                     {
@@ -363,11 +363,11 @@ def _path_devices() -> dict[str, Any]:
         },
         "/devices/{device_id}/update-logs": {
             "get": {
-                "tags": ["Devices"],
+                "tags": ["Hosts"],
                 "summary": "Get the rolling buffer of package-upgrade output",
                 "description": (
                     "Returns the most recent runs of the `apt-get -y upgrade` / "
-                    "`dnf -y upgrade` / `pacman -Syu` command on this device. "
+                    "`dnf -y upgrade` / `pacman -Syu` command on this host. "
                     "Capped at 10 entries by default; new runs evict the oldest."
                 ),
                 "operationId": "getUpdateLogs",
@@ -381,7 +381,7 @@ def _path_devices() -> dict[str, Any]:
                 ],
                 "responses": {
                     "200": {
-                        "description": "The device's update history.",
+                        "description": "The host's update history.",
                         "content": {
                             "application/json": {
                                 "schema": {"$ref": "#/components/schemas/UpdateLogsResponse"}
@@ -396,7 +396,7 @@ def _path_devices() -> dict[str, Any]:
         "/shutdown": {
             "post": {
                 "tags": ["Commands"],
-                "summary": "Queue a shutdown on one or more devices",
+                "summary": "Queue a shutdown on one or more hosts",
                 "operationId": "queueShutdown",
                 "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
                 "responses": _device_command_responses(),
@@ -405,7 +405,7 @@ def _path_devices() -> dict[str, Any]:
         "/reboot": {
             "post": {
                 "tags": ["Commands"],
-                "summary": "Queue a reboot on one or more devices",
+                "summary": "Queue a reboot on one or more hosts",
                 "operationId": "queueReboot",
                 "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
                 "responses": _device_command_responses(),
@@ -427,7 +427,7 @@ def _path_devices() -> dict[str, Any]:
         "/update-device": {
             "post": {
                 "tags": ["Commands"],
-                "summary": "Push agent self-update on one or more devices",
+                "summary": "Push agent self-update on one or more hosts",
                 "operationId": "queueAgentUpdate",
                 "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
                 "responses": _device_command_responses(),
@@ -977,7 +977,7 @@ def _path_auth_misc() -> dict[str, Any]:
         "/cve/scan": {
             "post": {
                 "tags": ["CVE"],
-                "summary": "Queue a background CVE scan (one device or the whole fleet)",
+                "summary": "Queue a background CVE scan (one host or the whole fleet)",
                 "description": "Returns 202 immediately; the scan runs in a detached "
                 "process. Poll /api/cve/scan-status for progress.",
                 "operationId": "cveScan",
@@ -1222,11 +1222,11 @@ def _path_identity() -> dict[str, Any]:
                 "tags": ["Agents"],
                 "summary": "Agent self-registration against an enrollment token",
                 "description": (
-                    "Exchanges a one-time enrollment token for a per-device "
+                    "Exchanges a one-time enrollment token for a per-host "
                     "agent token. Called by the installer, not by operators."
                 ),
                 "responses": {
-                    "200": {"description": "Registered; returns the device token."},
+                    "200": {"description": "Registered; returns the host token."},
                     "400": {"$ref": "#/components/responses/BadRequest"},
                     "403": {"description": "Unknown, expired or already-used token."},
                 },
@@ -1294,7 +1294,7 @@ def _path_ingest() -> dict[str, Any]:
                     "request carries the host's telemetry; the response carries "
                     "the work queued for it — a pending command, one-shot force "
                     "flags, agent-side check definitions and cadence hints.\n\n"
-                    "Authenticated with the device token issued at enrolment, "
+                    "Authenticated with the host token issued at enrolment, "
                     "sent as `X-Token`. Bodies are sanitised server-side before "
                     "storage: fields the server does not model are dropped."
                 ),
@@ -1321,7 +1321,7 @@ def _path_ingest() -> dict[str, Any]:
                 "responses": {
                     "200": {"description": "Work for this agent, if any."},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "404": {"description": "Unknown device."},
+                    "404": {"description": "Unknown host."},
                 },
             }
         },
@@ -1422,8 +1422,8 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
         ],
         "tags": [
             {"name": "Auth", "description": "Login, logout, audit log."},
-            {"name": "Devices", "description": "Enrolled device CRUD and inspection."},
-            {"name": "Commands", "description": "Queue commands for one or more devices."},
+            {"name": "Hosts", "description": "Enrolled host CRUD and inspection."},
+            {"name": "Commands", "description": "Queue commands for one or more hosts."},
             {"name": "CMDB", "description": "Per-asset metadata and documentation."},
             {"name": "Vault", "description": "Encrypted credential vault (PBKDF2 + AES-GCM)."},
             {"name": "Credentials", "description": "Per-asset credential storage."},

@@ -1,5 +1,5 @@
 [Unit]
-Description=RemotePower agentless NetFlow/IPFIX receiver (UDP -> per-device flow rollup API)
+Description=RemotePower agentless NetFlow/IPFIX receiver (UDP -> per-host flow rollup API)
 Documentation=https://github.com/tyxak/remotepower
 After=network-online.target remotepower-wsgi.service
 Wants=network-online.target

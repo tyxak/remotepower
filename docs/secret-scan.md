@@ -68,7 +68,7 @@ page's **Scan now** button triggers the same endpoint.
 ## Findings, alerts and mutes
 
 Findings appear on the **Exposure** page under **"Exposed secrets on disk"**
-(filterable by device / type / path / preview), backed by
+(filterable by host / type / path / preview), backed by
 `GET /api/fleet/secrets` — scope- and tenant-filtered, values never present.
 The Security posture page also shows whether the scan is enabled.
 
@@ -135,7 +135,7 @@ Behaviour worth knowing:
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET  | `/api/fleet/secrets` | any | Redacted findings per device + active count + enabled flag. |
+| GET  | `/api/fleet/secrets` | any | Redacted findings per host + active count + enabled flag. |
 | POST | `/api/secrets-scan/scan` | `exec` write role | `{device_id?}` — queue a one-shot scan (all agent hosts when omitted). |
 | POST | `/api/secrets/mute` | admin | `{fingerprint, unmute?}` — mute one finding. |
 | POST | `/api/secrets/host-mute` | admin | `{device_id, unmute?}` — mute a whole host; auto-resolves its open alerts. |

@@ -145,8 +145,8 @@ def handle_flow_in(token_str):
     devs = A.load(A.DEVICES_FILE) or {}
     if not dev_id or dev_id not in devs:
         A._log_inbound('flow', match.get('id'), match.get('label'), '404',
-                       'token target device no longer exists')
-        A.respond(404, {'error': 'token target device no longer exists'})
+                       'token target host no longer exists')
+        A.respond(404, {'error': 'token target host no longer exists'})
         return
     body = A.get_json_obj()
     try:
@@ -176,11 +176,11 @@ def handle_device_flows(dev_id):
     /api/devices/<id>/, covered by _enforce_device_scope pre-dispatch)."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'})
+        A.respond(404, {'error': 'invalid host id'})
         return
     devs = A._load_ro(A.DEVICES_FILE) or {}
     if dev_id not in devs:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
         return
     rec = (A.load(A.FLOW_FILE) or {}).get(dev_id) or {}
     # v6.4.3: `latest` is never expired — only `history` gets the cutoff — so a

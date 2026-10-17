@@ -116,7 +116,7 @@ def handle_webterm_auth():
     # device data to the daemon — the user supplies SSH host/user/pw).
     devices = A._load_ro(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
     A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
 
     # W6-49: RDP-tunnel intent is gated behind an explicit opt-in — it exposes a

@@ -571,7 +571,7 @@ def handle_backup_job_create():
     devices = A.load(A.DEVICES_FILE)
     targets = [d for d in A._resolve_targets(body) if d in devices]
     if not targets:
-        A.respond(400, {'error': 'select at least one device you can manage'})
+        A.respond(400, {'error': 'select at least one host you can manage'})
     # v6.4.2: structured FILE jobs are POSIX-only — `filebackup._is_abs_path`
     # rejects any path not starting with '/' and the generated command is
     # rsync/tar over ssh. A Windows or macOS host could be picked from the same
@@ -800,10 +800,10 @@ def _backup_run_and_wait(dev_id, cmd, actor, dev_name, timeout=120):
     if status == 'ok':
         A.respond(200, {'ok': True, 'output': output})
     elif status == 'shutdown':
-        A.respond(503, {'ok': False, 'message': 'Server restarting — the backup is queued; check the device command history.'})
+        A.respond(503, {'ok': False, 'message': 'Server restarting — the backup is queued; check the host command history.'})
     else:
         A.respond(200, {'ok': True, 'running': True,
-                        'message': 'Backup is taking longer than the wait window — it keeps running; output appears in the device command history.'})
+                        'message': 'Backup is taking longer than the wait window — it keeps running; output appears in the host command history.'})
 
 
 def handle_backup_job_run(job_id):
@@ -821,7 +821,7 @@ def handle_backup_job_run(job_id):
     # caller's scope/tenant at run time (device set can change after creation).
     targets = [d for d in A._resolve_targets({'device_ids': _backup_job_targets(job)})]
     if not targets:
-        A.respond(400, {'error': 'no devices you can manage are targeted by this job'})
+        A.respond(400, {'error': 'no hosts you can manage are targeted by this job'})
     # v6.4.3: filter at DISPATCH, not only at create/update. The OS gate added
     # earlier in this release sits on the two WRITE paths — so a job that
     # ALREADY held a Windows or macOS target (created before the gate, or whose
@@ -890,9 +890,9 @@ def handle_backup_job_archives(job_id):
     targets = _backup_job_targets(job)
     dev_id = str(body.get('device_id', '')).strip() or (targets[0] if len(targets) == 1 else '')
     if not dev_id:
-        A.respond(400, {'error': 'this job targets multiple devices — specify device_id'})
+        A.respond(400, {'error': 'this job targets multiple hosts — specify device_id'})
     if dev_id not in targets:
-        A.respond(400, {'error': 'device is not one of this job\'s targets'})
+        A.respond(400, {'error': 'host is not one of this job\'s targets'})
     A._scope_block_device(dev_id)
     ok, err = A.filebackup_mod.validate_spec(job['spec'])
     if not ok:
@@ -944,9 +944,9 @@ def handle_backup_job_restore(job_id):
     job_targets = _backup_job_targets(job)
     dev_id = str(body.get('device_id', '')).strip() or (job_targets[0] if len(job_targets) == 1 else '')
     if not dev_id:
-        A.respond(400, {'error': 'this job targets multiple devices — specify device_id to restore to'})
+        A.respond(400, {'error': 'this job targets multiple hosts — specify device_id to restore to'})
     if dev_id not in job_targets:
-        A.respond(400, {'error': 'device is not one of this job\'s targets'})
+        A.respond(400, {'error': 'host is not one of this job\'s targets'})
     A._scope_block_device(dev_id)   # tenant + role scope for the chosen host
     if str(body.get('confirm', '')).strip().upper() != 'RESTORE':
         A.respond(400, {'error': 'type RESTORE to confirm — this overwrites the restore path'})
@@ -998,7 +998,7 @@ def handle_backup_job_update(job_id):
         devices = A.load(A.DEVICES_FILE)
         targets = [d for d in A._resolve_targets(body) if d in devices]
         if not targets:
-            A.respond(400, {'error': 'select at least one device you can manage'})
+            A.respond(400, {'error': 'select at least one host you can manage'})
         job['device_ids'] = targets
         job['device_id'] = targets[0]
         job['device_name'] = A._backup_targets_summary(targets, devices)
@@ -1544,7 +1544,7 @@ def handle_device_backups(dev_id):
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
     state = A.load(A.DATA_DIR / 'backup_state.json') or {}
     monitors = (A.load(A.CONFIG_FILE) or {}).get('backup_monitors') or []
     mon_by_path = {m.get('path'): m for m in monitors if isinstance(m, dict)}

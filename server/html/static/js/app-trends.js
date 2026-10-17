@@ -347,7 +347,7 @@ function _mxRenderHosts(filter) {
   const f = String(filter == null ? (document.getElementById('mx-filter')?.value || '') : filter).toLowerCase();
   const rows = _mxDevices.filter(d => !f || d.name.toLowerCase().indexOf(f) >= 0 || d.id.toLowerCase().indexOf(f) >= 0);
   if (!rows.length) {
-    box.innerHTML = `<div class="c-muted">${_mxDevices.length ? 'No host matches that filter.' : 'No devices yet.'}</div>`;
+    box.innerHTML = `<div class="c-muted">${_mxDevices.length ? 'No host matches that filter.' : 'No hosts yet.'}</div>`;
     return;
   }
   box.innerHTML = rows.map(d =>

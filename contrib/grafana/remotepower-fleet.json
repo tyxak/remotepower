@@ -47,7 +47,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Devices online",
+      "title": "Hosts online",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -102,7 +102,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Devices total",
+      "title": "Hosts total",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -660,7 +660,7 @@
     {
       "id": 14,
       "type": "row",
-      "title": "Devices",
+      "title": "Hosts",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -673,7 +673,7 @@
     {
       "id": 15,
       "type": "bargauge",
-      "title": "Device health score",
+      "title": "Host health score",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -737,7 +737,7 @@
     {
       "id": 16,
       "type": "bargauge",
-      "title": "Pending upgrades per device",
+      "title": "Pending upgrades per host",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"

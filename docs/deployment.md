@@ -85,7 +85,7 @@ sudo bash client/install-macos.sh https://remote.example.com 123456
 ```
 
 Each enrolls with a 6-digit **PIN** (or an enrollment token) from
-**Devices → + Add device**, then runs supervised (systemd / launchd / a **Windows
+**Hosts → + Add host**, then runs supervised (systemd / launchd / a **Windows
 service** — scheduled-task fallback; see [windows-client.md](windows-client.md))
 and appears in the dashboard within ~60 s. Agents verify the server's
 TLS cert; for an **internal CA**, set `RP_CA_BUNDLE=/path/to/ca.crt` in the
@@ -150,25 +150,25 @@ Postgres** — the app is stateless, so any node serves any request:
 Both are **config switches, applied live — there is no migration script to run.**
 
 - **App-layer tenancy** — *Settings → Security → Multi-tenancy* (`tenancy_enforced`,
-  default off). Assign users and devices to a tenant; tenant admins are confined to
-  their own devices, while an admin in the **default** tenant is the cross-tenant
+  default off). Assign users and hosts to a tenant; tenant admins are confined to
+  their own hosts, while an admin in the **default** tenant is the cross-tenant
   superadmin. Toggling it on takes effect immediately; existing data stays in the
   `default` tenant until reassigned.
 - **Postgres row-level security** — the deeper, DB-enforced layer beneath it
   (`tenancy_rls`, default off; **Postgres backend only**). When enabled the app adds
   a `tenant_id` column to **four** tables — `devices` and the three that derive from
   it (`entity`, `listrow`, `metric_samples`) — a trigger to keep each in sync with
-  its device's tenant, and a `FORCE ROW LEVEL SECURITY` policy keyed on a per-request
+  its host's tenant, and a `FORCE ROW LEVEL SECURITY` policy keyed on a per-request
   `app.rp_tenant` GUC — all **idempotently and at runtime** on the first request after
   you flip the switch (no downtime, no `ALTER` by hand). It fails *closed* (an unset
-  GUC matches no rows). A row with no owning device — a fleet-level alert, an
+  GUC matches no rows). A row with no owning host — a fleet-level alert, an
   instance-wide setting — is tagged `__shared__` and stays visible to every tenant,
-  and moving a device to a different tenant cascades to its derived rows rather than
+  and moving a host to a different tenant cascades to its derived rows rather than
   stranding them. This is defense-in-depth: even a bug in the app-layer scope would
   not leak another tenant's rows.
 
   What RLS does **not** cover: the singleton stores (tickets, CMDB, billing), which
-  are one document for the whole deployment rather than per-device rows. `GET
+  are one document for the whole deployment rather than per-host rows. `GET
   /api/tenancy/readiness` reports exactly which stores are isolated at which layer,
   so you can see this before relying on it rather than discovering it later.
 
@@ -203,7 +203,7 @@ never touched by the deploy script. Two recovery situations to know:
   `tools/migrate_storage.py`. Take a copy of the broken file before any of
   these.
 
-Plain-files backup of everything (config, users, devices, history):
+Plain-files backup of everything (config, users, hosts, history):
 
 ```bash
 tar -czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/

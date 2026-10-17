@@ -25,7 +25,7 @@ address pool, public endpoint and optional pushed DNS. The tunnel carries the
 | --- | --- |
 | **Listen port** *(optional)* | The UDP port the hub interface listens on. Leave blank to auto-assign the next free port; set it to pin the tunnel to a specific port (e.g. one you've already opened on the firewall). Must be unique across tunnels, and — like the interface and address pool — is fixed once the tunnel exists. |
 | **Allow internet (full tunnel)** | On = the client routes all its **IPv4** traffic out through the hub (road-warrior egress). **IPv6 is not routed** — the hub is IPv4-only, so on a dual-stack client IPv6 keeps using the local connection and does not pass through the tunnel *(stated explicitly since v7.0.0; the setting previously implied `::/0` was included and it never was)*. Off = split tunnel: the client only reaches what the reach scope allows, plus the dashboard. |
-| **Reach scope** | Which fleet devices the tunnel's clients can reach — `none` (dashboard only), `all` (the whole fleet), or a `site` / `group` / `tag`. This reuses RemotePower's normal RBAC scope vocabulary and is enforced by per-tunnel firewall rules on the hub. |
+| **Reach scope** | Which fleet hosts the tunnel's clients can reach — `none` (dashboard only), `all` (the whole fleet), or a `site` / `group` / `tag`. This reuses RemotePower's normal RBAC scope vocabulary and is enforced by per-tunnel firewall rules on the hub. |
 | **DNS** *(optional)* | A resolver IP pushed to the client. |
 | **Expiry (TTL)** *(optional)* | Minutes / hours / days / weeks / years after which the tunnel is automatically torn down and deleted (with all its clients). |
 
@@ -55,9 +55,9 @@ independent of the tunnel's.
 | Tunnel policy | Client can reach |
 | --- | --- |
 | `none`, internet off | The dashboard only (a "get me to the console" tunnel) |
-| `site` / `group` / `tag`, internet off | The dashboard + the in-scope fleet devices (split tunnel) |
-| `all`, internet off | The dashboard + every fleet device |
-| internet **on** | The dashboard + the internet (full tunnel); reach scope still gates fleet devices |
+| `site` / `group` / `tag`, internet off | The dashboard + the in-scope fleet hosts (split tunnel) |
+| `all`, internet off | The dashboard + every fleet host |
+| internet **on** | The dashboard + the internet (full tunnel); reach scope still gates fleet hosts |
 
 Reach is enforced on the hub with **nftables** rules derived from the scope —
 the client-side `AllowedIPs` in a `.conf` is only advisory, so widening it on the

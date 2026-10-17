@@ -13,7 +13,7 @@ installed across the fleet.
 - **Minimum version** — a package must be installed **at or above** a version.
   A host below it is a violation.
 
-Each rule can optionally be **scoped to device tags**, so a rule applies only to
+Each rule can optionally be **scoped to host tags**, so a rule applies only to
 the hosts it's relevant for (e.g. require a package only on `prod` servers).
 
 ## How it works
@@ -34,4 +34,4 @@ the hosts it's relevant for (e.g. require a package only on `prod` servers).
 ## Permissions
 
 Creating and editing software-policy rules is admin-only; the evaluation results
-are visible to any operator who can see the affected devices.
+are visible to any operator who can see the affected hosts.

@@ -16,9 +16,9 @@ daemon — which stays idle until you switch the channel on under Settings.
 
 | Tier | vCPU | RAM | Disk | Backend | Fits |
 |---|---|---|---|---|---|
-| **Minimum** (small homelab) | 1–2 | 2 GB | 10 GB | SQLite or flat JSON (`--no-postgres`) | a handful of devices |
-| **Recommended** (default) | 2–4 | 4 GB | 20–40 GB | PostgreSQL (default) | ≤200 devices out of the box, no tuning needed |
-| **Recommended, tuned** (same box) | 2–4 | 4 GB | 20–40 GB | PostgreSQL | 200–1,000 devices — raise the poll interval + gunicorn worker/thread count, no new hardware ([scaling.md](scaling.md) Steps 1–3) |
+| **Minimum** (small homelab) | 1–2 | 2 GB | 10 GB | SQLite or flat JSON (`--no-postgres`) | a handful of hosts |
+| **Recommended** (default) | 2–4 | 4 GB | 20–40 GB | PostgreSQL (default) | ≤200 hosts out of the box, no tuning needed |
+| **Recommended, tuned** (same box) | 2–4 | 4 GB | 20–40 GB | PostgreSQL | 200–1,000 hosts — raise the poll interval + gunicorn worker/thread count, no new hardware ([scaling.md](scaling.md) Steps 1–3) |
 | **Heavy fleet** (1,000+) | see below | see below | single-digit GB+ with retention tuned | PostgreSQL (+ HA) | still single-box-capable up to ~5,000 on strong-enough hardware; see [scaling.md](scaling.md) |
 
 This is a capable default, not a toy: [scaling.md](scaling.md)'s
@@ -27,9 +27,9 @@ several thousand agents on a single node" — the same one box in the
 **Recommended** row above, just with the interval and worker/thread knobs
 turned. Going multi-node/HA is a later-stage optimization for real scale
 (5,000+, or specific latency/availability requirements), not something a
-"few hundred devices" homelab or SMB fleet needs to reach for. Use
+"few hundred hosts" homelab or SMB fleet needs to reach for. Use
 **[scaling.md](scaling.md)'s capacity table** for the exact fleet-size →
-tuning-step mapping once you're past a few hundred devices.
+tuning-step mapping once you're past a few hundred hosts.
 
 ### Where that comes from, per component
 
@@ -42,7 +42,7 @@ tuning-step mapping once you're past a few hundred devices.
   fine for a small homelab fleet, just lower request concurrency.
 - **PostgreSQL** — comfortable in a few hundred MB of `shared_buffers` at
   homelab/SMB scale; data on disk stays small with sane retention (see
-  `scaling.md` Step 6) — low hundreds of MB for a few dozen devices, growing
+  `scaling.md` Step 6) — low hundreds of MB for a few dozen hosts, growing
   with fleet size and how long you keep metric history/logs/audit trail.
   Skip it entirely (`--no-postgres`) on the smallest installs — the flat
   JSON/SQLite backend has no separate daemon or shared-buffer footprint.

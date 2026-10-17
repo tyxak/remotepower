@@ -16,12 +16,12 @@ You need:
   with **Report attackers back to both services** ticked (see
   [Set it up](ip-intel.md#set-it-up)). Without them RemotePower still reads the
   logs and shows what it found, but it reports nothing.
-- The firewall's syslog arriving at RemotePower. That takes a device record whose
+- The firewall's syslog arriving at RemotePower. That takes a host record whose
   IP is the address the firewall sends from, a Syslog token pinned to that
-  device, and the UDP receiver on the RemotePower server.
+  host, and the UDP receiver on the RemotePower server.
   [OPNsense](opnsense.md#send-the-firewalls-logs) and
   [MikroTik RouterOS](syslog.md#mikrotik-routeros) have the steps. It works when
-  the firewall's lines appear on the device's **Logs** tab.
+  the firewall's lines appear on the host's **Logs** tab.
 
 CrowdSec is the one source that skips the UDP receiver; see
 [CrowdSec](#crowdsec).
@@ -39,7 +39,7 @@ CrowdSec is the one source that skips the UDP receiver; see
 The refused-packet reader follows pf's `filterlog` layout, which pfSense also
 writes. It has been run against a real OPNsense and not against a pfSense. The
 RouterOS, Suricata and CrowdSec readers follow those products' documented
-formats and have not yet read a live device. [Check that it works](#check-that-it-works)
+formats and have not yet read a live firewall or router. [Check that it works](#check-that-it-works)
 shows how you would notice a mismatch.
 
 Lines from any other program stay on the Logs tab as before and are not read
@@ -47,7 +47,7 @@ further.
 
 ## How it works
 
-1. A batch of lines arrives and is stored on the device's **Logs** tab, as it
+1. A batch of lines arrives and is stored on the host's **Logs** tab, as it
    always was.
 2. With the switch on, RemotePower reads the batch for the five things above.
    Most lines are none of them and are skipped after a quick check.
@@ -95,7 +95,7 @@ card.
 1. Tick **Read the syslog of firewalls and routers**.
 2. Press **Save**.
 
-The switch covers every device whose syslog reaches RemotePower. A device whose
+The switch covers every host whose syslog reaches RemotePower. A host whose
 lines match none of the formats above is not affected. Lines already on the Logs
 tab are not read; reading starts with the next batch.
 
@@ -174,9 +174,9 @@ and the token goes into its configuration file.
 
 1. In RemotePower, create a **Syslog** token pinned to the firewall under
    **Settings → Integrations → Inbound webhooks**, and copy its URL from the
-   dialog. The dialog says not to enter the token on the device; that holds for
+   dialog. The dialog says not to enter the token on the host; that holds for
    the UDP path, and CrowdSec is the exception. A token is shown once, so make a
-   new one if you did not keep the first. Two syslog tokens on one device do no
+   new one if you did not keep the first. Two syslog tokens on one host do no
    harm to the UDP receiver.
 2. On the firewall, create the notification file. On OPNsense CrowdSec's
    configuration is in `/usr/local/etc/crowdsec/`, and the file goes in its
@@ -224,9 +224,9 @@ else's finding. Simulated alerts are dropped.
 
 ### Send the log
 
-[Syslog ingestion](syslog.md#mikrotik-routeros) covers the device record, the
+[Syslog ingestion](syslog.md#mikrotik-routeros) covers the host record, the
 Syslog token and the UDP receiver. Then tell RouterOS what to send, with the
-source address that is on the device record:
+source address that is on the host record:
 
 ```
 /system logging action add name=remotepower target=remote remote=<server-ip> remote-port=5514 src-address=<router-ip>
@@ -321,7 +321,7 @@ This is what each kind of evidence needs:
 | Failed sign-ins | When the brute-force threshold is crossed and the count reaches **Report after attempts** |
 
 An address that is never blocked is never reported either: private and reserved
-addresses, your devices' own addresses, your UI allow-list, the **Never block or
+addresses, your hosts' own addresses, your UI allow-list, the **Never block or
 report** list, and addresses people signed in from in the last 30 days.
 Cloudflare's published ranges are set aside and counted on the Log sources card.
 
@@ -383,7 +383,7 @@ To test each source:
 | Time an address is counted over | 30 minutes from its first refused packet |
 | Lines in one post | 200 |
 | Line length kept by the intake | 2,048 characters |
-| Addresses queued from one device in an hour | 3,000, the rest counted as skipped |
+| Addresses queued from one host in an hour | 3,000, the rest counted as skipped |
 | Counts on the Log sources card | The UTC day |
 
 ## Security
@@ -405,8 +405,8 @@ address reach the receiver's port, as described in
 [Inbound tokens](inbound-tokens.md#security).
 
 **The CrowdSec token.** It sits in a file on the firewall. A syslog token writes
-lines for the one device it is pinned to and nothing else, so the worst a leak
-allows is false lines for that device. To rotate it, revoke it and create
+lines for the one host it is pinned to and nothing else, so the worst a leak
+allows is false lines for that host. To rotate it, revoke it and create
 another.
 
 **What leaves your network.** The address, the attack categories, one line of
@@ -434,7 +434,7 @@ signature names can appear in the text.
 | You see | Meaning |
 |---|---|
 | No **Firewalls and routers** card | The card is for administrators. |
-| The firewall is missing from **Log sources** | The switch is off, or no line of a kind in this guide has arrived since you turned it on. Check first that lines reach the device's Logs tab: [Reading the symptoms](inbound-tokens.md#reading-the-symptoms). |
+| The firewall is missing from **Log sources** | The switch is off, or no line of a kind in this guide has arrived since you turned it on. Check first that lines reach the host's Logs tab: [Reading the symptoms](inbound-tokens.md#reading-the-symptoms). |
 | Firewall log: **Not understood** | Lines arrived from `filterlog` or a RouterOS firewall rule and none could be read. Compare one with the examples above. |
 | Firewall log: **Reading**, but no attackers | Normal on a quiet network. A scan needs 10 ports or 25 refused packets within 30 minutes. |
 | Nothing from a RouterOS rule | The rule needs `log=yes`, a prefix with a refusing word or `rp-trap`, and a place above the rule that accepts the traffic. |

@@ -1,13 +1,13 @@
 # Fleet health score
 
-The health score is a single 0–100 number per device (and a fleet average),
+The health score is a single 0–100 number per host (and a fleet average),
 shown on the Home dashboard and the heat map. It is derived from the **same
 Needs Attention signals** as everything else, so the score can never disagree
 with the Needs Attention list.
 
 ## How it's computed
 
-Each monitored device starts at **100** and loses points for every current Needs
+Each monitored host starts at **100** and loses points for every current Needs
 Attention item it has, weighted by severity:
 
 | Severity | Points lost |
@@ -20,8 +20,8 @@ These are the defaults — each is tunable under **Settings → Alert parameters
 (`health_weight_critical` / `_warning` / `_info`); set one to 0 to ignore that
 severity entirely.
 
-The score floors at 0. The fleet score is the mean of the per-device scores.
-Unmonitored devices (`monitored: false`) are excluded — scoring a silenced host
+The score floors at 0. The fleet score is the mean of the per-host scores.
+Unmonitored hosts (`monitored: false`) are excluded — scoring a silenced host
 a perfect 100 would inflate the fleet average. **Decommissioned** assets (v5.0.0)
 force `monitored: false`, so they're excluded the same way.
 
@@ -34,7 +34,7 @@ delivered to the dashboard, so the score ring and heat map always match yours.
 
 Anything that appears in Needs Attention, including:
 
-- a device **offline** (critical),
+- a host **offline** (critical),
 - **critical / high CVEs** (the item also notes how many are *fixable* — i.e.
   carry a known fixed version a package upgrade would clear),
 - **pending package updates** — `info` below the pending-update warning
@@ -46,18 +46,18 @@ Anything that appears in Needs Attention, including:
   hardware findings, agent-integrity mismatch, after-hours activity, and so on.
 
 Because the score is just the Needs Attention digest scored by severity, "why is
-this device at N?" is always answerable: look at its Needs Attention items.
+this host at N?" is always answerable: look at its Needs Attention items.
 
 ## Heat map
 
-The Home heat map is the same per-device score rendered as a grid of cells
+The Home heat map is the same per-host score rendered as a grid of cells
 coloured green (healthy) → red (needs attention), so problem hosts stand out
 visually even on a large fleet where a table wouldn't.
 
 ## API
 
-- `GET /api/fleet/health` — `{score, grade, devices: [{device_id, device_name,
+- `GET /api/fleet/health` — `{score, grade, hosts: [{device_id, device_name,
   score, critical, warning, info}], total_devices}`. Scoped roles see only their
-  in-scope devices, with the headline score recomputed over those.
+  in-scope hosts, with the headline score recomputed over those.
 - A `health_degraded` event fires (and `health_recovered` clears it) when the
   score crosses the configured alert threshold.

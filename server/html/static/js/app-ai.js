@@ -9,7 +9,7 @@ function aiInvestigateAlert(id) {
     `Severity: ${a.severity || 'unknown'}`,
     `Event: ${a.event || '—'}`,
   ];
-  if (a.device_name || a.device_id) lines.push(`Device: ${a.device_name || a.device_id}`);
+  if (a.device_name || a.device_id) lines.push(`Host: ${a.device_name || a.device_id}`);
   if (a.ts) lines.push(`Time: ${new Date(a.ts * 1000).toISOString()}`);
   lines.push('', `Alert: ${a.title || a.event || ''}`);
   if (a.payload && typeof a.payload === 'object' && Object.keys(a.payload).length) {
@@ -319,7 +319,7 @@ function _ragRenderSearch(semantic) {
       <thead id="ai-rag-results-thead"><tr>
         <th data-col="id">Source id</th>
         <th data-col="source">Kind</th>
-        <th data-col="device">Device</th>
+        <th data-col="device">Host</th>
         <th>Excerpt</th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -566,7 +566,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
 
 function aiExplainOutput(deviceName, command, output) {
   if (!output || !output.trim()) { toast('Nothing to explain', 'info'); return; }
-  const userMsg = `Device: ${deviceName}\nCommand: ${command}\n\nOutput:\n${output}`;
+  const userMsg = `Host: ${deviceName}\nCommand: ${command}\n\nOutput:\n${output}`;
   openAIModal({
     title:    'Explain command output',
     system:   'explain_output',
@@ -593,7 +593,7 @@ function aiFindProblemInJournal(deviceName, journalLines) {
   openAIModal({
     title:    'Find the problem',
     system:   'find_problem',
-    userMsg:  `Device: ${deviceName}\n\nJournal slice:\n${userText}`,
+    userMsg:  `Host: ${deviceName}\n\nJournal slice:\n${userText}`,
     context:  `device:${deviceName}`,
     maxTokens: 1500,
   });
@@ -607,7 +607,7 @@ function aiExplainAlert(eventType, deviceName, message, samplePayload) {
   openAIModal({
     title:    'Explain alert',
     system:   'explain_alert',
-    userMsg:  `Event: ${eventType}\nDevice: ${deviceName}\nMessage: ${message}\n\nPayload:\n${payload}`,
+    userMsg:  `Event: ${eventType}\nHost: ${deviceName}\nMessage: ${message}\n\nPayload:\n${payload}`,
     context:  `alert:${eventType}`,
     maxTokens: 800,           // alerts get a one-paragraph answer
   });
@@ -659,11 +659,11 @@ function aiInvestigateDevice(devId, deviceName) {
     const hasJournal = journal.length > 0;
     const hasCmds    = recentCmds.length > 0;
     if (!hasFacts && !hasSysInfo && !hasJournal && !hasCmds) {
-      toast('No data available for this device yet — has the agent checked in?', 'info');
+      toast('No data available for this host yet — has the agent checked in?', 'info');
       return;
     }
 
-    const sections = [`Device: ${deviceName}`];
+    const sections = [`Host: ${deviceName}`];
     if (hasFacts)   sections.push(facts.join('\n'));
     if (hasSysInfo) sections.push('Sysinfo:\n' + JSON.stringify(si, null, 2).slice(0, 3000));
     if (hasJournal) sections.push(`Recent journal (last ${journal.slice(-30).length} lines):\n` + journal.slice(-30).join('\n').slice(0, 4000));
@@ -1008,7 +1008,7 @@ const AI_INSIGHTS = [
   { key: 'iac_review',          cat: 'advisors',  label: 'IaC / provisioning review',     desc: 'Review provisioning blueprints and flag drift between IaC and live hosts.', msg: "Review our provisioning blueprints (Terraform / cloud-init / Ansible / iPXE) — coverage gaps, blueprints whose last apply failed, risky or unpinned variables, and where the IaC-declared state has likely drifted from the live hosts." },
   { key: 'drift_review',        cat: 'advisors',  label: 'Drift triage',                 desc: 'Which config/file drift is benign vs. a likely compromise or misconfig.', msg: "Triage the current configuration/file drift across the fleet — for each, whether it's benign (expected change), a likely misconfiguration, or a possible compromise indicator, and whether to remediate or accept the new baseline." },
   { key: 'access_review',       cat: 'advisors',  label: 'Access & credential review',    desc: 'Over-privileged accounts, stale API/SSH keys, credential sprawl.', msg: "Review our access and credentials — over-privileged users/roles, API keys that are stale, unused or never-expiring, SSH keys to rotate, and scoped-credential sprawl — and recommend what to tighten or revoke." },
-  { key: 'network_review',      cat: 'advisors',  label: 'Network dependency review',     desc: 'Single points of failure and dependency blast radius from the network map.', msg: "Analyse our network map and device dependencies — flag single points of failure, high blast-radius dependencies to change carefully, and unmanaged hosts seen on the LAN that we should enrol or investigate." },
+  { key: 'network_review',      cat: 'advisors',  label: 'Network dependency review',     desc: 'Single points of failure and dependency blast radius from the network map.', msg: "Analyse our network map and host dependencies — flag single points of failure, high blast-radius dependencies to change carefully, and unmanaged hosts seen on the LAN that we should enrol or investigate." },
   { key: 'billing_review',      cat: 'planning',  label: 'Billing & revenue review',      desc: 'Unbilled billable hours, invoices to send, time-tracking gaps.', msg: "Review our time-tracking and billing — unbilled billable hours to invoice, draft invoices ready to send, customers with unusually low margin, and days/tickets with missing time entries." },
 ];
 
@@ -1095,7 +1095,7 @@ async function _aiRunDebug({ title, system, userMsg, context }) {
          <tr><td>RAG enabled (Settings → AI)</td><td>${yn(resp.rag_enabled)}</td></tr>
          <tr><td>RAG requested this call</td><td>${yn(resp.include_rag)}</td></tr>
          <tr><td>Full-access caller (RAG allowed)</td><td>${yn(resp.caller_full_access)}</td></tr>
-         <tr><td>Fleet devices in context</td><td>${resp.fleet_devices_sent}</td></tr>
+         <tr><td>Fleet hosts in context</td><td>${resp.fleet_devices_sent}</td></tr>
          <tr><td>Retrieval query</td><td>${escHtml(resp.rag_query || '—')}</td></tr>
          <tr><td><strong>Context chunks retrieved</strong></td><td><strong>${resp.retrieved_count}</strong></td></tr>
        </table>
@@ -1230,7 +1230,7 @@ function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs)
   openAIModal({
     title:    `Diagnose ${serviceName}`,
     system:   'diagnose_service',
-    userMsg:  `Service: ${serviceName}\nDevice: ${deviceName}\nState: ${state || '?'}/${subState || '?'}\n\nRecent journal:\n${logs.slice(0, 6000)}`,
+    userMsg:  `Service: ${serviceName}\nHost: ${deviceName}\nState: ${state || '?'}/${subState || '?'}\n\nRecent journal:\n${logs.slice(0, 6000)}`,
     context:  `service:${serviceName}`,
     maxTokens: 1500,
   });
@@ -1268,7 +1268,7 @@ function aiPrioritisePatches(deviceName, packageList) {
   openAIModal({
     title:    `Prioritise updates for ${deviceName}`,
     system:   'prioritise_patches',
-    userMsg:  `Device: ${deviceName}\n\nPending updates:\n${listText.slice(0, 6000)}`,
+    userMsg:  `Host: ${deviceName}\n\nPending updates:\n${listText.slice(0, 6000)}`,
     context:  `patches:${deviceName}`,
     maxTokens: 1500,
   });
@@ -1279,7 +1279,7 @@ function aiPrioritiseCves(deviceName, cveListText) {
   openAIModal({
     title:    `Prioritise CVEs for ${deviceName}`,
     system:   'prioritise_cves',
-    userMsg:  `Device: ${deviceName}\n\nCVE findings:\n${cveListText.slice(0, 6000)}`,
+    userMsg:  `Host: ${deviceName}\n\nCVE findings:\n${cveListText.slice(0, 6000)}`,
     context:  `cves:${deviceName}`,
     maxTokens: 1500,
   });
@@ -1289,7 +1289,7 @@ async function aiPrioritiseCvesForDevice(devId, devName, btn) {
   const originalLabel = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = '…'; btn.title = 'Fetching CVE findings…'; }
   const restore = () => {
-    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; btn.title = "AI: prioritise this device's CVEs"; }
+    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; btn.title = "AI: prioritise this host's CVEs"; }
   };
   let data;
   try {
@@ -1386,7 +1386,7 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
 
   if (!await uiConfirm(
         `No upgrade listing recorded for ${devName} yet.\n\n`
-      + `Queue "${listingCmd}" on the device now?\n\n`
+      + `Queue "${listingCmd}" on the host now?\n\n`
       + `Output arrives in ~60s. Click again after that to get the `
       + `AI's upgrade-prioritisation summary.`)) {
     return;
@@ -1423,7 +1423,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   _runbookCurrentDevice = {id: devId, name: deviceName};
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent =
-    'Gathering device snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
+    'Gathering host snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
   const body = document.getElementById('runbook-modal-body');
   body.innerHTML = '<div class="c-muted">Thinking… <span id="runbook-modal-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
   body.dataset.rawText = '';
@@ -1578,7 +1578,7 @@ async function aiAnomalyScan() {
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
   const items = r.anomalies || [];
   if (!items.length) {
-    out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} device(s).</div>`;
+    out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} host(s).</div>`;
     return;
   }
   // Cross-feature: map the AI's device names back to ids so each finding can
@@ -1590,7 +1590,7 @@ async function aiAnomalyScan() {
     (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
   } catch (_) {}
   const sevCls = s => s === 'high' ? 'sev-critical' : s === 'medium' ? 'sev-medium' : 'sev-low';
-  out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} device(s)</div>` +
+  out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} host(s)</div>` +
     items.map((a, i) => {
       const hasDev = !!_anomalyDevMap[a.device];
       const devCell = hasDev

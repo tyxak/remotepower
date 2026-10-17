@@ -521,7 +521,7 @@ class TestDestructiveConfirmations(unittest.TestCase):
     def test_navigational_confirms_were_left_alone(self):
         """danger is a signal; applying it everywhere would destroy the signal."""
         src = app_js()
-        for benign in ("Apply this policy now (queue upgrades to all targeted devices)?",
+        for benign in ("Apply this policy now (queue upgrades to all targeted hosts)?",
                        "Regenerate the runbook?"):
             i = src.find(benign)
             self.assertGreater(i, 0, f"anchor moved: {benign!r}")

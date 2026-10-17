@@ -156,7 +156,7 @@ class TestEmailRender(unittest.TestCase):
             'web-1 went offline (last seen 5 min ago)',
         )
         self.assertIn('TestServer', subject)
-        self.assertIn('Device offline', subject)
+        self.assertIn('Host offline', subject)
         self.assertIn('web-1', body)
         self.assertIn('Server:  TestServer', body)
 

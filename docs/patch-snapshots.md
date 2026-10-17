@@ -26,7 +26,7 @@ A snapshot is a point-in-time copy. Taking one changes nothing on any host.
 ## Diffing two snapshots
 
 Pick two snapshots and click **Show diff**. You get the packages that were added,
-removed, or changed version between them, per device.
+removed, or changed version between them, per host.
 
 This is the fastest way to answer "what actually landed in last night's patch run"
 — take a snapshot before, take one after, diff them.
@@ -34,7 +34,7 @@ This is the fastest way to answer "what actually landed in last night's patch ru
 ## Promoting a snapshot as a tag's reference state
 
 **Promote** nominates a snapshot as the *reference* for a tag — the versions those
-hosts are supposed to be on. Once promoted, the **drift** view lists every device
+hosts are supposed to be on. Once promoted, the **drift** view lists every host
 carrying that tag whose packages no longer match the reference, and what differs.
 
 Typical use: you qualify a set of versions on a staging host, snapshot it, promote
@@ -48,9 +48,9 @@ reference; demoting (promote with no tag) clears it.
 
 Drift reporting is read-only by default — it tells you a host has moved, it does not
 move it back. **Enforce** is the explicit, admin-only action that queues a command to
-bring a drifted device back to the reference versions.
+bring a drifted host back to the reference versions.
 
-Enforce it, per device, when you have decided that the reference really
+Enforce it, per host, when you have decided that the reference really
 is what that host should be running. Rolling a package *backwards* is not always
 safe (a downgrade can be blocked, or can break a dependency that has since moved),
 so this is a decision, not a background job.
@@ -85,5 +85,5 @@ separate from patching:
 | `DELETE` | `/api/patch-snapshots/{id}` | admin | Delete a snapshot |
 | `GET` | `/api/patch-snapshots/diff` | | Diff two snapshots (`?a=`&`?b=`) |
 | `POST` | `/api/patch-snapshots/{id}/promote` | admin | Promote as a tag's reference state (`{tag}`; empty body demotes) |
-| `GET` | `/api/patch-snapshots/{id}/drift` | | Devices on the promoted tag that have drifted from this reference |
-| `POST` | `/api/patch-snapshots/{id}/enforce` | admin | Queue a command to bring a drifted device back to the reference (`{device_id}`) |
+| `GET` | `/api/patch-snapshots/{id}/drift` | | Hosts on the promoted tag that have drifted from this reference |
+| `POST` | `/api/patch-snapshots/{id}/enforce` | admin | Queue a command to bring a drifted host back to the reference (`{device_id}`) |

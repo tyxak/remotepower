@@ -7,13 +7,13 @@ RemotePower ships an [MCP](https://modelcontextprotocol.io)
 connected to an MCP-compatible AI host (Claude Desktop, Cursor,
 VS Code Copilot, etc.), you can query the fleet in plain English:
 
-> *Which of my devices have pending security updates?*
+> *Which of my hosts have pending security updates?*
 >
 > *Show me the journal for pmg01 from the last hour.*
 >
 > *Is the SSH config on web01 still at its baseline?*
 >
-> *Which devices haven't been patched in 30 days?*
+> *Which hosts haven't been patched in 30 days?*
 
 The AI host invokes the appropriate RemotePower API endpoints,
 formats the result, and answers naturally. No dashboard click
@@ -109,10 +109,10 @@ supports the same `command + args + env` setup.
 
 ### 4. Verify
 
-Open a chat and ask: *"What devices are in my RemotePower fleet?"*
+Open a chat and ask: *"What hosts are in my RemotePower fleet?"*
 
 The host should show a "tool use" indicator (Claude Desktop calls
-it ) and return a list of your devices.
+it ) and return a list of your hosts.
 
 ## Available tools
 
@@ -123,20 +123,20 @@ created with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
-| `list_alerts` | The Alerts inbox — open, acknowledged or resolved alerts, newest first, with severity, device, when it first fired, who acked it, and the correlation flags (root cause, collateral, declared incident). The right first call for "what is wrong right now?" — `list_devices` only shows up or down. |
+| `list_alerts` | The Alerts inbox — open, acknowledged or resolved alerts, newest first, with severity, host, when it first fired, who acked it, and the correlation flags (root cause, collateral, declared incident). The right first call for "what is wrong right now?" — `list_devices` only shows up or down. |
 | `get_attention` | The needs-attention digest — everything the fleet wants looked at, ranked, including things that never became an alert: stale backups, expiring certificates, drifted config, posture gaps. Broader than `list_alerts`, and the better call for "what should I work on?" |
-| `list_devices` | Every device with status, OS, group, tags, IP |
-| `get_device` | Full detail for one device (name match) |
+| `list_devices` | Every host with status, OS, group, tags, IP |
+| `get_device` | Full detail for one host (name match) |
 | `get_journal` | Recent systemd journal entries |
 | `get_services` | Watched systemd unit states |
 | `get_containers` | Docker / Podman container state |
-| `get_cves` | CVE findings (per-device or fleet-wide) |
-| `get_drift` | Configuration drift (per-device or fleet-wide) |
-| `get_recent_commands` | Recent commands run on a device |
-| `get_runbook` | AI-generated device runbook (v2.1.7+) |
+| `get_cves` | CVE findings (per-host or fleet-wide) |
+| `get_drift` | Configuration drift (per-host or fleet-wide) |
+| `get_recent_commands` | Recent commands run on a host |
+| `get_runbook` | AI-generated host runbook (v2.1.7+) |
 | `get_patches` | Pending OS package updates |
 | `get_tls` | TLS / DNS expiry watchlist |
-| `get_snmp_data` | SNMP data collected from a network appliance / device |
+| `get_snmp_data` | SNMP data collected from a network appliance / host |
 | `search_devices` | Free-text search by name / OS / group / tags / notes |
 | `search_fleet` | RAG retrieval across all fleet state, CMDB, runbooks, history, and docs — one call for broad/cross-host questions ("worst CVEs in the fleet", "which hosts need a reboot"). Returns ranked, cited chunks incl. fleet-wide rollups. (v3.4.0) |
 
@@ -152,25 +152,25 @@ The five **write tools** are reachable only by a key whose role is `mcp`:
 | Write tool | What it does |
 |---|---|
 | `acknowledge_alert` | Acknowledge one open alert, with an optional note |
-| `reboot_device` | Queue a reboot for one device |
+| `reboot_device` | Queue a reboot for one host |
 | `run_saved_script` | Run a script **from the saved library** (by id) — never an arbitrary command |
 | `force_package_scan` | Ask an agent to push its installed-package list now |
 | `force_acme_rescan` | Re-check a host's ACME / TLS / DNS expiry now |
 
-Every write call is gated by the token's role and device scope, and is
+Every write call is gated by the token's role and host scope, and is
 recorded in the audit log alongside the AI host name.
 
-### Device-name resolution
+### Host-name resolution
 
 The tools accept friendly names. The MCP server does:
 
-1. **Exact match** — `pmg01` matches a device named `pmg01`.
+1. **Exact match** — `pmg01` matches a host named `pmg01`.
 2. **Prefix match** — `web01` matches `web01.example.com`
- if there's only one device starting with it.
+ if there's only one host starting with it.
 3. **Substring match** — `web` matches `web01.example.com`
- if there's only one device containing it.
+ if there's only one host containing it.
 4. **Ambiguous** — `web` raises an error if it matches multiple
- devices; the model is told to ask for more specifics.
+ hosts; the model is told to ask for more specifics.
 
 You can also pass full names. The matching is conservative — it
 only auto-disambiguates when there's exactly one match.
@@ -195,7 +195,7 @@ LLM acting on a fleet needs:
  by id — there is **no `run_command`** and **no `edit_device`**, so
  the model can never assemble an arbitrary shell command.
 - **Per-token roles + scope.** Write calls are checked against the token's role
- permissions and device scope, just like any other action.
+ permissions and host scope, just like any other action.
 - **Audit logging.** Every write call is recorded with the AI host name.
 
 So the worst outcome of a confused model is bounded: it can reboot a host or run
@@ -207,8 +207,8 @@ key with role `viewer`; all five write tools then refuse it permanently.
 
 | Concern | Mitigation |
 |---|---|
-| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and device scope; generate one per laptop and revoke any time. |
-| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the five compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
+| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and host scope; generate one per laptop and revoke any time. |
+| Prompt injection | Tool *outputs* contain operator-controlled text (host names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the five compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
 | Self-signed TLS | Set `REMOTEPOWER_VERIFY_SSL=0` in the MCP env if you must, but prefer to install your CA's root cert in the laptop's trust store. |
 | Data sensitivity | Same as the AI privacy redaction toggles in Settings → AI assistant: when in doubt, run a local model (Ollama) as the AI host. |
 

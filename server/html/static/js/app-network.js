@@ -246,9 +246,9 @@ async function loadMdns() {
     btn.className = 'btn-icon fs-11';
     btn.dataset.action = 'mdnsAddDevice';
     btn.dataset.arg = String(i);
-    btn.title = 'Add the host advertising this service as an agentless device';
+    btn.title = 'Add the host advertising this service as an agentless host';
     btn.innerHTML = _icon('package', 13);
-    btn.appendChild(document.createTextNode(' Add as device'));
+    btn.appendChild(document.createTextNode(' Add as host'));
     act.appendChild(btn);
     tr.appendChild(act);
     tb.appendChild(tr);
@@ -314,7 +314,7 @@ async function loadDepSuggestions() {
   const s = r.suggestions || [];
   if (!s.length) { box.innerHTML = '<div class="c-muted">No new dependency suggestions.</div>'; return; }
   box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
-    + '<thead><tr><th>Device</th><th>→ Upstream</th><th>Evidence</th><th></th></tr></thead><tbody>'
+    + '<thead><tr><th>Host</th><th>→ Upstream</th><th>Evidence</th><th></th></tr></thead><tbody>'
     + s.map(x => `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.upstream_name)}</td>`
         + `<td class="fs-12">${escHtml(x.evidence)}</td>`
         + `<td class="nowrap"><button class="btn-icon cell-sm c-success" data-action="depSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.upstream_id)}" data-arg3="accept">Accept</button> `
@@ -341,7 +341,7 @@ async function loadDepHealth() {
   if (!r || !r.ok) { box.innerHTML = '<div class="c-muted">Not available.</div>'; return; }
   const edges = r.edges || [];
   if (!edges.length) {
-    box.innerHTML = '<div class="c-muted">No declared dependencies yet — accept a suggestion above or set <code>depends_on</code> on a device.</div>';
+    box.innerHTML = '<div class="c-muted">No declared dependencies yet — accept a suggestion above or set <code>depends_on</code> on a host.</div>';
     return;
   }
   const sm = r.summary || {};
@@ -353,7 +353,7 @@ async function loadDepHealth() {
   box.innerHTML =
     `<div class="mb-8 fs-12">${sm.missing || 0} broken · ${sm.silent || 0} silent · ${sm.unverifiable || 0} unverified · ${sm.ok || 0} healthy &nbsp; ${alertNote}</div>`
     + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
-    + '<thead><tr><th>Device</th><th>→ depends on</th><th>Status</th><th>Last seen</th></tr></thead><tbody>'
+    + '<thead><tr><th>Host</th><th>→ depends on</th><th>Status</th><th>Last seen</th></tr></thead><tbody>'
     + rows.map(x => {
         const st = _DEP_STATUS[x.status] || _DEP_STATUS.unverifiable;
         const last = timeAgo(x.last_observed, { empty: '—' });
@@ -378,13 +378,13 @@ async function loadLldpSuggestions() {
     // a fleet where lldpd was installed and reporting neighbours the whole time.
     box.innerHTML = r.unresolved
       ? `<div class="c-muted">${r.unresolved} LLDP neighbour${r.unresolved === 1 ? '' : 's'} seen, `
-        + 'none of which is an enrolled device — this card links two hosts RemotePower '
+        + 'none of which is an enrolled host — this card links two hosts RemotePower '
         + 'already manages, so switches, routers and access points do not appear here.</div>'
       : '<div class="c-muted">No LLDP neighbours reported yet (install lldpd on hosts to discover them).</div>';
     return;
   }
   box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
-    + '<thead><tr><th>Device</th><th>↔ Neighbor</th><th>Link</th><th></th></tr></thead><tbody>'
+    + '<thead><tr><th>Host</th><th>↔ Neighbor</th><th>Link</th><th></th></tr></thead><tbody>'
     + s.map(x => `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.peer_name)}</td>`
         + `<td class="fs-12">${escHtml(x.evidence)}</td>`
         + `<td class="nowrap"><button class="btn-icon cell-sm c-success" data-action="lldpSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.peer_id)}" data-arg3="accept">Accept</button> `
@@ -455,7 +455,7 @@ function renderNetmap() {
   const svg = document.getElementById('netmap-svg');
   if (!svg) return;
   if (!_netmapNodes.length) {
-    svg.innerHTML = '<text x="50%" y="50%" fill="currentColor" opacity="0.6" font-size="13" text-anchor="middle">No devices yet. Enroll an agent or add an agentless device.</text>';
+    svg.innerHTML = '<text x="50%" y="50%" fill="currentColor" opacity="0.6" font-size="13" text-anchor="middle">No hosts yet. Enroll an agent or add an agentless host.</text>';
     return;
   }
   const lookup = Object.fromEntries(_netmapNodes.map(n => [n.id, n]));
@@ -674,14 +674,14 @@ async function netmapEditOpen() {
   // list and the "connect to" / "depends on" option lists.
   const nodes = _netmapData.nodes.filter(n => n.type !== 'unmanaged');
   if (!nodes.length) {
-    body.innerHTML = '<div class="empty-state">No devices to link.</div>';
+    body.innerHTML = '<div class="empty-state">No hosts to link.</div>';
     openModal('netmap-edit-modal');
     return;
   }
   // Build an option list of all devices for the dropdowns
   const optsHtml = '<option value="">— none —</option>' +
     nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
-  body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Device</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th><th class="cell-m">Depends on <span class="meta-sm-nm">(alerts suppressed when down)</span></th></tr></thead><tbody>${
+  body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Host</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th><th class="cell-m">Depends on <span class="meta-sm-nm">(alerts suppressed when down)</span></th></tr></thead><tbody>${
     nodes.map(n => {
       const cur = (_netmapData.edges.find(e => e.from === n.id) || {}).to || '';
       // Build per-row options where the current value is selected and self-link is removed
@@ -695,7 +695,7 @@ async function netmapEditOpen() {
       return `<tr>
         <td class="isl-469">${escHtml(n.name)}</td>
         <td class="isl-470">${escHtml(n.type || 'host')}</td>
-        <td class="cell-m"><select class="form-input netmap-link-sel device-combo w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}" data-combo-placeholder="Search devices…">${rowOpts}</select></td>
+        <td class="cell-m"><select class="form-input netmap-link-sel device-combo w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}" data-combo-placeholder="Search hosts…">${rowOpts}</select></td>
         <td class="cell-m"><select multiple class="form-input netmap-dep-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(deps.join(','))}" size="3">${depOpts}</select></td>
       </tr>`;
     }).join('')
@@ -1471,7 +1471,7 @@ function _renderNetMetricsBody() {
     tilesHtml = `<div class="dash-card mb-16"><div class="section-title">By ${escHtml(lbl)}</div>
       <div class="scrollable-table-wrap audit-scroll"><table><thead><tr>
         <th scope="col">${escHtml(lbl)}</th><th scope="col" class="ta-right">RX</th>
-        <th scope="col" class="ta-right">TX</th><th scope="col" class="ta-right">Devices</th>
+        <th scope="col" class="ta-right">TX</th><th scope="col" class="ta-right">Hosts</th>
       </tr></thead><tbody>` +
       data.tiles.map(ti => `<tr><td>${escHtml(ti.name)}</td>
         <td class="ta-right mono-12">${_fmtBps(ti.rx_bps)}</td>
@@ -1488,9 +1488,9 @@ function _renderNetMetricsBody() {
     tx:    r.tx_bps || 0,
     iface: (r.ifaces && r.ifaces[0] ? r.ifaces[0].iface : '') || '',
   }));
-  const devTable = `<div class="dash-card"><div class="section-title">Per-device throughput <span class="meta-sm">(top ${(data.devices || []).length})</span></div>
+  const devTable = `<div class="dash-card"><div class="section-title">Per-host throughput <span class="meta-sm">(top ${(data.devices || []).length})</span></div>
     <div class="scrollable-table-wrap audit-scroll"><table id="netmetrics-table"><thead id="netmetrics-thead"><tr>
-      <th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th>
+      <th scope="col" data-col="name">Host</th><th scope="col" data-col="group">Group</th>
       <th scope="col" data-col="site">Site</th>
       <th scope="col" data-col="rx" class="ta-right">RX</th><th scope="col" data-col="tx" class="ta-right">TX</th>
       <th scope="col" data-col="iface">Top interface</th>

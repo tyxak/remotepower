@@ -30,7 +30,7 @@ hosts remotely*.
 - The five most attacked hosts.
 
 A count of zero still prints: "nothing attacked us" is a finding worth reading.
-Every figure is limited to the devices the person generating the report can see.
+Every figure is limited to the hosts the person generating the report can see.
 
 ## Scheduled reports
 
@@ -82,9 +82,9 @@ Practical notes:
   delivery, so it is not part of the "no sections chosen = everything" default.
 - **Needs AI enabled** under Settings → AI assistant. With AI off the section is
   simply skipped.
-- **Only the report's own figures are sent** to the provider — health, device
+- **Only the report's own figures are sent** to the provider — health, host
   counts, attention counts, patch and CVE totals, SLA, compliance, the period
-  deltas. Never the per-device rows, so a hostname or IP cannot leak through it.
+  deltas. Never the per-host rows, so a hostname or IP cannot leak through it.
   Your AI privacy redaction settings apply on top of that.
 - **A provider outage costs the paragraph, not the report.** The email says
   *AI summary unavailable* with the reason, rather than silently arriving

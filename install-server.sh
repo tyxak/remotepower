@@ -803,7 +803,7 @@ if [[ "$WITH_SSHGW" == "1" ]]; then
         success "SSH gateway installed (remotepower-sshgw, SSH on :2222)"
         info "  1. Open TCP 2222 in this server's firewall."
         info "  2. Settings → Advanced → turn on the SSH gateway module."
-        info "  3. SSH gateway page: set the public hostname, opt devices in, add your key."
+        info "  3. SSH gateway page: set the public hostname, opt hosts in, add your key."
     else
         warn "Could not start remotepower-sshgw — check: systemctl status remotepower-sshgw"
     fi
@@ -829,7 +829,7 @@ if [[ "$WITH_SYSLOGD" == "1" ]]; then
     systemctl enable --now remotepower-syslogd \
         && success "Syslog receiver installed (remotepower-syslogd on udp/5514)" \
         || warn "Could not start remotepower-syslogd — check: systemctl status remotepower-syslogd"
-    info "  Add a per-device syslog token in the UI, then point the sender at this host. See docs/syslog.md."
+    info "  Add a per-host syslog token in the UI, then point the sender at this host. See docs/syslog.md."
 fi
 
 if [[ "$WITH_FLOWD" == "1" ]]; then
@@ -977,7 +977,7 @@ if command -v findmnt >/dev/null 2>&1; then
         done
         if [ "$_rp_enc" = no ]; then
             warn "The volume holding /var/lib/remotepower is not encrypted."
-            echo "       It will store device tokens, the CMDB credential vault and DR"
+            echo "       It will store host tokens, the CMDB credential vault and DR"
             echo "       backups. Encrypting this host's disk is the only control that"
             echo "       protects them if the disk leaves the building — see the operator"
             echo "       hardening checklist in docs/security.md."

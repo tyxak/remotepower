@@ -1048,7 +1048,7 @@ class TestMonitorChecks(unittest.TestCase):
             api.load = orig_load
         self.assertEqual(len(res), 1)
         self.assertTrue(res[0]['ok'])
-        self.assertIn('no devices', res[0]['detail'])
+        self.assertIn('no hosts', res[0]['detail'])
 
 
 class TestFleetQueryFilters(_HandlerBase):
@@ -1185,7 +1185,7 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertEqual(ctype, 'text/csv')
         self.assertTrue(fname.endswith('.csv'))
         text = data.decode()
-        self.assertIn('Device,Group,OS', text)   # header
+        self.assertIn('Host,Group,OS', text)   # header
         self.assertIn('hot', text)
         self.assertIn('calm', text)
 

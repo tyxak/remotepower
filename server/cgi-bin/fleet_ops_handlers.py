@@ -478,7 +478,7 @@ def _taxonomy_group_apply(op):
         # 404 rather than 200/updated=0: for a caller who cannot see the group
         # this is indistinguishable from "no such group", which is exactly the
         # non-disclosure we want (never confirm another tenant's group exists).
-        A.respond(404, {'error': 'no devices in that group'})
+        A.respond(404, {'error': 'no hosts in that group'})
 
     # Read-only scan of the OTHER stores that can name the old group. Done
     # BEFORE the lock: those loads are plain reads, but keeping every non-device
@@ -791,7 +791,7 @@ def handle_logs_export():
     if device:
         A._scope_block_device(device)       # SEC: 403 a real out-of-scope id
         if device not in devices:
-            A.respond(404, {'error': 'Device not found'})
+            A.respond(404, {'error': 'Host not found'})
         targets = [device]
     else:
         targets = sorted(devices)
@@ -848,6 +848,6 @@ def handle_logs_export():
     # CSV — _csv_emit already does the formula-injection escaping, the safe
     # filename and the exit.
     A._csv_emit(f'logs-{ts_label}.csv',
-                ['Timestamp', 'Device', 'Device ID', 'Unit', 'Line'],
+                ['Timestamp', 'Host', 'Host ID', 'Unit', 'Line'],
                 [[A.time.strftime('%Y-%m-%d %H:%M:%S', A.time.localtime(r[0]))
                   if r[0] else '', r[1], r[2], r[3], r[4]] for r in rows])

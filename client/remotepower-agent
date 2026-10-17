@@ -675,7 +675,7 @@ def _ws_no_redirect_connect():
     if hasattr(base, 'handle_redirect'):
         def handle_redirect(self, uri):
             raise websockets.exceptions.InvalidHandshake(
-                'refusing to follow a redirect with the device token')
+                'refusing to follow a redirect with the host token')
         ns['handle_redirect'] = handle_redirect
     return type('_RpNoRedirectConnect', (base,), ns)
 
@@ -9213,7 +9213,7 @@ def enroll_with_token(server_url, token, device_name=None):
     if creds and creds.get('device_id') and creds.get('token'):
         payload['device_id'] = creds['device_id']
         payload['token']     = creds['token']
-        print(f"Re-enrolling existing device ({creds['device_id']})")
+        print(f"Re-enrolling existing host ({creds['device_id']})")
     else:
         print(f"Enrolling {device_name} → {server_url}")
 
@@ -9234,7 +9234,7 @@ def enroll_with_token(server_url, token, device_name=None):
         'name':       device_name,
     }
     save_credentials(new_creds)
-    print(f"✓ Enrolled. Device ID: {resp['device_id']}")
+    print(f"✓ Enrolled. Host ID: {resp['device_id']}")
     print(f"  Credentials saved to {CREDS_FILE}")
     # Best-effort: clear the on-disk token file so it can't be re-used
     # accidentally (the server already invalidated it on the wire, but
@@ -9268,11 +9268,11 @@ def enroll_interactive(re_enroll=False, server_url=None, pin=None):
         pin = input("Enrollment PIN (shown in web dashboard): ").strip()
         # Only prompt for a display name in the interactive path; a scripted
         # enroll (pin supplied) defaults to the hostname without blocking.
-        device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
+        device_name = input(f"Host display name [{socket.gethostname()}]: ").strip()
     else:
         device_name = ''
     if not device_name: device_name = socket.gethostname()
-    print(); print("Enrolling device...")
+    print(); print("Enrolling host...")
     payload = {
         'pin': pin, 'hostname': socket.gethostname(), 'name': device_name,
         'os': get_os_info(), 'ip': get_local_ip(), 'mac': get_mac(), 'version': VERSION,
@@ -9283,7 +9283,7 @@ def enroll_interactive(re_enroll=False, server_url=None, pin=None):
         if creds and creds.get('device_id') and creds.get('token'):
             payload['device_id'] = creds['device_id']
             payload['token']     = creds['token']
-            print(f"  Re-enrolling device ID: {creds['device_id']} (history + tags preserved)")
+            print(f"  Re-enrolling host ID: {creds['device_id']} (history + tags preserved)")
     try:
         resp = http_post(f"{server_url}/api/enroll/register", payload)
         if resp.get('ok'):
@@ -9291,9 +9291,9 @@ def enroll_interactive(re_enroll=False, server_url=None, pin=None):
                      'token': resp['token'], 'name': device_name}
             save_credentials(creds)
             if resp.get('reregistered'):
-                print(f"✓ Re-enrolled! Device ID unchanged: {resp['device_id']}")
+                print(f"✓ Re-enrolled! Host ID unchanged: {resp['device_id']}")
             else:
-                print(f"✓ Enrolled! Device ID: {resp['device_id']}")
+                print(f"✓ Enrolled! Host ID: {resp['device_id']}")
             print(f"  Credentials saved to {CREDS_FILE}")
             return creds
         else:
@@ -12853,7 +12853,7 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
 def heartbeat(creds, interval=POLL_INTERVAL):
     global _FORCE_CHECK_EVAL   # a rebaseline (guard action) forces the next sysinfo report
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
-    log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Device: {dev_id}")
+    log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Host ID: {dev_id}")
     log.info(f"Poll: {interval}s | sysinfo every {SYSINFO_EVERY} polls | patches every {PATCH_EVERY} polls")
 
     poll_count = 0; cached_patch = None
@@ -14252,7 +14252,7 @@ def main():
     parser.add_argument('--server', help='Server URL for enroll / enroll-token (e.g. https://remote.example.com)')
     parser.add_argument('--token', help='Enrollment token (or use $REMOTEPOWER_ENROLL_TOKEN, or /etc/remotepower/enroll-token)')
     parser.add_argument('--pin', help='Enrollment PIN for a non-interactive `enroll` (skips the prompt)')
-    parser.add_argument('--name', help='Device display name (defaults to hostname)')
+    parser.add_argument('--name', help='Host display name (defaults to hostname)')
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -14287,7 +14287,7 @@ def main():
         if creds:
             print("Enrolled : Yes")
             print(f"Server   : {creds['server_url']}")
-            print(f"Device   : {creds['name']} ({creds['device_id']})")
+            print(f"Host     : {creds['name']} ({creds['device_id']})")
             print(f"Version  : {VERSION}")
             for n in get_network_info():
                 print(f"Network  : {n['iface']}  {n['ip']}  {n['mac']}")

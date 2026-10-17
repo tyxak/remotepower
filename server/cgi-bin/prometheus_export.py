@@ -603,15 +603,15 @@ def generate_metrics(ctx: dict) -> str:
         _emit_scored_rollup(
             lines, devices, risk,
             'remotepower_device_risk_score', 'remotepower_risk_devices',
-            'Per-device security-posture risk score (0-100, higher is worse).',
-            'Devices per risk level.')
+            'Per-host security-posture risk score (0-100, higher is worse).',
+            'Hosts per risk level.')
     reliability = ctx.get('reliability')
     if reliability:
         _emit_scored_rollup(
             lines, devices, reliability,
             'remotepower_device_reliability_score', 'remotepower_reliability_devices',
-            'Per-device predicted failure likelihood (0-100, higher is worse).',
-            'Devices per failure-likelihood level.')
+            'Per-host predicted failure likelihood (0-100, higher is worse).',
+            'Hosts per failure-likelihood level.')
 
     # ── v6.4.2: baseline compliance ────────────────────────────────────────────
     compliance = ctx.get('compliance')
@@ -638,9 +638,9 @@ def generate_metrics(ctx: dict) -> str:
     if isinstance(sshgw, dict) and sshgw:
         for fam, key, help_text in (
                 ('remotepower_sshgw_devices_opted_in', 'opted_in',
-                 'Devices that may be reached through the SSH gateway.'),
+                 'Hosts that may be reached through the SSH gateway.'),
                 ('remotepower_sshgw_tunnels_connected', 'tunnels',
-                 'Opted-in devices whose agent tunnel is connected.'),
+                 'Opted-in hosts whose agent tunnel is connected.'),
                 ('remotepower_sshgw_sessions_24h', 'sessions_24h',
                  'SSH gateway sessions that finished in the last 24 hours.')):
             lines.append(f'# HELP {fam} {help_text}')

@@ -27,7 +27,7 @@ async function _renderCatalogDeviceResults(term) {
   box.innerHTML = matches.length
     ? matches.map(d =>
         `<div class="pointer mb-8" data-action="pickCatalogDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
+    : '<div class="empty-state">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 
@@ -167,7 +167,7 @@ async function _renderCronDeviceResults(term) {
   box.innerHTML = matches.length
     ? matches.map(d =>
         `<div class="pointer mb-8" data-action="pickCronDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
+    : '<div class="empty-state">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 
@@ -282,7 +282,7 @@ async function _renderFmDeviceResults(term) {
   box.innerHTML = matches.length
     ? matches.map(d =>
         `<div class="pointer mb-8" data-action="pickFmDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
+    : '<div class="empty-state">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 

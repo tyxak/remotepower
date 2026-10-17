@@ -921,7 +921,7 @@ const densityCtl = (() => {
     // can find it. Slightly hacky, but avoids needing a UUID per control.
     window['__densityCb_' + name] = onChange;
     return `<div class="isl-308">
-      ${btn('minimal', '≡', 'Minimal — one device per line (default)')}
+      ${btn('minimal', '≡', 'Minimal — one host per line (default)')}
       ${btn('compact', '▤', 'Compact — denser cards')}
       ${btn('comfortable', '⊞', 'Comfortable — larger cards')}
       ${btn('spacious', '⊟', 'Spacious — larger, roomier')}
@@ -2032,15 +2032,15 @@ const _SIDEBAR_KW = {
   'alerts': 'inbox notifications webhook events open alerts',
   'links': 'bookmarks quick links shortcuts',
   'kmip': 'kmip key server key management encryption keys synology dsm truenas vsphere vmware kms nas volume encryption mtls certificate recovery bundle',
-  'devices': 'inventory agent hosts roster machines endpoints ssh web terminal wol wake-on-lan reboot shutdown run command upgrade quarantine enroll',
+  'hosts': 'inventory agent hosts devices roster machines endpoints ssh web terminal wol wake-on-lan reboot shutdown run command upgrade quarantine enroll',
   'cmdb': 'configuration management database vault secrets assets documentation notes',
   'agent containers': 'docker containers compose images podman',
   'proxmox lxc': 'proxmox lxc virtualization containers',
   'virtualization': 'vm virtual machines proxmox qemu kvm vsphere vcenter esxi vmware openshift kubevirt vcloud cloud director hypervisor snapshot power',
   'network': 'network map topology dependency lan discovery',
-  'query': 'fleet query filter search devices ad-hoc',
+  'query': 'fleet query filter search hosts devices ad-hoc',
   'targets': 'monitor probes http ping healthcheck synthetic agentless reachability snmp',
-  'device metrics': 'metrics cpu memory ram disk swap load average sparkline charts utilization',
+  'host metrics': 'metrics device cpu memory ram disk swap load average sparkline charts utilization',
   'forecast': 'forecast disk fill capacity planning days to full projection trend memory swap cpu load saturation headroom ceiling resource',
   'timeline': 'timeline history events activity chronological',
   'listening ports': 'ports listening open ports sockets netstat',
@@ -2107,7 +2107,7 @@ const _SIDEBAR_EXTRA = [
   // There is no settings-pane-snmp — SNMP lives on the Devices and Monitors
   // pages. This row used to point at a tab that does not exist, which left
   // Settings rendered with no pane selected and an empty body.
-  { label: 'Devices ▸ SNMP', page: 'devices', kw: 'snmp community oid synology mikrotik routeros agentless poller snmpv3 v3 usm auth priv aes sha' },
+  { label: 'Hosts ▸ SNMP', page: 'devices', kw: 'snmp community oid synology mikrotik routeros agentless poller snmpv3 v3 usm auth priv aes sha' },
   { label: 'Settings ▸ Getting started', tab: 'install', kw: 'install setup checklist onboarding getting started first run' },
   { label: 'Settings ▸ General', tab: 'general', kw: 'general poll interval timezone retention session demo offline ttl' },
   { label: 'Settings ▸ Alert parameters', tab: 'alertparams', kw: 'alert parameters thresholds threshold tuning numeric cutoffs weights score grades nic errors temperature clock skew ups inode conntrack cvss forecast r2' },
@@ -2182,13 +2182,13 @@ document.addEventListener('click', e => {
 // authenticated dashboard view, and a "Take a tour" button re-runs it anytime.
 const _TOUR_STEPS = [
   { sel: '[data-page="home"]', title: 'Dashboard', body: 'Your fleet at a glance — health, alerts and composable widgets. This is home base.' },
-  { sel: '[data-page="devices"]', title: 'Devices', body: 'Every enrolled host. Open one to inspect it, run commands, reboot, patch and more.' },
+  { sel: '[data-page="devices"]', title: 'Hosts', body: 'Every enrolled host. Open one to inspect it, run commands, reboot, patch and more.' },
   { sel: '[data-page="alerts"]', title: 'Alerts', body: 'The operational inbox — acknowledge, resolve and track every fired event.' },
   // The sidebar box only ever returns PAGES ('No matching page' on anything
   // else). Devices, alerts and CVEs are the command palette's job, and “/”
   // opens the palette — on top of whatever this coach-mark highlights. Point
   // at the box, describe what it actually does, and name the other one.
-  { sel: '#sidebar-search', title: 'Find a page', body: 'Type what you want to do — it jumps to the matching page or Settings section. For devices, alerts and CVEs press “/” (or Ctrl-K) to open the command palette.' },
+  { sel: '#sidebar-search', title: 'Find a page', body: 'Type what you want to do — it jumps to the matching page or Settings section. For hosts, alerts and CVEs press “/” (or Ctrl-K) to open the command palette.' },
   { sel: '[data-page="settings"]', title: 'Settings', body: 'Integrations, notifications, security policy, backups — configure RemotePower here.' },
 ];
 function _tourDone() { try { return localStorage.getItem('rp_tour_done') === '1'; } catch (_) { return true; } }
@@ -3025,9 +3025,9 @@ async function loadDevices() {
     // v6.4.2: a toast is gone in 3.5s and leaves the grid showing stale (or
     // empty) content — a transient 500 read as "you have no devices". Put the
     // failure IN the panel with a Retry, like the app-*.js pages already do.
-    toast('Failed to load devices', 'error');
+    toast('Failed to load hosts', 'error');
     if (!window._devicesRendered) _errorState('devices-container', loadDevices,
-                                              { msg: 'Failed to load devices.' });
+                                              { msg: 'Failed to load hosts.' });
   }
 }
 // v3.4.2: signed/integrity badge next to a device's version. Green check =
@@ -3175,13 +3175,13 @@ function renderDevices() {
     // already have hosts).
     if (devices.length === 0) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
-        + `<div class="empty-title">Add your first device</div>`
+        + `<div class="empty-title">Add your first host</div>`
         + `<div class="empty-text">Enroll a machine to start monitoring it — generate a PIN or a one-line install command, then run it on the target host. It appears here within ~60 seconds.</div>`
-        + `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openEnrollModal">${_icon('plus',14)} Enroll device</button></div></div>`;
+        + `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openEnrollModal">${_icon('plus',14)} Enroll host</button></div></div>`;
     } else {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
-        + `<div class="empty-title">No devices match your filters</div>`
-        + `<div class="empty-text">No enrolled device matches the current search / status / group / site / smart-group filters.</div>`
+        + `<div class="empty-title">No hosts match your filters</div>`
+        + `<div class="empty-text">No enrolled host matches the current search / status / group / site / smart-group filters.</div>`
         + `<div class="empty-actions mt-12"><button class="btn-icon" data-action="clearDeviceFilters">Clear filters</button></div></div>`;
     }
     return;
@@ -3336,10 +3336,10 @@ function renderDevices() {
     </div>`;
   }).join('')
     + (_cardOverflow > 0 && _shown < DEVICE_CARD_CAP
-        ? `<div class="device-card-more hint">Showing ${_cards.length} of ${filtered.length} devices. <button class="btn-icon btn-xs" data-action="showMoreDeviceCards">Show ${Math.min(_cardOverflow, 120)} more</button></div>`
+        ? `<div class="device-card-more hint">Showing ${_cards.length} of ${filtered.length} hosts. <button class="btn-icon btn-xs" data-action="showMoreDeviceCards">Show ${Math.min(_cardOverflow, 120)} more</button></div>`
         : '')
     + (_cardOverflow > 0 && _shown >= DEVICE_CARD_CAP
-        ? `<div class="device-card-more hint">Showing the first ${DEVICE_CARD_CAP} of ${filtered.length} devices (+${_cardOverflow} more). Narrow with search or the group / tag / status / site filters above, or switch to the <strong>minimal</strong> density (it paginates).</div>`
+        ? `<div class="device-card-more hint">Showing the first ${DEVICE_CARD_CAP} of ${filtered.length} hosts (+${_cardOverflow} more). Narrow with search or the group / tag / status / site filters above, or switch to the <strong>minimal</strong> density (it paginates).</div>`
         : '');
   // v2.2.1: update the client-side metrics history ring buffer so the
   // next render gets ≥2 points for sparklines. Stored in window so it
@@ -3475,7 +3475,7 @@ function _registerDevicesMinimalTable() {
     // We don't use tableCtl's empty-state because parent renderDevices
     // already handles the "no devices match filter" case — by the time
     // we get here we always have ≥1 row.
-    emptyMsg: 'No devices.',
+    emptyMsg: 'No hosts.',
     colspan: 10,
   });
 }
@@ -3509,7 +3509,7 @@ function _renderDevicesMinimal(filtered) {
     <table class="devices-minimal-table">
       <thead id="devices-minimal-thead">
         <tr>
-          <th class="isl-321"><input type="checkbox" id="dev-min-select-all" data-action-btn="toggleSelectAllMinimal" title="Select all visible" aria-label="Select all visible devices" class="isl-42"></th>
+          <th class="isl-321"><input type="checkbox" id="dev-min-select-all" data-action-btn="toggleSelectAllMinimal" title="Select all visible" aria-label="Select all visible hosts" class="isl-42"></th>
           <th data-col="status" class="isl-188">Status</th>
           <th data-col="name" class="isl-322">Name</th>
           <th data-col="hostname" class="isl-323">Hostname</th>
@@ -4460,7 +4460,7 @@ async function loadRoles() {
   _rolesCache = r.roles;
   const custom = r.roles.filter(x => !x.builtin);
   if (!custom.length) { out.innerHTML = '<div class="empty-state">No custom roles. Built-in admin / viewer always exist. Click <strong>Add role</strong> to define a scoped operator role.</div>'; return; }
-  const scopeLabel = s => (s && s.type && s.type !== 'all') ? `${s.type}: ${escHtml((s.values || []).join(', '))}` : 'all devices';
+  const scopeLabel = s => (s && s.type && s.type !== 'all') ? `${s.type}: ${escHtml((s.values || []).join(', '))}` : 'all hosts';
   const sorted = tableCtl.sortRows('roles', custom.slice(), role => ({
     role: role.name,
     permissions: (role.permissions || []).join(','),
@@ -4572,7 +4572,7 @@ async function editUserRole(username, currentRole) {
   const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
   const msg = currentRole === 'admin'
     ? `Demote "${username}" from admin to viewer?\n\nViewers can read everything but cannot mutate.`
-    : `Promote "${username}" from viewer to admin?\n\nAdmins can run commands, delete devices, and change settings.`;
+    : `Promote "${username}" from viewer to admin?\n\nAdmins can run commands, delete hosts, and change settings.`;
   if (!await uiConfirm(msg)) return;
   const data = await withStepUp(() => api('PATCH', '/users/' + username, { role: newRole }));
   if (data?.ok) { toast(`${username} is now ${newRole}`, 'success'); loadUsers(); }
@@ -6900,8 +6900,8 @@ function comboifyDeviceSelect(sel) {
   // copy the select's sizing classes so the box looks/sizes the same
   inp.className = (sel.className.replace('device-combo', '').replace('dev-combo-native', '')
                   .trim() + ' dev-combo-input').trim();
-  inp.placeholder = sel.dataset.comboPlaceholder || 'Search devices…';
-  inp.setAttribute('aria-label', 'Search devices');
+  inp.placeholder = sel.dataset.comboPlaceholder || 'Search hosts…';
+  inp.setAttribute('aria-label', 'Search hosts');
   wrap.appendChild(inp);
   const list = document.createElement('div');
   list.className = 'dev-combo-list';
@@ -7815,7 +7815,7 @@ async function sendExecCmd() {
     if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
     if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
     if (data.approval_required) { if (res) res.innerHTML = ''; toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); return; }
-    if (data.timeout || data.shutdown) { if (res) res.innerHTML = `<div class="c-amber mt-8">${escHtml(data.message || 'No output within the wait window — the command runs on the next heartbeat; check the device’s command history.')}</div>`; return; }
+    if (data.timeout || data.shutdown) { if (res) res.innerHTML = `<div class="c-amber mt-8">${escHtml(data.message || 'No output within the wait window — the command runs on the next heartbeat; check the host’s command history.')}</div>`; return; }
     const out = data.output || {};
     const text = (out && out.output != null) ? out.output : (typeof out === 'string' ? out : '');
     const rc = out && typeof out.rc === 'number' ? out.rc : null;
@@ -7834,9 +7834,9 @@ async function sendExecCmd() {
 const _DYK_TIPS = [
   "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",
   "The Hardware → GPUs page shows every GPU across the fleet — NVIDIA and AMD — with utilisation, VRAM, temperature, power and fan, hottest-first. Hosts report via nvidia-smi / rocm-smi, or the tooling-free amdgpu sysfs fallback.",
-  "Running a Docker host? Enroll device → Generate Docker compose gives you a ready-to-run container that monitors the host — no install on the OS, named after the host automatically.",
+  "Running a Docker host? Enroll host → Generate Docker compose gives you a ready-to-run container that monitors the host — no install on the OS, named after the host automatically.",
   "On an enterprise instance that doesn't use homelab software, untick Settings → Integrations → Show Homelab software to hide the whole feature (and stop its polling) in one click.",
-  "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
+  "While a host drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
   "If the dashboard can't reach the server, a banner with a Retry button appears at the bottom — and clears itself the moment a request gets through. No more silently-stale pages.",
   "deploy-server.sh keeps the last 3 deployed versions as snapshots — `sudo bash deploy-server.sh --rollback` restores the newest one if an upgrade misbehaves.",
   "The Pentest page (under Security) scans the hosts and websites you own for vulnerabilities — nuclei, nikto and nmap on the safe passive profile; OWASP ZAP and wapiti on the gated active one; and a lynis hardening audit on-host.",
@@ -7850,7 +7850,7 @@ const _DYK_TIPS = [
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
   "Resource alerts flapping? Settings \u2192 Alert parameters has \u201cMetric alert after\u201d (wait N over-threshold checks before a CPU/mem/disk alert) and \u201cSNMP unreachable after\u201d (N failed polls before an SNMP-unreachable alert) \u2014 the metric and SNMP siblings of the per-monitor setting.",
   "A flaky monitor that blips for one check shouldn\u2019t page you \u2014 set \u201cAlert after consecutive failures\u201d on the monitor (Monitoring \u2192 add/edit) so monitor-down only fires after N failures in a row.",
-  "A device\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a device-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
+  "A host\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a host-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
   "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
   "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
   "The Audit page has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
@@ -7860,31 +7860,31 @@ const _DYK_TIPS = [
   "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
   "The CVEs page flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
   "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
-  "On the Devices page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
-  "Open a device drawer's Audit tab and its Health & Hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
+  "On the Hosts page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
+  "Open a host drawer's Audit tab and its Health & Hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
   "The Predictive health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
   "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
   "The SSH keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
-  "Open a container in the device drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
-  "Press / (or Ctrl-K) anywhere for the command palette — it searches open alerts and CVE findings too, not just pages and devices.",
+  "Open a container in the host drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
+  "Press / (or Ctrl-K) anywhere for the command palette — it searches open alerts and CVE findings too, not just pages and hosts.",
   "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
   "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts raise alerts — wire them to a channel under Settings → Notifications.",
   "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
   "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish, Arabic, German and French — your choice is saved to your account and follows you across devices.",
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
-  "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
+  "Click Trend on a host in Host Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
   "SCIM (Settings → Integrations) lets your identity provider create and deactivate users automatically — when someone is offboarded in the IdP, their RemotePower access and live sessions are revoked at once.",
   "Reports → Evidence pack downloads one JSON document bundling the posture report, the 90-day compliance trend and an audit-log excerpt — the artifact auditors ask for.",
-  "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
+  "The host drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
-  "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
-  "A device drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
+  "Open a host drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
+  "A host drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
   "The drawer's Ports card shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
-  "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
-  "On the Drift page, 'Export all host configs' downloads one JSON bundle of every device's desired + current config — handy for audits, backups and diffing. 'Collect all host configs' refreshes them from the agents first.",
+  "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-host editing.",
+  "On the Drift page, 'Export all host configs' downloads one JSON bundle of every host's desired + current config — handy for audits, backups and diffing. 'Collect all host configs' refreshes them from the agents first.",
   "Look for the AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
   "Take a full disaster-recovery backup from Settings → Backups → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
   "Network shares (NFS/SMB/CIFS) appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
@@ -7898,55 +7898,55 @@ const _DYK_TIPS = [
   "Turn on change approval (Settings → Security) to require a second admin to sign off arbitrary command runs — the requester can't approve their own.",
   "Provisioning → Ansible playbooks runs a playbook against a group, tag or site with this server as the control node — no agent needed, just SSH.",
   "Create Proxmox VMs (not just containers) from the Virtualization page — pick cores, memory, disk, bridge and a boot ISO.",
-  "The Files device action browses and transfers files over SFTP, tunnelled through the same SSH path as the web terminal — no extra ports.",
+  "The Files host action browses and transfers files over SFTP, tunnelled through the same SSH path as the web terminal — no extra ports.",
   "Define backup commands (restic/borg/rsync) under Backups, run them on demand, or schedule them with cron.",
-  "Manage host users and SSH keys, or open/close firewall ports, straight from a device's drawer — exec-gated and audited.",
+  "Manage host users and SSH keys, or open/close firewall ports, straight from a host's drawer — exec-gated and audited.",
   "Patching → Auto-patch applies updates on a schedule across a group, tag, site, or the whole fleet, respecting maintenance windows.",
   "Connect a Proxmox node and RemotePower flags guests whose newest backup is stale, alongside the existing stale-snapshot check.",
   "Export a CVE-enriched SBOM (CycloneDX or SPDX) for any host from its CVE detail, or a ZIP for the whole fleet from the CVE Findings page.",
   "Record warranty, license, and support-contract expiry dates on a CMDB asset — RemotePower warns you on the dashboard before they lapse.",
   "The Remote desktop action opens a graphical VNC session in your browser, tunnelled over SSH — no inbound ports, no agent change.",
-  "Organise the fleet into Sites (location / team / customer) under Fleet → Sites, then filter the Devices roster by site.",
-  "The Timeline page (Monitoring → Timeline) merges events and command runs into one story — for the whole fleet or a single device.",
+  "Organise the fleet into Sites (location / team / customer) under Fleet → Sites, then filter the Hosts roster by site.",
+  "The Timeline page (Monitoring → Timeline) merges events and command runs into one story — for the whole fleet or a single host.",
   "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
-  "Set a health-score alert threshold in Settings → Alert parameters and get notified the moment a device's score drops below it.",
+  "Set a health-score alert threshold in Settings → Alert parameters and get notified the moment a host's score drops below it.",
   "The Patches page shows how many CVEs each pending update would fix, and a search box to find which hosts run a given package version.",
   "RemotePower flags hosts on an end-of-life OS — they show in Needs Attention and fail a compliance control until you upgrade.",
   "Subscribe your calendar to /api/schedule.ics to see scheduled jobs and maintenance windows alongside your other events.",
   "Set quiet hours in Settings → Alerting to mute non-critical alerts overnight — critical ones still page through.",
-  "The Reports page tracks per-device uptime % (SLA) and a fleet CPU/memory/disk capacity rollup.",
+  "The Reports page tracks per-host uptime % (SLA) and a fleet CPU/memory/disk capacity rollup.",
   "Share a read-only public status page (status.html?token=…) showing fleet health and monitor status — no login required.",
   "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
   "Automation rules (the Automation page) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
-  "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
+  "Map host dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
   "The Reports page flags resource anomalies — when a host's memory, swap, or disk jumps far outside its own normal range.",
   "Agents report their own binary hash every heartbeat — RemotePower flags any agent whose code doesn't match the canonical build it serves.",
   "Sign your agent releases with GPG (tools/sign-agent-release.sh) and pin the public key on hosts — agents then refuse any self-update that isn't validly signed.",
   "Turn alerts into help-desk tickets with zero setup: point the email channel at a self-hosted osTicket (or Zammad / RT / FreeScout) inbound address.",
   "Admin → Release Signing: sign agent releases so agents reject any tampered or unsigned self-update, and see which agents refused one.",
-  "The Patches page has a patch catalog — see which update is pending across how many hosts, the inverse of the per-device view.",
-  "Fleet → Query lets you filter devices by group, tags, OS, pending updates, CVE count or integrity — and save the queries you reuse.",
-  "A green check next to a device's version means it's running the canonical signed agent build; a red mark means the hash doesn't match.",
+  "The Patches page has a patch catalog — see which update is pending across how many hosts, the inverse of the per-host view.",
+  "Fleet → Query lets you filter hosts by group, tags, OS, pending updates, CVE count or integrity — and save the queries you reuse.",
+  "A green check next to a host's version means it's running the canonical signed agent build; a red mark means the hash doesn't match.",
   "Patching → Rollouts pushes an upgrade or script in rings — canary, then pilot, then broad — and won't release the next ring until the current one verifies.",
   "A maintenance window can gate command/upgrade execution, not just suppress alerts: tick 'Gate command/upgrade execution to this window' so changes are held until the window opens.",
   "The Compliance page scores a CIS-style baseline (patches, reboot, failed units, disk, CVEs, agent integrity) and tracks the trend day over day.",
   "Software meters take aliases — 'openssl = 0 | libssl3, openssl-libs' — and flag installs not seen running as reclaimable licenses.",
-  "Under Users & Roles you can define custom roles — e.g. an operator who can reboot and upgrade only the 'staging' group, and sees only those devices.",
+  "Under Users & Roles you can define custom roles — e.g. an operator who can reboot and upgrade only the 'staging' group, and sees only those hosts.",
   "The Compliance page can run a real OpenSCAP scan (CIS/STIG/PCI) on a host — score, pass/fail and the exact failing rule ids — if oscap is installed there.",
   "The patch catalog counts flatpak, snap, pip and npm updates too, not just apt/dnf/pacman.",
   "Set escalation tiers under Settings → Notifications so an unacknowledged critical alert re-notifies after N minutes and names whoever is on call.",
-  "Monitoring → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
+  "Monitoring → Trends draws fleet health, compliance % and per-host resource history as proper time-series charts — no external library.",
   "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
   "Patches → Install software installs repo packages on one host or a whole group/tag at once — it auto-detects apt/dnf/yum/zypper/pacman/apk.",
-  "Rollouts → One-time install is the un-staged shortcut: install a package on one device or a tag right away, no rings.",
+  "Rollouts → One-time install is the un-staged shortcut: install a package on one host or a tag right away, no rings.",
   "After queuing an install, follow it under Rollouts → Recent installs & jobs — each host gets a checkmark when it finishes (red on a non-zero exit).",
-  "OpenSCAP scans (and software installs) can target a tag or group, not just one device — pick the target type in the form.",
-  "New to RemotePower? Settings → Install is a live checklist of the essentials — admin password, first device, alerts, backups, 2FA.",
+  "OpenSCAP scans (and software installs) can target a tag or group, not just one host — pick the target type in the form.",
+  "New to RemotePower? Settings → Install is a live checklist of the essentials — admin password, first host, alerts, backups, 2FA.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
-  "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
-  "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
-  "The small SSH icon next to a device's name on the Devices page builds an ssh:// link and copies the `ssh user@host` command to your clipboard — set your default username under Settings → Security → SSH preferences.",
-  "Stuck on an alert? Ask the built-in AI assistant for remediation suggestions tailored to the affected device.",
+  "Press Ctrl/Cmd-K for the command palette: jump to any page or host, open a host's timeline, or download the fleet report.",
+  "The CMDB has a built-in credential vault — store per-host SSH logins and secrets right next to your documentation.",
+  "The small SSH icon next to a host's name on the Hosts page builds an ssh:// link and copies the `ssh user@host` command to your clipboard — set your default username under Settings → Security → SSH preferences.",
+  "Stuck on an alert? Ask the built-in AI assistant for remediation suggestions tailored to the affected host.",
   "RemotePower can take a Proxmox snapshot automatically before deploying changes, giving you an instant rollback point.",
   "You can write custom scripts to monitor almost anything — niche services, sensors, or your own health checks.",
   "Issue and renew TLS certificates directly from the dashboard through the built-in ACME (acme.sh) integration.",
@@ -7967,10 +7967,10 @@ const _DYK_TIPS = [
   "RemotePower supports LDAP and Active Directory login, so your team can use the credentials they already have.",
   "Repeated failed logins trigger automatic brute-force lockout, tracked per IP and per account.",
   "Schedule automatic configuration backups, or export a full backup archive whenever you like.",
-  "Select several devices at once and run a single action across all of them with bulk operations.",
-  "Group your devices and target an entire group with one command, schedule, or maintenance window.",
+  "Select several hosts at once and run a single action across all of them with bulk operations.",
+  "Group your hosts and target an entire group with one command, schedule, or maintenance window.",
   "Manage Docker and Podman containers — start, stop, and restart — straight from the Containers page.",
-  "Keep a per-device runbook so whoever's on call knows exactly what to do.",
+  "Keep a per-host runbook so whoever's on call knows exactly what to do.",
   "Save your most-used commands to the Command Library and reuse them in a single click.",
   "Export patch reports as CSV or XML for compliance and record-keeping.",
   "Track CPU, memory, disk, swap, and load metrics for every agent.",
@@ -7978,10 +7978,10 @@ const _DYK_TIPS = [
   "Every privileged action is recorded in the audit log, so you always know who did what.",
   "Send notifications to Slack, Discord, email, or any generic webhook.",
   "Trigger actions from your own automation using inbound webhooks.",
-  "See exactly what's listening on each device with the open-ports inventory.",
+  "See exactly what's listening on each host with the open-ports inventory.",
   "Hand scripts read-only access with viewer-role API keys, or full control with admin keys.",
   "Tighten the poll interval on a critical host so it checks in more often than the rest of the fleet.",
-  "A fleet-events timeline records every device coming online, going offline, and firing an alert.",
+  "A fleet-events timeline records every host coming online, going offline, and firing an alert.",
   "There's a keyboard-shortcut cheat sheet to help you fly through the dashboard without a mouse.",
   "Pin quick links to the tools you live in — Grafana, Proxmox, your wiki — so they're one click from the dashboard.",
   "A fleet-wide event won't flood your channels — RemotePower caps outbound webhook bursts so a flapping monitor can't spam your inbox.",
@@ -7991,18 +7991,18 @@ const _DYK_TIPS = [
   "RemotePower projects when each disk will fill — \"/ fills in ~18 days\" — from its own daily metrics, so you act before it's an outage.",
   "Wondering what changed on a host? RemotePower diffs the last day or week — packages, ports, services, disk growth — at a glance.",
   "Run an on-demand network speed test against any agent straight from the dashboard.",
-  "Sweep a device's LAN (ARP or nmap) to spot unmanaged hosts that should probably be under RemotePower too.",
+  "Sweep a host's LAN (ARP or nmap) to spot unmanaged hosts that should probably be under RemotePower too.",
   "Suspect a host is compromised? Quarantine it in one click — commands, reboots and actions are blocked server-side until you release it.",
   "Ask the AI to scan your fleet for anomalies and get a ranked list — odd ports, drift, failing disks — to review.",
   "Describe a schedule in plain English and the cron builder writes the expression and previews the next run times.",
   "Map PCI DSS, HIPAA or SOC 2 controls to data RemotePower already collects and score them pass/fail on the Compliance page.",
   "Spin up a Proxmox LXC container from a wizard — pick a template, storage and network, and RemotePower creates it via the API.",
-  "Need a starting point for a device's documentation? Let the AI draft a CMDB doc from what it already knows about the host.",
+  "Need a starting point for a host's documentation? Let the AI draft a CMDB doc from what it already knows about the host.",
   "Running Kubernetes? Where a host has Helm and a kubeconfig, RemotePower shows your Helm release status alongside everything else.",
   "Monitoring → Trends plots a CPU-load saturation line (load ÷ cores) next to memory, swap and disk — so you can see a host's load trend over time, not just its current number.",
   "Watch mysql.service on a host that actually runs mariadb.service? The Services table shows the canonical unit systemd resolved your alias to, so you're never left wondering why it reads 'active'.",
-  "A container that keeps crash-looping? RemotePower tracks the restart count for Docker and Podman too (not just Kubernetes) and alerts when it climbs — the container's age and restart count show in the device drawer.",
-  "The device drawer shows each network interface's MAC address next to its IP, and ClamAV's last on-demand scan time alongside its signature-DB age.",
+  "A container that keeps crash-looping? RemotePower tracks the restart count for Docker and Podman too (not just Kubernetes) and alerts when it climbs — the container's age and restart count show in the host drawer.",
+  "The host drawer shows each network interface's MAC address next to its IP, and ClamAV's last on-demand scan time alongside its signature-DB age.",
   "Run a one-click image Update on a stale, compose-managed container row and RemotePower pulls the new image and recreates it (docker compose pull + up -d) on the host — no SSH needed.",
 ];
 let _dykIdx = -1;
@@ -8033,7 +8033,7 @@ async function uninstallAgent(id, name) {
               `  • stop and disable the systemd service\n` +
               `  • delete /etc/remotepower/credentials and state files\n` +
               `  • remove /usr/local/bin/remotepower-agent\n\n` +
-              `The device record stays here so you can re-enroll later.\n` +
+              `The host record stays here so you can re-enroll later.\n` +
               `Continue?`;
   if (!await uiConfirm({ message: msg, confirmText: 'Uninstall', danger: true })) return;
   const r = await api('POST', `/devices/${id}/uninstall-agent`, {});
@@ -8049,7 +8049,7 @@ async function uninstallAgent(id, name) {
 // require selecting the device first, then clicking the toolbar batch
 // button — now available directly from the ⋯ menu on each row.
 async function upgradePackages(id, name) {
-  if (!await uiConfirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the device. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
+  if (!await uiConfirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the host. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
   const data = await api('POST', '/upgrade-device', {device_ids: [id]});
   if (data?.ok) toast(`Package upgrade queued for ${name}. Output will appear in Update history shortly.`, 'success');
   else toast(data?.error || 'Failed', 'error');
@@ -8214,7 +8214,7 @@ async function saveMetricThresholds() {
 async function resetMetricThresholds() {
   const id = _currentMetricThresholdsDevice;
   if (!id) return;
-  if (!await uiConfirm({ message: 'Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.', confirmText: 'Reset', danger: true })) return;
+  if (!await uiConfirm({ message: 'Reset all metric thresholds for this host to fleet defaults?\n\nPer-host overrides AND per-mount disk overrides will be cleared.', confirmText: 'Reset', danger: true })) return;
   const resp = await api('DELETE', `/devices/${id}/metric-thresholds`);
   if (resp?.ok) {
     toast('Reset to defaults', 'success');
@@ -8335,8 +8335,8 @@ function _registerDeviceMetricsTable() {
         <td class="nowrap"><button class="btn-icon isl-351" data-action="openMetrics" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" title="Show metric trend over time">Trend</button><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" >Thresholds</button></td>
       </tr>`;
     },
-    emptyMsg: 'No devices to show metrics for.',
-    emptyMsgFiltered: 'No devices match the filter.',
+    emptyMsg: 'No hosts to show metrics for.',
+    emptyMsgFiltered: 'No hosts match the filter.',
   });
   // v3.2.0 follow-up: SNMP devices table (separate from agent metrics)
   tableCtl.register({
@@ -8377,8 +8377,8 @@ function _registerDeviceMetricsTable() {
       return hay.includes(q);
     },
     row: (d) => _snmpMetricsRow(d),
-    emptyMsg: 'No SNMP devices yet — enable SNMP on an agentless device\'s Settings tab.',
-    emptyMsgFiltered: 'No SNMP devices match the filter.',
+    emptyMsg: 'No SNMP hosts yet — enable SNMP on an agentless host\'s Settings tab.',
+    emptyMsgFiltered: 'No SNMP hosts match the filter.',
   });
 }
 
@@ -8516,7 +8516,7 @@ async function loadDeviceMetrics() {
     if (snmpOk)     parts.push(`${_icon('radio',12)} <span class="c-green">${snmpOk} ok</span>`);
     if (snmpFail)   parts.push(`<span class="c-red">${snmpFail} failing</span>`);
     if (snmpSilent) parts.push(`<span class="c-muted">${snmpSilent} silent</span>`);
-    if (!parts.length) parts.push('<span class="c-muted">no SNMP devices</span>');
+    if (!parts.length) parts.push('<span class="c-muted">no SNMP hosts</span>');
     snmpSum.innerHTML = parts.join('  •  ');
   }
   tableCtl.render('device_metrics', agentRows);
@@ -8584,7 +8584,7 @@ let _devicesFilteredIds = [];
 function selectAllMatchingFilters() {
   if (!_devicesFilteredIds.length) return;
   _devicesFilteredIds.forEach(id => selectedDevices.add(id));
-  toast(`${_devicesFilteredIds.length} device(s) selected`, 'success');
+  toast(`${_devicesFilteredIds.length} host(s) selected`, 'success');
   updateBatchBar();
   renderDevices();
 }
@@ -8812,7 +8812,7 @@ async function loadMe() {
     if (me.brand.name) {
       const lt = document.querySelector('.logo-text');
       if (lt) lt.textContent = me.brand.name;
-      document.title = me.brand.name + ' — Device Control';
+      document.title = me.brand.name + ' — Host Control';
       // v6.1.2: branding lands AFTER the first alert-badge paint, so it would
       // otherwise wipe the "(N)" tab count. Re-establish the base title and
       // re-apply the badge against it.
@@ -9042,7 +9042,7 @@ async function loadAccount() {
     } else {
       const perms = me.permissions || [];
       const scopeType = (me.scope && me.scope.type) || 'all';
-      const scopeTxt = scopeType === 'all' ? 'all devices'
+      const scopeTxt = scopeType === 'all' ? 'all hosts'
         : `${escHtml(scopeType)}: ${escHtml((me.scope.values || []).join(', ') || '—')}`;
       pe.innerHTML = perms.length
         ? `Allowed actions: <strong>${perms.map(escHtml).join(', ')}</strong> · Scope: ${scopeTxt}`
@@ -9069,7 +9069,7 @@ async function loadSessions() {
   el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
     <thead><tr class="c-muted"><th>Session</th><th>IP</th><th>Signed in</th><th>Last active</th><th></th></tr></thead>
     <tbody>${sessions.map(s => {
-      const ua = s.ua ? escHtml(s.ua) : '<span class="c-muted">unknown device</span>';
+      const ua = s.ua ? escHtml(s.ua) : '<span class="c-muted">unknown host</span>';
       const here = s.current ? ' <span class="pill" data-color="var(--green)">this session</span>' : '';
       const revoke = s.current
         ? '<span class="hint">—</span>'
@@ -9178,9 +9178,9 @@ function updateBatchBar() {
 async function batchDelete() {
   const n = selectedDevices.size;
   if (!n) return;
-  if (!await uiConfirm({ message: `Delete ${n} device(s)? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
+  if (!await uiConfirm({ message: `Delete ${n} host(s)? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
   const data = await api('POST', '/devices/bulk-delete', { device_ids: [...selectedDevices] });
-  if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else toast(data?.error || 'Failed', 'error');
 }
 
@@ -9188,15 +9188,15 @@ async function batchDelete() {
 async function batchTags() {
   const n = selectedDevices.size;
   if (!n) return;
-  const addStr = await uiPrompt({ title: `Tag ${n} device(s)`, message: 'Tags to ADD (comma-separated, leave blank for none):', placeholder: 'production, rack-3' });
+  const addStr = await uiPrompt({ title: `Tag ${n} host(s)`, message: 'Tags to ADD (comma-separated, leave blank for none):', placeholder: 'production, rack-3' });
   if (addStr === null) return;
-  const removeStr = await uiPrompt({ title: `Tag ${n} device(s)`, message: 'Tags to REMOVE (comma-separated, leave blank for none):', placeholder: 'staging' });
+  const removeStr = await uiPrompt({ title: `Tag ${n} host(s)`, message: 'Tags to REMOVE (comma-separated, leave blank for none):', placeholder: 'staging' });
   if (removeStr === null) return;
   const split = s => (s || '').split(',').map(t => t.trim()).filter(Boolean);
   const add = split(addStr), remove = split(removeStr);
   if (!add.length && !remove.length) { toast('Nothing to change', 'info'); return; }
   const data = await api('POST', '/devices/bulk-tags', { device_ids: [...selectedDevices], add, remove });
-  if (data?.ok) { toast(`Updated tags on ${data.updated} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  if (data?.ok) { toast(`Updated tags on ${data.updated} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else toast(data?.error || 'Failed', 'error');
 }
 // ── v6.4.2: bulk attribute edit ─────────────────────────────────────────────
@@ -9220,7 +9220,7 @@ function openBatchAttrs() {
   const sub = document.getElementById('batch-attrs-sub');
   if (sub) {
     sub.textContent = `Every field left blank is left unchanged. Applied to `
-      + `${selectedDevices.size} selected device(s) in one operation.`;
+      + `${selectedDevices.size} selected host(s) in one operation.`;
   }
   openModal('batch-attrs-modal');
 }
@@ -9258,8 +9258,8 @@ async function applyBatchAttrs() {
   // operator needs to see rather than a success that hides it.
   const req = r.requested != null ? r.requested : selectedDevices.size;
   toast(r.updated === req
-    ? `Updated ${r.updated} device(s)`
-    : `Updated ${r.updated} of ${req} device(s) — the rest are outside your scope`,
+    ? `Updated ${r.updated} host(s)`
+    : `Updated ${r.updated} of ${req} host(s) — the rest are outside your scope`,
     r.updated === req ? 'success' : 'warning');
   clearSelection();
   setTimeout(loadDevices, 500);
@@ -9270,7 +9270,7 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
   // device(s)?" hides exactly the mistake a confirmation exists to catch.
   const _bNames = [...selectedDevices].map(id => devices.find(d => d.id === id)?.name || id);
   const _bList = _bNames.slice(0, 8).join(', ') + (_bNames.length > 8 ? ` … and ${_bNames.length - 8} more` : '');
-  if (!await uiConfirm({ title: `${verb} ${selectedDevices.size} device(s)?`, message: _bList, confirmText: verb, danger: command === 'shutdown' || command === 'reboot' })) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
+  if (!await uiConfirm({ title: `${verb} ${selectedDevices.size} host(s)?`, message: _bList, confirmText: verb, danger: command === 'shutdown' || command === 'reboot' })) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
   // Blast-radius guardrail (reboot/shutdown): the server refuses an over-cap
   // batch; re-confirm to override.
   if (data?.blast_blocked) {
@@ -9301,8 +9301,8 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
             'error', { transient: false });
     } else {
       const msg = command === 'upgrade'
-        ? `Package upgrade queued for ${queued} device(s). Output arrives on next heartbeat (~60s).`
-        : `${verb} queued for ${queued} device(s)`;
+        ? `Package upgrade queued for ${queued} host(s). Output arrives on next heartbeat (~60s).`
+        : `${verb} queued for ${queued} host(s)`;
       toast(msg, 'success');
     }
     clearSelection(); setTimeout(loadDevices, 3000);
@@ -9472,7 +9472,7 @@ async function restoreBackup() {
   const inp = document.getElementById('restore-file-input');
   const file = inp && inp.files && inp.files[0];
   if (!file) return;
-  if (!await uiConfirm({ message: `Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) { inp.value = ''; return; }
+  if (!await uiConfirm({ message: `Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (hosts, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) { inp.value = ''; return; }
   // v6.4.2: an ENCRYPTED archive needs its passphrase, and there was nowhere to
   // put one. handle_backup_restore has taken it from X-RP-Backup-Passphrase
   // since encryption shipped; the UI never sent that header and the file picker
@@ -9880,7 +9880,7 @@ function _renderCommandQueue() {
   const pendingPage = pendingDevs.slice(0, _cmdqPendingShown);
   let pendingHtml;
   if (!pendingTotal) {
-    pendingHtml = '<div class="empty-state"><div class="empty-title">' + (q ? 'No matching devices' : 'Nothing pending delivery') + '</div>'
+    pendingHtml = '<div class="empty-state"><div class="empty-title">' + (q ? 'No matching hosts' : 'Nothing pending delivery') + '</div>'
       + '<div class="empty-text">Online agents fetch queued commands within one check-in (~60s), so this '
       + 'is normally empty. Commands only wait here while a host is offline. See what you queued below.</div></div>';
   } else {
@@ -9931,14 +9931,14 @@ function _renderCommandQueue() {
       <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
         <span class="c-muted fs-12">${recentPage.length} of ${recentTotal} — what was queued, when, and by whom</span>
         <button class="btn-icon" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
-      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>When</th><th>Host</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${moreRecent}
     </div>`;
   }
 
   const pendingHeader = (r.devices && r.devices.length)
     ? `<div class="row-8-center mb-8"><span class="fw-600">Pending delivery</span>`
-      + `<button class="btn-icon" data-action="clearAllQueues" title="Clear every device's pending queue — nothing waiting will be delivered">Clear all pending</button></div>`
+      + `<button class="btn-icon" data-action="clearAllQueues" title="Clear every host's pending queue — nothing waiting will be delivered">Clear all pending</button></div>`
     : '<div class="mb-8 fw-600">Pending delivery</div>';
   body.innerHTML = pendingHeader + pendingHtml + recentHtml;
 }
@@ -9955,9 +9955,9 @@ async function clearDeviceQueue(devId, name) {
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearAllQueues() {
-  if (!await uiConfirm({ message: 'Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.', confirmText: 'Clear all', danger: true })) return;
+  if (!await uiConfirm({ message: 'Clear EVERY host’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.', confirmText: 'Clear all', danger: true })) return;
   const r = await api('DELETE', '/command-queue').catch(() => null);
-  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} device(s)`, 'success'); loadCommandQueue(); }
+  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} host(s)`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearDispatchLog() {
@@ -10219,7 +10219,7 @@ async function psDelete(id) {
 
 async function psPromote(id) {
   const tag = await uiPrompt({ title: 'Promote to tag', placeholder: 'prod',
-    message: 'Devices carrying this tag will be checked against this snapshot on the Drift report. Promoting supersedes any snapshot already promoted to the same tag.' });
+    message: 'Hosts carrying this tag will be checked against this snapshot on the Drift report. Promoting supersedes any snapshot already promoted to the same tag.' });
   if (!tag) return;
   const r = await api('POST', `/patch-snapshots/${id}/promote`, { tag }).catch(() => null);
   if (r?.ok) { toast(`Promoted to "${tag}"`, 'success'); psRefreshList(); }
@@ -10258,13 +10258,13 @@ async function psDrift(id) {
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Drift report failed')}</div>`; return; }
   const scope = r.tag ? `tag "${r.tag}"` : 'the whole visible fleet (not promoted to a tag)';
   if (!r.drift.length) {
-    out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} device(s) in ${escHtml(scope)}.</div><div class="empty-state">No drift — every checked device matches the pinned versions.</div>`;
+    out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} host(s) in ${escHtml(scope)}.</div><div class="empty-state">No drift — every checked host matches the pinned versions.</div>`;
     return;
   }
   const rows = r.drift.flatMap(d => d.mismatches.map(m =>
     `<tr><td>${escHtml(d.device_name)}</td><td>${escHtml(m.pkg)}</td><td>${escHtml(m.pinned)}</td><td>${escHtml(m.installed)}</td></tr>`));
-  out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} device(s) in ${escHtml(scope)} — ${r.devices_drifted} drifted.</div>` +
-    `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Device</th><th>Package</th><th>Pinned</th><th>Installed</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} host(s) in ${escHtml(scope)} — ${r.devices_drifted} drifted.</div>` +
+    `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Host</th><th>Package</th><th>Pinned</th><th>Installed</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
 let _apiKeysCache = [];
@@ -10398,7 +10398,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="csv" title="Download this site's posture report as CSV (devices, patches, SLA, CVEs, health)">Report (CSV)</button><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="json" title="Download this site's posture report as raw JSON">JSON</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="csv" title="Download this site's posture report as CSV (hosts, patches, SLA, CVEs, health)">Report (CSV)</button><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="json" title="Download this site's posture report as raw JSON">JSON</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -10442,12 +10442,12 @@ async function loadDeviceProfiles() {
 }
 
 let _profileEditId = null;
-function openDeviceProfileCreate() { _profileEditId = null; _fillProfileForm({}); document.getElementById('device-profile-modal-title').textContent = 'New device profile'; openModal('device-profile-modal'); }
+function openDeviceProfileCreate() { _profileEditId = null; _fillProfileForm({}); document.getElementById('device-profile-modal-title').textContent = 'New host profile'; openModal('device-profile-modal'); }
 function editDeviceProfile(i) {
   const p = _deviceProfiles[i]; if (!p) return;
   _profileEditId = p.id;
   _fillProfileForm(p);
-  document.getElementById('device-profile-modal-title').textContent = 'Edit device profile';
+  document.getElementById('device-profile-modal-title').textContent = 'Edit host profile';
   openModal('device-profile-modal');
 }
 function _fillProfileForm(p) {
@@ -10493,7 +10493,7 @@ async function saveDeviceProfile() {
 }
 async function deleteDeviceProfile(id) {
   undoableDelete({
-    label: 'Device profile deleted',
+    label: 'Host profile deleted',
     hide: () => _hideRowByAction('deleteDeviceProfile', id),
     commit: () => api('DELETE', `/device-profiles/${encodeURIComponent(id)}`),
     undo: () => loadDeviceProfiles(), after: () => loadDeviceProfiles(),
@@ -10506,7 +10506,7 @@ async function openDeviceProfileApply(i) {
   const p = _deviceProfiles[i]; if (!p) return;
   _profileApplyId = p.id;
   _profileApplySel = new Set();
-  document.getElementById('dp-apply-title').textContent = `Apply "${p.name}" to devices`;
+  document.getElementById('dp-apply-title').textContent = `Apply "${p.name}" to hosts`;
   document.getElementById('dp-apply-search').value = '';
   const devs = await api('GET', '/devices?slim=1').catch(() => []);
   window._dpApplyDevices = Array.isArray(devs) ? devs : [];
@@ -10521,7 +10521,7 @@ function _renderProfileApplyList(filter) {
     !f || (d.name || '').toLowerCase().includes(f) || (d.group || '').toLowerCase().includes(f));
   box.innerHTML = rows.length ? rows.map(d =>
     `<label class="form-row pad-4"><input type="checkbox" data-dp-dev="${escAttr(d.id)}"${_profileApplySel.has(d.id) ? ' checked' : ''}> <span>${escHtml(d.name || d.id)}${d.group ? ` <span class="hint">${escHtml(d.group)}</span>` : ''}</span></label>`
-  ).join('') : '<div class="meta-sm-nm">No matching devices.</div>';
+  ).join('') : '<div class="meta-sm-nm">No matching hosts.</div>';
   box.querySelectorAll('[data-dp-dev]').forEach(cb => cb.addEventListener('change', () => {
     if (cb.checked) _profileApplySel.add(cb.dataset.dpDev); else _profileApplySel.delete(cb.dataset.dpDev);
     document.getElementById('dp-apply-count').textContent = `${_profileApplySel.size} selected`;
@@ -10530,9 +10530,9 @@ function _renderProfileApplyList(filter) {
 }
 function filterProfileApply() { _renderProfileApplyList(document.getElementById('dp-apply-search')?.value || ''); }
 async function applyDeviceProfile() {
-  if (!_profileApplySel.size) { toast('Pick at least one device', 'error', {transient: true}); return; }
+  if (!_profileApplySel.size) { toast('Pick at least one host', 'error', {transient: true}); return; }
   const r = await api('POST', `/device-profiles/${encodeURIComponent(_profileApplyId)}/apply`, { device_ids: [..._profileApplySel] });
-  if (r && r.ok) { toast(`Applied to ${r.applied} device(s)`, 'success'); closeModal('device-profile-apply-modal'); }
+  if (r && r.ok) { toast(`Applied to ${r.applied} host(s)`, 'success'); closeModal('device-profile-apply-modal'); }
   else toast((r && r.error) || 'Apply failed', 'error');
 }
 
@@ -10648,7 +10648,7 @@ async function viewSmartGroupMembers(name) {
     ? members.map(m => `<div class="row-8-center pad-6 border-b-subtle">`
         + `<span class="flex-1">${escHtml(m.name || m.id)}</span>`
         + `<button class="btn-icon" data-action="openDeviceDrawer" data-arg="${escAttr(m.id)}">Open</button></div>`).join('')
-    : `<div class="meta-sm-nm">No device currently matches this group's rules.</div>`;
+    : `<div class="meta-sm-nm">No host currently matches this group's rules.</div>`;
   openModal('sg-members-modal');
 }
 
@@ -10823,7 +10823,7 @@ async function viewSubnetOccupancy(id) {
   }).join('');
   wrap.classList.remove('hidden');
   wrap.innerHTML = `<div class="fw-500 mb-6">${escHtml(m.cidr)} — ${m.used} used · ${m.reserved} reserved · ${m.free} free of ${m.total}</div>`
-    + `<div class="table-card scrollable-table-wrap audit-scroll"><table><thead><tr><th>Address</th><th>Device(s)</th><th>Reserved</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-state">No addresses in use.</td></tr>'}</tbody></table></div>`;
+    + `<div class="table-card scrollable-table-wrap audit-scroll"><table><thead><tr><th>Address</th><th>Host(s)</th><th>Reserved</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-state">No addresses in use.</td></tr>'}</tbody></table></div>`;
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.
@@ -10840,7 +10840,7 @@ async function loadEnrolRules() {
 function _renderEnrolRules() {
   const box = document.getElementById('enrol-rules-list');
   if (!box) return;
-  if (!_enrolRules.length) { box.innerHTML = '<div class="meta-sm-nm">No rules — new devices keep their token defaults.</div>'; return; }
+  if (!_enrolRules.length) { box.innerHTML = '<div class="meta-sm-nm">No rules — new hosts keep their token defaults.</div>'; return; }
   box.innerHTML = _enrolRules.map((r, i) => {
     const dest = [r.group && `group ${r.group}`, r.site && `site ${r.site}`,
       (r.tags && r.tags.length) && `tags ${r.tags.join(', ')}`].filter(Boolean).join(' · ') || '(no placement)';
@@ -10929,7 +10929,7 @@ async function loadSiteMap() {
   dots.innerHTML = sites.map(s => {
     const x = (s.lng + 180) / 360 * 360;         // viewBox is 0..360 in x
     const y = (90 - s.lat) / 180 * 180;          // 0..180 in y
-    const title = `${s.name} — ${s.device_count} device(s), ${s.offline_count} offline`;
+    const title = `${s.name} — ${s.device_count} host(s), ${s.offline_count} offline`;
     return `<circle class="site-map-dot ${s.health}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" data-action="siteMapClick" data-arg="${escAttr(s.id)}"><title>${escHtml(title)}</title></circle>`;
   }).join('');
 }
@@ -11052,7 +11052,7 @@ function _autopatchPopulateDevices(currentId) {
   const sel = document.getElementById('autopatch-target-device');
   if (!sel) return;
   const list = (typeof devices !== 'undefined' ? devices : []);
-  sel.innerHTML = '<option value="">Pick a device…</option>' +
+  sel.innerHTML = '<option value="">Pick a host…</option>' +
     list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id === currentId ? ' selected' : ''}>${escHtml(dv.name)}</option>`).join('');
   if (currentId) sel.value = currentId;
   try { enhanceDeviceCombos(document.getElementById('autopatch-modal')); } catch (_) {}
@@ -11098,7 +11098,7 @@ async function saveAutopatch() {
   const _tval = _ttype === 'device'
     ? document.getElementById('autopatch-target-device').value
     : document.getElementById('autopatch-target-value').value.trim();
-  if (_ttype === 'device' && !_tval) { toast('Pick a device for this policy', 'error', {transient: true}); return; }
+  if (_ttype === 'device' && !_tval) { toast('Pick a host for this policy', 'error', {transient: true}); return; }
   const body = {
     name: document.getElementById('autopatch-name').value.trim(),
     target: { type: _ttype, value: _tval },
@@ -11125,9 +11125,9 @@ async function saveAutopatch() {
   else toast(d?.error || 'Failed', 'error');
 }
 async function _autopatchRunBtn(btn) {
-  if (!await uiConfirm('Apply this policy now (queue upgrades to all targeted devices)?')) return;
+  if (!await uiConfirm('Apply this policy now (queue upgrades to all targeted hosts)?')) return;
   const d = await api('POST', '/autopatch/' + encodeURIComponent(btn.dataset.id) + '/run', {});
-  if (d?.ok) toast(`Queued upgrade on ${d.queued} device(s)`, 'success');
+  if (d?.ok) toast(`Queued upgrade on ${d.queued} host(s)`, 'success');
   else toast(d?.error || 'Failed', 'error');
 }
 async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
@@ -11466,17 +11466,17 @@ function deleteDeviceView(name) {
 // refreshes the grid.
 async function deleteDevice(id, name) {
   if (!id) return;
-  const label = name ? `"${name}"` : 'this device';
+  const label = name ? `"${name}"` : 'this host';
   if (!await uiConfirm({
-        title: 'Remove device',
+        title: 'Remove host',
         message: `Remove ${label} from RemotePower? This cannot be undone.`,
         confirmText: 'Remove', danger: true })) return;
   const data = await api('DELETE', '/devices/' + encodeURIComponent(id));
   if (data && data.ok) {
-    toast('Device removed', 'info');
+    toast('Host removed', 'info');
     loadDevices();
   } else {
-    toast((data && data.error) || 'Could not remove the device', 'error');
+    toast((data && data.error) || 'Could not remove the host', 'error');
   }
 }
 function _applyInitialViewHash() {
@@ -11613,7 +11613,7 @@ document.addEventListener('scroll', _hideDevHoverCard, true);
 function copyDrawerLink() {
   if (!_drawerDeviceId) return;
   const url = location.origin + location.pathname + location.hash;
-  const done = () => toast('Link copied — opens straight to this device view', 'success');
+  const done = () => toast('Link copied — opens straight to this host view', 'success');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(done, () => toast(url, 'info'));
   } else {
@@ -11695,8 +11695,8 @@ function _registerPatchTable() {
         : '';
       return `<tr><td class="fw-500">${escHtml(d.name)}${silentBadge}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}${d.security_updates > 0 ? ` <span class="patch-badge warn" title="${d.security_updates} of these are distro-flagged SECURITY updates">${d.security_updates} sec</span>` : ''}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
-    emptyMsg: 'No devices match the current filter.',
-    emptyMsgFiltered: 'No devices match the current filter.',
+    emptyMsg: 'No hosts match the current filter.',
+    emptyMsgFiltered: 'No hosts match the current filter.',
   });
 }
 
@@ -11729,11 +11729,11 @@ function _renderInventoryResults() {
   const rows = sorted.map(x =>
     `<tr><td>${escHtml(x.device_name)}</td><td class="mono-12">${escHtml(x.package)}</td><td class="mono-12">${escHtml(x.version)}</td></tr>`).join('');
   out.innerHTML = `<div class="fs-12 c-muted mb-6">${_invResults.length} match(es)${_invTruncated ? ' (capped at 2000)' : ''}</div>`
-    + `<div class="table-card"><table><thead id="inv-thead"><tr><th data-col="device">Device</th><th data-col="package">Package</th><th data-col="version">Version</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    + `<div class="table-card"><table><thead id="inv-thead"><tr><th data-col="device">Host</th><th data-col="package">Package</th><th data-col="version">Version</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All hosts</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
 
 // W1-33: patch-compliance SLA rules + per-device status.
 let _patchSlaRules = [];
@@ -11764,7 +11764,7 @@ function _renderPatchSlaStatus(rows) {
   if (!rows.length) { box.innerHTML = ''; return; }
   if (!bad.length) { box.innerHTML = `<div class="meta-sm-nm">${rows.length} host(s) in scope — all within SLA.</div>`; return; }
   box.innerHTML = `<div class="fw-500 mb-6 c-red">${bad.length} host(s) breaching patch SLA</div>`
-    + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Device</th><th>Group</th><th>Detail</th></tr></thead><tbody>'
+    + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Host</th><th>Group</th><th>Detail</th></tr></thead><tbody>'
     + bad.map(r => `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.group || '—')}</td><td class="fs-12">${escHtml(r.detail || '')}</td></tr>`).join('')
     + '</tbody></table></div>';
 }
@@ -11844,7 +11844,7 @@ async function loadPatchCatalog() {
       + '(<code>apt-mark hold</code> / versionlock / addlock). Windows and macOS have no per-package '
       + 'exclusion, so a decline is <strong>not</strong> enforced there.</div>'
     : '';
-  body.innerHTML = `<div class="table-card"><table><thead id="patch-catalog-thead"><tr><th data-col="package">Package</th><th data-col="hosts" class="ta-center">Hosts</th><th data-col="approval" class="ta-center">Approval</th><th>Devices</th><th class="th-actions"></th></tr></thead><tbody>${rows}</tbody></table></div>` + counts + tpHtml;
+  body.innerHTML = `<div class="table-card"><table><thead id="patch-catalog-thead"><tr><th data-col="package">Package</th><th data-col="hosts" class="ta-center">Hosts</th><th data-col="approval" class="ta-center">Approval</th><th>Hosts</th><th class="th-actions"></th></tr></thead><tbody>${rows}</tbody></table></div>` + counts + tpHtml;
   tableCtl.wireSortOnly('patch-catalog-thead', 'patch_catalog', loadPatchCatalog);
 }
 
@@ -11923,7 +11923,7 @@ function exportPatchPdf() {
   }
   const onlineWithData = patched + withPatches;
   const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0;
-  const scope = gf !== 'all' ? `Group: ${gf}` : df !== 'all' ? 'Single device' : 'Whole fleet';
+  const scope = gf !== 'all' ? `Group: ${gf}` : df !== 'all' ? 'Single host' : 'Whole fleet';
   const rows = filtered.map(d => {
     let status, cls;
     if (d.patch_status === 'fully_patched') { status = 'Up to date'; cls = 'pr-ok'; }
@@ -11934,14 +11934,14 @@ function exportPatchPdf() {
   rep.innerHTML = `
     <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(new Date().toLocaleString(_localeTag()))}</div></div></div>
     <div class="pr-cards">
-      <div class="pr-card"><div class="pr-k">Devices</div><div class="pr-v">${total}</div></div>
+      <div class="pr-card"><div class="pr-k">Hosts</div><div class="pr-v">${total}</div></div>
       <div class="pr-card"><div class="pr-k">Up to date</div><div class="pr-v">${patched}</div></div>
       <div class="pr-card"><div class="pr-k">Need patches</div><div class="pr-v">${withPatches}</div></div>
       <div class="pr-card"><div class="pr-k">Pending updates</div><div class="pr-v">${pending}</div></div>
       <div class="pr-card"><div class="pr-k">Patched</div><div class="pr-v">${pct}%</div></div>
     </div>
-    <h2>Devices</h2>
-    <table data-rows="print"><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Manager</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No devices match the current filter.</td></tr>'}</tbody></table>
+    <h2>Hosts</h2>
+    <table data-rows="print"><thead><tr><th>Host</th><th>Group</th><th>OS</th><th>Manager</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No hosts match the current filter.</td></tr>'}</tbody></table>
     <div class="pr-foot">RemotePower patch report — ${escHtml(scope)}</div>`;
   toast('Opening the print dialog — choose "Save as PDF"', 'info');
   // Let the injected DOM paint before printing (matches printFleetReport's note),
@@ -11951,7 +11951,7 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this device.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -11989,11 +11989,11 @@ function _registerCveTable() {
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
       const cveTotal = (d.counts.critical||0) + (d.counts.high||0) + (d.counts.medium||0) + (d.counts.low||0);
       const prioBtn = cveTotal > 0
-        ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this device's CVEs">${_icon('sparkles',14)}</button> `
+        ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this host's CVEs">${_icon('sparkles',14)}</button> `
         : '';
       return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
-    emptyMsg: 'No devices enrolled.',
+    emptyMsg: 'No hosts enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
   });
 }
@@ -12080,7 +12080,7 @@ function _registerServicesTable() {
         <td><button class="btn-icon cell-sm" data-stop-prop="1" data-action="editServicesConfig" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" >Configure</button></td>
       </tr>`;
     },
-    emptyMsg: 'No devices enrolled.',
+    emptyMsg: 'No hosts enrolled.',
     emptyMsgFiltered: 'No services match the filter.',
   });
 }
@@ -12218,7 +12218,7 @@ function _renderServiceBaselines() {
       <div class="settings-row"><label class="form-label" for="bl-units-${i}">Units (one systemd unit per line)</label>
         <textarea class="form-input isl-226" rows="3" id="bl-units-${i}" data-blf="units" data-bl="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
       <div class="settings-row"><div class="form-group"><label class="form-label" for="bl-scopetype-${i}">Applies to</label>
-        <select class="form-input mw-160" id="bl-scopetype-${i}" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <select class="form-input mw-160" id="bl-scopetype-${i}" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
         <div class="form-group"><label class="form-label" for="bl-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
         <input type="text" class="form-input" id="bl-scopevals-${i}" data-blf="scopevals" data-bl="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
@@ -12249,7 +12249,7 @@ async function saveServiceBaselines() {
   const bl = (window._svcBaselines || []).filter(b => (b.units || []).length);
   const r = await api('POST', '/service-baselines', { baselines: bl });
   if (r && r.ok) {
-    toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
+    toast(`Saved ${r.baselines.length} baseline(s) — applied on each host's next heartbeat`, 'success');
     closeModal('service-baseline-modal');
     // keep the Services-page card in sync if it's mounted
     if (document.getElementById('services-baselines-list')) loadServiceBaselinesCard();
@@ -12293,7 +12293,7 @@ function _renderServiceBaselinesCard() {
       <div class="settings-row"><label class="form-label" for="bl2-units-${i}">Units (one systemd unit per line)</label>
         <textarea class="form-input isl-226" rows="3" id="bl2-units-${i}" data-bl2f="units" data-bl2="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
       <div class="settings-row"><div class="form-group"><label class="form-label" for="bl2-scopetype-${i}">Applies to</label>
-        <select class="form-input mw-160" id="bl2-scopetype-${i}" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <select class="form-input mw-160" id="bl2-scopetype-${i}" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
         <div class="form-group"><label class="form-label" for="bl2-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
         <input type="text" class="form-input" id="bl2-scopevals-${i}" data-bl2f="scopevals" data-bl2="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
@@ -12324,7 +12324,7 @@ async function saveServiceBaselinesCard() {
   const bl = (window._svcBaselinesCard || []).filter(b => (b.units || []).length);
   const r = await api('POST', '/service-baselines', { baselines: bl });
   if (r && r.ok) {
-    toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
+    toast(`Saved ${r.baselines.length} baseline(s) — applied on each host's next heartbeat`, 'success');
     loadServiceBaselinesCard();
   } else {
     toast(r?.error || 'Failed to save baselines', 'error');
@@ -12700,7 +12700,7 @@ function toggleJobDetail(id) {
 }
 
 async function clearBatchJobs() {
-  if (!await uiConfirm({ message: 'Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.', confirmText: 'Clear', danger: true })) return;
+  if (!await uiConfirm({ message: 'Clear the recent jobs list? This only clears the tracker — anything already queued on a host still runs.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/exec/batch').catch(() => null);
   if (r?.ok) { _batchExpanded.clear(); clearTimeout(_batchPollTimer); loadBatchJobs(); toast('Jobs cleared', 'info'); }
   else toast(r?.error || 'Failed to clear', 'error');
@@ -13097,7 +13097,7 @@ async function loadTrends() {
   const sel = document.getElementById('trend-device');
   if (sel && !sel.dataset.filled) {
     const devs = await api('GET', '/devices?slim=1').catch(() => []);
-    sel.innerHTML = '<option value="">Pick a device…</option>'
+    sel.innerHTML = '<option value="">Pick a host…</option>'
       + (Array.isArray(devs) ? devs : []).map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
     sel.dataset.filled = '1';
   }
@@ -13136,7 +13136,7 @@ async function loadTrendDevice() {
   // A pinpointed window belongs to the host it was drawn on — carrying it to
   // the next device would silently show that device through the old window.
   if (id !== _trendZoomDevice) { clearTimeSeriesZoom('trend-resources'); _trendZoomDevice = id; }
-  if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk / CPU-load history.</div>'; return; }
+  if (!id) { out.innerHTML = '<div class="c-muted">Pick a host to see its memory / swap / disk / CPU-load history.</div>'; return; }
   const zoomOpts = { yMin: 0, yMax: 100, yUnit: '%', zoom: true, onZoom: _trendZoomRefetch };
   const range = document.getElementById('trend-range')?.value || 'raw';
   if (range === 'fivemin' || range === 'hourly' || range === 'daily') {
@@ -13156,7 +13156,7 @@ async function loadTrendDevice() {
     return;
   }
   const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics-history`).catch(() => null);
-  if (!r) { out.innerHTML = '<div class="c-red">Failed to load device metrics.</div>'; return; }
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load host metrics.</div>'; return; }
   renderTimeSeries('trend-resources',
     (r.series || []).map(s => ({ name: s.name, points: (s.points || []).map(p => ({ x: p.ts, y: p.v })) })),
     zoomOpts);
@@ -14169,7 +14169,7 @@ function _integrationBindHtml(it, idx) {
                  value="${escAttr(it.site || '')}" placeholder="e.g. hq, dc1">
           <datalist id="${dl}">${sites.map(s => `<option value="${escAttr(s)}"></option>`).join('')}</datalist></div>
       </div>
-      <p class="hint">Binding an integration routes its up/down events like a device event — maintenance windows, per-host mutes and scoped notification destinations all apply.</p>`;
+      <p class="hint">Binding an integration routes its up/down events like a host event — maintenance windows, per-host mutes and scoped notification destinations all apply.</p>`;
 }
 
 // Sync the DOM inputs back into the _integrations model before save/test.
@@ -14674,8 +14674,8 @@ function _renderTrapRules() {
   tbody.innerHTML = rows.map(r => {
     const sev = `<span class="sev-pill ${_TRAP_SEV_PILL[r.severity] || 'sev-medium'}">${escHtml(r.severity || 'medium')}</span>`;
     const scope = r.device_id
-      ? `device ${escHtml(_deviceNameById(r.device_id) || r.device_id)}`
-      : 'any device';
+      ? `host ${escHtml(_deviceNameById(r.device_id) || r.device_id)}`
+      : 'any host';
     const status = r.enabled
       ? '<span class="sev-pill sev-success">enabled</span>'
       : '<span class="sev-pill sev-low">disabled</span>';
@@ -14704,7 +14704,7 @@ function _fillTrapRuleForm(r) {
   set('tr-value', r.value_match); set('tr-severity', r.severity || 'medium');
   const dsel = document.getElementById('tr-device');
   if (dsel) {
-    dsel.innerHTML = '<option value="">Any device</option>' +
+    dsel.innerHTML = '<option value="">Any host</option>' +
       (window._devicesCache || []).map(d =>
         `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
     dsel.value = r.device_id || '';
@@ -14812,7 +14812,7 @@ const _INBOUND_KINDS = {
 // operator has to get right is the device's IP and the sender's destination.
 const _INBOUND_UDP = {
   syslog: { port: 5514, unit: 'remotepower-syslogd', how: 'Syslog goes out as plain UDP',
-            noun: 'logs', sender: "the device's remote syslog" },
+            noun: 'logs', sender: "the host's remote syslog" },
   flow:   { port: 2055, unit: 'remotepower-flowd', how: 'NetFlow goes out as plain UDP',
             noun: 'flow records', sender: "the router's NetFlow or IPFIX export" },
 };
@@ -14829,12 +14829,12 @@ function _inboundScopeCell(t) {
   const name = t.scope_device_name || t.scope_device_id;
   // The name and the IP are each kept whole but may sit on two lines, so the column
   // gives way to the rest of the table before the row grows past the card.
-  let html = `<span class="nowrap">device ${_escapeHtml(name)}</span>`;
+  let html = `<span class="nowrap">host ${_escapeHtml(name)}</span>`;
   if (t.scope_device_ip) html += ` <span class="nowrap c-muted">· ${_escapeHtml(t.scope_device_ip)}</span>`;
   if (t.receiver_defect === 'no_ip') {
     html += '<div class="c-amber">No IP set: nothing can arrive</div>';
   } else if (t.receiver_defect === 'no_device') {
-    html += '<div class="c-amber">The device is gone</div>';
+    html += '<div class="c-amber">The host is gone</div>';
   }
   return html;
 }
@@ -14844,10 +14844,10 @@ function _inboundScopeCell(t) {
 function _inboundSetupSteps(kind, dev, host) {
   const u = _INBOUND_UDP[kind];
   if (!u) return null;
-  const name = (dev && dev.name) || 'the device';
+  const name = (dev && dev.name) || 'the host';
   const ip = (dev && dev.ip) || '';
   return {
-    lead: `Do not enter this token on the device. ${u.how}, and RemotePower recognises the sender by its IP address.`,
+    lead: `Do not enter this token on the host. ${u.how}, and RemotePower recognises the sender by its IP address.`,
     steps: [
       ip ? `Check that ${name} has the IP address its ${u.noun} come from. It is set to ${ip}.`
          : `Set the IP of ${name} to the address its ${u.noun} come from. It has none yet, so nothing can arrive.`,
@@ -14908,8 +14908,8 @@ async function _editInboundWebhookBtn(btn) {
   const newLabel = await uiPrompt({title: 'Edit inbound webhook',
     message: `Label for "${curLabel}" (blank keeps current):`, value: curLabel});
   if (newLabel === null) return;  // operator cancelled
-  const newScopeD = await uiPrompt({title: 'Restrict to device',
-    message: `Restrict to device_id? (current: ${curScopeD || '(any)'}). Blank = any device.`,
+  const newScopeD = await uiPrompt({title: 'Restrict to host',
+    message: `Restrict to device_id? (current: ${curScopeD || '(any)'}). Blank = any host.`,
     value: curScopeD});
   if (newScopeD === null) return;
   const newScopeT = await uiPrompt({title: 'Restrict to tag',
@@ -14951,13 +14951,13 @@ function updateInboundWebhookKindHint() {
   const devOpt = document.querySelector('#inbound-wh-device option[value=""]');
   const pinned = (kind === 'syslog' || kind === 'snmp_trap' || kind === 'flow');
   if (kind === 'snmp_trap') {
-    if (hint) hint.textContent = 'SNMP trap tokens receive JSON {traps:[{oid,value,agent}]} forwarded by an snmptrapd handler; traps attach to the pinned device and raise snmp_trap_received.';
+    if (hint) hint.textContent = 'SNMP trap tokens receive JSON {traps:[{oid,value,agent}]} forwarded by an snmptrapd handler; traps attach to the pinned host and raise snmp_trap_received.';
   } else if (kind === 'syslog') {
-    if (hint) hint.textContent = 'For logs from a firewall, switch or NAS. The device sends plain UDP syslog to this server (port 5514) and you do not enter the token on it: RemotePower matches the sender\'s IP address to the device you pin here, so that device needs the right IP. Lines land on its Logs tab. A log shipper that posts over HTTP can use the token as a URL instead.';
+    if (hint) hint.textContent = 'For logs from a firewall, switch or NAS. The host sends plain UDP syslog to this server (port 5514) and you do not enter the token on it: RemotePower matches the sender\'s IP address to the host you pin here, so that host needs the right IP. Lines land on its Logs tab. A log shipper that posts over HTTP can use the token as a URL instead.';
   } else if (kind === 'flow') {
-    if (hint) hint.textContent = 'For traffic records from a router or firewall. The device exports NetFlow or IPFIX to this server (UDP port 2055) and you do not enter the token on it: RemotePower matches the exporter\'s IP address to the device you pin here, so that device needs the right IP.';
+    if (hint) hint.textContent = 'For traffic records from a router or firewall. The host exports NetFlow or IPFIX to this server (UDP port 2055) and you do not enter the token on it: RemotePower matches the exporter\'s IP address to the host you pin here, so that host needs the right IP.';
   } else if (kind === 'itsm') {
-    if (hint) hint.textContent = 'ITSM tokens close the loop the other way: point your Jira / ServiceNow / Zendesk issue-updated webhook at this URL and closing the ticket resolves the RemotePower alert it came from. No device pin needed.';
+    if (hint) hint.textContent = 'ITSM tokens close the loop the other way: point your Jira / ServiceNow / Zendesk issue-updated webhook at this URL and closing the ticket resolves the RemotePower alert it came from. No host pin needed.';
   } else {
     if (hint) hint.textContent = 'Alert tokens land in the Alerts inbox. The sender\'s own payload shape is adapted — pick it below.';
   }
@@ -14965,7 +14965,7 @@ function updateInboundWebhookKindHint() {
   const fmtRow = document.getElementById('inbound-wh-format-row');
   if (fmtRow) fmtRow.classList.toggle('d-none', kind !== 'alert');
   if (req) req.classList.toggle('d-none', !pinned);
-  if (devOpt) devOpt.textContent = pinned ? '— select device —' : '(any — match by body.device)';
+  if (devOpt) devOpt.textContent = pinned ? '— select host —' : '(any — match by body.device)';
 }
 
 async function createInboundWebhook() {
@@ -14974,7 +14974,7 @@ async function createInboundWebhook() {
   const kind = document.getElementById('inbound-wh-kind').value;
   const scope_device_id = document.getElementById('inbound-wh-device').value || null;
   if ((kind === 'syslog' || kind === 'snmp_trap' || kind === 'flow') && !scope_device_id) {
-    toast(`${kind === 'snmp_trap' ? 'SNMP trap' : kind === 'flow' ? 'NetFlow' : 'Syslog'} tokens must be pinned to a device`, 'error');
+    toast(`${kind === 'snmp_trap' ? 'SNMP trap' : kind === 'flow' ? 'NetFlow' : 'Syslog'} tokens must be pinned to a host`, 'error');
     return;
   }
   // v6.4.2: only alert tokens have a payload shape to adapt.
@@ -15240,7 +15240,7 @@ async function refreshNavCounts() {
             let tip = `${off} offline: ${_names}${_offDevs.length > 8 ? ', …' : ''}`;
             if (_servers.length === 0) tip += ' — all workstations/laptops (expected)';
             bb.title = tip;
-          } else bb.title = `${off} device(s) offline`;
+          } else bb.title = `${off} host(s) offline`;
         } else bb.classList.add('d-none');
       } }
     // v5.5.0: keep the sidebar Tickets badge live on the 60s poll (it used to
@@ -15341,7 +15341,7 @@ async function reloadUpdateLogs() {
   document.getElementById('update-logs-capacity').textContent = r.capacity || 10;
   const logs = (r.logs || []).slice().reverse();   // newest first
   if (!logs.length) {
-    body.innerHTML = '<div class="empty-state">No update runs captured yet. Run "Upgrade packages" on this device — the output will land here on the next heartbeat (~60s).</div>';
+    body.innerHTML = '<div class="empty-state">No update runs captured yet. Run "Upgrade packages" on this host — the output will land here on the next heartbeat (~60s).</div>';
     return;
   }
   // v2.8.1: deduplicate — suppress consecutive runs with identical output
@@ -15645,11 +15645,11 @@ async function openScriptRunForDevice(deviceId, deviceName) {
   openModal('script-run-modal');
 }
 async function openScriptRunForBatch() {
-  if (!selectedDevices.size) { toast('Select devices first', 'error'); return; }
+  if (!selectedDevices.size) { toast('Select hosts first', 'error'); return; }
   document.getElementById('script-run-mode').value = 'batch';
   document.getElementById('script-run-device-id').value = '';
   document.getElementById('script-run-target').textContent =
-    `Queue a saved script on ${selectedDevices.size} selected device${selectedDevices.size===1?'':'s'}.`;
+    `Queue a saved script on ${selectedDevices.size} selected host${selectedDevices.size===1?'':'s'}.`;
   document.getElementById('script-run-confirm-wrap').style.display = 'none';
   document.getElementById('script-run-confirm-dangerous').checked = false;
   document.getElementById('script-run-lint').style.display = 'none';
@@ -15707,7 +15707,7 @@ async function confirmScriptRun() {
   }
   closeModal('script-run-modal');
   if (mode === 'batch') clearSelection();
-  toast(`Queued on ${resp.queued}/${resp.total} device${resp.total===1?'':'s'}`, 'success');
+  toast(`Queued on ${resp.queued}/${resp.total} host${resp.total===1?'':'s'}`, 'success');
   if (resp.job_id) openBatchJobModal(resp.job_id);
 }
 
@@ -15798,7 +15798,7 @@ async function openComposeModal(deviceId, deviceName) {
   }
   const projects = data.projects || [];
   if (!projects.length) {
-    sel.innerHTML = `<option value="">${data.docker_seen ? 'No projects found under /opt /home /docker /srv' : 'Device has not reported yet'}</option>`;
+    sel.innerHTML = `<option value="">${data.docker_seen ? 'No projects found under /opt /home /docker /srv' : 'Host has not reported yet'}</option>`;
     return;
   }
   sel.innerHTML = projects.map(p =>
@@ -15816,7 +15816,7 @@ async function runCompose(action) {
   if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
   toast(`compose ${action} queued — output arrives on next heartbeat`, 'success');
   document.getElementById('compose-result').textContent =
-    `Queued: ${resp.queued}\nWaiting for the agent's next heartbeat (~60s)…\nResults appear on the device's System info → Command output panel.`;
+    `Queued: ${resp.queued}\nWaiting for the agent's next heartbeat (~60s)…\nResults appear on the host's System info → Command output panel.`;
 }
 
 
@@ -16673,7 +16673,7 @@ async function runbookModalDelete() {
 }
 async function runbookModalRegen() {
   if (!_runbookCurrentDevice) return;
-  if (!await uiConfirm('Regenerate the runbook? Sends the device snapshot to the configured AI provider again.')) return;
+  if (!await uiConfirm('Regenerate the runbook? Sends the host snapshot to the configured AI provider again.')) return;
   aiGenerateRunbook(_runbookCurrentDevice.id, _runbookCurrentDevice.name);
 }
 
@@ -16725,7 +16725,7 @@ async function collectAllHostConfigs() {
   if (!await uiConfirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
   const r = await api('POST', '/host-config/collect-all', {});
   if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
-  toast(`Queued on ${r.queued} device(s) — current configs arrive in ~60s`, 'success');
+  toast(`Queued on ${r.queued} host(s) — current configs arrive in ~60s`, 'success');
 }
 function exportAllHostConfigs() {
   _downloadAuthed('/api/host-config/export', 'host-configs.json', 'Host configs exported');
@@ -17182,7 +17182,7 @@ function _renderExposureMutes(mutes) {
     // pass it to Remove so device mutes can actually be cleared.
     if (m.device_id) {
       const dev = (window._devicesCache || []).find(d => d.id === m.device_id);
-      parts.push('device=' + escHtml(dev ? dev.name : m.device_id));
+      parts.push('host=' + escHtml(dev ? dev.name : m.device_id));
     }
     if (m.process) parts.push('process=' + escHtml(m.process));
     if (m.proto) parts.push('proto=' + escHtml(m.proto));
@@ -17219,7 +17219,7 @@ async function removeExposureMute(process, proto, port, deviceId) {
   const r = await api('POST', '/exposure/mute', body);
   if (r && r.ok) {
     _renderExposureMutes(r.mutes);
-    pushUndoableAction(`Unmute ${process || proto || port || 'device'}`,
+    pushUndoableAction(`Unmute ${process || proto || port || 'host'}`,
       async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'add' })); if (u?.ok) _renderExposureMutes(u.mutes); },
       async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); },
       'Mute removed');
@@ -18205,13 +18205,13 @@ function _renderHomeHealth(health, history) {
           + `</div>`
           + `</details>`;
       }).join('')
-    : '<div class="c-muted">All devices healthy — nothing needs attention.</div>';
+    : '<div class="c-muted">All hosts healthy — nothing needs attention.</div>';
   body.innerHTML =
     `<div class="hh-wrap">`
     + `<div class="hh-score">`
     +   `<div class="hh-num" data-color="${color}">${health.score}</div>`
     +   `<div class="hh-grade" data-color="${color}">${_escapeHtml(grade)}</div>`
-    +   `<div class="hh-sub c-muted">${health.total_devices} device(s)</div>`
+    +   `<div class="hh-sub c-muted">${health.total_devices} host(s)</div>`
     + `</div>`
     + `<div class="hh-detail">`
     // v6.3.0 (UX wave 10): grade-cutoff ticks — the bar shows where "good"
@@ -18266,7 +18266,7 @@ function _paintVitals(c) {
   const openAlerts = (c.alerts && typeof c.alerts.open === 'number') ? c.alerts.open : 0;
   const down = typeof c.monitoring === 'number' ? c.monitoring : 0;
   el.innerHTML =
-    `<span class="vital${offline ? ' bad' : ''}" title="Monitored devices offline">${_icon('server', 12)}<b>${offline}</b> offline</span>`
+    `<span class="vital${offline ? ' bad' : ''}" title="Monitored hosts offline">${_icon('server', 12)}<b>${offline}</b> offline</span>`
     + `<span class="vitals-sep"></span>`
     + `<span class="vital${openAlerts ? ' bad' : ''}" title="Open alerts">${_icon('alertTriangle', 12)}<b>${openAlerts}</b> alerts</span>`
     + `<span class="vitals-sep"></span>`
@@ -18573,7 +18573,7 @@ async function loadBoard() {
   const vital = (icon, label, val, cls) =>
     `<div class="board-stat"><span class="meta-label">${_icon(icon, 11)} ${label}</span><span class="big ${cls || ''}">${val}</span></div>`;
   const vitals = `<div class="board-vitals">
-    ${vital('layers', 'Devices', t.total || 0)}
+    ${vital('layers', 'Hosts', t.total || 0)}
     ${vital('activity', 'Online', online, online === t.total ? 'c-green' : '')}
     ${vital('server', 'Offline', t.down || 0, t.down ? 'c-red' : 'c-muted')}
     ${vital('alertTriangle', 'Alerting', t.warn || 0, t.warn ? 'c-amber' : 'c-muted')}
@@ -18622,7 +18622,7 @@ async function loadBoard() {
       </div>
     </div>`;
   }).join('');
-  body.innerHTML = vitals + strip + `<div class="board-grid">${tiles || '<div class="c-muted">No devices in scope.</div>'}</div>`;
+  body.innerHTML = vitals + strip + `<div class="board-grid">${tiles || '<div class="c-muted">No hosts in scope.</div>'}</div>`;
   // Set bar segment widths from data attributes (no inline style strings → CSP-safe).
   body.querySelectorAll('.board-bar').forEach(bar => {
     const total = ['ok','warn','down','idle'].reduce((s,k)=>s+(parseInt(bar.dataset[k]||'0',10)),0) || 1;
@@ -18903,14 +18903,14 @@ function _renderHomeWidgets(home) {
   _setWidget('home-w-groups-body', grp.length
     ? _miniRows(grp.slice(0, 8).map(([g, v]) => ({
       l: escHtml(g), r: `${v.on}/${v.t} up`, cls: v.on < v.t ? 'c-amber' : 'c-green' })))
-    : '<div class="hint">No devices.</div>');
+    : '<div class="hint">No hosts.</div>');
   // Monitoring coverage
   const mon = devs.filter(d => d.monitored !== false).length;
   const unmon = devs.length - mon;
   _setWidget('home-w-monitored-body', _miniRows([
     { l: 'Monitored', r: String(mon), cls: 'c-green' },
     { l: 'Unmonitored', r: String(unmon), cls: unmon ? 'c-muted' : '' },
-    { l: 'Total devices', r: String(devs.length) },
+    { l: 'Total hosts', r: String(devs.length) },
   ]));
   // Stale agents — only overdue check-ins (> 10 min), not just the
   // oldest of a healthy fleet. Otherwise this duplicates "Recent check-ins".
@@ -18959,12 +18959,12 @@ function _renderHomeWidgets(home) {
   const sevCls = s => s === 'critical' ? 'c-red'
     : (s === 'high' || s === 'medium' || s === 'warning') ? 'c-amber' : 'c-muted';
 
-  bk('home-w-os-body', breakdown(counted, d => d.os), 'No devices.');
+  bk('home-w-os-body', breakdown(counted, d => d.os), 'No hosts.');
   bk('home-w-agentver-body', breakdown(counted.filter(d => !d.agentless), d => d.version),
      'No agent versions reported.');
   bk('home-w-devtypes-body',
      breakdown(counted, d => d.device_type || (d.agentless ? 'agentless' : 'agent')),
-     'No devices.');
+     'No hosts.');
   // Top tags
   const tagCounts = {};
   counted.forEach(d => (d.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
@@ -18975,7 +18975,7 @@ function _renderHomeWidgets(home) {
     ? `<div class="dash-mini-head">${ung.length} ungrouped</div>`
       + _miniRows(ung.slice(0, 8).map(d => ({ l: escHtml(d.name), r: d.online ? 'up' : 'down',
         cls: d.online ? 'c-green' : 'c-red' })))
-    : '<div class="hint">Every device is in a group.</div>');
+    : '<div class="hint">Every host is in a group.</div>');
   // Recent activity (compact)
   const evs = home.fleet_events || [];
   _setWidget('home-w-activity-body', evs.length
@@ -19299,11 +19299,11 @@ const DASH_WIDGETS = [
   { key: 'mailwatch',label: 'Mailbox watch',           opt: true, size: 'sm' },
   { key: 'oncall',   label: 'On-call now',             opt: true, size: 'sm' },
   // v4.1.0 catalog expansion — client-side breakdowns + stats
-  { key: 'os',          label: 'Devices by OS',        opt: true, size: 'sm' },
+  { key: 'os',          label: 'Hosts by OS',        opt: true, size: 'sm' },
   { key: 'agentver',    label: 'Agent versions',       opt: true, size: 'sm' },
-  { key: 'devtypes',    label: 'Device types',         opt: true, size: 'sm' },
+  { key: 'devtypes',    label: 'Host types',         opt: true, size: 'sm' },
   { key: 'tags',        label: 'Top tags',             opt: true, size: 'sm' },
-  { key: 'ungrouped',   label: 'Ungrouped devices',    opt: true, size: 'sm' },
+  { key: 'ungrouped',   label: 'Ungrouped hosts',    opt: true, size: 'sm' },
   { key: 'activity',    label: 'Recent activity (compact)', opt: true, size: 'sm' },
   { key: 'attseverity', label: 'Attention by severity', opt: true, size: 'sm' },
   { key: 'atttop',      label: 'Top attention items',  opt: true, size: 'md' },
@@ -19320,7 +19320,7 @@ const DASH_WIDGETS = [
   { key: 'containers',  label: 'Container issues',     opt: true, size: 'sm' },
   { key: 'diskfill',    label: 'Disk fill ETA',        opt: true, size: 'sm' },
   // v4.1.0 catalog expansion wave 2
-  { key: 'subnet',      label: 'Devices by subnet',    opt: true, size: 'sm' },
+  { key: 'subnet',      label: 'Hosts by subnet',    opt: true, size: 'sm' },
   { key: 'patchpct',    label: 'Patch compliance',     opt: true, size: 'sm' },
   { key: 'agentless',   label: 'Agent vs agentless',   opt: true, size: 'sm' },
   { key: 'neverseen',   label: 'Never checked in',     opt: true, size: 'sm' },
@@ -19692,10 +19692,10 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   };
   const tiles = [
     {
-      label: 'Devices online',
+      label: 'Hosts online',
       value: `<span class="tile-num">${online}</span><span class="isl-552"> / ${total}</span>`,
-      sub: offline === 0 ? 'All devices reporting in' :
-           offline === 1 ? '1 device offline' : `${offline} devices offline`,
+      sub: offline === 0 ? 'All hosts reporting in' :
+           offline === 1 ? '1 host offline' : `${offline} hosts offline`,
       cls: offline > 0 ? 'warn' : 'ok',
       nav: 'devices', ic: TICON.devices,
     },
@@ -19703,8 +19703,8 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       label: 'Pending updates',
       value: pending,
       sub: criticalPending > 0
-        ? `${criticalPending} device${criticalPending === 1 ? '' : 's'} with 20+ pending`
-        : pending === 0 ? 'Fleet fully patched' : 'Across monitored devices',
+        ? `${criticalPending} host${criticalPending === 1 ? '' : 's'} with 20+ pending`
+        : pending === 0 ? 'Fleet fully patched' : 'Across monitored hosts',
       cls: criticalPending > 0 ? 'warn' : pending === 0 ? 'ok' : '',
       nav: 'patches', ic: TICON.updates,
     },
@@ -19713,7 +19713,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       value: driftedFiles,
       sub: driftedFiles === 0
         ? 'All watched files at baseline'
-        : `${driftDevsMon.filter(d => d.drifted > 0).length} device${driftDevsMon.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
+        : `${driftDevsMon.filter(d => d.drifted > 0).length} host${driftDevsMon.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
       cls: driftedFiles > 0 ? 'warn' : 'ok',
       nav: 'drift', ic: TICON.drift,
     },
@@ -19849,7 +19849,7 @@ function _naItemButtons(i) {
     ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >${snoozeIcon}</button>`
     : '';
   const logsBtn = (i.kind === 'log_alert' && i.device_id)
-    ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
+    ? `<button class="btn-icon isl-556" title="Open Logs filtered to this host + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
     : '';
   // v6.3.1: clearing the LINE is the third option between snoozing (comes
   // back) and deleting the rule (goes blind). Only offered when the alert
@@ -19901,7 +19901,7 @@ async function _renderHomeAttention(preloaded) {
     target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">✓</div>
       <div class="empty-state-title">All clear</div>
-      <div class="empty-state-body">No offline monitored devices, no critical CVE
+      <div class="empty-state-body">No offline monitored hosts, no critical CVE
       findings, no patch backlog, no drift, no mailbox alerts.</div>
     </div>`;
     return;
@@ -20018,7 +20018,7 @@ function _fillAttentionFilterOptions() {
     sel.value = sorted.includes(keep) ? keep : 'all';
   };
   fill('attention-kind-filter', _attentionRows.map(i => i.kind), 'All kinds');
-  fill('attention-device-filter', _attentionRows.map(i => i.device), 'All devices');
+  fill('attention-device-filter', _attentionRows.map(i => i.device), 'All hosts');
 }
 
 function renderAttentionPage() {
@@ -20097,17 +20097,17 @@ function _registerTaxonomyTables() {
     row: (t) => {
       const admin = !!(_meCache && _meCache.admin);
       const writes = admin
-        ? `<button class="btn-icon" title="Rename this tag on every device that carries it" data-action="renameTag" data-arg="${escAttr(t.name)}">${_icon('edit', 14)}</button>`
+        ? `<button class="btn-icon" title="Rename this tag on every host that carries it" data-action="renameTag" data-arg="${escAttr(t.name)}">${_icon('edit', 14)}</button>`
           + `<button class="btn-icon" title="Merge this tag into another one" data-action="mergeTag" data-arg="${escAttr(t.name)}">${_icon('layers', 14)}</button>`
-          + `<button class="btn-icon c-danger-outline" title="Remove this tag from every device" data-action="deleteTag" data-arg="${escAttr(t.name)}">${_icon('trash', 14)}</button>`
+          + `<button class="btn-icon c-danger-outline" title="Remove this tag from every host" data-action="deleteTag" data-arg="${escAttr(t.name)}">${_icon('trash', 14)}</button>`
         : '';
       return `<tr><td class="fw-600"><span class="tag-pill">${escHtml(t.name)}</span></td>`
         + `<td>${t.device_count}</td>`
         + `<td><div class="user-actions">`
-        + `<button class="btn-icon" title="Show the devices carrying this tag" data-action="showDevicesForTag" data-arg="${escAttr(t.name)}">${_icon('eye', 14)}</button>`
+        + `<button class="btn-icon" title="Show the hosts carrying this tag" data-action="showDevicesForTag" data-arg="${escAttr(t.name)}">${_icon('eye', 14)}</button>`
         + writes + `</div></td></tr>`;
     },
-    emptyMsg: 'No tags in use. Tag a device from its drawer, or in bulk from the Devices page.',
+    emptyMsg: 'No tags in use. Tag a host from its drawer, or in bulk from the Hosts page.',
     emptyMsgFiltered: 'No tags match the filter.',
   });
   tableCtl.register({
@@ -20127,17 +20127,17 @@ function _registerTaxonomyTables() {
     row: (g) => {
       const admin = !!(_meCache && _meCache.admin);
       const writes = admin
-        ? `<button class="btn-icon" title="Rename this group on every device in it" data-action="renameGroup" data-arg="${escAttr(g.name)}">${_icon('edit', 14)}</button>`
+        ? `<button class="btn-icon" title="Rename this group on every host in it" data-action="renameGroup" data-arg="${escAttr(g.name)}">${_icon('edit', 14)}</button>`
           + `<button class="btn-icon" title="Merge this group into another one" data-action="mergeGroup" data-arg="${escAttr(g.name)}">${_icon('layers', 14)}</button>`
-          + `<button class="btn-icon c-danger-outline" title="Clear this group from every device (the devices stay)" data-action="deleteGroup" data-arg="${escAttr(g.name)}">${_icon('trash', 14)}</button>`
+          + `<button class="btn-icon c-danger-outline" title="Clear this group from every host (the hosts stay)" data-action="deleteGroup" data-arg="${escAttr(g.name)}">${_icon('trash', 14)}</button>`
         : '';
       return `<tr><td class="fw-600">${escHtml(g.name)}</td>`
         + `<td>${g.device_count}</td>`
         + `<td><div class="user-actions">`
-        + `<button class="btn-icon" title="Show the devices in this group" data-action="showDevicesForGroup" data-arg="${escAttr(g.name)}">${_icon('eye', 14)}</button>`
+        + `<button class="btn-icon" title="Show the hosts in this group" data-action="showDevicesForGroup" data-arg="${escAttr(g.name)}">${_icon('eye', 14)}</button>`
         + writes + `</div></td></tr>`;
     },
-    emptyMsg: 'No groups in use. Set a device’s group from its drawer.',
+    emptyMsg: 'No groups in use. Set a host’s group from its drawer.',
     emptyMsgFiltered: 'No groups match the filter.',
   });
 }
@@ -20174,7 +20174,7 @@ function _renderTaxonomy() {
   const untagged = _taxonomyDevices.filter(d => !(d.tags || []).length).length;
   const note = document.getElementById('taxonomy-summary');
   if (note) {
-    note.textContent = `${_taxonomyDevices.length} device(s) · ${groupCounts.size} group(s), `
+    note.textContent = `${_taxonomyDevices.length} host(s) · ${groupCounts.size} group(s), `
       + `${ungrouped} ungrouped · ${tagCounts.size} tag(s), ${untagged} untagged`;
   }
 }
@@ -20218,10 +20218,10 @@ function _taxonomyTagNames() {
 }
 
 async function _taxonomyBulkTags(ids, add, remove, okMsg) {
-  if (!ids.length) { toast('No devices carry that tag any more', 'info'); return; }
+  if (!ids.length) { toast('No hosts carry that tag any more', 'info'); return; }
   const r = await api('POST', '/devices/bulk-tags', {device_ids: ids, add, remove});
   if (r && r.ok) {
-    toast(`${okMsg} on ${r.updated} device(s)`, 'success');
+    toast(`${okMsg} on ${r.updated} host(s)`, 'success');
     await loadTaxonomy();
     loadDevices();
   } else {
@@ -20233,7 +20233,7 @@ async function renameTag(tag) {
   const from = String(tag);
   const answer = await uiPrompt({
     title: `Rename tag "${from}"`,
-    message: 'Every device carrying this tag is updated in one operation.',
+    message: 'Every host carrying this tag is updated in one operation.',
     value: from, confirmText: 'Rename',
   });
   if (answer === null) return;
@@ -20245,7 +20245,7 @@ async function renameTag(tag) {
     // Renaming onto an existing name IS a merge — say so before doing it.
     const ok = await uiConfirm({
       title: 'That tag already exists',
-      message: `"${next}" is already in use. ${ids.length} device(s) will move onto it and `
+      message: `"${next}" is already in use. ${ids.length} host(s) will move onto it and `
                + `"${from}" will stop existing. Continue?`,
       confirmText: 'Merge',
     });
@@ -20270,7 +20270,7 @@ async function mergeTag(tag) {
   const ids = _taxonomyDeviceIdsWithTag(from);
   const ok = await uiConfirm({
     title: 'Merge tags',
-    message: `Replace "${from}" with "${next}" on ${ids.length} device(s)? "${from}" will no longer exist.`,
+    message: `Replace "${from}" with "${next}" on ${ids.length} host(s)? "${from}" will no longer exist.`,
     confirmText: 'Merge',
   });
   if (!ok) return;
@@ -20282,7 +20282,7 @@ async function deleteTag(tag) {
   const ids = _taxonomyDeviceIdsWithTag(name);
   const ok = await uiConfirm({
     title: `Delete tag "${name}"`,
-    message: `Remove it from ${ids.length} device(s)? The devices are untouched, but anything `
+    message: `Remove it from ${ids.length} host(s)? The hosts are untouched, but anything `
              + 'scoped to this tag — role scopes, alert routing, auto-patch scopes, rollout '
              + 'rings, smart groups, report scopes — stops matching them.',
     confirmText: 'Delete', danger: true,
@@ -20312,10 +20312,10 @@ async function _taxonomyGroupOp(op, payload, okMsg) {
   const orphans = Array.isArray(r.orphan_references) ? r.orphan_references : [];
   if (orphans.length) {
     const where = orphans.map(o => `${o.store} (${o.references})`).join(', ');
-    toast(`${okMsg} on ${r.updated} device(s). Still referenced in ${where} — repoint those.`,
+    toast(`${okMsg} on ${r.updated} host(s). Still referenced in ${where} — repoint those.`,
           'warning');
   } else {
-    toast(`${okMsg} on ${r.updated} device(s)`, 'success');
+    toast(`${okMsg} on ${r.updated} host(s)`, 'success');
   }
   await loadTaxonomy();
   loadDevices();
@@ -20329,7 +20329,7 @@ async function renameGroup(group) {
   const from = String(group);
   const answer = await uiPrompt({
     title: `Rename group "${from}"`,
-    message: `Every device in this group is updated in one atomic operation.\n\n${_GROUP_REF_WARNING}`,
+    message: `Every host in this group is updated in one atomic operation.\n\n${_GROUP_REF_WARNING}`,
     value: from, confirmText: 'Rename',
   });
   if (answer === null) return;
@@ -20340,7 +20340,7 @@ async function renameGroup(group) {
     // Renaming onto an existing name IS a merge — say so before doing it.
     const ok = await uiConfirm({
       title: 'That group already exists',
-      message: `"${next}" is already in use. Every device in "${from}" moves onto it and `
+      message: `"${next}" is already in use. Every host in "${from}" moves onto it and `
                + `"${from}" stops existing. Continue?`,
       confirmText: 'Merge',
     });
@@ -20366,7 +20366,7 @@ async function mergeGroup(group) {
   if (!next || next === from) return;
   const ok = await uiConfirm({
     title: 'Merge groups',
-    message: `Move every device in "${from}" onto "${next}"? "${from}" will no longer exist.`
+    message: `Move every host in "${from}" onto "${next}"? "${from}" will no longer exist.`
              + `\n\n${_GROUP_REF_WARNING}`,
     confirmText: 'Merge',
   });
@@ -20378,7 +20378,7 @@ async function deleteGroup(group) {
   const name = String(group);
   const ok = await uiConfirm({
     title: `Delete group "${name}"`,
-    message: `Clear this group from every device that carries it? The devices themselves are `
+    message: `Clear this group from every host that carries it? The hosts themselves are `
              + `kept — only the label goes.\n\n${_GROUP_REF_WARNING}`,
     confirmText: 'Delete', danger: true,
   });
@@ -20668,7 +20668,7 @@ function _renderHomeActivity(fleetEvents) {
     target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">○</div>
       <div class="empty-state-title">No recent fleet events</div>
-      <div class="empty-state-body">Fleet events (device offline, drift detected, CVE found, etc.) show up here as they fire — regardless of whether any webhook or email destination is configured.</div>
+      <div class="empty-state-body">Fleet events (host offline, drift detected, CVE found, etc.) show up here as they fire — regardless of whether any webhook or email destination is configured.</div>
     </div>`;
     return;
   }
@@ -20990,8 +20990,8 @@ async function _renderHomeFleet(devs) {
   if (devs.length === 0) {
     target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">${_icon('package',32)}</div>
-      <div class="empty-state-title">No devices enrolled yet</div>
-      <div class="empty-state-body">Once you enroll your first device, you'll see its 7-day status stripe here.</div>
+      <div class="empty-state-title">No hosts enrolled yet</div>
+      <div class="empty-state-body">Once you enroll your first host, you'll see its 7-day status stripe here.</div>
     </div>`;
     return;
   }
@@ -21056,7 +21056,7 @@ async function _renderHomeFleet(devs) {
       </div>
     </div>`).join('')
     + (moreCount > 0
-        ? `<div class="hint mt-12">+${moreCount} more host${moreCount === 1 ? '' : 's'} — sorted by most downtime; open <a href="#" data-action-btn="_showPageBtn" data-page="devices" data-prevent-default class="c-accent">Devices</a> for the full fleet.</div>`
+        ? `<div class="hint mt-12">+${moreCount} more host${moreCount === 1 ? '' : 's'} — sorted by most downtime; open <a href="#" data-action-btn="_showPageBtn" data-page="devices" data-prevent-default class="c-accent">Hosts</a> for the full fleet.</div>`
         : '');
 }
 
@@ -21943,12 +21943,12 @@ async function loadMailwatchSettings() {
       api('GET', '/mailwatch'),
     ]);
   } catch (e) {
-    toast('Could not load devices', 'error');
+    toast('Could not load hosts', 'error');
     return;
   }
   _mailwatchOverview = (mw && mw.devices) || [];
   const prev = sel.value;
-  sel.innerHTML = '<option value="">— select a device —</option>' +
+  sel.innerHTML = '<option value="">— select a host —</option>' +
     (devs || []).map(d =>
       `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`
     ).join('');
@@ -21993,7 +21993,7 @@ function loadMailwatchForDevice() {
 
 async function saveMailwatch() {
   const sel = document.getElementById('mailwatch-device');
-  if (!sel || !sel.value) { toast('Pick a device first', 'error', {transient: true}); return; }
+  if (!sel || !sel.value) { toast('Pick a host first', 'error', {transient: true}); return; }
   const devId = sel.value;
   const paths = document.getElementById('mailwatch-paths').value
     .split('\n').map(s => s.trim()).filter(Boolean);
@@ -22139,7 +22139,7 @@ async function loadIncidents() {
     const opts = ['investigating', 'identified', 'monitoring', 'resolved']
       .map(s => `<option value="${s}" ${i.status === s ? 'selected' : ''}>${s}</option>`).join('');
     const autoBadge = i.auto_promoted
-      ? ` <span class="patch-badge warn fs-11" title="Auto-opened from a cross-device ${escAttr(i.root_event || '')} alert storm (${(i.device_ids || []).length} devices) — Settings → Security → Incident auto-promotion">auto</span>` : '';
+      ? ` <span class="patch-badge warn fs-11" title="Auto-opened from a cross-host ${escAttr(i.root_event || '')} alert storm (${(i.device_ids || []).length} hosts) — Settings → Security → Incident auto-promotion">auto</span>` : '';
     return `<div class="dash-card mb-8"><div class="row-6-center"><span class="fw-500 fs-13 ellipsis flex-1">${escHtml(i.title)} <span class="meta-sm-nm">${escHtml(i.impact)}</span>${autoBadge}</span>`
       + `<select class="form-input" data-inc-status="${escAttr(i.id)}" aria-label="Incident status">${opts}</select>`
       + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteIncident" data-arg="${escAttr(i.id)}">Delete</button></div>`
@@ -22194,7 +22194,7 @@ function _renderSpShare(data) {
 
 function _renderSpComponents() {
   const box = document.getElementById('sp-components'); if (!box) return;
-  if (!_spComps.length) { box.innerHTML = '<div class="empty-state">No components yet — add one to group devices/monitors.</div>'; return; }
+  if (!_spComps.length) { box.innerHTML = '<div class="empty-state">No components yet — add one to group hosts/monitors.</div>'; return; }
   box.innerHTML = _spComps.map((c, i) => `
     <div class="dash-card mb-16">
       <div class="row-8-center">
@@ -22202,9 +22202,9 @@ function _renderSpComponents() {
         <input type="text" class="form-input sp-group" data-i="${i}" placeholder="Group (optional)" value="${escAttr(c.group)}">
         <button class="btn-icon c-red c-danger-outline" title="Remove" data-action="spRemoveComponent" data-arg="${i}">${_icon('trash',14)}</button>
       </div>
-      <div class="hint-mb6">Devices:</div>
+      <div class="hint-mb6">Hosts:</div>
       <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button aria-label="Remove" class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
-      <input type="text" class="form-input sp-devsearch" data-i="${i}" placeholder="Search devices to add…" autocomplete="off">
+      <input type="text" class="form-input sp-devsearch" data-i="${i}" placeholder="Search hosts to add…" autocomplete="off">
       <div class="sp-devres hidden scroll-cap-sm" data-i="${i}"></div>
       <div class="hint-mb6">Monitors:</div>
       <div>${c.monitors.map(m => `<span class="group-badge">${escHtml(m)} <button aria-label="Remove" class="btn-icon" data-action="spRemoveMon" data-arg="${i}" data-arg2="${escAttr(m)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
@@ -22243,7 +22243,7 @@ async function _spDevResults(i, term) {
   m = m.slice(0, 15);
   box.innerHTML = m.length
     ? m.map(d => `<div class="pointer p-6" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}" tabindex="0"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
-    : '<div class="hint">No matching devices.</div>';
+    : '<div class="hint">No matching hosts.</div>';
   box.classList.remove('hidden');
 }
 
@@ -22311,7 +22311,7 @@ async function loadListeningPorts() {
   const monitored = devs.filter(d => !d.agentless && d.online);
   if (!monitored.length) {
     _portsGrouped = [];
-    el.textContent = 'No online devices.';
+    el.textContent = 'No online hosts.';
     return;
   }
 
@@ -22379,7 +22379,7 @@ function _renderPortsFiltered() {
     <div class="table-card">
       <table>
         <thead id="ports-thead"><tr>
-          <th data-col="port">Port</th><th data-col="process">Process</th><th data-col="devices">Devices</th>
+          <th data-col="port">Port</th><th data-col="process">Process</th><th data-col="devices">Hosts</th>
         </tr></thead>
         <tbody id="ports-table-body">
           ${visible.map(e => {
@@ -22422,7 +22422,7 @@ async function loadProcesses() {
   const monitored = devs.filter(d => !d.agentless && d.online);
   if (!monitored.length) {
     _processRows = [];
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No online devices.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No online hosts.</td></tr>';
     return;
   }
 
@@ -23405,7 +23405,7 @@ document.addEventListener('keydown', e => {
 // the first shape this shipped in.
 function _snmpWalkPanelHtml() {
   return `<h4 class="mt-12">Browse OID tree</h4>
-    <p class="hint">Walk a subtree of this device's MIB using its stored SNMP credentials. Start from a preset, or type any dotted-decimal OID. Large subtrees return a capped page.</p>
+    <p class="hint">Walk a subtree of this host's MIB using its stored SNMP credentials. Start from a preset, or type any dotted-decimal OID. Large subtrees return a capped page.</p>
     <div class="sb-controls">
       <select id="snmp-walk-preset" class="form-input input-auto" aria-label="Common subtree"></select>
       <input type="text" id="snmp-walk-oid" class="form-input ff-mono input-auto" value="1.3.6.1.2.1.1" placeholder="1.3.6.1.2.1.1" maxlength="256" aria-label="OID to walk">
@@ -23457,7 +23457,7 @@ async function snmpWalk() {
     return;
   }
   if (!r.rows || !r.rows.length) {
-    out.innerHTML = `<div class="c-muted">No objects under <code>${escHtml(oid)}</code> — the device does not implement this subtree.</div>`;
+    out.innerHTML = `<div class="c-muted">No objects under <code>${escHtml(oid)}</code> — the host does not implement this subtree.</div>`;
     return;
   }
   const head = `<div class="hint">${r.count} object(s) in ${r.elapsed_ms} ms`
@@ -23803,7 +23803,7 @@ async function runSudoSearch() {
     return;
   }
   body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">'
-    + '<thead id="sudo-search-thead"><tr><th data-col="ts">When</th><th data-col="device">Device</th>'
+    + '<thead id="sudo-search-thead"><tr><th data-col="ts">When</th><th data-col="device">Host</th>'
     + '<th data-col="user">User</th><th data-col="target">Ran as</th>'
     + '<th data-col="command">Command</th></tr></thead><tbody>'
     + tableCtl.sortRows('sudosearch', ev.slice(), e => ({
@@ -23827,7 +23827,7 @@ async function snoozeDeviceAlerts(devId, name) {
   const data = await api('POST', '/maintenance', {
     scope: 'device', target: devId,
     start: iso(now), end: iso(end),
-    reason: 'Snoozed 1h from device drawer',
+    reason: 'Snoozed 1h from host drawer',
   });
   closeDeviceDrawer();
   if (data?.ok) toast(`Alerts for ${name} snoozed for 1 hour`, 'success');
@@ -23849,7 +23849,7 @@ function _renderDrawerActions() {
     ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
     ['power',     'Power (PDU)',     () => { closeDeviceDrawer(); openPduModal(id, name); },                                                                                      false, false],
     ['zap',       'UPS dependency',  () => { closeDeviceDrawer(); openUpsDependencyModal(id, name); },                                                                             false, false],
-    ['star',      _pinnedDevices().includes(id) ? 'Unpin device' : 'Pin device', () => toggleDevicePin(id, name),                                                                  false, false],
+    ['star',      _pinnedDevices().includes(id) ? 'Unpin host' : 'Pin host', () => toggleDevicePin(id, name),                                                                  false, false],
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
@@ -23879,7 +23879,7 @@ function _renderDrawerActions() {
     ['wrench',    'Maintenance',     () => { closeDeviceDrawer(); openNewMaintModal(); },                                                                                         false, false],
     ['bellOff',   'Snooze alerts 1h', () => snoozeDeviceAlerts(id, name),                                                                                                         false, false],
     ['clock',     'Adjust poll',     () => _drawerAdjustPoll(),                                                                                                                   false, agentless],
-    ['trash',     'Remove device',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                                                                                      true,  false],
+    ['trash',     'Remove host',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                                                                                      true,  false],
   ];
 
   _drawerActMap.clear();
@@ -24007,7 +24007,7 @@ function _renderDrawerSettings() {
       </select>
       <label class="click-row-6 ${(d.reachability || 'icmp') === 'manual' ? '' : 'd-none'}" id="ds-manual-status-row">
         <input type="checkbox" id="ds-manual-status" ${d.manual_status !== false ? 'checked' : ''}>
-        <span class="fs-12">Device is up</span>
+        <span class="fs-12">Host is up</span>
       </label>
       <span class="hint">ICMP pings the host each sweep; Manual for hosts that block ping; SSH polls metrics + runs commands over SSH (agent-free).</span>
     </div>
@@ -24026,7 +24026,7 @@ function _renderDrawerSettings() {
     <div class="drawer-setting-row">
       <label class="drawer-setting-label" for="ds-alert-delay">Offline alert delay</label>
       <input class="form-input isl-621" id="ds-alert-delay" type="number" value="${d.offline_alert_delay_min||0}" min="0" max="1440">
-      <span class="hint">minutes of extra silence before this host raises a <em>device offline</em> alert (0 = default). Use it for a box on a flaky link you don't want paging on every blip.</span>
+      <span class="hint">minutes of extra silence before this host raises a <em>host offline</em> alert (0 = default). Use it for a box on a flaky link you don't want paging on every blip.</span>
     </div>
     ${isAgentless ? '' : `
     <div class="drawer-setting-row">
@@ -25236,7 +25236,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/fleet/events?device_id=${encodeURIComponent(id)}&limit=30`);
         const evs  = Array.isArray(data) ? data : (data?.events || data?.items || []);
         if (!evs.length) {
-          body.innerHTML = '<div class="c-muted">No fleet events for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No fleet events for this host.</div>';
           badge.textContent = 'none';
           return;
         }
@@ -25303,7 +25303,7 @@ async function _loadAuditSection(key) {
         const devDrift = (data?.drifts || data || []).find?.(d=>d.device_id===id)
                       || (typeof data==='object' && data[id]) || null;
         if (!devDrift) {
-          body.innerHTML = '<div class="c-muted">No drift state for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No drift state for this host.</div>';
           badge.textContent = 'clean';
           return;
         }
@@ -25328,7 +25328,7 @@ async function _loadAuditSection(key) {
           const fleet = await api('GET', '/cve/findings');
           const devCve = (fleet?.devices || []).find(d => d.device_id === id);
           if (!devCve) {
-            body.innerHTML = '<div class="c-muted">No CVE data for this device yet.</div>';
+            body.innerHTML = '<div class="c-muted">No CVE data for this host yet.</div>';
             badge.textContent = 'none'; return;
           }
           const c = devCve.counts || {};
@@ -25394,7 +25394,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/containers`);
         const ctrs = data?.items || data?.containers || [];
         if (!ctrs.length) {
-          body.innerHTML = '<div class="c-muted">No container data for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No container data for this host.</div>';
           badge.textContent = 'none'; return;
         }
         badge.textContent = `${ctrs.length} container${ctrs.length!==1?'s':''}`;
@@ -25855,7 +25855,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/backups`);
         const baks = (data && data.backups) || [];
         if (!baks.length) {
-          body.innerHTML = '<div class="c-muted">No backup monitors report for this device. Add watched backup paths in <strong>Settings → Advanced → Backup monitors</strong>; the agent reports each path\'s freshness on every heartbeat.</div>';
+          body.innerHTML = '<div class="c-muted">No backup monitors report for this host. Add watched backup paths in <strong>Settings → Advanced → Backup monitors</strong>; the agent reports each path\'s freshness on every heartbeat.</div>';
           badge.textContent = 'none';
           break;
         }
@@ -25979,7 +25979,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
     };
     h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
       <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="hw-smart-thead"><tr>
-        <th data-col="device">Device</th><th data-col="model">Model</th>
+        <th data-col="device">Host</th><th data-col="model">Model</th>
         <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
         <th data-col="pending">Pending</th><th data-col="crc" title="CRC errors / uncorrectable sectors — these drive the FAILED verdict">CRC / Unc.</th><th data-col="temp">Temp</th>
         <th data-col="hours">Power-on h</th><th data-col="wear" title="SSD/NVMe wear (used %); projected life from wear rate">Wear</th></tr></thead><tbody>` +
@@ -26215,7 +26215,7 @@ async function toggleQuarantine(id, on) {
   const r = await api('PATCH', `/devices/${id}/quarantine`, {quarantined: !!on});
   if (r && r.ok) {
     if (_drawerDeviceData) _drawerDeviceData.quarantined = r.quarantined;
-    toast(r.quarantined ? 'Device quarantined — actions disabled.'
+    toast(r.quarantined ? 'Host quarantined — actions disabled.'
                         : 'Quarantine lifted.', 'success');
   } else {
     toast((r && r.error) || 'Failed', 'error');
@@ -26235,7 +26235,7 @@ async function deviceSpeedtest(id) {
   if (!(r && r.ok)) { toast((r && r.error) || 'Failed to queue', 'error');
     if (status) status.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed to queue')}</div>`;
     return; }
-  toast('Speed test queued — running on the device…', 'success');
+  toast('Speed test queued — running on the host…', 'success');
   if (status) status.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Speed test queued — waiting for the agent to run it and report back (next poll)…</div>`;
   _awaitDiag(id, 'speedtest', base, 'Speed test');
 }
@@ -26247,7 +26247,7 @@ async function deviceNetscan(id) {
   if (!(r && r.ok)) { toast((r && r.error) || 'Failed to queue', 'error');
     if (status) status.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed to queue')}</div>`;
     return; }
-  toast('LAN scan queued — running on the device…', 'success');
+  toast('LAN scan queued — running on the host…', 'success');
   if (status) status.innerHTML = `<div class="diag-pending">${_icon('clock',13)} LAN scan queued — waiting for the agent to run it and report back (next poll)…</div>`;
   _awaitDiag(id, 'discovery', base, 'LAN scan');
 }
@@ -26282,7 +26282,7 @@ function _awaitDiag(id, kind, baseTs, label) {
       return;
     }
     if (tries >= maxTries) {
-      if (status) status.innerHTML = `<div class="c-amber">${label} still pending after 5 min — the device may be offline, polling slowly, or the required tool isn't installed. It'll appear here once it reports.</div>`;
+      if (status) status.innerHTML = `<div class="c-amber">${label} still pending after 5 min — the host may be offline, polling slowly, or the required tool isn't installed. It'll appear here once it reports.</div>`;
       return;
     }
     setTimeout(tick, 6000);
@@ -26349,7 +26349,7 @@ function anomalyRunbook(idx) {
   const a = _lastAnomalies[idx];
   if (!a) return;
   const id = _anomalyDevMap[a.device];
-  if (!id) { toast('That device is not enrolled', 'error'); return; }
+  if (!id) { toast('That host is not enrolled', 'error'); return; }
   deviceRunbook(id, a.device, `${a.finding}. ${a.why}`);
 }
 
@@ -26363,7 +26363,7 @@ async function loadDiscovery() {
   const r = await api('GET', '/discovery');
   const hosts = (r && r.hosts) || [];
   if (!hosts.length) {
-    body.innerHTML = `<div class="c-muted">No unmanaged hosts found${r && r.scanned_by ? ` (${r.scanned_by} agent scan${r.scanned_by>1?'s':''} on record)` : ''}. Run a LAN scan from a device's Health &amp; Hardware card.</div>`;
+    body.innerHTML = `<div class="c-muted">No unmanaged hosts found${r && r.scanned_by ? ` (${r.scanned_by} agent scan${r.scanned_by>1?'s':''} on record)` : ''}. Run a LAN scan from a host's Health &amp; Hardware card.</div>`;
     return;
   }
   tableCtl.wireSortOnly('discovery-thead', 'discovery', loadDiscovery);
@@ -26381,7 +26381,7 @@ async function loadDiscovery() {
       <td class="ff-mono fs-12">${escHtml(h.mac || '—')}</td>
       <td>${escHtml(h.hostname || '—')}</td>
       <td class="fs-12">${escHtml((h.seen_by || []).join(', '))}</td>
-      <td><button class="btn-icon fs-11" data-action="discoveryAddDevice" data-arg="${i}" title="Add this host as an agentless device">${_icon('package',13)} Add as device</button></td></tr>`).join('') +
+      <td><button class="btn-icon fs-11" data-action="discoveryAddDevice" data-arg="${i}" title="Add this host as an agentless host">${_icon('package',13)} Add as host</button></td></tr>`).join('') +
     `</tbody></table></div>`;
 }
 
@@ -26455,11 +26455,11 @@ async function loadForecast() {
     const filling = _forecastRows.filter(m => m.days_to_full != null).length;
     const parts = [];
     if (_forecastRows.length) {
-      parts.push(`${_forecastRows.length} mount(s) across ${r.devices} device(s) with history — ${filling} projected to fill.`);
+      parts.push(`${_forecastRows.length} mount(s) across ${r.devices} host(s) with history — ${filling} projected to fill.`);
     }
     const sat = _forecastResRows.filter(x => x.days_to_saturation != null).length;
     if (_forecastResRows.length) {
-      parts.push(`${_forecastResRows.length} resource series across ${r.resource_devices || 0} device(s) — ${sat} projected to saturate.`);
+      parts.push(`${_forecastResRows.length} resource series across ${r.resource_devices || 0} host(s) — ${sat} projected to saturate.`);
     }
     summary.textContent = parts.join(' ');
   }
@@ -26593,7 +26593,7 @@ async function loadTimeline() {
   const _win = _timelineAroundSeconds()
     ? ` — ${r.items.length} inside the window` : '';
   if (summary) summary.textContent = (_timelineFleet
-    ? `${r.total} event(s) across ${(r.devices || []).length} device(s)`
+    ? `${r.total} event(s) across ${(r.devices || []).length} host(s)`
     : `${r.total} event(s) for ${r.device_name}`) + _win;
   _timelineShown = _TIMELINE_PAGE;
   _renderTimelineKinds(r.kinds || []);
@@ -26631,7 +26631,7 @@ function _renderTimeline() {
   let items = _timelineItems;
   if (_timelineKindFilter.size) items = items.filter(i => _timelineKindFilter.has(i.kind));
   if (!items.length) {
-    const where = _timelineFleet ? 'across the fleet' : 'for this device';
+    const where = _timelineFleet ? 'across the fleet' : 'for this host';
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('clock', 28)}</div>`
       + `<div class="empty-title">No timeline entries</div>`
       + `<div class="empty-text">No events or command runs recorded ${where} yet${_timelineKindFilter.size ? ' in the selected categories' : ''}.</div></div>`;
@@ -26685,8 +26685,8 @@ async function loadReports() {
       preview.innerHTML =
         `<div class="rep-grid">`
         + `<div class="rep-cell"><div class="rep-k">Health</div><div class="rep-v" data-color="${_HEALTH_COLOR[h.grade] || 'var(--muted)'}">${h.score != null ? h.score : '—'}<span class="rep-unit">/100</span></div><div class="rep-sub c-muted">${_escapeHtml(h.grade || '')}</div></div>`
-        + `<div class="rep-cell"><div class="rep-k">Devices</div><div class="rep-v">${d.online || 0}<span class="rep-unit">/${d.total || 0} online</span></div></div>`
-        + `<div class="rep-cell"><div class="rep-k">Patches</div><div class="rep-v">${p.total_pending || 0}</div><div class="rep-sub c-muted">${p.devices_with_patches || 0} device(s)</div></div>`
+        + `<div class="rep-cell"><div class="rep-k">Hosts</div><div class="rep-v">${d.online || 0}<span class="rep-unit">/${d.total || 0} online</span></div></div>`
+        + `<div class="rep-cell"><div class="rep-k">Patches</div><div class="rep-v">${p.total_pending || 0}</div><div class="rep-sub c-muted">${p.devices_with_patches || 0} host(s)</div></div>`
         + `<div class="rep-cell"><div class="rep-k">CVEs</div><div class="rep-v">${(c.critical || 0) + (c.high || 0)}</div><div class="rep-sub c-muted">${c.critical || 0} crit · ${c.high || 0} high</div></div>`
         + `</div>`
         + (fwPills ? `<div class="rep-compliance">${fwPills}</div>` : '');
@@ -26733,7 +26733,7 @@ async function loadReportsCapacity() {
     + cell('Swap', r.swap || {}, '%')
     + `<div class="rep-cell"><div class="rep-k">Disk</div><div class="rep-v">${d.percent != null ? d.percent : '—'}<span class="rep-unit">% used</span></div><div class="rep-sub c-muted">${d.used_gb || 0} / ${d.total_gb || 0} GB</div></div>`
     + `</div>`
-    + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online device(s) counted</div>`
+    + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online host(s) counted</div>`
     + `<div class="cap-tops">${tops('Top CPU', r.top_cpu, '%')}${tops('Top memory', r.top_memory, '%')}${tops('Top disk', r.top_disk, '%')}</div>`;
 }
 
@@ -26760,7 +26760,7 @@ async function loadReportsIntegrity() {
       + `<td class="mono-12">${escHtml(d.agent_sha256 || '—')}</td></tr>`;
   }).join('');
   out.innerHTML = pills + (rows
-    ? `<div class="table-card"><table><thead id="reports-integrity-thead"><tr><th data-col="device">Device</th><th data-col="version">Version</th><th data-col="status">Status</th><th data-col="hash">Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="table-card"><table><thead id="reports-integrity-thead"><tr><th data-col="device">Host</th><th data-col="version">Version</th><th data-col="status">Status</th><th data-col="hash">Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="c-muted">All reporting agents verified.</div>');
   tableCtl.wireSortOnly('reports-integrity-thead', 'reports_integrity', loadReportsIntegrity);
 }
@@ -26798,7 +26798,7 @@ async function loadReportsMetering() {
       + `<td class="fs-12">${reclaim}</td>`
       + `<td class="fs-12 c-muted">${escHtml(m.devices.join(', '))}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="metering-thead"><tr><th data-col="software">Software</th><th data-col="installed">Installed</th><th data-col="reclaim">Reclaim</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  out.innerHTML = `<div class="table-card"><table><thead id="metering-thead"><tr><th data-col="software">Software</th><th data-col="installed">Installed</th><th data-col="reclaim">Reclaim</th><th>Hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`
     + `<div class="fs-11 c-muted mt-4">Reclaimable = installed but not seen in running processes / listening ports. Syntax: <code>name = limit | alias1, alias2</code> (aliases map name variants onto one entry).</div>`;
   tableCtl.wireSortOnly('metering-thead', 'metering', loadReportsMetering);
 }
@@ -26846,7 +26846,7 @@ async function loadReportsAnomalies() {
       + `<td class="mono-12">${base}</td>`
       + `<td class="mono-12">z=${x.z}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="reports-anomalies-thead"><tr><th data-col="device">Device</th><th data-col="metric">Metric</th><th data-col="latest">Latest</th><th data-col="baseline">Baseline</th><th data-col="deviation">Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="reports-anomalies-thead"><tr><th data-col="device">Host</th><th data-col="metric">Metric</th><th data-col="latest">Latest</th><th data-col="baseline">Baseline</th><th data-col="deviation">Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('reports-anomalies-thead', 'reports_anomalies', loadReportsAnomalies);
 }
 
@@ -26884,7 +26884,7 @@ function _renderReportsSla() {
   const base = q
     ? _slaRows.filter(r => (r.name || '').toLowerCase().includes(q) || (r.group || '').toLowerCase().includes(q))
     : _slaRows;
-  if (!base.length) { out.innerHTML = `<div class="c-muted">No device matches “${escHtml(q)}”.</div>`; return; }
+  if (!base.length) { out.innerHTML = `<div class="c-muted">No host matches “${escHtml(q)}”.</div>`; return; }
   const fmtPct = p => p == null ? '—' : p + '%';
   const fmtDown = s => !s ? '0' : s >= 86400 ? Math.round(s / 86400) + 'd' : s >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
   const sorted = tableCtl.sortRows('sla', base.slice(), r => ({
@@ -26919,7 +26919,7 @@ function _renderReportsSla() {
       + `<td class="mono-12">${tgt}</td>`
       + `<td>${budget}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th><th data-col="target">SLA target</th><th data-col="budget">Error budget</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Host</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th><th data-col="target">SLA target</th><th data-col="budget">Error budget</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('sla-thead', 'sla', _renderReportsSla);
 }
 
@@ -26958,15 +26958,15 @@ function _renderSlaTargetsEditor() {
       <select class="sla-tgt-scope form-input input-auto fs-12">
         <option value="group"${row.scope === 'group' ? ' selected' : ''}>Group</option>
         <option value="tag"${row.scope === 'tag' ? ' selected' : ''}>Tag</option>
-        <option value="device"${row.scope === 'device' ? ' selected' : ''}>Device</option>
+        <option value="device"${row.scope === 'device' ? ' selected' : ''}>Host</option>
       </select>
-      <input class="sla-tgt-key form-input fs-12" placeholder="hostname / tag / group" title="The device HOSTNAME, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
-      <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" title="Target uptime %, e.g. 99.9. Devices below it over the report window are flagged as breaching their SLA / error budget." value="${escAttr(String(row.pct == null ? '' : row.pct))}">
+      <input class="sla-tgt-key form-input fs-12" placeholder="hostname / tag / group" title="The host HOSTNAME, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
+      <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" title="Target uptime %, e.g. 99.9. Hosts below it over the report window are flagged as breaching their SLA / error budget." value="${escAttr(String(row.pct == null ? '' : row.pct))}">
       <button class="btn-secondary" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
     </div>`).join('');
   ed.innerHTML = `<div class="dash-card p-12">
     <div class="row-8-center mb-8"><strong class="fs-13">SLA targets</strong>
-      <span class="hint fs-11">most specific wins: device → tag → group → default</span></div>
+      <span class="hint fs-11">most specific wins: host → tag → group → default</span></div>
     <div class="row-8-center mb-8"><label class="fs-12">Default target %</label>
       <input id="sla-tgt-default" class="form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="e.g. 99.9" value="${escAttr(String(def))}"></div>
     ${rowsHtml}
@@ -27074,8 +27074,8 @@ function _autoRuleSummary(r) {
   const evs = (m.events || []).length ? (m.events || []).join(', ') : 'any event';
   const sev = (m.severities || []).length ? ` [${m.severities.join('/')}]` : '';
   const dm = m.device_match || {};
-  let where = 'any device';
-  if (dm.device_id) where = 'device ' + dm.device_id;
+  let where = 'any host';
+  if (dm.device_id) where = 'host ' + dm.device_id;
   else if (dm.group || (dm.tags || []).length) where = [dm.group ? 'group ' + dm.group : '', (dm.tags || []).length ? 'tags ' + dm.tags.join(',') : ''].filter(Boolean).join(' + ');
   const acts = (r.actions || []).map(a => {
     if (a.type === 'run_script') { const s = _autoScripts.find(x => x.id === a.script_id); return 'run ' + (s ? s.name : a.script_id); }
@@ -27434,7 +27434,7 @@ async function runFleetQuery() {
   out.innerHTML = '<div class="c-muted">Querying…</div>';
   const r = await api('GET', '/fleet/query?' + params.toString()).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Query failed.</div>'; return; }
-  if (!Array.isArray(r.devices) || !r.devices.length) { out.innerHTML = '<div class="c-muted">No devices match.</div>'; return; }
+  if (!Array.isArray(r.devices) || !r.devices.length) { out.innerHTML = '<div class="c-muted">No hosts match.</div>'; return; }
   const sorted = tableCtl.sortRows('fleet_query', r.devices.slice(), d => ({
     device: d.name, group: d.group || '', os: d.os || '',
     status: d.online ? 1 : 0,
@@ -27455,8 +27455,8 @@ async function runFleetQuery() {
     + `<td class="ta-center">${d.mem == null ? '—' : Math.round(d.mem) + '%'}</td>`
     + (hasPkgCol ? `<td class="fs-12 mono-12">${escHtml(d.pkg_match || '—')}</td>` : '')
     + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
-  out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} device(s)</div>`
-    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cpu" class="ta-center">CPU%</th><th data-col="mem" class="ta-center">Mem%</th>`
+  out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} host(s)</div>`
+    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Host</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cpu" class="ta-center">CPU%</th><th data-col="mem" class="ta-center">Mem%</th>`
     + (hasPkgCol ? `<th>Matched package</th>` : '')
     + `<th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);
@@ -27549,7 +27549,7 @@ async function _loadSigningRejections() {
   if (!rej.length) { out.innerHTML = ''; return; }
   out.innerHTML = `<div class="settings-section"><div class="section-title">Agents that refused an update</div>`
     + `<p class="hint">These agents declined a self-update because it wasn't validly signed — tamper, a missing signature, or the wrong key.</p>`
-    + `<div class="table-card"><table><thead><tr><th>Device</th><th>Reason</th></tr></thead><tbody>`
+    + `<div class="table-card"><table><thead><tr><th>Host</th><th>Reason</th></tr></thead><tbody>`
     + rej.map(d => `<tr><td>${escHtml(d.name)}</td><td class="c-red fs-12">${escHtml(d.update_rejected)}</td></tr>`).join('')
     + `</tbody></table></div></div>`;
 }
@@ -28024,7 +28024,7 @@ async function saveReportSchedule() {
 // so a section added server-side to _REPORT_SECTIONS but not here shows up as
 // its raw slug ("period") in the Custom reports editor.
 const _REPORT_SECTION_LABELS = {
-  devices: 'Devices', health: 'Health score', attention: 'Needs attention',
+  devices: 'Hosts', health: 'Health score', attention: 'Needs attention',
   patches: 'Patches', cve: 'CVEs', sla: 'SLA / uptime', compliance: 'Compliance',
   period: 'Period activity',
   // v7.0.3: 'posture' was in the server tuple and not here, so the checkbox
@@ -28271,7 +28271,7 @@ function _renderForecastTable() {
         : '<div class="c-muted p-12">No mount has enough history for a disk-fill projection yet.</div>')
     : '';
   body.innerHTML = `<div class="table-card"><table class="audit-table"><thead id="forecast-thead"><tr>
-    <th data-col="device">Device</th><th data-col="mount">Mount</th>
+    <th data-col="device">Host</th><th data-col="mount">Mount</th>
     <th data-col="gb">Used</th><th data-col="used">%</th>
     <th data-col="perday">Trend</th><th data-col="days">Fills in</th>
     <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table></div>${emptyNote}${footer}`;
@@ -28341,7 +28341,7 @@ function _renderForecastResTable() {
   // scanned by the i18n gate; the MutationObserver still translates this one.
   body.innerHTML = `<div class="section-title">Resource headroom</div>`
     + `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="forecast-res-thead"><tr>
-    <th data-col="device">Device</th><th data-col="metric">Resource</th>
+    <th data-col="device">Host</th><th data-col="metric">Resource</th>
     <th data-col="cur">Now</th><th data-col="ceiling">Ceiling</th>
     <th data-col="headroom">Headroom</th><th data-col="perday">Trend</th>
     <th data-col="days">Saturates in</th><th data-col="date">Date</th></tr></thead>`
@@ -29144,7 +29144,7 @@ async function loadIgnoredItems() {
   const sections = [
     { key: 'needs_attention',  label: 'Needs Attention',  identify: e => e.key },
     { key: 'stale_containers', label: 'Stale containers', identify: e => `${e.device_id}/${e.container}` },
-    { key: 'devices',          label: 'Devices',          identify: e => e.id },
+    { key: 'devices',          label: 'Hosts',          identify: e => e.id },
   ];
   const _ago = ts => timeAgo(ts, { empty: '', clamp: true });
   let html = '';
@@ -29193,8 +29193,8 @@ async function loadIgnoredItems() {
     html += '<div class="isl-616">— none —</div>';
   } else {
     html += cveIgnores.map(c => {
-      const scope = c.scope === 'global' ? 'all devices'
-                  : (devName[c.scope] ? `device: ${devName[c.scope]}` : `device: ${c.scope}`);
+      const scope = c.scope === 'global' ? 'all hosts'
+                  : (devName[c.scope] ? `host: ${devName[c.scope]}` : `host: ${c.scope}`);
       const when = c.ts ? _fmtAbsTs(c.ts) : '';
       const meta = [scope, c.reason ? `“${c.reason}”` : 'no reason', when].filter(Boolean).join(' · ');
       return `<div class="isl-669">
@@ -29247,7 +29247,7 @@ async function loadIgnoredItems() {
     <div class="row-8-center mb-8">
       <input type="text" id="nasup-kind" class="form-input input-auto" placeholder="kind (e.g. drift, cve_found) or blank = any" maxlength="40">
       <select id="nasup-scope" class="form-input input-auto">${(supp.scopes || []).map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('')}</select>
-      <input type="text" id="nasup-value" class="form-input input-auto" placeholder="group / tag / device (blank for all)" maxlength="128">
+      <input type="text" id="nasup-value" class="form-input input-auto" placeholder="group / tag / host (blank for all)" maxlength="128">
       <button class="btn-primary btn-xs" data-action="naSuppressAdd">Add rule</button>
     </div>`;
   if (!rules.length) {
@@ -30723,7 +30723,7 @@ function _palBuildIndex() {
     items.push({
       label: d.name || d.id,
       kind: 'device',
-      sub: `${d.os || 'device'} · ${d.ip || ''}`,
+      sub: `${d.os || 'host'} · ${d.ip || ''}`,
       action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id, d.name || d.id), 100); },
     });
     // v3.4.1: jump straight to this device's timeline.
@@ -30874,7 +30874,7 @@ function openCommandPalette() {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;justify-content:center;padding-top:80px';
   overlay.innerHTML = `
     <div class="isl-716">
-      <input id="cmd-palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="cmd-palette-results" aria-autocomplete="list" aria-label="Search devices, pages and actions" placeholder="Jump to a device or page, or run an action — try “reboot”, “terminal”, “run command”…" autocomplete="off" class="isl-717">
+      <input id="cmd-palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="cmd-palette-results" aria-autocomplete="list" aria-label="Search hosts, pages and actions" placeholder="Jump to a host or page, or run an action — try “reboot”, “terminal”, “run command”…" autocomplete="off" class="isl-717">
       <div id="cmd-palette-results" class="isl-718" role="listbox" aria-label="Results"></div>
       <div class="isl-719">
         <span><kbd class="isl-720">↑↓</kbd> navigate</span>
@@ -31008,7 +31008,7 @@ document.addEventListener('keydown', e => {
 // silent mismatch this consolidation removes). [key, page-id, label].
 const _G_NAV = [
   ['h', 'home',     'Dashboard'],
-  ['d', 'devices',  'Devices'],
+  ['d', 'devices',  'Hosts'],
   ['a', 'audit',    'Audit log'],
   ['l', 'logs',     'Logs'],
   ['c', 'cve',      'CVE findings'],
@@ -31216,7 +31216,7 @@ function filterSettings(q) {
 // existing _queue_command_batch endpoint plus a few server-side helpers.
 async function openBulkActions() {
   const devs = window._devicesCache || [];
-  if (!devs.length) { toast('No devices loaded — visit Devices first', 'warning'); return; }
+  if (!devs.length) { toast('No hosts loaded — visit Hosts first', 'warning'); return; }
   if (document.getElementById('bulk-modal-overlay')) return;
   // The modal is built once from a template string, so the smart groups have to
   // be in hand BEFORE it is built — the palette can open this without the
@@ -31238,7 +31238,7 @@ async function openBulkActions() {
         <h3 class="isl-726">Bulk actions</h3>
         <button aria-label="Close" class="btn-icon isl-727" data-action="closeBulkModal"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="isl-730">Run an operation across multiple devices at once. Select a filter, pick an action, confirm.</div>
+      <div class="isl-730">Run an operation across multiple hosts at once. Select a filter, pick an action, confirm.</div>
 
       <div class="mb-14">
         <div class="hint-mb6">FILTER</div>
@@ -31314,7 +31314,7 @@ function _bulkUpdatePreview() {
   const action = document.getElementById('bulk-action')?.value || '?';
   const el = document.getElementById('bulk-preview');
   if (!el) return;
-  el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${targets.length} device(s):
+  el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${targets.length} host(s):
     <div class="isl-734">
       ${targets.slice(0, 10).map(d => `<code>${escHtml(d.name || d.id)}</code>`).join(', ')}
       ${targets.length > 10 ? ` <span class="c-muted">+${targets.length - 10} more</span>` : ''}
@@ -31328,11 +31328,11 @@ async function runBulkAction() {
   const destructive = ['reboot', 'shutdown'].includes(action);
   if (destructive) {
     const word = await uiPrompt({title: `Confirm bulk ${action}`,
-      message: `This will ${action} ${targets.length} device(s). Type RUN to confirm.`,
+      message: `This will ${action} ${targets.length} host(s). Type RUN to confirm.`,
       placeholder: 'RUN', confirmText: action, danger: true});
     if (word !== 'RUN') { toast('Cancelled', 'info'); return; }
   } else {
-    if (!await uiConfirm(`Run ${action} on ${targets.length} device(s)?`)) return;
+    if (!await uiConfirm(`Run ${action} on ${targets.length} host(s)?`)) return;
   }
   const ids = targets.map(d => d.id);
   let endpoint, payload;
@@ -31350,7 +31350,7 @@ async function runBulkAction() {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/scan-packages`);
       if (r && !r.error) ok++; else fail++;
     }
-    toast(`Package scan queued on ${ok} device(s)${fail ? ', ' + fail + ' failed' : ''}`,
+    toast(`Package scan queued on ${ok} host(s)${fail ? ', ' + fail + ' failed' : ''}`,
           fail ? 'warning' : 'success');
     return;
   } else if (action === 'force_acme_rescan') {
@@ -31360,14 +31360,14 @@ async function runBulkAction() {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/acme/force-rescan`);
       if (r && !r.error) ok++; else fail++;
     }
-    toast(`ACME rescan queued on ${ok} device(s)${fail ? ', ' + fail + ' failed' : ''}`,
+    toast(`ACME rescan queued on ${ok} host(s)${fail ? ', ' + fail + ' failed' : ''}`,
           fail ? 'warning' : 'success');
     return;
   }
   const r = await api('POST', endpoint, payload);
   document.getElementById('bulk-modal-overlay')?.remove();
   if (!r || r.error) { toast(r?.error || 'Bulk action failed', 'error'); return; }
-  toast(`Queued ${action} on ${ids.length} device(s)`, 'success');
+  toast(`Queued ${action} on ${ids.length} host(s)`, 'success');
 }
 
 // ─── v3.0.2: Multi-webhook destinations editor ─────────────────────────────
@@ -31484,7 +31484,7 @@ function renderWebhookDests() {
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">
-            <label class="isl-731" title="Also POST the full alert (id, severity, device, payload, who acked) to this destination when an operator acknowledges an alert — e.g. open a ticket. Independent of the event/severity filters below.">
+            <label class="isl-731" title="Also POST the full alert (id, severity, host, payload, who acked) to this destination when an operator acknowledges an alert — e.g. open a ticket. Independent of the event/severity filters below.">
               <input type="checkbox" data-field="on_ack" ${d.on_ack ? 'checked' : ''}>
               <strong>Also fire on alert ACK</strong> (create a ticket with the full alert)
             </label>
@@ -31864,7 +31864,7 @@ function _ensureFlowModal() {
   wrap.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-title" id="flow-title">Network flows</div>
-      <p class="hint">Top talkers and conversations from NetFlow/IPFIX exports this device sends to the RemotePower <code>remotepower-flowd</code> receiver. Agentless — for routers, firewalls and L3 switches. <a href="docs/flow.md" class="c-accent" target="_blank" rel="noopener">Set up flow export</a></p>
+      <p class="hint">Top talkers and conversations from NetFlow/IPFIX exports this host sends to the RemotePower <code>remotepower-flowd</code> receiver. Agentless — for routers, firewalls and L3 switches. <a href="docs/flow.md" class="c-accent" target="_blank" rel="noopener">Set up flow export</a></p>
       <div id="flow-body"><div class="empty-state">Loading…</div></div>
       <div class="modal-actions"><div class="flex-1"></div><button class="btn-icon" data-action="closeFlowModal">Close</button></div>
     </div>`;
@@ -31889,7 +31889,7 @@ function _renderDeviceFlows(r) {
   if (!el) return;
   const latest = (r && r.latest) || {};
   if (!latest.ts) {
-    el.innerHTML = '<div class="empty-state">No flow data yet. This device isn\'t exporting NetFlow/IPFIX to the receiver, or <code>remotepower-flowd</code> isn\'t running. See <a href="docs/flow.md" class="c-accent">flow setup</a>.</div>';
+    el.innerHTML = '<div class="empty-state">No flow data yet. This host isn\'t exporting NetFlow/IPFIX to the receiver, or <code>remotepower-flowd</code> isn\'t running. See <a href="docs/flow.md" class="c-accent">flow setup</a>.</div>';
     return;
   }
   const when = _fmtAbsTs(latest.ts);

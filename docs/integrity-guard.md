@@ -181,7 +181,7 @@ Automatic response is only trustworthy if it refuses to fire on legitimate
 change. Two rails are always on:
 
 **1. Maintenance windows.** While a host is inside an active maintenance window
-(device, group, or global), auto-quarantine is **suppressed** — integrity checks
+(host, group, or global), auto-quarantine is **suppressed** — integrity checks
 degrade to report-only for the duration. A declared deploy is not an intrusion.
 
 **2. Mass change.** If more than **25** new files appear in a single

@@ -77,7 +77,7 @@ def _rollout_advance(roll, devices, cmds, pending=None):
         rstate['queued'] = queued
         rstate['state'] = 'verifying' if dispatched else 'done'
         A._rollout_log(roll, f'ring {idx+1}/{len(rings)} "{rings[idx].get("name")}" '
-                           f'dispatched to {len(dispatched)} device(s)')
+                           f'dispatched to {len(dispatched)} host(s)')
         if not dispatched:
             rstate['done_at'] = now
         mutated = True
@@ -806,7 +806,7 @@ def handle_rollout_action(roll_id, action):
                         if d not in hit:
                             hit.append(d)
                 if not hit:
-                    err_box[0] = 'this rollout has not dispatched to any device yet'
+                    err_box[0] = 'this rollout has not dispatched to any host yet'
                 else:
                     rb = {
                         'id': secrets.token_hex(8),
@@ -828,7 +828,7 @@ def handle_rollout_action(roll_id, action):
                         'created_at': int(time.time()),
                         'updated_at': int(time.time()),
                     }
-                    A._rollout_log(rb, f'rollback of {roll_id} — {len(hit)} device(s)')
+                    A._rollout_log(rb, f'rollback of {roll_id} — {len(hit)} host(s)')
                     rolls.append(rb)
                     roll['rolled_back_by'] = rb['id']
                     A._rollout_log(roll, f'rolled back via {rb["id"]}')

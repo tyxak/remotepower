@@ -1,7 +1,7 @@
 # RAG over your infrastructure
 
 RemotePower's AI assistant retrieves relevant facts from *your* fleet and
-injects them into every request, so answers reference your devices, your
+injects them into every request, so answers reference your hosts, your
 conventions, and your current state instead of generic Linux knowledge.
 
 This is "Level-2/3 RAG" in the ladder the codebase has documented since
@@ -32,14 +32,14 @@ never indexed by any of them.
 
 | Source | Contents | Notes |
 |---|---|---|
-| **Docs & runbooks** | Product Markdown docs + per-device AI runbooks | docs deployed to `/var/lib/remotepower/docs/` |
-| **Live state** | Per device: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, **open alerts**, **local TLS cert expiry**, CVEs, containers, SNMP | one chunk per `(device, facet)` |
+| **Docs & runbooks** | Product Markdown docs + per-host AI runbooks | docs deployed to `/var/lib/remotepower/docs/` |
+| **Live state** | Per host: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, **open alerts**, **local TLS cert expiry**, CVEs, containers, SNMP | one chunk per `(host, facet)` |
 | **Fleet rollups** | Cross-host summaries: worst CVEs, **all open (unresolved) alerts worst-first**, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" / "what is alerting?" |
 | **CMDB** | Asset metadata + per-asset Markdown docs | **credentials vault never indexed** |
 | **History** | Recent commands, alerts, fleet events | bounded by count + age; redaction applied |
-| **Firewall** | Per device: host-firewall posture (nftables/iptables/ufw/firewalld — active, rule counts, policy) + fail2ban jails/bans, and a fleet "no active firewall" rollup. Also Threat intel: each host's attackers with reputation and block state, SSH-gateway sessions, and (v7.3.0) the edge feeds' state, the Cloudflare IP list and the addresses only the edge saw | rule **counts**, never raw rules/counters; public attacker addresses, not fleet data |
+| **Firewall** | Per host: host-firewall posture (nftables/iptables/ufw/firewalld — active, rule counts, policy) + fail2ban jails/bans, and a fleet "no active firewall" rollup. Also Threat intel: each host's attackers with reputation and block state, SSH-gateway sessions, and (v7.3.0) the edge feeds' state, the Cloudflare IP list and the addresses only the edge saw | rule **counts**, never raw rules/counters; public attacker addresses, not fleet data |
 | **Integrations** | Homelab software-integration health (Pi-hole, TrueNAS, *arr, …) + a down/degraded rollup | fleet-scoped; secrets never indexed |
-| **Backups** | Per device: backup freshness (which watched paths are stale, age) + a fleet "stale backups" rollup | answers "are X's backups current?" |
+| **Backups** | Per host: backup freshness (which watched paths are stale, age) + a fleet "stale backups" rollup | answers "are X's backups current?" |
 | **Email & DNS** | DMARC/SPF/DKIM posture per domain, DNSBL/IP-reputation status, and DNS-resolver health — grounds the *email-deliverability* and *DNS-hygiene* AI advisors | admin-configured posture, no PII |
 | **Security posture** | Fleet security-control posture: mutual-TLS coverage (which hosts pin a client certificate), at-rest backup-encryption status, agents in read-only audit mode, and break-glass / maintenance-mode state — lets the AI answer "is backup encryption on?" or "what's our mTLS coverage?" | control-plane summary, no secrets (passphrases/keys are never touched) |
 | **Compliance** | Per-framework control pass/fail (CIS, PCI, HIPAA, SOC 2) and the hosts driving each failure | scores + control ids |
@@ -50,16 +50,16 @@ never indexed by any of them.
 | **Contacts, incidents & maintenance** | On-call/vendor contacts, incident timelines, and scheduled maintenance windows | free-text secret-scrubbed |
 | **Metrics** | Custom Prometheus-textfile metrics and their recent trend per host | numeric, name-validated; **the one source off by default** |
 | **WG Access (VPN)** | WireGuard-based remote-access clients/tunnels and their connection state | no key material |
-| **Config drift** | Per device: which tracked config files are currently drifted (ignored ones excluded), plus a "which hosts have drift?" rollup | file **paths** and status, never the captured diff |
-| **Container-image CVEs** | Per device: per-image critical/high counts from the image scanner, so "prioritise my CVEs" sees the container layer and not just host packages | counts + image names |
+| **Config drift** | Per host: which tracked config files are currently drifted (ignored ones excluded), plus a "which hosts have drift?" rollup | file **paths** and status, never the captured diff |
+| **Container-image CVEs** | Per host: per-image critical/high counts from the image scanner, so "prioritise my CVEs" sees the container layer and not just host packages | counts + image names |
 | **OpenSCAP results** | Per-host baseline scan score, profile, pass/fail counts and the failing rule ids | grounds the compliance/hardening advisors |
 | **Security findings** | On-disk secret findings (rule + path + count), the PII inventory (kind counts + paths) and AV/EDR tool state | **value-free by construction** — never a preview, fingerprint or matched value |
-| **Hardware inventory** | Per device: SMART disk health, GPU telemetry, UPS/power, kernel/livepatch reboot-needed, board temperature and privileged-account posture | models, states and counts — no secrets |
+| **Hardware inventory** | Per host: SMART disk health, GPU telemetry, UPS/power, kernel/livepatch reboot-needed, board temperature and privileged-account posture | models, states and counts — no secrets |
 | **Incident memory** | Resolved-incident outcomes — what actually fixed similar incidents on *this* fleet | event names + resolution summaries, already value-free |
 | **Automation rules** | Existing automation rules: name, trigger and action **type**, enabled state — so the rule-suggestion advisor stops proposing what you already have | never action bodies (a webhook URL or command can embed a credential) |
-| **Applied remediations** | The auto-remediation ledger: what the guarded executor tried and whether it cleared the alert | rule + device + status, no action bodies |
+| **Applied remediations** | The auto-remediation ledger: what the guarded executor tried and whether it cleared the alert | rule + host + status, no action bodies |
 | **Config-revision history** | Server-config change history — when, and by whom | **metadata only**, never the config values |
-| **Privileged-command trail** | Per device: the recent sudo/root command trail, for access review and RCA | commands already redacted at ingest |
+| **Privileged-command trail** | Per host: the recent sudo/root command trail, for access review and RCA | commands already redacted at ingest |
 | **Controller self-observability** | RemotePower's own maintenance-sweep health — "did feature X stop running?" | sweep names, timings, last error |
 | **Billing & time** | Invoice / quote / time-entry counts and totals by status, plus overdue | summary level only |
 | **Physical & IPAM inventory** | Sites, racks, subnets and warranty state — "which rack is host X in", capacity and out-of-warranty planning | operator-authored metadata |

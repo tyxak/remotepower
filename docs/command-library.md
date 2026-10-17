@@ -6,7 +6,7 @@ name + command + optional description.
 
 ## Where they surface
 
-- The **exec modal** (Run command on a device) offers the library as a
+- The **exec modal** (Run command on a host) offers the library as a
   pick-list, so operators run vetted commands instead of ad-hoc typing.
 - For AI clients, **MCP** exposes multi-line *saved scripts* (the
   [Scripts](scripts.md) feature) through the `run_saved_script` tool — the

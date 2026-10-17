@@ -12,7 +12,7 @@ with the operator app.
   a one-time sign-in link.
 - **See their tickets** — only the tickets that belong to their own site
   (customer). They never see other customers' tickets, your internal notes, your
-  devices, or anything else in the fleet.
+  hosts, or anything else in the fleet.
 - **Open a ticket** to read the conversation and status, **reply** to it, and
   **submit a new ticket**.
 

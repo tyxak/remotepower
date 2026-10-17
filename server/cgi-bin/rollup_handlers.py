@@ -211,12 +211,12 @@ def handle_device_metric_rollup(dev_id):
     incident-zoom band between raw-24h and hourly-30d; daily keeps ~2y."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
     scope = A._caller_scope()
     if scope is not None:
         dev = A.device_get(dev_id) or {}
         if not A._device_in_scope(scope, dev):
-            A.respond(403, {'error': 'Device outside your role scope'})
+            A.respond(403, {'error': 'Host outside your role scope'})
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     tier = (qs.get('tier') or ['daily'])[0]
     if tier not in ('fivemin', 'hourly', 'daily'):
@@ -323,12 +323,12 @@ def handle_device_thermal_rollup(dev_id):
     is the incident-zoom band, hourly keeps 30d, daily ~2y."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'Device not found'})
+        A.respond(404, {'error': 'Host not found'})
     scope = A._caller_scope()
     if scope is not None:
         dev = A.device_get(dev_id) or {}
         if not A._device_in_scope(scope, dev):
-            A.respond(403, {'error': 'Device outside your role scope'})
+            A.respond(403, {'error': 'Host outside your role scope'})
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     tier = (qs.get('tier') or ['daily'])[0]
     if tier not in ('fivemin', 'hourly', 'daily'):

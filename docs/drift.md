@@ -2,7 +2,7 @@
 
 *(v2.2.0)*
 
-Per-device file integrity monitoring. The agent computes SHA-256
+Per-host file integrity monitoring. The agent computes SHA-256
 hashes of a list of watched config files on every few heartbeats
 and reports them. The server compares against a stored baseline
 and fires a `drift_detected` webhook when a hash diverges.
@@ -38,23 +38,23 @@ configs) are *not* in the default list.
 ### Customising
 
 **Global default** — edit `cfg['drift']['default_watched_files']` in
-`config.json` to change the default list for new devices.
+`config.json` to change the default list for new hosts.
 
-**Per-device override** — set `devices[<id>]['watched_files']` to a
-list to replace the global default for that device. The agent picks
+**Per-host override** — set `devices[<id>]['watched_files']` to a
+list to replace the global default for that host. The agent picks
 up the new list on its next heartbeat.
 
 **Drift profiles** *(v3.13.0)* — reusable, named sets of watched
 files, managed from the **Drift** page (the *Drift profiles* panel:
-create, edit, delete). Assign a profile to a **device**, **tag**, or
+create, edit, delete). Assign a profile to a **host**, **tag**, or
 **group** and every matching host monitors that set — no need to edit
-each device individually.
+each host individually.
 
-Resolution precedence for a device's watched list:
+Resolution precedence for a host's watched list:
 
-1. an **explicit per-device** `watched_files` list (set in the device
+1. an **explicit per-host** `watched_files` list (set in the host
    drawer) — always wins;
-2. an **assigned profile** — device assignment, then tag, then group;
+2. an **assigned profile** — host assignment, then tag, then group;
 3. the **global default** above.
 
 Endpoints: `GET`/`POST /api/drift/profiles`,
@@ -62,9 +62,9 @@ Endpoints: `GET`/`POST /api/drift/profiles`,
 (`{scope_type: device|tag|group, scope_value, profile_id}`; a null
 `profile_id` clears the assignment). Profiles and assignments live
 under `cfg['drift']['profiles']` / `['assignments']`. Admin-only to
-mutate; changes take effect on each device's next heartbeat.
+mutate; changes take effect on each host's next heartbeat.
 
-A device's **drift detail** view shows *how* its watched list was
+A host's **drift detail** view shows *how* its watched list was
 resolved — `device-override`, `profile:<device|tag|group>` (with the
 profile name), `default`, or `disabled` — so it's never a mystery
 which rule won.
@@ -88,7 +88,7 @@ which rule won.
      subsequent poll that reports the same new hash — debounced
      via `prior_hash`).
 5. Operator sees the drift on the Drift page, can drill into the
-   device-detail modal to see when each file changed.
+   host-detail modal to see when each file changed.
 
 ## "Drift" vs "drift count"
 
@@ -109,8 +109,8 @@ legitimate, click **Accept as baseline** on that row. The current
 hash becomes the new baseline, `drift_count` resets to 0, and
 future changes are measured from the new baseline.
 
-**Accept all current as new baseline** on the device modal does
-this for every drifted file on that device in one click — useful
+**Accept all current as new baseline** on the host modal does
+this for every drifted file on that host in one click — useful
 after a planned config change rollout.
 
 ## Webhook payload
@@ -146,7 +146,7 @@ legitimate; the same alert at 3am is the one you want to see.
   forensic deep-dive.
 - **Not change attribution.** We see *that* the hash changed, not
   *who* changed it. For attribution, look at `auth.log` on the
-  device, or pair this with `auditd` rules on the watched paths.
+  host, or pair this with `auditd` rules on the watched paths.
 
 ## Compliance angle
 
@@ -160,7 +160,7 @@ actor and timestamp) are designed to be readable as evidence.
 
 ```
 GET    /api/drift                          — fleet-wide overview
-GET    /api/devices/<id>/drift             — full drift state for one device
+GET    /api/devices/<id>/drift             — full drift state for one host
 POST   /api/devices/<id>/drift/baseline    — accept current as new baseline
                                               body: {paths: [...]} or {all: true}
 DELETE /api/devices/<id>/drift             — wipe drift state (re-bootstrap)
@@ -170,7 +170,7 @@ All require authentication. Baseline-acceptance is audit-logged.
 
 ## Storage
 
-`data/drift_state.json`, one entry per device:
+`data/drift_state.json`, one entry per host:
 
 ```json
 {
@@ -202,10 +202,10 @@ Per-file history capped at the last 20 changes.
 ## Agent requirements
 
 Drift reporting needs **agent v2.2.0+**. Older agents simply don't
-send the `drift` field; the device shows up as "no data" on the
+send the `drift` field; the host shows up as "no data" on the
 Drift page until the agent is upgraded.
 
-To check your agent versions: Devices page, the OS column shows
-"agent vX.Y.Z" for each agent-managed device. The standard agent
-update flow (Devices page → Force-upgrade agent) works for the
+To check your agent versions: Hosts page, the OS column shows
+"agent vX.Y.Z" for each agent-managed host. The standard agent
+update flow (Hosts page → Force-upgrade agent) works for the
 drift upgrade just like any other agent release.

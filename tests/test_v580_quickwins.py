@@ -121,7 +121,7 @@ class TestFrontendWiring(unittest.TestCase):
 
     def test_devices_empty_state_ctas(self):
         js = (_ROOT / 'server/html/static/js/app.js').read_text()
-        self.assertIn('Add your first device', js)
+        self.assertIn('Add your first host', js)
         self.assertIn('data-action="openEnrollModal"', js)
         self.assertIn('function clearDeviceFilters(', js)
 

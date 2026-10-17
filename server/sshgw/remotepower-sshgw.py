@@ -293,7 +293,7 @@ class Tunnel:
 
     async def open_stream(self, session):
         if len(self.streams) >= MAX_STREAMS_PER_TUNNEL:
-            raise StreamOpenError('too many open sessions to this device')
+            raise StreamOpenError('too many open sessions to this host')
         sid = self._alloc_sid()
         fut = asyncio.get_running_loop().create_future()
         self.pending[sid] = fut
@@ -632,7 +632,7 @@ class GatewaySSHServer(_SSHServer):
             raise asyncssh.ChannelOpenError(asyncssh.OPEN_CONNECT_FAILED, str(e)) from None
         self.streams += 1
         session.on_close = self._stream_closed
-        log.info('stream %s from %s: user %s → device %s (target %s)', meta['session_id'],
+        log.info('stream %s from %s: user %s → host %s (target %s)', meta['session_id'],
                  self.client_ip, _q(self.username), device_id, _q(dest_host))
         return session
 

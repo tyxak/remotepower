@@ -194,12 +194,12 @@ def handle_log_sweep_run(dev_id):
     arbitrary recent log content off the host)."""
     A.require_admin_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
         return
     with A._LockedUpdate(A.DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            A.respond(404, {'error': 'device not found'})
+            A.respond(404, {'error': 'host not found'})
             return
         dev['force_log_sweep'] = True
     with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
@@ -209,7 +209,7 @@ def handle_log_sweep_run(dev_id):
     A.audit_log(A.current_username() or 'unknown', 'log_sweep_request',
                 f'dev={dev_id}')
     A.respond(200, {'ok': True,
-                    'message': 'Log sweep queued — the device reports within '
+                    'message': 'Log sweep queued — the host reports within '
                                'the next poll or two.'})
 
 
@@ -218,11 +218,11 @@ def handle_log_sweep_get(dev_id):
     (+ pending flag while a requested sweep hasn't landed yet)."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'})
+        A.respond(404, {'error': 'invalid host id'})
         return
     devices = A._load_ro(A.DEVICES_FILE) or {}
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
         return
     rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
     requested = int(rec.get('requested_at') or 0)
@@ -260,12 +260,12 @@ def handle_log_sweep_diagnose(dev_id):
     triggers an AI-provider call (cost) + a store write."""
     actor = A.require_write_role('run AI log diagnosis')
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid device id'})
+        A.respond(404, {'error': 'invalid host id'})
         return
     devices = A.load(A.DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if dev is None:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
         return
     rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
     if not rec.get('files'):
@@ -400,7 +400,7 @@ def _triage_tools(dev_id, dev, alert=None):
             note = ('A fresh sweep has been requested from the agent — it '
                     'arrives within a heartbeat or two; a re-run of this '
                     'triage will be able to read it.' if requested else
-                    'The operator can run one from the device drawer.')
+                    'The operator can run one from the host drawer.')
             if not rec.get('files'):
                 return f'(no hail-mary sweep stored. {note})'
             return (f"(STALE sweep from {age_s // 60}m ago — treat with care. "

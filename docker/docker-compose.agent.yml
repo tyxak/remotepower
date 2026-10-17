@@ -1,7 +1,7 @@
 # RemotePower containerized agent — monitor a Docker host.
 #
 # Bind a host in two steps:
-#   1. In the RemotePower UI: Add device → Docker → copy the generated token.
+#   1. In the RemotePower UI: Add host → Docker → copy the generated token.
 #   2. On the host: set the two values below and `docker compose up -d`.
 #
 # The agent enrolls on first boot (named after this host), persists its
@@ -36,7 +36,7 @@ services:
     environment:
       # ── REQUIRED on first boot ──────────────────────────────────────────────
       RP_SERVER: "https://remote.example.com"   # your RemotePower server URL
-      RP_ENROLL_TOKEN: "PASTE_TOKEN_FROM_UI"    # Add device → Docker → copy token
+      RP_ENROLL_TOKEN: "PASTE_TOKEN_FROM_UI"    # Add host → Docker → copy token
       # ── OPTIONAL ────────────────────────────────────────────────────────────
       # RP_DEVICE_NAME: "edge-01"               # default: this host's hostname
       # RP_CA_FINGERPRINT: "AA:BB:CC:…"         # pin a self-signed server's CA

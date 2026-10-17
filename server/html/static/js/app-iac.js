@@ -117,7 +117,7 @@ async function loadIacPage() {
   const sel  = document.getElementById('iac-device-select');
   if (sel && Array.isArray(devs)) {
     const stored = localStorage.getItem('rp_iac_last_device') || '';
-    sel.innerHTML = '<option value="">— select a device —</option>' +
+    sel.innerHTML = '<option value="">— select a host —</option>' +
       devs.map(d => {
         const status = d.online ? '● online' : '○ offline';
         return `<option value="${escAttr(d.id)}" ${d.id===stored?'selected':''}>${escHtml(d.name)} (${status})</option>`;
@@ -188,7 +188,7 @@ async function iacGenerate(btn, withAi) {
   const fmt   = document.getElementById('iac-format-select')?.value;
   const cats  = _iacSelectedCategories();
 
-  if (!devId)       { toast('Pick a device first', 'error', {transient: true}); return; }
+  if (!devId)       { toast('Pick a host first', 'error', {transient: true}); return; }
   if (!cats.length) { toast('Select at least one category', 'error', {transient: true}); return; }
   if (!fmt)         { toast('Select an output format', 'error'); return; }
 

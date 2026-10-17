@@ -134,7 +134,7 @@ The single cheapest lever. The server pushes `poll_interval` to agents in the
 heartbeat response, so you change it centrally and the fleet adopts it:
 
 - Set a fleet default under **Settings** (`default_poll_interval`), or per
-  device / per group.
+  host / per group.
 - For 1000+ agents, **120–300 s** is usually the sweet spot — it cuts heartbeat
   req/s by 2–5× with no loss of useful signal (offline detection still works;
   `online_ttl` is derived from the interval).
@@ -242,13 +242,13 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
 
 > ### One important caveat: shared file storage
 >
-> The Postgres backend holds the *logical* stores (devices, config, sessions,
+> The Postgres backend holds the *logical* stores (hosts, config, sessions,
 > metrics, alerts, …) — those are node-agnostic. But `DATA_DIR` **also** holds a
 > few **file artifacts that are NOT in the database** and would otherwise differ
 > per node:
 >
 > - `avatars/` — user profile pictures
-> - `scap_reports/` — full OpenSCAP HTML reports per device
+> - `scap_reports/` — full OpenSCAP HTML reports per host
 > - `host_config_current/` — host-config snapshots
 > - `mitigate_logs/` (and similar per-scope command/script output logs)
 >
@@ -388,7 +388,7 @@ existed. Turning it on is fully reversible.
 
 - A **tenant** is a registry entry (`tenants.json`) with an id, a name and a
   status. There is always a built-in tenant called `default`.
-- A **device** belongs to a tenant via its `tenant` field. Missing = `default`.
+- A **host** belongs to a tenant via its `tenant` field. Missing = `default`.
 - A **user** belongs to a tenant via `tenant_id` on the user record. Missing =
   `default`.
 - An **API key** stores the tenant of whoever created it, so a key never
@@ -398,7 +398,7 @@ existed. Turning it on is fully reversible.
   an `admin` whose `tenant_id` is that tenant — full admin *inside* their
   tenant, nothing outside it.
 
-When enforcement is on, a device belonging to another tenant is invisible: it
+When enforcement is on, a host belonging to another tenant is invisible: it
 is filtered out of every fleet list and aggregate, and addressing it by id
 returns **404**, never 403 (a 403 would confirm the id exists).
 
@@ -447,7 +447,7 @@ Tenant creation, renaming, suspension, deletion and user assignment are in
 **Settings → Security → Tenants** (visible to platform superadmins only). The
 same operations are available over the API, shown below, which is what you want
 for scripted onboarding. All of them require a platform superadmin except tenant
-branding (see below); assigning a **device** to a tenant is done on the device
+branding (see below); assigning a **host** to a tenant is done on the host
 itself.
 
 **1. Create the tenant.**
@@ -473,8 +473,8 @@ curl -sS -X POST https://rp.example.com/api/tenants/tn_8kQ2v1Ab/users \
 This is the **only** way a `tenant_id` is ever set on an account. Re-running it
 with a different tenant moves the user.
 
-**3. Assign the tenant's devices.** A device's tenant is set through the normal
-device-save endpoint; the `tenant` field is accepted **only from a superadmin**,
+**3. Assign the tenant's hosts.** A host's tenant is set through the normal
+host-save endpoint; the `tenant` field is accepted **only from a superadmin**,
 and only for a tenant that exists (it is silently ignored otherwise).
 
 ```bash
@@ -484,7 +484,7 @@ curl -sS -X POST https://rp.example.com/api/devices/web01 \
 ```
 
 Do this **before** enabling enforcement, or the tenant's admins will see an
-empty fleet. Newly enrolled devices carry no tenant and land in `default` —
+empty fleet. Newly enrolled hosts carry no tenant and land in `default` —
 assign them as part of onboarding.
 
 **4. Optional: per-tenant branding.** Instance branding is instance-wide; the
@@ -519,10 +519,10 @@ summary is:
 
 | Store | Isolated when enforced? |
 |---|---|
-| Devices, and everything keyed by a device id (metrics, history, alerts, entity records) | **Yes** — app layer, plus the database when RLS is on |
-| CMDB assets & credentials | **Yes** — app layer; each record is keyed by a device id and inherits its tenant |
-| Enrolment PINs & tokens | **Yes** — a PIN or token carries the tenant of the admin who made it, and the device it enrols joins that tenant |
-| Inbound webhook & ingest tokens | **Yes** — a token pinned to a device belongs to that device's tenant; unpinned tokens are the platform operator's |
+| Hosts, and everything keyed by a host id (metrics, history, alerts, entity records) | **Yes** — app layer, plus the database when RLS is on |
+| CMDB assets & credentials | **Yes** — app layer; each record is keyed by a host id and inherits its tenant |
+| Enrolment PINs & tokens | **Yes** — a PIN or token carries the tenant of the admin who made it, and the host it enrols joins that tenant |
+| Inbound webhook & ingest tokens | **Yes** — a token pinned to a host belongs to that host's tenant; unpinned tokens are the platform operator's |
 | Instance settings & infrastructure | **Platform operator only** — settings, config revisions, the AI provider, release signing, metrics push, GitOps, scheduled reports, the KMIP server, relay satellites, WireGuard access, scanner targets and the CMDB vault passphrase |
 | Shared libraries (command library, playbooks, blueprints, app catalogue) | Readable by every tenant; **changed only by the platform operator**, because other tenants run them |
 | Tickets | No — one shared store |

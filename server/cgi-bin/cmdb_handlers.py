@@ -405,7 +405,7 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     # v6.4.3 (SECURITY): tenant + role scope. These four credential
     # handlers were the only device-taking CMDB endpoints WITHOUT this,
     # and `/api/cmdb/` is not covered by main()'s pre-dispatch
@@ -417,7 +417,7 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
     A._scope_block_device(dev_id)
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
 
     key, _meta = A._cmdb_require_unlocked()
     body = A.get_json_obj()
@@ -497,7 +497,7 @@ def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
     if A.method() != 'DELETE':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     # v6.4.3 (SECURITY): tenant + role scope. These four credential
     # handlers were the only device-taking CMDB endpoints WITHOUT this,
     # and `/api/cmdb/` is not covered by main()'s pre-dispatch
@@ -541,10 +541,10 @@ def handle_cmdb_credentials_list(dev_id: str) -> None:
     A.require_auth()
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     cmdb = A._cmdb_load()
     rec = cmdb.get(dev_id) or A._cmdb_record_default()
     safe = A._cmdb_strip_creds(rec)
@@ -572,7 +572,7 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     # v6.4.3 (SECURITY): tenant + role scope. These four credential
     # handlers were the only device-taking CMDB endpoints WITHOUT this,
     # and `/api/cmdb/` is not covered by main()'s pre-dispatch
@@ -676,7 +676,7 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
     if A.method() != 'PUT':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     # v6.4.3 (SECURITY): tenant + role scope. These four credential
     # handlers were the only device-taking CMDB endpoints WITHOUT this,
     # and `/api/cmdb/` is not covered by main()'s pre-dispatch
@@ -772,11 +772,11 @@ def handle_cmdb_doc_add(dev_id: str) -> None:
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
 
     body = A.get_json_obj()
     title = A._cmdb_validate_doc_title(body.get('title'))
@@ -822,11 +822,11 @@ def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
     if A.method() != 'DELETE':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
 
     cmdb = A._cmdb_load()
     rec = cmdb.get(dev_id)
@@ -869,11 +869,11 @@ def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
     if A.method() != 'PUT':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
 
     body = A.get_json_obj()
     cmdb = A._cmdb_load()
@@ -936,10 +936,10 @@ def handle_cmdb_get(dev_id: str) -> None:
     A.require_auth()
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     cmdb = A._cmdb_load()
     rec = cmdb.get(dev_id) or A._cmdb_record_default()
     # Backfill ssh_port for records created before v1.10.0.
@@ -1086,11 +1086,11 @@ def handle_cmdb_update(dev_id: str) -> None:
     if A.method() != 'PUT':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
 
     body = A.get_json_obj()
     cmdb = A._cmdb_load()
@@ -1582,10 +1582,10 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
     operator who can see the device + the credential's scope."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     # v6.3.0 security fix: _device_in_scope(None, dev) is True, so the old check
     # let a tenant admin (role scope None) confirm another tenant's device and
     # read its inherited-credential metadata. _scope_block_device enforces the

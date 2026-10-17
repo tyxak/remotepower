@@ -128,9 +128,9 @@ function _teShow(e) {
         <div id="te-site-results" class="scroll-cap-sm"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">Device <span class="meta-sm-nm">(optional — fixes the site if blank)</span></label>
+        <label class="form-label">Host <span class="meta-sm-nm">(optional — fixes the site if blank)</span></label>
         <div id="te-dev-chip" class="mb-6"></div>
-        <input type="text" id="te-dev-search" class="form-input" placeholder="Search a device…" autocomplete="off">
+        <input type="text" id="te-dev-search" class="form-input" placeholder="Search a host…" autocomplete="off">
         <div id="te-dev-results" class="scroll-cap-sm"></div>
       </div>
       ${showRate ? `<div class="form-group"><label class="form-label" for="te-rate">Rate</label><select id="te-rate" class="form-input">${rateOpts}</select></div>` : ''}
@@ -209,7 +209,7 @@ function _teRenderChips() {
   const dc = document.getElementById('te-dev-chip');
   if (dc) dc.innerHTML = _teModal.device
     ? `<span class="group-badge">${escHtml(_teModal.device.name || _teModal.device.id)} <button class="btn-icon cell-sm" data-action="teClearDev" title="Clear"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`
-    : '<span class="meta-sm-nm">No device.</span>';
+    : '<span class="meta-sm-nm">No host.</span>';
 }
 
 async function saveTimeEntry() {
@@ -224,7 +224,7 @@ async function saveTimeEntry() {
   if (billable) {
     if (_teModal.device) body.device_id = _teModal.device.id;
     if (_teModal.site) body.site_id = _teModal.site.id;
-    if (!body.site_id && !body.device_id) { toast('Billable hours need a customer (site) or a device', 'error'); return; }
+    if (!body.site_id && !body.device_id) { toast('Billable hours need a customer (site) or a host', 'error'); return; }
     const rate = document.getElementById('te-rate');
     if (rate) body.rate_name = rate.value;
   } else {

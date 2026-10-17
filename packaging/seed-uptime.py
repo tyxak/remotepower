@@ -122,13 +122,13 @@ def main():
     p.add_argument('--apply', action='store_true',
                    help='Actually write uptime.json (default is dry-run)')
     p.add_argument('--device-id', action='append', default=[],
-                   help='Limit to specific device(s); repeatable. Default: all monitored.')
+                   help='Limit to specific host(s); repeatable. Default: all monitored.')
     p.add_argument('--realistic', action='store_true',
-                   help='Insert one short outage per device on a random day')
+                   help='Insert one short outage per host on a random day')
     p.add_argument('--force', action='store_true',
-                   help='Overwrite even if a device already has 7d of events')
+                   help='Overwrite even if a host already has 7d of events')
     p.add_argument('--quiet', action='store_true',
-                   help='Suppress per-device output')
+                   help='Suppress per-host output')
     args = p.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -141,7 +141,7 @@ def main():
 
     devices = _load(devices_file)
     if not devices:
-        print(f'ERROR: no devices found in {devices_file}', file=sys.stderr)
+        print(f'ERROR: no hosts found in {devices_file}', file=sys.stderr)
         sys.exit(1)
 
     uptime = _load(uptime_file)
@@ -160,7 +160,7 @@ def main():
         targets.append((dev_id, dev))
 
     if not targets:
-        print('ERROR: no matching devices to seed', file=sys.stderr)
+        print('ERROR: no matching hosts to seed', file=sys.stderr)
         sys.exit(1)
 
     seeded, skipped = [], []
@@ -183,13 +183,13 @@ def main():
 
     if args.apply:
         _save_atomic(uptime_file, uptime)
-        print(f'\nWrote {len(seeded)} device(s) to {uptime_file}')
+        print(f'\nWrote {len(seeded)} host(s) to {uptime_file}')
         if skipped:
-            print(f'Skipped {len(skipped)} already-seeded device(s); pass --force to overwrite')
+            print(f'Skipped {len(skipped)} already-seeded host(s); pass --force to overwrite')
     else:
-        print(f'\nWould seed {len(seeded)} device(s). Re-run with --apply.')
+        print(f'\nWould seed {len(seeded)} host(s). Re-run with --apply.')
         if skipped:
-            print(f'Would skip {len(skipped)} already-seeded device(s); --force would overwrite')
+            print(f'Would skip {len(skipped)} already-seeded host(s); --force would overwrite')
 
 
 if __name__ == '__main__':

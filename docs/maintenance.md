@@ -1,22 +1,22 @@
 # Maintenance Windows
 
 **Scheduling → Maintenance** defines windows during which **webhook alerts are
-suppressed** for specific devices, groups, tags, or the whole fleet — so
+suppressed** for specific hosts, groups, tags, or the whole fleet — so
 expected downtime (patching, reboots, migrations) doesn't page anyone.
 
 ## How it works
 
 - A window has a scope, a schedule (a cron expression, built with the weekly-day
   picker or entered directly) and a duration in minutes. The scope can be a
-  single **device**, a device **group**, a **site**, a **tag**, a **smart
+  single **host**, a host **group**, a **site**, a **tag**, a **smart
   group**, or the whole fleet (**global**).
 - Site and tag are the ones to reach for when you patch a customer rather than a
   group: sites span groups, so covering one used to mean either a window per
-  device or silencing everything.
+  host or silencing everything.
 - A smart-group window follows the group's rules, so a host that starts matching
   is covered from its next check-in without anyone editing the window. If the
   smart group is deleted the window covers nothing, rather than everything.
-- While a matching window is active, alerts for in-scope devices are **held back
+- While a matching window is active, alerts for in-scope hosts are **held back
   from webhooks and the needs-attention card** — but history still records
   everything, so nothing is lost.
 - Cron expressions are interpreted in the **server timezone** and validated
@@ -28,7 +28,7 @@ expected downtime (patching, reboots, migrations) doesn't page anyone.
   data keeps flowing, so [Trends](trends.md) and [Timeline](timeline.md) stay
   complete.
 - [Auto-patch](auto-patch.md) upgrades and [scheduled commands](schedule.md)
-  honour maintenance windows and device quarantine.
+  honour maintenance windows and host quarantine.
 
 ## Related
 

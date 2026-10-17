@@ -23,8 +23,8 @@ sudo bash install.sh        # one wizard: nginx + app + TLS + admin — you neve
 HTTPS is automatic: a self-signed CA by default (agents pin it), or a real
 Let's Encrypt cert when you give a public domain. Open the printed URL and log in.
 
-**Add a device — one line, nothing to configure.** In the dashboard,
-*Add device → Quick install command*, then on the target host:
+**Add a host — one line, nothing to configure.** In the dashboard,
+*Add host → Quick install command*, then on the target host:
 
 ```bash
 # Linux / macOS (run as root)
@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -Command "iwr 'https://your-server/install.ps
 
 Either downloads the **signed** agent, verifies its checksum, enrols with the
 baked one-time token, and the host appears **by its hostname** within ~60 seconds.
-The dashboard's *Add device → Quick install command* hands you both lines with a
+The dashboard's *Add host → Quick install command* hands you both lines with a
 fresh token. (Windows details, service control, and the offline
 `install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
@@ -118,7 +118,7 @@ Then reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
 
 **Using acme.sh / DNS-01 instead?** RemotePower has built-in ACME support
 (Settings → Integrations → ACME / Let's Encrypt) that can issue and renew certificates
-for your devices using Cloudflare, Hetzner, Route 53, and others — no
+for your hosts using Cloudflare, Hetzner, Route 53, and others — no
 certbot needed once the server itself has a cert.
 
 **Internal-only / airgapped / no public DNS?** Use the built-in self-signed
@@ -151,7 +151,7 @@ remotepower-agent enroll --server https://your-server --pin 123456
 sudo systemctl enable --now remotepower-agent
 ```
 
-The device shows up in the dashboard within ~60 seconds.
+The host shows up in the dashboard within ~60 seconds.
 
 > **Bigger / segmented / HA deployment?** See **[deployment.md](deployment.md)**
 > for the full map (satellites, app nodes, load balancer, PostgreSQL + HA,
@@ -197,7 +197,7 @@ sudo bash packaging/install-demo.sh demoremote.example.com
 sudo certbot --nginx -d demoremote.example.com
 ```
 
-This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), its own dedicated `remotepower-wsgi-demo` gunicorn process on a second port (shared app code), `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab devices using the unallocated `.lab` TLD.
+This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), its own dedicated `remotepower-wsgi-demo` gunicorn process on a second port (shared app code), `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab hosts using the unallocated `.lab` TLD.
 
 ### Docker (one-liner alternative)
 

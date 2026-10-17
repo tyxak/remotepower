@@ -183,8 +183,8 @@ def resolve_target(devices, host):
         if len(hits) == 1:
             return hits[0], None
         if len(hits) > 1:
-            return None, f'"{name}" matches {len(hits)} devices; use the device id'
-    return None, f'no device named "{name}"'
+            return None, f'"{name}" matches {len(hits)} hosts; use the host id'
+    return None, f'no host named "{name}"'
 
 
 # ── Agent tunnel frames ─────────────────────────────────────────────────────────

@@ -123,7 +123,7 @@ class TestDerivedStructures(unittest.TestCase):
             self.assertIsNone(pair[1], ev)
 
     def test_adapter_maps(self):
-        self.assertEqual(api._webhook_title('device_offline'), 'Device Offline')
+        self.assertEqual(api._webhook_title('device_offline'), 'Host Offline')
         self.assertEqual(api._webhook_title('no_such_event'),
                          'RemotePower: no_such_event')
         self.assertEqual(api._webhook_priority('cve_found'), 5)

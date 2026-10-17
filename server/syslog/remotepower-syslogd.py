@@ -273,13 +273,13 @@ def serve(bind=BIND, reader=None, once=False):
                         return
                 unknown_logged[src] = now
                 if src in srcmap.enrolled_ips:
-                    log.info('dropping syslog from %s: the device IS enrolled but '
+                    log.info('dropping syslog from %s: the host IS enrolled but '
                              'has no enabled syslog ingest token. Create one under '
                              'Settings -> Inbound webhooks (kind: syslog) scoped to '
-                             'that device, then point the sender here.', src)
+                             'that host, then point the sender here.', src)
                 else:
                     log.info('dropping syslog from unknown source %s: no enrolled '
-                             'device has this IP. Check the device record\'s IP '
+                             'host has this IP. Check the host\'s IP '
                              'matches the address the logs actually arrive from.', src)
             return
         post_lines(tok, lines)

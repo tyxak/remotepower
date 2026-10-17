@@ -24,7 +24,7 @@ through the audited [command pipeline](agent-commands.md).
 
 ## Guardrails
 
-- Queued upgrades **respect [maintenance windows](maintenance.md) and device
+- Queued upgrades **respect [maintenance windows](maintenance.md) and host
   quarantine** — a quarantined or out-of-window host is skipped, not forced.
 - Upgrades ride the same per-host permission and 4-eyes controls as a manual
   patch from the [Patch Report](patches.md).

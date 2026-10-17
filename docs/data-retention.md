@@ -22,8 +22,8 @@ evidence them without a screenshot.
 | Setting key | Default | 0 means | What it trims |
 |---|---|---|---|
 | `audit_log_retention_days` | **90** | keep forever | Audit-log entries. Trimmed entries are appended to the archive first, so the hash chain stays verifiable and nothing is destroyed — see below. |
-| `metric_samples_retention_days` | **30** | keep forever | Per-device metric samples (CPU/memory/disk/network time series). |
-| `history_retention_days` | 0 | keep forever | Per-device history: thermal, SMART, GPU, custom metrics. |
+| `metric_samples_retention_days` | **30** | keep forever | Per-host metric samples (CPU/memory/disk/network time series). |
+| `history_retention_days` | 0 | keep forever | Per-host history: thermal, SMART, GPU, custom metrics. |
 | `fleet_events_retention_days` | 0 | keep forever | The dashboard activity feed. |
 | `webhook_log_retention_days` | 0 | keep forever | Webhook delivery log (payloads + response codes). |
 | `monitor_history_retention_days` | 0 | keep forever | Uptime-monitor check results, which back the SLO/uptime figures. |
@@ -82,7 +82,7 @@ records `started_at`, `started_by` and `reason`, and **enabling and lifting are
 each independently audit-logged** — lifting a hold is as consequential as
 starting one, and a disputed end date is answered from the log.
 
-What it does *not* stop: considered operator deletions (deleting a device, a
+What it does *not* stop: considered operator deletions (deleting a host, a
 ticket, a user). Those are actions, not automated purging, and a hold that
 silently blocked them would be a surprise in the other direction. If a hold
 requires that no one delete anything, pair it with read-only mode or a role
@@ -97,7 +97,7 @@ belong in a retention policy as "retained for the life of the record":
 
 | Store | Bound |
 |---|---|
-| Devices, groups, tags, sites | Until the device is deleted. Deleting a device removes its telemetry with it. |
+| Hosts, groups, tags, sites | Until the host is deleted. Deleting a host removes its telemetry with it. |
 | CMDB assets + the credential vault | Until deleted by an operator. The vault is separately encrypted. |
 | Tickets, KB articles | Until deleted, then a hard cap of 5,000 rows each. |
 | Contacts, runbooks, saved scripts | Until deleted. |

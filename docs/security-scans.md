@@ -71,7 +71,7 @@ running forever, see **Run the scanner as a service** at the bottom.)
 ## Part 2 — Scan an enrolled host (the easy path, 3 clicks)
 
 1. In the sidebar, open **Security → Pentest**.
-2. **Search and pick the device** in the device search box (type a name, IP, or group).
+2. **Search and pick the host** in the host search box (type a name, IP, or group).
 3. **Pick a tool** (`nuclei` is the default and a good first choice).
 4. Click **Queue scan**.
 
@@ -235,7 +235,7 @@ permissions, sshd/PAM config, sysctl, accounts) that a network scan can't see.
 It's the easiest one to use: it runs on the host's **own agent**, so you don't
 need a scanner satellite at all.
 
-1. On the **Pentest** page, pick the device.
+1. On the **Pentest** page, pick the host.
 2. Set **Tool** to **lynis (on-host audit)**.
 3. Click **Queue scan**.
 
@@ -271,7 +271,7 @@ is all that's needed.
 |---|---|
 | Scan stays **queued** forever | The scanner isn't running, or can't reach the server. Check Part 1 Step 2 is still running and `RP_SERVER_URL` is correct. |
 | Status **failed**, error `runner not found: docker` | Docker isn't installed on the scanner machine. Install Docker, or set `RP_SCAN_RUNNER=nuclei` to use a locally-installed tool binary. |
-| **"device address is in a blocked class"** when queueing | The host's address is loopback/link-local/cloud-metadata — those are blocked on purpose. Scan a host with a real LAN/public address. |
+| **"host address is in a blocked class"** when queueing | The host's address is loopback/link-local/cloud-metadata — those are blocked on purpose. Scan a host with a real LAN/public address. |
 | **"scan target not found or not ownership-verified"** | You tried to scan a domain before clicking **Verify** (Part 3, step 4). |
 | Verify keeps failing | The DNS TXT record hasn't propagated yet (wait a few minutes), or the `/.well-known` file isn't reachable over HTTP/HTTPS. Double-check the exact value matches. |
 | Findings show `failed` with a timeout | The scan exceeded its time budget. Raise it: `RP_SCAN_TIMEOUT=1800` (seconds) on the scanner. |
@@ -285,7 +285,7 @@ is all that's needed.
 Passive profile — `nuclei` (templated web/network checks), `nikto` (web-server
 misconfig), `nmap` (open ports + safe NSE scripts). Active profile adds `zap`
 (full active web scan) and `wapiti` (web fuzzer), plus intrusive variants of the
-others. `lynis` is an **on-host audit** (runs on the device's agent, not a
+others. `lynis` is an **on-host audit** (runs on the host's agent, not a
 satellite — see above). See **Active (intrusive) scans** for the guardrails.
 
 **Scanner environment variables** (set when starting the scanner):

@@ -9,18 +9,18 @@ the default). An optional per-**unit** byte cap
 (`log_buffer_max_bytes_per_unit`, `0` = no cap) keeps the newest lines and stops
 one chatty unit crowding every other unit out of the buffer. The buffer can be
 exported from the toolbar's **Export CSV** / **Export NDJSON** buttons, which
-export exactly the lines the current device / unit / search filters describe
+export exactly the lines the current host / unit / search filters describe
 rather than the whole buffer (`GET /api/logs/export`). Log content is remote and
 attacker-influenced, so CSV cells are escaped against spreadsheet formula
 injection — a line beginning `=`, `+`, `-` or `@` is prefixed with `'`.
 
 ## Using the page
 
-- **Search** — free-text across the buffer, per device or fleet-wide.
+- **Search** — free-text across the buffer, per host or fleet-wide.
 - **Tail live** — follow new lines as heartbeats deliver them.
 - **Alert rules** — pattern → severity: when a matching line arrives, a
   `log_alert` event fires (inbox + webhooks). Rules can be global or
-  per-device, with cooldowns so a log storm doesn't page you 400 times.
+  per-host, with cooldowns so a log storm doesn't page you 400 times.
 
 ## Clearing a noisy line *(v6.4.0)*
 
@@ -82,7 +82,7 @@ line.
 
 Agents ship recent journald/syslog excerpts with their heartbeats; syslog
 can also be ingested directly (`POST /api/syslog/in/{token}` accepts either
-`{lines:[…]}` or a bare JSON array) for devices that forward rather than
+`{lines:[…]}` or a bare JSON array) for hosts that forward rather than
 run an agent.
 
 The buffer is short-retention — it is an operational triage

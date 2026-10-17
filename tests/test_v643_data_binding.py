@@ -287,7 +287,7 @@ class TestLldpSaysWhyItIsEmpty(unittest.TestCase):
         body = body[:body.index('\n}\n')]
         self.assertIn('r.unresolved', body)
         # the old unconditional advice must not be the only thing shown
-        self.assertIn('none of which is an enrolled device', body)
+        self.assertIn('none of which is an enrolled host', body)
 
 
 if __name__ == '__main__':

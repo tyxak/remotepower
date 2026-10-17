@@ -404,7 +404,7 @@ echo "Next steps:"
 echo "  1. Add the nginx snippet above to your server block."
 echo "  2. Make sure the \$connection_upgrade map is set in http {}."
 echo "  3. sudo nginx -t && sudo systemctl reload nginx"
-echo "  4. Click 'Web terminal' on a device in the dashboard."
+echo "  4. Click 'Web terminal' on a host in the dashboard."
 echo "  5. Watch:  sudo journalctl -u remotepower-webterm -f"
 echo
 echo "If the WebSocket fails with 404, the catch-all /api/ location is winning"

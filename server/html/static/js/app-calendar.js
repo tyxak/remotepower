@@ -437,7 +437,7 @@ function requestNotifications() {
 }
 function sendNotification(title, body) { if (!('Notification' in window) || Notification.permission !== 'granted') return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) { console.warn('Notification failed:', e); } }
 let previousDeviceStates = {};
-function checkDeviceNotifications(newDevices) { if (!notificationsEnabled) return; for (const d of newDevices) { const prev = previousDeviceStates[d.id]; if (prev !== undefined && prev !== d.online) sendNotification(`RemotePower: ${d.name}`, d.online ? 'Device came online' : 'Device went offline'); previousDeviceStates[d.id] = d.online; } }
+function checkDeviceNotifications(newDevices) { if (!notificationsEnabled) return; for (const d of newDevices) { const prev = previousDeviceStates[d.id]; if (prev !== undefined && prev !== d.online) sendNotification(`RemotePower: ${d.name}`, d.online ? 'Host came online' : 'Host went offline'); previousDeviceStates[d.id] = d.online; } }
 // v1.8.4: fetch unauthenticated public info (server name, remember-me default)
 async function loadPublicInfo() {
   try {

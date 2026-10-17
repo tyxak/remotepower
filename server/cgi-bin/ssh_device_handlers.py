@@ -80,10 +80,10 @@ def handle_device_ssh(dev_id):
     # which device ids exist.
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -131,13 +131,13 @@ def handle_device_synology_upgrade(dev_id):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'invalid device id'})
+        A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'device not found'})
+        A.respond(404, {'error': 'host not found'})
     tgt = A._ssh_target(dev)
     if not tgt:
-        A.respond(403, {'error': 'SSH not enabled/configured on this device. '
+        A.respond(403, {'error': 'SSH not enabled/configured on this host. '
                                  'Add SSH credentials first.'})
     import ssh_exec
     A.audit_log(actor, 'device_synology_upgrade',

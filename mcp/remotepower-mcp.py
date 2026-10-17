@@ -49,10 +49,10 @@ Example Claude Desktop config (claude_desktop_config.json):
 
 Security note: v3.2.0 introduces a tight set of write tools, each
 gated server-side by MCP_ACTION_ALLOWLIST and (for destructive ones)
-the per-device require_confirmation flag. The MCP key must hold the
+the per-host require_confirmation flag. The MCP key must hold the
 'mcp' role — admin/viewer cannot call these endpoints. Destructive
 actions (reboot, run_saved_script) against confirmation-required
-devices return 202 with a confirmation_id; an operator approves in
+hosts return 202 with a confirmation_id; an operator approves in
 the dashboard before the action executes. Non-destructive helpers
 (force_package_scan, force_acme_rescan) run immediately. Every call
 is audit-logged with the originating AI host name and natural-
@@ -177,7 +177,7 @@ def _api(method, path, body=None, mcp_prompt=None):
 
 
 def _find_device_by_name(name):
-    """Resolve a device name (or partial name match) to a device dict.
+    """Resolve a host name (or partial name match) to a host dict.
     Tools accept names for friendliness — operators say 'pmg01' not
     'WKFB3BZphiohNVVT'."""
     data = _api("GET", "/api/devices")
@@ -200,7 +200,7 @@ def _find_device_by_name(name):
     if len(matches) > 1:
         names = ", ".join(d.get("name", "?") for d in matches[:5])
         raise RuntimeError(
-            f"Device name '{name}' is ambiguous. Matches: {names}. "
+            f"Host name '{name}' is ambiguous. Matches: {names}. "
             f"Provide a more specific name."
         )
     return None
@@ -213,11 +213,11 @@ def _find_device_by_name(name):
 # whole point of this v1 is that an over-eager LLM can't break the fleet.
 
 def tool_list_devices(args):
-    """List all devices in the fleet with current status."""
+    """List all hosts in the fleet with current status."""
     data = _api("GET", "/api/devices")
     devs = data if isinstance(data, list) else (data or {}).get("devices") or []
     # Trim to fields a model actually wants to see — full payload includes
-    # ~30 fields per device and would blow context budget.
+    # ~30 fields per host and would blow context budget.
     return [{
         "name":         d.get("name"),
         "os":           d.get("os"),
@@ -232,23 +232,23 @@ def tool_list_devices(args):
 
 
 def tool_get_device(args):
-    """Get detailed information about a device by name."""
+    """Get detailed information about a host by name."""
     name = (args or {}).get("name") or ""
     if not name:
         raise RuntimeError("'name' argument required")
     dev = _find_device_by_name(name)
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     # Return everything except the auth token
     return {k: v for k, v in dev.items() if k != "token"}
 
 
 def tool_get_journal(args):
-    """Recent journal entries for a device."""
+    """Recent journal entries for a host."""
     name = (args or {}).get("name") or ""
     dev = _find_device_by_name(name) if name else None
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     dev_id = dev.get("id") or dev.get("device_id")
     data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/sysinfo")
     journal = (data or {}).get("journal") or []
@@ -257,31 +257,31 @@ def tool_get_journal(args):
 
 
 def tool_get_services(args):
-    """Watched systemd unit states for a device."""
+    """Watched systemd unit states for a host."""
     name = (args or {}).get("name") or ""
     dev = _find_device_by_name(name) if name else None
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     services = dev.get("services_watched_state") or dev.get("services") or []
     return {"device": dev.get("name"), "services": services}
 
 
 def tool_get_containers(args):
-    """Container state (Docker/Podman) for a device."""
+    """Container state (Docker/Podman) for a host."""
     name = (args or {}).get("name") or ""
     dev = _find_device_by_name(name) if name else None
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     return {"device": dev.get("name"), "containers": dev.get("containers") or []}
 
 
 def tool_get_cves(args):
-    """CVE findings for a device, or fleet-wide."""
+    """CVE findings for a host, or fleet-wide."""
     name = (args or {}).get("name") or ""
     if name:
         dev = _find_device_by_name(name)
         if not dev:
-            raise RuntimeError(f"No device named '{name}'")
+            raise RuntimeError(f"No host named '{name}'")
         dev_id = dev.get("id") or dev.get("device_id")
         data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/cves")
         findings = (data or {}).get("findings") or []
@@ -292,24 +292,24 @@ def tool_get_cves(args):
 
 
 def tool_get_drift(args):
-    """Configuration drift state for a device or fleet-wide overview."""
+    """Configuration drift state for a host or fleet-wide overview."""
     name = (args or {}).get("name") or ""
     if not name:
         data = _api("GET", "/api/drift")
         return data or {"devices": []}
     dev = _find_device_by_name(name)
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     dev_id = dev.get("id") or dev.get("device_id")
     return _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/drift")
 
 
 def tool_get_recent_commands(args):
-    """Recent commands run on a device, with output and return codes."""
+    """Recent commands run on a host, with output and return codes."""
     name = (args or {}).get("name") or ""
     dev = _find_device_by_name(name) if name else None
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     dev_id = dev.get("id") or dev.get("device_id")
     data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/output")
     outputs = (data or {}).get("outputs") or []
@@ -327,22 +327,22 @@ def tool_get_recent_commands(args):
 
 
 def tool_get_runbook(args):
-    """AI-generated runbook for a device, if one exists."""
+    """AI-generated runbook for a host, if one exists."""
     name = (args or {}).get("name") or ""
     dev = _find_device_by_name(name) if name else None
     if not dev:
-        raise RuntimeError(f"No device named '{name}'")
+        raise RuntimeError(f"No host named '{name}'")
     dev_id = dev.get("id") or dev.get("device_id")
     return _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/runbook")
 
 
 def tool_get_patches(args):
-    """Pending OS package updates across the fleet (or one device)."""
+    """Pending OS package updates across the fleet (or one host)."""
     name = (args or {}).get("name") or ""
     if name:
         dev = _find_device_by_name(name)
         if not dev:
-            raise RuntimeError(f"No device named '{name}'")
+            raise RuntimeError(f"No host named '{name}'")
         return {
             "device":       dev.get("name"),
             "patch_status": dev.get("patch_status"),
@@ -367,11 +367,11 @@ def tool_get_tls(args):
 
 
 def tool_get_snmp_data(args):
-    """Latest SNMP poll for an agentless device. Returns the config and
+    """Latest SNMP poll for an agentless host. Returns the config and
     the last successful sys-group readings (sysDescr, sysName, sysUpTime,
     sysContact, sysLocation, sysObjectID), plus last_error if recent
     polls failed. Returns ok=false with a clear reason when SNMP isn't
-    configured on the device."""
+    configured on the host."""
     name = (args or {}).get('name') or (args or {}).get('device')
     if not name:
         raise RuntimeError("'name' argument required")
@@ -389,12 +389,12 @@ def tool_get_snmp_data(args):
         if len(matches) == 1:
             target = matches[0]
     if not target:
-        return {'ok': False, 'error': f'No device matching "{name}"'}
+        return {'ok': False, 'error': f'No host matching "{name}"'}
     return _api("GET", f"/api/devices/{target['id']}/snmp")
 
 
 def tool_search_devices(args):
-    """Search devices by free-text query (matches name, os, group, tags, notes)."""
+    """Search hosts by free-text query (matches name, os, group, tags, notes)."""
     query = ((args or {}).get("query") or "").lower().strip()
     if not query:
         raise RuntimeError("'query' argument required")
@@ -422,13 +422,13 @@ def tool_search_devices(args):
 
 def tool_search_fleet(args):
     """Semantic / keyword retrieval across the whole RAG knowledge index —
-    live device state, CMDB, runbooks, recent history, and the product docs.
+    live host state, CMDB, runbooks, recent history, and the product docs.
 
     This is the broad-question shortcut: instead of calling list_devices and
     then a get_* tool per host and aggregating yourself, ask in one shot
     ("worst CVEs in the fleet", "which hosts need a reboot", "what's listening
     on tviapp01"). Returns ranked chunks with a citation id, the source kind,
-    the device (if any), and an excerpt. Fleet-wide rollups (worst CVEs,
+    the host (if any), and an excerpt. Fleet-wide rollups (worst CVEs,
     pending updates/reboots, config drift, cert expiry) surface here as single
     chunks. Use the granular get_* tools when you need one host's full,
     structured record."""
@@ -449,12 +449,12 @@ def tool_search_fleet(args):
 #   * Token must hold the 'mcp' role.
 #   * Action name must be in MCP_ACTION_ALLOWLIST.
 #   * For destructive actions (reboot, run_saved_script), if the target
-#     device has require_confirmation=True (default for new devices),
+#     host has require_confirmation=True (default for new hosts),
 #     the server returns 202 with a confirmation_id. The operator must
 #     approve via the dashboard before anything runs.
 
 def _resolve_device_id(name_or_id):
-    """Resolve a device name (or ID) to a device id. Uses the same
+    """Resolve a host name (or ID) to a host id. Uses the same
     auto-disambiguation rules as the read tools: exact > prefix > substring."""
     devs = _api("GET", "/api/devices") or []
     if isinstance(devs, dict) and 'devices' in devs:
@@ -476,16 +476,16 @@ def _resolve_device_id(name_or_id):
     if len(matches) == 1:
         return matches[0]['id']
     if not matches:
-        raise RuntimeError(f"No device matching '{name_or_id}'")
+        raise RuntimeError(f"No host matching '{name_or_id}'")
     names = ', '.join((d.get('name') or d.get('id') or '?') for d in matches[:5])
-    raise RuntimeError(f"Ambiguous device '{name_or_id}' — matches: {names}")
+    raise RuntimeError(f"Ambiguous host '{name_or_id}' — matches: {names}")
 
 
 def tool_reboot_device(args):
-    """Queue a reboot on a device. If the device has require_confirmation
-    set (default for new devices), returns a confirmation_id and the
+    """Queue a reboot on a host. If the host has require_confirmation
+    set (default for new hosts), returns a confirmation_id and the
     operator must approve in the dashboard. Otherwise reboots on the
-    device's next heartbeat (~60s)."""
+    host's next heartbeat (~60s)."""
     name = (args or {}).get('name') or (args or {}).get('device')
     if not name:
         raise RuntimeError("'name' argument required")
@@ -497,7 +497,7 @@ def tool_reboot_device(args):
 
 
 def tool_run_saved_script(args):
-    """Run a server-side pre-vetted script on a device. The script must
+    """Run a server-side pre-vetted script on a host. The script must
     exist in the dashboard's Scripts library (Settings → Scripts) —
     MCP cannot supply arbitrary bash. Subject to require_confirmation."""
     name      = (args or {}).get('name') or (args or {}).get('device')
@@ -513,7 +513,7 @@ def tool_run_saved_script(args):
 
 def tool_force_package_scan(args):
     """Trigger a one-shot fresh package inventory + patch count from a
-    device. Non-destructive — same effect as the dashboard's
+    host. Non-destructive — same effect as the dashboard's
     'Scan now' button. Runs immediately (no confirmation gate)."""
     name = (args or {}).get('name') or (args or {}).get('device')
     if not name:
@@ -525,8 +525,8 @@ def tool_force_package_scan(args):
 
 
 def tool_force_acme_rescan(args):
-    """Trigger a one-shot ACME inventory refresh from a device. Non-
-    destructive — same effect as the per-device 'Force ACME rescan'
+    """Trigger a one-shot ACME inventory refresh from a host. Non-
+    destructive — same effect as the per-host 'Force ACME rescan'
     button. Runs immediately."""
     name = (args or {}).get('name') or (args or {}).get('device')
     if not name:
@@ -631,7 +631,7 @@ TOOLS = {
     "list_alerts": {
         "description":
             "The Alerts inbox: open (or acknowledged/resolved) alerts, newest "
-            "first, with severity, the device, when it FIRST fired, who acked "
+            "first, with severity, the host, when it FIRST fired, who acked "
             "it, and the correlation flags — whether it is the root cause on "
             "its host, which upstream it is collateral from, and any declared "
             "incident it belongs to. This is the right first call for "
@@ -685,35 +685,35 @@ TOOLS = {
     },
     "list_devices": {
         "description":
-            "List all devices in the RemotePower fleet with current online "
+            "List all hosts in the RemotePower fleet with current online "
             "status, OS, group, tags, IP. Always start here to know which "
-            "devices exist before querying specific ones.",
+            "hosts exist before querying specific ones.",
         "inputSchema": {"type": "object", "properties": {}},
         "handler": tool_list_devices,
     },
     "get_device": {
         "description":
-            "Get full detail for one device by name. Includes sysinfo "
+            "Get full detail for one host by name. Includes sysinfo "
             "(uptime, OS, kernel, memory, disks), watched services, "
             "containers, recent journal, tags, group, notes. Use after "
             "list_devices to drill into a specific host.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string",
-                                     "description": "Device name (prefix or substring OK)"}},
+                                     "description": "Host name (prefix or substring OK)"}},
             "required": ["name"],
         },
         "handler": tool_get_device,
     },
     "get_journal": {
         "description":
-            "Recent systemd journal entries from a device. Useful for "
+            "Recent systemd journal entries from a host. Useful for "
             "debugging service issues or recent errors. The agent ships "
             "the most recent journal lines on each heartbeat.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name":  {"type": "string", "description": "Device name"},
+                "name":  {"type": "string", "description": "Host name"},
                 "limit": {"type": "integer", "description": "Max lines (default 30)"},
             },
             "required": ["name"],
@@ -722,9 +722,9 @@ TOOLS = {
     },
     "get_services": {
         "description":
-            "List of systemd units being watched on a device, with their "
+            "List of systemd units being watched on a host, with their "
             "current active/inactive/failed state. Watched units are "
-            "configured per-device in the dashboard.",
+            "configured per-host in the dashboard.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
@@ -734,7 +734,7 @@ TOOLS = {
     },
     "get_containers": {
         "description":
-            "Docker / Podman container state for a device. Returns running "
+            "Docker / Podman container state for a host. Returns running "
             "containers with image, state, status, ports.",
         "inputSchema": {
             "type": "object",
@@ -745,33 +745,33 @@ TOOLS = {
     },
     "get_cves": {
         "description":
-            "CVE findings for a device, or fleet-wide if no name is given. "
+            "CVE findings for a host, or fleet-wide if no name is given. "
             "Returns vulnerability id, severity, affected package, fixed "
             "version, and summary. Backed by OSV.dev. Use to identify "
             "outstanding security issues.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string",
-                                     "description": "Device name; omit for fleet-wide"}},
+                                     "description": "Host name; omit for fleet-wide"}},
         },
         "handler": tool_get_cves,
     },
     "get_drift": {
         "description":
-            "Configuration drift state for a device, or fleet-wide overview "
+            "Configuration drift state for a host, or fleet-wide overview "
             "if no name is given. Returns the watched config files whose "
             "current hash diverges from the stored baseline (potential "
             "unauthorised changes).",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string",
-                                     "description": "Device name; omit for fleet overview"}},
+                                     "description": "Host name; omit for fleet overview"}},
         },
         "handler": tool_get_drift,
     },
     "get_recent_commands": {
         "description":
-            "Recent commands run on a device, with output and exit code. "
+            "Recent commands run on a host, with output and exit code. "
             "Useful for 'what was done on this host recently' questions.",
         "inputSchema": {
             "type": "object",
@@ -785,10 +785,10 @@ TOOLS = {
     },
     "get_runbook": {
         "description":
-            "AI-generated operations runbook for a device (v2.1.7+). "
+            "AI-generated operations runbook for a host (v2.1.7+). "
             "Describes purpose, services, exposure, recent activity, "
             "risks, operating notes. Returns exists=false if no runbook "
-            "has been generated for this device yet.",
+            "has been generated for this host yet.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
@@ -798,9 +798,9 @@ TOOLS = {
     },
     "get_patches": {
         "description":
-            "Pending OS package updates. With a device name returns that "
-            "device's patch status and pending count; without a name "
-            "returns all devices with pending updates.",
+            "Pending OS package updates. With a host name returns that "
+            "host's patch status and pending count; without a name "
+            "returns all hosts with pending updates.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
@@ -817,7 +817,7 @@ TOOLS = {
     },
     "get_snmp_data": {
         "description":
-            "Latest SNMP poll for an agentless device (switches, APs, "
+            "Latest SNMP poll for an agentless host (switches, APs, "
             "IPMI, printers). Returns sysDescr / sysName / sysUpTime / "
             "sysContact / sysLocation / sysObjectID. Includes last_ok / "
             "last_error so the AI can tell whether the box is currently "
@@ -825,14 +825,14 @@ TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string",
-                                     "description": "Device name (prefix/substring OK)"}},
+                                     "description": "Host name (prefix/substring OK)"}},
             "required": ["name"],
         },
         "handler": tool_get_snmp_data,
     },
     "search_devices": {
         "description":
-            "Search devices by free-text query. Matches name, OS, group, "
+            "Search hosts by free-text query. Matches name, OS, group, "
             "tags, hostname, IP, and operator notes. Returns a compact "
             "list of matches.",
         "inputSchema": {
@@ -869,14 +869,14 @@ TOOLS = {
     # ── v3.2.0 Stage 4: write tools ──────────────────────────────────────
     "reboot_device": {
         "description":
-            "Queue a reboot on a device. If the device has require_confirmation "
-            "set (default for new devices), returns a confirmation_id; the "
+            "Queue a reboot on a host. If the host has require_confirmation "
+            "set (default for new hosts), returns a confirmation_id; the "
             "operator must approve in the dashboard before anything runs. "
-            "Otherwise the reboot happens on the device's next heartbeat (~60s).",
+            "Otherwise the reboot happens on the host's next heartbeat (~60s).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name":   {"type": "string", "description": "Device name (prefix/substring OK)"},
+                "name":   {"type": "string", "description": "Host name (prefix/substring OK)"},
                 "reason": {"type": "string", "description": "Why — recorded in the audit log"},
             },
             "required": ["name"],
@@ -886,7 +886,7 @@ TOOLS = {
     "run_saved_script": {
         "description":
             "Run a pre-vetted script from the RemotePower script library on "
-            "a device. The script must already exist in Settings → Scripts; "
+            "a host. The script must already exist in Settings → Scripts; "
             "MCP cannot supply arbitrary bash. Subject to require_confirmation.",
         "inputSchema": {
             "type": "object",
@@ -902,7 +902,7 @@ TOOLS = {
     "force_package_scan": {
         "description":
             "Trigger a one-shot fresh package inventory + patch-count refresh "
-            "on a device. Non-destructive — the device sends new data within "
+            "on a host. Non-destructive — the host sends new data within "
             "a minute or two. Runs immediately (no confirmation gate).",
         "inputSchema": {
             "type": "object",
@@ -913,8 +913,8 @@ TOOLS = {
     },
     "force_acme_rescan": {
         "description":
-            "Trigger a one-shot ACME inventory refresh on a device. Non-"
-            "destructive — same effect as the per-device 'Force ACME rescan' "
+            "Trigger a one-shot ACME inventory refresh on a host. Non-"
+            "destructive — same effect as the per-host 'Force ACME rescan' "
             "button. Runs immediately.",
         "inputSchema": {
             "type": "object",

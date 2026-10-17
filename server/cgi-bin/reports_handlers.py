@@ -543,9 +543,9 @@ def _fleet_report_csv_bytes(report):
     p = report.get('patches') or {}
     c = report.get('cve') or {}
     if d:
-        row(['Devices', 'Total', d.get('total', 0)])
-        row(['Devices', 'Online', d.get('online', 0)])
-        row(['Devices', 'Offline', d.get('offline', 0)])
+        row(['Hosts', 'Total', d.get('total', 0)])
+        row(['Hosts', 'Online', d.get('online', 0)])
+        row(['Hosts', 'Offline', d.get('offline', 0)])
     if h:
         row(['Health', 'Fleet score', h.get('score', 0)])
         row(['Health', 'Grade', h.get('grade', '')])
@@ -563,12 +563,12 @@ def _fleet_report_csv_bytes(report):
         row(['SLA', f"Fleet uptime ({sla.get('days', 30)}d) %",
              pct if pct is not None else 'N/A'])
     if p:
-        row(['Patches', 'Devices with patches', p.get('devices_with_patches', 0)])
+        row(['Patches', 'Hosts with patches', p.get('devices_with_patches', 0)])
         row(['Patches', 'Total pending', p.get('total_pending', 0)])
     if c:
         for sev in ('critical', 'high', 'medium', 'low'):
             row(['CVE', sev.capitalize(), c.get(sev, 0)])
-        row(['CVE', 'Devices affected', c.get('devices_affected', 0)])
+        row(['CVE', 'Hosts affected', c.get('devices_affected', 0)])
     per = report.get('period') or {}
     if per:
         row(['Period', 'Window (days)', per.get('days', 30)])
@@ -609,7 +609,7 @@ def _fleet_report_csv_bytes(report):
              fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
     if h:
         row([])
-        row(['Worst devices', 'Score', 'Critical/Warning'])
+        row(['Worst hosts', 'Score', 'Critical/Warning'])
         for dev in h.get('worst') or []:
             row([dev.get('device_name', ''), dev.get('score', 0),
                  f"{dev.get('critical', 0)}/{dev.get('warning', 0)}"])
@@ -976,7 +976,7 @@ def _render_report_email(report):
     if h:
         lines.append(f"Fleet health score : {h.get('score', '?')}/100 ({h.get('grade', '?')})")
     if d:
-        lines.append(f"Devices            : {d.get('total',0)} total, {d.get('online',0)} online, "
+        lines.append(f"Hosts            : {d.get('total',0)} total, {d.get('online',0)} online, "
                      f"{d.get('offline',0)} offline")
     if a:
         lines.append(f"Needs attention    : {a.get('critical',0)} critical, "
@@ -984,11 +984,11 @@ def _render_report_email(report):
     if sla and sla.get('fleet_uptime_pct') is not None:
         lines.append(f"SLA uptime ({sla.get('days',30)}d) : {sla.get('fleet_uptime_pct')}%")
     if p:
-        lines.append(f"Patches            : {p.get('devices_with_patches',0)} device(s) pending, "
+        lines.append(f"Patches            : {p.get('devices_with_patches',0)} host(s) pending, "
                      f"{p.get('total_pending',0)} update(s) total")
     if c:
         lines.append(f"CVEs               : {c.get('critical',0)} critical, {c.get('high',0)} high, "
-                     f"{c.get('medium',0)} medium ({c.get('devices_affected',0)} device(s) affected)")
+                     f"{c.get('medium',0)} medium ({c.get('devices_affected',0)} host(s) affected)")
     per = report.get('period') or {}
     if per:
         def _dur(sec):
@@ -1037,7 +1037,7 @@ def _render_report_email(report):
                          f"{th.get('gw_users', 0)} user(s), {th.get('gw_hosts', 0)} host(s)")
     lines.append("")
     if h.get('worst'):
-        lines.append("Lowest-scoring devices:")
+        lines.append("Lowest-scoring hosts:")
         for dev in h['worst'][:5]:
             lines.append(f"  - {dev['device_name']}: {dev['score']}/100 "
                          f"({dev['critical']} crit, {dev['warning']} warn)")
