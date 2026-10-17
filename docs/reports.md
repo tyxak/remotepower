@@ -8,7 +8,7 @@ emailed on a schedule.
 ## Posture report
 
 - A live preview summarises the current fleet posture. Export it as **JSON** or
-  **CSV**, or **Print / Save as PDF** from the browser.
+  **CSV**, or **Print / save as PDF** from the browser.
 - The **evidence pack** bundles the posture report with the 90-day
   [compliance](compliance.md) baseline trend and an [audit-log](security.md)
   excerpt for the period into one JSON document — the artifact auditors ask for.

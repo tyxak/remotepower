@@ -5,7 +5,7 @@
  *   - ticket "Log hours" (injected into the ticket detail by app.js),
  *   - the weekly Timesheet page (#page-timesheet, personal),
  *   - the Billing page (#page-billing, admin/finance): Worksheet / Invoices /
- *     Rates & Fees.
+ *     Rates & fees.
  *
  * CSP: production serves `script-src 'self'; style-src 'self'` (no unsafe-inline).
  * This is an external /static file, so it's allowed. It NEVER emits inline on*=

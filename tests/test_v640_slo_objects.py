@@ -249,7 +249,7 @@ class TestComputeSloObjects(_Base):
 
 class TestPausedMonitorDisplayRow(_Base):
     """v6.4.0 bug fix: a paused monitor must still get a DISPLAY row from
-    GET /api/monitor — before this it vanished from the Remote Checks table,
+    GET /api/monitor — before this it vanished from the Remote checks table,
     making the v6.1.2 PAUSED badge and Resume button unreachable."""
 
     def setUp(self):

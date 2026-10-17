@@ -724,7 +724,7 @@ const tableCtl = (() => {
 
   // v3.2.1: lightweight sort wiring for tables with custom HTML renderers
   // that don't fit the register/render contract. Some pages (ACME, CMDB
-  // asset list, Listening Ports, etc.) build their own intricate row HTML
+  // asset list, Listening ports, etc.) build their own intricate row HTML
   // and have for years; rewriting them all to fit tableCtl's `row:`
   // callback is a wide change. Instead, those renderers can just call
   //
@@ -3299,11 +3299,11 @@ function renderDevices() {
       }
     }
     // v3.4.0: hardware-health pills (SMART failure / kernel reboot). Clicking
-    // opens the device drawer's Health & Hardware section.
+    // opens the device drawer's Health & hardware section.
     const hw = d.hw_health || {};
     let hwPill = '';
     if (hw.smart_failed > 0) {
-      const t = `SMART failure on ${hw.smart_failed} disk${hw.smart_failed > 1 ? 's' : ''} — open Health & Hardware`;
+      const t = `SMART failure on ${hw.smart_failed} disk${hw.smart_failed > 1 ? 's' : ''} — open Health & hardware`;
       hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1" tabindex="0" role="button">${_icon('hardDrive',12)} SMART×</span>`;
     }
     if (hw.kernel_reboot) {
@@ -7890,7 +7890,7 @@ const _DYK_TIPS = [
   "The CVEs page flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
   "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
   "On the Hosts page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
-  "Open a host drawer's Audit tab and its Health & Hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
+  "Open a host drawer's Audit tab and its Health & hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
   "The Predictive health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
   "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
@@ -11294,7 +11294,7 @@ async function regenerateRecoveryCodes() {
   if (data?.ok && data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); }
   else failToast(data);
 }
-async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { failToast(data); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
+async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { failToast(data); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error', {transient: true}); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else failToast(data); }
 function filterDevices() {
@@ -16626,8 +16626,8 @@ const _AI_CAT_ICON = {
 function deviceDropdownHtml(d, isMonitored) {
   const idEsc   = d.id;
   const nameEsc = escAttr(d.name);
-  // v2.9.0: ⋮ opens the device drawer on Actions & Settings tab.
-  return `<button class="btn-icon isl-526" title="Actions &amp; Settings"
+  // v2.9.0: ⋮ opens the device drawer on Actions & settings tab.
+  return `<button class="btn-icon isl-526" title="Actions &amp; settings"
     data-stop-prop="1" data-action="openDeviceDrawer" data-arg="${idEsc}" data-arg2="${nameEsc}" data-arg3="actions" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>`;
 }
 
@@ -20853,7 +20853,7 @@ function _homeActivityAttrs(event, p) {
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
   case 'ecc_stable':   // v6.4.0 recover — routes with its firing sibling
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
-      // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
+      // v3.4.0: hardware-health alerts → device drawer (Health & hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'health_degraded': case 'health_recovered':
       // v3.4.1: health-score alert/recover → that device's timeline.
@@ -22324,7 +22324,7 @@ async function saveStatusPage() {
 }
 
 // ── moved to static/js/app-hostconfig.js (v3.13.0 split) ──
-// ── v2.8.1: Listening Ports — Monitor page ───────────────────────────────────
+// ── v2.8.1: Listening ports — Monitor page ───────────────────────────────────
 
 let _portsGrouped = [];
 
@@ -22432,7 +22432,7 @@ function _renderPortsFiltered() {
 }
 
 
-// ── Top Processes fleet view ──────────────────────────────────────────────────
+// ── Top processes fleet view ──────────────────────────────────────────────────
 
 let _processRows = [];
 
@@ -23319,7 +23319,7 @@ async function removeProcessWatch(idx) {
 
 // ══ v2.9.0: Device Drawer ═════════════════════════════════════════════════════
 // Full-screen drawer replacing detail-modal + ⋮ dropdown.
-// Tabs: "Actions & Settings" and "Audit".
+// Tabs: "Actions & settings" and "Audit".
 // ══════════════════════════════════════════════════════════════════════════════
 
 let _drawerDeviceId   = null;
@@ -24414,20 +24414,20 @@ async function _drawerSaveSettings() {
 // labeled bands instead of one long flat scroll. Order within a group is the
 // array order; group order is _AUDIT_GROUP_ORDER below.
 const _AUDIT_SECTIONS = [
-  {key: 'sysinfo',   title: 'System Info',       icon: 'monitor',  group: 'Health'},
+  {key: 'sysinfo',   title: 'System info',       icon: 'monitor',  group: 'Health'},
   {key: 'metrics',   title: 'Metrics',           icon: 'clock',    group: 'Health'},
-  {key: 'hardware',  title: 'Health & Hardware', icon: 'hardDrive',group: 'Health'},
-  {key: 'ports',     title: 'Listening Ports',   icon: 'unplug',   group: 'Security'},
+  {key: 'hardware',  title: 'Health & hardware', icon: 'hardDrive',group: 'Health'},
+  {key: 'ports',     title: 'Listening ports',   icon: 'unplug',   group: 'Security'},
   {key: 'firewall',  title: 'Firewall',          icon: 'shield',   group: 'Security'},
-  {key: 'cve',       title: 'CVE Summary',       icon: 'sparkles', group: 'Security'},
-  {key: 'drift',     title: 'Drift State',       icon: 'search',   group: 'Security'},
+  {key: 'cve',       title: 'CVE summary',       icon: 'sparkles', group: 'Security'},
+  {key: 'drift',     title: 'Drift state',       icon: 'search',   group: 'Security'},
   {key: 'threats',   title: 'Attacks & remote access', icon: 'shield', group: 'Security'},
   {key: 'packages',  title: 'Packages',          icon: 'package',  group: 'Software'},
   {key: 'containers',title: 'Containers',        icon: 'ship',     group: 'Software'},
-  {key: 'helm',      title: 'Helm Releases',     icon: 'cloud',    group: 'Software'},
+  {key: 'helm',      title: 'Helm releases',     icon: 'cloud',    group: 'Software'},
   {key: 'commands',  title: 'Command History',   icon: 'terminal', group: 'Activity'},
   {key: 'logs',      title: 'Logs',              icon: 'fileCode', group: 'Activity'},
-  {key: 'events',    title: 'Fleet Events',      icon: 'radio',    group: 'Activity'},
+  {key: 'events',    title: 'Fleet events',      icon: 'radio',    group: 'Activity'},
   {key: 'backups',   title: 'Backups',           icon: 'hardDrive',group: 'System'},
   {key: 'snmp',      title: 'SNMP',              icon: 'radio',    group: 'System'},
   {key: 'hostcfg',   title: 'Host Config',       icon: 'settings', group: 'System'},
@@ -24573,7 +24573,7 @@ async function _loadAuditSection(key) {
         const jrnl = data?.journal || [];
         // v6.2.0: the du report lives in its own store (it is written ~12-hourly,
         // not on the sysinfo cadence). Best-effort — a host that has never run a
-        // scan simply has no panel, and a failed fetch must not blank System Info.
+        // scan simply has no panel, and a failed fetch must not blank System info.
         let duRec = null;
         try { duRec = (await api('GET', `/devices/${id}/disk-usage`))?.disk_usage || null; }
         catch (e) { duRec = null; }
@@ -26392,7 +26392,7 @@ async function loadDiscovery() {
   const r = await api('GET', '/discovery');
   const hosts = (r && r.hosts) || [];
   if (!hosts.length) {
-    body.innerHTML = `<div class="c-muted">No unmanaged hosts found${r && r.scanned_by ? ` (${r.scanned_by} agent scan${r.scanned_by>1?'s':''} on record)` : ''}. Run a LAN scan from a host's Health &amp; Hardware card.</div>`;
+    body.innerHTML = `<div class="c-muted">No unmanaged hosts found${r && r.scanned_by ? ` (${r.scanned_by} agent scan${r.scanned_by>1?'s':''} on record)` : ''}. Run a LAN scan from a host's Health &amp; hardware card.</div>`;
     return;
   }
   tableCtl.wireSortOnly('discovery-thead', 'discovery', loadDiscovery);

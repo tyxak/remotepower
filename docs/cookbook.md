@@ -26,7 +26,7 @@ Each recipe is self-contained and links to the reference guide for the detail.
    wget -qO- "https://your-server/install?t=<token>" | sudo sh
    ```
    The host appears by hostname within ~60 s.
-2. **Confirm it's reporting.** Open the host drawer → **System Info**: CPU,
+2. **Confirm it's reporting.** Open the host drawer → **System info**: CPU,
    memory, disk, kernel, top processes. If it's a container host, the
    **Containers** section lists them.
 3. **Set thresholds (optional).** Host drawer → **Settings** → metric warn/crit

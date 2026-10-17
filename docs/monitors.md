@@ -2,12 +2,12 @@
 
 Beyond the metrics each agent reports about *itself*, RemotePower runs
 **server-side synthetic checks** against targets you name, plus receivers for
-telemetry hosts push to it. These live under **Monitoring → Remote Checks** (and
+telemetry hosts push to it. These live under **Monitoring → Remote checks** (and
 a few sibling pages), and every failure/recovery is a first-class event.
 
-## Remote Checks
+## Remote checks
 
-**Monitoring → Remote Checks** lists your synthetic checks — Label, Type, Target,
+**Monitoring → Remote checks** lists your synthetic checks — Label, Type, Target,
 Status, Detail and last-checked time — with **Check now**, **Reset alerts** and
 **Add target**. The server runs them on a cadence (`monitor_interval`, default
 300s) and stores results in `monitor_history.json`.

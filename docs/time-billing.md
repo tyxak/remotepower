@@ -36,7 +36,7 @@ entry is capped at 24 hours.
 
 Under **Admin → Billing**:
 
-1. **Rates & Fees** — set the **currency**, global **default rate** and **VAT %**,
+1. **Rates & fees** — set the **currency**, global **default rate** and **VAT %**,
    an **invoice prefix**, and the **rate card**. Per customer (site), set an
    optional default rate / VAT override, a billing contact + address, and
    recurring fees.
@@ -65,7 +65,7 @@ Under **Admin → Billing**:
 
 ### Payment webhook *(v6.1.1)*
 
-A generic, **provider-agnostic** reconciliation sink under Rates & Fees —
+A generic, **provider-agnostic** reconciliation sink under Rates & fees —
 **not** a Stripe/PayPal integration (no live processor credentials are
 required or used). Point your payment processor's own webhook, or a thin
 relay script, at the shown URL with header `X-RP-Billing-Secret: <secret>`
@@ -81,11 +81,11 @@ A voided invoice refuses further payments (409).
 ### Emailing invoices
 
 Click the **mail** button on a draft or sent invoice to send it to that
-customer's **billing contact** (set per site under Rates & Fees) over the same
+customer's **billing contact** (set per site under Rates & fees) over the same
 SMTP you use for notifications. The email carries a plain-text invoice plus a
 branded HTML alternative; sending a draft promotes it to **sent**.
 
-Turn on **Email overdue-invoice reminders** (Rates & Fees) to have the server
+Turn on **Email overdue-invoice reminders** (Rates & fees) to have the server
 send **one** reminder for any invoice still in *sent* status more than *N* days
 after it was last emailed (default 14). Reminders ride the maintenance cadence,
 are bounded per run, and never re-send for the same invoice — marking it
@@ -114,7 +114,7 @@ Assign **finance** on the **Users** page (Edit role).
 - **API (JSON)** — `GET /api/time-entries`, `GET /api/timesheet?week=YYYY-Www`,
   `GET /api/billing/worksheet?site=&month=YYYY-MM`, `GET /api/invoices`,
   `GET /api/invoices/{id}`.
-- **PDF** — print the invoice from the browser (Print / Save as PDF).
+- **PDF** — print the invoice from the browser (Print / save as PDF).
 
 ## API reference
 

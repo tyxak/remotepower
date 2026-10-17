@@ -22,7 +22,7 @@ below do not.
 | Section | What it does |
 | --- | --- |
 | **Password** | Change the password you sign in with. You must enter your current password, and every other session is signed out afterwards. |
-| **Two-Factor Authentication (2FA)** | Add a one-time code from an authenticator app. Scan the QR code, confirm one code, and store the recovery codes somewhere safe — they are shown once. |
+| **Two-factor authentication (2FA)** | Add a one-time code from an authenticator app. Scan the QR code, confirm one code, and store the recovery codes somewhere safe — they are shown once. |
 | **Passkeys (WebAuthn)** | Phishing-resistant sign-in with a security key, your phone, or this device's biometrics. You can register more than one and remove any of them. |
 | **Active sessions** | Every browser currently signed in as you, with when it was last used. Revoke anything you do not recognise. |
 

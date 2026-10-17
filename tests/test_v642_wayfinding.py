@@ -44,7 +44,7 @@ _ARROW = re.compile(
     r"\b(" + "|".join(_GROUPS) + r")\s*(?:→|-&gt;)\s*"
     r"([A-Z][A-Za-z]*(?:[ /&-][A-Za-z]+){0,2})")
 
-# `device drawer → Health & Hardware → Scan LAN` is a breadcrumb inside a
+# `device drawer → Health & hardware → Scan LAN` is a breadcrumb inside a
 # dialog, not sidebar navigation; the regex would read its middle segment as a
 # nav group.
 _NOT_NAV = ("drawer →", "Datacenter →", "Permissions →")

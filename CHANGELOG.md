@@ -89,6 +89,15 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   The shortcut `g d` still opens the host list, so nobody has to relearn it. A
   test reads every page, script, server message, guide and translation, and
   fails when "device" comes back into a sentence.
+- Card headings and action buttons are in sentence case, as the typography
+  rule says. Eighteen had slipped through in Title Case: "Listening Ports",
+  "Top Processes", "Print / Save as PDF", "Rates & Fees", and the host drawer's
+  "System Info", "Drift State" and "Actions & Settings". Each is a dictionary key,
+  so each was re-keyed in all six languages. The names of pages ("Needs
+  Attention", "Data Explorer", "WG Access") are not changed: 12 of 25 sidebar
+  labels are written that way and which style the product means is a decision
+  about some 300 references, not a typo. A test fails on a new Title Case
+  heading or button.
 - Every notification reads as a sentence. 130 of 219 events had no wording of
   their own, and the shared fallback turned the event id into words: "Smart
   failure: web01", "Ecc errors: web01". It now says what the event is, in the

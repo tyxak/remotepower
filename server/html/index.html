@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-6">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-7">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-6">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-7">
 
 </head>
 <body>
@@ -926,7 +926,7 @@
 
         <div class="section-header">
           <div class="row-12-center">
-            <div class="section-title">Enrolled Hosts</div>
+            <div class="section-title">Enrolled hosts</div>
             <div id="tag-filter-bar" class="row-6-wrap scroll-cap-sm"></div>
           </div>
           <div class="row-8">
@@ -1032,7 +1032,7 @@
         <div class="page-subtitle">Probes, host metrics, ports, and custom health checks <a href="docs/monitors.md" class="c-accent">Documentation</a></div>
         <div id="mon-panel-targets" class="dash-card">
         <div id="section-targets" class="section-header">
-          <div class="section-title">Remote Checks</div>
+          <div class="section-title">Remote checks</div>
           <div class="row-8">
             <button class="btn-icon" data-action="runMonitor" data-arg="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ce8e1447"/></svg> Check now</button>
             <button class="btn-icon c-warn-outline" data-action="clearMonitorAlerts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6d179c5f"/></svg> Reset alerts</button>
@@ -1157,10 +1157,10 @@
 
         </div><!-- /mon-panel-metrics -->
         <div id="mon-panel-ports" class="dash-card">
-        <!-- v2.8.1: Listening Ports section -->
+        <!-- v2.8.1: Listening ports section -->
         <div id="section-ports" class="section-header">
           <div class="row-8-center">
-            <div class="section-title">Listening Ports</div>
+            <div class="section-title">Listening ports</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
               <input type="text" id="ports-filter" class="form-input isl-15" placeholder="Filter port, process, host…" data-input="_renderPortsFiltered" data-input-debounce="180" aria-label="Filter port, process, host">
@@ -1179,7 +1179,7 @@
         <!-- v2.6.0: Custom monitoring scripts section -->
         <div id="section-scripts" class="section-header">
           <div class="row-8-center">
-            <div class="section-title">Custom Scripts</div>
+            <div class="section-title">Custom scripts</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
               <input type="text" id="cs-filter" class="form-input isl-15" placeholder="Filter…" data-input="renderCustomScriptsPage" data-input-debounce="180" aria-label="Filter">
@@ -1237,7 +1237,7 @@
         <div id="mon-panel-processes" class="dash-card">
         <div id="section-processes" class="section-header">
           <div class="row-8-center">
-            <div class="section-title">Top Processes</div>
+            <div class="section-title">Top processes</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
               <input type="text" id="processes-filter" class="form-input isl-15" placeholder="Filter by name, host…" data-input="_renderProcessesFiltered" data-input-debounce="180" aria-label="Filter by name, host">
@@ -1436,7 +1436,7 @@
         </div>
 
         <div class="settings-section">
-          <div class="section-title">Two-Factor Authentication (2FA)</div>
+          <div class="section-title">Two-factor authentication (2FA)</div>
           <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.). <a href="docs/security.md" class="c-accent">Documentation</a></p>
           <div id="totp-status" class="mb-12"></div>
           <div id="totp-setup-area"></div>
@@ -2536,7 +2536,7 @@
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
             <div class="section-title mt-16">Disk-usage explorer</div>
-            <p class="hint">Disk-fill forecasting tells you <em>when</em> a mount runs out; this tells you <em>what to delete</em>. When enabled, agents run a bounded <code>du</code> over the paths below (~12h cadence, never crossing a filesystem boundary) and report the biggest space consumers. The results appear in each host's <strong>System Info</strong> drawer panel, under the mounts table, with a <em>Scan disk usage</em> button for an on-demand run. <strong>Off by default</strong> — it walks the filesystem.</p>
+            <p class="hint">Disk-fill forecasting tells you <em>when</em> a mount runs out; this tells you <em>what to delete</em>. When enabled, agents run a bounded <code>du</code> over the paths below (~12h cadence, never crossing a filesystem boundary) and report the biggest space consumers. The results appear in each host's <strong>System info</strong> drawer panel, under the mounts table, with a <em>Scan disk usage</em> button for an on-demand run. <strong>Off by default</strong> — it walks the filesystem.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-du-scan-enabled"> Enable disk-usage scanning (~12h cadence)</label></div>
             <div class="hint">Linux and macOS agents — Windows agents ignore this.</div>
             <div class="settings-row"><label class="form-label" for="cfg-du-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
@@ -4700,7 +4700,7 @@
           <!-- RIGHT panel: tabbed output -->
           <div class="iac-output">
             <div class="iac-tabs">
-              <button class="iac-tab active" id="iac-tab-btn-code"   data-action="_iacSwitchTab" data-arg="code" >Generated Code</button>
+              <button class="iac-tab active" id="iac-tab-btn-code"   data-action="_iacSwitchTab" data-arg="code" >Generated code</button>
               <button class="iac-tab"        id="iac-tab-btn-convo"  data-action="_iacSwitchTab" data-arg="convo" >AI Conversation</button>
             </div>
             <div class="iac-output-header">
@@ -5106,7 +5106,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <ul>
                 <li><strong>Targets</strong> — ICMP ping, TCP port, HTTP HEAD probes the server runs against external targets. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</li>
                 <li><strong>Host Metrics</strong> — fleet-wide memory / swap / CPU / disk view, color-coded by alert level. Filter by name, group, mount path.</li>
-                <li><strong>Listening Ports</strong> — all open ports across monitored hosts, grouped by port number with process name and host list. Live filter by port, process, or host.</li>
+                <li><strong>Listening ports</strong> — all open ports across monitored hosts, grouped by port number with process name and host list. Live filter by port, process, or host.</li>
                 <li><strong>Custom Scripts</strong> — fleet-wide results table for your bash health-check scripts. Filter by name or status.</li>
                 <li><strong>Services</strong> — systemd unit health matrix for watched services.</li>
                 <li><strong>Logs</strong> — fleet log tail with regex pattern-alert rules.</li>
@@ -5408,7 +5408,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Host Drawer</strong> — click any host to open</summary>
             <div class="doc-body">
               <p>Clicking a host name (Hosts page or Dashboard fleet roster) opens a full-screen drawer with two tabs:</p>
-              <p><strong>Actions &amp; Settings tab</strong> — all actions for that host in one grid:
+              <p><strong>Actions &amp; settings tab</strong> — all actions for that host in one grid:
                 Run command · Reboot · Shut down · Wake on LAN · Upgrade packages · Scan packages ·
                 Web terminal · Run script · Update agent · Docker compose · Host config ·
                 AI Investigate · CMDB · Runbook · Maintenance · Adjust poll · Remove host.
@@ -5421,7 +5421,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 Command history (last 5, expand per entry) · Fleet events ·
                 Drift state · CVE summary · Containers · Metrics · Host config.
               </p>
-              <p>The <strong>⋮ button</strong> on the Hosts page also opens the drawer directly on the Actions &amp; Settings tab.</p>
+              <p>The <strong>⋮ button</strong> on the Hosts page also opens the drawer directly on the Actions &amp; settings tab.</p>
             </div>
           </details>
 
@@ -5439,10 +5439,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="listening ports monitor fleet-wide port process">
-            <summary><strong>Listening Ports</strong> — Monitor page + per-host Audit</summary>
+            <summary><strong>Listening ports</strong> — Monitor page + per-host Audit</summary>
             <div class="doc-body">
-              <p><strong>Fleet-wide view:</strong> Monitor page → Listening Ports section. Shows all open ports across all online monitored hosts, grouped by port number, with process name and which hosts are listening. Shows 10 rows by default; expand button for the rest.</p>
-              <p><strong>Per-host view:</strong> Host drawer → Audit tab → Listening Ports section. Searchable table filtered by port number or process name.</p>
+              <p><strong>Fleet-wide view:</strong> Monitor page → Listening ports section. Shows all open ports across all online monitored hosts, grouped by port number, with process name and which hosts are listening. Shows 10 rows by default; expand button for the rest.</p>
+              <p><strong>Per-host view:</strong> Host drawer → Audit tab → Listening ports section. Searchable table filtered by port number or process name.</p>
               <p>Port data is collected by the agent as part of sysinfo (every ~10 minutes) and persisted in <code>devices.json</code>. New ports trigger a <code>new_port_detected</code> webhook compared against the port baseline.</p>
             </div>
           </details>
@@ -5473,7 +5473,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </ol>
               <p><strong>Categories</strong> (18): OS &amp; identity, installed packages, systemd services (enabled), local users (uid≥1000), groups (gid≥1000), SSH authorized_keys (LLM converts to variables), network configuration, mounts (fstab), containers (Docker/Podman), custom repos, firewall, cron jobs (incl. RemotePower scheduled), TLS certificates (paths only), system environment (non-default), snaps (Ubuntu), kernel modules (persistent), sysctl parameters (non-default), RemotePower-specific (tags, group, custom scripts, host-config desired state).</p>
               <p><strong>Output formats:</strong> Terraform (HCL), Ansible (YAML), Pulumi (Python), Pulumi (TypeScript), Cloud-init (YAML).</p>
-              <p><strong>Output tabs:</strong> Generated Code | AI Conversation. The Conversation tab shows the full system+user prompt and the raw LLM response, so you can see exactly what the model produced before fence-stripping.</p>
+              <p><strong>Output tabs:</strong> Generated code | AI Conversation. The Conversation tab shows the full system+user prompt and the raw LLM response, so you can see exactly what the model produced before fence-stripping.</p>
               <p><strong>Re-run AI / JSON download:</strong> After a successful generation, the <em>Re-run AI</em> button re-prompts the LLM using the already-collected data (no second agent wait). The <em>{ } JSON</em> button downloads the masked state as a JSON file.</p>
               <p><strong>Extra instructions:</strong> A textarea below the format dropdown lets you append custom guidance ("use Terraform 1.5+ syntax", "wrap in a reusable module"). Persisted in localStorage.</p>
               <p><strong>Reasoning-model safety net:</strong> The prompt instructs the LLM to wrap output between <code>&lt;&lt;&lt;BEGIN_IAC&gt;&gt;&gt;</code> and <code>&lt;&lt;&lt;END_IAC&gt;&gt;&gt;</code> markers. The stripper extracts only what's between them — so DeepSeek-R1-style reasoning prose gets discarded automatically.</p>
@@ -6099,7 +6099,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-8-center">
             <button class="btn-secondary" data-action="downloadFleetReport" data-arg="json"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-c923885c"/></svg> Download JSON</button>
             <button class="btn-secondary" data-action="downloadFleetReport" data-arg="csv"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-c923885c"/></svg> Download CSV</button>
-            <button class="btn-secondary" data-action="printFleetReport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / Save as PDF</button>
+            <button class="btn-secondary" data-action="printFleetReport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / save as PDF</button>
             <button class="btn-secondary" data-action="downloadEvidencePack"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Evidence pack</button>
           </div>
 
@@ -7278,7 +7278,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="settings-tab active" data-action="billingTab" data-arg="worksheet">Worksheet</button>
           <button class="settings-tab" data-action="billingTab" data-arg="quotes">Quotes</button>
           <button class="settings-tab" data-action="billingTab" data-arg="invoices">Invoices</button>
-          <button class="settings-tab" data-action="billingTab" data-arg="rates">Rates &amp; Fees</button>
+          <button class="settings-tab" data-action="billingTab" data-arg="rates">Rates &amp; fees</button>
           <button class="btn-icon ml-auto" data-action="aiInsight" data-arg="billing_review" title="AI: unbilled hours, invoices to send, time-tracking gaps"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
         </div>
         <div id="billing-host"><div class="empty-state">Loading…</div></div>
@@ -7602,7 +7602,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card"><table><thead id="maint-thead"><tr><th scope="col" data-col="reason">Reason</th><th scope="col" data-col="scope">Scope</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="when">When</th><th scope="col" data-col="events">Events</th><th scope="col" data-col="status" class="ta-center">Status</th><th scope="col"></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" class="empty-state">Click Refresh. </td></tr></tbody></table></div>
         <div id="maint-suppressions" class="isl-153">
-          <div class="subsection-title mt-24">Recent Suppressions</div>
+          <div class="subsection-title mt-24">Recent suppressions</div>
           <div class="table-card"><table><thead id="maint-supp-thead"><tr><th scope="col" data-col="ts">When</th><th scope="col" data-col="event">Event</th><th scope="col" data-col="device">Host</th><th scope="col" data-col="window">Window</th><th scope="col" data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
         </div>
       </div>
@@ -8108,8 +8108,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="section-title">Unmanaged hosts on the LAN</div>
             <button class="btn-icon" data-action="loadDiscovery"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
-          <p class="hint">Hosts seen by agents that ran a LAN scan (host drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.</p>
-          <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a host's Health &amp; Hardware card.</div></div>
+          <p class="hint">Hosts seen by agents that ran a LAN scan (host drawer → Health &amp; hardware → Scan LAN) and that aren't enrolled in RemotePower.</p>
+          <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a host's Health &amp; hardware card.</div></div>
         </div>
       </div>
 
@@ -9562,7 +9562,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="drawer-tabs" role="tablist" aria-label="Host details">
       <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
               role="tab" aria-selected="true" aria-controls="drawer-tab-actions"
-              data-action="switchDrawerTab" data-arg="actions"  tabindex="0">Actions &amp; Settings</button>
+              data-action="switchDrawerTab" data-arg="actions"  tabindex="0">Actions &amp; settings</button>
       <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
               role="tab" aria-selected="false" aria-controls="drawer-tab-audit"
               data-action="switchDrawerTab" data-arg="audit"  tabindex="-1">Audit</button>
@@ -9571,7 +9571,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <!-- Content -->
     <div class="drawer-content">
 
-      <!-- ── Actions & Settings tab ─────────────────────────────────── -->
+      <!-- ── Actions & settings tab ─────────────────────────────────── -->
       <div id="drawer-tab-actions" class="drawer-tab-panel" role="tabpanel" aria-labelledby="drawer-tab-btn-actions">
 
         <div class="drawer-section">
@@ -10480,7 +10480,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="invoice-view-title" id="invoice-view-modal"><div class="modal modal-wide">
   <div class="modal-title" id="invoice-view-title">Invoice</div>
   <div id="invoice-view-body"></div>
-  <div class="modal-actions"><button class="btn-primary" data-action="invoiceExportPdfCurrent">Download PDF</button><button class="btn-secondary" data-action="invoicePrint">Print / Save as PDF</button><button class="btn-secondary" data-action="closeModal" data-arg="invoice-view-modal">Close</button></div>
+  <div class="modal-actions"><button class="btn-primary" data-action="invoiceExportPdfCurrent">Download PDF</button><button class="btn-secondary" data-action="invoicePrint">Print / save as PDF</button><button class="btn-secondary" data-action="closeModal" data-arg="invoice-view-modal">Close</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ct-modal-title" id="contact-modal"><div class="modal">
@@ -12342,39 +12342,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.0-6"></script>
+<script defer src="static/js/app.js?v=7.4.0-7"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-containers.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-network.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-containers.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-network.js?v=7.4.0-7"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.0-7"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-dns.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-drift.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-cve.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-backups.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-iac.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-virt.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-ai.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-dns.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-drift.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-cve.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-backups.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-iac.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-virt.js?v=7.4.0-7"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-remote.js?v=7.4.0-6"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-logs.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-remote.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.0-7"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-self.js?v=7.4.0-7"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.0-6"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.0-7"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12384,6 +12384,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.0-6"></script>
+<script defer src="static/js/sw-register.js?v=7.4.0-7"></script>
 </body>
 </html>

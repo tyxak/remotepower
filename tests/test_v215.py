@@ -167,7 +167,7 @@ class TestHtmlIdReferences(unittest.TestCase):
         'drift-profile-modal', 'drift-profile-title',
         'drift-assign-modal', 'drift-assign-title',
         # v5.4.0 RackMatters: rate-card + recurring-fee table bodies are built
-        # into the Billing "Rates & Fees" tab via innerHTML (app-billing.js).
+        # into the Billing "Rates & fees" tab via innerHTML (app-billing.js).
         'rate-card-body', 'fee-body',
     }
 
