@@ -151,7 +151,7 @@ def handle_guard_action():
                                  f'{_skipped[0] if _skipped else did} is not a '
                                  'Linux host', 'skipped': _skipped})
     if not _queue_guard_action(did, qid, op):
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     A.audit_log(actor, 'guard_action', f'device={did} id={qid} op={op}')
     A.respond(200, {'ok': True, 'devices': 1})
 

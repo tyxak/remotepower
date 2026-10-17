@@ -176,11 +176,11 @@ def handle_device_flows(dev_id):
     /api/devices/<id>/, covered by _enforce_device_scope pre-dispatch)."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid host id'})
+        A.respond(400, {'error': 'invalid host id'})
         return
     devs = A._load_ro(A.DEVICES_FILE) or {}
     if dev_id not in devs:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
         return
     rec = (A.load(A.FLOW_FILE) or {}).get(dev_id) or {}
     # v6.4.3: `latest` is never expired — only `history` gets the cutoff — so a

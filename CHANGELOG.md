@@ -136,6 +136,25 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 ### Fixes
 
+- A wrong password in a re-authentication prompt no longer signs you out. The
+  dashboard treats a 401 as "your session is gone", and the step-up dialog,
+  turning 2FA off, making new recovery codes and changing your password all
+  answered 401 for a wrong password, so a typo threw you back to the login page
+  and said nothing about why. They answer 403 now, as the SSH gateway, the web
+  terminal, agent-release signing and clearing the audit log already did, and
+  you stay where you are with the reason in a toast. A browser test types the wrong password
+  into each of the four against the real server; it failed on all four before
+  the change.
+- Server messages have one spelling and one status. "Host not found" was also
+  written "host not found" 65 times, "invalid host id" answered 400 and 404, a
+  bad status token 401 and 403, and "site not found" 400 and 404. A test now
+  reads every `respond(<status>, {'error': …})` and fails on a message that
+  appears in two forms, and on a 401 that does not mean "no valid session or
+  token". The metrics digest answers a bad status token like `/api/metrics`
+  does, with 403.
+- An SSO start address answers 404, not 503, while that method is not set up.
+  503 says the server is down for a while; nothing here is down, the method was
+  never configured. A missing `pysaml2` or `xmlsec1` still answers 503.
 - The Inbound webhooks table tells the truth about NetFlow and ITSM tokens. It
   labelled both *alert*, and the dialog shown after creating a NetFlow token
   gave it an alert URL and an alert example. It also named a token's host only

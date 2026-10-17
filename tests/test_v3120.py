@@ -1391,7 +1391,7 @@ class TestStepUpAuth(_HandlerBase):
         tokens = api.load(api.TOKENS_FILE)
         self.assertGreater(tokens[self.tkey].get('step_up_at', 0), 0)
 
-    def test_verify_wrong_password_401s_and_does_not_stamp(self):
+    def test_verify_wrong_password_403s_and_does_not_stamp(self):
         api.method = lambda: 'POST'
         api.get_json_obj = lambda: {'password': 'wrong'}
         try:
@@ -1399,7 +1399,7 @@ class TestStepUpAuth(_HandlerBase):
         finally:
             del api.method
             del api.get_json_obj
-        self.assertEqual(self.cap['s'], 401)
+        self.assertEqual(self.cap['s'], 403)   # not 401: the dashboard signs out on a 401
         tokens = api.load(api.TOKENS_FILE)
         self.assertNotIn('step_up_at', tokens[self.tkey])
 

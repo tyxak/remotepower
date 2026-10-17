@@ -92,7 +92,7 @@ def handle_device_routeros(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -153,7 +153,7 @@ def handle_device_routeros_firewall(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'filter': [], 'nat': [], 'enabled': False})
@@ -172,7 +172,7 @@ def handle_device_routeros_qos(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'simple': [], 'tree': [], 'enabled': False})
@@ -191,7 +191,7 @@ def handle_device_routeros_traffic(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(200, {'interfaces': []})
@@ -212,7 +212,7 @@ def handle_device_routeros_action(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._routeros_target(dev)
     if not tgt:
         A.respond(403, {'error': 'RouterOS not enabled/configured on this host'})
@@ -317,7 +317,7 @@ def handle_device_opnsense(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -383,7 +383,7 @@ def handle_device_opnsense_firewall(dev_id):
     A.require_auth()
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._opnsense_target(dev)
     if not tgt:
         A.respond(200, {'filter': [], 'nat': [], 'enabled': False})
@@ -405,7 +405,7 @@ def handle_device_opnsense_action(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._opnsense_target(dev)
     if not tgt:
         A.respond(403, {'error': 'OPNsense not enabled/configured on this host'})
@@ -557,7 +557,7 @@ def handle_device_netconfig(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     if _m == 'GET':
         revs = (A.load(A.NETCONFIG_ARCHIVE_FILE) or {}).get(dev_id) or []
         A.respond(200, {
@@ -590,7 +590,7 @@ def handle_device_netconfig_revision(dev_id, rev_id):
     by_id = {r.get('id'): r for r in revs if isinstance(r, dict)}
     rev = by_id.get(A._sanitize_str(str(rev_id or ''), 32))
     if not rev:
-        A.respond(404, {'error': 'revision not found'})
+        A.respond(404, {'error': 'Revision not found'})
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     if fmt == 'diff':

@@ -52,7 +52,7 @@ def handle_device_snmp(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -197,7 +197,7 @@ def handle_device_snmp_poll(dev_id):
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     target = A._device_snmp_target(dev)
     if not target:
         A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
@@ -222,7 +222,7 @@ def handle_device_snmp_deep(dev_id):
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     target = A._device_snmp_target(dev)
     if not target:
         A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
@@ -364,7 +364,7 @@ def handle_device_snmp_walk(dev_id):
     devs = A.load(A.DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     target = A._device_snmp_target(dev)
     if not target:
         A.respond(400, {'error': 'SNMP not configured/enabled on this host'})
@@ -822,7 +822,7 @@ def handle_device_snmp_interfaces(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     hist = (A.load(A.SNMP_IF_HIST_FILE) or {}).get(dev_id) or {}
     qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     want = A._sanitize_str((qs.get('iface') or [''])[0], 128)

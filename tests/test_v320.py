@@ -776,7 +776,7 @@ class TestOidcDecoder(_ApiTestBase):
 
 
 class TestOidcStart(_ApiTestBase):
-    """The /api/auth/oidc/start handler — 503 when unconfigured, 302
+    """The /api/auth/oidc/start handler — 404 when unconfigured, 302
     with state stored when configured."""
 
     def setUp(self):
@@ -784,7 +784,7 @@ class TestOidcStart(_ApiTestBase):
         self.api.save(self.api.CONFIG_FILE, {})
         self.api.save(self.api.OIDC_STATES_FILE, {})
 
-    def test_503_when_not_configured(self):
+    def test_404_when_not_configured(self):
         captured = {}
         orig = self.api.respond
         def cap(s, b=None):
@@ -798,7 +798,7 @@ class TestOidcStart(_ApiTestBase):
             pass
         finally:
             self.api.respond = orig
-        self.assertEqual(captured['status'], 503)
+        self.assertEqual(captured['status'], 404)
 
     def test_state_stored_when_configured(self):
         self.api.save(self.api.CONFIG_FILE, {

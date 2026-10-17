@@ -983,7 +983,7 @@ def handle_backup_job_update(job_id):
     if 'command' in body:
         c = str(body['command']).strip()
         if not c or len(c) > A.MAX_BACKUP_CMD_LEN:
-            A.respond(400, {'error': 'invalid command'})
+            A.respond(400, {'error': 'Invalid command'})
         job['command'] = c
     if 'spec' in body and body['spec'] is not None:
         ok, err = A.filebackup_mod.validate_spec(body['spec'])

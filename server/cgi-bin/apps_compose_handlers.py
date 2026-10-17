@@ -199,7 +199,7 @@ def handle_app_catalog_deploy():
         A.respond(404, {'error': 'unknown app'})
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     A._scope_block_device(device_id)
     if not devices[device_id].get('compose_enabled', False):
         A.respond(403, {'error': 'compose deploys are disabled on this host — enable them first'})
@@ -297,7 +297,7 @@ def handle_compose_stack_create():
     A._scope_block_device(device_id)
     devices = A.load(A.DEVICES_FILE)
     if device_id not in devices:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     stacks = A.load(A.COMPOSE_STACKS_FILE) or {}
     for s in stacks.values():
         if s.get('device_id') == device_id and s.get('name') == name:

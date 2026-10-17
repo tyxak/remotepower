@@ -205,7 +205,7 @@ class TestReauthPromptsAreThrottled(unittest.TestCase):
         code = self._wrong_code()
         seen = [_post(api.handle_step_up_verify, {'totp_code': code}, self.token)[0]
                 for _ in range(api.LOGIN_FAIL_MAX + 3)]
-        self.assertEqual(seen[0], 401)
+        self.assertEqual(seen[0], 403)
         self.assertIn(429, seen, seen)
         # and a correct code is refused while locked out, so guessing buys nothing
         st, _ = _post(api.handle_step_up_verify, {'totp_code': api._totp(self.secret)[1]}, self.token)
@@ -235,7 +235,7 @@ class TestReauthPromptsAreThrottled(unittest.TestCase):
     def test_turning_off_2fa_needs_a_password_that_can_not_be_guessed_at(self):
         seen = [_post(api.handle_totp_disable, {'password': f'guess-{i}'}, self.token)[0]
                 for i in range(api.LOGIN_FAIL_MAX + 3)]
-        self.assertEqual(seen[0], 401)
+        self.assertEqual(seen[0], 403)
         self.assertIn(429, seen, seen)
         self.assertTrue(api.load(api.USERS_FILE)['alice'].get('totp_secret'))      # still on
 
@@ -248,7 +248,7 @@ class TestReauthPromptsAreThrottled(unittest.TestCase):
         body = lambda i: {'old_password': f'guess-{i}', 'new_password': 'A-new-strong-pass-phrase-9'}
         seen = [_post(api.handle_user_passwd, body(i), self.token)[0]
                 for i in range(api.LOGIN_FAIL_MAX + 3)]
-        self.assertEqual(seen[0], 401)
+        self.assertEqual(seen[0], 403)
         self.assertIn(429, seen, seen)
         self.assertTrue(api.verify_password(self.PASSWORD, api.load(api.USERS_FILE)['alice']['password_hash']))
 

@@ -7089,7 +7089,7 @@ def handle_step_up_verify():
     verified = reauth_check(username, body.get('password'), user.get('password_hash'),
                             user.get('totp_secret'), body.get('totp_code'))
     if not verified:
-        respond(401, {'error': 'password or TOTP code did not verify'})
+        respond(403, {'error': 'Password or TOTP code did not verify'})
     tkey, entry, tokens = _step_up_token_entry()
     if not tkey:
         respond(400, {'error': 'no active session to stamp (API keys cannot step up)'})
@@ -16261,12 +16261,12 @@ def _te_validate_and_build(actor, body, ticket=None):
             respond(400, {'error': 'bad device_id'})
         dev = device_get(device_id) or {}
         if not dev:
-            respond(400, {'error': 'host not found'})
+            respond(404, {'error': 'Host not found'})
         device_name = dev.get('name', '')
         if not site_id:
             site_id = dev.get('site') or ''
     if site_id and site_id not in (load(SITES_FILE) or {}):
-        respond(400, {'error': 'site not found'})
+        respond(404, {'error': 'site not found'})
     if billable and not site_id:
         respond(400, {'error': 'billable hours need a customer — pick a site, '
                                'or a host that belongs to one'})
@@ -16417,7 +16417,7 @@ def handle_time_entry_update(eid):
             if 'site_id' in body:
                 sid = str(body.get('site_id') or '').strip()
                 if sid and sid not in (load(SITES_FILE) or {}):
-                    respond(400, {'error': 'site not found'})
+                    respond(404, {'error': 'site not found'})
                 e['site_id'] = sid
             if e.get('billable') and not e.get('site_id'):
                 respond(400, {'error': 'billable hours need a site'})
@@ -18008,7 +18008,7 @@ def handle_tenant_assign_user(tid):
     username = _sanitize_str((get_json_obj()).get('username', ''), 64)
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users:
-            respond(404, {'error': 'user not found'})
+            respond(404, {'error': 'User not found'})
         users[username]['tenant_id'] = tid
     audit_log(actor, 'tenant_assign_user', detail=f'tenant={tid} user={username}')
     respond(200, {'ok': True, 'username': username, 'tenant_id': tid})
@@ -32986,7 +32986,7 @@ def handle_user_passwd():
 
     if bad_old_password:
         _record_login_failure(username, 'reauth')
-        respond(401, {'error': 'Old password incorrect'})
+        respond(403, {'error': 'Old password incorrect'})
     if username == requester:
         _clear_login_failures(username, 'reauth')
 
@@ -33456,7 +33456,7 @@ def handle_totp_regenerate_codes():
             users[username]['recovery_codes'] = hashed
     if bad_password:
         _record_login_failure(username, 'reauth')
-        respond(401, {'error': 'Password incorrect'})
+        respond(403, {'error': 'Password incorrect'})
     _clear_login_failures(username, 'reauth')
     audit_log(username, 'totp_recovery_regenerated', 'recovery codes regenerated')
     respond(200, {'ok': True, 'recovery_codes': plain})
@@ -33481,7 +33481,7 @@ def handle_totp_disable():
             users[username].pop('recovery_codes', None)   # v3.7.0
     if bad_password:
         _record_login_failure(username, 'reauth')
-        respond(401, {'error': 'Password incorrect'})
+        respond(403, {'error': 'Password incorrect'})
     _clear_login_failures(username, 'reauth')
     audit_log(username, 'totp_disabled', '2FA deactivated')
     respond(200, {'ok': True, 'message': '2FA has been disabled.'})
@@ -37050,7 +37050,7 @@ def handle_schedule_add():
     _validate_scheduled_command(command, dev_id)
 
     if cron:
-        if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
+        if not _valid_cron(cron): respond(400, {'error': 'invalid cron expression'})
     elif not isinstance(run_at, (int, float)) or run_at <= int(time.time()):
         respond(400, {'error': 'run_at must be a future unix timestamp'})
 
@@ -37090,7 +37090,7 @@ def handle_schedule_update(job_id):
     """
     actor = require_admin_auth()
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(job_id): respond(404, {'error': 'Job not found'})
+    if not _validate_id(job_id): respond(404, {'error': 'job not found'})
     body    = _read_valid(request_models.ScheduleUpdateRequest)
     dev_id  = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
@@ -37102,13 +37102,13 @@ def handle_schedule_update(job_id):
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
     if cron:
-        if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
+        if not _valid_cron(cron): respond(400, {'error': 'invalid cron expression'})
     elif not isinstance(run_at, (int, float)) or run_at <= int(time.time()):
         respond(400, {'error': 'run_at must be a future unix timestamp'})
     with _LockedUpdate(SCHEDULE_FILE) as schedule:
         jobs = schedule.get('jobs', [])
         target = next((j for j in jobs if j.get('id') == job_id), None)
-        if not target: respond(404, {'error': 'Job not found'})
+        if not target: respond(404, {'error': 'job not found'})
         target.update({
             'device_id':   dev_id,
             'device_name': devices[dev_id].get('name', dev_id),
@@ -37129,10 +37129,10 @@ def handle_schedule_update(job_id):
 def handle_schedule_delete(job_id):
     require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(job_id): respond(404, {'error': 'Job not found'})
+    if not _validate_id(job_id): respond(404, {'error': 'job not found'})
     schedule = load(SCHEDULE_FILE)
     jobs = [j for j in schedule.get('jobs', []) if j['id'] != job_id]
-    if len(jobs) == len(schedule.get('jobs', [])): respond(404, {'error': 'Job not found'})
+    if len(jobs) == len(schedule.get('jobs', [])): respond(404, {'error': 'job not found'})
     schedule['jobs'] = jobs; save(SCHEDULE_FILE, schedule)
     respond(200, {'ok': True})
 
@@ -37813,7 +37813,7 @@ def _ssh_preflight(dev_id):
     if not dev:
         respond(404, {'error': 'Host not found'})
     if dev_id not in _scope_filter_devices(devs):
-        respond(403, {'error': 'Out of scope'})
+        respond(403, {'error': 'out of scope'})
     host = dev.get('ssh_host') or dev.get('ip') or dev.get('hostname') or ''
     user = dev.get('ssh_user') or ''
     if not (host and user):
@@ -38060,7 +38060,7 @@ def handle_image_cve_scan():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'host not found'})
+                respond(404, {'error': 'Host not found'})
             targets = [target]
         else:
             # Only hosts that actually run containers — trivy on a host with no
@@ -38131,7 +38131,7 @@ def handle_disk_usage_scan(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if not dev:
-            respond(404, {'error': 'host not found'})
+            respond(404, {'error': 'Host not found'})
         if dev.get('agentless'):
             respond(400, {'error': 'agentless hosts cannot run a disk scan'})
         # v6.4.2: the du collector is Linux/macOS only — the Windows agent has no
@@ -38168,7 +38168,7 @@ def handle_secrets_scan_now():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'host not found'})
+                respond(404, {'error': 'Host not found'})
             targets = [target]
         else:
             # Any host with an agent (secrets scan isn't container-specific);
@@ -38312,7 +38312,7 @@ def handle_pii_scan_now():
     with _LockedUpdate(DEVICES_FILE) as devices:
         if target:
             if target not in devices:
-                respond(404, {'error': 'host not found'})
+                respond(404, {'error': 'Host not found'})
             targets = [target]
         else:
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
@@ -46582,7 +46582,7 @@ def handle_mailwatch_set(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'host not found'})
+            respond(404, {'error': 'Host not found'})
             return
         dev['mailbox_paths'] = clean_paths
         if 'dashboard' in body:
@@ -48999,7 +48999,7 @@ def handle_device_checks(dev_id):
     dev = device_get(dev_id)
     _scope = _caller_scope()
     if not dev or (_scope is not None and not _device_in_scope(_scope, dev)):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
     cfg = load(CONFIG_FILE) or {}
     disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
     hw = (load(HARDWARE_FILE) or {}).get(dev_id) if backend_exists(HARDWARE_FILE) else {}
@@ -53285,7 +53285,7 @@ def handle_public_status():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
     if not _ct_token_eq(given, token):
-        respond(401, {'error': 'invalid or missing status token'})
+        respond(403, {'error': 'invalid or missing status token'})
         return
     now = int(time.time())
     ttl = get_online_ttl()
@@ -53524,7 +53524,7 @@ def handle_force_package_scan(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'host not found'})
+            respond(404, {'error': 'Host not found'})
             return
         dev['force_package_scan'] = True
     respond(200, {'ok': True,
@@ -53846,7 +53846,7 @@ def handle_drift_profiles():
                           'created': now, 'updated': now})
         audit_log(actor, 'drift_profile_create', f'{name} ({len(files)} files)')
         respond(201, {'ok': True, 'id': pid})
-    respond(405, {'error': 'method not allowed'})
+    respond(405, {'error': 'Method not allowed'})
 
 
 def handle_drift_profile_edit(pid):
@@ -53889,7 +53889,7 @@ def handle_drift_profile_edit(pid):
                                  if not (isinstance(a, dict) and a.get('profile_id') == pid)]
         audit_log(actor, 'drift_profile_delete', pid)
         respond(200, {'ok': True})
-    respond(405, {'error': 'method not allowed'})
+    respond(405, {'error': 'Method not allowed'})
 
 
 def handle_drift_assign():
@@ -55677,7 +55677,7 @@ def handle_scan_schedule_run(sid):
     sid = _sanitize_str(sid, 32)
     sched = (load(SCAN_SCHEDULES_FILE) or {}).get(sid)
     if not isinstance(sched, dict):
-        respond(404, {'error': 'schedule not found'})
+        respond(404, {'error': 'Schedule not found'})
     if not _scan_sched_in_scope(sched, _caller_scope()):
         respond(403, {'error': 'This schedule is outside your role scope'})
     _create_scheduled_scan(sched)
@@ -55700,7 +55700,7 @@ def handle_scan_schedule_toggle(sid):
     with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
         sched = st.get(sid)
         if not isinstance(sched, dict):
-            respond(404, {'error': 'schedule not found'})
+            respond(404, {'error': 'Schedule not found'})
         if not _scan_sched_in_scope(sched, _caller_scope()):
             respond(403, {'error': 'This schedule is outside your role scope'})
         sched['enabled'] = not sched.get('enabled', True)
@@ -57001,7 +57001,7 @@ def handle_compliance_remediate():
     if not dev:
         respond(404, {'error': 'Host not found'})
     if dev_id not in _scope_filter_devices(devices):
-        respond(403, {'error': 'Out of scope'})
+        respond(403, {'error': 'out of scope'})
     if not dev.get('remediation_enabled'):
         respond(403, {'error': 'Automatic remediation is not enabled for this '
                                'host. Turn it on in the host settings first.'})
@@ -58893,7 +58893,7 @@ def handle_saml_metadata():
     sm = _saml_guard()
     cfg = _saml_cfg()
     if not cfg:
-        respond(503, {'error': 'SAML is not configured on this server'})
+        respond(404, {'error': 'SAML is not configured on this server'})
     try:
         xml = sm.metadata_xml(cfg, _saml_base_url())
     except Exception as e:
@@ -58910,7 +58910,7 @@ def handle_saml_login():
     sm = _saml_guard()
     cfg = _saml_cfg()
     if not cfg:
-        respond(503, {'error': 'SAML is not configured on this server'})
+        respond(404, {'error': 'SAML is not configured on this server'})
     try:
         redirect_url, req_id = sm.login_redirect(cfg, _saml_base_url())
     except Exception as e:
@@ -58937,7 +58937,7 @@ def handle_saml_acs():
         respond(405, {'error': 'Method not allowed'})
     cfg = _saml_cfg()
     if not cfg:
-        respond(503, {'error': 'SAML is not configured on this server'})
+        respond(404, {'error': 'SAML is not configured on this server'})
     # The IdP POSTs application/x-www-form-urlencoded with SAMLResponse + RelayState.
     form = urllib.parse.parse_qs(get_body().decode('utf-8', errors='replace'))
     saml_response = (form.get('SAMLResponse', [''])[0] or '').strip()
@@ -60357,12 +60357,12 @@ def handle_alert_mutes():
     # cross-tenant device_id / alert_id isn't confirmed to exist.
     _mdev = (load(DEVICES_FILE) or {}).get(device_id, {})
     if not _tenant_visible(_mdev):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
     # v6.2.3: also honour role/API-key scope (a scoped admin may only mute its own
     # devices' alerts) — 404 (not 403) to keep hiding cross-scope existence.
     _mscope = _caller_scope()
     if _mscope is not None and not _device_in_scope(_mscope, _mdev):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
     # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
     # which the mute lapses on its own. Mutes were permanent-only, so "silence
     # this while I rebuild the NAS this weekend" meant remembering to come back
@@ -62490,7 +62490,7 @@ def _mcp_handle(action, destructive):
         respond(400, {'error': 'valid device_id required'})
     devs = load(DEVICES_FILE)
     if device_id not in devs:
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
     # v6.1.1 (broad sweep, adversarial self-review): this route isn't under
     # /api/devices/, so _enforce_device_scope() never runs for it -- without
     # an explicit check here an MCP-role caller could target ANY tenant's
@@ -62673,7 +62673,7 @@ def handle_ai_exec_propose():
     # Cross-tenant/out-of-scope device → 404, never confirm the id exists.
     devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     if dev_id not in devices:
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
 
     catalog = _ai_exec_catalog()
     if not catalog:
@@ -63043,12 +63043,12 @@ def handle_oidc_start():
     """GET /api/auth/oidc/start — initiate the OIDC authorization code flow.
 
     Generates state + nonce, stores them server-side, then 302-redirects
-    the user to the IdP's authorize endpoint. Returns 503 if OIDC is not
-    configured.
+    the user to the IdP's authorize endpoint. Returns 404 if OIDC is not
+    configured: nothing is set up here, which is not a service that is down.
     """
     cfg = load(CONFIG_FILE) or {}
     if not (cfg.get('oidc_enabled') and cfg.get('oidc_issuer') and cfg.get('oidc_client_id')):
-        respond(503, {'error': 'OIDC is not configured on this server'})
+        respond(404, {'error': 'OIDC is not configured on this server'})
 
     try:
         meta = _oidc_discover(cfg['oidc_issuer'])
@@ -63155,7 +63155,7 @@ def handle_oidc_callback():
     cfg = load(CONFIG_FILE) or {}
     if not (cfg.get('oidc_enabled') and cfg.get('oidc_issuer') and
             cfg.get('oidc_client_id') and cfg.get('oidc_client_secret')):
-        respond(503, {'error': 'OIDC is not configured on this server'})
+        respond(404, {'error': 'OIDC is not configured on this server'})
 
     try:
         meta = _oidc_discover(cfg['oidc_issuer'])
@@ -64466,7 +64466,7 @@ def handle_device_timeline(dev_id):
     devices = _load_ro(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not isinstance(dev, dict):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
         return
     _qs, limit, kind_filter = _timeline_parse_qs()
     since, until = _timeline_window(_qs)
@@ -70282,7 +70282,7 @@ def handle_tasks_add():
     # the two handlers share _sanitize_task, so only one of them enforced it.
     if clean.get('device_id') and not _tenant_visible(
             device_get(clean['device_id']) or {}):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
 
     now = int(time.time())
     task = {
@@ -70328,7 +70328,7 @@ def handle_tasks_update(task_id):
     # see.
     if clean.get('device_id') and not _tenant_visible(
             device_get(clean['device_id']) or {}):
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
 
     for k in ('title', 'description', 'state', 'device_id'):
         if k in clean:
@@ -70577,7 +70577,7 @@ def handle_vault_checkout() -> None:
     # an id you cannot see exists.
     devs = _scope_filter_devices(load(DEVICES_FILE) or {})
     if dev_id not in devs:
-        respond(404, {'error': 'host not found'})
+        respond(404, {'error': 'Host not found'})
     try:
         hours = float(body.get('hours') or _CHECKOUT_DEFAULT_HOURS)
     except (TypeError, ValueError, OverflowError):
@@ -72523,7 +72523,7 @@ def _route_code_245(pi, m):
         elif len(_wg_parts) == 3 and _wg_parts[1] == 'clients' and m == 'DELETE':
             handle_vpn_client_delete(_wg_parts[0], _wg_parts[2])
         else:
-            respond(404, {'error': 'not found'})
+            respond(404, {'error': 'Not found'})
         return True
     return False
 
@@ -73825,7 +73825,7 @@ def handle_iac_request():
     categories = body.get('categories') or []
 
     if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device_id'}); return
+        respond(400, {'error': 'Invalid device_id'}); return
     _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     if not isinstance(categories, list) or not categories:
         respond(400, {'error': 'categories must be a non-empty list'}); return
@@ -73840,7 +73840,7 @@ def handle_iac_request():
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            respond(404, {'error': 'host not found'}); return
+            respond(404, {'error': 'Host not found'}); return
         if agent_cats:
             # v6.4.3: `force_iac_collect` is read by the Linux agent only. On a
             # Windows/macOS host the flag was set, never consumed, and the page
@@ -74554,7 +74554,7 @@ def handle_force_agent_upgrade(dev_id):
     dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
     with _LockedUpdate(DEVICES_FILE) as devs:
         if dev_id not in devs:
-            respond(404, {'error': 'host not found'}); return
+            respond(404, {'error': 'Host not found'}); return
         devs[dev_id]['force_agent_upgrade'] = True
     audit_log(actor, 'agent_force_upgrade', detail=f'device={dev_id}')
     respond(200, {'ok': True, 'message':
@@ -74577,7 +74577,7 @@ def handle_force_acme_rescan(dev_id):
     dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
     with _LockedUpdate(DEVICES_FILE) as devs:
         if dev_id not in devs:
-            respond(404, {'error': 'host not found'}); return
+            respond(404, {'error': 'Host not found'}); return
         # v6.4.3: acme.sh state is read by the Linux agent only — the Windows
         # and macOS agents document force_acme_rescan as a key they ignore. The
         # flag was set anyway, the toast said "queued", and it never fired.
@@ -75350,10 +75350,10 @@ def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str,
     and there is no verify sweep for this path.
     """
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid host id'}); return None
+        respond(400, {'error': 'invalid host id'}); return None
     devices = load(DEVICES_FILE) or {}
     if dev_id not in devices:
-        respond(404, {'error': 'host not found'}); return None
+        respond(404, {'error': 'Host not found'}); return None
     # v7.0.2 (SECURITY): the /api/mitigate/<id>/... routes are NOT under
     # /api/devices/, so main()'s pre-dispatch _enforce_device_scope never sees
     # them, and require_perm() — the only gate the two write entry points had —
@@ -75504,7 +75504,7 @@ def handle_mitigate_status(dev_id, action_id):
                                   # a scoped operator/viewer could otherwise read
                                   # another scope's 256 KB diagnostic capture.
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid host id'}); return
+        respond(400, {'error': 'invalid host id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         respond(400, {'error': 'invalid action id'}); return
     log_path = _mitigate_log_path(dev_id, action_id)
@@ -75565,7 +75565,7 @@ def handle_mitigate_ai(dev_id, action_id):
     _scope_block_device(dev_id)   # v4.4.0: scope-guard a non-/api/devices/ route
                                   # (sends another scope's diagnostic output to AI).
     if not _validate_id(dev_id):
-        respond(404, {'error': 'invalid host id'}); return
+        respond(400, {'error': 'invalid host id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         respond(400, {'error': 'invalid action id'}); return
     log_path = _mitigate_log_path(dev_id, action_id)

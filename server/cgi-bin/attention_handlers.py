@@ -604,7 +604,7 @@ def handle_prometheus_sd():
     if qs_token:
         cfg_token = (A.load(A.CONFIG_FILE) or {}).get('status_token') or ''
         if not A._ct_token_eq(qs_token, cfg_token):
-            A.respond(401, {'error': 'invalid status token'})
+            A.respond(403, {'error': 'invalid or missing status token'})
     else:
         # Falls back to the normal gate, which also applies role scope + the
         # tenant gate through _scope_filter_devices below.

@@ -172,7 +172,7 @@ def handle_scap_report_download(dev_id):
     stored gzip, decompressed, as text/html."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid host id'}); return
+        A.respond(400, {'error': 'invalid host id'}); return
     A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
     path = A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz'
     if not path.exists():

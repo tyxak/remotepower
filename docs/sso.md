@@ -305,7 +305,8 @@ per-tenant branding, what is and is not actually isolated — is in
 
 - **No SSO button on the login page** — the method isn't (fully) enabled:
   OIDC needs `oidc_enabled` + issuer; SAML needs `saml_enabled` + SSO URL.
-  Check `GET /api/public-info`.
+  Check `GET /api/public-info`. An old link to an SSO start address answers 404
+  while that method is not set up.
 - **SAML section says unavailable / endpoints 503** — `pysaml2` or `xmlsec1`
   is missing on the server. `GET /api/saml/available` reports both
   availability and configured state.

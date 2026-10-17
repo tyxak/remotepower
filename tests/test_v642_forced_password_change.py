@@ -121,7 +121,7 @@ class TestAdminResetVsSelfChange(_Base):
         self._as("alice", "viewer")
         st, _b = self._call(api.handle_user_passwd,
                             {"username": "alice", "new_password": "Alice-0wn-Passw0rd!"})
-        self.assertEqual(st, 401)
+        self.assertEqual(st, 403)
 
 
 class TestTheGateItSetsIsReal(unittest.TestCase):

@@ -83,7 +83,7 @@ def handle_device_ssh(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     devs = A.load(A.DEVICES_FILE)
     if dev_id not in devs:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     m = A.method()
     if m == 'GET':
         A.require_auth()
@@ -134,7 +134,7 @@ def handle_device_synology_upgrade(dev_id):
         A.respond(400, {'error': 'invalid host id'})
     dev = A.device_get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     tgt = A._ssh_target(dev)
     if not tgt:
         A.respond(403, {'error': 'SSH not enabled/configured on this host. '

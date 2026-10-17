@@ -66,7 +66,7 @@ def _advisory_scope(qs):
         if not isinstance(dev, dict):
             # 404 rather than 403: a cross-tenant id must not be distinguishable
             # from one that does not exist.
-            A.respond(404, {'error': 'host not found'})
+            A.respond(404, {'error': 'Host not found'})
         return {target: dev}, (dev.get('name') or target)
     if kind == 'tag':
         if not target:

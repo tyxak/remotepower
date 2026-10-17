@@ -297,7 +297,7 @@ def handle_autonomy_preview():
     devices = A.load(A.DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if not dev:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
     radius = _blast_radius_for(dev_id, dev, devices)
     tenant = A._device_tenant(dev)
     policy = _policy_for(tenant)

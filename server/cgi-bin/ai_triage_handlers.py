@@ -199,7 +199,7 @@ def handle_log_sweep_run(dev_id):
     with A._LockedUpdate(A.DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
-            A.respond(404, {'error': 'host not found'})
+            A.respond(404, {'error': 'Host not found'})
             return
         dev['force_log_sweep'] = True
     with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
@@ -218,11 +218,11 @@ def handle_log_sweep_get(dev_id):
     (+ pending flag while a requested sweep hasn't landed yet)."""
     A.require_auth()
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid host id'})
+        A.respond(400, {'error': 'invalid host id'})
         return
     devices = A._load_ro(A.DEVICES_FILE) or {}
     if dev_id not in devices:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
         return
     rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
     requested = int(rec.get('requested_at') or 0)
@@ -260,12 +260,12 @@ def handle_log_sweep_diagnose(dev_id):
     triggers an AI-provider call (cost) + a store write."""
     actor = A.require_write_role('run AI log diagnosis')
     if not A._validate_id(dev_id):
-        A.respond(404, {'error': 'invalid host id'})
+        A.respond(400, {'error': 'invalid host id'})
         return
     devices = A.load(A.DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     if dev is None:
-        A.respond(404, {'error': 'host not found'})
+        A.respond(404, {'error': 'Host not found'})
         return
     rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
     if not rec.get('files'):
