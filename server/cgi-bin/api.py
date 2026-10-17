@@ -918,6 +918,7 @@ except Exception as _e:   # pragma: no cover - defensive
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import dns_control as dns_control_mod  # v6.2.0: Pi-hole/AdGuard blocking control (pure)
 import notify as notify_mod    # notification-channel payload builders (pure)
+from textfmt import agree, plural  # noqa: E402, F401 — '3 hosts', never 'host(s)'; handler modules reach both as A.plural / A.agree
 import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
@@ -7401,7 +7402,7 @@ def handle_service_baselines():
         })
     with _LockedUpdate(CONFIG_FILE) as cfg:
         cfg['service_baselines'] = clean
-    audit_log(actor, 'service_baselines_set', f'{len(clean)} baseline(s)')   # self-locking → after the block
+    audit_log(actor, 'service_baselines_set', f'{plural(len(clean), "baseline", "baselines")}')   # self-locking → after the block
     respond(200, {'ok': True, 'baselines': clean})
 
 
@@ -8835,7 +8836,7 @@ def handle_otlp_traces_test():
         _export_otlp_traces(batch, cfg)
     except Exception as e:
         respond(502, {'error': f'Export failed: {str(e)[:200]}'})
-    respond(200, {'ok': True, 'message': f'{len(batch)} span(s) pushed to the OTLP collector.'})
+    respond(200, {'ok': True, 'message': f'{plural(len(batch), "span", "spans")} pushed to the OTLP collector.'})
 
 
 def handle_otlp_test():
@@ -9479,7 +9480,7 @@ def _log_email(event, recipients, status, detail):
             'ts':         int(time.time()),
             'event':      f'{event} (email)',
             'status':     status,
-            'detail':     f'{len(recipients)} recipient(s): {detail}'[:300],
+            'detail':     f'{plural(len(recipients), "recipient", "recipients")}: {detail}'[:300],
         })
         wl['entries'] = entries[-MAX_WEBHOOK_LOG:]
         save(WEBHOOK_LOG_FILE, wl)
@@ -10141,7 +10142,7 @@ def _alert_title(event, payload):
         return f'Cloudflare IP list needs attention: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'ip_blacklisted':
         return (f'IP blocklisted: {p.get("ip", "?")} on '
-                f'{p.get("listed_count", "?")} list(s) ({p.get("blocklists", "?")})')[:200]
+                f'{plural(p.get("listed_count", "?"), "list", "lists")} ({p.get("blocklists", "?")})')[:200]
     if event == 'resolver_unhealthy':
         return (f'DNS resolution failing: {p.get("rtype", "?")} {p.get("target", "?")} '
                 f'({p.get("fail_count", 0)} fail / {p.get("nxdomain_count", 0)} NXDOMAIN '
@@ -10157,12 +10158,12 @@ def _alert_title(event, payload):
         _tool = p.get('tool', 'AV')
         _n = p.get('infected') or 0
         return (f'Malware detected on {name}: {_tool}'
-                + (f' — {_n} infected item(s)' if _n else ' reported an infection'))[:200]
+                + (f' — {plural(_n, "infected item", "infected items")}' if _n else ' reported an infection'))[:200]
     if event == 'av_warning':
         _tool = p.get('tool', 'AV')
         _n = p.get('warnings') or 0
         return (f'{_tool} reported warnings on {name}'
-                + (f' — {_n} warning(s)' if _n else ''))[:200]
+                + (f' — {plural(_n, "warning", "warnings")}' if _n else ''))[:200]
     if event == 'custom_check_failed':
         return (f'Check failed on {name}: {p.get("check_name") or "check"}'
                 + (f' — {p.get("output")}' if p.get('output') else ''))[:256]
@@ -10378,7 +10379,7 @@ def _alert_title(event, payload):
         # being woken at 3am nothing they could act on.
         who = p.get('rule') or p.get('oid_label') or ''
         head = f'{who} on {name}' if who else f'SNMP trap from {name}'
-        return (f'{head}: {p.get("count","?")} trap(s), '
+        return (f'{head}: {plural(p.get("count","?"), "trap", "traps")}, '
                 f'OID {p.get("oid","?")} = {p.get("value","?")}')
     if event == 'vault_break_glass':
         return (f'Break-glass reveal on {name}: "{p.get("label","?")}" by '
@@ -17990,7 +17991,7 @@ def handle_tenant_delete(tid):
     users = load(USERS_FILE) or {}
     assigned = [u for u, d in users.items() if (d.get('tenant_id') or DEFAULT_TENANT) == tid]
     if assigned:
-        respond(409, {'error': f'{len(assigned)} user(s) still assigned — reassign them first'})
+        respond(409, {'error': f'{plural(len(assigned), "user", "users")} still assigned — reassign them first'})
     with _LockedUpdate(TENANTS_FILE) as tenants:
         if tid not in tenants:
             respond(404, {'error': 'tenant not found'})
@@ -19650,7 +19651,7 @@ def _autopatch_spawn_rollout(pol, actor):
             'tenant_gate': pol.get('tenant_gate'),  # SEC (v6.4.0): inherit the policy's tenant gate → dispatcher confines rings
         }
         _rollout_log(roll, f'spawned by auto-patch policy "{pol.get("name")}" — '
-                           f'{len(roll["rings"])} ring(s), '
+                           f'{plural(len(roll["rings"]), "ring", "rings")}, '
                            f'{"reboot, " if roll["reboot"] else ""}'
                            f'{"health-gated" if roll["health_gate"]["enabled"] else "no gate"}')
         if len(rolls) >= 100:
@@ -22462,7 +22463,7 @@ def handle_heartbeat():
                 sys.stderr.write(f"[remotepower] netscan ingest failed dev={dev_id}: {e}\n")
             n = len(ns.get('hosts') or [])
             co = {'cmd': 'netscan', 'rc': 0,
-                  'output': f"discovered {n} host(s) via {ns.get('method','?')}"}
+                  'output': f"discovered {plural(n, 'host', 'hosts')} via {ns.get('method','?')}"}
         # v4.8.0 sweep (perf): single-row read-append-write on the DB backend.
         # cmd_output.json is an ENTITY file, so the old load() reconstructed
         # EVERY device's window (json.loads per device) on every command-result
@@ -24763,7 +24764,7 @@ def handle_command_queue_clear(dev_id):
         if idx_raw == '':
             removed = len(queue)
             cmds[dev_id] = []
-            detail = f'cleared {removed} queued command(s)'
+            detail = f'cleared {plural(removed, "queued command", "queued commands")}'
         else:
             try:
                 idx = int(idx_raw)
@@ -24798,7 +24799,7 @@ def handle_command_queue_clear_all():
             cmds[dev_id] = []
             cleared_devs += 1
     audit_log(actor, 'command_queue_clear_all',
-              f'cleared {removed} queued command(s) across {cleared_devs} host(s)')
+              f'cleared {plural(removed, "queued command", "queued commands")} across {plural(cleared_devs, "host", "hosts")}')
     respond(200, {'ok': True, 'removed': removed, 'devices': cleared_devs})
 
 
@@ -24834,7 +24835,7 @@ def handle_shutdown():
         _res = _queue_command_batch(ids, 'shutdown', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('shutdown',
-                                                  f'Shut down {len(ids)} host(s)',
+                                                  f'Shut down {plural(len(ids), "host", "hosts")}',
                                                   'shutdown', actor, _res)})
 
 
@@ -24851,7 +24852,7 @@ def handle_reboot():
         _res = _queue_command_batch(ids, 'reboot', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('reboot',
-                                                  f'Reboot {len(ids)} host(s)',
+                                                  f'Reboot {plural(len(ids), "host", "hosts")}',
                                                   'reboot', actor, _res)})
 
 
@@ -24935,7 +24936,7 @@ def handle_update_device():
         _res = _queue_command_batch(ids, 'update', actor)
         respond(200, {'ok': True, 'results': _res,
                       'job_id': _record_batch_job('agent_update',
-                                                  f'Update agent on {len(ids)} host(s)',
+                                                  f'Update agent on {plural(len(ids), "host", "hosts")}',
                                                   'update', actor, _res)})
 
 
@@ -25301,7 +25302,7 @@ def handle_upgrade_device():
     # so it records its own.
     respond(200, {'ok': True, 'results': results,
                   'job_id': _record_batch_job('upgrade',
-                                              f'Upgrade packages on {len(ids)} host(s)',
+                                              f'Upgrade packages on {plural(len(ids), "host", "hosts")}',
                                               'upgrade', actor, results)})
 
 
@@ -25403,7 +25404,7 @@ def _handle_pkg_action(kind):
         respond(400, {'error': 'no package names given'})
     bad = [n for n in names if not _INSTALL_PKG_RE.match(n)]
     if bad:
-        respond(400, {'error': 'invalid package name(s): ' + ', '.join(bad[:5])
+        respond(400, {'error': ('invalid package name: ' if len(bad) == 1 else 'invalid package names: ') + ', '.join(bad[:5])
                                + ' — allowed: letters, digits, . _ + : @ / -'})
     ids = _resolve_targets(body)
     if not ids:
@@ -26801,7 +26802,7 @@ def _persist_integration_results(results):
                 pending.append(('github_new_issue', {
                     'label': label, 'integration_id': key,
                     'repo': (new_issues[-1].get('repo', '') if new_issues else ''),
-                    'title': f'…and {overflow} more new issue(s) this poll',
+                    'title': f'…and {plural(overflow, "more new issue", "more new issues")} this poll',
                     'url': '',
                 }))
             for repo, mark in prev_gh.items():
@@ -26972,7 +26973,7 @@ def handle_connectors_reload():
         return
     new_types = sorted(set(integrations_mod.CONNECTORS) - before)
     audit_log(actor, 'connectors_reload',
-              f'{len(loaded_files)} plugin file(s) scanned, {len(new_types)} new connector type(s)')
+              f'{plural(len(loaded_files), "plugin file", "plugin files")} scanned, {plural(len(new_types), "new connector type", "new connector types")}')
     respond(200, {'ok': True, 'files_scanned': loaded_files, 'new_types': new_types,
                   'catalog': integrations_mod.list_connectors()})
 
@@ -27088,7 +27089,7 @@ def handle_integrations_save():
             cfg['show_provisioning'] = bool(body.get('show_provisioning'))
         # Force a re-poll on next request.
         cfg['last_integrations_run'] = 0
-    audit_log(actor, 'integrations_save', f'{len(clean)} integration(s) configured')
+    audit_log(actor, 'integrations_save', f'{plural(len(clean), "integration", "integrations")} configured')
     respond(200, {'ok': True, 'count': len(clean)})
 
 
@@ -32774,7 +32775,7 @@ def handle_user_delete(username):
             for k in gone:
                 store.pop(k, None)
         if gone:
-            leftovers.append(f'{len(gone)} session(s)')
+            leftovers.append(f'{plural(len(gone), "session", "sessions")}')
     except Exception as _e:                                  # pragma: no cover
         sys.stderr.write(f'[remotepower] token purge failed: {_e}\n')
     audit_log(requester, 'user_delete',
@@ -32916,7 +32917,7 @@ def handle_role_delete(name):
     users = load(USERS_FILE)
     assigned = [u for u, d in users.items() if d.get('role') == name]
     if assigned:
-        respond(400, {'error': f'role is assigned to {len(assigned)} user(s); reassign them first'})
+        respond(400, {'error': f'role is assigned to {plural(len(assigned), "user", "users")}; reassign them first'})
     with _LockedUpdate(ROLES_FILE) as store:
         roles = store.get('roles', [])
         remaining = [r for r in roles if r.get('name') != name]
@@ -35740,7 +35741,7 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
             _created = [n for n in _now_files if n not in files]
             if _created:
                 files.extend(_created)
-                log(f"catch-up: {len(_created)} file(s) created during migration")
+                log(f"catch-up: {plural(len(_created), 'file', 'files')} created during migration")
             changed = _created + [n for n in files
                                   if n not in _created
                                   and backend_mtime(DATA_DIR / n) >= t0]
@@ -35760,7 +35761,7 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
                 _invalidate_load_cache(DATA_DIR / name)
                 _write(name, load(DATA_DIR / name))
                 log(f"  catch-up: {src} -> {target}  {name}")
-            log(f"catch-up: re-migrated {len(changed)} file(s) written during migration")
+            log(f"catch-up: re-migrated {plural(len(changed), 'file', 'files')} written during migration")
 
     # Verify: source reconstruction must equal target reconstruction.
     problems = []
@@ -37326,7 +37327,7 @@ def handle_custom_cmd():
             conf_ids.append(_create_confirmation(
                 'exec_command', dev_id, {'command': _queued},
                 actor, None, None))
-        audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} host(s)')
+        audit_log(actor, 'change_approval_requested', f'exec on {plural(len(conf_ids), "host", "hosts")}')
         respond(202, {'ok': False, 'approval_required': True,
                       'confirmation_ids': conf_ids,
                       'message': 'Change queued for approval by another admin.'})
@@ -38092,7 +38093,7 @@ def handle_image_cve_scan():
     audit_log(actor, 'image_cve_scan_queued',
               detail=f'devices={len(queued)} skipped_os={len(os_skipped)}')
     if queued:
-        _msg = (f'Image scan queued on {len(queued)} host(s) — trivy runs on '
+        _msg = (f'Image scan queued on {plural(len(queued), "host", "hosts")} — trivy runs on '
                 'the next heartbeat; results appear within a few minutes.')
     elif os_skipped:
         _msg = ''      # the skipped sentence below says the whole story
@@ -38100,7 +38101,7 @@ def handle_image_cve_scan():
         _msg = 'No hosts with running containers to scan.'
     if os_skipped:
         _msg = (_msg + ' ' if _msg else '') + (
-            f'{len(os_skipped)} non-Linux host(s) skipped '
+            f'{plural(len(os_skipped), "non-Linux host", "non-Linux hosts")} skipped '
             f'({", ".join(os_skipped[:5])}) — image scanning runs on Linux only.')
     respond(200, {'ok': True, 'queued': len(queued),
                   'skipped_unsupported': os_skipped, 'message': _msg})
@@ -38184,7 +38185,7 @@ def handle_secrets_scan_now():
             queued.append(d)
     audit_log(actor, 'secrets_scan_queued', detail=f'devices={len(queued)}')
     respond(200, {'ok': True, 'queued': len(queued),
-                  'message': (f'Secrets scan queued on {len(queued)} host(s) — the agent '
+                  'message': (f'Secrets scan queued on {plural(len(queued), "host", "hosts")} — the agent '
                               'runs it on the next heartbeat.') if queued else
                              'No agent hosts to scan.'})
 
@@ -38326,7 +38327,7 @@ def handle_pii_scan_now():
             queued.append(d)
     audit_log(actor, 'pii_scan_queued', detail=f'devices={len(queued)}')
     respond(200, {'ok': True, 'queued': len(queued),
-                  'message': (f'PII scan queued on {len(queued)} host(s) — the agent '
+                  'message': (f'PII scan queued on {plural(len(queued), "host", "hosts")} — the agent '
                               'runs it on the next heartbeat.') if queued else
                              'No agent hosts to scan.'})
 
@@ -38925,13 +38926,13 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                        and str(v.get('status', '')).lower() not in ('on', 'encrypted')]
             if _unprot or not _bl:
                 _win_bad['bitlocker'] = ('win_bitlocker_off', 'win_bitlocker_on',
-                                         f'{len(_unprot)} OS volume(s) not encrypted')
+                                         f'{plural(len(_unprot), "OS volume", "OS volumes")} not encrypted')
         _fw = wp.get('firewall')
         if isinstance(_fw, list) and _fw:
             _off = [p.get('name') for p in _fw if isinstance(p, dict) and not p.get('enabled')]
             if _off:
                 _win_bad['firewall'] = ('win_firewall_off', 'win_firewall_on',
-                                        f"{', '.join(str(n) for n in _off if n)} profile(s) off")
+                                        f"{', '.join(str(n) for n in _off if n)} {'profile' if len(_off) == 1 else 'profiles'} off")
         _wu = wp.get('wu_service')
         # wuauserv is a trigger-start service, so "Stopped" is its normal idle
         # state. Where the agent reports the start type, only a disabled service
@@ -40625,10 +40626,10 @@ def _eval_patch_sla(devices, cfg, age, now):
         breaches = []
         if isinstance(sec_days, int) and sec_days > 0 and st.get('sec_first') \
                 and now - st['sec_first'] > sec_days * 86400 and (secc or 0) > 0:
-            breaches.append(f'{secc} security update(s) > {sec_days}d')
+            breaches.append(f'{plural(secc, "security update", "security updates")} > {sec_days}d')
         if isinstance(all_days, int) and all_days > 0 and st.get('all_first') \
                 and now - st['all_first'] > all_days * 86400 and (allc or 0) > 0:
-            breaches.append(f'{allc} update(s) > {all_days}d')
+            breaches.append(f'{plural(allc, "update", "updates")} > {all_days}d')
         row = {'device_id': dev_id, 'name': dev.get('name', dev_id),
                'group': dev.get('group', ''), 'upgradable': allc,
                'security_updates': secc,
@@ -41630,7 +41631,7 @@ def _dependency_suggestions():
                 'upstream_id': up, 'upstream_name': devices[up].get('name', up),
                 'connections': e['count'],
                 'ports': sorted(p for p in e['ports'] if p)[:8],
-                'evidence': f'{e["count"]} conn(s) to ' +
+                'evidence': f'{plural(e["count"], "conn", "conns")} to ' +
                             ', '.join(f':{p}' for p in sorted(e['ports'])[:4] if p),
             })
     out.sort(key=lambda r: r['connections'], reverse=True)
@@ -44828,7 +44829,7 @@ def handle_ai_chat():
                      'empty or stale. Reindex under Settings → AI → RAG, and make '
                      'sure the relevant source (e.g. drift) is enabled.')
         else:
-            _note = f'{len(retrieved)} context chunk(s) retrieved and attached.'
+            _note = f'{plural(len(retrieved), "context chunk", "context chunks")} retrieved and attached.'
         respond(200, {
             'ok': True,
             'debug': True,
@@ -45667,7 +45668,7 @@ def _compliance_facts(devices=None):
                 nfail = 0
             if nfail:
                 nm = (devices.get(did) or {}).get('name', did)
-                scap_failing.append(f'{nm} ({nfail} rule(s))')
+                scap_failing.append(f'{nm} ({plural(nfail, "rule", "rules")})')
         facts['scap_failing'] = scap_failing
         facts['scap_scanned_devices'] = scap_scanned
     except Exception:
@@ -45699,7 +45700,7 @@ def _compliance_facts(devices=None):
             finds = [f for f in (rec.get('findings') or []) if isinstance(f, dict)]
             if finds:
                 nm = (devices.get(did) or {}).get('name', did)
-                pii_hosts.append(f'{nm} ({len(finds)} file(s))')
+                pii_hosts.append(f'{nm} ({plural(len(finds), "file", "files")})')
         facts['pii_hosts'] = pii_hosts
         facts['pii_scanned_devices'] = pii_scanned
     except Exception:
@@ -47369,7 +47370,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
             if stale_pw and not prev_stale:
                 events.append(('password_stale', {
                     'device_id': dev_id, 'name': dev_name,
-                    'detail': (f"{len(stale_pw)} account(s) with a password over a "
+                    'detail': (f"{plural(len(stale_pw), 'account', 'accounts')} with a password over a "
                                'year old: ' + ', '.join(sorted(stale_pw)[:6])
                                + '. Rotate or lock unused accounts.')}))
             elif prev_stale and not stale_pw:
@@ -48128,7 +48129,7 @@ def _check_resource_saturation(now):
                 'current': r.get('current'), 'ceiling': r.get('ceiling'),
                 'detail': (f"{r.get('label')} at {r.get('current')}% is "
                            f"projected to reach {r.get('ceiling')}% in "
-                           f"{r.get('days_to_saturation')} day(s)")[:200]})
+                           f"{plural(r.get('days_to_saturation'), 'day', 'days')}")[:200]})
         except Exception:
             pass
 
@@ -49424,7 +49425,7 @@ def _maybe_repair_baseline_checks():
         n = checks_mod.repair_applied_catalog_checks(cfg.get('custom_checks') or [])
         cfg['_baseline_checks_repaired_v640'] = True
     if n:
-        sys.stderr.write(f'[remotepower] repaired {n} applied baseline check(s)\n')
+        sys.stderr.write(f'[remotepower] repaired {plural(n, "applied baseline check", "applied baseline checks")}\n')
 
 
 
@@ -50031,7 +50032,7 @@ def _compute_attention():
         if isinstance(clam.get('infected'), int) and clam['infected'] > 0:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
                           'target': 'clamav',
-                          'summary': f"ClamAV reported {clam['infected']} infected file(s)"})
+                          'summary': f"ClamAV reported {plural(clam['infected'], 'infected file', 'infected files')}"})
         elif isinstance(clam.get('db_age_days'), int) and clam['db_age_days'] > _av_stale:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'target': 'clamav',
@@ -50039,7 +50040,7 @@ def _compute_attention():
         if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'target': 'rkhunter',
-                          'summary': f"rkhunter reported {rk['warnings']} warning(s)"})
+                          'summary': f"rkhunter reported {plural(rk['warnings'], 'warning', 'warnings')}"})
         # v6.2.0: Windows Defender. Infections mirror ClamAV; the NEW signal is
         # real-time protection being OFF — critical, because every other AV
         # number on this host ("0 threats") is meaningless while it is disabled.
@@ -50047,7 +50048,7 @@ def _compute_attention():
         if isinstance(dfd.get('infected'), int) and dfd['infected'] > 0:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
                           'target': 'defender',
-                          'summary': f"Defender reported {dfd['infected']} threat(s)"})
+                          'summary': f"Defender reported {plural(dfd['infected'], 'threat', 'threats')}"})
         if dfd.get('realtime_enabled') is False:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
                           'target': 'defender',
@@ -50188,7 +50189,7 @@ def _compute_attention():
             recent_ah = []
         if recent_ah:
             items.append({'severity': 'warning', 'kind': 'after_hours', 'device': '',
-                          'summary': f'{len(recent_ah)} event(s) fired outside business hours (last {_ah_win_h}h)'})
+                          'summary': f'{plural(len(recent_ah), "event", "events")} fired outside business hours (last {_ah_win_h}h)'})
 
     # v3.0.1 (attention audit): services_watched that are NOT active right now.
     # Recent Activity gets a `service_down` event when the transition happens,
@@ -50938,19 +50939,19 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     kev_n = sum(1 for f in (finds or []) if isinstance(f, dict) and f.get('kev'))
     if kev_n:
         _add('cve_kev', min(_RISK_CAPS['cve_kev'], kev_n * w['cve_kev']),
-             f'{kev_n} CVE(s) on CISA KEV — actively exploited in the wild')
+             f'{plural(kev_n, "CVE", "CVEs")} on CISA KEV — actively exploited in the wild')
     crit = sum(1 for f in (finds or []) if isinstance(f, dict) and str(f.get('severity') or '').lower() == 'critical')
     high = sum(1 for f in (finds or []) if isinstance(f, dict) and str(f.get('severity') or '').lower() == 'high')
     if crit:
-        _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * w['cve_critical']), f'{crit} critical CVE(s)')
+        _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * w['cve_critical']), f'{plural(crit, "critical CVE", "critical CVEs")}')
     if high:
-        _add('cve_high', min(_RISK_CAPS['cve_high'], high * w['cve_high']), f'{high} high CVE(s)')
+        _add('cve_high', min(_RISK_CAPS['cve_high'], high * w['cve_high']), f'{plural(high, "high CVE", "high CVEs")}')
     try:
         up = int(((si.get('packages') or {}).get('upgradable')) or 0)
     except (TypeError, ValueError, OverflowError):
         up = 0
     if up:
-        _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * w['pending_updates']), f'{up} pending update(s)')
+        _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * w['pending_updates']), f'{plural(up, "pending update", "pending updates")}')
     # v3.13.0: don't count world-reachable sockets the operator has muted on the
     # Exposure page (surgical mute, or a host-level mute).
     world = sum(1 for p in (si.get('listening_ports') or [])
@@ -50958,10 +50959,10 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 and not _exposure_muted(p.get('process'), p.get('proto'), p.get('port'),
                                         exposure_mutes or [], dev_id))
     if world:
-        _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * w['exposed_world']), f'{world} world-reachable service(s)')
+        _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * w['exposed_world']), f'{plural(world, "world-reachable service", "world-reachable services")}')
     viol = len(sv_rec.get('violations') or []) if isinstance(sv_rec, dict) else 0
     if viol:
-        _add('policy_violation', min(_RISK_CAPS['policy_violation'], viol * w['policy_violation']), f'{viol} software-policy violation(s)')
+        _add('policy_violation', min(_RISK_CAPS['policy_violation'], viol * w['policy_violation']), f'{plural(viol, "software-policy violation", "software-policy violations")}')
     expired = soon = 0
     for v in _device_contract_status(cmdb_rec):
         if v.get('status') == 'expired':
@@ -50974,7 +50975,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('expiry_soon', soon * w['expiry_soon'], f'{soon} expiring soon')
     mi = len([m for m in (si.get('mount_issues') or []) if isinstance(m, dict)])
     if mi:
-        _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * w['mount_issue']), f'{mi} mount issue(s)')
+        _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * w['mount_issue']), f'{plural(mi, "mount issue", "mount issues")}')
     if si.get('reboot_required'):
         _add('reboot_required', w['reboot_required'], 'reboot required')
     # ── v3.12.0: firewall posture ────────────────────────────────────────────
@@ -51009,7 +51010,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         wfw = wp.get('firewall')
         if isinstance(wfw, list) and wfw and any(
                 isinstance(p, dict) and not p.get('enabled') for p in wfw):
-            _add('firewall_off', w['firewall_off'], 'Windows Firewall profile(s) off')
+            _add('firewall_off', w['firewall_off'], 'A Windows Firewall profile is off')
         bl = wp.get('bitlocker')
         if isinstance(bl, list) and bl and any(
                 isinstance(v, dict)
@@ -51090,7 +51091,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if smart_bad:
         _add('smart_failure',
              min(_RISK_CAPS['smart_failure'], smart_bad * w['smart_failure']),
-             f'{smart_bad} disk(s) reporting SMART failure')
+             f'{plural(smart_bad, "disk", "disks")} reporting SMART failure')
     if (hw_rec.get('kernel') or {}).get('reboot_for_kernel'):
         _add('kernel_outdated', w['kernel_outdated'],
              'running kernel older than newest installed')
@@ -51099,7 +51100,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if fu:
         _add('failed_units',
              min(_RISK_CAPS['failed_units'], fu * w['failed_units']),
-             f'{fu} failed system service(s)')
+             f'{plural(fu, "failed system service", "failed system services")}')
     # ── v4.10.0: more posture/health signals (all already collected) ─────────
     # OS end-of-life — no security updates is a real, durable risk.
     eol = _device_os_eol(dev, pkg_entry or {})
@@ -51137,7 +51138,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _dnames = ', '.join(drifted[:4]) + ('…' if len(drifted) > 4 else '')
         _add('config_drift',
              min(_RISK_CAPS['config_drift'], len(drifted) * w['config_drift']),
-             f'{len(drifted)} config file(s) drifted: {_dnames}')
+             f'{plural(len(drifted), "config file", "config files")} drifted: {_dnames}')
     if isinstance(si.get('clock'), dict) and si['clock'].get('skewed'):
         _add('clock_skew', w['clock_skew'], 'system clock skewed / NTP out of sync')
     if isinstance(si.get('gateway'), dict) and si['gateway'].get('reachable') is False:
@@ -51152,7 +51153,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     _av = posture_signals.av_verdict(av_rec, _AV_TOOLS)
     if _av['infected']:
         _add('av_bad', w['av_bad'],
-             f"{_av['infected']} active malware detection(s)")
+             f"{plural(_av['infected'], 'active malware detection', 'active malware detections')}")
     elif _av['realtime_off']:
         _add('av_bad', max(1, w['av_bad'] // 2),
              'real-time malware protection is switched off')
@@ -51166,19 +51167,19 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('image_cves',
              min(_RISK_CAPS['image_cves'],
                  (_ic * w['image_cves']) + (_ih * max(1, w['image_cves'] // 2))),
-             f'{_ic} critical / {_ih} high CVE(s) in running container images')
+             f'{_ic} critical / {plural(_ih, "high CVE", "high CVEs")} in running container images')
 
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:
         _add('backup_stale', w['backup_stale'],
-             f'{len(backup_stale)} backup(s) stale or missing')
+             f'{plural(len(backup_stale), "backup", "backups")} stale or missing')
 
     # Credentials sitting in files. Muted findings are operator-accepted.
     _sf = posture_signals.live_secret_findings(secrets_rec)
     if _sf:
         _add('secrets_exposed',
              min(_RISK_CAPS['secrets_exposed'], len(_sf) * w['secrets_exposed']),
-             f'{len(_sf)} credential(s) found in files on disk')
+             f'{plural(len(_sf), "credential", "credentials")} found in files on disk')
 
     # Patch SLA. `pending_updates` counts updates; this scores how LONG the
     # oldest has been waiting, which is what an SLA is actually about. The
@@ -51211,7 +51212,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
            if isinstance(c, dict) and c.get('state') == 'failed']
     if _cf:
         _add('canary_not_armed', w['canary_not_armed'],
-             f'{len(_cf)} configured canary file(s) could not be placed')
+             f'{plural(len(_cf), "configured canary file", "configured canary files")} could not be placed')
 
     # Integrity Guard quarantine. The ledger is cumulative, so this is "this
     # host has had files quarantined", not "is under attack right now" -- worth
@@ -51220,7 +51221,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if _gq:
         _add('files_quarantined',
              min(_RISK_CAPS['files_quarantined'], len(_gq) * w['files_quarantined']),
-             f'{len(_gq)} file(s) quarantined by the integrity guard')
+             f'{plural(len(_gq), "file", "files")} quarantined by the integrity guard')
 
     # Failed systemd TIMERS. Distinct from failed_units above: a timer that
     # cannot fire means a scheduled job -- a backup, a scan, a rotation -- is
@@ -51255,7 +51256,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
             _first = (_crit or _warn)[0].get('name', '?')
             _add('custom_check_failed',
                  min(_RISK_CAPS['custom_check_failed'], _pts),
-                 f'{len(_crit)} critical / {len(_warn)} warning custom check(s)'
+                 f'{len(_crit)} critical / {plural(len(_warn), "warning custom check", "warning custom checks")}'
                  f' ({_first})')
 
     # Being attacked right now. Sources come from the same store and window the
@@ -51263,7 +51264,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if bf_rows:
         _srcs = sorted({r.get('source_ip') for r in bf_rows if isinstance(r, dict)})
         _add('brute_force', min(_RISK_CAPS['brute_force'], len(_srcs) * w['brute_force']),
-             f'{len(_srcs)} source(s) guessing logins right now'
+             f'{plural(len(_srcs), "source", "sources")} guessing logins right now'
              + (f' ({", ".join(_srcs[:2])})' if _srcs else ''))
     # ...by addresses a reputation service already lists, still unblocked here.
     if isinstance(intel_rec, dict) and intel_rec.get('known_bad_unblocked'):
@@ -51271,7 +51272,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _ips = [t['ip'] for t in intel_rec.get('top') or []
                 if t.get('score') is not None and t['score'] >= 75 and not t.get('blocked')]
         _add('known_attacker', min(_RISK_CAPS['known_attacker'], _n * w['known_attacker']),
-             f'{_n} known-abusive source(s) not blocked'
+             f'{plural(_n, "known-abusive source", "known-abusive sources")} not blocked'
              + (f' ({", ".join(_ips[:2])})' if _ips else ''))
 
     score = min(100, sum(f['points'] for f in factors))
@@ -51470,7 +51471,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         pending = d.get('pending_sectors')
         if isinstance(pending, (int, float)) and pending > 0:
             _add('pending_sectors', w['pending_sectors'],
-                 f'{disk}: {int(pending)} sector(s) pending remap')
+                 f'{disk}: {plural(int(pending), "sector", "sectors")} pending remap')
         # The TREND is what makes this predictive rather than reactive: a disk
         # with 4 reallocated sectors that has had 4 for a year is fine; one that
         # went 0 → 4 this month is on its way out.
@@ -51489,10 +51490,10 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         ce = ecc.get('ce')
         if isinstance(ue, (int, float)) and ue > 0:
             _add('ecc_uncorrectable', w['ecc_uncorrectable'],
-                 f'{int(ue)} uncorrectable ECC error(s) — the DIMM could not fix them')
+                 f'{plural(int(ue), "uncorrectable ECC error", "uncorrectable ECC errors")} — the DIMM could not fix them')
         if isinstance(ce, (int, float)) and ce > 0:
             _add('ecc_correctable', w['ecc_correctable'] * min(3, int(ce)),
-                 f'{int(ce)} correctable ECC error(s)')
+                 f'{plural(int(ce), "correctable ECC error", "correctable ECC errors")}')
 
     # ── churn: a box that keeps coming back has been going away ───────────────
     events = (uptime_rec or {}).get('events') or []
@@ -53286,7 +53287,7 @@ def handle_public_status():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
     if not _ct_token_eq(given, token):
-        respond(403, {'error': 'invalid or missing status token'})
+        respond(401, {'error': 'invalid or missing status token'})
         return
     now = int(time.time())
     ttl = get_online_ttl()
@@ -53355,7 +53356,7 @@ def handle_status():
                                'status token in Settings'})
         return
     if not _ct_token_eq(given, token):
-        respond(403, {'error': 'invalid or missing status token'})
+        respond(401, {'error': 'invalid or missing status token'})
         return
 
     devices = _load_ro(DEVICES_FILE) or {}
@@ -53432,7 +53433,7 @@ def handle_ha_bridge():
                                'status token in Settings'})
         return
     if not _ct_token_eq(given, token):
-        respond(403, {'error': 'invalid or missing status token'})
+        respond(401, {'error': 'invalid or missing status token'})
         return
 
     # v7.0.2 (perf): _load_ro — the loop below only COUNTS, reading last_seen
@@ -61413,7 +61414,7 @@ def handle_inbound_webhook(token_str):
     if _is_resolve:
         n = _inbound_resolve(match.get('id'), _dedup, _actor)
         _log_inbound('alert', match.get('id'), match.get('label'), '200',
-                     f'resolved {n} alert(s) dedup={_dedup[:60]}')
+                     f'resolved {plural(n, "alert", "alerts")} dedup={_dedup[:60]}')
         respond(200, {'ok': True, 'resolved': n})
 
     severity = (body.get('severity') or 'medium').lower()
@@ -64349,7 +64350,7 @@ def _timeline_collect(include_ids, name_map):
                 'kind':        'cve',
                 'severity':    'critical' if crit else 'high',
                 'title':       'CVE findings',
-                'detail':      (', '.join(parts) + ' CVE(s) outstanding — '
+                'detail':      (', '.join(parts) + ' CVEs outstanding — '
                                 + ', '.join(f.get('vuln_id', '?') for f in live[:5])
                                 + ('…' if len(live) > 5 else ''))[:200],
                 'device_id':   did,
@@ -64605,8 +64606,8 @@ def handle_smtp_test():
             html_body=smtp_notifier.brand_html(cfg, _test_subject, _test_body),  # v5.4.1 (H4)
             force=True,   # v5.4.1 (E6): an explicit connectivity test bypasses sandbox mode
         )
-        _log_email('test', recipients, 'ok', f'test sent to {len(recipients)} recipient(s)')
-        audit_log(actor, 'smtp_test', f'test email sent to {len(recipients)} recipient(s)')
+        _log_email('test', recipients, 'ok', f'test sent to {plural(len(recipients), "recipient", "recipients")}')
+        audit_log(actor, 'smtp_test', f'test email sent to {plural(len(recipients), "recipient", "recipients")}')
         respond(200, {'ok': True, 'recipients': recipients, 'result': result})
     except smtp_notifier.SmtpError as e:
         _log_email('test', recipients, 'error', str(e))
@@ -65617,7 +65618,7 @@ def _run_posture_digest_if_due():
         n = _send_posture_digest(cfg, reason=cadence)
         with _locked_update(CONFIG_FILE) as c:
             c['last_posture_digest'] = now
-        sys.stderr.write(f"[remotepower] posture digest sent to {n} recipient(s)\n")
+        sys.stderr.write(f"[remotepower] posture digest sent to {plural(n, 'recipient', 'recipients')}\n")
     except Exception as e:
         sys.stderr.write(f"[remotepower] posture digest failed: {e}\n")
 
@@ -65639,7 +65640,7 @@ def handle_posture_digest_test():
         respond(400, {'error': str(e)})
     except Exception as e:
         respond(500, {'error': f'{type(e).__name__}: {e}'})
-    audit_log(actor, 'posture_digest_test', f'sent to {n} recipient(s)')
+    audit_log(actor, 'posture_digest_test', f'sent to {plural(n, "recipient", "recipients")}')
     respond(200, {'ok': True, 'recipients': n})
 
 
@@ -73643,7 +73644,7 @@ def handle_host_config_collect_all():
         respond(400, {'error': 'no matching agent hosts'})
     _queue_command_batch(targets, 'exec:remotepower-agent send_current_configs', actor)
     audit_log(actor, 'host_config_collect_all',
-              f'{len(targets)} host(s) ({target.get("type")}:{target.get("value")})')
+              f'{plural(len(targets), "host", "hosts")} ({target.get("type")}:{target.get("value")})')
     respond(200, {'ok': True, 'queued': len(targets)})
 
 

@@ -754,7 +754,7 @@ def handle_kmip_client_delete(cid):
             if o.get('client_id') == cid and o.get('state') != 'destroyed']
     if live and not purge:
         A.respond(409, {
-            'error': f'this client still holds {len(live)} key(s). Deleting it '
+            'error': f'this client still holds {A.plural(len(live), "key", "keys")}. Deleting it '
                      'leaves them unreadable by anything — destroy them too, or '
                      'revoke the client instead to keep them recoverable.',
             'keys': len(live), 'needs_purge': True})
@@ -779,7 +779,7 @@ def handle_kmip_client_delete(cid):
                 source_ip=A._get_client_ip())
     A._kmip_log('admin', op='client_delete', actor=actor, client_id=cid,
                 client=name, ok=True,
-                detail=(f'{len(live)} key(s) destroyed with it' if live else None))
+                detail=(f'{A.plural(len(live), "key", "keys")} destroyed with it' if live else None))
     A.respond(200, {'ok': True, 'keys_destroyed': len(live)})
 
 
@@ -831,7 +831,7 @@ def handle_kmip_reset():
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cfg.pop('kmip_daemon_secret', None)
     A.audit_log(actor, 'kmip_reset',
-                detail=f'destroyed {n_keys} key(s), {n_clients} client(s)',
+                detail=f'destroyed {A.plural(n_keys, "key", "keys")}, {A.plural(n_clients, "client", "clients")}',
                 source_ip=A._get_client_ip())
     A.respond(200, {
         'ok': True, 'keys_destroyed': n_keys, 'clients_removed': n_clients,
@@ -977,10 +977,10 @@ def handle_kmip_keys_purge_destroyed():
         for uid in [u for u, o in objs.items() if o.get('state') == 'destroyed']:
             del objs[uid]
             removed += 1
-    A.audit_log(actor, 'kmip_keys_purge', detail=f'{removed} tombstone(s)',
+    A.audit_log(actor, 'kmip_keys_purge', detail=f'{A.plural(removed, "tombstone", "tombstones")}',
                 source_ip=A._get_client_ip())
     A._kmip_log('admin', op='purge_destroyed', actor=actor, ok=True,
-                detail=f'{removed} destroyed record(s) removed')
+                detail=f'{A.plural(removed, "destroyed record", "destroyed records")} removed')
     A.respond(200, {'ok': True, 'removed': removed})
 
 

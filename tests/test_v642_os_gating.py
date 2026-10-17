@@ -105,7 +105,7 @@ class TestFileBackupJobTargets(_OsGateBase):
         self.assertEqual(status, 200, body)
         self.assertEqual(sorted(body["skipped_unsupported"]),
                          ["designer-mac", "fileserver"])
-        self.assertIn("2 non-Linux host(s)", body["note"])
+        self.assertIn("2 non-Linux hosts", body["note"])
         jobs = api._backup_jobs_load()["jobs"]
         job = [j for j in jobs if j["id"] == body["id"]][0]
         self.assertEqual(job["device_ids"], ["lin-1"],

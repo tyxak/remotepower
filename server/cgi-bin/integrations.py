@@ -27,6 +27,8 @@ import ssl
 import urllib.error
 import urllib.parse
 
+from textfmt import plural
+
 OK = "ok"
 WARN = "warning"
 CRIT = "critical"
@@ -2064,7 +2066,7 @@ def _wordpress(inst, c):
             logins_available = False
     detail = site or "site up"
     if logins_available:
-        detail += f" — {len(logins)} recent login(s)"
+        detail += f" — {plural(len(logins), 'recent login', 'recent logins')}"
     elif authed:
         detail += " — login history unavailable (Simple History plugin not detected)"
     return {
@@ -2245,7 +2247,9 @@ def _sentinelone(inst, c):
     # An infected endpoint outranks a stale one: this is the alarm, not the tally.
     if infected:
         out["status"] = CRIT
-        out["detail"] = f"{infected} infected endpoint(s), " + out["detail"]
+        out["detail"] = (
+            f"{plural(infected, 'infected endpoint', 'infected endpoints')}, " + out["detail"]
+        )
     out["metrics"]["infected"] = infected
     return out
 
@@ -2598,7 +2602,9 @@ def _github(inst, c):
     if not state:
         raise IntegrationError(f"all repos failed: {', '.join(failed + bad)[:150]}")
     status = WARN if (failed or bad) else OK
-    detail = f"{len(state)} repo(s), {open_count} open issue(s)"
+    detail = (
+        f"{plural(len(state), 'repo', 'repos')}, {plural(open_count, 'open issue', 'open issues')}"
+    )
     if failed or bad:
         detail += f" — unreachable/invalid: {', '.join(failed + bad)[:100]}"
     return {

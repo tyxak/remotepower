@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-7">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-8">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-7">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-8">
 
 </head>
 <body>
@@ -1413,7 +1413,7 @@
           <div class="settings-row"><label class="form-label" for="un-email">My email</label><input type="email" id="un-email" class="form-input" maxlength="200" placeholder="me@example.com"></div>
           <div class="settings-row"><label class="form-label" for="un-minprio">Minimum urgency</label><select id="un-minprio" class="form-input"><option value="0">Everything</option><option value="3">Normal and up</option><option value="4">High and up</option><option value="5">Urgent only</option></select></div>
           <div class="settings-row"><label class="form-label" for="un-scope-type">Only hosts in</label><select id="un-scope-type" class="form-input" data-change="unScopeChange"><option value="all">Any (all I can see)</option><option value="groups">Group</option><option value="tags">Tag</option><option value="sites">Site</option></select></div>
-          <div class="settings-row hidden" id="un-scope-val-row"><label class="form-label" for="un-scope-val">Name(s), comma-separated</label><input type="text" id="un-scope-val" class="form-input" maxlength="256" placeholder="prod, dc1"></div>
+          <div class="settings-row hidden" id="un-scope-val-row"><label class="form-label" for="un-scope-val">Names, comma-separated</label><input type="text" id="un-scope-val" class="form-input" maxlength="256" placeholder="prod, dc1"></div>
           <div class="row-6"><button class="btn-primary" data-action="saveMyNotifyPrefs">Save my notifications</button></div>
           <div id="un-result" class="hint mt-6" role="status" aria-live="polite"></div>
         </div>
@@ -7479,7 +7479,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->
       <div id="page-services" class="page">
-        <div class="page-title">Services <span id="services-maint-badge" class="isl-138"><span id="services-maint-count">0</span> maintenance window(s) active</span></div>
+        <div class="page-title">Services <span id="services-maint-badge" class="isl-138"><span id="services-maint-count">0 maintenance windows active</span></span></div>
         <div class="page-subtitle">systemd units watched per host. Click a row to see history, logs, and configuration. <a href="docs/services.md" class="c-accent">Documentation</a></div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadServicesReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -10741,7 +10741,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="sp-recipe">Recipe</label>
     <select id="sp-recipe" class="form-input" data-change="spRecipeChanged" aria-label="Recipe">
       <option value="mdadm_create">Create RAID array (mdadm)</option>
-      <option value="lvm_pvcreate">LVM: create physical volume(s)</option>
+      <option value="lvm_pvcreate">LVM: create physical volumes</option>
       <option value="lvm_vgcreate">LVM: create volume group</option>
       <option value="lvm_lvcreate">LVM: create logical volume</option>
       <option value="mkfs">Create filesystem (mkfs)</option>
@@ -11826,7 +11826,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="one-time-install-modal-title" id="one-time-install-modal"><div class="modal"><div class="modal-title" id="one-time-install-modal-title">One-time install</div>
   <div class="modal-subtitle">Install a package immediately via each target's own package manager (apt / dnf / yum / zypper / pacman / apk). Not staged — it runs as soon as the target heartbeats.</div>
-  <div class="form-group"><label>Package(s)</label><input type="text" id="oti-pkgs" class="form-input" placeholder="e.g. nginx htop" aria-label="Package(s)"><div class="page-subtitle mt-4">Package names only (no shell). Space- or comma-separated, up to 30.</div></div>
+  <div class="form-group"><label>Packages</label><input type="text" id="oti-pkgs" class="form-input" placeholder="e.g. nginx htop" aria-label="Packages"><div class="page-subtitle mt-4">Package names only (no shell). Space- or comma-separated, up to 30.</div></div>
   <div class="form-group"><label>Target</label>
     <div class="row-8-center">
       <select id="oti-target-type" class="form-input input-auto" data-change="onOtiTargetChange" aria-label="Target">
@@ -12342,39 +12342,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.0-7"></script>
+<script defer src="static/js/app.js?v=7.4.0-8"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-containers.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-network.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-containers.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-network.js?v=7.4.0-8"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.0-8"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-dns.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-drift.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-cve.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-backups.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-iac.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-virt.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-ai.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-dns.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-drift.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-cve.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-backups.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-iac.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-virt.js?v=7.4.0-8"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-remote.js?v=7.4.0-7"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-logs.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-remote.js?v=7.4.0-8"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.0-8"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-self.js?v=7.4.0-8"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.0-7"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.0-8"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12384,6 +12384,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.0-7"></script>
+<script defer src="static/js/sw-register.js?v=7.4.0-8"></script>
 </body>
 </html>

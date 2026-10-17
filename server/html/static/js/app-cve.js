@@ -38,7 +38,7 @@ async function openCveExposure() {
       + `<td class="ta-center fw-500">${h.score}</td></tr>`;
   }).join('');
   el.innerHTML =
-    `<div class="hint mb-8">${d.exposed_with_critical} world-exposed host(s) carry a critical CVE — patch these first. Score is scaled by each asset's CMDB business criticality.</div>`
+    `<div class="hint mb-8">${plural(d.exposed_with_critical, 'world-exposed host', 'world-exposed hosts')} carry a critical CVE — patch these first. Score is scaled by each asset's CMDB business criticality.</div>`
     + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>#</th><th>Host</th><th>Reach</th><th>Crit·ality</th><th>Crit</th><th>High</th><th>Fixable</th><th>Score</th></tr></thead><tbody>${trs}</tbody></table></div>`;
 }
 
@@ -135,7 +135,7 @@ async function loadCveCampaigns() {
     const tgt = c.target_date ? ` · due ${escHtml(c.target_date)}` : '';
     return `<div class="dash-card mb-8"><div class="row-6-center">`
       + `<span class="fw-500 fs-13 ellipsis flex-1">${escHtml(c.name)}${done} <span class="meta-sm-nm">${escHtml(c.owner || '')}${tgt}</span></span>`
-      + `<span class="fs-13" title="Affected hosts / matching findings">${c.affected_hosts} host(s), ${c.finding_count} findings</span>`
+      + `<span class="fs-13" title="Affected hosts / matching findings">${plural(c.affected_hosts, 'host', 'hosts')}, ${c.finding_count} findings</span>`
       + `<span title="Affected-host burn-down">${spark}</span>`
       + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteCveCampaign" data-arg="${escAttr(c.id)}">Delete</button>`
       + `</div><div class="meta-sm-nm mt-4">Scope: ${escHtml(scope)}</div></div>`;
@@ -340,7 +340,7 @@ async function cveRealert() {
     + 're-alert on their own).')) return;
   const r = await api('POST', '/cve/realert', {});
   if (r && r.ok) {
-    toast(`Re-alerted ${r.devices} host(s)`, 'success');
+    toast(`Re-alerted ${plural(r.devices, 'host', 'hosts')}`, 'success');
     refreshAlertsBadge();
   } else failToast(r);
 }

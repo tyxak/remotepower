@@ -393,8 +393,8 @@ def _run_data_backup(triggered_by='scheduled'):
             sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
     if skipped_unreadable:
         sys.stderr.write(
-            f"[remotepower] backup: skipped {len(skipped_unreadable)} "
-            f"unreadable path(s): {', '.join(skipped_unreadable[:5])}"
+            f"[remotepower] backup: skipped {A.plural(len(skipped_unreadable), 'unreadable path', 'unreadable paths')}: "
+            f"{', '.join(skipped_unreadable[:5])}"
             f"{' …' if len(skipped_unreadable) > 5 else ''} — the archive was "
             "still written; fix the permissions if these files matter\n")
     state = {
@@ -584,7 +584,7 @@ def handle_backup_job_create():
             targets, supported=('linux',))
         if not targets:
             A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
-                            f'{len(os_skipped)} target(s) skipped '
+                            f'{A.plural(len(os_skipped), "target", "targets")} skipped '
                             f'({", ".join(os_skipped[:5])}). Use a command job '
                             'with a platform-native tool for these hosts.'})
     if cron and not A._valid_cron(cron):
@@ -605,7 +605,7 @@ def handle_backup_job_create():
                 detail=f'job={job["id"]} devices={len(targets)} type={jtype}')
     A.respond(200, {'ok': True, 'id': job['id'],
                     'skipped_unsupported': os_skipped,
-                    'note': (f'{len(os_skipped)} non-Linux host(s) were left out of '
+                    'note': (f'{A.plural(len(os_skipped), "non-Linux host", "non-Linux hosts")} {A.agree(len(os_skipped), "was", "were")} left out of '
                              f'this file job: {", ".join(os_skipped[:5])}'
                              if os_skipped else '')})
 
@@ -1017,7 +1017,7 @@ def handle_backup_job_update(job_id):
             job['device_ids'], supported=('linux',))
         if not _kept:
             A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
-                            f'{len(os_skipped)} target(s) skipped '
+                            f'{A.plural(len(os_skipped), "target", "targets")} skipped '
                             f'({", ".join(os_skipped[:5])}). Use a command job '
                             'with a platform-native tool for these hosts.'})
         if _kept != job['device_ids']:
@@ -1038,7 +1038,7 @@ def handle_backup_job_update(job_id):
     # answers "ok" while having silently narrowed the target list.
     A.respond(200, {'ok': True,
                     'skipped_unsupported': os_skipped,
-                    'note': (f'{len(os_skipped)} non-Linux host(s) were left out of '
+                    'note': (f'{A.plural(len(os_skipped), "non-Linux host", "non-Linux hosts")} {A.agree(len(os_skipped), "was", "were")} left out of '
                              f'this file job: {", ".join(os_skipped[:5])}'
                              if os_skipped else '')})
 
@@ -1231,7 +1231,7 @@ def handle_backup_restore():
             'expected': expected, 'failed': len(failed),
             'failures': failed[:10], 'snapshot': snap_name,
             'stores_imported': len(imported),
-            'error': f'{len(failed)} of {expected} file(s) could not be '
+            'error': f'{len(failed)} of {A.plural(expected, "file", "files")} could not be '
                      f'restored — the data directory is now part backup and '
                      f'part what was there before. Roll back with snapshot '
                      f'{snap_name}, fix the cause, and retry.'})

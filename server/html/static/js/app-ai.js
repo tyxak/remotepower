@@ -244,7 +244,7 @@ async function switchRagIndexBackend() {
   if (r && r.ok) {
     // r.target reflects where the index ACTUALLY landed (server-confirmed).
     const dest = r.target === 'postgres' ? 'Postgres / pgvector' : 'JSON';
-    if (out) out.textContent = `✓ AI index now on ${dest} — ${r.docs} chunk(s) rebuilt in ${r.elapsed_ms} ms.`;
+    if (out) out.textContent = `✓ AI index now on ${dest} — ${plural(r.docs, 'chunk', 'chunks')} rebuilt in ${r.elapsed_ms} ms.`;
     toast(`AI index moved to ${dest}`, 'success');
   } else {
     if (out) out.textContent = '✗ Switch failed: '
@@ -313,7 +313,7 @@ function _ragRenderSearch(semantic) {
       <td class="meta-sm">${escHtml((r.excerpt || '').slice(0, 240))}${(r.excerpt || '').length > 240 ? '…' : ''}</td>
     </tr>`).join('');
   out.innerHTML = `
-    <div class="meta-sm isl-778">${_ragSearchRows.length} result(s) · ${semantic ? 'lexical + semantic (embeddings)' : 'lexical (keyword)'} retrieval</div>
+    <div class="meta-sm isl-778">${plural(_ragSearchRows.length, 'result', 'results')} · ${semantic ? 'lexical + semantic (embeddings)' : 'lexical (keyword)'} retrieval</div>
     <div class="scrollable-table-wrap audit-scroll">
     <table class="fs-13">
       <thead id="ai-rag-results-thead"><tr>
@@ -1578,7 +1578,7 @@ async function aiAnomalyScan() {
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml(failText(r))}</div>`; return; }
   const items = r.anomalies || [];
   if (!items.length) {
-    out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} host(s).</div>`;
+    out.innerHTML = `<div class="c-green">No anomalies stood out across ${plural(r.scanned, 'host', 'hosts')}.</div>`;
     return;
   }
   // Cross-feature: map the AI's device names back to ids so each finding can
@@ -1590,7 +1590,7 @@ async function aiAnomalyScan() {
     (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
   } catch (_) {}
   const sevCls = s => s === 'high' ? 'sev-critical' : s === 'medium' ? 'sev-medium' : 'sev-low';
-  out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} host(s)</div>` +
+  out.innerHTML = `<div class="fs-11 c-muted mb-6">${plural(items.length, 'finding', 'findings')} across ${plural(r.scanned, 'host', 'hosts')}</div>` +
     items.map((a, i) => {
       const hasDev = !!_anomalyDevMap[a.device];
       const devCell = hasDev
@@ -2118,7 +2118,7 @@ function _logSweepRender(rec) {
     html += '<div class="empty-state">No sweep collected yet — click "Collect logs" to request one from the agent.</div>';
   } else {
     const when = rec.ts ? _fmtAbsTs(rec.ts) : '?';
-    html += `<p class="hint">Sweep from ${escHtml(when)} — ${files.length} file tail(s) kept of ` +
+    html += `<p class="hint">Sweep from ${escHtml(when)} — ${plural(files.length, 'file tail', 'file tails')} kept of ` +
             `${rec.scanned || 0} scanned (${rec.skipped || 0} skipped), ` +
             `${Math.round((rec.total_bytes || 0) / 1024)} KB total.</p>`;
     html += '<div class="scroll-cap">' + files.map(f =>

@@ -196,13 +196,13 @@ async function previewRebootPlan() {
   const r = await api('POST', '/rollouts/reboot-plan', { scope: _rrScope() });
   if (!r || !r.ok) { failToast(r); if (box) box.textContent = failText(r); return; }
   _rrRings = r.rings;
-  box.innerHTML = `<div class="fw-500 mb-6">${r.device_count} host(s) → ${r.rings.length} wave(s)</div>`
+  box.innerHTML = `<div class="fw-500 mb-6">${plural(r.device_count, 'host', 'hosts')} → ${plural(r.rings.length, 'wave', 'waves')}</div>`
     + r.rings.map(w => `<div class="mb-4"><span class="fw-500 fs-13">${escHtml(w.name)}</span> <span class="meta-sm-nm">${w.devices.map(d => escHtml(d.name)).join(', ')}</span></div>`).join('')
     + `<div class="row-6 mt-8"><button class="btn-primary" data-action="createRebootRollout">Create rolling-reboot rollout</button></div>`;
 }
 async function createRebootRollout() {
   if (!_rrRings || !_rrRings.length) { toast('Preview the waves first', 'error'); return; }
-  if (!await uiConfirm(`Create a rolling reboot across ${_rrRings.length} wave(s)? It starts as a draft you release wave by wave (or auto-promote).`)) return;
+  if (!await uiConfirm(`Create a rolling reboot across ${plural(_rrRings.length, 'wave', 'waves')}? It starts as a draft you release wave by wave (or auto-promote).`)) return;
   const rings = _rrRings.map(w => ({ name: w.name, selector: w.selector }));
   const body = {
     name: 'Rolling reboot ' + new Date().toISOString().slice(0, 16).replace('T', ' '),

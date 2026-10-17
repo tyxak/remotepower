@@ -39,7 +39,7 @@ async function loadMonitoringProfiles() {
   el.innerHTML = profiles.map(p => {
     const names = (p.script_ids || []).map(id => nameById[id] || id).join(', ');
     return `<div class="row-8-center mb-6 flex-between">
-      <div><strong>${escHtml(p.name)}</strong> <span class="meta-sm-nm">${(p.script_ids||[]).length} script(s): ${escHtml(names)}</span></div>
+      <div><strong>${escHtml(p.name)}</strong> <span class="meta-sm-nm">${plural((p.script_ids||[]).length, 'script', 'scripts')}: ${escHtml(names)}</span></div>
       <div class="row-6">
         <button class="btn-icon cell-sm" data-action="openProfileApply" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Apply</button>
         <button class="btn-icon cell-sm c-danger-outline" data-action="deleteProfile" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Delete</button>
@@ -107,7 +107,7 @@ async function applyProfile() {
   const ids = Array.from(_csProfileSelDevs);
   if (!ids.length) { toast('Select at least one asset', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles/apply', { profile_id: pid, device_ids: ids });
-  if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} host(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
+  if (r?.ok) { toast(`Applied ${plural(r.scripts_applied, 'script', 'scripts')} to ${plural(r.devices, 'host', 'hosts')}`, 'success'); closeModal('cs-profile-apply-modal'); }
   else failToast(r);
 }
 async function deleteProfile(id, name) {

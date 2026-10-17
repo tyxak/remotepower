@@ -532,7 +532,7 @@ async function declareIncident(alertId) {
   const host = a.device_name || a.device_id || 'the fleet';
   if (!await uiConfirm({
     title: 'Declare an incident',
-    message: `Open an incident covering ${ids.length} open alert(s) on ${host}?\n\nIt appears on the public status page and notifies status subscribers. Each alert is linked to it, so the inbox shows they are being worked together.`,
+    message: `Open an incident covering ${plural(ids.length, 'open alert', 'open alerts')} on ${host}?\n\nIt appears on the public status page and notifies status subscribers. Each alert is linked to it, so the inbox shows they are being worked together.`,
     confirmText: 'Declare', danger: false,
   })) return;
   const r = await api('POST', '/incidents', {
@@ -540,11 +540,11 @@ async function declareIncident(alertId) {
     impact: (a.severity === 'critical') ? 'major'
             : (a.severity === 'high') ? 'minor' : 'none',
     status: 'investigating',
-    body: `Declared from the Alerts inbox: ${ids.length} open alert(s) on ${host}.`,
+    body: `Declared from the Alerts inbox: ${plural(ids.length, 'open alert', 'open alerts')} on ${host}.`,
     alert_ids: ids,
   }).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Could not declare incident', 'error'); return; }
-  toast(`Incident opened covering ${ids.length} alert(s)`, 'success');
+  toast(`Incident opened covering ${plural(ids.length, 'alert', 'alerts')}`, 'success');
   loadAlerts();
 }
 
@@ -786,7 +786,7 @@ async function ackGroup(key) {
   if (!ids.length) { toast('Nothing to acknowledge on this host', 'info'); return; }
   const body = { ids };
   if (_alertsAckCommentEnabled) {
-    const note = await uiPrompt({message: `Add a comment to ${ids.length} acknowledgement(s) (optional):`, value: ''});
+    const note = await uiPrompt({message: `Add a comment to ${plural(ids.length, 'acknowledgement', 'acknowledgements')} (optional):`, value: ''});
     if (note === null) return;
     if (note.trim()) body.note = note.trim();
   }
@@ -794,7 +794,7 @@ async function ackGroup(key) {
   if (r && r.ok) {
     loadAlerts(); refreshAlertsBadge();
     const _ids = ids.slice();
-    pushUndoableAction(`Acknowledge ${r.acked} alert(s)`,
+    pushUndoableAction(`Acknowledge ${plural(r.acked, 'alert', 'alerts')}`,
       async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
       async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Acknowledged ${r.acked}`);
@@ -809,7 +809,7 @@ async function resolveGroup(key) {
   if (r && r.ok) {
     loadAlerts(); refreshAlertsBadge();
     const _ids = ids.slice();
-    pushUndoableAction(`Resolve ${r.resolved} alert(s)`,
+    pushUndoableAction(`Resolve ${plural(r.resolved, 'alert', 'alerts')}`,
       async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
       async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Resolved ${r.resolved}`);
@@ -887,7 +887,7 @@ async function bulkAckAlerts() {
   if (!ids.length) return;
   const body = { ids };
   if (_alertsAckCommentEnabled) {
-    const note = await uiPrompt({message: `Add a comment to ${ids.length} acknowledgement(s) (optional):`, value: ''});
+    const note = await uiPrompt({message: `Add a comment to ${plural(ids.length, 'acknowledgement', 'acknowledgements')} (optional):`, value: ''});
     if (note === null) return;   // cancelled
     if (note.trim()) body.note = note.trim();
   }
@@ -895,7 +895,7 @@ async function bulkAckAlerts() {
   if (r && r.ok) {
     loadAlerts(); refreshAlertsBadge();
     const _ids = ids.slice();
-    pushUndoableAction(`Acknowledge ${r.acked} alert(s)`,
+    pushUndoableAction(`Acknowledge ${plural(r.acked, 'alert', 'alerts')}`,
       async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
       async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Acknowledged ${r.acked}`);
@@ -1029,7 +1029,7 @@ async function bulkResolveAlerts() {
   if (r && r.ok) {
     loadAlerts(); refreshAlertsBadge();
     const _ids = ids.slice();
-    pushUndoableAction(`Resolve ${r.resolved} alert(s)`,
+    pushUndoableAction(`Resolve ${plural(r.resolved, 'alert', 'alerts')}`,
       async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
       async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
       `Resolved ${r.resolved}`);
@@ -1044,7 +1044,7 @@ async function clearResolvedAlerts() {
   if (!await uiConfirm(`Remove every alert in "resolved" state${n ? ` (${n})` : ''}? Open and acknowledged rows stay.`)) return;
   const r = await api('DELETE', '/alerts?scope=resolved');
   if (r && r.ok) {
-    toast(`Cleared ${r.removed} resolved alert(s)`, 'success');
+    toast(`Cleared ${plural(r.removed, 'resolved alert', 'resolved alerts')}`, 'success');
     loadAlerts(); refreshAlertsBadge();
   } else failToast(r);
 }
@@ -1055,7 +1055,7 @@ async function clearAllAlerts() {
   if (!await uiConfirm(`Remove EVERY alert${n ? ` (${n} total: ${s.open || 0} open, ${s.acknowledged || 0} acknowledged, ${s.resolved || 0} resolved)` : ' — including open and acknowledged ones'}?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.`)) return;
   const r = await api('DELETE', '/alerts?scope=all');
   if (r && r.ok) {
-    toast(`Cleared ${r.removed} alert(s)`, 'success');
+    toast(`Cleared ${plural(r.removed, 'alert', 'alerts')}`, 'success');
     loadAlerts(); refreshAlertsBadge();
   } else failToast(r);
 }
@@ -1160,7 +1160,7 @@ function _renderTriageResult(el, t, alertId, deviceId) {
     _renderAttackTechniques(v.attack_techniques) +
     proposeHtml +
     (stepsHtml
-      ? `<p class="hint">Evidence gathered via ${steps.length} tool call(s):</p><ul class="hint">${stepsHtml}</ul>` : '') +
+      ? `<p class="hint">Evidence gathered via ${plural(steps.length, 'tool call', 'tool calls')}:</p><ul class="hint">${stepsHtml}</ul>` : '') +
     ((t && t.at) ? `<p class="hint">Run ${_formatTs(t.at)} by ${_escapeHtml(t.by || '?')}${t.by === 'auto' ? ' (automatic triage)' : ''}</p>` : '') +
     fbHtml +
     '</div>';
@@ -1306,7 +1306,7 @@ function _priorIncidentBadge(a) {
   if (!n) return '';
   return ` <button class="patch-badge fs-10" data-action="showPriorIncidents"`
     + ` data-arg="${escAttr(String(a.id))}"`
-    + ` title="${escAttr(n + ' similar incident(s) on this fleet were resolved before — see what fixed them')}">`
+    + ` title="${escAttr(n === 1 ? '1 similar incident on this fleet was resolved before — see what fixed it' : n + ' similar incidents on this fleet were resolved before — see what fixed them')}">`
     + `${_icon('clock', 11)} ${n} prior</button>`;
 }
 
@@ -1360,7 +1360,7 @@ async function clearIncidentMemory() {
         confirmText: 'Forget'})) return;
   const r = await api('DELETE', '/ai/incident-memory');
   if (r && r.ok) {
-    toast(`Forgot ${r.removed} incident(s)`, 'success');
+    toast(`Forgot ${plural(r.removed, 'incident', 'incidents')}`, 'success');
     loadIncidentMemory(true);
   } else toast((r && r.error) || 'Could not clear the incident memory', 'error');
 }

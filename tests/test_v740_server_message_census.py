@@ -28,7 +28,7 @@ SKIP = {'storage.py', 'storage_pg.py'}          # store internals raise, they do
 ALLOWED_401 = {
     'unauthorized', 'not authenticated', 'not signed in', 'session expired', 'access revoked',
     'invalid token', 'invalid or disabled token', 'invalid satellite token', 'satellite token required',
-    'invalid or expired link',
+    'invalid or expired link', 'invalid or missing status token',
     # The CMDB vault client reads this one itself (app-cmdb.js tells a locked vault from an expired
     # session by the `vault_locked` code), so it does not reach api()'s logout.
     'vault locked',

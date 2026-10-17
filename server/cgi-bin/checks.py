@@ -22,6 +22,8 @@ test suite. Part of the Makefile LINT + TYPECHECK baseline.
 
 import time
 
+from textfmt import plural
+
 # v6.2.2 threshold batch 5: seconds-per-day, for the OOM "days ago" display
 # divisor. The OOM *recency* window itself is operator-configurable and passed
 # in as `oom_recent_window_seconds` (single source, mirrors api.py) — this
@@ -390,11 +392,13 @@ def _host_checks(
             "Config drift",
             "posture",
             "warning" if drifted else "ok",
-            f"{len(drifted)} file(s) drifted" if drifted else "baseline matches",
+            f"{plural(len(drifted), 'file', 'files')} drifted" if drifted else "baseline matches",
         )
     mi = si.get("mount_issues") or []
     if mi:
-        add("mounts", "Mount points", "storage", "critical", f"{len(mi)} issue(s)")
+        add(
+            "mounts", "Mount points", "storage", "critical", f"{plural(len(mi), 'issue', 'issues')}"
+        )
     # v4.1.0: respect exposure mutes (set on the Exposed page) — a world port the
     # operator has muted there must not re-appear as a warning check here.
     wp = [
@@ -446,9 +450,9 @@ def _host_checks(
         sec = (si.get("packages") or {}).get("security_updates")
         sec = sec if isinstance(sec, int) else None
         if sec:
-            detail = f"{up} update(s), {sec} security"
+            detail = f"{plural(up, 'update', 'updates')}, {sec} security"
         else:
-            detail = f"{up} update(s)"
+            detail = f"{plural(up, 'update', 'updates')}"
         add("patches", "Pending updates", "patch", "warning" if (up > 0 or sec) else "ok", detail)
     if cve_high is not None:
         add(
@@ -456,7 +460,7 @@ def _host_checks(
             "CVEs (crit+high)",
             "security",
             "critical" if cve_high else "ok",
-            f"{cve_high} finding(s)",
+            f"{plural(cve_high, 'finding', 'findings')}",
         )
 
     # ── hardware / posture flags (from the hardware record + sysinfo) ──
@@ -555,7 +559,7 @@ def _host_checks(
             "Mail queue",
             "services",
             "critical" if mq >= crit else "warning" if mq >= warn else "ok",
-            f"{int(mq)} message(s) queued",
+            f"{plural(int(mq), 'message', 'messages')} queued",
         )
     # v4.1.0: a local filesystem the kernel remounted read-only = silent outage.
     ro_mounts = [
@@ -586,7 +590,7 @@ def _host_checks(
                 if disk_eta <= disk_forecast_crit_days
                 else "warning" if disk_eta <= disk_forecast_warn_days else "ok"
             ),
-            f"~{disk_eta:.1f} day(s) to full at current trend",
+            f"~{disk_eta:.1f} days to full at current trend",
         )
     pools = si.get("storage_health") or []
     if pools:
@@ -602,7 +606,11 @@ def _host_checks(
             "Storage / RAID",
             "storage",
             "critical" if bad else "ok",
-            f"{len(bad)} pool(s) degraded" if bad else f"{len(pools)} pool(s) healthy",
+            (
+                f"{plural(len(bad), 'pool', 'pools')} degraded"
+                if bad
+                else f"{plural(len(pools), 'pool', 'pools')} healthy"
+            ),
         )
     # ── v6.4.2: canary / honeytoken ARM status ────────────────────────
     # Until now the only canary data on the wire was TRIP reports, and the only
@@ -626,19 +634,19 @@ def _host_checks(
         elif watching:
             status = "warning"
             out_txt = (
-                f"{len(watching)} path(s) already held a REAL file — watching it "
+                f"{plural(len(watching), 'path', 'paths')} already held a REAL file — watching it "
                 "for changes, NOT a honeytoken: "
                 + ", ".join(str(c.get("path")) for c in watching[:3])
             )
         elif armed:
             status = "ok"
-            out_txt = f"{len(armed)} decoy(s) armed"
+            out_txt = f"{plural(len(armed), 'decoy', 'decoys')} armed"
         else:
             # Configured, nothing planted yet. Reporting `ok` here would be the
             # same lie this row exists to stop telling: zero armed decoys is not
             # working coverage.
             status = "unknown"
-            out_txt = f"{len(cst)} path(s) configured, none planted yet"
+            out_txt = f"{plural(len(cst), 'path', 'paths')} configured, none planted yet"
         add(
             "canary_files",
             "Canary files (honeytokens)",
@@ -678,7 +686,8 @@ def _host_checks(
                 "Local account passwords",
                 "security",
                 "critical",
-                f"{len(blank)} account(s) with a BLANK password: " + ", ".join(blank[:4]),
+                f"{plural(len(blank), 'account', 'accounts')} with a BLANK password: "
+                + ", ".join(blank[:4]),
             )
         elif security_hardening:
             add(
@@ -687,9 +696,10 @@ def _host_checks(
                 "security",
                 "warning" if stale else "ok",
                 (
-                    f"{len(stale)} password(s) over a year old: " + ", ".join(stale[:4])
+                    f"{plural(len(stale), 'password', 'passwords')} over a year old: "
+                    + ", ".join(stale[:4])
                     if stale
-                    else f"{len(accts)} account(s), none blank or stale"
+                    else f"{plural(len(accts), 'account', 'accounts')}, none blank or stale"
                 ),
             )
 
@@ -722,7 +732,7 @@ def _host_checks(
                     if age >= av_sig_stale_days
                     else "warning" if age >= defender_sig_warn_days else "ok"
                 ),
-                f"{int(age)} day(s) old",
+                f"{plural(int(age), 'day', 'days')} old",
             )
         # BitLocker on the OS volume.
         bl = wp.get("bitlocker")
@@ -739,7 +749,7 @@ def _host_checks(
                 "security",
                 "warning" if (unprot or not bl) else "ok",
                 (
-                    f"{len(unprot)} volume(s) unprotected"
+                    f"{plural(len(unprot), 'volume', 'volumes')} unprotected"
                     if unprot
                     else "encrypted" if bl else "no OS volume reported"
                 ),
@@ -754,7 +764,7 @@ def _host_checks(
                 "security",
                 "warning" if off else "ok",
                 (
-                    f"{', '.join(str(n) for n in off if n)} profile(s) OFF"
+                    f"{', '.join(str(n) for n in off if n)} {'profile' if len([n for n in off if n]) == 1 else 'profiles'} OFF"
                     if off
                     else "all profiles on"
                 ),
@@ -962,7 +972,7 @@ def _host_checks(
         if enc:
             detail = ", ".join(kinds) or "dm-crypt"
             if mounts:
-                detail += f" — {len(mounts)} mount(s): " + ", ".join(mounts[:4])
+                detail += f" — {plural(len(mounts), 'mount', 'mounts')}: " + ", ".join(mounts[:4])
                 if len(mounts) > 4:
                     detail += f", +{len(mounts) - 4} more"
         else:

@@ -213,7 +213,7 @@ function _renderKmipLog() {
   const sm = document.getElementById('kmip-log-summary');
   if (sm) {
     const fails = rows.filter(r => r.ok === false || r.kind === 'auth_fail').length;
-    sm.textContent = `${rows.length} event(s)${fails ? ` · ${fails} failed` : ''}`;
+    sm.textContent = `${plural(rows.length, 'event', 'events')}${fails ? ` · ${fails} failed` : ''}`;
   }
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="hint">Nothing logged yet.</td></tr>';
@@ -486,7 +486,7 @@ async function kmipDeleteClient(btn) {
   const name = btn.dataset.name || cid;
   const keys = Number(btn.dataset.keys || 0);
   const msg = keys
-    ? `${name} still holds ${keys} key(s). Deleting the client DESTROYS them — `
+    ? `${name} still holds ${plural(keys, 'key', 'keys')}. Deleting the client DESTROYS them — `
       + 'any data the appliance encrypted with them becomes permanently '
       + 'unrecoverable unless you hold a recovery bundle exported before now.\n\n'
       + 'To cut the appliance off while keeping its keys, use Revoke instead.'
@@ -503,7 +503,7 @@ async function kmipDeleteClient(btn) {
       `/kmip/clients/${encodeURIComponent(cid)}${keys ? '?purge=1' : ''}`);
     if (!_kmipOk(r, 'Deleting the client')) return;
     toast(r.keys_destroyed
-      ? `${name} deleted — ${r.keys_destroyed} key(s) destroyed`
+      ? `${name} deleted — ${plural(r.keys_destroyed, 'key', 'keys')} destroyed`
       : `${name} deleted`, 'success');
     loadKmip();
   } catch (e) {
@@ -522,7 +522,7 @@ async function kmipClearLog() {
   try {
     const r = await api('DELETE', '/kmip/log');
     if (!_kmipOk(r, 'Clearing the log')) return;
-    toast(`Cleared ${r.cleared || 0} event(s)`, 'success');
+    toast(`Cleared ${plural(r.cleared || 0, 'event', 'events')}`, 'success');
     kmipLoadLog();
   } catch (e) {
     toast(`Clear failed: ${String(e)}`, 'error');
@@ -606,7 +606,7 @@ async function kmipPurgeDestroyed() {
   if (!n) { toast('No destroyed keys to clear', 'info', { transient: true }); return; }
   const ok = await uiConfirm({
     title: 'Clear destroyed keys',
-    message: `Remove ${n} destroyed record(s) from the inventory. Their key `
+    message: `Remove ${plural(n, 'destroyed record', 'destroyed records')} from the inventory. Their key `
       + 'material was already destroyed; this only clears the rows.',
     confirmText: 'Clear',
   });
@@ -614,7 +614,7 @@ async function kmipPurgeDestroyed() {
   try {
     const r = await api('DELETE', '/kmip/keys');
     if (!_kmipOk(r, 'Clearing destroyed keys')) return;
-    toast(`Removed ${r.removed || 0} record(s)`, 'info');
+    toast(`Removed ${plural(r.removed || 0, 'record', 'records')}`, 'info');
     loadKmip();
   } catch (e) {
     toast(`Clear failed: ${String(e)}`, 'error');
@@ -668,8 +668,8 @@ function kmipOpenReset() {
   const c = (_kmipStatus && _kmipStatus.counts) || {};
   const el = document.getElementById('kmip-reset-scope');
   el.textContent = (c.objects || c.clients)
-    ? `This will destroy ${c.objects || 0} stored key(s) and remove `
-      + `${c.clients || 0} client(s).`
+    ? `This will destroy ${plural(c.objects || 0, 'stored key', 'stored keys')} and remove `
+      + `${plural(c.clients || 0, 'client', 'clients')}.`
     : 'No clients or keys are stored — nothing will be lost.';
   el.classList.toggle('c-warning', !!(c.objects || c.clients));
   document.getElementById('kmip-reset-confirm').value = '';
@@ -689,8 +689,8 @@ async function kmipDoReset() {
       (r.next || []).join('\n');
     document.getElementById('kmip-install-note').textContent = r.note || '';
     openModal('kmip-install-modal');
-    toast(`Removed — ${r.keys_destroyed || 0} key(s), `
-      + `${r.clients_removed || 0} client(s)`, 'success');
+    toast(`Removed — ${plural(r.keys_destroyed || 0, 'key', 'keys')}, `
+      + `${plural(r.clients_removed || 0, 'client', 'clients')}`, 'success');
     loadKmip();
   } catch (e) {
     toast(`Removal failed: ${String(e)}`, 'error');
@@ -751,7 +751,7 @@ async function kmipDoImport() {
       return;
     }
     closeModal('kmip-import-modal');
-    toast(`Restored ${res.body.objects || 0} key(s) and ${res.body.clients || 0} client(s)`, 'success');
+    toast(`Restored ${plural(res.body.objects || 0, 'key', 'keys')} and ${plural(res.body.clients || 0, 'client', 'clients')}`, 'success');
     loadKmip();
   } catch (e) {
     toast(`Restore failed: ${String(e)}`, 'error');

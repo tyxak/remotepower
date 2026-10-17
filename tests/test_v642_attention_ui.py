@@ -143,7 +143,7 @@ _ONELINERS = {"escHtml", "escAttr"}
 class _V8(unittest.TestCase):
     """Base: build a context holding the real helpers every renderer needs."""
 
-    COMMON = ["escHtml", "escAttr", "_icon"]
+    COMMON = ["escHtml", "escAttr", "_icon", "plural"]
     COMMON_BLOCKS = (("const _ICONS = ", "{", "}"),)
 
     def ctx(self, names, blocks=()):
@@ -474,10 +474,10 @@ class TestTaxonomyCounts(_V8):
         c = self._ready()
         c.eval("_renderTaxonomy()")
         txt = c.eval("__dom['taxonomy-summary'].textContent")
-        self.assertIn("4 host(s)", txt)
-        self.assertIn("2 group(s)", txt)
+        self.assertIn("4 hosts", txt)
+        self.assertIn("2 groups", txt)
         self.assertIn("1 ungrouped", txt)
-        self.assertIn("2 tag(s)", txt)
+        self.assertIn("2 tags", txt)
         self.assertIn("1 untagged", txt)
 
     def test_tag_lookup_returns_the_right_device_ids(self):

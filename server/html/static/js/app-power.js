@@ -507,7 +507,7 @@ async function loadDiskHealth() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
-    if (summary) summary.innerHTML = `${_diskHealthResp.count} disk(s) at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
+    if (summary) summary.innerHTML = `${plural(_diskHealthResp.count, 'disk', 'disks')} at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${plural(_diskHealthResp.unstable_count || 0, 'unstable host', 'unstable hosts')}`;
     _renderDiskHealth();
   } catch (e) {
     _errorState(tbody, loadDiskHealth, {msg: `Failed to load: ${String(e)}`, colspan: 6});

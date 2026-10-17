@@ -352,7 +352,7 @@ async function cmdbVaultRotate() {
   if (!res.ok) { toast('Rotation failed: ' + (res.data && res.data.error || res.status), 'error'); return; }
   _cmdbVaultKey = res.data.key;
   closeModal('cmdb-vault-rotate-modal');
-  toast('Passphrase rotated. ' + res.data.rotated + ' credential(s) re-encrypted.', 'success');
+  toast('Passphrase rotated. ' + plural(res.data.rotated, 'credential', 'credentials') + ' re-encrypted.', 'success');
   cmdbRenderVaultBar();
 }
 

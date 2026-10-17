@@ -134,7 +134,7 @@ class TestTheEnumerator(_Base):
         comments verbatim would make the report itself a copy of the personal
         data it is describing."""
         r = [x for x in api._subject_scan("dana") if x["kind"] == "comment"]
-        self.assertEqual(r[0]["ref"], "1 comment(s)")
+        self.assertEqual(r[0]["ref"], "1 comment")
 
     def test_an_empty_instance_does_not_raise(self):
         for a in ("USERS_FILE", "TOKENS_FILE", "CONTACTS_FILE", "TICKETS_FILE",

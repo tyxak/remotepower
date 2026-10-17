@@ -165,8 +165,8 @@ class TestAiRagComplianceTimeline(_Seeded):
     def test_intrusion_evidence_names_unblocked_known_abusive_hosts(self):
         facts = {'brute_force': ['web01'], 'known_bad_unblocked': ['web01'], 'ip_blocks_active': 1}
         _st, ev = compliance._intrusion_control(facts)
-        self.assertIn('still not blocked on 1 host(s): web01', ev)
-        self.assertIn('1 source address(es) are currently blocked', ev)
+        self.assertIn('still not blocked on 1 host: web01', ev)
+        self.assertIn('1 source address is currently blocked', ev)
 
     def test_timeline_carries_blocks_and_gateway_logins(self):
         for action in ('ip_intel_block', 'ip_intel_unblock', 'sshgw_open', 'sshgw_device_enabled'):

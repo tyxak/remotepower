@@ -604,7 +604,7 @@ def handle_prometheus_sd():
     if qs_token:
         cfg_token = (A.load(A.CONFIG_FILE) or {}).get('status_token') or ''
         if not A._ct_token_eq(qs_token, cfg_token):
-            A.respond(403, {'error': 'invalid or missing status token'})
+            A.respond(401, {'error': 'invalid or missing status token'})
     else:
         # Falls back to the normal gate, which also applies role scope + the
         # tenant gate through _scope_filter_devices below.
@@ -723,7 +723,7 @@ def handle_itsm_callback(token_str):
             a['resolved_by'] = f'itsm:{ref}'[:64]
             n += 1
     A._log_inbound('itsm', match.get('id'), match.get('label'), '200',
-                 f'resolved {n} alert(s) from ticket {ref}')
+                 f'resolved {A.plural(n, "alert", "alerts")} from ticket {ref}')
     A.audit_log(f'inbound:{match.get("label", match.get("id", "?"))}',
               'itsm_callback', f'ticket={ref} status={status} resolved={n}')
     A.respond(200, {'ok': True, 'resolved': n, 'ticket_ref': ref})
@@ -1046,7 +1046,7 @@ def _subject_scan(who, email=''):
     n_tok = sum(1 for t in (toks.values() if isinstance(toks, dict) else [])
                 if isinstance(t, dict) and str(t.get('user', '')).lower() == who)
     if n_tok:
-        add('tokens.json', 'session', f'{n_tok} token(s)',
+        add('tokens.json', 'session', f'{A.plural(n_tok, "token", "tokens")}',
             'inert once the account is gone (verify_token returns None), but '
             'still storage naming them', True)
     for cid, c in (A.load(A.CONTACTS_FILE) or {}).items():
@@ -1060,14 +1060,14 @@ def _subject_scan(who, email=''):
               and (_subject_matches(t.get('created_by'), who, email)
                    or _subject_matches(t.get('assignee'), who, email))]
     if t_auth:
-        add('tickets.json', 'ticket', f'{len(t_auth)} ticket(s)',
+        add('tickets.json', 'ticket', f'{A.plural(len(t_auth), "ticket", "tickets")}',
             'created_by / assignee', False)
     n_comments = sum(
         1 for t in tickets if isinstance(t, dict)
         for c in (t.get('comments') or [])
         if isinstance(c, dict) and _subject_matches(c.get('by'), who, email))
     if n_comments:
-        add('tickets.json', 'comment', f'{n_comments} comment(s)',
+        add('tickets.json', 'comment', f'{A.plural(n_comments, "comment", "comments")}',
             'comment author', False)
     entries = (A.load(A.TIME_ENTRIES_FILE) or {}).get('entries') or []
     n_time = sum(1 for e in entries if isinstance(e, dict)
@@ -1179,7 +1179,7 @@ def handle_privacy_erase():
             for k in gone:
                 store.pop(k, None)
         if gone:
-            erased.append(f'{len(gone)} session(s)')
+            erased.append(f'{A.plural(len(gone), "session", "sessions")}')
     except Exception as e:                                  # pragma: no cover
         A.sys.stderr.write(f'[remotepower] token purge failed: {e}\n')
 
@@ -1192,7 +1192,7 @@ def handle_privacy_erase():
             for cid in gone:
                 store.pop(cid, None)
         if gone:
-            erased.append(f'{len(gone)} contact record(s)')
+            erased.append(f'{A.plural(len(gone), "contact record", "contact records")}')
     except Exception as e:                                  # pragma: no cover
         A.sys.stderr.write(f'[remotepower] contact purge failed: {e}\n')
 

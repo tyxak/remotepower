@@ -594,7 +594,7 @@ async function _tkBulkPatch(ids, body) {
 async function bulkResolveTickets() {
   const ids = _tkSelectedIds();
   if (!ids.length) return;
-  if (!await uiConfirm(`Resolve ${ids.length} ticket(s)?`)) return;
+  if (!await uiConfirm(`Resolve ${plural(ids.length, 'ticket', 'tickets')}?`)) return;
   const ok = await _tkBulkPatch(ids, { status: 'resolved' });
   toast(`Resolved ${ok} of ${ids.length}`, ok === ids.length ? 'success' : 'error');
   _tkBulkBar();

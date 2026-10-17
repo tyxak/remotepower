@@ -984,11 +984,11 @@ def _render_report_email(report):
     if sla and sla.get('fleet_uptime_pct') is not None:
         lines.append(f"SLA uptime ({sla.get('days',30)}d) : {sla.get('fleet_uptime_pct')}%")
     if p:
-        lines.append(f"Patches            : {p.get('devices_with_patches',0)} host(s) pending, "
-                     f"{p.get('total_pending',0)} update(s) total")
+        lines.append(f"Patches            : {A.plural(p.get('devices_with_patches',0), 'host', 'hosts')} pending, "
+                     f"{A.plural(p.get('total_pending',0), 'update', 'updates')} total")
     if c:
         lines.append(f"CVEs               : {c.get('critical',0)} critical, {c.get('high',0)} high, "
-                     f"{c.get('medium',0)} medium ({c.get('devices_affected',0)} host(s) affected)")
+                     f"{c.get('medium',0)} medium ({A.plural(c.get('devices_affected',0), 'host', 'hosts')} affected)")
     per = report.get('period') or {}
     if per:
         def _dur(sec):
@@ -1019,22 +1019,22 @@ def _render_report_email(report):
     if th:
         lines.append('')
         lines.append('Threats and remote access')
-        lines.append(f"  Brute force now    : {th.get('bf_hosts', 0)} host(s), "
-                     f"{th.get('bf_sources', 0)} source(s)")
+        lines.append(f"  Brute force now    : {A.plural(th.get('bf_hosts', 0), 'host', 'hosts')}, "
+                     f"{A.plural(th.get('bf_sources', 0), 'source', 'sources')}")
         lines.append(f"  Attackers (7d)     : {th.get('attackers', 0)}, "
                      f"{th.get('known_bad', 0)} known-abusive "
                      f"({th.get('known_bad_unblocked', 0)} not blocked)")
         eg = th.get('edge')
         if isinstance(eg, dict):
-            lines.append(f"  Edge ({th.get('days', 30)}d)       : {eg.get('seen', 0)} address(es) seen, "
+            lines.append(f"  Edge ({th.get('days', 30)}d)       : {A.plural(eg.get('seen', 0), 'address', 'addresses')} seen, "
                          f"{eg.get('reported', 0)} reported, {eg.get('in_list', 0)} in the Cloudflare list, "
-                         f"{eg.get('bans', 0)} ban(s) active")
+                         f"{A.plural(eg.get('bans', 0), 'ban', 'bans')} active")
         if th.get('blocks_active') or th.get('reported'):
             lines.append(f"  Blocks / reports   : {th.get('blocks_active', 0)} active, "
                          f"{th.get('reported', 0)} reported")
         if th.get('gw_sessions'):
-            lines.append(f"  SSH gateway ({th.get('days', 30)}d)  : {th['gw_sessions']} session(s), "
-                         f"{th.get('gw_users', 0)} user(s), {th.get('gw_hosts', 0)} host(s)")
+            lines.append(f"  SSH gateway ({th.get('days', 30)}d)  : {A.plural(th['gw_sessions'], 'session', 'sessions')}, "
+                         f"{A.plural(th.get('gw_users', 0), 'user', 'users')}, {A.plural(th.get('gw_hosts', 0), 'host', 'hosts')}")
     lines.append("")
     if h.get('worst'):
         lines.append("Lowest-scoring hosts:")

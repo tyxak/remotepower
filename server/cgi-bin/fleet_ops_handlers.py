@@ -625,7 +625,7 @@ def _approval_packages_from_body(body):
         A.respond(400, {'error': 'no package names given'})
     bad = [n for n in names if not A._INSTALL_PKG_RE.match(n)]
     if bad:
-        A.respond(400, {'error': 'invalid package name(s): ' + ', '.join(bad[:5])
+        A.respond(400, {'error': ('invalid package name: ' if len(bad) == 1 else 'invalid package names: ') + ', '.join(bad[:5])
                                  + ' — allowed: letters, digits, . _ + : @ / -'})
     return names
 

@@ -76,7 +76,7 @@ class TestWordpressConnector(unittest.TestCase):
         r = I.poll_instance(
             {"type": "wordpress", "username": "admin", "secret": "app pass"}, c)
         self.assertEqual(r["status"], I.OK)
-        self.assertIn("2 recent login(s)", r["detail"])
+        self.assertIn("2 recent logins", r["detail"])
         self.assertEqual(r["recent_logins"], [
             {"user": "admin", "ip": "203.0.113.7",
              "ts": _gmt("2026-07-23 09:15:00")},

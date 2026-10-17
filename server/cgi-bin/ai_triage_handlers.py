@@ -285,7 +285,7 @@ def handle_log_sweep_diagnose(dev_id):
     user_prompt = (
         f"Host: {dev.get('name', dev_id)} ({os_str})\n"
         f"Sweep taken: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(rec.get('ts') or 0))} — "
-        f"{rec.get('file_count', 0)} file(s) kept of {rec.get('scanned', 0)} scanned, "
+        f"{A.plural(rec.get('file_count', 0), 'file', 'files')} kept of {rec.get('scanned', 0)} scanned, "
         f"{rec.get('skipped', 0)} skipped.\n"
         "Secret-looking values are already redacted.\n\n"
         f"{excerpt}"
@@ -416,7 +416,7 @@ def _triage_tools(dev_id, dev, alert=None):
             return '(no open CVE findings for this host)'
         rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
         top = sorted(findings, key=lambda f: rank.get(f.get('severity'), 9))[:20]
-        lines = [f"{len(findings)} open finding(s); top by severity:"]
+        lines = [f"{A.plural(len(findings), 'open finding', 'open findings')}; top by severity:"]
         for f in top:
             fx = f.get('fixed_version')
             lines.append(f"[{f.get('severity', '?')}] {f.get('vuln_id', '?')} "
@@ -469,7 +469,7 @@ def _triage_tools(dev_id, dev, alert=None):
         if not priors:
             return ('(no similar prior incidents in memory for this signature — '
                     'this may be the first of its kind on the fleet)')
-        lines = [f'{len(priors)} similar prior incident(s), most relevant first:']
+        lines = [f'{A.plural(len(priors), "similar prior incident", "similar prior incidents")}, most relevant first:']
         for o in priors:
             when = time.strftime('%Y-%m-%d', time.gmtime(o.get('resolved_at') or 0))
             rate = {'up': ' [operator confirmed helpful]',

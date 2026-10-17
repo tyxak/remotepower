@@ -71,7 +71,7 @@ playbook exists for that kind.
 **Kinds are not events.** A `kind` is a UI grouping (`av_posture`, `hardware`);
 a webhook `event` is what actually fires (`av_infected`, `smart_failure`). They
 are separate namespaces that only sometimes share a name, so `_NA_MUTE_EVENTS`
-maps `(kind, severity)` → the event(s) that item represents. Severity is
+maps `(kind, severity)` → the events that item represents. Severity is
 load-bearing in that map: muting `av_warning` must not also hide an
 `av_infected` item of the same kind.
 
@@ -157,7 +157,7 @@ To make a new state-derived condition show in NA:
 4. Add a regression test that seeds the relevant state file and asserts the item
    appears.
 5. **Add a `_NA_MUTE_EVENTS` row** mapping `(kind, severity)` → the webhook
-   event(s) that produce it. A kind with no row is **unmuteable** — muting the
+   events that produce it. A kind with no row is **unmuteable** — muting the
    corresponding alert will never clear its card, and because the health score is
    derived purely from these items, it will never lift the host's score either.
    This is the step that silently ships a defect if skipped.

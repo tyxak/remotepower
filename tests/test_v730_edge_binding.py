@@ -230,7 +230,7 @@ class TestReport(_Seeded):
         csv = self.api._fleet_report_csv_bytes(rep).decode()
         self.assertIn('Addresses seen at the edge', csv)
         _subj, body = self.api._render_report_email(rep)
-        self.assertIn('2 address(es) seen, 1 reported, 1 in the Cloudflare list', body)
+        self.assertIn('2 addresses seen, 1 reported, 1 in the Cloudflare list', body)
 
     def test_a_site_report_has_none(self):
         rep = self.api._build_fleet_report(site_id='nowhere')

@@ -106,7 +106,7 @@ The RemotePower server packages and the installer put both in place. Until they'
 present, the WG Access page shows a clear **"unavailable"** notice and the rest of
 RemotePower is unaffected — nothing else depends on it.
 
-You also need the hub's **UDP port(s)** reachable from where your clients connect
+You also need the hub's **UDP ports** reachable from where your clients connect
 (forward the tunnel's UDP port to the server), and a public **endpoint** hostname
 or IP for the client configs.
 

@@ -41,7 +41,7 @@ async function loadFirewall() {
     const sm = document.getElementById('firewall-summary');
     if (sm) {
       const off = (data.devices || []).filter(d => d.active === false).length;
-      sm.textContent = `${data.count} host(s) · ${off} with no active firewall`;
+      sm.textContent = `${plural(data.count, 'host', 'hosts')} · ${off} with no active firewall`;
     }
     _renderFirewall();
   } catch (e) {
@@ -101,7 +101,7 @@ async function firewallDetail(devId, devName) {
     if (!be.present) continue;
     any = true;
     const ed = editable.has(be.name);
-    html += `<div class="mt-12"><strong>${escHtml(be.name)}</strong> ${_fwStateBadge(be.active)} <span class="hint">${be.rules || 0} rule(s)${be.policy ? (' · policy ' + escHtml(be.policy)) : ''}${be.default ? (' · ' + escHtml(be.default)) : ''}</span></div>`;
+    html += `<div class="mt-12"><strong>${escHtml(be.name)}</strong> ${_fwStateBadge(be.active)} <span class="hint">${plural(be.rules || 0, 'rule', 'rules')}${be.policy ? (' · policy ' + escHtml(be.policy)) : ''}${be.default ? (' · ' + escHtml(be.default)) : ''}</span></div>`;
     html += _fwRenderRules(dev.device_id, be.name, be.rule_list || [], ed);
     if (ed) {
       html += `<div class="mt-8"><button class="btn-icon cell-sm" data-action="firewallRuleAdd" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}">+ Add ${escHtml(be.name)} rule</button></div>`;

@@ -73,7 +73,7 @@ async function loadComplianceBaseline() {
           : `<span class="hint">remediation off for this host</span>`}</td>
       </tr>`).join('') + `</tbody></table></div>`;
   }
-  body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} host(s) evaluated.</div>
+  body.innerHTML = `<div class="fs-12 c-muted mb-6">${plural(r.devices_evaluated, 'host', 'hosts')} evaluated.</div>
     <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>${remHtml}`;
   tableCtl.wireSortOnly('cis-baseline-thead', 'cis_baseline', loadComplianceBaseline);
   if (remRows.length) tableCtl.wireSortOnly('cis-rem-thead', 'cis_remediation', loadComplianceBaseline);
@@ -279,7 +279,7 @@ async function runScapScan() {
   body.profile = profile;
   const r = await api('POST', '/scap/scan', body).catch(() => null);
   if (r?.ok) {
-    let msg = `OpenSCAP scan queued on ${r.queued} host(s) — results arrive on next heartbeat`;
+    let msg = `OpenSCAP scan queued on ${plural(r.queued, 'host', 'hosts')} — results arrive on next heartbeat`;
     // v6.4.0: honest per-OS feedback — Windows/macOS hosts can't run OpenSCAP.
     if (r.note) msg += ` · ${r.note}`;
     toast(msg, r.note ? 'info' : 'success');
@@ -298,7 +298,7 @@ async function runInstall() {
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
-  if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
+  if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue install', 'error');
 }
 
@@ -309,12 +309,12 @@ async function runUninstall() {
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
-  if (!await uiConfirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the package(s) via the host's package manager.`)) return;
+  if (!await uiConfirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the packages via the host's package manager.`)) return;
   const body = await _fleetTargetBody(type, value);
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/uninstall', body).catch(() => null);
-  if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
+  if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue uninstall', 'error');
 }
 
@@ -332,7 +332,7 @@ async function _runHold(hold) {
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', hold ? '/packages/hold' : '/packages/unhold', body).catch(() => null);
-  if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
+  if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || `Failed to queue ${verb.toLowerCase()}`, 'error');
 }
 function runHold() { _runHold(true); }
@@ -377,7 +377,7 @@ async function runOneTimeInstall() {
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
   if (r?.ok) {
-    toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow it below`, 'success');
+    toast(`Install queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow it below`, 'success');
     closeModal('one-time-install-modal');
     if (r.job_id) _batchExpanded.add(r.job_id);   // auto-expand so the user sees per-host progress
     loadBatchJobs();
@@ -424,7 +424,7 @@ function _renderPrivacySubject() {
   if (!r) { wrap.classList.add('d-none'); return; }
   wrap.classList.remove('d-none');
   const rows = r.records || [];
-  if (sum) sum.textContent = `${rows.length} record(s) · ${r.erasable || 0} erasable · ${r.retained || 0} retained`;
+  if (sum) sum.textContent = `${plural(rows.length, 'record', 'records')} · ${r.erasable || 0} erasable · ${r.retained || 0} retained`;
   if (notes) {
     // The server's notes, not a paraphrase — this is the text an operator will
     // forward, and it is the endpoint that has to stand behind it.
@@ -482,7 +482,7 @@ async function erasePrivacySubject() {
   const typed = await uiPrompt({
     title: 'Erase subject data',
     message: `This removes the account, its avatar, its sessions and its contact record. `
-           + `${r.retained || 0} record(s) are retained as evidence and are not touched. `
+           + `${plural(r.retained || 0, 'record', 'records')} are retained as evidence and are not touched. `
            + `Type "${who}" to confirm.`,
     placeholder: who, confirmText: 'Erase', danger: true,
   });

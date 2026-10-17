@@ -20,6 +20,8 @@ Pure + import-free (only stdlib) so it unit-tests without the server.
 
 import shlex
 
+from textfmt import plural
+
 MAX_PATHS = 20
 MAX_PATH_LEN = 512
 METHODS = ("rsync", "tar")
@@ -239,4 +241,4 @@ def describe(spec):
         "smb": f'//{d.get("host","?")}/{d.get("share","?")}{d.get("remote_path","")}',
     }.get(t, d.get("host", "?"))
     n = len(spec.get("paths", []) or []) if isinstance(spec, dict) else 0
-    return f'{spec.get("method","?")} {n} path(s) → {t} {where}'
+    return f'{spec.get("method","?")} {plural(n, "path", "paths")} → {t} {where}'

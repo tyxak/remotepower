@@ -35,6 +35,11 @@ os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 _ROOT = Path(__file__).resolve().parent.parent
 _JS = _ROOT / "server" / "html" / "static" / "js" / "app-self.js"
 
+from srcpin import js_function  # noqa: E402  (tests/ is on sys.path, see above)
+
+# the page strings call plural(); take the real one, so a change to it shows up here
+_PLURAL = js_function((_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text(encoding="utf-8"), "plural")
+
 
 def _have_node():
     try:
@@ -53,10 +58,11 @@ def _sidecar_rows(subsystems, mutes=None):
         "const fs=require('fs');\n"
         "globalThis.timeAgo=(t,o)=>t?('some time ago'):((o&&o.empty)||'never');\n"
         "globalThis.escHtml=s=>String(s);\n"
+        "%s\n"
         "const src=fs.readFileSync(%s,'utf8');\n"
         "const rows=eval(src+'\\n;_selfSidecarRows('+%s+')');\n"
         "console.log(JSON.stringify(rows));\n"
-        % (json.dumps(str(_JS)), json.dumps(json.dumps(payload)))
+        % (_PLURAL, json.dumps(str(_JS)), json.dumps(json.dumps(payload)))
     )
     p = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
     if p.returncode != 0:

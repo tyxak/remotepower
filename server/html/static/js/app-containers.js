@@ -55,7 +55,7 @@ function _renderImageUpdatesMeta(summary) {
   if (!el) return;
   if (!summary) { el.textContent = ''; return; }
   const bits = [];
-  if (summary.updates_available) bits.push(`${summary.updates_available} update(s) available`);
+  if (summary.updates_available) bits.push(`${plural(summary.updates_available, 'update', 'updates')} available`);
   if (summary.unchecked) bits.push(`${summary.unchecked} not yet checked`);
   if (summary.local) bits.push(`${summary.local} local`);
   if (summary.ignored) bits.push(`${summary.ignored} ignored`);
@@ -119,7 +119,7 @@ function _registerImageUpdatesTable() {
       // working dir. Only offered when an update is actually available.
       const updatable = hosts.filter(h => h.compose_dir);
       const updateBtn = (r.update_available && updatable.length)
-        ? `<button class="btn-icon" data-action="updateImageNow" data-arg="${escAttr(r.ref)}" title="Pull the new image and recreate the container(s) — docker compose pull + up -d — on ${updatable.length} host(s)">Update</button> `
+        ? `<button class="btn-icon" data-action="updateImageNow" data-arg="${escAttr(r.ref)}" title="Pull the new image and recreate the containers — docker compose pull + up -d — on ${plural(updatable.length, 'host', 'hosts')}">Update</button> `
         : '';
       const action = r.ignored
         ? `<button class="btn-icon" data-action="unignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Resume alerting on updates for this image">Un-ignore</button>`
@@ -150,7 +150,7 @@ async function scanImageUpdatesNow(btn) {
   try {
     const r = await api('POST', '/image-updates/scan', {});
     if (r && r.ok) {
-      toast(`Checked ${r.checked} image(s)`, 'success');
+      toast(`Checked ${plural(r.checked, 'image', 'images')}`, 'success');
       await loadImageUpdates();
     } else {
       toast((r && r.error) || 'Scan failed', 'error');
@@ -172,14 +172,14 @@ async function updateImageNow(ref) {
     return;
   }
   const names = [...new Set(list.map(h => h.device_name))].join(', ');
-  if (!await uiConfirm(`Update "${ref}" on ${list.length} host(s) (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the container(s) — expect a brief restart. Output arrives on the next heartbeat.`)) return;
+  if (!await uiConfirm(`Update "${ref}" on ${plural(list.length, 'host', 'hosts')} (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the containers — expect a brief restart. Output arrives on the next heartbeat.`)) return;
   let ok = 0, fail = 0;
   for (const h of list) {
     const r = await api('POST', `/devices/${encodeURIComponent(h.device_id)}/compose/action`,
       { action: 'update', dir: h.compose_dir }).catch(() => null);
     if (r && r.ok) ok++; else fail++;
   }
-  if (ok) toast(`Update queued on ${ok} host(s)${fail ? ` (${fail} failed)` : ''} — recreated containers report on the next heartbeat (~60s).`, fail ? 'info' : 'success');
+  if (ok) toast(`Update queued on ${plural(ok, 'host', 'hosts')}${fail ? ` (${fail} failed)` : ''} — recreated containers report on the next heartbeat (~60s).`, fail ? 'info' : 'success');
   else toast('Failed to queue the update.', 'error');
   loadImageUpdates();
 }
@@ -803,7 +803,7 @@ async function muteContainer(btn) {
     if (u?.ok) { muteId = u.id; await _containersRedrawIfOpen(); }
   };
   pushUndoableAction(`Mute container ${container}`, doUndo, doRedo,
-    'Muted' + (r.resolved ? ` · ${r.resolved} open alert(s) cleared` : ''));
+    'Muted' + (r.resolved ? ` · ${plural(r.resolved, 'open alert', 'open alerts')} cleared` : ''));
 }
 
 async function unmuteContainer(btn) {

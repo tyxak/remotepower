@@ -40,7 +40,7 @@ for every connector. It is left out on purpose.
 ## API
 
 `GET /api/edr/coverage` — per-host coverage, with a summary (covered / uncovered /
-stale) and the vendor(s) protecting each host.
+stale) and the vendors protecting each host.
 
 ---
 

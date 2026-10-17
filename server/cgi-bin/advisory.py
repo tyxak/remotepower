@@ -29,6 +29,7 @@ unit-testable and out of the circular-import trap).
 import time
 
 import checks
+from textfmt import agree, plural
 
 # Order is the product: everything sorts by this, then by how many hosts are
 # affected (a problem on 30 hosts outranks the same problem on one).
@@ -79,7 +80,7 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None,
             score = scap_rec.get('score')
             out.append(_finding(
                 'os.scap', 'os', 'high' if high else 'medium',
-                f'{len(rules)} benchmark rule(s) failing'
+                f'{plural(len(rules), "benchmark rule", "benchmark rules")} failing'
                 + (f' ({len(high)} high)' if high else '')
                 + (f' — {scap_rec.get("profile") or "profile"} scored {score}%'
                    if isinstance(score, (int, float)) else ''),
@@ -239,7 +240,7 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
               f"({p.get('process') or 'unknown process'})" for p in world[:6]]
         out.append(_finding(
             'exp.world', 'exposure', 'high' if len(world) > 2 else 'medium',
-            f'{len(world)} service(s) reachable from any address',
+            f'{plural(len(world), "service", "services")} reachable from any address',
             'Every world-reachable port is a way in. Most compromises start at '
             'a service the operator did not realise was listening publicly.',
             'For each: bind it to localhost or a private interface, put it '
@@ -310,13 +311,13 @@ def _tls_findings(tls_expiring):
         elif days <= 14:
             out.append(_finding(
                 'exp.tls', 'exposure', 'high' if days <= 3 else 'medium',
-                f'TLS certificate for {label} expires in {days} day(s)',
+                f'TLS certificate for {label} expires in {plural(days, "day", "days")}',
                 'An expired certificate breaks the service outright and trains '
                 'users to click through certificate warnings, which is worse '
                 'than the outage.',
                 'Renew it. If ACME is configured, check why the renewal did not '
                 'run rather than renewing by hand.',
-                ai_title=f'A monitored TLS certificate expires in {days} day(s)',
+                ai_title=f'A monitored TLS certificate expires in {plural(days, "day", "days")}',
                 source='TLS monitor', doc='docs/tls-monitor.md'))
     return out
 
@@ -350,7 +351,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
                 'into from anywhere, with no credential at all. This is one '
                 'misconfigured user away from an open shell.',
                 'Set PermitEmptyPasswords no.' + (
-                    f' {blank_here} account(s) on this host currently HAVE a '
+                    f' {plural(blank_here, "account", "accounts")} on this host currently {agree(blank_here, "HAS", "HAVE")} a '
                     'blank password — see "Local accounts with a blank '
                     'password" below; together these are an open shell right '
                     'now, not a latent risk.' if blank_here else
@@ -359,7 +360,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
                     'the next one that appears is immediately reachable.'),
                 device_id=dev_id, device=name,
                 evidence=['PermitEmptyPasswords yes'] + (
-                    [f'{blank_here} blank-password account(s) present']
+                    [f'{plural(blank_here, "blank-password account", "blank-password accounts")} present']
                     if blank_here else []),
                 source='sshd config', doc='docs/security.md'))
         if str(ssh.get('password_authentication', '')).lower() == 'yes':
@@ -417,7 +418,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
             'id.bruteforce', 'identity',
             'high' if (len(bf_sources) > 2 or known_bad) else 'medium',
             f'{attempts} failed authentication attempts from '
-            f'{len(bf_sources)} source(s)'
+            f'{plural(len(bf_sources), "source", "sources")}'
             + (f', {len(known_bad)} known-abusive' if known_bad else ''),
             'Sustained guessing means this host is a known target. It only has '
             'to succeed once.',
@@ -435,7 +436,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
     if weak_ssh_keys:
         out.append(_finding(
             'id.weakkey', 'identity', 'medium',
-            f'{len(weak_ssh_keys)} authorized SSH key(s) use a deprecated algorithm',
+            f'{plural(len(weak_ssh_keys), "authorized SSH key", "authorized SSH keys")} {agree(len(weak_ssh_keys), "uses", "use")} a deprecated algorithm',
             'DSA and RSA1 keys are weak by modern standards and are disabled '
             'outright in current OpenSSH. A key that still works today is one '
             'upgrade away from locking that account out — and weaker than the '
@@ -465,7 +466,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
         out.append(_finding(
             'id.emptypw', 'identity',
             'critical' if interactive else 'high',
-            f'{len(blank)} local account(s) have a blank password',
+            f'{plural(len(blank), "local account", "local accounts")} {agree(len(blank), "has", "have")} a blank password',
             'These accounts need no credential at all. `su - <user>` from any '
             'account on the host succeeds, and if sshd permits empty passwords '
             'they are reachable from the network. A blank password is not a '
@@ -479,7 +480,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
     if stale:
         out.append(_finding(
             'id.stalepw', 'identity', 'low',
-            f'{len(stale)} login-capable account(s) have a password older '
+            f'{plural(len(stale), "login-capable account", "login-capable accounts")} {agree(len(stale), "has", "have")} a password older '
             'than a year',
             'A credential that has not changed in over a year has had a year '
             'of exposure to every breach corpus, shoulder-surf and reused-'
@@ -506,7 +507,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
             out.append(_finding(
                 'id.winposture', 'identity',
                 'high' if wp.get('tamper_protection') is False else 'medium',
-                f'{len(gaps)} Windows security control(s) disabled',
+                f'{plural(len(gaps), "Windows security control", "Windows security controls")} disabled',
                 'These are the controls that stop malware from disabling the '
                 'rest. With tamper protection off, the first thing a payload '
                 'does is turn Defender off — and it will succeed.',
@@ -557,7 +558,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
         ev = [str(e.get('orig', ''))[:120] for e in guard[:6] if isinstance(e, dict)]
         out.append(_finding(
             'int.quarantine', 'integrity', 'critical',
-            f'{len(guard)} file(s) auto-quarantined by Integrity Guard',
+            f'{plural(len(guard), "file", "files")} auto-quarantined by Integrity Guard',
             'Files appeared in a watched directory that should not change. That '
             'is the signature of a web shell or a dropped payload — and it has '
             'already been moved out of the way, so the clock is on you to work '
@@ -580,7 +581,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
     if drifted:
         out.append(_finding(
             'int.drift', 'integrity', 'medium',
-            f'{len(drifted)} tracked config file(s) changed from baseline',
+            f'{plural(len(drifted), "tracked config file", "tracked config files")} changed from baseline',
             'A file you told RemotePower to watch is no longer what it was. '
             'Most of the time that is a change someone made and did not write '
             'down — which is still worth knowing, because it is the difference '
@@ -626,7 +627,7 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups):
               for f in live[:6]]
         out.append(_finding(
             'data.secrets', 'data', 'high',
-            f'{len(live)} credential(s) found in files on disk',
+            f'{plural(len(live), "credential", "credentials")} found in files on disk',
             'A key checked into a config file or left in a script is a '
             'credential with no expiry, no audit trail and no revocation — and '
             'anyone who reads the file has it. Backups and container images '
@@ -642,7 +643,7 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups):
         ev = [str(b)[:120] for b in stale_backups[:6]]
         out.append(_finding(
             'data.backup', 'data', 'high',
-            f'{len(stale_backups)} backup(s) stale or missing',
+            f'{plural(len(stale_backups), "backup", "backups")} stale or missing',
             'A backup you believe in and do not have is worse than no backup '
             'at all — it is the difference between planning a restore and '
             'discovering there is nothing to restore from, during the incident.',
@@ -672,7 +673,7 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups):
         if unenc:
             out.append(_finding(
                 'data.bitlocker', 'data', 'high',
-                f'{len(unenc)} volume(s) not encrypted with BitLocker',
+                f'{plural(len(unenc), "volume", "volumes")} not encrypted with BitLocker',
                 'Everything on the volume is readable by anyone who can boot '
                 'from external media or pull the drive — no password required.',
                 'Enable BitLocker on the named volumes and escrow the recovery '
@@ -838,7 +839,7 @@ def summarize_for_ai(advisory, scope_label):
     to prioritise and explain; it does not get the fleet's guts.
     """
     lines = [f'Security posture for {scope_label} '
-             f"({advisory.get('device_count', 0)} host(s)).", '']
+             f"({plural(advisory.get('device_count', 0), "host", "hosts")}).", '']
     for g in advisory.get('findings') or []:
         # ai_title when the finding declares one — see _finding(). A title that
         # interpolates only counts goes as it is; one that interpolates a
@@ -846,7 +847,7 @@ def summarize_for_ai(advisory, scope_label):
         # does not, because this string leaves the box.
         lines.append(f"- [{g['severity'].upper()}] {g['layer']}: "
                      f"{g.get('ai_title') or g['title']} "
-                     f"— affects {g.get('device_count', 0)} host(s)")
+                     f"— affects {plural(g.get('device_count', 0), 'host', 'hosts')}")
     if not advisory.get('findings'):
         lines.append('- No critical or high findings from the collected data.')
     return '\n'.join(lines)[:6000]

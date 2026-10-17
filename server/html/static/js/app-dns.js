@@ -149,7 +149,7 @@ async function dnsVaultImport() {
   const clear = await uiConfirm({ title: 'Remove plaintext copy?', message: 'Also remove the plaintext copy from config so the credentials exist ONLY encrypted in the vault? Recommended — but skip this if RemotePower drives automated ACME issuance with them (the vault needs a passphrase it cannot supply unattended).', confirmText: 'Remove plaintext', danger: true });
   const r = await api('POST', '/dns/vault-credentials/import', { provider: prov.key, clear_plaintext: !!clear }, _dnsExtra());
   if (r && r.ok) {
-    toast(`Imported ${(r.imported || []).length} field(s) into the vault${r.cleared_plaintext ? ' · plaintext removed' : ''}`, 'success');
+    toast(`Imported ${plural((r.imported || []).length, 'field', 'fields')} into the vault${r.cleared_plaintext ? ' · plaintext removed' : ''}`, 'success');
     loadDns();
   } else {
     toast((r && r.error) || 'Import failed', 'error');
@@ -344,7 +344,7 @@ async function resolverHealthScan() {
   if (status) status.textContent = 'Checking…';
   const r = await api('POST', '/resolver-health/scan', {});
   if (status) status.textContent = '';
-  if (r && r.ok) { toast(`Checked ${r.scanned} name(s)`, 'success'); loadResolverHealth(); }
+  if (r && r.ok) { toast(`Checked ${plural(r.scanned, 'name', 'names')}`, 'success'); loadResolverHealth(); }
   else toast((r && r.error) || 'Scan failed', 'error');
 }
 
@@ -401,7 +401,7 @@ async function loadDnsZones() {
   const zones = data.zones || [];
   if (zsel) zsel.innerHTML = zones.map(z =>
     `<option value="${escAttr(String(z.id))}" data-name="${escAttr(z.name)}">${escHtml(z.name)}</option>`).join('');
-  if (status) status.textContent = zones.length ? `${zones.length} zone(s)` : 'No zones visible to this token.';
+  if (status) status.textContent = zones.length ? `${plural(zones.length, 'zone', 'zones')}` : 'No zones visible to this token.';
   await loadDnsRecords();
 }
 
@@ -418,7 +418,7 @@ async function loadDnsRecords() {
     return;
   }
   _dnsRecords = data.records || [];
-  if (status) status.textContent = `${zone.name} · ${_dnsRecords.length} record(s)`;
+  if (status) status.textContent = `${zone.name} · ${plural(_dnsRecords.length, 'record', 'records')}`;
   _renderDnsRecords();
 }
 

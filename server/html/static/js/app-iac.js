@@ -107,7 +107,7 @@ async function runAnsiblePlaybook() {
   if (!d) { out.innerHTML = '<span class="c-red">Run failed.</span>'; return; }
   if (d.error && !d.output) { out.innerHTML = `<span class="c-red">${escHtml(d.error)}</span>`; loadAnsible(); return; }
   const cls = d.rc === 0 ? 'c-green' : 'c-red';
-  out.innerHTML = `<div class="${cls} mb-6">Finished on ${d.hosts} host(s) — rc=${d.rc}</div><pre class="journal-wrap">${escHtml(d.output || '')}</pre>`;
+  out.innerHTML = `<div class="${cls} mb-6">Finished on ${plural(d.hosts, 'host', 'hosts')} — rc=${d.rc}</div><pre class="journal-wrap">${escHtml(d.output || '')}</pre>`;
   loadAnsible();
 }
 

@@ -45,7 +45,7 @@ async function loadReputation() {
   if (!data) return;
   _reputationResp = data;
   const dn = document.getElementById('reputation-dnsbls');
-  if (dn) dn.textContent = `Checking ${(data.dnsbls || []).length} blocklist(s): `
+  if (dn) dn.textContent = `Checking ${plural((data.dnsbls || []).length, 'blocklist', 'blocklists')}: `
     + (data.dnsbls || []).map(z => z.name).join(', ');
   _renderReputation();
 }
@@ -105,7 +105,7 @@ async function reputationAdd() {
 async function reputationScan() {
   toast('Checking blocklists…', 'info');
   const r = await api('POST', '/reputation/scan', {});
-  if (r && r.ok) { toast(`Checked ${r.scanned} IP(s)`, 'success'); loadReputation(); }
+  if (r && r.ok) { toast(`Checked ${plural(r.scanned, 'IP', 'IPs')}`, 'success'); loadReputation(); }
   else toast((r && r.error) || 'Scan failed', 'error');
 }
 
@@ -183,7 +183,7 @@ function _renderDmarcSources() {
 async function dmarcFetch() {
   toast('Fetching reports from IMAP…', 'info');
   const r = await api('POST', '/dmarc/fetch', {});
-  if (r && r.ok) { toast(`Ingested ${r.ingested || 0} report(s)`, 'success'); loadDmarcReports(); }
+  if (r && r.ok) { toast(`Ingested ${plural(r.ingested || 0, 'report', 'reports')}`, 'success'); loadDmarcReports(); }
   else toast((r && r.error) || 'Fetch failed — check IMAP settings', 'error');
 }
 
@@ -241,7 +241,7 @@ async function dmarcAdd() {
 async function dmarcScan() {
   toast('Checking DNS records…', 'info');
   const r = await api('POST', '/dmarc/scan', {});
-  if (r && r.ok) { toast(`Scanned ${r.scanned} domain(s)`, 'success'); loadDmarc(); }
+  if (r && r.ok) { toast(`Scanned ${plural(r.scanned, 'domain', 'domains')}`, 'success'); loadDmarc(); }
   else toast((r && r.error) || 'Scan failed', 'error');
 }
 

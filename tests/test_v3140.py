@@ -1872,7 +1872,9 @@ class TestHaBridge(_HandlerBase):
         api.save(api.CONFIG_FILE, {'status_token': 'correct'})
         self._set_qs('wrong')
         self.call(api.handle_ha_bridge)
-        self.assertEqual(self.cap['s'], 403)
+        # a wrong token is "no valid token": 401, like the status page and Prometheus discovery (7.4.0 made the
+        # four endpoints that take a status token answer alike; the endpoint being OFF is still 403)
+        self.assertEqual(self.cap['s'], 401)
 
     def test_flat_ha_shape(self):
         api.save(api.CONFIG_FILE, {'status_token': 'tok'})

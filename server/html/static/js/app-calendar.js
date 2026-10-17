@@ -556,7 +556,7 @@ document.addEventListener('change', e => {
       });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.ok) {
-        toast(`Imported ${j.imported} event(s)` + (j.skipped ? ` · ${j.skipped} skipped` : ''), 'success');
+        toast(`Imported ${plural(j.imported, 'event', 'events')}` + (j.skipped ? ` · ${j.skipped} skipped` : ''), 'success');
         loadCalendar();
       } else { toast('Import failed: ' + (j.error || r.status), 'error'); }
     });

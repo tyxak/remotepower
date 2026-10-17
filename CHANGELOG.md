@@ -98,6 +98,14 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   labels are written that way and which style the product means is a decision
   about some 300 references, not a typo. A test fails on a new Title Case
   heading or button.
+- "3 hosts", never "3 host(s)". More than 400 places wrote the bracket form in
+  the dashboard, in the server's own findings and in the guides, which is wrong
+  for one as well as for three. `plural(n, one, other)` (in the dashboard and
+  in the server) puts the count and the right noun together, and
+  `agree(n, one, other)` picks the verb, so a finding reads "1 local account
+  has a blank password" and "3 local accounts have a blank password". A test
+  fails on a new "(s)". Text sent to an AI model as an instruction keeps its
+  brackets, and so do the agents' log lines.
 - Every notification reads as a sentence. 130 of 219 events had no wording of
   their own, and the shared fallback turned the event id into words: "Smart
   failure: web01", "Ecc errors: web01". It now says what the event is, in the
@@ -179,8 +187,9 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   bad status token 401 and 403, and "site not found" 400 and 404. A test now
   reads every `respond(<status>, {'error': …})` and fails on a message that
   appears in two forms, and on a 401 that does not mean "no valid session or
-  token". The metrics digest answers a bad status token like `/api/metrics`
-  does, with 403.
+  token". A bad status token is 401 on all four endpoints that take one
+  (status page, status feed, Home Assistant bridge, Prometheus discovery);
+  two of them used to answer 403.
 - An SSO start address answers 404, not 503, while that method is not set up.
   503 says the server is down for a while; nothing here is down, the method was
   never configured. A missing `pysaml2` or `xmlsec1` still answers 503.

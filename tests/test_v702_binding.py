@@ -179,7 +179,7 @@ class TestDriftIsBoundToItsStore(_Base):
         row = [r for r in body["checks"] if r["key"] == "drift"]
         self.assertEqual(1, len(row), "the Config drift row is missing")
         self.assertEqual("warning", row[0]["status"])
-        self.assertIn("1 file(s) drifted", row[0]["output"])
+        self.assertIn("1 file drifted", row[0]["output"])
 
     def test_fleet_checks_matrix_and_the_clean_control(self):
         st, body = self.call(api.handle_fleet_checks)

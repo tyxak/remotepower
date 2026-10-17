@@ -77,7 +77,7 @@ def _rollout_advance(roll, devices, cmds, pending=None):
         rstate['queued'] = queued
         rstate['state'] = 'verifying' if dispatched else 'done'
         A._rollout_log(roll, f'ring {idx+1}/{len(rings)} "{rings[idx].get("name")}" '
-                           f'dispatched to {len(dispatched)} host(s)')
+                           f'dispatched to {A.plural(len(dispatched), "host", "hosts")}')
         if not dispatched:
             rstate['done_at'] = now
         mutated = True
@@ -107,7 +107,7 @@ def _rollout_advance(roll, devices, cmds, pending=None):
                     roll['state'] = 'failed'
                     names = ', '.join(devices.get(d, {}).get('name', d) for d in degraded[:3])
                     A._rollout_log(roll, f'ring {idx+1} HALTED — health dropped below {floor} '
-                                       f'on {len(degraded)} host(s) ({names}); rollout paused')
+                                       f'on {A.plural(len(degraded), "host", "hosts")} ({names}); rollout paused')
                     pending.append(('rollout_halted', {
                         'rollout_id': roll.get('id'), 'name': roll.get('name'),
                         'ring': idx + 1, 'reason': 'health_gate', 'threshold': floor,
@@ -828,7 +828,7 @@ def handle_rollout_action(roll_id, action):
                         'created_at': int(time.time()),
                         'updated_at': int(time.time()),
                     }
-                    A._rollout_log(rb, f'rollback of {roll_id} — {len(hit)} host(s)')
+                    A._rollout_log(rb, f'rollback of {roll_id} — {A.plural(len(hit), "host", "hosts")}')
                     rolls.append(rb)
                     roll['rolled_back_by'] = rb['id']
                     A._rollout_log(roll, f'rolled back via {rb["id"]}')
@@ -960,7 +960,7 @@ def handle_rollouts_create():
         # (rollouts bypass the _resolve_targets chokepoint entirely).
         'tenant_gate': A._tenant_gate(),
     }
-    A._rollout_log(roll, f'created — {action}, {len(rings)} ring(s), '
+    A._rollout_log(roll, f'created — {action}, {A.plural(len(rings), "ring", "rings")}, '
                        f'{"auto" if roll["auto_promote"] else "manual"} promote')
     with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
         rl = store.setdefault('rollouts', [])

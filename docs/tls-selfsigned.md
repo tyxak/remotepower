@@ -28,7 +28,7 @@ the **CA**, so you can renew the server cert later without touching any client.
 ### 0. …or generate it from the web UI
 
 **Settings → Security → Self-signed certificate** does the same thing without a
-shell: enter the hostname(s)/IP(s), click **Generate certificate**, and it writes
+shell: enter the hostnames and IPs, click **Generate certificate**, and it writes
 the CA + server cert into the data directory's `tls/` folder and shows the CA
 fingerprint + the agent-enrolment command. It's admin-only and audited, runs in
 Python (no root, no `openssl` needed), and re-generating reuses the CA. You still

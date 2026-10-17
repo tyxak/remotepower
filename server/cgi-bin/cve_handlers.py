@@ -94,7 +94,7 @@ def handle_cve_realert():
                           for f in alerted[:5]],
         })
         fired += 1
-    A.audit_log(actor, 'cve_realert', f'{fired} host(s) re-alerted')
+    A.audit_log(actor, 'cve_realert', f'{A.plural(fired, "host", "hosts")} re-alerted')
     A.respond(200, {'ok': True, 'devices': fired})
 
 

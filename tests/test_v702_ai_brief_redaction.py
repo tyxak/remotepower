@@ -78,7 +78,7 @@ class TestNoHostnameReachesTheBrief(unittest.TestCase):
             {'label': 'vault.internal.corp:8200', 'days_left': -3}])
         self.assertIn('CRITICAL', brief)
         self.assertIn('exposure', brief)
-        self.assertIn('host(s)', brief)
+        self.assertRegex(brief, r'affects \d+ hosts?')
         self.assertIn('TLS certificate', brief)
 
     def test_a_count_only_title_is_sent_unchanged(self):

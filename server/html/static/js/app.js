@@ -509,7 +509,7 @@ const tableCtl = (() => {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    toast(`Exported ${rows.length} row(s)`, 'success');
+    toast(`Exported ${plural(rows.length, 'row', 'rows')}`, 'success');
   }
 
   // v6.3.0 (UX wave 9): reset EVERY stored view pref for a table — filter,
@@ -547,7 +547,7 @@ const tableCtl = (() => {
     const text = JSON.stringify(rows.map(proj), null, 2);
     if (!navigator.clipboard) { toast('Clipboard unavailable', 'error'); return; }
     navigator.clipboard.writeText(text).then(
-      () => toast(`Copied ${rows.length} row(s) as JSON`, 'success'),
+      () => toast(`Copied ${plural(rows.length, 'row', 'rows')} as JSON`, 'success'),
       () => toast('Could not copy', 'error'));
   }
 
@@ -1681,6 +1681,12 @@ function _clearEtagCache() { _etagCache.clear(); }
 const _canClone = typeof structuredClone === 'function';
 function _cloneBody(v) { return _canClone ? structuredClone(v) : v; }
 
+// v7.4.0: "1 host", "3 hosts". The count is part of the text, so nobody writes "host(s)". Pass the
+// plural when it is not just an s ("entry", "entries"). A count that is not a number is shown as it
+// is, with the plural form.
+function plural(n, one, other) {
+  return n + ' ' + (Number(n) === 1 ? one : (other === undefined ? one + 's' : other));
+}
 // v7.4.0: what api() last said about a failed request, so failToast() does not say it again.
 // `body` is the value the caller got back (an object, or null); a 401 is recorded apart, because
 // the login page that replaces the app is the message.
@@ -4041,7 +4047,7 @@ async function exportMonitors() {
   a.download = `remotepower-monitors-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(u);
-  toast(`Exported ${r.monitors.length} monitor(s)`, 'success');
+  toast(`Exported ${plural(r.monitors.length, 'monitor', 'monitors')}`, 'success');
 }
 // v4.1.0: show only the inputs relevant to the selected monitor type / target kind.
 function monTypeChanged() {
@@ -4071,14 +4077,14 @@ async function _importMonitors(apply) {
   const r = await api('POST', '/import/monitors', { content, format: format || undefined, apply });
   if (!r || r.error) { toast((r && r.error) || 'Import failed', 'error'); if (box) box.textContent = (r && r.error) || 'Import failed'; return; }
   if (apply) {
-    toast(`Imported ${r.added} monitor(s)`, 'success');
-    if (box) box.innerHTML = `<div class="c-green">Added ${r.added} monitor(s) from ${escHtml(r.format)}.</div>`
+    toast(`Imported ${plural(r.added, 'monitor', 'monitors')}`, 'success');
+    if (box) box.innerHTML = `<div class="c-green">Added ${plural(r.added, 'monitor', 'monitors')} from ${escHtml(r.format)}.</div>`
       + (r.unmapped && r.unmapped.length ? `<div class="meta-sm-nm mt-4">${r.unmapped.length} entr(y/ies) could not be mapped.</div>` : '');
     if (typeof runMonitor === 'function') runMonitor();
   } else {
     const mons = r.monitors || [];
     const un = r.unmapped || [];
-    if (box) box.innerHTML = `<div class="fw-500 mb-6">${escHtml(r.format)} → ${mons.length} monitor(s) to import`
+    if (box) box.innerHTML = `<div class="fw-500 mb-6">${escHtml(r.format)} → ${plural(mons.length, 'monitor', 'monitors')} to import`
       + (un.length ? `, ${un.length} unmapped` : '') + '</div>'
       + (mons.length ? '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Label</th><th>Type</th><th>Target</th></tr></thead><tbody>'
         + mons.map(m => `<tr><td>${escHtml(m.label)}</td><td>${escHtml(m.type)}</td><td class="ff-mono fs-12">${escHtml(m.target)}</td></tr>`).join('')
@@ -5983,7 +5989,7 @@ async function testSmtp() {
 async function testPostureDigest() {
   try {
     const data = await api('POST', '/posture-digest/test', {});
-    if (data && data.ok) toast(`Digest sent to ${data.recipients} recipient(s)`, 'success');
+    if (data && data.ok) toast(`Digest sent to ${plural(data.recipients, 'recipient', 'recipients')}`, 'success');
     else toast(`Digest failed: ${(data && data.error) || 'unknown'}`, 'error');
   } catch (e) {
     toast('Digest failed: ' + String(e), 'error');
@@ -8613,7 +8619,7 @@ let _devicesFilteredIds = [];
 function selectAllMatchingFilters() {
   if (!_devicesFilteredIds.length) return;
   _devicesFilteredIds.forEach(id => selectedDevices.add(id));
-  toast(`${_devicesFilteredIds.length} host(s) selected`, 'success');
+  toast(`${plural(_devicesFilteredIds.length, 'host', 'hosts')} selected`, 'success');
   updateBatchBar();
   renderDevices();
 }
@@ -9207,9 +9213,9 @@ function updateBatchBar() {
 async function batchDelete() {
   const n = selectedDevices.size;
   if (!n) return;
-  if (!await uiConfirm({ message: `Delete ${n} host(s)? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
+  if (!await uiConfirm({ message: `Delete ${plural(n, 'host', 'hosts')}? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
   const data = await api('POST', '/devices/bulk-delete', { device_ids: [...selectedDevices] });
-  if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  if (data?.ok) { toast(`Deleted ${data.deleted} of ${plural(data.requested, 'host', 'hosts')}`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else failToast(data);
 }
 
@@ -9217,15 +9223,15 @@ async function batchDelete() {
 async function batchTags() {
   const n = selectedDevices.size;
   if (!n) return;
-  const addStr = await uiPrompt({ title: `Tag ${n} host(s)`, message: 'Tags to ADD (comma-separated, leave blank for none):', placeholder: 'production, rack-3' });
+  const addStr = await uiPrompt({ title: `Tag ${plural(n, 'host', 'hosts')}`, message: 'Tags to ADD (comma-separated, leave blank for none):', placeholder: 'production, rack-3' });
   if (addStr === null) return;
-  const removeStr = await uiPrompt({ title: `Tag ${n} host(s)`, message: 'Tags to REMOVE (comma-separated, leave blank for none):', placeholder: 'staging' });
+  const removeStr = await uiPrompt({ title: `Tag ${plural(n, 'host', 'hosts')}`, message: 'Tags to REMOVE (comma-separated, leave blank for none):', placeholder: 'staging' });
   if (removeStr === null) return;
   const split = s => (s || '').split(',').map(t => t.trim()).filter(Boolean);
   const add = split(addStr), remove = split(removeStr);
   if (!add.length && !remove.length) { toast('Nothing to change', 'info'); return; }
   const data = await api('POST', '/devices/bulk-tags', { device_ids: [...selectedDevices], add, remove });
-  if (data?.ok) { toast(`Updated tags on ${data.updated} host(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  if (data?.ok) { toast(`Updated tags on ${plural(data.updated, 'host', 'hosts')}`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else failToast(data);
 }
 // ── v6.4.2: bulk attribute edit ─────────────────────────────────────────────
@@ -9249,7 +9255,7 @@ function openBatchAttrs() {
   const sub = document.getElementById('batch-attrs-sub');
   if (sub) {
     sub.textContent = `Every field left blank is left unchanged. Applied to `
-      + `${selectedDevices.size} selected host(s) in one operation.`;
+      + `${plural(selectedDevices.size, 'selected host', 'selected hosts')} in one operation.`;
   }
   openModal('batch-attrs-modal');
 }
@@ -9287,8 +9293,8 @@ async function applyBatchAttrs() {
   // operator needs to see rather than a success that hides it.
   const req = r.requested != null ? r.requested : selectedDevices.size;
   toast(r.updated === req
-    ? `Updated ${r.updated} host(s)`
-    : `Updated ${r.updated} of ${req} host(s) — the rest are outside your scope`,
+    ? `Updated ${plural(r.updated, 'host', 'hosts')}`
+    : `Updated ${r.updated} of ${plural(req, 'host', 'hosts')} — the rest are outside your scope`,
     r.updated === req ? 'success' : 'warning');
   clearSelection();
   setTimeout(loadDevices, 500);
@@ -9299,7 +9305,7 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
   // device(s)?" hides exactly the mistake a confirmation exists to catch.
   const _bNames = [...selectedDevices].map(id => devices.find(d => d.id === id)?.name || id);
   const _bList = _bNames.slice(0, 8).join(', ') + (_bNames.length > 8 ? ` … and ${_bNames.length - 8} more` : '');
-  if (!await uiConfirm({ title: `${verb} ${selectedDevices.size} host(s)?`, message: _bList, confirmText: verb, danger: command === 'shutdown' || command === 'reboot' })) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
+  if (!await uiConfirm({ title: `${verb} ${plural(selectedDevices.size, 'host', 'hosts')}?`, message: _bList, confirmText: verb, danger: command === 'shutdown' || command === 'reboot' })) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
   // Blast-radius guardrail (reboot/shutdown): the server refuses an over-cap
   // batch; re-confirm to override.
   if (data?.blast_blocked) {
@@ -9330,8 +9336,8 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
             'error', { transient: false });
     } else {
       const msg = command === 'upgrade'
-        ? `Package upgrade queued for ${queued} host(s). Output arrives on next heartbeat (~60s).`
-        : `${verb} queued for ${queued} host(s)`;
+        ? `Package upgrade queued for ${plural(queued, 'host', 'hosts')}. Output arrives on next heartbeat (~60s).`
+        : `${verb} queued for ${plural(queued, 'host', 'hosts')}`;
       toast(msg, 'success');
     }
     clearSelection(); setTimeout(loadDevices, 3000);
@@ -9743,7 +9749,7 @@ async function _runStorageMigrate(opts) {
   let txt = '';
   if (Array.isArray(res.log)) txt += res.log.join('\n') + '\n';
   if (res.dry_run) {
-    txt += `\nPreview: ${(res.files || []).length} file(s) would migrate to ${target}.`;
+    txt += `\nPreview: ${plural((res.files || []).length, 'file', 'files')} would migrate to ${target}.`;
   } else if (res.ok) {
     txt += `\nDone. Switched to ${res.target} (${res.files} files).`;
     if (res.snapshot) txt += `\nRollback snapshot: ${res.snapshot}`;
@@ -9980,13 +9986,13 @@ async function cancelQueuedCommand(devId, index) {
 async function clearDeviceQueue(devId, name) {
   if (!await uiConfirm({ message: `Clear ALL pending commands for ${name}? None of them will be delivered.`, confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue`).catch(() => null);
-  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s)`, 'success'); loadCommandQueue(); }
+  if (r?.ok) { toast(`Cleared ${plural(r.removed, 'queued command', 'queued commands')}`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearAllQueues() {
   if (!await uiConfirm({ message: 'Clear EVERY host’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.', confirmText: 'Clear all', danger: true })) return;
   const r = await api('DELETE', '/command-queue').catch(() => null);
-  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} host(s)`, 'success'); loadCommandQueue(); }
+  if (r?.ok) { toast(`Cleared ${plural(r.removed, 'queued command', 'queued commands')} across ${plural(r.devices, 'host', 'hosts')}`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearDispatchLog() {
@@ -10099,7 +10105,7 @@ function _qeRenderResults(r) {
   if (!thead || !tbody) return;
   const rows = r.rows || [];
   const meta = r.meta || {};
-  if (summary) summary.textContent = `${rows.length} of ${meta.total || 0} row(s) shown` +
+  if (summary) summary.textContent = `${rows.length} of ${plural(meta.total || 0, 'row', 'rows')} shown` +
     (meta.total > rows.length ? ` (limit ${meta.limit})` : '');
   if (!rows.length) {
     thead.innerHTML = '';
@@ -10208,7 +10214,7 @@ function _psRenderList() {
       : `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Promote to tag…</button> ` +
         `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift (whole fleet)</button>`;
     return `<div class="settings-row"><strong>${escHtml(s.name)}</strong> ` +
-      `<span class="hint">${_fmtAbsTs(s.created)} · ${s.entry_count} package(s) · by ${escHtml(s.created_by || '?')}</span> ` +
+      `<span class="hint">${_fmtAbsTs(s.created)} · ${plural(s.entry_count, 'package', 'packages')} · by ${escHtml(s.created_by || '?')}</span> ` +
       tag + ` <button class="btn-icon c-danger-outline" data-action="psDelete" data-arg="${escAttr(s.id)}">Delete</button></div>`;
   }).join('') : '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -10287,12 +10293,12 @@ async function psDrift(id) {
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Drift report failed')}</div>`; return; }
   const scope = r.tag ? `tag "${r.tag}"` : 'the whole visible fleet (not promoted to a tag)';
   if (!r.drift.length) {
-    out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} host(s) in ${escHtml(scope)}.</div><div class="empty-state">No drift — every checked host matches the pinned versions.</div>`;
+    out.innerHTML = `<div class="hint mb-8">Checked ${plural(r.devices_checked, 'host', 'hosts')} in ${escHtml(scope)}.</div><div class="empty-state">No drift — every checked host matches the pinned versions.</div>`;
     return;
   }
   const rows = r.drift.flatMap(d => d.mismatches.map(m =>
     `<tr><td>${escHtml(d.device_name)}</td><td>${escHtml(m.pkg)}</td><td>${escHtml(m.pinned)}</td><td>${escHtml(m.installed)}</td></tr>`));
-  out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} host(s) in ${escHtml(scope)} — ${r.devices_drifted} drifted.</div>` +
+  out.innerHTML = `<div class="hint mb-8">Checked ${plural(r.devices_checked, 'host', 'hosts')} in ${escHtml(scope)} — ${r.devices_drifted} drifted.</div>` +
     `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Host</th><th>Package</th><th>Pinned</th><th>Installed</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
@@ -10459,9 +10465,9 @@ async function loadDeviceProfiles() {
   box.innerHTML = _deviceProfiles.map((p, i) => {
     const bits = [];
     if (p.poll_interval) bits.push(`poll ${p.poll_interval}s`);
-    if (p.services_watched && p.services_watched.length) bits.push(`${p.services_watched.length} unit(s)`);
+    if (p.services_watched && p.services_watched.length) bits.push(`${plural(p.services_watched.length, 'unit', 'units')}`);
     if (p.log_watch && p.log_watch.length) bits.push(`${p.log_watch.length} log watch`);
-    if (p.drift_files && p.drift_files.length) bits.push(`${p.drift_files.length} drift file(s)`);
+    if (p.drift_files && p.drift_files.length) bits.push(`${plural(p.drift_files.length, 'drift file', 'drift files')}`);
     if (p.metric_thresholds && Object.keys(p.metric_thresholds).length) bits.push('thresholds');
     return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500">${escHtml(p.name)}</span> <span class="hint">${escHtml(bits.join(' · ') || 'empty')}</span></div>`
       + `<button class="btn-icon" data-action="openDeviceProfileApply" data-arg="${i}">Apply…</button>`
@@ -10561,7 +10567,7 @@ function filterProfileApply() { _renderProfileApplyList(document.getElementById(
 async function applyDeviceProfile() {
   if (!_profileApplySel.size) { toast('Pick at least one host', 'error', {transient: true}); return; }
   const r = await api('POST', `/device-profiles/${encodeURIComponent(_profileApplyId)}/apply`, { device_ids: [..._profileApplySel] });
-  if (r && r.ok) { toast(`Applied to ${r.applied} host(s)`, 'success'); closeModal('device-profile-apply-modal'); }
+  if (r && r.ok) { toast(`Applied to ${plural(r.applied, 'host', 'hosts')}`, 'success'); closeModal('device-profile-apply-modal'); }
   else toast((r && r.error) || 'Apply failed', 'error');
 }
 
@@ -10603,7 +10609,7 @@ async function loadSmartGroups() {
   if (!_smartGroups.length) { box.innerHTML = '<div class="meta-sm-nm">No smart groups yet.</div>'; return; }
   box.innerHTML = _smartGroups.map((g, i) => {
     const ago = g.evaluated_ts ? timeAgo(g.evaluated_ts) : 'never';
-    return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">smart:${escHtml(g.name)}</span> <span class="hint">${g.member_count} member(s) · evaluated ${ago}</span></div>`
+    return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">smart:${escHtml(g.name)}</span> <span class="hint">${plural(g.member_count, 'member', 'members')} · evaluated ${ago}</span></div>`
       + `<button class="btn-icon" data-action="viewSmartGroupMembers" data-arg="${escAttr(g.name)}">Members</button>`
       + `<button class="btn-icon" data-action="editSmartGroup" data-arg="${i}">Edit</button>`
       + `<button class="btn-icon c-danger-outline" data-action="deleteSmartGroup" data-arg="${escAttr(g.name)}">Delete</button></div>`;
@@ -10666,7 +10672,7 @@ async function viewSmartGroupMembers(name) {
   const title = document.getElementById('sg-members-title');
   const meta = document.getElementById('sg-members-meta');
   const body = document.getElementById('sg-members-body');
-  if (!body) { toast(`smart:${name} — ${members.length} member(s)`, 'info'); return; }
+  if (!body) { toast(`smart:${name} — ${plural(members.length, 'member', 'members')}`, 'info'); return; }
   if (title) title.textContent = `smart:${name}`;
   if (meta) {
     meta.textContent = `${members.length} member${members.length === 1 ? '' : 's'}`
@@ -10852,7 +10858,7 @@ async function viewSubnetOccupancy(id) {
   }).join('');
   wrap.classList.remove('hidden');
   wrap.innerHTML = `<div class="fw-500 mb-6">${escHtml(m.cidr)} — ${m.used} used · ${m.reserved} reserved · ${m.free} free of ${m.total}</div>`
-    + `<div class="table-card scrollable-table-wrap audit-scroll"><table><thead><tr><th>Address</th><th>Host(s)</th><th>Reserved</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-state">No addresses in use.</td></tr>'}</tbody></table></div>`;
+    + `<div class="table-card scrollable-table-wrap audit-scroll"><table><thead><tr><th>Address</th><th>Hosts</th><th>Reserved</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-state">No addresses in use.</td></tr>'}</tbody></table></div>`;
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.
@@ -10958,7 +10964,7 @@ async function loadSiteMap() {
   dots.innerHTML = sites.map(s => {
     const x = (s.lng + 180) / 360 * 360;         // viewBox is 0..360 in x
     const y = (90 - s.lat) / 180 * 180;          // 0..180 in y
-    const title = `${s.name} — ${s.device_count} host(s), ${s.offline_count} offline`;
+    const title = `${s.name} — ${plural(s.device_count, 'host', 'hosts')}, ${s.offline_count} offline`;
     return `<circle class="site-map-dot ${s.health}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" data-action="siteMapClick" data-arg="${escAttr(s.id)}"><title>${escHtml(title)}</title></circle>`;
   }).join('');
 }
@@ -11156,7 +11162,7 @@ async function saveAutopatch() {
 async function _autopatchRunBtn(btn) {
   if (!await uiConfirm('Apply this policy now (queue upgrades to all targeted hosts)?')) return;
   const d = await api('POST', '/autopatch/' + encodeURIComponent(btn.dataset.id) + '/run', {});
-  if (d?.ok) toast(`Queued upgrade on ${d.queued} host(s)`, 'success');
+  if (d?.ok) toast(`Queued upgrade on ${plural(d.queued, 'host', 'hosts')}`, 'success');
   else failToast(d);
 }
 async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
@@ -11703,7 +11709,7 @@ function _registerPatchTable() {
         ? `<span title="Pending reboot — /run/reboot-required exists on this host" class="isl-372"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="isl-373"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
         : '';
       const cveBadge = d.cve_fixable > 0
-        ? `<button class="patch-cve-badge" data-action="openDeviceCVE" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" title="${d.cve_fixable} critical/high CVE(s) a pending patch would fix — view them">${d.cve_fixable} CVE${d.cve_fixable === 1 ? '' : 's'} fixable</button>`
+        ? `<button class="patch-cve-badge" data-action="openDeviceCVE" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" title="${plural(d.cve_fixable, 'critical/high CVE', 'critical/high CVEs')} a pending patch would fix — view them">${d.cve_fixable} CVE${d.cve_fixable === 1 ? '' : 's'} fixable</button>`
         : '';
       // v3.4.2: post-deploy verification badge. After an upgrade is queued we
       // snapshot the pending-update count and watch for it to drop on the next
@@ -11757,7 +11763,7 @@ function _renderInventoryResults() {
   }));
   const rows = sorted.map(x =>
     `<tr><td>${escHtml(x.device_name)}</td><td class="mono-12">${escHtml(x.package)}</td><td class="mono-12">${escHtml(x.version)}</td></tr>`).join('');
-  out.innerHTML = `<div class="fs-12 c-muted mb-6">${_invResults.length} match(es)${_invTruncated ? ' (capped at 2000)' : ''}</div>`
+  out.innerHTML = `<div class="fs-12 c-muted mb-6">${plural(_invResults.length, 'match', 'matches')}${_invTruncated ? ' (capped at 2000)' : ''}</div>`
     + `<div class="table-card"><table><thead id="inv-thead"><tr><th data-col="device">Host</th><th data-col="package">Package</th><th data-col="version">Version</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
@@ -11791,8 +11797,8 @@ function _renderPatchSlaStatus(rows) {
   if (!box) return;
   const bad = rows.filter(r => r.breached);
   if (!rows.length) { box.innerHTML = ''; return; }
-  if (!bad.length) { box.innerHTML = `<div class="meta-sm-nm">${rows.length} host(s) in scope — all within SLA.</div>`; return; }
-  box.innerHTML = `<div class="fw-500 mb-6 c-red">${bad.length} host(s) breaching patch SLA</div>`
+  if (!bad.length) { box.innerHTML = `<div class="meta-sm-nm">${plural(rows.length, 'host', 'hosts')} in scope — all within SLA.</div>`; return; }
+  box.innerHTML = `<div class="fw-500 mb-6 c-red">${plural(bad.length, 'host', 'hosts')} breaching patch SLA</div>`
     + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Host</th><th>Group</th><th>Detail</th></tr></thead><tbody>'
     + bad.map(r => `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.group || '—')}</td><td class="fs-12">${escHtml(r.detail || '')}</td></tr>`).join('')
     + '</tbody></table></div>';
@@ -11829,8 +11835,8 @@ async function loadPatchCatalog() {
   const r = await api('GET', '/patch-catalog').catch(() => null);
   if (!r || r.total_packages == null || !Array.isArray(r.devices_without_detail)) { body.innerHTML = '<div class="c-red">Failed to load patch catalog.</div>'; return; }
   const sum = document.getElementById('patch-catalog-summary');
-  if (sum) sum.textContent = `${r.total_packages} distinct package(s) with an update pending across the fleet`
-    + (r.devices_without_detail.length ? ` · ${r.devices_without_detail.length} host(s) report a count only (older agent)` : '');
+  if (sum) sum.textContent = `${plural(r.total_packages, 'distinct package', 'distinct packages')} with an update pending across the fleet`
+    + (r.devices_without_detail.length ? ` · ${plural(r.devices_without_detail.length, 'host', 'hosts')} report a count only (older agent)` : '');
   // v3.4.2: third-party (flatpak/snap/pip/npm) updates section.
   let tpHtml = '';
   if (r.third_party && r.third_party.length) {
@@ -11838,7 +11844,7 @@ async function loadPatchCatalog() {
       + '<div class="scroll-cap">'
       + r.third_party.map(m => {
         const pk = (m.packages || []).slice(0, 30).map(p => `${escHtml(p.package)} <span class="c-muted">×${p.count}</span>`).join(', ');
-        return `<div class="mb-8"><span class="ro-badge rs-paused">${escHtml(m.manager)}</span> <span class="c-muted fs-12">${m.hosts} host(s)</span><div class="fs-12 mt-4">${pk || '<span class="c-muted">—</span>'}</div></div>`;
+        return `<div class="mb-8"><span class="ro-badge rs-paused">${escHtml(m.manager)}</span> <span class="c-muted fs-12">${plural(m.hosts, 'host', 'hosts')}</span><div class="fs-12 mt-4">${pk || '<span class="c-muted">—</span>'}</div></div>`;
       }).join('')
       + '</div>';
   }
@@ -12128,7 +12134,7 @@ async function loadServicesReport() {
     // CSP L1: the badge's initial-hide lives in .isl-138 (CSS class);
     // setting `display = ''` would leave it hidden. Explicit value wins.
     document.getElementById('services-maint-badge').style.display = 'inline-block';
-    document.getElementById('services-maint-count').textContent = active;
+    document.getElementById('services-maint-count').textContent = plural(active, 'maintenance window', 'maintenance windows') + ' active';
   } else {
     document.getElementById('services-maint-badge').style.display = 'none';
   }
@@ -12212,7 +12218,7 @@ async function editServicesConfig(devId, devName) {
     const lines = document.getElementById('service-edit-textarea').value.split('\n').map(s => s.trim()).filter(Boolean);
     const result = await api('POST', `/devices/${devId}/services/config`, {services_watched: lines, log_watch: cfg.log_watch || []});
     if (result && result.ok) {
-      toast(`Saved: ${result.services_watched.length} unit(s) for ${devName}`, 'success');
+      toast(`Saved: ${plural(result.services_watched.length, 'unit', 'units')} for ${devName}`, 'success');
       closeModal('service-edit-modal');
       loadServicesReport();
     }
@@ -12247,7 +12253,7 @@ function _renderServiceBaselines() {
       <div class="settings-row"><label class="form-label" for="bl-units-${i}">Units (one systemd unit per line)</label>
         <textarea class="form-input isl-226" rows="3" id="bl-units-${i}" data-blf="units" data-bl="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
       <div class="settings-row"><div class="form-group"><label class="form-label" for="bl-scopetype-${i}">Applies to</label>
-        <select class="form-input mw-160" id="bl-scopetype-${i}" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <select class="form-input mw-160" id="bl-scopetype-${i}" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Groups')}${opt(b, 'tags', 'Tags')}${opt(b, 'sites', 'Sites')}</select></div>
         <div class="form-group"><label class="form-label" for="bl-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
         <input type="text" class="form-input" id="bl-scopevals-${i}" data-blf="scopevals" data-bl="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
@@ -12278,7 +12284,7 @@ async function saveServiceBaselines() {
   const bl = (window._svcBaselines || []).filter(b => (b.units || []).length);
   const r = await api('POST', '/service-baselines', { baselines: bl });
   if (r && r.ok) {
-    toast(`Saved ${r.baselines.length} baseline(s) — applied on each host's next heartbeat`, 'success');
+    toast(`Saved ${plural(r.baselines.length, 'baseline', 'baselines')} — applied on each host's next heartbeat`, 'success');
     closeModal('service-baseline-modal');
     // keep the Services-page card in sync if it's mounted
     if (document.getElementById('services-baselines-list')) loadServiceBaselinesCard();
@@ -12322,7 +12328,7 @@ function _renderServiceBaselinesCard() {
       <div class="settings-row"><label class="form-label" for="bl2-units-${i}">Units (one systemd unit per line)</label>
         <textarea class="form-input isl-226" rows="3" id="bl2-units-${i}" data-bl2f="units" data-bl2="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
       <div class="settings-row"><div class="form-group"><label class="form-label" for="bl2-scopetype-${i}">Applies to</label>
-        <select class="form-input mw-160" id="bl2-scopetype-${i}" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <select class="form-input mw-160" id="bl2-scopetype-${i}" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All hosts')}${opt(b, 'groups', 'Groups')}${opt(b, 'tags', 'Tags')}${opt(b, 'sites', 'Sites')}</select></div>
         <div class="form-group"><label class="form-label" for="bl2-scopevals-${i}">Names (comma-separated; ignored for "All")</label>
         <input type="text" class="form-input" id="bl2-scopevals-${i}" data-bl2f="scopevals" data-bl2="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
     </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
@@ -12353,7 +12359,7 @@ async function saveServiceBaselinesCard() {
   const bl = (window._svcBaselinesCard || []).filter(b => (b.units || []).length);
   const r = await api('POST', '/service-baselines', { baselines: bl });
   if (r && r.ok) {
-    toast(`Saved ${r.baselines.length} baseline(s) — applied on each host's next heartbeat`, 'success');
+    toast(`Saved ${plural(r.baselines.length, 'baseline', 'baselines')} — applied on each host's next heartbeat`, 'success');
     loadServiceBaselinesCard();
   } else {
     toast(r?.error || 'Failed to save baselines', 'error');
@@ -13397,7 +13403,7 @@ async function importP12() {
   if (!box) return;
   box.innerHTML = `
     <div class="table-card card-padded">
-      <div><strong>Imported</strong> ${r.cn ? '— ' + escHtml(r.cn) : ''} <span class="hint">expires ${escHtml(r.expires || '?')}${r.chain ? ` · +${r.chain} chain cert(s)` : ''}</span></div>
+      <div><strong>Imported</strong> ${r.cn ? '— ' + escHtml(r.cn) : ''} <span class="hint">expires ${escHtml(r.expires || '?')}${r.chain ? ` · +${plural(r.chain, 'chain cert', 'chain certs')}` : ''}</span></div>
       <div class="form-label mb-6 mt-12">Files written</div>
       <div class="ff-mono fs-12">${escHtml(r.server_crt)}<br>${escHtml(r.server_key)}</div>
       <div class="hint mt-12"><strong>Next:</strong> point nginx at <code>server.crt</code> / <code>server.key</code> and reload it.</div>
@@ -14039,7 +14045,7 @@ async function reloadConnectors() {
     renderConnectorPlugins();
     const n = (r && r.new_types && r.new_types.length) || 0;
     if (status) status.textContent = n ? `Reloaded — ${n} new` : 'Reloaded ✓';
-    toast(n ? `Reloaded — ${n} new connector type(s)` : 'Connectors reloaded', 'success');
+    toast(n ? `Reloaded — ${plural(n, 'new connector type', 'new connector types')}` : 'Connectors reloaded', 'success');
   } catch (e) {
     if (status) status.textContent = '';
     toast((e && e.message) || 'Reload failed', 'error');
@@ -15269,7 +15275,7 @@ async function refreshNavCounts() {
             let tip = `${off} offline: ${_names}${_offDevs.length > 8 ? ', …' : ''}`;
             if (_servers.length === 0) tip += ' — all workstations/laptops (expected)';
             bb.title = tip;
-          } else bb.title = `${off} host(s) offline`;
+          } else bb.title = `${plural(off, 'host', 'hosts')} offline`;
         } else bb.classList.add('d-none');
       } }
     // v5.5.0: keep the sidebar Tickets badge live on the 60s poll (it used to
@@ -15288,7 +15294,7 @@ async function refreshNavCounts() {
     { const b = document.getElementById('cmdqueue-badge');
       if (b) {
         const n = typeof c.commands_pending === 'number' ? c.commands_pending : 0;
-        if (n > 0) { b.classList.remove('d-none'); b.textContent = n > 99 ? '99+' : String(n); b.title = `${n} command(s) waiting for delivery`; }
+        if (n > 0) { b.classList.remove('d-none'); b.textContent = n > 99 ? '99+' : String(n); b.title = `${plural(n, 'command', 'commands')} waiting for delivery`; }
         else b.classList.add('d-none');
       } }
     [['fleet', c.fleet], ['monitoring', c.monitoring], ['security', c.security]]
@@ -16754,7 +16760,7 @@ async function collectAllHostConfigs() {
   if (!await uiConfirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
   const r = await api('POST', '/host-config/collect-all', {});
   if (!r || !r.ok) { failToast(r); return; }
-  toast(`Queued on ${r.queued} host(s) — current configs arrive in ~60s`, 'success');
+  toast(`Queued on ${plural(r.queued, 'host', 'hosts')} — current configs arrive in ~60s`, 'success');
 }
 function exportAllHostConfigs() {
   _downloadAuthed('/api/host-config/export', 'host-configs.json', 'Host configs exported');
@@ -16835,7 +16841,7 @@ async function loadFail2ban() {
     const sm = document.getElementById('fail2ban-summary');
     if (sm) {
       const tot = (data.devices || []).reduce((a, d) => a + (d.banned_total || 0), 0);
-      sm.textContent = `${data.count} host(s) · ${tot} banned IP(s)`;
+      sm.textContent = `${plural(data.count, 'host', 'hosts')} · ${plural(tot, 'banned IP', 'banned IPs')}`;
     }
     _renderFail2ban();
   } catch (e) {
@@ -17056,7 +17062,7 @@ function _renderSecrets() {
   if (summary) {
     summary.textContent = !_secretsResp.enabled
       ? 'Scanning is off — enable it in Settings → Security.'
-      : `${_secretsResp.total_active || 0} active finding(s) across ${(_secretsResp.devices || []).length} host(s).`
+      : `${plural(_secretsResp.total_active || 0, 'active finding', 'active findings')} across ${plural((_secretsResp.devices || []).length, 'host', 'hosts')}.`
         + (q ? ` — showing ${rows.length} of ${total}.` : '');
   }
   rows = tableCtl.sortRows('secrets', rows, (r) => ({
@@ -17169,7 +17175,7 @@ async function muteExposureProcess(process) {
   if (!await uiConfirm(`Mute new-port and world-exposed alerts for "${process}" across the fleet?\n\nAny matching open alerts will be resolved. The Exposure page still lists these sockets.`)) return;
   const r = await api('POST', '/exposure/mute', { action: 'add', process });
   if (r && r.ok) {
-    toast(`Muted ${process}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
+    toast(`Muted ${process}` + (r.resolved ? ` · resolved ${plural(r.resolved, 'alert', 'alerts')}` : ''), 'success');
     loadExposure();
   } else { toast('Mute failed', 'error'); }
 }
@@ -17180,7 +17186,7 @@ async function muteExposureHost(deviceId, deviceName) {
   if (!await uiConfirm(`Mute new-port and world-exposed alerts for EVERY service on "${nm}"?\n\nUseful for an appliance or jump host you've accepted. Any matching open alerts are resolved; the sockets still appear here.`)) return;
   const r = await api('POST', '/exposure/mute', { action: 'add', device_id: deviceId });
   if (r && r.ok) {
-    toast(`Muted all exposure from ${nm}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
+    toast(`Muted all exposure from ${nm}` + (r.resolved ? ` · resolved ${plural(r.resolved, 'alert', 'alerts')}` : ''), 'success');
     loadExposure();
   } else { toast('Mute failed', 'error'); }
 }
@@ -17236,7 +17242,7 @@ async function addExposureMute() {
     pushUndoableAction(`Mute ${process || proto || port}`,
       async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'remove' })); if (u?.ok) _renderExposureMutes(u.mutes); },
       async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); },
-      'Mute added' + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''));
+      'Mute added' + (r.resolved ? ` · resolved ${plural(r.resolved, 'alert', 'alerts')}` : ''));
   } else { toast('Add mute failed', 'error'); }
 }
 async function removeExposureMute(process, proto, port, deviceId) {
@@ -17495,7 +17501,7 @@ function _renderChargeback() {
     el.innerHTML = '<div class="c-muted">No power-reporting hosts yet (needs a UPS via NUT/apcupsd or GPU draw).</div>';
     return;
   }
-  el.innerHTML = `<div class="hint mb-8">Fleet: ${t.hosts || 0} host(s) · ${t.watts || 0} W · ~${(t.kwh_month || 0)} kWh/mo · ~${((t.kwh_month || 0) * rate).toFixed(2)}/mo</div>`
+  el.innerHTML = `<div class="hint mb-8">Fleet: ${plural(t.hosts || 0, 'host', 'hosts')} · ${t.watts || 0} W · ~${(t.kwh_month || 0)} kWh/mo · ~${((t.kwh_month || 0) * rate).toFixed(2)}/mo</div>`
     + `<div class="chargeback-grid">${grp}${tag}</div>`;
 }
 
@@ -17657,7 +17663,7 @@ function _renderSwCatalog() {
       + `<div class="fs-12 fw-600 mb-6">Installed on:</div>${detail}</td></tr>`;
   };
   body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full">
-    <thead><tr class="c-muted"><th>Package</th><th>Installed version(s)</th><th class="ta-center">Hosts</th></tr></thead>
+    <thead><tr class="c-muted"><th>Package</th><th>Installed versions</th><th class="ta-center">Hosts</th></tr></thead>
     <tbody>` + shown.map((p, i) =>
       `<tr class="pointer" data-action="_swCatalogToggle" data-arg="${i}" title="Show where it's installed" tabindex="0"><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''} <button class="btn-icon cell-sm" data-action="aiPackageSafety" data-arg="${escAttr(p.package)}" data-stop-prop="1" title="AI: is this version safe / any known CVEs?">${_icon('sparkles', 12)}</button></td>
         <td>${verCell(p)}</td>
@@ -18240,7 +18246,7 @@ function _renderHomeHealth(health, history) {
     + `<div class="hh-score">`
     +   `<div class="hh-num" data-color="${color}">${health.score}</div>`
     +   `<div class="hh-grade" data-color="${color}">${_escapeHtml(grade)}</div>`
-    +   `<div class="hh-sub c-muted">${health.total_devices} host(s)</div>`
+    +   `<div class="hh-sub c-muted">${plural(health.total_devices, 'host', 'hosts')}</div>`
     + `</div>`
     + `<div class="hh-detail">`
     // v6.3.0 (UX wave 10): grade-cutoff ticks — the bar shows where "good"
@@ -18254,7 +18260,7 @@ function _renderHomeHealth(health, history) {
     +     `<span class="sev-pill sev-medium">${c.warning || 0} warning</span>`
     +     `<span class="sev-pill sev-low">${c.info || 0} info</span>`
     +   `</div>`
-    +   (spark ? `<div class="hh-trend" data-color="${color}" title="Fleet score, last ${(history || []).length} day(s)">${spark}</div>` : '')
+    +   (spark ? `<div class="hh-trend" data-color="${color}" title="Fleet score, last ${plural((history || []).length, 'day', 'days')}">${spark}</div>` : '')
     +   `<div class="hh-worst">${worstHtml}</div>`
     + `</div>`
     + `</div>`;
@@ -18889,7 +18895,7 @@ function _renderHomeWidgets(home) {
   const upd = counted.filter(d => _dashUpg(d) > 0).sort((a, b) => _dashUpg(b) - _dashUpg(a));
   const totUpd = counted.reduce((s, d) => s + _dashUpg(d), 0);
   _setWidget('home-w-updates-body', upd.length
-    ? `<div class="dash-mini-head">${totUpd} updates across ${upd.length} host(s)</div>`
+    ? `<div class="dash-mini-head">${totUpd} updates across ${plural(upd.length, 'host', 'hosts')}</div>`
       + _miniRows(upd.slice(0, 6).map(d => ({
         l: escHtml(d.name), r: String(_dashUpg(d)), cls: _dashUpg(d) >= 20 ? 'c-amber' : '' })))
     : '<div class="hint">Everything up to date.</div>');
@@ -18910,7 +18916,7 @@ function _renderHomeWidgets(home) {
     .filter(d => ids.has(d.device_id) && (d.drifted || 0) > 0);
   _setWidget('home-w-drift-body', driftDevs.length
     ? _miniRows(driftDevs.slice(0, 8).map(d => ({
-      l: escHtml(nameOf(d.device_id)), r: `${d.drifted} file(s)`, cls: 'c-amber' })))
+      l: escHtml(nameOf(d.device_id)), r: `${plural(d.drifted, 'file', 'files')}`, cls: 'c-amber' })))
     : '<div class="hint">No configuration drift.</div>');
   // Resource pressure
   const press = counted.map(d => ({ d, w: _msWorst(d) })).filter(x => x.w);
@@ -18961,7 +18967,7 @@ function _renderHomeWidgets(home) {
     if (c && typeof c.count === 'number') unread += c.count;
   }));
   _setWidget('home-w-mailwatch-body', mw.length
-    ? `<div class="dash-mini-head">${unread} unread across ${mw.length} host(s)</div>`
+    ? `<div class="dash-mini-head">${unread} unread across ${plural(mw.length, 'host', 'hosts')}</div>`
       + _miniRows(mw.slice(0, 6).map(d => ({
         l: escHtml(d.name || nameOf(d.device_id || d.id) || d.device_id || d.id || ''),
         r: String(Object.values(d.counts || {}).reduce((s, c) => s + ((c && c.count) || 0), 0)) })))
@@ -19041,10 +19047,10 @@ function _renderHomeWidgets(home) {
             _hto ? 'c-amber' : 'c-green');
   }
   bigStat('home-w-crittotal-body', `${totC} / ${totH}`, 'critical / high', totC ? 'c-red' : 'c-amber');
-  bigStat('home-w-updatestotal-body', totUpd, `across ${upd.length} host(s)`,
+  bigStat('home-w-updatestotal-body', totUpd, `across ${plural(upd.length, 'host', 'hosts')}`,
           totUpd ? 'c-amber' : 'c-green');
   const totDrift = driftDevs.reduce((s, d) => s + (d.drifted || 0), 0);
-  bigStat('home-w-drifttotal-body', totDrift, `on ${driftDevs.length} host(s)`,
+  bigStat('home-w-drifttotal-body', totDrift, `on ${plural(driftDevs.length, 'host', 'hosts')}`,
           totDrift ? 'c-amber' : 'c-green');
   // Recent check-ins
   const recent = counted.filter(d => !d.agentless && d.last_seen)
@@ -19158,17 +19164,17 @@ function _renderHomeWidgets(home) {
   // bound. Matches the siblings' cap + "+N more" idiom.
   _setWidget('home-w-offlinegroups-body', offg.length
     ? _miniRows(offg.slice(0, 8).map(([g, n]) => ({ l: escHtml(g), r: String(n), cls: 'c-red' })))
-      + (offg.length > 8 ? `<div class="hint mt-4">+${offg.length - 8} more group(s)</div>` : '')
+      + (offg.length > 8 ? `<div class="hint mt-4">+${plural(offg.length - 8, 'more group', 'more groups')}</div>` : '')
     : '<div class="hint">No offline hosts.</div>');
 
   // ── v4.1.0 catalog expansion wave 3 (posture / hardware, server-backed) ────
   const rr = W.rebootreq || {};
   _setWidget('home-w-rebootreq-body', (rr.count)
-    ? `<div class="dash-mini-head">${rr.count} host(s)</div>`
+    ? `<div class="dash-mini-head">${plural(rr.count, 'host', 'hosts')}</div>`
       + _miniRows((rr.hosts || []).map(n => ({ l: escHtml(n), r: 'reboot', cls: 'c-amber' })))
     : '<div class="hint">No pending reboots.</div>');
   const wp = W.worldports || {};
-  bigStat('home-w-worldports-body', wp.count || 0, 'host(s) with world-reachable ports',
+  bigStat('home-w-worldports-body', wp.count || 0, (wp.count === 1 ? 'host' : 'hosts') + ' with world-reachable ports',
           wp.count ? 'c-amber' : 'c-green');
   const fu = W.failedunits || {};
   bigStat('home-w-failedunits-body', fu.count || 0, 'failed systemd units',
@@ -19230,7 +19236,7 @@ function _renderHomeWidgets(home) {
     : '<div class="hint">No certificates expiring within 30 days.</div>');
   const bf = W.bruteforce || {};
   _setWidget('home-w-bruteforce-body', (bf.count)
-    ? `<div class="dash-mini-head">${bf.count} host(s)</div>`
+    ? `<div class="dash-mini-head">${plural(bf.count, 'host', 'hosts')}</div>`
       + _miniRows((bf.hosts || []).map(n => ({ l: escHtml(n), r: 'active', cls: 'c-red' })))
     : '<div class="hint">No active brute-force.</div>');
   const bwHuman = b => b >= 1e6 ? (b / 1e6).toFixed(1) + ' Mbps'
@@ -20203,8 +20209,8 @@ function _renderTaxonomy() {
   const untagged = _taxonomyDevices.filter(d => !(d.tags || []).length).length;
   const note = document.getElementById('taxonomy-summary');
   if (note) {
-    note.textContent = `${_taxonomyDevices.length} host(s) · ${groupCounts.size} group(s), `
-      + `${ungrouped} ungrouped · ${tagCounts.size} tag(s), ${untagged} untagged`;
+    note.textContent = `${plural(_taxonomyDevices.length, 'host', 'hosts')} · ${plural(groupCounts.size, 'group', 'groups')}, `
+      + `${ungrouped} ungrouped · ${plural(tagCounts.size, 'tag', 'tags')}, ${untagged} untagged`;
   }
 }
 
@@ -20250,7 +20256,7 @@ async function _taxonomyBulkTags(ids, add, remove, okMsg) {
   if (!ids.length) { toast('No hosts carry that tag any more', 'info'); return; }
   const r = await api('POST', '/devices/bulk-tags', {device_ids: ids, add, remove});
   if (r && r.ok) {
-    toast(`${okMsg} on ${r.updated} host(s)`, 'success');
+    toast(`${okMsg} on ${plural(r.updated, 'host', 'hosts')}`, 'success');
     await loadTaxonomy();
     loadDevices();
   } else {
@@ -20274,7 +20280,7 @@ async function renameTag(tag) {
     // Renaming onto an existing name IS a merge — say so before doing it.
     const ok = await uiConfirm({
       title: 'That tag already exists',
-      message: `"${next}" is already in use. ${ids.length} host(s) will move onto it and `
+      message: `"${next}" is already in use. ${plural(ids.length, 'host', 'hosts')} will move onto it and `
                + `"${from}" will stop existing. Continue?`,
       confirmText: 'Merge',
     });
@@ -20299,7 +20305,7 @@ async function mergeTag(tag) {
   const ids = _taxonomyDeviceIdsWithTag(from);
   const ok = await uiConfirm({
     title: 'Merge tags',
-    message: `Replace "${from}" with "${next}" on ${ids.length} host(s)? "${from}" will no longer exist.`,
+    message: `Replace "${from}" with "${next}" on ${plural(ids.length, 'host', 'hosts')}? "${from}" will no longer exist.`,
     confirmText: 'Merge',
   });
   if (!ok) return;
@@ -20311,7 +20317,7 @@ async function deleteTag(tag) {
   const ids = _taxonomyDeviceIdsWithTag(name);
   const ok = await uiConfirm({
     title: `Delete tag "${name}"`,
-    message: `Remove it from ${ids.length} host(s)? The hosts are untouched, but anything `
+    message: `Remove it from ${plural(ids.length, 'host', 'hosts')}? The hosts are untouched, but anything `
              + 'scoped to this tag — role scopes, alert routing, auto-patch scopes, rollout '
              + 'rings, smart groups, report scopes — stops matching them.',
     confirmText: 'Delete', danger: true,
@@ -20341,10 +20347,10 @@ async function _taxonomyGroupOp(op, payload, okMsg) {
   const orphans = Array.isArray(r.orphan_references) ? r.orphan_references : [];
   if (orphans.length) {
     const where = orphans.map(o => `${o.store} (${o.references})`).join(', ');
-    toast(`${okMsg} on ${r.updated} host(s). Still referenced in ${where} — repoint those.`,
+    toast(`${okMsg} on ${plural(r.updated, 'host', 'hosts')}. Still referenced in ${where} — repoint those.`,
           'warning');
   } else {
-    toast(`${okMsg} on ${r.updated} host(s)`, 'success');
+    toast(`${okMsg} on ${plural(r.updated, 'host', 'hosts')}`, 'success');
   }
   await loadTaxonomy();
   loadDevices();
@@ -20740,7 +20746,7 @@ function _renderHomeActivity(fleetEvents) {
         // Show the actual matched log line, not the pattern regex
         detail = (p.sample && p.sample[0])
           ? `${p.unit}: ${String(p.sample[0]).substring(0, 100)}`
-          : `${p.unit}: ${p.count || 1} match(es)`; break;
+          : `${p.unit}: ${plural(p.count || 1, 'match', 'matches')}`; break;
       case 'drift_detected':
         detail = p.path || p.unit || ''; break;
       case 'config_drift':
@@ -22678,7 +22684,7 @@ async function loadConfigRevisions() {
     const keys = v.changed_keys || [];
     const preview = keys.slice(0, 6).join(', ') + (keys.length > 6 ? '…' : '');
     return `<div class="rdef-row">
-      <span class="fs-12">${escHtml(_fmtAbsTs((v.ts || 0)))} · <strong>${escHtml(v.user || '—')}</strong> · <span class="hint">${keys.length} key(s): ${escHtml(preview)}</span></span>
+      <span class="fs-12">${escHtml(_fmtAbsTs((v.ts || 0)))} · <strong>${escHtml(v.user || '—')}</strong> · <span class="hint">${plural(keys.length, 'key', 'keys')}: ${escHtml(preview)}</span></span>
       <button class="btn-icon" data-action="restoreConfigRevision" data-arg="${escAttr(v.id)}" title="Restore this configuration state">${_icon('undo', 12)} Restore</button>
     </div>`;
   }).join('');
@@ -22808,7 +22814,7 @@ async function previewThresholdImpact() {
     return;
   }
   const tbl = (rows, cls, verb) => rows.length
-    ? `<div class="mt-6"><strong class="fs-13 ${cls}">${rows.reduce((a, x) => a + x.hosts, 0)} host-check(s) would ${verb}</strong>`
+    ? `<div class="mt-6"><strong class="fs-13 ${cls}">${plural(rows.reduce((a, x) => a + x.hosts, 0), 'host-check', 'host-checks')} would ${verb}</strong>`
       + '<div class="scrollable-table-wrap audit-scroll mt-4"><table class="fs-13"><thead><tr>'
       + '<th>Check</th><th class="ta-right">Hosts</th><th>For example</th></tr></thead><tbody>'
       + rows.map(x => `<tr><td><code>${escHtml(x.check)}</code></td>`
@@ -22825,14 +22831,14 @@ async function previewThresholdImpact() {
   const notEval = r.not_evaluated || [];
   const noChange = !(r.newly_breaching || []).length && !(r.newly_passing || []).length;
   const notEvalBlock = notEval.length
-    ? `<div class="mt-6"><strong class="fs-13 c-amber">${notEval.length} `
-      + `changed threshold(s) could not be previewed here</strong>`
+    ? `<div class="mt-6"><strong class="fs-13 c-amber">${notEval.length === 1 ? '1 changed threshold' : notEval.length + ' changed thresholds'} `
+      + `could not be previewed here</strong>`
       + `<div class="hint mt-4"><code>${escHtml(notEval.join(', '))}</code></div>`
       + `<div class="hint mt-2">These fire through the metric, risk or attention `
       + `engine rather than the host-checks engine, so their effect is not shown `
       + `above — review them before saving.</div></div>`
     : '';
-  out.innerHTML = `<div class="fs-13">Comparing <strong>${r.hosts_evaluated}</strong> host(s) against: ${changed}</div>`
+  out.innerHTML = `<div class="fs-13">Comparing <strong>${r.hosts_evaluated}</strong> ${r.hosts_evaluated === 1 ? 'host' : 'hosts'} against: ${changed}</div>`
     + tbl(r.newly_breaching || [], 'c-amber', 'start breaching')
     + tbl(r.newly_passing || [], 'c-green', 'stop breaching')
     + (noChange
@@ -23260,7 +23266,7 @@ async function runCloudImport(ev) {
   const r = await api('POST', '/cloud/import', {}).catch(() => null);
   _cloudImporting = false;
   if (r?.ok) {
-    const msg = `Imported ${r.imported}, updated ${r.updated}` + (r.errors?.length ? `, ${r.errors.length} error(s)` : '');
+    const msg = `Imported ${r.imported}, updated ${r.updated}` + (r.errors?.length ? `, ${plural(r.errors.length, 'error', 'errors')}` : '');
     if (st) st.textContent = msg;
     toast(msg, r.errors?.length ? 'info' : 'success');
     if (r.errors?.length) console.warn('cloud import errors:', r.errors);
@@ -23489,7 +23495,7 @@ async function snmpWalk() {
     out.innerHTML = `<div class="c-muted">No objects under <code>${escHtml(oid)}</code> — the host does not implement this subtree.</div>`;
     return;
   }
-  const head = `<div class="hint">${r.count} object(s) in ${r.elapsed_ms} ms`
+  const head = `<div class="hint">${plural(r.count, 'object', 'objects')} in ${r.elapsed_ms} ms`
     + (r.truncated ? ` — stopped at the ${max}-row cap, narrow the OID to see the rest` : '')
     + `</div>`;
   out.innerHTML = head
@@ -23633,7 +23639,7 @@ async function saveCanaryFiles() {
   // per-host arm status that says whether they are in place.
   if (r && !r.error) {
     toast(paths.length
-      ? `${paths.length} canary path(s) saved — hosts report arm status on their next check-in`
+      ? `${plural(paths.length, 'canary path', 'canary paths')} saved — hosts report arm status on their next check-in`
       : 'Canary files off', 'success');
   } else failToast(r);
 }
@@ -24270,7 +24276,7 @@ async function _drawerSnmpPorts(devId) {
         </tr>`;
       }).join('')
     + '</tbody></table></div>'
-    + `<div class="hint mt-4">${r.ports.length} port(s) · sampled every `
+    + `<div class="hint mt-4">${plural(r.ports.length, 'port', 'ports')} · sampled every `
     + `${Math.round((r.interval_s || 300) / 60)} min · ${r.retained} samples kept per port</div>`;
 }
 
@@ -24752,12 +24758,12 @@ async function _loadAuditSection(key) {
               // sitting on no LUKS at all, and the second is the one worth
               // saying out loud.
               return 'OFF' + (de.dm_count
-                ? ` · ${de.dm_count} device-mapper volume(s), none encrypted` : '');
+                ? ` · ${plural(de.dm_count, 'device-mapper volume', 'device-mapper volumes')}, none encrypted` : '');
             }
             const vols = (de.crypt_devices || []).length || de.crypt_count || 0;
             const mounts = de.encrypted_mounts || [];
             return 'on'
-              + (vols ? ` · ${vols} volume(s)` : '')
+              + (vols ? ` · ${plural(vols, 'volume', 'volumes')}` : '')
               // The mount list was persisted and read only by Checks and RAG.
               // Which paths are covered is the actual question behind "is this
               // encrypted" on a host with more than one filesystem.
@@ -24810,7 +24816,7 @@ async function _loadAuditSection(key) {
                   ? `${rpms[0]} rpm` : `${Math.min(...rpms)}–${Math.max(...rpms)} rpm`)
               : '';
             // A stopped fan is the whole reason to show this at all.
-            return `${f.length} fan(s)${range ? ' · ' + range : ''}`
+            return `${plural(f.length, 'fan', 'fans')}${range ? ' · ' + range : ''}`
                    + (stopped ? ` · ${stopped} STOPPED` : '');
           })()],
           ['CPU governor', (() => {
@@ -25410,7 +25416,7 @@ async function _loadAuditSection(key) {
         if (crit > 0 || high > 0) {
           const top = (bySev.critical || []).concat(bySev.high || [])
             .map(f => f.cve_id || f.vuln_id || f.id || '').filter(Boolean).slice(0, 6).join(', ');
-          const trig = `${_drawerDeviceName} has ${crit} critical and ${high} high CVE finding(s)`
+          const trig = `${_drawerDeviceName} has ${crit} critical and ${plural(high, 'high CVE finding', 'high CVE findings')}`
             + (top ? ` (e.g. ${top})` : '') + '. Give me a prioritized, safe remediation runbook.';
           body.insertAdjacentHTML('beforeend',
             `<div class="mt-8"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName || '')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen', 13)} Suggest a remediation runbook &rarr;</a></div>`);
@@ -26328,7 +26334,7 @@ function _renderDiagResult(kind, res) {
   }
   const n = (res.hosts || []).length;
   const unmanaged = (res.hosts || []).filter(x => !x.managed).length;
-  return `<div class="diag-done c-green">${_icon('search',13)} LAN scan (${escHtml(res.method||'')}): ${n} host(s), <b>${unmanaged}</b> unmanaged <span class="c-muted">(${timeAgoHtml(res.ts)})</span>. See Network map → Unmanaged hosts.</div>`;
+  return `<div class="diag-done c-green">${_icon('search',13)} LAN scan (${escHtml(res.method||'')}): ${plural(n, 'host', 'hosts')}, <b>${unmanaged}</b> unmanaged <span class="c-muted">(${timeAgoHtml(res.ts)})</span>. See Network map → Unmanaged hosts.</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -26484,11 +26490,11 @@ async function loadForecast() {
     const filling = _forecastRows.filter(m => m.days_to_full != null).length;
     const parts = [];
     if (_forecastRows.length) {
-      parts.push(`${_forecastRows.length} mount(s) across ${r.devices} host(s) with history — ${filling} projected to fill.`);
+      parts.push(`${plural(_forecastRows.length, 'mount', 'mounts')} across ${plural(r.devices, 'host', 'hosts')} with history — ${filling} projected to fill.`);
     }
     const sat = _forecastResRows.filter(x => x.days_to_saturation != null).length;
     if (_forecastResRows.length) {
-      parts.push(`${_forecastResRows.length} resource series across ${r.resource_devices || 0} host(s) — ${sat} projected to saturate.`);
+      parts.push(`${_forecastResRows.length} resource series across ${plural(r.resource_devices || 0, 'host', 'hosts')} — ${sat} projected to saturate.`);
     }
     summary.textContent = parts.join(' ');
   }
@@ -26622,8 +26628,8 @@ async function loadTimeline() {
   const _win = _timelineAroundSeconds()
     ? ` — ${r.items.length} inside the window` : '';
   if (summary) summary.textContent = (_timelineFleet
-    ? `${r.total} event(s) across ${(r.devices || []).length} host(s)`
-    : `${r.total} event(s) for ${r.device_name}`) + _win;
+    ? `${plural(r.total, 'event', 'events')} across ${plural((r.devices || []).length, 'host', 'hosts')}`
+    : `${plural(r.total, 'event', 'events')} for ${r.device_name}`) + _win;
   _timelineShown = _TIMELINE_PAGE;
   _renderTimelineKinds(r.kinds || []);
   _renderTimeline();
@@ -26715,7 +26721,7 @@ async function loadReports() {
         `<div class="rep-grid">`
         + `<div class="rep-cell"><div class="rep-k">Health</div><div class="rep-v" data-color="${_HEALTH_COLOR[h.grade] || 'var(--muted)'}">${h.score != null ? h.score : '—'}<span class="rep-unit">/100</span></div><div class="rep-sub c-muted">${_escapeHtml(h.grade || '')}</div></div>`
         + `<div class="rep-cell"><div class="rep-k">Hosts</div><div class="rep-v">${d.online || 0}<span class="rep-unit">/${d.total || 0} online</span></div></div>`
-        + `<div class="rep-cell"><div class="rep-k">Patches</div><div class="rep-v">${p.total_pending || 0}</div><div class="rep-sub c-muted">${p.devices_with_patches || 0} host(s)</div></div>`
+        + `<div class="rep-cell"><div class="rep-k">Patches</div><div class="rep-v">${p.total_pending || 0}</div><div class="rep-sub c-muted">${plural(p.devices_with_patches || 0, 'host', 'hosts')}</div></div>`
         + `<div class="rep-cell"><div class="rep-k">CVEs</div><div class="rep-v">${(c.critical || 0) + (c.high || 0)}</div><div class="rep-sub c-muted">${c.critical || 0} crit · ${c.high || 0} high</div></div>`
         + `</div>`
         + (fwPills ? `<div class="rep-compliance">${fwPills}</div>` : '');
@@ -26762,7 +26768,7 @@ async function loadReportsCapacity() {
     + cell('Swap', r.swap || {}, '%')
     + `<div class="rep-cell"><div class="rep-k">Disk</div><div class="rep-v">${d.percent != null ? d.percent : '—'}<span class="rep-unit">% used</span></div><div class="rep-sub c-muted">${d.used_gb || 0} / ${d.total_gb || 0} GB</div></div>`
     + `</div>`
-    + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online host(s) counted</div>`
+    + `<div class="fs-12 c-muted mt-6">${plural(r.devices_counted || 0, 'online host', 'online hosts')} counted</div>`
     + `<div class="cap-tops">${tops('Top CPU', r.top_cpu, '%')}${tops('Top memory', r.top_memory, '%')}${tops('Top disk', r.top_disk, '%')}</div>`;
 }
 
@@ -26849,7 +26855,7 @@ async function saveMetering() {
   }).filter(Boolean);
   const r = await api('POST', '/config', { software_meters: meters }).catch(() => null);
   if (!r || r.error) { failToast(r); return; }
-  const st = document.getElementById('metering-status'); if (st) st.textContent = `${meters.length} meter(s) saved`;
+  const st = document.getElementById('metering-status'); if (st) st.textContent = `${plural(meters.length, 'meter', 'meters')} saved`;
   loadReportsMetering();
 }
 
@@ -27484,7 +27490,7 @@ async function runFleetQuery() {
     + `<td class="ta-center">${d.mem == null ? '—' : Math.round(d.mem) + '%'}</td>`
     + (hasPkgCol ? `<td class="fs-12 mono-12">${escHtml(d.pkg_match || '—')}</td>` : '')
     + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
-  out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} host(s)</div>`
+  out.innerHTML = `<div class="fs-12 c-muted mb-6">${plural(r.total, 'host', 'hosts')}</div>`
     + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Host</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cpu" class="ta-center">CPU%</th><th data-col="mem" class="ta-center">Mem%</th>`
     + (hasPkgCol ? `<th>Matched package</th>` : '')
     + `<th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -27872,7 +27878,7 @@ async function loadReportArchive() {
   if (note) {
     note.textContent = _reportArchive.length
       ? `${_reportArchive.length} of ${data.cap} kept`
-        + (data.trimmed ? ` · ${data.trimmed} older report(s) aged out` : '')
+        + (data.trimmed ? ` · ${plural(data.trimmed, 'older report', 'older reports')} aged out` : '')
       : '';
   }
   tableCtl.wireSortOnly('rarch-thead', 'report_archive', () => _renderReportArchive());
@@ -27923,7 +27929,7 @@ async function reportArchiveAsOf() {
     _reportArchive = [];
   } else {
     note.textContent = `Nearest delivery on or before ${el.value}: `
-      + _fmtTs(r.entry.ts) + ` (${r.count} report(s) at or before that date).`;
+      + _fmtTs(r.entry.ts) + ` (${plural(r.count, 'report', 'reports')} at or before that date).`;
     _reportArchive = [r.entry];
   }
   _renderReportArchive();
@@ -28556,7 +28562,7 @@ async function loadPii() {
   const grand = Object.values(totals).reduce((a, b) => a + (b || 0), 0);
   if (sum) {
     sum.textContent = grand
-      ? `${grand.toLocaleString(_localeTag())} across ${d.scanned_hosts} host(s)`
+      ? `${grand.toLocaleString(_localeTag())} across ${plural(d.scanned_hosts, 'host', 'hosts')}`
       : 'nothing found yet';
   }
   if (!(d.hosts || []).length) {
@@ -28579,7 +28585,7 @@ async function loadPii() {
     return `<div class="settings-section mb-12">
       <div class="row-8-center mb-8">
         <div class="section-title">${escHtml(h.name)}</div>
-        <span class="fs-11 c-muted">${Number(h.files || 0).toLocaleString(_localeTag())} file(s)</span>
+        <span class="fs-11 c-muted">${plural(Number(h.files || 0).toLocaleString(_localeTag()), 'file', 'files')}</span>
         ${chips}
       </div>
       <div class="scrollable-table-wrap audit-scroll">
@@ -31236,7 +31242,7 @@ function filterSettings(q) {
   } else if (total === 0) {
     hint.innerHTML = `No settings match <code>${escHtml(q)}</code>. Try shorter or different terms.`;
   } else {
-    hint.textContent = `${total} setting${total === 1 ? '' : 's'} match across ${Object.values(tabCounts).filter(c => c > 0).length} tab(s)`;
+    hint.textContent = `${total} setting${total === 1 ? '' : 's'} match across ${plural(Object.values(tabCounts).filter(c => c > 0).length, 'tab', 'tabs')}`;
   }
 }
 
@@ -31343,7 +31349,7 @@ function _bulkUpdatePreview() {
   const action = document.getElementById('bulk-action')?.value || '?';
   const el = document.getElementById('bulk-preview');
   if (!el) return;
-  el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${targets.length} host(s):
+  el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${plural(targets.length, 'host', 'hosts')}:
     <div class="isl-734">
       ${targets.slice(0, 10).map(d => `<code>${escHtml(d.name || d.id)}</code>`).join(', ')}
       ${targets.length > 10 ? ` <span class="c-muted">+${targets.length - 10} more</span>` : ''}
@@ -31357,11 +31363,11 @@ async function runBulkAction() {
   const destructive = ['reboot', 'shutdown'].includes(action);
   if (destructive) {
     const word = await uiPrompt({title: `Confirm bulk ${action}`,
-      message: `This will ${action} ${targets.length} host(s). Type RUN to confirm.`,
+      message: `This will ${action} ${plural(targets.length, 'host', 'hosts')}. Type RUN to confirm.`,
       placeholder: 'RUN', confirmText: action, danger: true});
     if (word !== 'RUN') { toast('Cancelled', 'info'); return; }
   } else {
-    if (!await uiConfirm(`Run ${action} on ${targets.length} host(s)?`)) return;
+    if (!await uiConfirm(`Run ${action} on ${plural(targets.length, 'host', 'hosts')}?`)) return;
   }
   const ids = targets.map(d => d.id);
   let endpoint, payload;
@@ -31379,7 +31385,7 @@ async function runBulkAction() {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/scan-packages`);
       if (r && !r.error) ok++; else fail++;
     }
-    toast(`Package scan queued on ${ok} host(s)${fail ? ', ' + fail + ' failed' : ''}`,
+    toast(`Package scan queued on ${plural(ok, 'host', 'hosts')}${fail ? ', ' + fail + ' failed' : ''}`,
           fail ? 'warning' : 'success');
     return;
   } else if (action === 'force_acme_rescan') {
@@ -31389,14 +31395,14 @@ async function runBulkAction() {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/acme/force-rescan`);
       if (r && !r.error) ok++; else fail++;
     }
-    toast(`ACME rescan queued on ${ok} host(s)${fail ? ', ' + fail + ' failed' : ''}`,
+    toast(`ACME rescan queued on ${plural(ok, 'host', 'hosts')}${fail ? ', ' + fail + ' failed' : ''}`,
           fail ? 'warning' : 'success');
     return;
   }
   const r = await api('POST', endpoint, payload);
   document.getElementById('bulk-modal-overlay')?.remove();
   if (!r || r.error) { toast(r?.error || 'Bulk action failed', 'error'); return; }
-  toast(`Queued ${action} on ${ids.length} host(s)`, 'success');
+  toast(`Queued ${action} on ${plural(ids.length, 'host', 'hosts')}`, 'success');
 }
 
 // ─── v3.0.2: Multi-webhook destinations editor ─────────────────────────────

@@ -32,6 +32,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/threat_evidence.py \
             server/cgi-bin/edge_evidence.py \
             server/cgi-bin/edge_blocklist.py \
+            server/cgi-bin/textfmt.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
@@ -57,6 +58,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/threat_evidence.py \
                  server/cgi-bin/edge_evidence.py \
                  server/cgi-bin/edge_blocklist.py \
+                 server/cgi-bin/textfmt.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages
 

@@ -21,6 +21,8 @@ import time
 import urllib.parse
 from email.header import Header as _EmailHeader
 
+from textfmt import plural
+
 # ── injected by api.configure() ─────────────────────────────────────────────
 SERVER_VERSION = "0"  # api.SERVER_VERSION
 WEBHOOK_SCHEMA_VERSION = "1"  # api.WEBHOOK_SCHEMA_VERSION (payload contract)
@@ -713,7 +715,7 @@ def _webhook_message(event, payload):
         # (200 chars) because Discord/Slack message limits + multi-line
         # journald entries can blow up the embed.
         sample = payload.get("sample") or []
-        head = f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {payload.get("count", "?")} time(s)'
+        head = f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {plural(payload.get("count", "?"), "time", "times")}'
         if isinstance(sample, list) and sample:
             first = str(sample[0]).strip().replace("\n", " ")
             if len(first) > 200:
@@ -733,7 +735,7 @@ def _webhook_message(event, payload):
     elif event == "container_restarting":
         return (
             f'{name}: container "{payload.get("container", "?")}" '
-            f'restarted {payload.get("delta", "?")} time(s) since last report '
+            f'restarted {plural(payload.get("delta", "?"), "time", "times")} since last report '
             f'(total restart_count={payload.get("restart_count", "?")})'
         )
     elif event == "containers_stale":
@@ -975,7 +977,8 @@ def _webhook_message(event, payload):
         n = payload.get("count", 1)
         head = f"{who} on {name}" if who else f"SNMP trap from {name}"
         return (
-            f'{head}: {n} trap(s), OID {payload.get("oid", "?")} = ' f'{payload.get("value", "?")}'
+            f'{head}: {plural(n, "trap", "traps")}, OID {payload.get("oid", "?")} = '
+            f'{payload.get("value", "?")}'
         )
     elif event == "audit_forward_failed":
         # Fleet-level. Lead with the count, because the compliance question is
@@ -1020,7 +1023,7 @@ def _webhook_message(event, payload):
     elif event == "ip_blacklisted":
         return (
             f'IP {payload.get("ip","?")} is listed on '
-            f'{payload.get("listed_count","?")} blocklist(s): {payload.get("blocklists","?")}'
+            f'{plural(payload.get("listed_count","?"), "blocklist", "blocklists")}: {payload.get("blocklists","?")}'
         )
     elif event == "ip_blacklist_cleared":
         return f'IP {payload.get("ip","?")} is no longer blocklisted'

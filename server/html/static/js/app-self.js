@@ -81,7 +81,7 @@ const _SELF_TOKENS_LINK = { action: 'gotoSettingsTab', arg: 'integrations',
 function _selfNameExporters(fl) {
   const named = Array.isArray(fl.stale) ? fl.stale : [];
   if (!named.length) {
-    return `${fl.stale_sources} enrolled exporter(s)`
+    return `${plural(fl.stale_sources, 'enrolled exporter', 'enrolled exporters')}`
          + `${fl.never_seen ? ` (${fl.never_seen} never seen at all)` : ''}`;
   }
   const parts = named.map(e => `${e.label || 'unnamed exporter'} (${_selfWhySilent(e, 'never exported')})`);
@@ -166,9 +166,9 @@ function _selfSidecarRows(s) {
     ? (sy.sources
         ? { label: 'Syslog receiver', state: (sy.last_ingest && !syBad.length) ? 'ok' : 'warn',
             status: syBad.length
-              ? `Running — ${sy.unmappable_count || syBad.length} of ${sy.sources} source(s) wired to nothing`
+              ? `Running — ${sy.unmappable_count || syBad.length} of ${plural(sy.sources, 'source', 'sources')} wired to nothing`
               : (sy.last_ingest ? 'Running' : 'Running — nothing received yet'),
-            detail: `${sy.sources} source(s) · ${syAgo}${syBadNote}`, link: _SELF_TOKENS_LINK }
+            detail: `${plural(sy.sources, 'source', 'sources')} · ${syAgo}${syBadNote}`, link: _SELF_TOKENS_LINK }
         : { label: 'Syslog receiver', state: 'warn',
             status: 'Running — no sources mapped',
             detail: 'the daemon is up but its source map is empty, so every '
@@ -178,7 +178,7 @@ function _selfSidecarRows(s) {
             link: _SELF_TOKENS_LINK })
     : (sy.sources
       ? { label: 'Syslog receiver', state: 'muted', status: 'Not detected locally',
-          detail: `${sy.sources} source(s) enrolled · ${syAgo} — the receiver may run on another host`,
+          detail: `${plural(sy.sources, 'source', 'sources')} enrolled · ${syAgo} — the receiver may run on another host`,
           link: _SELF_TOKENS_LINK }
       : { label: 'Syslog receiver', state: 'muted', status: 'Not in use',
           detail: 'optional agentless intake — see syslog.md' });
@@ -194,12 +194,12 @@ function _selfSidecarRows(s) {
             // — and, since v6.4.3-2, WHICH, because a count alone left the
             // operator to work out which of three routers had gone quiet.
             ? { label: 'Flow receiver', state: 'warn',
-                status: `Running — ${fl.stale_sources} of ${fl.sources} exporter(s) silent`,
+                status: `Running — ${fl.stale_sources} of ${plural(fl.sources, 'exporter', 'exporters')} silent`,
                 detail: `silent for over 3h: ${_selfNameExporters(fl)} · newest ${flAgo}`,
                 link: _SELF_TOKENS_LINK }
             : { label: 'Flow receiver', state: fl.last_ingest ? 'ok' : 'warn',
                 status: fl.last_ingest ? 'Running' : 'Running — nothing received yet',
-                detail: `${fl.sources} exporter(s) · ${flAgo}`, link: _SELF_TOKENS_LINK })
+                detail: `${plural(fl.sources, 'exporter', 'exporters')} · ${flAgo}`, link: _SELF_TOKENS_LINK })
         : { label: 'Flow receiver', state: 'warn',
             status: 'Running — no exporters mapped',
             detail: 'the daemon is up but its exporter map is empty, so every '
@@ -209,7 +209,7 @@ function _selfSidecarRows(s) {
             link: _SELF_TOKENS_LINK })
     : (fl.sources
       ? { label: 'Flow receiver', state: 'muted', status: 'Not detected locally',
-          detail: `${fl.sources} exporter(s) enrolled · ${flAgo} — may run on another host`,
+          detail: `${plural(fl.sources, 'exporter', 'exporters')} enrolled · ${flAgo} — may run on another host`,
           link: _SELF_TOKENS_LINK }
       : { label: 'Flow receiver', state: 'muted', status: 'Not in use',
           detail: 'optional agentless NetFlow/IPFIX — see flow.md' });
@@ -221,7 +221,7 @@ function _selfSidecarRows(s) {
   if (km.unit || km.clients != null) {
     const pki = (km.pki_expires_days == null || km.pki_expires_days > 30)
       ? '' : ` · certificate expires in ${km.pki_expires_days} day${km.pki_expires_days === 1 ? '' : 's'}`;
-    const det = `${km.clients || 0} client(s) · ${km.keys || 0} key(s)${pki}`;
+    const det = `${plural(km.clients || 0, 'client', 'clients')} · ${plural(km.keys || 0, 'key', 'keys')}${pki}`;
     if (km.unit === 'active') {
       rows.push({ key: 'kmip', label: 'KMIP key server', state: pki ? 'warn' : 'ok',
                   status: 'Running', detail: det });
@@ -335,7 +335,7 @@ function _selfBackupReadinessRow(s) {
              detail: 'the archive carries no logical stores — it can only be restored onto SQLite' };
   }
   return { key, label, state: 'ok', status: `Last run ${_selfFmtAgo(bk.last_run)}`,
-           detail: `${bk.stores != null ? bk.stores + ' store(s) · ' : ''}${bk.encrypted ? 'encrypted' : 'plaintext'}` };
+           detail: `${bk.stores != null ? plural(bk.stores, 'store', 'stores') + ' · ' : ''}${bk.encrypted ? 'encrypted' : 'plaintext'}` };
 }
 
 // Populated by loadSelfStatus() / _loadSelfObs(); the readiness table is
@@ -616,14 +616,14 @@ async function loadSelfStatus() {
   const healthOk = perf.health === 'ok';
   const healthPill = healthOk
     ? '<span class="sev-pill sev-success">healthy</span>'
-    : `<span class="sev-pill sev-medium">${(perf.health_flags || []).length} warning(s)</span>`;
+    : `<span class="sev-pill sev-medium">${plural((perf.health_flags || []).length, 'warning', 'warnings')}</span>`;
   const memBar = mem.used_pct != null
     ? `<div class="perf-bar" title="${mem.used_pct}% used"><div class="perf-bar-fill" data-pct="${mem.used_pct}"></div></div>`
     : '';
   const onlinePct = perf.devices_online_pct;
   const onlinePctText = onlinePct != null ? `${onlinePct}%` : '—';
   const flagsHtml = (perf.health_flags || []).length
-    ? `<details class="mt-8"><summary class="c-muted">View ${perf.health_flags.length} reason(s)</summary><ul class="mt-4">${perf.health_flags.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
+    ? `<details class="mt-8"><summary class="c-muted">View ${plural(perf.health_flags.length, 'reason', 'reasons')}</summary><ul class="mt-4">${perf.health_flags.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
     : '';
   // v5.6.x: "Serving & runtime" — what is ACTUALLY serving this instance (storage
   // backend, request tier, out-of-band scheduler). Answers "am I really on WSGI /

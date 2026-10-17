@@ -17,11 +17,17 @@ Payload shapes are pinned against the server:
 """
 
 import json
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from srcpin import js_function  # noqa: E402
+
 _ROOT = Path(__file__).resolve().parent.parent
 _APP_SELF = _ROOT / "server" / "html" / "static" / "js" / "app-self.js"
+# the page strings call plural(); take the real one, so a change to it shows up here
+_PLURAL = js_function((_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text(encoding="utf-8"), "plural")
 
 try:
     from py_mini_racer import MiniRacer
@@ -67,7 +73,7 @@ function _downloadAuthed(){}
 
 def _ctx():
     c = MiniRacer()
-    c.eval(_STUB + "\n" + _APP_SELF.read_text())
+    c.eval(_STUB + "\n" + _PLURAL + "\n" + _APP_SELF.read_text())
     return c
 
 

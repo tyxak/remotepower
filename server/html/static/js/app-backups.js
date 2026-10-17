@@ -566,7 +566,7 @@ async function encryptExistingBackups() {
   const r = await api('POST', '/self/backup-encrypt', { passphrase: pass });
   if (!r) return;
   if (!r.ok) { toast(r.error || 'Encryption failed', 'error'); return; }
-  toast(`Encrypted ${r.encrypted} archive(s)` + (r.failed ? `, ${r.failed} failed` : ''),
+  toast(`Encrypted ${plural(r.encrypted, 'archive', 'archives')}` + (r.failed ? `, ${r.failed} failed` : ''),
         r.failed ? 'error' : 'success');
   loadSelfStatus();
 }

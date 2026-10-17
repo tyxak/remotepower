@@ -226,7 +226,7 @@ async function clearAutonomyReceipts() {
         confirmText: 'Clear'})) return;
   const r = await api('DELETE', '/autonomy/receipts');
   if (r && r.ok) {
-    toast(`Cleared ${r.removed} receipt(s)`, 'success');
+    toast(`Cleared ${plural(r.removed, 'receipt', 'receipts')}`, 'success');
     loadAutonomy();
   } else toast((r && r.error) || 'Could not clear the receipts', 'error');
 }

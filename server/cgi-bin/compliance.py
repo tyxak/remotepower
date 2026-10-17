@@ -32,6 +32,8 @@ here is pure so it unit-tests without a server. The mapping is a pragmatic
 operator aid for audit prep — it does not make a system "compliant".
 """
 
+from textfmt import agree, plural
+
 PASS, FAIL, NA = 'pass', 'fail', 'na'
 # v6.3.1: a THIRD verdict distinct from structural N/A — a control whose
 # capable source (the telemetry that WOULD assess it) has not run/reported.
@@ -60,7 +62,7 @@ def _no_coverage(facts, coverage_key):
 def _patch_control(facts):
     bad = facts.get('pending_patches_devices') or []
     if bad:
-        return FAIL, f"{len(bad)} host(s) over the patch threshold: " + \
+        return FAIL, f"{plural(len(bad), 'host', 'hosts')} over the patch threshold: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
     if _no_coverage(facts, 'patch_data_devices'):
         return NOT_ASSESSED, ("No host has reported package/update status yet — patch "
@@ -71,7 +73,7 @@ def _patch_control(facts):
 def _cve_control(facts):
     n = facts.get('cve_critical_high', 0)
     if n:
-        return FAIL, f"{n} critical/high CVE finding(s) outstanding across the fleet."
+        return FAIL, f"{plural(n, 'critical/high CVE finding', 'critical/high CVE findings')} outstanding across the fleet."
     if _no_coverage(facts, 'cve_scanned_devices'):
         return NOT_ASSESSED, ("No host has a CVE scan on record yet — vulnerability "
                     "posture is not assessed.")
@@ -82,7 +84,7 @@ def _eol_control(facts):
     """v3.4.1 — hosts running an end-of-life OS no longer get security patches."""
     bad = facts.get('eol_os') or []
     if bad:
-        return FAIL, f"{len(bad)} host(s) on an end-of-life OS: " + \
+        return FAIL, f"{plural(len(bad), 'host', 'hosts')} on an end-of-life OS: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
     if _no_coverage(facts, 'os_known_devices'):
         return NOT_ASSESSED, "No host has reported its OS version yet — EOL status is not assessed."
@@ -92,7 +94,7 @@ def _eol_control(facts):
 def _tls_control(facts):
     exp = facts.get('tls_expiring') or []
     if exp:
-        return FAIL, f"{len(exp)} certificate(s) expiring soon: " + ", ".join(exp[:10])
+        return FAIL, f"{plural(len(exp), 'certificate', 'certificates')} expiring soon: " + ", ".join(exp[:10])
     if facts.get('tls_monitored', 0) == 0:
         return NOT_ASSESSED, "No TLS endpoints are being monitored."
     return PASS, "All monitored certificates are within their validity window."
@@ -101,7 +103,7 @@ def _tls_control(facts):
 def _backup_control(facts):
     bad = facts.get('failed_backups') or []
     if bad:
-        return FAIL, f"{len(bad)} stale/missing backup(s): " + ", ".join(bad[:10])
+        return FAIL, f"{plural(len(bad), 'stale/missing backup', 'stale/missing backups')}: " + ", ".join(bad[:10])
     if facts.get('backup_monitors', 0) == 0:
         return NOT_ASSESSED, "No backup monitors are configured."
     return PASS, "All configured backups are within their freshness window."
@@ -131,7 +133,7 @@ def _exposure_detection_control(facts):
     n = len(facts.get('new_ports') or [])
     if not facts.get('ports_monitored'):
         return NOT_ASSESSED, "No listening-port data collected yet."
-    note = (f" {n} port change(s) recorded in the last 30 days — review them in "
+    note = (f" {plural(n, 'port change', 'port changes')} recorded in the last 30 days — review them in "
             f"Audit → Listening Ports.") if n else " No changes in the last 30 days."
     return PASS, "Listening-port change detection is active." + note
 
@@ -148,7 +150,7 @@ def _traffic_restrict_control(facts):
     network firewalls remain out of scope and are called out in the message."""
     off = facts.get('firewall_off') or []
     if off:
-        return FAIL, (f"{len(off)} host(s) with no active host firewall: "
+        return FAIL, (f"{plural(len(off), 'host', 'hosts')} with no active host firewall: "
                       + ", ".join(str(h) for h in off[:10])
                       + ". Enable nftables/ufw with a default-deny inbound policy.")
     if facts.get('firewall_data_devices'):
@@ -175,7 +177,7 @@ def _remote_access_control(facts):
     """
     weak = facts.get('ssh_weak') or []
     if weak:
-        return FAIL, (f"{len(weak)} host(s) with weak sshd configuration: "
+        return FAIL, (f"{plural(len(weak), 'host', 'hosts')} with weak sshd configuration: "
                       + "; ".join(str(h) for h in weak[:10])
                       + ". Set PermitRootLogin no, PasswordAuthentication no "
                         "(keys only) and PermitEmptyPasswords no.")
@@ -188,13 +190,13 @@ def _remote_access_control(facts):
             # almost every stock Debian host, and a control that fires on every
             # healthy machine gets ignored. Auditors who require no direct root
             # login at all will want to see the list, so it is shown.
-            note = (f" {len(keyonly)} host(s) permit root login by KEY "
+            note = (f" {plural(len(keyonly), 'host', 'hosts')} permit root login by KEY "
                     f"(PermitRootLogin prohibit-password, the Debian default): "
                     + ", ".join(str(h) for h in keyonly[:10])
                     + ". That is not a failure here; tighten to `no` if your "
                       "policy forbids direct root access entirely.")
         gw = int(facts.get('sshgw_hosts') or 0)
-        gw_note = (f" {gw} host(s) are reachable through the RemotePower SSH "
+        gw_note = (f" {plural(gw, 'host', 'hosts')} {agree(gw, 'is', 'are')} reachable through the RemotePower SSH "
                    "gateway, which accepts registered keys only, checks role, "
                    "scope and tenant on every connection and records each "
                    "session." if gw else '')
@@ -215,7 +217,7 @@ def _av_control(facts):
     telemetry is not clearance)."""
     bad = facts.get('av_bad') or []
     if bad:
-        return FAIL, (f"{len(bad)} host(s) with malware detected or real-time "
+        return FAIL, (f"{plural(len(bad), 'host', 'hosts')} with malware detected or real-time "
                       "protection off: " + ", ".join(str(h) for h in bad[:10]))
     if facts.get('av_data_devices'):
         return PASS, "Every host reporting AV state is clean with real-time protection on."
@@ -236,7 +238,7 @@ def _encryption_at_rest_control(facts):
     stays NA instead of becoming a false FAIL."""
     off = facts.get('encryption_off') or []
     if off:
-        return FAIL, (f"{len(off)} host(s) with disk encryption off: "
+        return FAIL, (f"{plural(len(off), 'host', 'hosts')} with disk encryption off: "
                       + ", ".join(str(h) for h in off[:10]))
     if facts.get('encryption_data_devices'):
         return PASS, "Every host reporting encryption state has its disk encrypted."
@@ -247,7 +249,7 @@ def _encryption_at_rest_control(facts):
 def _access_review_control(facts):
     changes = facts.get('ssh_key_changes') or []
     if changes:
-        return FAIL, f"{len(changes)} host(s) with SSH authorized-key changes in the last 30 days: " + \
+        return FAIL, f"{plural(len(changes), 'host', 'hosts')} with SSH authorized-key changes in the last 30 days: " + \
                ", ".join(str(h) for h in changes[:10])
     return PASS, "No SSH authorized-key changes in the last 30 days."
 
@@ -262,11 +264,10 @@ def _intrusion_control(facts):
         blocks = int(facts.get('ip_blocks_active') or 0)
         resp = ''
         if kb:
-            resp += (f" Known-abusive sources are still not blocked on {len(kb)} "
-                     f"host(s): " + ", ".join(str(h) for h in kb[:10]) + ".")
+            resp += (f" Known-abusive sources are still not blocked on {plural(len(kb), 'host', 'hosts')}: " + ", ".join(str(h) for h in kb[:10]) + ".")
         if blocks:
-            resp += f" {blocks} source address(es) are currently blocked."
-        return FAIL, (f"Brute-force attempts detected on {len(bf)} host(s) in the last 30 days: "
+            resp += f" {plural(blocks, 'source address', 'source addresses')} {agree(blocks, 'is', 'are')} currently blocked."
+        return FAIL, (f"Brute-force attempts detected on {plural(len(bf), 'host', 'hosts')} in the last 30 days: "
                       + ", ".join(str(h) for h in bf[:10]) + "." + resp)
     return PASS, "No brute-force login activity in the last 30 days."
 
@@ -280,7 +281,7 @@ def _vault_control(facts):
 def _reboot_control(facts):
     rb = facts.get('reboot_required') or []
     if rb:
-        return FAIL, f"{len(rb)} host(s) pending a reboot to apply updates: " + \
+        return FAIL, f"{plural(len(rb), 'host', 'hosts')} pending a reboot to apply updates: " + \
                ", ".join(rb[:10])
     if _no_coverage(facts, 'sysinfo_devices'):
         return NOT_ASSESSED, "No host has reported system status yet — reboot state is not assessed."
@@ -316,7 +317,7 @@ def _admin_privilege_control(facts):
     otherwise NA — it cannot attest the standing state."""
     changes = facts.get('privileged_group_changes') or []
     if changes:
-        return FAIL, (f"{len(changes)} host(s) with privileged-group changes in "
+        return FAIL, (f"{plural(len(changes), 'host', 'hosts')} with privileged-group changes in "
                       f"the window: " + ", ".join(str(h) for h in changes[:10]))
     if not facts.get('privileged_group_monitored'):
         return NOT_ASSESSED, ("Privileged-group change detection has no baseline yet — "
@@ -335,7 +336,7 @@ def _benchmark_control(facts):
     storing the failing rules since v3.4.2."""
     bad = facts.get('scap_failing') or []
     if bad:
-        return FAIL, (f"{len(bad)} host(s) failing benchmark rules: "
+        return FAIL, (f"{plural(len(bad), 'host', 'hosts')} failing benchmark rules: "
                       + ", ".join(bad[:10]) + ("…" if len(bad) > 10 else ""))
     if _no_coverage(facts, 'scap_scanned_devices'):
         return NOT_ASSESSED, ("No host has an OpenSCAP/USG benchmark scan on record — "
@@ -350,7 +351,7 @@ def _privileged_command_control(facts):
     whether the commands were appropriate, and a host with no sudo events is
     not a finding — nobody may have run one."""
     if facts.get('sudo_trail_devices', 0) > 0:
-        return PASS, (f"{facts['sudo_trail_devices']} host(s) are reporting a "
+        return PASS, (f"{plural(facts['sudo_trail_devices'], 'host', 'hosts')} {agree(facts['sudo_trail_devices'], 'is', 'are')} reporting a "
                       "privileged-command (sudo) audit trail.")
     if facts.get('devices', 0) > 0:
         return NOT_ASSESSED, ("No host has reported a privileged-command trail — "
@@ -364,7 +365,7 @@ def _regulated_data_control(facts):
     and the scanner records counts and paths only — never a matched value."""
     hosts = facts.get('pii_hosts') or []
     if hosts:
-        return FAIL, (f"{len(hosts)} host(s) hold regulated data in files: "
+        return FAIL, (f"{plural(len(hosts), 'host', 'hosts')} {agree(len(hosts), 'holds', 'hold')} regulated data in files: "
                       + ", ".join(hosts[:10]) + ("…" if len(hosts) > 10 else ""))
     if _no_coverage(facts, 'pii_scanned_devices'):
         return NOT_ASSESSED, ("No host has a regulated-data scan on record — "
@@ -379,7 +380,7 @@ def _email_auth_control(facts):
     bad = facts.get('dmarc_failing') or []
     weak = facts.get('dmarc_weak') or []
     if bad:
-        return FAIL, (f"{len(bad)} domain(s) not enforcing DMARC (spoofable): "
+        return FAIL, (f"{plural(len(bad), 'domain', 'domains')} not enforcing DMARC (spoofable): "
                       + ", ".join(bad[:10]) + ("…" if len(bad) > 10 else ""))
     if facts.get('dmarc_domains', 0) == 0:
         return NOT_ASSESSED, "No email domains are being monitored for DMARC/SPF/DKIM."
@@ -387,7 +388,7 @@ def _email_auth_control(facts):
         return NOT_ASSESSED, ("Email domains are configured but none has been checked yet — "
                               "email authentication is not assessed.")
     if weak:
-        return FAIL, (f"{len(weak)} domain(s) enforce DMARC with gaps: "
+        return FAIL, (f"{plural(len(weak), 'domain', 'domains')} enforce DMARC with gaps: "
                       + ", ".join(weak[:10]))
     return PASS, "All monitored domains enforce DMARC with SPF and DKIM aligned."
 

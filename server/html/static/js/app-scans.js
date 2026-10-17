@@ -561,7 +561,7 @@ async function runScanSchedule(id) {
   const res = await api('POST', '/scan-schedules/' + encodeURIComponent(id) + '/run');
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
-  toast('Schedule fired — scan(s) queued.', 'success');
+  toast('Schedule fired — scans queued.', 'success');
   loadScans();
 }
 

@@ -442,8 +442,8 @@ async function loadNetmap() {
   renderNetmap();
   const scoped = !!(act.site || act.group || act.tag);
   document.getElementById('netmap-stats').textContent =
-    `${_netmapData.nodes.length}${scoped && data.total ? ' of ' + data.total : ''} node(s), ` +
-    `${_netmapData.edges.length} link(s), ${_netmapData.tunnels.length} tunnel(s)` +
+    `${_netmapData.nodes.length}${plural(scoped && data.total ? ' of ' + data.total : '', 'node', 'nodes')}, ` +
+    `${plural(_netmapData.edges.length, 'link', 'links')}, ${plural(_netmapData.tunnels.length, 'tunnel', 'tunnels')}` +
     (scoped ? ' — scoped' : '');
 }
 
@@ -733,8 +733,8 @@ async function netmapEditSaveAll() {
     if (r && r.ok) { changed++; s.setAttribute('data-original', chosen.join(',')); }
     else { failed++; }
   }
-  if (changed) toast(`${changed} link(s) updated`, 'success');
-  if (failed) toast(`${failed} link(s) failed to update`, 'error');
+  if (changed) toast(`${plural(changed, 'link', 'links')} updated`, 'success');
+  if (failed) toast(`${plural(failed, 'link', 'links')} failed to update`, 'error');
   if (!changed && !failed) toast('No changes', 'info');
   closeModal('netmap-edit-modal');
   loadNetmap();
@@ -936,7 +936,7 @@ function renderTLS() {
   }
   if (_tlsTargets.length) {
     document.getElementById('tls-status-summary').textContent =
-      `${_tlsTargets.length} target(s): ${ok} OK · ${warn} warn · ${crit} critical · ${err} error`;
+      `${plural(_tlsTargets.length, 'target', 'targets')}: ${ok} OK · ${warn} warn · ${crit} critical · ${err} error`;
   } else {
     document.getElementById('tls-status-summary').textContent = '';
   }
@@ -1014,7 +1014,7 @@ async function tlsScanNow() {
   toast('Probing — this can take a while for many targets', 'info');
   const r = await api('POST', '/tls/scan');
   if (!r || !r.ok) { toast('Scan failed', 'error'); return; }
-  toast(`Scanned ${r.scanned} target(s)`, 'success');
+  toast(`Scanned ${plural(r.scanned, 'target', 'targets')}`, 'success');
   loadTLS();
 }
 

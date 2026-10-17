@@ -69,7 +69,7 @@ def handle_scap_scan():
     ids, skipped = A._split_targets_by_os_support(ids, supported=('linux',))
     if not ids:
         A.respond(400, {'error': 'OpenSCAP scans run on Linux hosts only — '
-                        f'{len(skipped)} target(s) skipped '
+                        f'{A.plural(len(skipped), "target", "targets")} skipped '
                         f'({", ".join(skipped[:5])}).'})
     with A._LockedUpdate(A.DEVICES_FILE) as devices:
         for did in ids:
@@ -82,7 +82,7 @@ def handle_scap_scan():
     _resp = {'ok': True, 'queued': len(ids), 'profile': profile}
     if skipped:
         _resp['skipped'] = skipped[:20]
-        _resp['note'] = (f'{len(skipped)} non-Linux host(s) skipped — OpenSCAP '
+        _resp['note'] = (f'{A.plural(len(skipped), "non-Linux host", "non-Linux hosts")} skipped — OpenSCAP '
                          'runs on Linux only.')
     A.respond(200, _resp)
 

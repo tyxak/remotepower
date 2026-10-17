@@ -279,8 +279,8 @@ host has been deleted, or that is simply disabled, is dropped from the source
 map: nothing it is pointed at can ever arrive, however correctly the appliance
 is configured.
 
-Server status used to count such a token as one of N working "source(s)". It
-now names it and *why* — "1 of 2 source(s) wired to nothing · fw01 (no IP on
+Server status used to count such a token as one of N working sources. It
+now names it and *why* — "1 of 2 sources wired to nothing · fw01 (no IP on
 the host, so the receiver cannot map its packets)" — and the receiver no
 longer reports itself healthy while one of its sources is wired to nothing. The
 fix is on the **host**: set its IP to the address the syslog packets come

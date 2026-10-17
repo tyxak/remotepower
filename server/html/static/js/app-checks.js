@@ -845,7 +845,7 @@ async function applyBaselineChecks() {
   if (tk !== 'all' && !tv) { toast('Enter a ' + tk + ' name', 'error'); return; }
   const r = await api('POST', '/checks/baseline-apply', { ids, target_kind: tk, target: tv });
   if (r && r.ok) {
-    toast(`Applied — ${r.added} check(s) added${r.added === 0 ? ' (already present)' : ''}`, 'success');
+    toast(`Applied — ${plural(r.added, 'check', 'checks')} added${r.added === 0 ? ' (already present)' : ''}`, 'success');
     closeModal('baseline-checks-modal');
     if (typeof loadChecks === 'function') loadChecks();
   } else failToast(r);

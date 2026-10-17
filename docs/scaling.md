@@ -295,7 +295,7 @@ RemotePower has built-in support for a highly-available Postgres:
   on the primary so lag can never cause a lost update. Leave it unset and reads
   use the primary, unchanged.
 
-Current HA status (primary host(s), whether a replica is configured — never
+Current HA status (primary hosts, whether a replica is configured — never
 credentials) is shown on *Settings → Advanced → Storage backend* and in
 `GET /api/storage-backend/status` (`pg_ha`).
 

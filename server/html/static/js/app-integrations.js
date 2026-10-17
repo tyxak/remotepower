@@ -150,7 +150,7 @@ function _renderOpnsenseCard(body, badge, data) {
   // suffix (e.g. 26.1.8_5) that never equals product_latest (26.1.8).
   h += `<div class="hint mb-6">OPNsense ${escHtml(String(fwv.version || '?'))}`;
   if (fwv.updates_available) {
-    h += ` · <span class="c-amber">${escHtml(String(fwv.updates_available))} update(s) available</span>`;
+    h += ` · <span class="c-amber">${plural(escHtml(String(fwv.updates_available)), 'update', 'updates')} available</span>`;
   }
   if (fwv.needs_reboot) h += ` · <span class="c-amber">reboot required</span>`;
   h += `</div>`;
@@ -202,7 +202,7 @@ async function opnsenseAction(action, arg) {
   if (act === 'check_update') {
     const u = (r.result && r.result.update) || {};
     resultMsg = u.updates_available
-      ? `${u.updates_available} update(s) available${u.latest ? ' — latest ' + u.latest : ''}`
+      ? `${plural(u.updates_available, 'update', 'updates')} available${u.latest ? ' — latest ' + u.latest : ''}`
       : `Up to date — OPNsense ${u.version || '?'}${u.needs_reboot ? ' (reboot pending)' : ''}`;
     toast(resultMsg, 'success');
   } else {
@@ -840,7 +840,7 @@ async function loadNetconfig() {
   _netconfRevs = r.revisions || [];
   const head = `<div class="row-8-center mb-8">
       <button class="btn-icon" data-action="netconfigBackupNow">Back up now</button>
-      <span class="hint">${_netconfRevs.length} of ${r.max_revisions} revision(s) kept · ${escHtml(r.kind)}</span>
+      <span class="hint">${_netconfRevs.length} of ${plural(r.max_revisions, 'revision', 'revisions')} kept · ${escHtml(r.kind)}</span>
     </div>`;
   if (!_netconfRevs.length) {
     box.innerHTML = head + '<div class="hint">No configuration archived yet. Back up now, or switch on the daily archive under Settings → Security.</div>';

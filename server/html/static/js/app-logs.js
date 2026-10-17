@@ -89,11 +89,11 @@ async function pollLogsTail(initial) {
           + '2) Agents submit every ~5 min. 3) Agent must be v1.8.0+ and have journalctl access.</span></div>';
     } else if (data.stats.total_lines === 0) {
       msg = `<div class="empty-state">`
-          + `${data.stats.devices_reporting} host(s) are reporting, but watched units have been quiet.<br>`
+          + `${plural(data.stats.devices_reporting, 'host', 'hosts')} are reporting, but watched units have been quiet.<br>`
           + `<span class="fs-11">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
     } else {
       msg = `<div class="empty-state">`
-          + `${data.stats.total_lines} line(s) in the buffer, but none match the current filter.<br>`
+          + `${plural(data.stats.total_lines, 'line', 'lines')} in the buffer, but none match the current filter.<br>`
           + `<span class="fs-11">Try clearing the host/unit filters above.</span></div>`;
     }
     document.getElementById('logs-viewer').innerHTML = msg;

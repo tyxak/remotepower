@@ -136,7 +136,7 @@ class TestDeltaIngest(unittest.TestCase):
         rows = api._host_checks("devd1", dev, {}, [], int(time.time()), 180)
         patch_rows = [r for r in rows if r["key"] == "patches"]
         self.assertEqual(len(patch_rows), 1)
-        self.assertIn("3 update(s)", patch_rows[0]["output"])
+        self.assertIn("3 updates", patch_rows[0]["output"])
 
 
 class TestProtocolLockstep(unittest.TestCase):
