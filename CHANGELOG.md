@@ -89,6 +89,17 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   The shortcut `g d` still opens the host list, so nobody has to relearn it. A
   test reads every page, script, server message, guide and translation, and
   fails when "device" comes back into a sentence.
+- Every notification reads as a sentence. 130 of 219 events had no wording of
+  their own, and the shared fallback turned the event id into words: "Smart
+  failure: web01", "Ecc errors: web01". It now says what the event is, in the
+  words Settings and the Alerts inbox already use for it, and adds up to three
+  facts from the payload: "web01: ECC memory errors increased — 4 correctable ·
+  1 uncorrectable". Three control-plane events that answered with their bare id
+  when no detail came with them use the same text, and a detail from an event
+  with no host no longer begins "unknown:". A test renders every event through
+  the real message builder with a payload taken from its own fire sites, and
+  fails on a message that holds the raw event id, an empty field, a "?" for a
+  key no fire site sends, or "unknown".
 - Text is readable in every theme. Eleven of the thirteen themes had text
   below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
   grey metadata to status words: Nord's red text was 2.45:1 on its own panels,

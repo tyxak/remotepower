@@ -9686,6 +9686,7 @@ notify_mod.configure(
     schema_version=WEBHOOK_SCHEMA_VERSION,
     recover_events=frozenset(_ALERT_RECOVER),
     tags_fn=lambda ev: _WEBHOOK_TAGS.get(ev, 'bell'),
+    label_fn=lambda ev: (EVENT_REGISTRY.get(ev) or {}).get('label', ''),
 )
 
 

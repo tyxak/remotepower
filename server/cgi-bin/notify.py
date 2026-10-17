@@ -26,15 +26,18 @@ SERVER_VERSION = "0"  # api.SERVER_VERSION
 WEBHOOK_SCHEMA_VERSION = "1"  # api.WEBHOOK_SCHEMA_VERSION (payload contract)
 _RECOVER_EVENTS: frozenset = frozenset()  # events that RESOLVE an alert (PagerDuty action)
 _tags_fn = lambda event: "bell"  # noqa: E731 — EVENT_REGISTRY tags lookup
+_label_fn = lambda event: ""  # noqa: E731 — EVENT_REGISTRY label lookup
 
 
-def configure(server_version, schema_version, recover_events, tags_fn):
+def configure(server_version, schema_version, recover_events, tags_fn, label_fn=None):
     """Called once by api.py after the EVENT_REGISTRY derivations exist."""
-    global SERVER_VERSION, WEBHOOK_SCHEMA_VERSION, _RECOVER_EVENTS, _tags_fn
+    global SERVER_VERSION, WEBHOOK_SCHEMA_VERSION, _RECOVER_EVENTS, _tags_fn, _label_fn
     SERVER_VERSION = server_version
     WEBHOOK_SCHEMA_VERSION = schema_version
     _RECOVER_EVENTS = frozenset(recover_events)
     _tags_fn = tags_fn
+    if label_fn is not None:
+        _label_fn = label_fn
 
 
 def _auto_detect_format(url):
@@ -956,7 +959,7 @@ def _webhook_message(event, payload):
     ):
         # v6.4.2: control-plane health. Fleet-level, so `name` is the server and
         # the generic fallback would read "sweep_failing: unknown".
-        return str(payload.get("detail") or event)
+        return str(payload.get("detail") or _generic_message(event, payload))
     elif event == "server_upgraded":
         # v6.4.2: fleet-level — `name` is the server, and the generic fallback
         # would read "server_upgraded: unknown".
@@ -1051,51 +1054,111 @@ def _webhook_message(event, payload):
     # (The notification TITLE separately carries the event's registry title.)
     _dtl = payload.get("detail") if isinstance(payload, dict) else None
     if _dtl:
-        return f"{name}: {_dtl}" if name else str(_dtl)
-    # Humanize the raw event key so even a branch-less, detail-less event reads
-    # as a sentence ("smart_failure" → "Smart failure") rather than a machine token,
-    # AND name the specific resource the payload carries (unit/disk/pool/…) so the
-    # body isn't a vague "Smart failure: host". Mirrors _alert_title's fallback.
-    _human = event.replace("_", " ").capitalize()
-    _rid = None
-    if isinstance(payload, dict):
-        for _k in (
-            "unit",
-            "service",
-            "container",
-            "pool",
-            "process",
-            "iface",
-            "mount",
-            "path",
-            "paths",
-            "target",
-            "disk",
-            "disks",
-            "ups",
-            "image",
-            "domain",
-            "check_name",
-            "vm_name",
-            "snap_name",
-            "rule",
-            "jail",
-            "label",
-            "ip",
-            "mac",
-        ):
-            _v = payload.get(_k)
-            if not _v:
-                continue
-            if isinstance(_v, (list, tuple)):
-                _v = ", ".join(str(x) for x in _v[:3]) + ("…" if len(_v) > 3 else "")
-            _rid = str(_v)
+        # `name` above falls back to the word "unknown"; a fleet-level event has no host to name
+        _host = payload.get("name") or payload.get("device_name") or payload.get("device_id")
+        return f"{_host}: {_dtl}" if _host else str(_dtl)
+    # No hand-written branch and no `detail`: say what the event IS, in the words the Settings
+    # page and the Alerts inbox already use for it (its registry label, which is also what the
+    # dictionary translates), then add up to three facts the payload carries. The raw event id is
+    # only a last resort, for an event nobody registered.
+    return _generic_message(event, payload)
+
+
+# What the generic message adds after the event's own description. Keys are tried in this order and
+# the first three the payload carries are shown, each worded to read without its key. Facts are
+# listed from "what it is about" to "what to judge it by" to "why".
+_FACTS = (
+    ("unit", "{}"),
+    ("service", "{}"),
+    ("container", "container {}"),
+    ("image", "image {}"),
+    ("pool", "pool {}"),
+    ("process", "process {}"),
+    ("iface", "interface {}"),
+    ("mount", "{}"),
+    ("path", "{}"),
+    ("paths", "{}"),
+    ("target", "{}"),
+    ("disk", "disk {}"),
+    ("disks", "disks {}"),
+    ("ups", "UPS {}"),
+    ("domain", "{}"),
+    ("check_name", 'check "{}"'),
+    ("vm_name", "VM {}"),
+    ("snap_name", "snapshot {}"),
+    ("rule", "rule {}"),
+    ("rule_name", 'rule "{}"'),
+    ("jail", "jail {}"),
+    ("label", '"{}"'),
+    ("package", "package {}"),
+    ("cve_id", "{}"),
+    ("user", "user {}"),
+    ("target_user", "user {}"),
+    ("tunnel_name", 'tunnel "{}"'),
+    ("client_name", 'client "{}"'),
+    ("script_name", 'script "{}"'),
+    ("site", "site {}"),
+    ("tag", "tag {}"),
+    ("ip", "{}"),
+    ("new_ip", "now {}"),
+    ("old_ip", "was {}"),
+    ("source_ip", "from {}"),
+    ("mac", "{}"),
+    ("days_left", "{} days left"),
+    ("eta_days", "about {} days left"),
+    ("age_hours", "{} h old"),
+    ("upgradable", "{} updates pending"),
+    ("ce", "{} correctable"),
+    ("ue", "{} uncorrectable"),
+    ("new_ce", "{} new correctable"),
+    ("new_ue", "{} new uncorrectable"),
+    ("score", "score {}"),
+    ("grade", "grade {}"),
+    ("state", "{}"),
+    ("status", "{}"),
+    ("level", "level {}"),
+    ("value", "{}"),
+    ("threshold", "threshold {}"),
+    ("reason", "{}"),
+    ("error", "{}"),
+    ("issue", "{}"),
+    ("requester", "requested by {}"),
+)
+_FACT_LIMIT = 3
+
+
+def _fact_text(v):
+    """A payload value as short text, or None if there is nothing to say."""
+    if v is None or isinstance(v, bool) or v == "" or v == [] or v == {}:
+        return None
+    if isinstance(v, (list, tuple)):
+        items = [str(x) for x in v[:3] if x not in (None, "")]
+        if not items:
+            return None
+        return ", ".join(items) + ("…" if len(v) > 3 else "")
+    if isinstance(v, float):
+        return f"{v:g}"
+    if isinstance(v, dict):
+        return None
+    return " ".join(str(v).split())[:80]
+
+
+def _generic_message(event, payload):
+    """`<host>: <what the event is> — <fact> · <fact>` for an event with no branch of its own."""
+    payload = payload if isinstance(payload, dict) else {}
+    host = payload.get("name") or payload.get("device_name") or payload.get("device_id")
+    label = (_label_fn(event) or "").strip() or event.replace("_", " ").capitalize()
+    head = f"{host}: {label}" if host else label
+    facts, seen = [], {str(host)}
+    for key, fmt in _FACTS:
+        text = _fact_text(payload.get(key))
+        if text is None or text in seen:  # the host's own name, or already said
+            continue
+        seen.add(text)
+        facts.append(fmt.format(text))
+        if len(facts) >= _FACT_LIMIT:
             break
-    if name and _rid:
-        return f"{name}: {_human} ({_rid})"
-    if _rid:
-        return f"{_human}: {_rid}"
-    return f"{_human}: {name}" if name else _human
+    return head + (" — " + " · ".join(facts) if facts else "")
 
 
 def _ts_fmt(ts):
