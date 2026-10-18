@@ -16,27 +16,48 @@ I18N_JS = Path(__file__).resolve().parent.parent / 'server' / 'html' / 'static' 
 # The six languages the product ships besides English; `LANGS` in i18n.js is the authority.
 LANGS = ('zh', 'hi', 'es', 'ar', 'de', 'fr')
 
-# One DICT entry per line, in either quote style: the curated block is single-quoted and the
-# machine-written catalog is double-quoted. Matching one style reported thousands of phantom gaps twice.
-_ENTRY = re.compile(r"""^\s{4}(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:\s*\{(.*)$""", re.M)
-_LANG = re.compile(r"""(?:^|,)\s*["']?(zh|hi|es|ar|de|fr)["']?\s*:""")
+# The head of a DICT entry: the English key (either quote style: the curated block is single-quoted and
+# the machine-written catalog is double-quoted; matching one reported thousands of phantom gaps twice),
+# a colon and the opening brace. The object itself may sit on the same line or on the lines below.
+_ENTRY_HEAD = re.compile(r"""^\s{4}(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:\s*(\{)""", re.M)
+# Strings are taken whole, so a brace or a colon inside a translation (`{ticket_id}`, `Note:`) is never
+# read as structure. Everything else in an entry is a bare word or one of { } : ,
+_TOKEN = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[{}:,]|[A-Za-z_]\w*""")
+
+
+def _languages(text, brace_at):
+    """The language keys of the object literal whose `{` is at text[brace_at]."""
+    langs, prev, depth = set(), None, 0
+    for m in _TOKEN.finditer(text, brace_at):
+        tok = m.group(0)
+        if tok == '{':
+            depth += 1
+        elif tok == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        elif tok == ':' and prev is not None and prev.strip('\'"') in LANGS:
+            langs.add(prev.strip('\'"'))
+        prev = tok
+    return langs
 
 
 def dict_rows(src=None):
     """{English key: set of language codes} for every entry of DICT.
 
-    The key is read as the browser would see it (quotes and backslashes unescaped). The language
-    set is read from the rest of the line, so a translation that holds a brace cannot hide the
-    languages after it.
+    The key is read as the browser would see it (quotes and backslashes unescaped). The languages
+    come from a scan that takes each string whole, so a translation that holds a brace cannot end the
+    entry early, and an entry written over several lines is read to its closing brace. The control is
+    V8: tests/test_v740_dict_parse.py compares this with the dictionary as the engine evaluates it.
     """
     text = src if src is not None else I18N_JS.read_text(encoding='utf-8')
     start = text.index('var DICT = {')
-    body = text[start:text.index('\n  };', start)]
+    stop = text.index('\n  };', start)
     rows = {}
-    for m in _ENTRY.finditer(body):
+    for m in _ENTRY_HEAD.finditer(text, start, stop):
         raw = m.group(1) if m.group(1) is not None else m.group(2)
         key = raw.replace("\\'", "'").replace('\\"', '"').replace('\\\\', '\\')
-        rows[key] = set(_LANG.findall(m.group(3)))
+        rows[key] = _languages(text, m.start(3))
     return rows
 
 

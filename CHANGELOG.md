@@ -129,6 +129,12 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   the reason, which no dictionary can match. A message with a variable inside
   ("unknown provider 'x'") cannot be matched by an exact lookup, so those are
   counted and not translated: 305 places.
+- Nine placeholders and one screen-reader label that were English in every
+  language are translated: the sample reply in the ticket template, the
+  example for the AI's infrastructure instructions, the "e.g." hints of the
+  firewall rule fields, and "comma,separated". The 165 that stay English were
+  read one by one and are example values you copy (paths, URLs, host names,
+  config lines) or the exact words you type to confirm a deletion.
 - Text is readable in every theme. Eleven of the thirteen themes had text
   below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
   grey metadata to status words: Nord's red text was 2.45:1 on its own panels,

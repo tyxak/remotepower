@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from i18n_engine import text_node_cap   # noqa: E402
+from i18n_engine import dict_rows, text_node_cap   # noqa: E402
 
 _ROOT = Path(__file__).parent.parent
 INDEX = (_ROOT / "server" / "html" / "index.html").read_text()
@@ -31,20 +31,13 @@ LANGS = ('zh', 'hi', 'es', 'ar', 'de', 'fr')
 
 
 def _dict_entries():
-    """Parse DICT keys → set of language codes present, from i18n.js."""
-    m = re.search(r'var DICT = \{(.*?)\n  \};', I18N, re.S)
-    assert m, "DICT block not found in i18n.js"
-    entries = {}
-    # DICT keys appear in two stacked blocks: a curated single-quoted block and
-    # a machine-generated double-quoted catalog (CLAUDE.md). Read BOTH quote
-    # styles — the curated chrome and the machine catalog both count as coverage.
-    for em in re.finditer(
-            r"""(?:'((?:[^'\\]|\\.)+)'|"((?:[^"\\]|\\.)+)"):\s*\{([^}]*)\}""",
-            m.group(1)):
-        key = (em.group(1) or em.group(2)).replace("\\'", "'").replace('\\"', '"')
-        langs = set(re.findall(r'["\']?(\w+)["\']?\s*:', em.group(3)))
-        entries[key] = langs
-    return entries
+    """DICT keys -> set of language codes present, from i18n.js.
+
+    Read by tests/i18n_engine.py, whose reader is checked against the engine's own evaluation of the
+    dictionary (tests/test_v740_dict_parse.py). This function used to carry its own regex, which cut an
+    entry at the first "}" and so reported a translation holding {ticket_id} as missing five languages.
+    """
+    return dict_rows(I18N)
 
 
 def _htmldict_entries():
@@ -857,7 +850,11 @@ class TestAttributeTranslationRatchet(unittest.TestCase):
         # newly-measurable debt is not the same event as adding debt; a raise
         # for any other reason is the failure this test exists to catch.
         # 182 -> 174 (v7.1.0): eleven translated, three example values recorded.
-        self.assertLessEqual(len(self.backlog), 174,
+        # 174 -> 165 (v7.4.0): nine translated. The other 165 were read one by one: paths, URLs, host
+        # names, config snippets, identifiers, and the exact words a person types to confirm a
+        # deletion. A translation of any of them would be wrong, so the list is example data now and
+        # not a backlog of prose; it shrinks only if one of them is removed from the markup.
+        self.assertLessEqual(len(self.backlog), 165,
                              'the attribute backlog may only shrink; it was '
                              '1,081 before the v6.4.3 batch and 984 after')
         self.assertGreater(len(self.backlog), 0)
