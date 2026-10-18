@@ -135,6 +135,18 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   firewall rule fields, and "comma,separated". The 165 that stay English were
   read one by one and are example values you copy (paths, URLs, host names,
   config lines) or the exact words you type to confirm a deletion.
+- You can use the dashboard from the keyboard. A browser test now opens all 140
+  dialogs and presses the keys. A dialog opened with focus on its **Close**
+  button, 139 times out of 140, so the first Enter or Space dismissed what had
+  just opened; focus now starts on the first control of the dialog. The same
+  rules (focus in, Tab stays inside, Escape closes, focus goes back) now hold
+  for the overlays that were built by hand: **Bulk actions**, the `?` shortcut
+  sheet, the first-run tour and the notification list. The tour covered the page
+  with a backdrop but let Tab reach the page behind it. The activity feed on
+  Home, the attention rows and the dots on the Sites map could only be clicked;
+  they can be focused and opened with Enter. A button that runs a request no
+  longer drops focus to the top of the page when it finishes. Every control
+  shows focus: more than 3,000 were measured, and none looked the same focused as not.
 - Text is readable in every theme. Eleven of the thirteen themes had text
   below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
   grey metadata to status words: Nord's red text was 2.45:1 on its own panels,
@@ -200,6 +212,11 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   when you have just been signed out and the login page is the message. A test
   runs it in V8 with a clock it moves, and fails when a bare "Failed" fallback
   comes back.
+- The "type RUN to confirm" prompt of a bulk reboot or shutdown opened behind
+  the **Bulk actions** dialog. The dialog sat above everything at a fixed layer
+  and the prompt below it, so pressing Run seemed to do nothing, and a mouse user
+  could not confirm. The dialog is an ordinary one now, and the prompt opens above
+  it. A browser test runs a bulk reboot and checks that the prompt is on top.
 - Messages that point you to a Settings page point at the right one. The AI
   messages said "Settings → AI" where the tab is **AI assistant**, Proxmox
   lifecycle actions said "Settings → Proxmox" (it is **Virtualization**), and

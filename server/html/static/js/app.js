@@ -2207,15 +2207,22 @@ const _TOUR_STEPS = [
   { sel: '[data-page="settings"]', title: 'Settings', body: 'Integrations, notifications, security policy, backups — configure RemotePower here.' },
 ];
 function _tourDone() { try { return localStorage.getItem('rp_tour_done') === '1'; } catch (_) { return true; } }
-function _tourEnd(complete) {
-  document.getElementById('tour-backdrop')?.remove();
+// The tour is over, however it ended (Skip, Done, Escape): stop highlighting and do not offer it again.
+function _tourFinish() {
   document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   try { localStorage.setItem('rp_tour_done', '1'); } catch (_) {}
+}
+function _tourEnd(complete) {
+  closeModal('tour-backdrop');   // off the key handling, focus given back, element removed (data-dispose)
+  _tourFinish();
   if (complete) toast('Tour complete — explore away!', 'success');
 }
 function startTour() { _tourStep(0); }
 function _tourStep(i) {
-  document.getElementById('tour-backdrop')?.remove();
+  // Each step is a new element with the same id, so what opened the tour is carried from one to the next.
+  const prev = document.getElementById('tour-backdrop');
+  const opener = prev ? _modalReturnFocus.get(prev) : _focusOpener();
+  prev?.remove();
   document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   while (i < _TOUR_STEPS.length && !document.querySelector(_TOUR_STEPS[i].sel)) i++;
   if (i >= _TOUR_STEPS.length) { _tourEnd(true); return; }
@@ -2225,8 +2232,10 @@ function _tourStep(i) {
   const r = target.getBoundingClientRect();
   const back = document.createElement('div');
   back.id = 'tour-backdrop'; back.className = 'tour-backdrop';
+  back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true'); back.setAttribute('aria-labelledby', 'tour-title');
+  back.setAttribute('data-dispose', '');
   const pop = document.createElement('div'); pop.className = 'tour-pop';
-  const h = document.createElement('div'); h.className = 'tour-pop-title'; h.textContent = step.title; pop.appendChild(h);
+  const h = document.createElement('div'); h.className = 'tour-pop-title'; h.id = 'tour-title'; h.textContent = step.title; pop.appendChild(h);
   const b = document.createElement('div'); b.className = 'tour-pop-body'; b.textContent = step.body; pop.appendChild(b);
   const row = document.createElement('div'); row.className = 'tour-pop-row';
   const meta = document.createElement('span'); meta.className = 'tour-pop-meta'; meta.textContent = `${i + 1} / ${_TOUR_STEPS.length}`; row.appendChild(meta);
@@ -2237,6 +2246,8 @@ function _tourStep(i) {
   next.onclick = () => last ? _tourEnd(true) : _tourStep(i + 1);
   row.appendChild(next); pop.appendChild(row);
   back.appendChild(pop); document.body.appendChild(back);
+  _adoptOverlay(back, opener);
+  next.focus();
   // position the popover beside the target (clamped to the viewport)
   pop.style.left = Math.max(12, Math.min(window.innerWidth - 320, r.right + 12)) + 'px';
   pop.style.top = Math.max(12, Math.min(window.innerHeight - 180, r.top)) + 'px';
@@ -6423,10 +6434,40 @@ const _MODAL_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),'
   'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 const _modalStack = [];
 const _modalReturnFocus = new WeakMap();
+// The control that last had focus. _btnInflight disables a button while its handler runs, which moves focus
+// to <body>, so a dialog that an async handler opens after an await cannot read its opener from
+// document.activeElement any more.
+let _lastFocused = null;
+document.addEventListener('focusin', e => { if (e.target && e.target !== document.body) _lastFocused = e.target; });
+function _focusOpener() {
+  const a = document.activeElement;
+  if (a && a !== document.body) return a;
+  return _lastFocused && document.contains(_lastFocused) ? _lastFocused : null;
+}
+// A dialog that is built on demand gets the keyboard rules of the ones in index.html: Escape closes it, Tab
+// stays inside it, and focus goes back to what opened it. closeModal() takes it down again.
+function _adoptOverlay(el, opener) {
+  _modalReturnFocus.set(el, opener === undefined ? _focusOpener() : opener);
+  if (!_modalStack.includes(el.id)) _modalStack.push(el.id);
+  el.classList.add('active');
+}
 
 function _modalFocusable(el) {
   return Array.from(el.querySelectorAll(_MODAL_FOCUSABLE))
     .filter(n => n.offsetParent !== null);   // visible only
+}
+// The Close button of a dialog, whether _ensureModalClose put it there or the dialog ships its own.
+function _isCloseControl(n) {
+  return n.classList.contains('modal-close') || /^close\b/i.test(n.getAttribute('aria-label') || '');
+}
+// Where focus goes when a dialog opens: a control that asks for it (autofocus), else the first control of
+// the content. The first control in document order is the Close button at the top of the panel, so
+// "focus the first control" put focus on Close in 139 of 140 dialogs, and the first Enter or Space after
+// opening one dismissed it. Close is the fallback for a dialog that has nothing else.
+function _focusFirstIn(el) {
+  const f = _modalFocusable(el);
+  const start = f.find(n => n.hasAttribute('autofocus')) || f.find(n => !_isCloseControl(n)) || f[0];
+  if (start) { try { start.focus(); } catch (_) {} }
 }
 function _modalStackTop() {
   // Self-heal: drop entries whose modal is no longer active (closed via a path
@@ -6525,7 +6566,7 @@ function openModal(id) {
   _ensureModalClose(el);
   document.body.classList.remove('mobile-nav-open');
   // Remember what to restore focus to, and track open order for Escape/trap.
-  _modalReturnFocus.set(el, document.activeElement);
+  _modalReturnFocus.set(el, _focusOpener());
   if (!_modalStack.includes(id)) _modalStack.push(id);
   // v6.4.3: reveal/clear the four-eyes justification pair if this dialog has
   // one. Done here rather than at each opener — reboot and shutdown are opened
@@ -6535,11 +6576,7 @@ function openModal(id) {
   el.classList.add('active');
   document.body.classList.add('modal-open');
   _raiseModalZ(el);
-  // Move focus into the modal (first focusable element) for keyboard + SR users.
-  requestAnimationFrame(() => {
-    const f = _modalFocusable(el);
-    if (f.length) { try { f[0].focus(); } catch (_) {} }
-  });
+  requestAnimationFrame(() => _focusFirstIn(el));
   // v3.12.0: searchable long dropdowns. Run now (sync-populated selects), next
   // frame, and once more after typical fetch latency (async-populated selects).
   enhanceDeviceCombos(el); enhanceLongSelects(el);
@@ -6550,6 +6587,7 @@ function closeModal(id) {
   // v6.4.2: stop the enrollment watcher immediately rather than on its next
   // tick — the modal is gone, so the poll is pure waste from here on.
   if (id === 'enroll-modal') _stopEnrollWatch();
+  if (id === 'tour-backdrop') _tourFinish();   // Escape ends the tour like Skip does
   const el = document.getElementById(id);
   if (el) { el.classList.remove('active'); el.style.zIndex = ''; }  // drop the stacked-modal raise
   const idx = _modalStack.indexOf(id);
@@ -6562,6 +6600,9 @@ function closeModal(id) {
     const ret = _modalReturnFocus.get(el);
     _modalReturnFocus.delete(el);
     if (ret && ret.focus && document.contains(ret)) { try { ret.focus(); } catch (_) {} }
+    // Built on demand (data-dispose): nothing to keep, and a leftover element would make the opener think
+    // the dialog is still there.
+    if (el.hasAttribute('data-dispose')) el.remove();
   }
 }
 
@@ -7103,6 +7144,9 @@ function toggleToastHistory() {
   if (opening) {
     document.getElementById('toast-history-btn')?.classList.remove('has-unread');
     _renderToastHistory();
+    // The popover sits far from the bell in the page, so Tab from the bell never reached it. Focus it:
+    // Tab then goes to Clear, and Escape (below) closes it and puts focus back on the bell.
+    pop.focus();
   }
 }
 function clearToastHistory() {
@@ -7115,6 +7159,13 @@ document.addEventListener('click', (e) => {
   if (!pop || pop.classList.contains('hidden')) return;
   if (e.target.closest('#toast-history-pop') || e.target.closest('#toast-history-btn')) return;
   pop.classList.add('hidden');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;      // a dialog that took the key already closed
+  const pop = document.getElementById('toast-history-pop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  pop.classList.add('hidden');
+  document.getElementById('toast-history-btn')?.focus();
 });
 
 let toastId = 0;
@@ -10975,7 +11026,7 @@ async function loadSiteMap() {
     const x = (s.lng + 180) / 360 * 360;         // viewBox is 0..360 in x
     const y = (90 - s.lat) / 180 * 180;          // 0..180 in y
     const title = `${s.name} — ${plural(s.device_count, 'host', 'hosts')}, ${s.offline_count} offline`;
-    return `<circle class="site-map-dot ${s.health}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" data-action="siteMapClick" data-arg="${escAttr(s.id)}"><title>${escHtml(title)}</title></circle>`;
+    return `<circle class="site-map-dot ${s.health}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" data-action="siteMapClick" data-arg="${escAttr(s.id)}" tabindex="0" role="button" aria-label="${escAttr(title)}"><title>${escHtml(title)}</title></circle>`;
   }).join('');
 }
 function siteMapClick(siteId) {
@@ -19971,7 +20022,7 @@ async function _renderHomeAttention(preloaded) {
     const pill = NA_PILL[i.severity] || 'info';
     return `<div class="dash-feed-item isl-156" title="${escAttr(_naItemTitle(i))}">
       <div
-           data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
+           data-action-btn="_showPageBtn" data-page="${page}" class="isl-555" tabindex="0" role="link">
         <span class="status-pill ${pill}">${escHtml(i.kind)}</span>
         <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
       </div>
@@ -20781,7 +20832,7 @@ function _renderHomeActivity(fleetEvents) {
         if (!detail && p.critical)   detail = `${p.critical} critical`;
     }
     const actAttrs = _homeActivityAttrs(ev.event, p);
-    return `<div class="dash-feed-item pointer" data-action-btn="_homeNavAction" ${actAttrs} title="Click for details">
+    return `<div class="dash-feed-item pointer" data-action-btn="_homeNavAction" ${actAttrs} title="Click for details" tabindex="0" role="link">
       <div class="flex-1"><span class="status-pill ${cls}">${escHtml(label)}</span> ${dev ? `<strong>${escHtml(dev)}</strong>` : ''} ${detail ? `<span class="hint">${escHtml(String(detail).substring(0,80))}</span>` : ''}</div>
       <span class="ts">${ts}</span>
     </div>`;
@@ -29995,8 +30046,8 @@ function _restoreIgnoredFromStore(btn) {
   const args = _evtData.get(btn.dataset.storeKey);
   if (args) restoreIgnored(...args);
 }
-function closeBulkModal()  { document.getElementById('bulk-modal-overlay')?.remove(); }
-function closeKbdCheat()   { document.getElementById('kbd-cheat-overlay')?.remove(); }
+function closeBulkModal()  { closeModal('bulk-modal-overlay'); }
+function closeKbdCheat()   { closeModal('kbd-cheat-overlay'); }
 // v3.0.5: _filterAuditPorts / _loadAuditLogs removed alongside the
 // duplicate device-drawer block in index.html (the old hardcoded audit
 // markup that they targeted is gone). The new dynamic audit renderer
@@ -30095,6 +30146,9 @@ function _homeNavAction(btn) {
 function _btnInflight(el, ret) {
   if (!ret || typeof ret.then !== 'function'
       || !el || el.tagName !== 'BUTTON' || el.disabled) return;
+  // Disabling the button that has focus drops focus to <body>. A keyboard user would start again from the
+  // top of the page after every async click, so give it back when the button is enabled again.
+  const hadFocus = document.activeElement === el;
   el.disabled = true;
   el.classList.add('btn-inflight');
   el.setAttribute('aria-busy', 'true');
@@ -30112,6 +30166,9 @@ function _btnInflight(el, ret) {
     el.disabled = false;
     el.classList.remove('btn-inflight');
     el.removeAttribute('aria-busy');
+    if (hadFocus && document.contains(el) && (!document.activeElement || document.activeElement === document.body)) {
+      try { el.focus({preventScroll: true}); } catch (_) {}
+    }
     if (document.contains(el)) {
       el.classList.add('btn-done');
       setTimeout(() => el.classList.remove('btn-done'), 500);
@@ -31127,18 +31184,24 @@ function _pageHelpRows() {
 }
 function showKeyboardShortcuts() {
   if (document.getElementById('kbd-cheat-overlay')) return;
+  // A modal overlay like the dialogs in index.html, so Escape closes it (the sheet itself lists Esc), Tab stays
+  // inside it and focus goes back to the page. It was hand-built at z-index 99998 with none of that.
   const o = document.createElement('div');
   o.id = 'kbd-cheat-overlay';
-  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;justify-content:center;align-items:center';
+  o.className = 'modal-overlay';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-modal', 'true');
+  o.setAttribute('aria-labelledby', 'kbd-cheat-title');
+  o.setAttribute('data-dispose', '');
   const navRows = _G_NAV.map(([k, , label]) =>
     `<tr><td class="cell-padl"><kbd class="code-pill">g ${k}</kbd></td><td>Go to ${label}</td></tr>`).join('');
   o.innerHTML = `
     <div class="isl-724">
       <div class="isl-725">
-        <h3 class="isl-726">Keyboard shortcuts</h3>
+        <h3 class="isl-726" id="kbd-cheat-title">Keyboard shortcuts</h3>
         <button aria-label="Close" class="btn-icon isl-727" data-action="closeKbdCheat"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="scrollable-table-wrap audit-scroll">
+      <div class="scrollable-table-wrap audit-scroll" tabindex="0" role="region" aria-labelledby="kbd-cheat-title">
       <table class="isl-728">
         <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-K</kbd></td><td>Open command palette</td></tr>
@@ -31151,8 +31214,9 @@ function showKeyboardShortcuts() {
       </table>
       </div>
     </div>`;
-  o.addEventListener('click', e => { if (e.target === o) o.remove(); });
+  o.addEventListener('click', e => { if (e.target === o) closeKbdCheat(); });
   document.body.appendChild(o);
+  openModal('kbd-cheat-overlay');
 }
 
 // 'g' prefix shortcut handler — single-letter follow-up jumps to pages.
@@ -31267,9 +31331,16 @@ async function openBulkActions() {
   // be in hand BEFORE it is built — the palette can open this without the
   // Devices page ever having rendered.
   await _ensureSmartGroups();
+  // A modal overlay like every other dialog. It used to be built by hand at z-index 99997, which put the
+  // "type RUN to confirm" prompt of a bulk reboot BEHIND it (the prompt sits at 1000+), so the click on
+  // Run seemed to do nothing, and it had no focus handling, no Escape and no focus return.
   const o = document.createElement('div');
   o.id = 'bulk-modal-overlay';
-  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99997;display:flex;justify-content:center;align-items:center';
+  o.className = 'modal-overlay';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-modal', 'true');
+  o.setAttribute('aria-labelledby', 'bulk-modal-title');
+  o.setAttribute('data-dispose', '');
   const groups = {};
   for (const d of devs) {
     const g = d.group || 'devices';
@@ -31280,7 +31351,7 @@ async function openBulkActions() {
   o.innerHTML = `
     <div class="isl-729">
       <div class="isl-725">
-        <h3 class="isl-726">Bulk actions</h3>
+        <h3 class="isl-726" id="bulk-modal-title">Bulk actions</h3>
         <button aria-label="Close" class="btn-icon isl-727" data-action="closeBulkModal"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="isl-730">Run an operation across multiple hosts at once. Select a filter, pick an action, confirm.</div>
@@ -31289,7 +31360,7 @@ async function openBulkActions() {
         <div class="hint-mb6">FILTER</div>
         <div id="bulk-filter-options" class="row-6-wrap">
           <label class="isl-731">
-            <input type="radio" name="bulk-filter" value="all" checked> All monitored (${devs.length})
+            <input type="radio" name="bulk-filter" value="all" checked autofocus> All monitored (${devs.length})
           </label>
           ${Object.entries(groups).map(([g, ds]) => `
             <label class="isl-731">
@@ -31329,10 +31400,11 @@ async function openBulkActions() {
       </div>
     </div>`;
   document.body.appendChild(o);
-  o.addEventListener('click', e => { if (e.target === o) o.remove(); });
+  o.addEventListener('click', e => { if (e.target === o) closeBulkModal(); });
   document.querySelectorAll('input[name="bulk-filter"]').forEach(el => el.addEventListener('change', _bulkUpdatePreview));
   document.getElementById('bulk-action').addEventListener('change', _bulkUpdatePreview);
   _bulkUpdatePreview();
+  openModal('bulk-modal-overlay');
 }
 function _bulkResolveTargets() {
   const devs = window._devicesCache || [];
@@ -31389,7 +31461,7 @@ async function runBulkAction() {
     payload = { device_ids: ids };
   } else if (action === 'force_pkg_scan') {
     // Per-device endpoint, fan out
-    document.getElementById('bulk-modal-overlay')?.remove();
+    closeBulkModal();
     let ok = 0, fail = 0;
     for (const id of ids) {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/scan-packages`);
@@ -31399,7 +31471,7 @@ async function runBulkAction() {
           fail ? 'warning' : 'success');
     return;
   } else if (action === 'force_acme_rescan') {
-    document.getElementById('bulk-modal-overlay')?.remove();
+    closeBulkModal();
     let ok = 0, fail = 0;
     for (const id of ids) {
       const r = await api('POST', `/devices/${encodeURIComponent(id)}/acme/force-rescan`);
@@ -31410,7 +31482,7 @@ async function runBulkAction() {
     return;
   }
   const r = await api('POST', endpoint, payload);
-  document.getElementById('bulk-modal-overlay')?.remove();
+  closeBulkModal();
   if (!r || r.error) { toast(r?.error || 'Bulk action failed', 'error'); return; }
   toast(`Queued ${action} on ${plural(ids.length, 'host', 'hosts')}`, 'success');
 }

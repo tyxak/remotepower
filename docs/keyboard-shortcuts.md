@@ -30,6 +30,16 @@ Press `g`, then one more key, within 1.5 seconds:
 | `g t` | Trends |
 | `g v` | serVer status |
 
+## Dialogs, menus and the host drawer
+
+They all work the same way, so you learn them once:
+
+- A dialog opens with focus on its first field or button, and `Tab` and `Shift-Tab` stay inside it.
+- `Esc` closes the one on top and puts focus back on the button you used to open it. A prompt that opens from a dialog (the "type RUN" prompt of a bulk reboot) closes first; a second `Esc` closes the dialog under it.
+- `Ctrl-Enter` presses the dialog's main button.
+- The same holds for Bulk actions, this cheat sheet, the first-run tour, the notification list and the host drawer.
+- Rows that open something, such as the activity feed on Home and the dots on the Sites map, can be reached with `Tab` and opened with `Enter`.
+
 ## Implementation notes
 
 - Shortcuts are disabled when any input field, textarea, or contenteditable element has focus — `/` in a search box should be a literal slash, not a palette trigger.
