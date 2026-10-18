@@ -2207,6 +2207,8 @@
     font-size: 13px;
     display: flex; align-items: center; gap: 10px;
     min-width: 260px;
+    max-width: min(460px, calc(100vw - 48px));
+    overflow-wrap: anywhere;
     transform: translateX(120%);
     transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
     box-shadow: var(--shadow-3);
@@ -2227,6 +2229,8 @@
     .toast.warning { background: color-mix(in srgb, var(--amber) 8%, var(--surface)); }
   }
   .toast-icon    { font-size: 16px; }
+  /* v7.4.0: the request that failed ("POST /x · 404"), under the reason. */
+  .toast-detail  { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
   /* v6.3.0 (UX wave 1): inline action button — the "Undo" pattern */
   .toast-action {
     margin-left: auto;
@@ -7551,6 +7555,8 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 }
 [dir="rtl"] .toast { transform: translateX(-120%); }
 [dir="rtl"] .toast.show { transform: translateX(0); }
+/* The request line stays left-to-right but sits on the same side as the message above it. */
+[dir="rtl"] .toast-detail { text-align: right; }
 /* The status accent rail moves to the trailing (right) side. */
 [dir="rtl"] .toast.success { border-left: none; border-right: 3px solid var(--green); }
 [dir="rtl"] .toast.error   { border-left: none; border-right: 3px solid var(--red); }

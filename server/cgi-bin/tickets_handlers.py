@@ -1030,7 +1030,7 @@ def handle_ticket_send_email(tid):
         A.respond(400, {'error': 'message body required'})
     cfg = A.load(A.CONFIG_FILE) or {}
     if not cfg.get('smtp_host'):
-        A.respond(400, {'error': 'SMTP is not configured (Settings -> Notifications)'})
+        A.respond(400, {'error': 'SMTP is not configured (Settings → Notifications)'})
     t = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
               if x.get('id') == tid), None)
     if not t:

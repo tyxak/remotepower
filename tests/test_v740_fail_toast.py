@@ -5,11 +5,16 @@
 read the word "Failed" and nothing else. When it did, api() had already toasted it ("POST /x failed —
 why", added in 7.0.2 so that no refusal is silent), so the same sentence came twice.
 
-`failText(r)` and `failToast(r)` (app.js) replace them. Three cases are told apart: the server gave a
-reason (the reason), it answered and gave none ("The server refused this and gave no reason."), it did
-not answer (api() gave null: "The server did not answer."). `failToast` stays quiet when api() has just
-announced this very failure, or has just signed the person out; it speaks for the refusals api() does
-not announce: a 200 with {ok: false}, and a call made with {quiet: true}.
+`failText(r)` and `failToast(r)` (app.js) replace them. Four cases are told apart: the server gave a
+reason (the reason), it answered and gave none ("The server refused this and gave no reason.", or "The
+server failed and gave no reason." for a 5xx), it did not answer (api() gave null: "The server did not
+answer."). `failToast` stays quiet when api() has just announced this very failure, or has just signed
+the person out; it speaks for the refusals api() does not announce: a 200 with {ok: false}, and a call
+made with {quiet: true}.
+
+api()'s own toast is the reason ALONE as the message, with the request under it ("POST /x · 404") in a
+node of its own. The old "POST /x failed — why" was one text node holding a method, a path and the
+reason, which no dictionary can match, so no server message could ever be shown in the person's language.
 
 The helpers run in V8 here, with a clock the test moves, because "quiet for five seconds, for this body
 only" is a rule about time and identity that no source grep can check.
@@ -116,6 +121,14 @@ class TestTheHelperTellsTheThreeCasesApart(unittest.TestCase):
         c.eval("failToast(null)")
         self.assertEqual(self.toasts(c)[0][0], 'The server did not answer.')
 
+    def test_a_server_error_without_a_reason_says_the_server_failed(self):
+        c = self.ctx()
+        self.assertEqual(c.eval("failText({}, 502)"), 'The server failed and gave no reason.')
+        self.assertEqual(c.eval("failText({}, 500)"), 'The server failed and gave no reason.')
+        self.assertEqual(c.eval("failText({}, 404)"), 'The server refused this and gave no reason.')
+        self.assertEqual(c.eval("failText({})"), 'The server refused this and gave no reason.')
+        self.assertEqual(c.eval("failText({error: 'Nope'}, 502)"), 'Nope')
+
     def test_options_reach_the_toast(self):
         c = self.ctx()
         c.eval("failToast({error: 'x'}, {transient: true})")
@@ -170,13 +183,96 @@ class TestApiRecordsWhatItSaid(unittest.TestCase):
         block = body[body.index("const _why = "):]
         self.assertIn('_apiFailureShown = {body: _body, at: Date.now()}', block)
 
-    def test_both_sentences_are_translated(self):
+    def test_every_sentence_is_translated(self):
         i18n = (JS / 'i18n.js').read_text(encoding='utf-8')
-        for key in ('The server did not answer.', 'The server refused this and gave no reason.'):
+        for key in ('The server did not answer.', 'The server refused this and gave no reason.',
+                    'The server failed and gave no reason.'):
             m = re.search(r'^\s*"' + re.escape(key) + r'":\s*\{([^}]*)\}', i18n, re.M)
             self.assertTrue(m, f'{key!r} has no dictionary entry')
             langs = set(re.findall(r'"(\w+)"\s*:', m.group(1)))
             self.assertEqual(langs, {'zh', 'hi', 'es', 'ar', 'de', 'fr'}, key)
+
+
+
+def _async_function(source, name):
+    """js_function() tries `function name(` first, so it drops the `async` keyword; put it back."""
+    body = js_function(source, name)
+    at = source.index(body)
+    return ('async ' + body) if source[max(0, at - 6):at] == 'async ' else body
+
+
+@unittest.skipUnless(_HAVE_V8, 'py_mini_racer (V8) not installed')
+class TestApiToastsTheReasonAndTheRequest(unittest.TestCase):
+    """The real api(), against a fetch that answers what the test says."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = '\n'.join([
+            re.search(r"let _apiFailureShown = [^\n]*\n", APP).group(0),
+            re.search(r"let _apiSignedOutAt = [^\n]*\n", APP).group(0),
+            js_function(APP, 'failText'),
+            js_function(APP, '_toastDetailHtml'),
+            _async_function(APP, 'api'),
+        ])
+
+    def run_api(self, status, body, *, quiet=False):
+        import json
+        c = MiniRacer()
+        c.eval("""
+            var __toasts = [], __logouts = 0, __warn = [];
+            function toast(msg, type, opts) { __toasts.push([msg, type, opts || null]); }
+            function escHtml(s) { return String(s); }
+            function getToken() { return 'tok'; }
+            function _rpLoad() {} function _setApiDown() {} function _bcast() {}
+            function doLogout() { __logouts += 1; }
+            var window = {}; var console = {warn: function () { __warn.push([].slice.call(arguments).join(' ')); }};
+            var __reply = null;
+            function fetch() { return Promise.resolve(__reply); }
+        """)
+        c.eval(self.source)
+        c.eval("__reply = {status: %d, ok: %s, headers: {get: function () { return null; }}, "
+               "clone: function () { return this; }, json: function () { return %s; }};"
+               % (status, 'true' if status < 400 else 'false',
+                  ('Promise.resolve(%s)' % json.dumps(body)) if body is not None else 'Promise.reject(new Error("not json"))'))
+        c.eval("api('POST', '/devices/web01/command', {}%s);" % (', {quiet: true}' if quiet else ''))
+        return json.loads(c.eval('JSON.stringify({toasts: __toasts, logouts: __logouts, warn: __warn})'))
+
+    def test_the_reason_is_the_whole_message_and_the_request_sits_under_it(self):
+        got = self.run_api(404, {'error': 'Host not found'})
+        self.assertEqual(got['toasts'], [['Host not found', 'error', {'detail': 'POST /devices/web01/command · 404'}]])
+
+    def test_the_old_composite_is_gone(self):
+        got = self.run_api(403, {'error': 'Forbidden'})
+        for msg, _type, _opts in got['toasts']:
+            self.assertNotIn('failed', msg)
+            self.assertNotIn('/devices', msg)
+
+    def test_no_json_body_on_a_gateway_error(self):
+        got = self.run_api(502, None)
+        self.assertEqual(got['toasts'][0][0], 'The server failed and gave no reason.')
+        self.assertEqual(got['toasts'][0][2], {'detail': 'POST /devices/web01/command · 502'})
+
+    def test_a_refusal_without_a_reason(self):
+        got = self.run_api(400, {})
+        self.assertEqual(got['toasts'][0][0], 'The server refused this and gave no reason.')
+
+    def test_quiet_calls_and_signed_out_calls_say_nothing(self):
+        self.assertEqual(self.run_api(404, {'error': 'x'}, quiet=True)['toasts'], [])
+        got = self.run_api(401, {'error': 'Unauthorized'})
+        self.assertEqual(got['toasts'], [])
+        self.assertEqual(got['logouts'], 1)
+
+    def test_the_request_line_is_a_node_the_translator_skips(self):
+        c = MiniRacer()
+        c.eval("function escHtml(s) { return String(s).replace(/</g, '&lt;'); }")
+        c.eval(js_function(APP, '_toastDetailHtml'))
+        html = c.eval("_toastDetailHtml('POST /x · 404')")
+        self.assertIn('data-no-i18n', html)
+        self.assertIn('dir="ltr"', html)
+        self.assertIn('class="toast-detail"', html)
+        self.assertEqual(c.eval("_toastDetailHtml('')"), '')
+        self.assertEqual(c.eval("_toastDetailHtml(undefined)"), '')
+        self.assertIn('&lt;b>', c.eval("_toastDetailHtml('<b>')"))
 
 
 if __name__ == '__main__':

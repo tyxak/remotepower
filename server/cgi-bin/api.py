@@ -41080,7 +41080,7 @@ def handle_deadman_jobs():
         respond(400, {'error': _rm_err})
     name = _sanitize_str(str(body.get('name', '')), 96).strip()
     if not name:
-        respond(400, {'error': 'name is required'})
+        respond(400, {'error': 'name required'})
     try:
         period = max(1, min(43200, int(body.get('period_minutes') or 60)))
         grace = max(1, min(10080, int(body.get('grace_minutes') or 10)))
@@ -44572,7 +44572,7 @@ def handle_ai_rag_index_migrate():
         respond(400, {'error': "target must be 'json' or 'postgres'"})
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
-        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI assistant.'})
     # Reject a second concurrent migration (the rebuild is synchronous + slow).
     running = _rag_migration_status()
     if running.get('state') == 'running':
@@ -44644,7 +44644,7 @@ def handle_ai_rag_reindex():
         respond(405, {'error': 'Method not allowed'})
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
-        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI assistant.'})
     t0 = time.monotonic()
     stats = _rag_reindex(cfg)
     stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
@@ -44674,7 +44674,7 @@ def handle_ai_rag_search():
                                'knowledge index is not scoped per role or tenant.'})
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
-        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI assistant.'})
     body = _read_valid(request_models.AiRagSearchRequest)
     query = str(body.get('query', '') or '').strip()
     if not query:
@@ -44734,7 +44734,7 @@ def handle_ai_chat():
     body = _read_valid(request_models.AiChatRequest)
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
 
     messages = body.get('messages')
     ok, err = ai_provider.validate_messages(messages)
@@ -44867,7 +44867,7 @@ def handle_ai_chat():
     allowed, used, cap = _ai_rate_limit_check(actor, cfg)
     if not allowed:
         respond(429, {'error': f'Daily AI request cap reached ({used}/{cap}). '
-                               'Cap is configurable in Settings → AI.'})
+                               'Cap is configurable in Settings → AI assistant.'})
 
     t0 = time.monotonic()
     # v3.0.1: per-feature param overrides. When the caller specified a known
@@ -44921,7 +44921,7 @@ def _ai_run(actor, system, messages, context_label, max_tokens=None):
     raw text (or respond with an error). Mirrors handle_ai_chat()."""
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
     allowed, used, cap = _ai_rate_limit_check(actor, cfg)
     if not allowed:
         respond(429, {'error': f'Daily AI request cap reached ({used}/{cap}).'})
@@ -45858,7 +45858,7 @@ def handle_ai_models():
         respond(405, {'error': 'Method not allowed'})
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
     result = ai_provider.list_models(cfg)
     if not result.get('ok'):
         respond(502, {'error': result.get('error', 'list_models failed')})
@@ -45871,7 +45871,7 @@ def handle_ai_stats():
         respond(405, {'error': 'Method not allowed'})
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
     st = ai_provider.provider_stats(cfg)
     # v6.3.1: triage scoreboard — how much investigation the AI has done and
     # how operators rated it (the feedback loop's aggregate).
@@ -45911,7 +45911,7 @@ def handle_ai_test():
         respond(405, {'error': 'Method not allowed'})
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
     result = ai_provider.chat(
         cfg,
         messages=[{'role': 'user', 'content': 'Reply with exactly: OK'}],
@@ -46134,7 +46134,7 @@ def handle_runbook_generate(dev_id):
 
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled — enable in Settings → AI assistant'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
 
     # Rate limit (same per-user-per-day cap as /api/ai/chat)
     allowed, used, cap = _ai_rate_limit_check(actor, cfg)
@@ -48527,7 +48527,7 @@ def handle_custom_script_create():
 
     name = _sanitize_str(str(body.get('name', '')).strip(), MAX_CUSTOM_SCRIPT_NAME)
     if not name:
-        respond(400, {'error': 'name is required'})
+        respond(400, {'error': 'name required'})
 
     script_body = str(body.get('body', '')).strip()
     if not script_body:
@@ -49277,7 +49277,7 @@ def handle_custom_checks_delete():
         respond(405, {'error': 'Method not allowed'})
     cid = _sanitize_str(str((get_json_obj()).get('id', '')), 64).strip()
     if not cid:
-        respond(400, {'error': 'id is required'})
+        respond(400, {'error': 'id required'})
     with _LockedUpdate(CONFIG_FILE) as cfg:
         checks = cfg.get('custom_checks') or []
         cfg['custom_checks'] = [c for c in checks
@@ -53832,7 +53832,7 @@ def handle_drift_profiles():
         body = _read_valid(request_models.DriftProfilesRequest)
         name = _sanitize_str(body.get('name', ''), 80).strip()
         if not name:
-            respond(400, {'error': 'name is required'})
+            respond(400, {'error': 'name required'})
         files = _validate_drift_files((body or {}).get('files'))
         pid = 'dp_' + secrets.token_urlsafe(8)
         now = int(time.time())
@@ -74114,7 +74114,7 @@ def handle_iac_generate():
     # Use the existing AI provider — reuses Settings → AI configuration
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
-        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI assistant.'})
         return
 
     system_prompt = _resolve_system_prompt('iac_generate')

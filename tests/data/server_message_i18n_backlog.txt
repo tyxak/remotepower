@@ -1,0 +1,804 @@
+# Server error messages that have no dictionary entry yet (tests/test_v740_server_messages_i18n.py).
+# One message per line, spelled as the server sends it, sorted. The list only shrinks: translate a
+# message (an entry in DICT in server/html/static/js/i18n.js with all six languages) and delete its line.
+# A new message does not belong here; it arrives translated.
+A Pushgateway URL is required when enabled.
+A manifest URL is required when enabled.
+A scan is already running
+A scan is starting or running — try again shortly
+A valid ip is required
+API key limit reached (max 50)
+API key rate limit exceeded
+Add a Cloudflare API token first
+Add an AbuseIPDB or SniffCat API key first
+Admin password did not match
+Admins and auditors only
+Admins and finance only
+Agent binary not found
+Agentless SSH is disabled. Enable it in Settings → Security.
+Audit forwarding is not enabled in settings.
+Automatic remediation is not enabled for this host. Turn it on in the host settings first.
+Banning at the edge is for the platform operator.
+Batch job not found
+Batch job not found or expired
+Billing webhook secret mismatch
+Blocking is available on Linux agents only
+Cannot change another user's password
+Cannot delete last admin
+Cannot delete yourself
+Cannot demote the last admin
+Choose what to lift: the edge ban, the host blocks, or both
+Choose where to ban it: at the edge, on hosts, or both
+Cloudflare is still applying the last change. Try again in a minute.
+Container image CVE scanning is off — enable it in Settings → Security first.
+Could not read the .p12 — wrong password, or not a PKCS#12 file
+Cross-origin request blocked
+DNS blocker not found
+Demo mode — this is a read-only sandbox.
+Disk-usage scanning is off — enable it in Settings → Security first.
+Disk-usage scanning needs the du tool — Linux and macOS hosts only.
+Either pin or enrollment_token is required
+Empty file
+Enter a public IP address
+Enter an IP address
+Enter your admin password to confirm clearing the audit log.
+Existing host token required for re-enrollment
+Expected /<vmid>
+Expected /<vmid>/<action>
+Expected JSON object
+GET supports op=list or op=read
+Host has no SSH user / host configured.
+Host is in audit (read-only) mode — file writes are disabled.
+Host is quarantined — archiving is disabled.
+Host is quarantined — file writes are disabled.
+Host must be a name or address, optionally with :port.
+IdP did not return id_token
+Incorrect admin password.
+Integrity Guard runs on Linux hosts only
+Invalid PIN format
+Invalid code — check your authenticator app and try again
+Invalid enrollment token format
+Invalid file data
+Invalid hostname or IP in the list
+Invalid or expired PIN
+Invalid or expired enrollment token
+Invalid or expired link
+Invalid username (2-32 chars, alphanumeric/_/-)
+Invalid vuln_id
+KMIP CA missing — enable KMIP first
+KMIP daemon secret missing or wrong
+KMIP is not set up yet — nothing to export
+LDAP is not enabled — turn it on first
+Library limit reached (max 200 snippets)
+Lifting an edge ban is for the platform operator.
+Lookups use the instance API keys and are run by the platform operator.
+MFA enrollment required
+Mailbox watching reads Unix mail spools — Linux hosts only.
+Monitors were just run — wait a moment and refresh
+No PDU configured for this host — set one first
+No SIEM URL configured.
+No SSH private key is configured.
+No automatic remediation is available for this check.
+No debug log file found. Enable debug logging first.
+No matching cloud account is configured.
+No matching enrollment token
+No pending TOTP setup — call /api/totp/setup first
+No push subscription for this account — enable notifications first.
+No recipients configured. Set "smtp_recipients" or pass {"recipient": "..."}
+No target hosts with a known IP.
+No webhook destinations configured — add one in Settings first
+Not signed in
+OIDC issuer metadata missing authorization_endpoint
+OIDC issuer metadata missing token_endpoint
+OPNsense not enabled/configured on this host
+OTLP trace export is not enabled in settings.
+Old password incorrect
+One or more targets are outside your role scope
+PDF export unavailable on this install — pip install reportlab (see packaging/requirements-server.txt)
+PDU host resolves to a blocked (loopback/metadata) address
+PII scanning is off — enable it in Settings → Security first.
+POST op must be 'write', 'mkdir', 'delete' or 'upload'
+Password change required
+Password required (max 1024 chars)
+Patch approvals are an instance-wide policy affecting every tenant's auto-patch — only a platform superadmin can change them
+Path is on the drift-content denylist (/etc/shadow and similar). Hash tracking continues; content retrieval is refused regardless of role.
+Pick one of your hosts for this token. Tokens without a host are managed by the platform operator.
+Provide at least one hostname or IP
+Proxmox VM lifecycle actions are disabled. Enable them in Settings → Virtualization first.
+Proxmox integration is not enabled.
+Push notifications are not enabled in settings.
+Python 'cryptography' package is required for the KMIP server — re-run install-server.sh
+RAG search is limited to full-access roles — the knowledge index is not scoped per role or tenant.
+RDP tunnelling is disabled. Enable it in Settings → General.
+Refusing to probe a loopback, link-local or metadata address.
+Register SSH keys from a signed-in session, not an API key
+Request body too large
+RouterOS not enabled/configured on this host
+SAML assertion has no usable username
+SAML is not available on this server (pysaml2 and/or the xmlsec1 binary are not installed)
+SIEM streaming is not enabled in settings.
+SSH not enabled/configured on this host. Add SSH credentials first.
+Script contains dangerous commands; pass {"confirm_dangerous": true} to acknowledge
+Script has syntax errors; fix or re-run dry run
+Secrets-on-disk scanning is off — enable it in Settings → Security first.
+Server-side execution is disabled — enable it under Settings → Advanced
+Session expired
+Set a "Portal public URL" (Settings → Customer portal) before enabling the customer portal — the sign-in email needs an explicit https:// address (the request host is not trusted for auth links, and is unavailable under the WSGI server).
+Set the dashboard's public URL (Settings → Notifications) before adding Acknowledge / Resolve links to alert emails — the links are signed, and are never built from the address a request arrived on.
+Switch the storage backend to Postgres first — the RAG vector store reuses that connection.
+The SSH gateway module is turned off
+The SSH gateway tunnel is available on Linux agents only
+The bundle must contain both a private key and a certificate
+The executor has no actions to choose from — save a script first. It can only select artifacts you wrote; it cannot author commands.
+The ignore list is managed by the platform operator.
+The list name may use lower-case letters, digits and underscores, and starts with a letter
+The model proposed an action that is not in the catalog; it was refused.
+The report archive is limited to full-access roles — a stored report is a whole-fleet snapshot and carries no per-role or per-tenant scope to filter on. Use a site-scoped report definition instead.
+This account has no local password — you sign in via SSO or a passkey. Clearing the audit log requires a local admin password: set one under My Account, or use an admin account that has one.
+This belongs to the whole installation and is managed by the platform operator.
+This blueprint has live Terraform state — Run → Destroy first, then delete.
+This credential requires an active checkout. Check it out (with a reason) before revealing it.
+This endpoint is reserved for MCP role tokens
+Today's lookup budget is used up
+Token prefix must be at least 4 characters
+Tokens without a host are managed by the platform operator.
+Too many login attempts from this address
+Too many replies — please try again later.
+Too many tickets — please try again later.
+URL is required
+URL targets a blocked address
+User already exists
+User no longer exists
+WebAuthn is not available on this server (py_webauthn not installed)
+You requested this change; a different admin must approve it.
+Your IP is not in the configured allowlist
+Your contact is not linked to a site.
+a ZFS snapshot name must contain "@" (pool/dataset@snap)
+a client with that public key already exists
+a host cannot connect to itself
+a host cannot depend on its own UPS
+a host cannot depend on itself
+a quote needs at least one line item
+a reason is required to check out a credential
+a reason is required to start a litigation hold
+a run is already in progress for this blueprint
+a search pattern is required
+a signing key already exists; pass force=true to replace it
+a site with that name already exists
+a smart group with that name already exists
+a stored secret could not be decrypted with the old passphrase — nothing was changed. This usually means an earlier rotation did not finish. Restore the vault metadata from backup before retrying.
+a tenant with that name already exists
+a tunnel cannot have the same host on both ends
+a user cannot watch themselves
+a valid DNS name is required
+a valid cron schedule is required
+a valid to_address is required to enable
+account disabled
+acknowledgement not found
+action already completed
+action must be 'add' or 'remove'
+action must be 'restart', 'start' or 'stop'
+action must be allow, deny, or delete
+action must be ban, unban, enable or disable
+action must be create, revert or delete
+action must be create, rollback or delete
+action must be enable/disable/start/stop
+action must be on, off or cycle
+action must be upgrade, script, self-update or reboot
+active scan needs an active maintenance window for this host — open one (Monitoring → Maintenance) or pass "override_window": true
+active scans require "attestation": true — affirm you are authorized to actively scan this target
+admin_password required
+after_hours start/end must be HH:MM (business hours)
+agentless hosts cannot run a disk scan
+alert already acknowledged
+alert already resolved
+alert-mute limit reached
+alert_id required
+alert_runbooks must be an object
+allowed_commands must be a list
+alt_names must be a list
+amount must be a number
+an SSH key or password is required when SSH is enabled
+an absolute path is required
+ansible-playbook is not installed on the server.
+api_key required when OPNsense is enabled
+api_secret required when OPNsense is enabled
+apikey_default_expiry_days must be 0..3650 (0 = never)
+apikey_default_expiry_days must be an integer
+approval queue is full — an operator needs to clear it first
+approval_gated_kinds must be a list
+archive is no longer available
+archive too large when decompressed — refused (possible zip bomb)
+archives are only listed for file-backup jobs
+asset_id must match [A-Za-z0-9_-]{1,64}
+at least one ring with a valid selector required
+attachment blob missing
+attachment not found
+attachment unreadable
+audit_forward_mode must be http or syslog
+audit_forward_port must be an integer
+audit_forward_port out of range
+audit_forward_url must be http(s)://…
+audit_log_retention_days must be 0..3650
+audit_log_retention_days must be an integer
+audit_worm_path has illegal characters
+audit_worm_path must be absolute
+authenticator sign-count regression — refused
+backend must be nftables, iptables, ufw or firewalld
+backend must be ufw or firewalld
+backup.drill_days must be 0..90
+backup.drill_days must be an integer
+backup.offsite_dir has illegal characters
+backup.offsite_dir must be absolute
+backup.path has illegal characters
+backup.path must be absolute
+backup.retain_days must be 1..365
+backup.retain_days must be an integer
+backup.rpo_hours must be 0 (off) or 1..8760
+backup.rpo_hours must be an integer
+backup.rto_hours must be 0 (off) or 1..8760
+backup.rto_hours must be an integer
+backup_monitors must be a list
+bad device_id
+base_url targets a loopback or link-local/metadata address
+baselines must be a list
+billable hours need a customer — pick a site, or a host that belongs to one
+billable hours need a site
+blueprint too large
+body is required
+body required
+both a and b must be existing snapshot ids
+brute_force_threshold must be an integer
+brute_force_window_seconds must be an integer
+built-in catalog apps cannot be removed
+bundle is not valid JSON
+bundle master key is corrupt
+bundle_b64 is not valid base64
+campaign limit reached
+canary_files must be a list
+cannot run compose on agentless host
+cannot run container actions on agentless host
+cannot run docker on an agentless host
+cannot view another user's entries
+cannot view another user's timesheet
+categories must be a non-empty list
+cert not found in last scan
+channel_routing must be a dict
+check not found
+chunk must be base64
+cidr must be a valid network (e.g. 10.0.0.0/24)
+client cap reached
+cloud_autosync_interval must be an integer
+cmd too long
+cmd too long (max 512 chars)
+cmd_allowlist must be a list
+code and state are required
+command required
+command required, max 2000 chars
+community must not contain whitespace
+community required when SNMP is enabled — set it in the same PATCH, or untick "enabled"
+community too long (max 128)
+compose YAML is required and must contain a "services:" block
+compose yaml required
+confirm must exactly match the guest name
+confirm must repeat the subject exactly
+confirmation required
+container must be a container/pod name — letters, digits, dot, dash or underscore, up to 128 characters
+container name required
+container not in this host's reported list (refresh the listing if you just added it)
+container update (pull + recreate) is not supported on the Windows agent — pull and recreate it on the host, or manage the container with a compose stack
+container_alert_excludes must be a list
+container_id not in this host's reported container list (refresh the listing if you just started it)
+container_stale_ttl must be 300–86400 seconds
+container_stale_ttl must be an integer
+content is required
+content must be base64
+content required
+content too large (max 5 MB)
+could not create the KMIP master key file
+could not derive a valid id from that name
+could not find a ticket key/number/id in the body — send {"ticket_ref": "..."} if your template cannot be shaped
+credential already registered
+cron must be a valid 5-field expression that fires within ~45 days
+cron must have 5 space-separated fields
+csp_report_throttle_per_minute must be 0..1000
+csp_report_throttle_per_minute must be an integer
+ct_watch_domains must be a list
+custom_metric_thresholds must be an object
+cve_cache_days must be 1–90
+cve_cache_days must be an integer
+cve_found alerting is disabled (Settings → Notifications)
+cve_severity_filter must be a list
+days must be an integer
+days must be between 1 and 365
+decision must be 'approve' or 'reject'
+decryption failed — wrong passphrase or corrupt bundle
+default_poll_interval must be 10–3600 seconds
+default_poll_interval must be an integer
+default_tags must be a list of strings
+definition not found
+dependency_silence_min must be an integer
+depends_on must be a list of host ids
+description is required
+destination has no URL
+destination not found
+device_id and a valid ip are required
+device_id and check are required
+device_id and cred_id are required
+device_id and event (or container) are required (or a resolvable alert_id)
+device_id is not a valid host id
+device_id is required
+diagnostic still running — try again in a moment
+dir not in this host's reported compose projects (refresh the listing if you just added the project)
+dir required
+disk_per_mount must be a dict
+disk_watchdog_pct must be 0..99 (0 = off)
+disk_watchdog_pct must be an integer
+doc body must be a string
+doc title is required
+doc title may not contain control characters
+doc title must be a string
+documentation must be a string
+does not look like a compose file (no "services:" key)
+duration must be 60..604800 seconds
+email_routes limited to 20 entries
+email_routes must be a list
+embedding_base_url targets a loopback or link-local/metadata address
+empty body — POST the backup .tar.gz
+empty body — POST the raw image bytes
+encrypted backup — supply the passphrase via the X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env
+end must be after start
+endpoints must be a list of exactly 2 host IDs
+endpoints must be two non-empty strings
+enrol_rules must be a list
+entries must be a list
+entry is locked — it is already on an invoice
+expires_in must be >= 60 seconds
+expires_in must be an integer (seconds)
+file_manager must be an object
+findings must be a list
+firewalld add spec must be a single --add-* flag
+forbidden
+from and to are the same group
+from must name at least one group
+from/to must be YYYY-MM-DD
+geo_anomaly_hours must be an integer
+gpg is not installed on the server
+grant not found
+groups must be a list
+health_alert_threshold must be an integer
+healthchecks_interval_seconds must be an integer
+healthchecks_url must be http(s)://
+heartbeat faster than heartbeat_min_interval_s
+height_u must be an integer
+host authentication failed
+host has no ip/hostname; cannot poll
+host no longer exists
+host not found, or not covered by this snapshot's tag
+host required
+host-audit tools (lynis) run on an enrolled host — use device_id
+host-audit tools run on an enrolled host — use device_id
+host-scoped window requires a valid target device_id
+hours must be a number
+hours must be between 0.25 and 8760
+hypervisor_url must be http(s)://… and ≤512 chars
+id_token audience mismatch
+id_token expired
+id_token has no usable username claim
+id_token issuer mismatch
+ids must be a non-empty list
+image-update detection is disabled
+image_scan_interval must be an integer (seconds, 3600–604800)
+imap_port must be 1-65535
+incident limit reached
+incident_device_threshold must be an integer
+index must be an integer
+integrations must be a list
+interval_minutes must be an integer (minutes, 15..10080)
+invalid DNS name
+invalid IP address
+invalid ISO-8601 timestamp
+invalid base_url
+invalid container_id
+invalid cron
+invalid cron expression (5 fields: min hour dom month dow)
+invalid domain
+invalid embedding_base_url
+invalid expires_at
+invalid firewalld rule ref
+invalid from/to timestamp
+invalid guest_type or action
+invalid host
+invalid host token
+invalid jail name
+invalid key_length
+invalid nftables rule ref
+invalid old passphrase
+invalid or expired state
+invalid outlet
+invalid passphrase
+invalid pid
+invalid primary domain
+invalid proxmox_host
+invalid public key
+invalid range
+invalid scope_device_id
+invalid source_device_id
+invalid subscription
+invalid target address
+invalid target host
+invalid target_kind
+invalid timer unit (must end in .timer)
+invalid unit name
+invalid user name
+invalid vault key
+invalid — a valid IPv4 address is required
+invalid — a valid domain is required
+invoice is void
+invoice limit reached
+ip_allow must be a list of IPs/CIDRs
+iptables add spec must start with -A or -I
+job has no command
+key is required
+key not authorized
+key required
+kind must be "alert", "syslog", "snmp_trap", "flow" or "itsm"
+kind must be 'payment' or 'refund'
+kind must be tasmota, shelly1 or shelly2
+kind must be zfs or btrfs
+label cannot be empty
+label is required
+ldap_timeout must be 1–60 seconds
+ldap_timeout must be an integer
+ldap_url must not point at a link-local or cloud-metadata address
+ldap_url must start with ldap:// or ldaps://
+ldap_user_filter must contain {u} placeholder
+limit must be a number
+line or pattern is required
+listen_port already in use by another tunnel
+listen_port must be a UDP port 1-65535
+log dir error
+log not found
+log_ignore_patterns must be a list
+maintenance window not found
+max_sessions_per_user must be 0..1000 (0 = unlimited)
+max_sessions_per_user must be an integer
+message body required
+message required
+metric_failures_before_alert must be an integer (1–10)
+metric_thresholds must be a dict
+mfa_required_roles must be a list of role names
+missing SAMLResponse
+monitor not found
+monitor_interval must be an integer (60–3600)
+mtls_fingerprint must be a hex certificate fingerprint (optionally colon-separated)
+mute not found
+name and command are required
+name and content are required
+name must be lowercase [a-z0-9_-], up to 64 chars
+name required (lowercase letters/digits/-/_)
+name, a valid kind, and content are required
+nat_ip must be a valid IPv4/IPv6 address or empty
+new_password required (max 1024 chars)
+nftables add spec must start with "add" or "insert"
+no RouterOS or OPNsense API configured on this host
+no VEVENT found — is this a .ics file?
+no acme state reported for host
+no active session to stamp (API keys cannot step up)
+no avatar
+no baseline captured for this host — capture one first
+no drift record for that file
+no earlier revision to compare against
+no eligible hosts in scope
+no history for that interface
+no hosts in scope for this check
+no hosts in that group
+no hosts you can manage are targeted by this job
+no key with that fingerprint is recorded for this user on this host
+no lines provided
+no matching agent hosts
+no matching dead-letter entry
+no matching fleet event to replay
+no outstanding SAML request (replay or unsolicited response)
+no package inventory yet — send the package list first
+no pending authentication (expired — try again)
+no pending registration (expired — try again)
+no published agent binary to sign
+no queued command at that index
+no recipient — set a To: or add a contact email to the CMDB record
+no recognised fields
+no recognised settings fields in body
+no report on file for this host
+no server signing key — generate one first
+no such KMIP client
+no such object
+no sweep collected yet — run a log sweep first
+no traps provided (expect {"traps":[{oid,value}]})
+no triage stored on this alert
+no valid targets
+nonce mismatch — possible replay attack
+not a RemotePower KMIP recovery bundle
+not a valid image (png, jpeg, gif or webp)
+not your time entry
+nothing to invoice for this site/period
+offline_alert_delay_min must be an integer
+oid must be a dotted-decimal OID, e.g. 1.3.6.1.2.1.1
+oid_prefix is required
+oid_prefix must be a dotted numeric OID
+oidc_issuer is missing the hostname
+oidc_issuer must be http:// or https://
+oidc_issuer must not contain whitespace
+oidc_issuer not set in config
+one of these revisions was too large to archive its body — only the hash was kept, so there is nothing to diff
+online_ttl must be <= 7200 seconds (2h)
+online_ttl must be an integer
+only terraform blueprints can be executed; the others are render-only
+only the owner or an admin can delete this template
+op must be 'add' or 'delete'
+op must be 'restore', 'delete' or 'rebaseline'
+op must be 'set', 'del' or 'timer'
+op must be plan, apply or destroy
+otlp_endpoint must be http(s)://…
+otlp_interval must be an integer
+otlp_traces_interval must be an integer
+outcome not found
+packages must be a list
+param is required
+params required (no recognised facets)
+pass at least one tag in add or remove
+pass {"event": ..., "ts": ...} from the activity feed
+pass {"id": ...} or {"all": true}
+passkeys are disabled by the administrator
+passphrase and bundle_b64 required
+passphrase must be at least 12 characters
+passphrase must be at least 8 characters
+password cannot be empty
+password required to disable signing enforcement
+password required to sign the agent release
+password required when RouterOS is enabled
+patch_alert_threshold must be >= 1
+patch_alert_threshold must be an integer
+patch_sla must be a list
+path is required
+path query parameter required
+period_minutes / grace_minutes must be numbers
+platform not found
+playbook too large
+policies must be a list
+poll_interval must be 30..3600 seconds
+poll_interval must be 30–3600 seconds
+poll_interval must be <= 3600 seconds
+poll_interval must be >= 30 seconds
+port must be 1–65535
+port must be a number
+positions must be a list
+primary_interface: letters/digits/.:_- , max 32 chars
+privacy requires authentication (authPriv) — pick an auth protocol
+profile limit reached (max 100)
+proto must be tcp or udp
+proxmox_host targets a loopback or link-local/metadata address
+q parameter is required
+queries must be a non-empty list
+query is required
+query too long
+queued submission not found
+quiet_hours start/end must be HH:MM (24h)
+quote limit reached
+rack limit reached (max 500)
+rack_height_u must be 1–60
+rack_height_u must be an integer
+rack_id: unknown rack
+rack_unit must be 0–100 (0 = not placed)
+rack_unit must be an integer
+rate limited
+reach_scope_value required for this scope
+receipt not found
+recipient must be a valid email address
+recipients must be a list
+refusing to erase the account you are signed in as
+rename takes exactly one source group (use merge for many)
+request not found
+request not found or still pending
+request_id and valid output_format required
+restart could not be scheduled — is the sudoers drop-in installed? See the script header.
+restart is not set up on this host — install the scoped restart script + sudoers drop-in (packaging/remotepower-server-restart.sh header)
+restore is only available for structured file-backup jobs
+results must be a list
+role already exists
+role must be 'admin', 'viewer', or a defined custom role (the 'mcp' role is reserved for API keys)
+role must be admin, viewer, or a defined custom role
+rollback_script_id not found
+rule limit reached (500)
+rule must be an object
+rule ref contains invalid characters
+rule ref is not a valid iptables rule spec
+rule spec contains invalid characters
+rule with this unit+pattern already exists
+rules must be a list
+rules must be an object
+runtime must be docker or podman
+saml_idp_sso_url is missing the hostname
+saml_idp_sso_url must be http:// or https://
+saml_idp_sso_url must not contain whitespace
+satellite is not scanner-enabled
+satellite limit reached (max 50)
+satellite not found
+scan target not found
+scan-target limit reached (max 200)
+schedule limit reached (max 100)
+scheduled active scans require "attestation": true at creation
+schedules must be a list
+scope must be "global" or a valid device_id
+scope must be "resolved" or "all"
+scope must be an object {type, values}
+scope.type must be 'groups', 'tags', 'sites', or 'all'
+scope.type must be all, group, tag, smart, site or ids
+scope.values must be a non-empty list
+scope.values must contain at least one non-empty value
+scope_type (device|tag|group) and scope_value required
+scope_type must be site, group or tag
+scope_value required
+scoped roles can only scan enrolled hosts in their scope
+scoped roles can only schedule scans on enrolled hosts in their scope
+script_id not found
+scrub_overdue_days must be an integer
+select at least one host
+select at least one thing to prune (targets or scope)
+select at least one valid script
+self-update is not configured — set an update-script path in Settings → Install first
+self_update_command must be an absolute path
+sensor_ignores entries must be strings
+sensor_ignores must be a list of sensor labels
+server_function: alphanumerics/spaces/_-/, max 64 chars
+services must be a list of strings
+session not found
+session_ttl_long must be 3600–7776000 seconds
+session_ttl_long must be an integer
+session_ttl_short must be 300–604800 seconds
+session_ttl_short must be an integer
+set the IMAP host first
+siem_url must be http(s)://…
+signal must be TERM, KILL, HUP or INT
+site outside your role scope
+slow_handler_ms must be an integer
+smart group limit reached (max 100)
+smart-group-scoped window requires a smart group id
+smtp_from must be a valid email address
+smtp_port must be 1–65535
+smtp_port must be an integer
+smtp_tls must be starttls, tls, or plain
+snapshot name is missing or has invalid characters
+snapshot name is required
+snapshot_stale_days must be an integer
+snmp_failures_before_alert must be an integer (2–72)
+snmp_trap tokens must be pinned to a host
+source host not found
+specify at least one of host / process / proto / port
+specify exactly one of (start+end) or (cron+duration)
+ssh_key or ssh_password required
+ssh_port must be an integer
+ssh_user required
+sshgw_daemon_secret must be 32+ characters of letters, digits, - or _ (openssl rand -hex 32)
+sshgw_public_host must be a hostname or address
+sshgw_public_port must be an integer
+sshkey is not a valid SSH public key line
+sso_group_roles is an instance-wide setting affecting every tenant's SSO users — only a platform superadmin can change it
+stack not found for this host
+status must be one of draft, sent, accepted, declined
+status_page must be an object
+storage backend is pinned by the RP_STORAGE_BACKEND environment variable and cannot be switched from the UI
+structured file-backup jobs run on Linux hosts only
+subnet limit reached (max 1000)
+subscription endpoint not allowed
+syslog tokens must be pinned to a host — recreate with scope_device_id
+system must be a string
+system prompt too long
+target (pool / mountpoint) is missing or has invalid characters
+target address is in a blocked class
+target already registered
+target host is not allowed (loopback or link-local/metadata address)
+target host not found
+target is required for scope=group
+target is required for scope=host
+target is required for scope=tag
+target must be 'json' or 'postgres'
+target must be 'json', 'sqlite' or 'postgres'
+target must be a valid domain or IP address
+target.type must be all|device|group|tag|site
+target.value required for this target type
+target_kind must be all, host, tag or group
+templates must be a list
+terraform is not installed on the server
+text must be a string
+that IP is already monitored
+that grant already exists
+that is the last admin account — transfer the role first
+that name + type is already monitored
+the 'cryptography' library is not installed
+the 'cryptography' library is required to decrypt this backup
+the Postgres backend is unavailable on this server (psycopg is not installed)
+the appliance returned an empty configuration
+the default tenant cannot be deleted
+the macOS agent does not run container actions — manage this container on the host
+this break-glass request was already used
+this configuration exceeded the archive body limit, so only its hash and size were kept
+this credential is outside your role scope
+this instance runs in a container — restart the container via your orchestrator, not from here
+this integration is not a controllable DNS blocker
+this integration is not a controllable virtualization platform
+this job targets multiple hosts — specify device_id
+this job targets multiple hosts — specify device_id to restore to
+this quote has been invoiced and can no longer change status
+this quote has expired — re-issue it before accepting
+this server already holds KMIP objects — pass confirm=true to replace them
+this snapshot is not promoted to a tag — promote it first so enforcement has a target scope
+this token is not a flow token — use its own URL
+ticket limit reached
+ticket_business_hours must be an object
+time entry not found
+timeout must be 1..3600 seconds
+timeout must be an integer (seconds)
+title required (or set the token's source format so the sender's own shape is adapted)
+to must be a non-empty group name
+token required
+too many drift profiles (max 100)
+too many integrations
+too many positions in one batch
+too many roles (max 50)
+too many rollouts (max 100) — delete old ones
+too many rules (max 200)
+tool must be clamav or rkhunter
+trigger is required
+tunnel already exists between these hosts
+type (qemu|lxc) and numeric vmid required
+type RESTORE to confirm — this overwrites the restore path
+type must be qemu or lxc
+ufw add spec must start with allow/deny/reject/limit
+ufw delete ref must be a rule number
+units must be an object
+unknown app
+unknown credential
+unknown custom app
+unknown event kind
+unknown target user
+unknown watcher user
+update timed out after 10 min — it may still be running; check the server logs
+ups_critical_battery_pct must be an integer
+ups_critical_runtime_s must be an integer
+username and password are required
+username must match [a-z_][a-z0-9_-]{0,31}
+username required when RouterOS is enabled
+users must be a list
+v3_user required when SNMPv3 is enabled
+valid device_id and peer_id required
+valid device_id and upstream_id required
+valid image ref (image:tag) required
+valid script_id required
+valid site required
+value required for this scope
+vault already configured
+vault locked
+vault locked — unlock to import credentials
+vault locked — unlock to store credentials
+version must be '2c' or '3'
+vhost does not apply to on-host audits
+vlan: alphanumerics/spaces/_-/,() , max 64 chars
+vm query parameter is required
+vuln_id required
+watch-grant limit reached
+watched_files must be a list
+watched_services must be a list
+watcher, a valid scope (user|team), and value are required
+webhook_url must be http or https
+webhook_url must be http(s)://
+webhook_urls limited to 20 entries
+webhook_urls must be a list
+webpush_subject must be a mailto: or https: URI
+webterm_daemon_url must be http:// or https:// with a hostname
+who (username or display name) or email is required
+who is required
+wol_port must be 1–65535
+wol_port must be an integer
+you cannot approve your own break-glass request
+you may only manage your own tenant's branding
+your role cannot reveal credentials

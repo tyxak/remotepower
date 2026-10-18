@@ -124,7 +124,7 @@ def handle_webterm_auth():
     # client, and is off by default.
     _intent = str(body.get('intent', '')).strip().lower()
     if _intent == 'rdp' and not A.load(A.CONFIG_FILE).get('rdp_enabled'):
-        A.respond(403, {'error': 'RDP tunnelling is disabled. Enable it in Settings → Security.'})
+        A.respond(403, {'error': 'RDP tunnelling is disabled. Enable it in Settings → General.'})
 
     # Re-verify the admin's password
     users = A.load(A.USERS_FILE)

@@ -562,7 +562,7 @@ def handle_backup_job_create():
         if len(command) > A.MAX_BACKUP_CMD_LEN:
             A.respond(400, {'error': f'command too long (max {A.MAX_BACKUP_CMD_LEN})'})
     if not name:
-        A.respond(400, {'error': 'name is required'})
+        A.respond(400, {'error': 'name required'})
     # v6.3.0 "baseline": a job can target MULTIPLE devices — define once, apply to
     # many. _resolve_targets reads device_ids / tag / group / device_id AND
     # tenant/scope-filters the set at the same chokepoint the command family uses

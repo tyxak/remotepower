@@ -117,6 +117,18 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   the real message builder with a payload taken from its own fire sites, and
   fails on a message that holds the raw event id, an empty field, a "?" for a
   key no fire site sends, or "unknown".
+- Refusals read in your language. The server's error messages ("Host not
+  found", "port must be 1..65535") reached the dashboard in English whatever
+  language you chose: 7 of the 991 different messages had a translation. The 191
+  that the server sends from more than one place are translated into all six
+  languages now, and a test holds the rest: a new message has to arrive
+  translated, the list of messages still waiting only shrinks, and the real
+  translation engine is asked for every one that has an entry. The toast that
+  announces a refused request is the reason alone, with the request under it
+  ("POST /x · 404"). It used to be one sentence holding the method, the path and
+  the reason, which no dictionary can match. A message with a variable inside
+  ("unknown provider 'x'") cannot be matched by an exact lookup, so those are
+  counted and not translated: 305 places.
 - Text is readable in every theme. Eleven of the thirteen themes had text
   below the WCAG AA contrast of 4.5:1 — 2,405 places over nine pages, from
   grey metadata to status words: Nord's red text was 2.45:1 on its own panels,
@@ -182,6 +194,13 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   when you have just been signed out and the login page is the message. A test
   runs it in V8 with a clock it moves, and fails when a bare "Failed" fallback
   comes back.
+- Messages that point you to a Settings page point at the right one. The AI
+  messages said "Settings → AI" where the tab is **AI assistant**, Proxmox
+  lifecycle actions said "Settings → Proxmox" (it is **Virtualization**), and
+  RDP tunnelling said "Settings → Security" (it is **General**). The AI
+  messages that only said "AI is disabled" now say where to turn it on.
+  "name is required" and "id is required" are written "name required" and "id
+  required", as the other messages of that kind are.
 - Server messages have one spelling and one status. "Host not found" was also
   written "host not found" 65 times, "invalid host id" answered 400 and 404, a
   bad status token 401 and 403, and "site not found" 400 and 404. A test now

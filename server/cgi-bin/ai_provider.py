@@ -1011,7 +1011,7 @@ def list_models(cfg):
     """Return {ok, models: [{name, size_bytes?, ...}, ...]} for the
     configured provider. Extra fields are best-effort."""
     if not cfg.get('enabled'):
-        return {'ok': False, 'error': 'AI is disabled'}
+        return {'ok': False, 'error': 'AI is disabled. Configure in Settings → AI assistant.'}
     provider = cfg.get('provider')
     if provider == PROVIDER_OLLAMA:
         status, resp = _http_get_json(f'{_ollama_root(cfg)}/api/tags')
@@ -1056,7 +1056,7 @@ def provider_stats(cfg):
     """Return {ok, provider, version?, loaded_models?, reachable, ...}.
     Used by the AI page's status header."""
     if not cfg.get('enabled'):
-        return {'ok': False, 'error': 'AI is disabled'}
+        return {'ok': False, 'error': 'AI is disabled. Configure in Settings → AI assistant.'}
     provider = cfg.get('provider')
     out = {
         'ok':       True,

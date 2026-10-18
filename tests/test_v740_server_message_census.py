@@ -14,14 +14,13 @@ back to the login page with no reason. A refused credential inside a valid sessi
 for a request that has no valid session or token. `ALLOWED_401` lists the messages that mean that.
 test_v740_reauth_failure_e2e.py drives the real page against the real server.
 """
-import ast
-import functools
+import sys
 import unittest
 from collections import defaultdict
 from pathlib import Path
 
-CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
-SKIP = {'storage.py', 'storage_pg.py'}          # store internals raise, they do not answer a request
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from server_messages import CGI, SKIP, census, key_of, sites_of  # noqa: E402,F401
 
 # 401, lower-cased: each says there is no valid session or token on the request, which is what the
 # dashboard assumes when it sees one. Add a message here only if that is what it means.
@@ -33,42 +32,6 @@ ALLOWED_401 = {
     # session by the `vault_locked` code), so it does not reach api()'s logout.
     'vault locked',
 }
-
-
-def sites_of(source, name='<source>'):
-    """(file, line, status, message) for each respond(<int>, {'error': '<literal>'}) in `source`."""
-    out = []
-    for n in ast.walk(ast.parse(source)):
-        if not isinstance(n, ast.Call):
-            continue
-        f = n.func
-        if (f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', '')) != 'respond' or len(n.args) < 2:
-            continue
-        status, body = n.args[0], n.args[1]
-        if not (isinstance(status, ast.Constant) and isinstance(status.value, int) and isinstance(body, ast.Dict)):
-            continue
-        for k, v in zip(body.keys, body.values):
-            if isinstance(k, ast.Constant) and k.value == 'error' and isinstance(v, ast.Constant) \
-                    and isinstance(v.value, str):
-                out.append((name, n.lineno, status.value, v.value))
-    return out
-
-
-def key_of(message):
-    return message.strip().rstrip('.').lower()
-
-
-@functools.lru_cache(maxsize=None)
-def _census():
-    sites = []
-    for p in sorted(CGI.glob('*.py')):
-        if p.name not in SKIP:
-            sites += sites_of(p.read_text(encoding='utf-8'), p.name)
-    return tuple(sites)
-
-
-def census():
-    return list(_census())
 
 
 def two_spellings(sites):

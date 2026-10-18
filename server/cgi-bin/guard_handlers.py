@@ -106,7 +106,7 @@ def handle_guard_action():
     if op not in ('restore', 'delete', 'rebaseline'):
         A.respond(400, {'error': "op must be 'restore', 'delete' or 'rebaseline'"})
     if not qid:
-        A.respond(400, {'error': 'id is required'})
+        A.respond(400, {'error': 'id required'})
     if not did:
         # Fleet/tag/group-scoped re-baseline: `qid` is a CHECK id, so fan the
         # directive out to every device that check actually applies to (and that

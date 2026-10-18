@@ -1820,9 +1820,10 @@ async function api(method, path, body, extra) {
   // Opt out with a 4th arg of {quiet: true} where a non-2xx is an expected
   // answer rather than a failure (a probe, a poll for a thing not yet created).
   if (!r.ok && r.status !== 401 && !(extra && extra.quiet)) {
-    const _why = (_body && (_body.error || _body.message)) || `HTTP ${r.status}`;
+    const _why = failText(_body || {}, r.status);
     if (typeof toast === 'function') {
-      toast(`${method} ${path} failed — ${_why}`, 'error');
+      // The reason is the whole message so it can be translated; the request that failed sits under it.
+      toast(_why, 'error', {detail: `${method} ${path} · ${r.status}`});
     }
     try { console.warn('[remotepower] api', method, path, r.status, _why); } catch (_) {}
     _apiFailureShown = {body: _body, at: Date.now()};
@@ -7071,8 +7072,9 @@ if (_rpBC) {
 // session so a missed "Failed" or "Saved" is recoverable. Session-only by
 // design (alerts/audit are the durable records — this is UI feedback replay).
 const _toastHistory = [];
-function _recordToast(msg, type) {
-  _toastHistory.unshift({ msg: String(msg), type: type || 'info', ts: Math.floor(Date.now() / 1000) });
+function _recordToast(msg, type, detail) {
+  _toastHistory.unshift({ msg: String(msg), detail: detail ? String(detail) : '', type: type || 'info',
+                          ts: Math.floor(Date.now() / 1000) });
   if (_toastHistory.length > 30) _toastHistory.pop();
   const pop = document.getElementById('toast-history-pop');
   if (pop && !pop.classList.contains('hidden')) _renderToastHistory();
@@ -7089,7 +7091,7 @@ function _renderToastHistory() {
   list.innerHTML = _toastHistory.map(t =>
     `<div class="toast-hist-row th-${escAttr(t.type)}">`
     + `<span class="toast-hist-ic">${_icon(icons[t.type] || 'info', 13)}</span>`
-    + `<span class="toast-hist-msg">${escHtml(t.msg)}</span>`
+    + `<span class="toast-hist-msg">${escHtml(t.msg)}${_toastDetailHtml(t.detail)}</span>`
     + `<span class="toast-hist-ts">${timeAgoHtml(t.ts, { clamp: true })}</span>`
     + '</div>').join('');
 }
@@ -7116,8 +7118,14 @@ document.addEventListener('click', (e) => {
 });
 
 let toastId = 0;
+// v7.4.0: the technical half of a failure ("POST /devices/x/command · 404"), under the message. It is a node
+// of its own so the message above it can be translated by the same exact-match lookup as every other
+// text; the request line is not prose, so the translator skips it (data-no-i18n) and it stays left-to-right.
+function _toastDetailHtml(detail) {
+  return detail ? `<span class="toast-detail" dir="ltr" data-no-i18n>${escHtml(detail)}</span>` : '';
+}
 // v6.3.0 (UX wave 1): optional third arg `opts` —
-//   { action: {label, fn}, duration: ms, onTimeout: fn }
+//   { action: {label, fn}, duration: ms, onTimeout: fn, detail: 'a second, technical line' }
 // `action` renders a button inside the toast (the "Undo" pattern); clicking it
 // dismisses the toast and runs fn. `onTimeout` fires only if the toast expires
 // WITHOUT the action being clicked (deferred-commit deletes hang off this).
@@ -7127,13 +7135,13 @@ let toastId = 0;
 // about a field the user is looking at right now, not an event worth an
 // unread dot minutes later. Server failures/successes still land in the bell.
 function toast(msg, type = 'info', opts = {}) {
-  if (!opts.transient) _recordToast(msg, type);   // v6.3.0 (UX wave 3): notification-center history
+  if (!opts.transient) _recordToast(msg, type, opts.detail);   // v6.3.0 (UX wave 3): notification-center history
   const id = 'toast-' + (++toastId);
   const icons = {success: 'check', error: 'x', info: 'info', warning: 'warning'};
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.id = id;
-  el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`;
+  el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}${_toastDetailHtml(opts.detail)}</span>`;
   let settled = false;   // action clicked OR timed out — never both
   const dismiss = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); };
   const act = opts.action;
@@ -7163,18 +7171,20 @@ function toast(msg, type = 'info', opts = {}) {
 }
 // v7.4.0: the words for an action that did not go through, in one place. It replaced 238 toasts whose
 // fallback was the single word "Failed", which said nothing when the server had said nothing, and said
-// it twice when it had (api() already toasts every HTTP error as "POST /x failed — why").
-// Three cases are told apart:
+// it twice when it had (api() already toasts every HTTP error: the reason, with "POST /x · 404" under it).
+// Four cases are told apart:
 //   the server gave a reason            -> the reason
-//   it answered and gave none           -> "The server refused this and gave no reason."
+//   it answered and gave none           -> "The server refused this and gave no reason." (4xx)
+//                                          "The server failed and gave no reason." (5xx; api() passes the status)
 //   it did not answer (api() gave null) -> "The server did not answer."
 // failToast() stays quiet when api() has just announced this very failure, or has just signed the
 // person out (the login page is the message). It speaks for the refusals api() does not announce:
 // a 200 with {ok: false}, and calls made with {quiet: true}.
-function failText(r) {
+function failText(r, status) {
   const why = r && (r.error || r.message);
   if (why) return String(why);
-  return r ? 'The server refused this and gave no reason.' : 'The server did not answer.';
+  if (!r) return 'The server did not answer.';
+  return status >= 500 ? 'The server failed and gave no reason.' : 'The server refused this and gave no reason.';
 }
 function failToast(r, opts) {
   const seen = _apiFailureShown;

@@ -130,7 +130,7 @@ def handle_proxmox_lifecycle() -> None:
         A.respond(400, {'error': 'Proxmox integration is not enabled.'})
     if not cfg.get('proxmox_lifecycle_enabled'):
         A.respond(403, {'error': 'Proxmox VM lifecycle actions are disabled. '
-                               'Enable them in Settings → Proxmox first.'})
+                               'Enable them in Settings → Virtualization first.'})
     body = A._read_valid(A.request_models.ProxmoxLifecycleRequest)
     guest_type = str(body.get('guest_type', '')).strip()
     action = str(body.get('action', '')).strip()

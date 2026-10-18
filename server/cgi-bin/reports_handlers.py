@@ -1235,7 +1235,7 @@ def handle_report_defs_save():
         # customer's account manager — the exact leak this field exists to stop.
         A.respond(400, {'error': 'unknown site'})
     if not cleaned:
-        A.respond(400, {'error': 'name is required'})
+        A.respond(400, {'error': 'name required'})
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         defs = cfg.get('report_definitions') or []
         defs = [d for d in defs if d.get('id') != cleaned['id']]
