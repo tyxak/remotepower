@@ -18,6 +18,8 @@ _spec = importlib.util.spec_from_loader('agent', _loader)
 agent = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(agent)
 
+# checks.py imports its siblings (textfmt); alone, nothing had put cgi-bin on the path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'server' / 'cgi-bin'))
 _CHECKS = Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'checks.py'
 _cl = importlib.machinery.SourceFileLoader('checks_mod', str(_CHECKS))
 _cs = importlib.util.spec_from_loader('checks_mod', _cl)
