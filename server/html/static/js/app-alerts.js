@@ -699,20 +699,23 @@ function renderAlerts() {
   else { _renderAlertsFlat(rows); }
   _updateBulkResolveBtn();
 }
+const _alertCsvColumns = (a) => ({
+  severity:        _ALERT_SEV_RANK[a.severity] ?? 99,
+  ts:              a.ts || 0,
+  title:           (a.title || '').toLowerCase(),
+  device_name:     (a.device_name || '').toLowerCase(),
+  acknowledged_by: a.acknowledged_by || '',
+});
 function _renderAlertsFlat(rows) {
   // v3.2.1: sortable. Default = ts desc (newest first); operator can override.
-  rows = tableCtl.sortRows('alerts', rows, (a) => ({
-    severity:        _ALERT_SEV_RANK[a.severity] ?? 99,
-    ts:              a.ts || 0,
-    title:           (a.title || '').toLowerCase(),
-    device_name:     (a.device_name || '').toLowerCase(),
-    acknowledged_by: a.acknowledged_by || '',
-  }));
+  rows = tableCtl.sortRows('alerts', rows, _alertCsvColumns);
   // v6.2.2: chunked — a busy fleet's flat view can hold thousands of alerts.
   tableCtl.renderChunked('alerts-tbody',
     rows.map(a => _alertRowHtml(a, '')), {colspan: 7});
 }
 function _renderAlertsGrouped(rows) {
+  // The grouped view orders by host, not by column, but the CSV button still exports the rows (7.4.0).
+  tableCtl.sortRows('alerts', rows, _alertCsvColumns);
   // Bucket by host, then order groups worst-severity → most-open → name.
   const groups = new Map();
   for (const a of rows) {

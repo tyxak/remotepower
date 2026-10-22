@@ -182,7 +182,7 @@ function renderCustomScriptsPage() {
 
   const noResultHtml = noResultRows.map(s => {
     const sid = escAttr(s.id);   // safe: IDs are cs_hexhex, no special chars
-    return `<tr class="isl-598">
+    return `<tr class="isl-598" data-placeholder="1">
       <td class="fw-500">${escHtml(s.name)}</td>
       <td colspan="5" class="isl-599">No results yet — waiting for next run cycle</td>
       <td></td>

@@ -26557,6 +26557,7 @@ async function loadDiscovery() {
       <td class="fs-12">${escHtml((h.seen_by || []).join(', '))}</td>
       <td><button class="btn-icon fs-11" data-action="discoveryAddDevice" data-arg="${i}" title="Add this host as an agentless host">${_icon('package',13)} Add as host</button></td></tr>`).join('') +
     `</tbody></table></div>`;
+  tableCtl.wireSortOnly('discovery-thead', 'discovery', loadDiscovery);   // the table exists only now; the call above found no header on a first load
 }
 
 let _discoveryHosts = [];

@@ -38,9 +38,6 @@ _GATE = browser_available() or browser_required.required()
 
 # thead id -> why it has no export. The table is built after the sort call, so the call finds no header.
 MISSING = {
-    'alerts-thead': 'the grouped view sorts nothing through tableCtl; only the flat view does',
-    'discovery-thead': 'the table is drawn after wireSortOnly/sortRows ran, so there was no header to find it by',
-    'cs-results-thead': 'same: the table is drawn after the sort call',
 }
 
 _TABLES = """() => {
@@ -49,7 +46,7 @@ _TABLES = """() => {
     const th = t.querySelector('thead');
     if (!th || !th.querySelector('th[data-col]') || t.offsetParent === null) return;
     const rows = [...t.tBodies].flatMap(b => [...b.rows]).filter(
-      r => !r.querySelector('.empty-state, .empty-state-sm, .error-state, .skeleton') && r.cells.length > 1);
+      r => !r.querySelector('.empty-state, .empty-state-sm, .error-state, .skeleton') && !r.hasAttribute('data-placeholder') && r.cells.length > 1);
     const card = t.closest('.table-card') || t;
     const nxt = card.nextElementSibling;
     out.push({thead: th.id, rows: rows.length,
