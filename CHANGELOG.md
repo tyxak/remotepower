@@ -145,11 +145,10 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   key no fire site sends, or "unknown".
 - Refusals read in your language. The server's error messages ("Host not
   found", "port must be 1..65535") reached the dashboard in English whatever
-  language you chose: 7 of the 991 different messages had a translation. 265 are
-  translated into all six languages now, the ones the server sends from more
-  than one place first, and a test holds the rest: a new message has to arrive
-  translated, the list of messages still waiting only shrinks, and the real
-  translation engine is asked for every one that has an entry. The toast that
+  language you chose: 7 of the 991 different messages had a translation. All 991
+  are translated into all six languages now, and a test holds them: a new
+  message has to arrive translated, and the real translation engine is asked for
+  every one that has an entry. The toast that
   announces a refused request is the reason alone, with the request under it
   ("POST /x · 404"). It used to be one sentence holding the method, the path and
   the reason, which no dictionary can match. A message with a variable inside
