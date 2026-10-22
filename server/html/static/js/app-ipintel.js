@@ -624,6 +624,8 @@ function _ipiRenderAttackers() {
   }).join('');
 }
 
+const _IPI_SERVICE = {abuseipdb: 'AbuseIPDB', sniffcat: 'SniffCat'};
+
 function _ipiRenderSources() {
   const tb = document.getElementById('ipintel-src-tbody');
   const notes = document.getElementById('ipintel-src-notes');
@@ -668,6 +670,14 @@ function _ipiRenderSources() {
     }
     if (h.throttled) {
       out.push(`<p class="hint">${escHtml(h.name)}: ${_ipiPhrase('over the hourly limit, some addresses were skipped')} (${escHtml(String(h.throttled))})</p>`);
+    }
+    // fail2ban sends its own reports and the sensor reads the same bans from its log.
+    const told = new Set();
+    for (const s of h.sources || []) if (s.kind === 'f2b') (s.self_reports || []).forEach(w => told.add(w));
+    if (told.size) {
+      const names = [...told].map(w => _IPI_SERVICE[w] || w).join(' / ');
+      out.push(`<p class="hint c-amber">${escHtml(h.name)}: ${_ipiPhrase('fail2ban already sends its own reports to')} ${escHtml(names)}. ` +
+        `${_ipiPhrase('RemotePower reports the same bans, so each address is reported twice. Remove the action from fail2ban, or turn reporting off here.')}</p>`);
     }
   }
   // Said once, after the hosts it applies to, not once for each.

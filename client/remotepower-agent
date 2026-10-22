@@ -11737,6 +11737,36 @@ def _ts_f2b_logtarget():
     return '/var/log/fail2ban.log'
 
 
+_F2B_SELF_REPORT_WORDS = ('abuseipdb', 'sniffcat')
+_F2B_CONF_FILES = 60               # files read under /etc/fail2ban
+_F2B_CONF_BYTES = 200_000          # of each
+
+
+def _ts_f2b_self_reports(root='/etc/fail2ban'):
+    """Which reporting services fail2ban itself sends bans to: ['abuseipdb', 'sniffcat'] or a part
+    of that. Read from the files an operator writes (jail.local, jail.d/*.conf, fail2ban.local), on
+    uncommented lines; jail.conf is the package's own and names both services in macros it never uses.
+    When fail2ban reports, and RemotePower reports the same bans from its log, a service gets two
+    reports for each address."""
+    found = set()
+    files = [os.path.join(root, 'jail.local'), os.path.join(root, 'fail2ban.local')]
+    try:
+        d = host_path(os.path.join(root, 'jail.d'))
+        files += [os.path.join(root, 'jail.d', n) for n in sorted(os.listdir(d)) if n.endswith(('.conf', '.local'))]
+    except OSError:
+        pass
+    for path in files[:_F2B_CONF_FILES]:
+        for line in _safe_read(path, _F2B_CONF_BYTES).splitlines():
+            line = line.strip()
+            if not line or line[0] in '#;':
+                continue
+            low = line.lower()
+            for word in _F2B_SELF_REPORT_WORDS:
+                if word in low:
+                    found.add(word)
+    return sorted(found)
+
+
 def _ts_discover(cfg, now):
     """What there is to read on this host. The caller caches it for
     THREAT_DISCOVER_S: configs change rarely and reading them is not free."""
@@ -11792,11 +11822,14 @@ def _ts_discover(cfg, now):
             if _ts_exists(p):
                 add(fw, {'path': p, 'configured': False})
     target = _ts_f2b_logtarget()
+    told = {'self_reports': _ts_f2b_self_reports()} if (target or _which('fail2ban-client')) else {}
+    if not told.get('self_reports'):
+        told = {}
     if target:
         if _ts_exists(target):
-            add(f2b, {'path': target, 'configured': True})
+            add(f2b, dict({'path': target, 'configured': True}, **told))
     elif _which('fail2ban-client'):
-        f2b.append({'path': '', 'configured': True, 'unsupported': True})
+        f2b.append(dict({'path': '', 'configured': True, 'unsupported': True}, **told))
     for p in list((cfg or {}).get('paths') or [])[:20]:
         real = _ts_operator_path(p)
         if not real:
@@ -12744,9 +12777,11 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
     agg.carry = state.get('carry') if isinstance(state.get('carry'), dict) else {}
     deadline = time.monotonic() + float(budget_s)
 
-    def note(kind, path, state_, n=0, parsed=0, events=0, fmt='', proxied=None):
+    def note(kind, path, state_, n=0, parsed=0, events=0, fmt='', proxied=None, self_reports=None):
         s = {'kind': kind, 'path': str(path)[:300], 'state': state_, 'lines': n,
              'parsed': parsed, 'events': events}
+        if self_reports:
+            s['self_reports'] = list(self_reports)[:2]
         if fmt:
             s['fmt'] = fmt
         if proxied is not None:
@@ -12755,22 +12790,23 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
 
     def one(kind, entry, fams, scan, audit=False):
         path = entry.get('path') or ''
+        sr = entry.get('self_reports')
         if entry.get('unsupported') or not path:
-            note(kind, path or 'fail2ban', 'unsupported')
+            note(kind, path or 'fail2ban', 'unsupported', self_reports=sr)
             return
         if time.monotonic() > deadline:                 # out of time: next pass
             new_files[path] = old_files.get(path) or {}
-            note(kind, path, 'idle')
+            note(kind, path, 'idle', self_reports=sr)
             return
         lines, new, status = _ts_read_log(path, old_files.get(path) or {}, audit)
         new_files[path] = new if status in ('ok', 'idle') else (old_files.get(path) or {})
         if status not in ('ok', 'idle'):
-            note(kind, path, status)
+            note(kind, path, status, self_reports=sr)
             return
         n, parsed, fmt = scan(lines, path)
         events = sum(agg.family_events(f, path) for f in fams)
         note(kind, path, 'unparsed' if n >= 20 and parsed * 2 < n else status, n, parsed, events,
-             fmt, proxied=disc.get('proxied') if kind == 'web' else None)
+             fmt, proxied=disc.get('proxied') if kind == 'web' else None, self_reports=sr)
 
     for e in disc.get('web') or []:
         name, parse = _ts_access_parser(e.get('spec'))

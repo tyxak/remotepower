@@ -51,6 +51,7 @@ MAX_EVENTS = 300
 MAX_SOURCES = 40
 _SOURCE_KINDS = ('web', 'err', 'waf', 'f2b', 'cs', 'fw')
 _SOURCE_STATES = ('ok', 'idle', 'missing', 'denied', 'unparsed', 'unsupported', 'error')
+_SELF_REPORTS = ('abuseipdb', 'sniffcat')    # services fail2ban reports to by itself
 _SOURCE_FMTS = ('combined', 'custom', 'json', 'generic', 'native', 'nginx', 'apache')
 _PATH_RE = re.compile(r'(?:/[A-Za-z0-9._@+:/-]{1,299}|cscli|fail2ban)')
 
@@ -83,6 +84,10 @@ def _clean_sources(raw):
             row['fmt'] = s['fmt']
         if kind == 'web' and 'proxied' in s:
             row['proxied'] = bool(s['proxied'])
+        if kind == 'f2b' and isinstance(s.get('self_reports'), list):
+            told = sorted({w for w in s['self_reports'] if w in _SELF_REPORTS})
+            if told:
+                row['self_reports'] = told
         out.append(row)
     return out
 

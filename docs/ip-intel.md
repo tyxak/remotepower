@@ -148,6 +148,10 @@ minutes (SniffCat). If you let RemotePower do the reporting, turn those actions
 off. If you leave them on, nothing breaks: a report the service calls a repeat
 is treated as already done.
 
+The log sensor checks for this. It reads `jail.local`, `jail.d` and `fail2ban.local` on each
+host, and when an uncommented line names AbuseIPDB or SniffCat it adds a note under the Log
+sources table naming the host and the services.
+
 ### Behind Cloudflare or another proxy
 
 If your web server logs the proxy's address instead of the visitor's, every
