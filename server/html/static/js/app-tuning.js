@@ -13,6 +13,7 @@ async function loadTuning() {
       const el = document.getElementById(id);
       if (el) _errorState(el, loadTuning);
     });
+    loadSuppressions();   // its table has its own placeholder and its own error text
     return;
   }
   _tuningData = d;

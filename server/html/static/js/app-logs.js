@@ -35,6 +35,7 @@ async function refreshLogsFilters() {
   // Load devices list (reuse whatever api returns for /devices)
   const devs = await api('GET', '/devices?slim=1');
   const list = devs?.devices || devs || [];
+  if (!Array.isArray(list)) return;   // an error body: keep the filter as it is
   logsState.devicesCache = list;
   devSel.innerHTML = '<option value="">All hosts</option>' +
     list.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}${d.group ? ' ['+escHtml(d.group)+']' : ''}</option>`).join('');
@@ -65,6 +66,10 @@ async function pollLogsTail(initial) {
   qs.set('limit', '500');
   const data = await api('GET', `/logs/tail?${qs.toString()}`);
   if (!data) return;
+  if (data.error || !data.stats) {
+    if (initial) _errorState('logs-viewer', () => pollLogsTail(true), {msg: 'Failed to load: ' + failText(data)});
+    return;
+  }
   // Update stats
   document.getElementById('logs-stat-lines').textContent = data.stats.total_lines;
   document.getElementById('logs-stat-devices').textContent = data.stats.devices_reporting;
@@ -284,6 +289,10 @@ async function loadPerDeviceLogRules() {
   tableCtl.wireSortOnly('logs-rules-thead', 'logs_rules_device', loadPerDeviceLogRules);
   const data = await api('GET', '/logs/rules');
   if (!data) return;
+  if (data.error || !Array.isArray(data.rules)) {
+    _errorState(tbody, loadPerDeviceLogRules, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 6});
+    return;
+  }
   const globalCount = parseInt(document.getElementById('logs-stat-rules').dataset.globalCount || '0');
   document.getElementById('logs-stat-rules').textContent = data.rules.length + globalCount;
   document.getElementById('logs-stat-rules').dataset.deviceCount = data.rules.length;
@@ -319,6 +328,10 @@ async function loadGlobalLogRules() {
   tableCtl.wireSortOnly('logs-rules-global-thead', 'logs_rules_global', loadGlobalLogRules);
   const data = await api('GET', '/logs/rules/global');
   if (!data) return;
+  if (data.error || !Array.isArray(data.rules)) {
+    _errorState(tbody, loadGlobalLogRules, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 6});
+    return;
+  }
   const deviceCount = parseInt(document.getElementById('logs-stat-rules').dataset.deviceCount || '0');
   document.getElementById('logs-stat-rules').textContent = deviceCount + data.rules.length;
   document.getElementById('logs-stat-rules').dataset.globalCount = data.rules.length;

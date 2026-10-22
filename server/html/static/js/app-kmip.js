@@ -53,7 +53,15 @@ async function loadKmip() {
       api('GET', '/kmip/clients'),
       api('GET', '/kmip/keys'),
     ]);
-    if (!_kmipOk(status, 'Loading KMIP status')) return;
+    if (!_kmipOk(status, 'Loading KMIP status')) {
+      // The server, keys and log panels start on "Loading…"; leave each with a reason and a retry.
+      const why = (status && status.error) ? String(status.error) : 'no answer';
+      _errorState(tbody, loadKmip, { msg: `Failed to load: ${why}`, colspan: 7 });
+      _errorState('kmip-server-status', loadKmip, { msg: `Failed to load: ${why}` });
+      _errorState('kmip-keys-tbody', loadKmip, { msg: `Failed to load: ${why}`, colspan: 8 });
+      kmipLoadLog();
+      return;
+    }
     _kmipStatus = status;
     _kmipClients = (clients && clients.clients) || [];
     _kmipKeys = (keys && keys.keys) || [];
@@ -190,10 +198,11 @@ async function kmipLoadLog() {
   tbody.innerHTML = _skeletonRows(7, 3);
   try {
     const data = await api('GET', '/kmip/log?n=300');
+    if (data && data.error) throw new Error(data.error);
     _kmipLog = (data && data.entries) || [];
     _renderKmipLog();
   } catch (e) {
-    _errorState(tbody, kmipLoadLog, { msg: `Failed to load: ${String(e)}`, colspan: 7 });
+    _errorState(tbody, kmipLoadLog, { msg: `Failed to load: ${(e && e.message) || e}`, colspan: 7 });
   }
 }
 

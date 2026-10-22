@@ -8568,6 +8568,11 @@ async function loadDeviceMetrics() {
   _registerDeviceMetricsTable();
   const data = await api('GET', '/devices');
   if (!data) return;
+  if (!Array.isArray(data)) {   // an error body, not a host list
+    _errorState('device-metrics-tbody', loadDeviceMetrics, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 7});
+    _errorState('snmp-metrics-tbody', loadDeviceMetrics, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 8});
+    return;
+  }
   // Update the global cache so other code paths see fresh sysinfo too
   if (typeof devices !== 'undefined') devices = data;
 
@@ -11829,7 +11834,7 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All hosts</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; if (data.error || !Array.isArray(data.devices)) { _errorState(tbody, loadPatchReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 9}); loadPatchCatalog(); loadPatchSla(); return; } patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All hosts</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
 
 // W1-33: patch-compliance SLA rules + per-device status.
 let _patchSlaRules = [];
@@ -12188,6 +12193,10 @@ async function loadServicesReport() {
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/services');
   if (!data) return;
+  if (data.error || !Array.isArray(data.devices)) {
+    _errorState(tbody, loadServicesReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 7});
+    return;
+  }
   // Also fetch maintenance badge
   const maint = await api('GET', '/maintenance');
   const active = (maint?.windows || []).filter(w => w.active).length;
@@ -28559,7 +28568,12 @@ async function loadCompliance() {
   body.innerHTML = '<div class="c-muted">Evaluating controls…</div>';
   const qs = fws.length ? `?frameworks=${fws.join(',')}` : '';
   const r = await api('GET', `/compliance${qs}`);
-  if (!r || !r.frameworks) { body.innerHTML = '<div class="c-red">Failed to load compliance report.</div>'; return; }
+  if (!r || !r.frameworks) {
+    body.innerHTML = '<div class="c-red">Failed to load compliance report.</div>';
+    // The baseline, OpenSCAP and PII cards load from their own endpoints and sit on "Loading…" until asked.
+    loadComplianceBaseline(); loadScap(); loadPii();
+    return;
+  }
   // v6.3.1: 'not_assessed' (a monitoring blind spot) is distinct from 'na'
   // (RemotePower structurally can't assess it) — amber, with a warning tone,
   // so the "silence isn't clearance" verdict is visible not buried.

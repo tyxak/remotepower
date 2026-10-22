@@ -48,6 +48,10 @@ async function loadCVEReport() {
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/cve/findings');
   if (!data) return;
+  if (data.error || !data.summary) {
+    _errorState(tbody, loadCVEReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 10});
+    return;
+  }
   cveReportData = data;
   // v6.3.0 (UX wave 10): stats animate old→new with a fading delta arrow.
   animateStat('cve-stat-critical', data.summary.critical);

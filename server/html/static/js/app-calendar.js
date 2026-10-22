@@ -247,7 +247,7 @@ async function loadTasks() {
   const sel = document.getElementById('tasks-device-filter');
   if (sel.options.length <= 2) {
     const devs = await api('GET', '/devices?slim=1');
-    if (devs) {
+    if (devs && !devs.error) {
       const list = devs.devices || devs;
       // Keep "All devices" + "No device linked" options at top
       for (const d of list) {

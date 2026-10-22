@@ -51,6 +51,9 @@ async function loadAlerts() {
     // in this view." on a 500 or a 403 — telling an operator there is nothing
     // to act on because the server could not tell them what there is. api()
     // resolves on both, so the catch arm below never fired.
+    // The prior-incidents card below is filled only by a successful load; without this it stays on "Loading…".
+    const _failed = !data || data.error;
+    if (_failed && typeof _renderIncidentMemory === 'function') _renderIncidentMemory('Could not load prior incidents');
     if (!data || data.error) {
       const _tb = document.getElementById('alerts-tbody');
       if (_tb && typeof _errorState === 'function') {

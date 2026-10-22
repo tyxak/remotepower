@@ -434,9 +434,10 @@ async function loadPower() {
   } catch (_) {}
   try {
     _powerResp = await api('GET', '/fleet/power');
+    if (!_powerResp || _powerResp.error) throw new Error((_powerResp && _powerResp.error) || 'no answer');
     _renderPower();
   } catch (e) {
-    _errorState(tbody, loadPower, {msg: `Failed to load: ${String(e)}`, colspan: 6});
+    _errorState(tbody, loadPower, {msg: `Failed to load: ${(e && e.message) || e}`, colspan: 6});
   }
   loadChargeback();   // v3.14.0 (#41): cost allocation card
 }
@@ -507,10 +508,11 @@ async function loadDiskHealth() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
+    if (!_diskHealthResp || _diskHealthResp.error) throw new Error((_diskHealthResp && _diskHealthResp.error) || 'no answer');
     if (summary) summary.innerHTML = `${plural(_diskHealthResp.count, 'disk', 'disks')} at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${plural(_diskHealthResp.unstable_count || 0, 'unstable host', 'unstable hosts')}`;
     _renderDiskHealth();
   } catch (e) {
-    _errorState(tbody, loadDiskHealth, {msg: `Failed to load: ${String(e)}`, colspan: 6});
+    _errorState(tbody, loadDiskHealth, {msg: `Failed to load: ${(e && e.message) || e}`, colspan: 6});
   }
   // v6.2.0: the composite failure-likelihood table. Loaded separately so a
   // failure here can never blank the disk table above it.

@@ -14,6 +14,8 @@ let _provExec = false;       // terraform plan/apply/destroy available (enabled 
 async function loadProvisioning() {
   const tree = document.getElementById('provisioning-tree');
   if (tree) tree.innerHTML = _skeletonBlock();
+  // The playbooks card has its own endpoint: with Provisioning switched off (the default) it sat on "Loading…" for good.
+  if (typeof loadAnsible === 'function') { try { loadAnsible(); } catch (_) {} }
   const d = await api('GET', '/provisioning/blueprints');
   if (!d) return;
   if (!d.enabled) {
@@ -23,8 +25,6 @@ async function loadProvisioning() {
   }
   _provExec = !!(d.execute_enabled && d.terraform_available);
   _provisioningCache = d.blueprints || [];
-  // Also load the Ansible playbooks card (consolidated under Provisioning).
-  if (typeof loadAnsible === 'function') { try { loadAnsible(); } catch (_) {} }
   _renderProvisioningTree();
 }
 
