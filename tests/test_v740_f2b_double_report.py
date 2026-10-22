@@ -5,7 +5,6 @@ RemotePower reads fail2ban's bans from its log and reports them, so a host whose
 sends each address twice. The agent looks at the files an operator writes (jail.local, jail.d,
 fail2ban.local), never at the package's jail.conf, which names both services in macros it does not use.
 """
-import os
 import sys
 import tempfile
 import unittest
