@@ -11233,6 +11233,7 @@ THREAT_BUDGET_S = 5.0             # parsing time per pass; the rest waits for th
 THREAT_LOOKBACK_S = 6 * 3600      # older lines are not evidence
 THREAT_MAX_EVENTS = 300           # addresses per submission
 THREAT_MIN_HITS = 3               # hostile requests before a plain web address is sent
+THREAT_CARRY_MAX = 2000           # addresses under that minimum whose count is kept from pass to pass
 THREAT_FW_PORTS = 4               # distinct ports one address tried before it counts as a scan
 THREAT_FW_PACKETS = 15            # or this many blocked packets, to one port or several
 THREAT_MAX_LINE = 8192
@@ -12053,6 +12054,21 @@ def _ts_access_parser(spec):
 
 # ── what each kind of log is scanned for ──────────────────────────────────────
 
+def _ts_carry_entry(raw, floor):
+    """One carried address from the state file, made safe to add, or None. The file is read back
+    from disk, so every number is coerced and anything unreadable is left out, not trusted."""
+    try:
+        if not isinstance(raw, dict) or int(raw.get('last') or 0) < floor:
+            return None
+        src = {str(f): int(n) for f, n in (raw.get('src') or {}).items() if int(n) > 0}
+        tok = {str(f): {str(t): int(n) for t, n in (toks or {}).items()}
+               for f, toks in (raw.get('tok') or {}).items()}
+        return {'src': src, 'tok': tok, 'first': int(raw.get('first') or 0), 'last': int(raw.get('last') or 0),
+                'ans': int(raw.get('ans') or 0), 'blk': int(raw.get('blk') or 0)}
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return None
+
+
 class _TsAgg:
     """Per-address evidence for one pass.
 
@@ -12068,6 +12084,8 @@ class _TsAgg:
         self.bans = {}                 # ip -> [fail2ban jails]
         self.decs = {}                 # ip -> CrowdSec decisions
         self.cves = {}                 # ip -> [CVE ids]
+        self.carry = {}                # ip -> evidence below the minimum, kept from earlier passes
+        self.carry_out = {}            # the same, as it stands after this pass
         self._tx = {}
         self._tx_tok = set()
 
@@ -12147,6 +12165,26 @@ class _TsAgg:
             e['blk'] = max(e['blk'], a['blk'])
             e['first'] = min(e['first'] or a['first'], a['first']) if a['first'] else e['first']
             e['last'] = max(e['last'], a['last'])
+        # A scanner that sends a request a minute never reaches the minimum inside one pass. What an
+        # earlier pass saw of an address is added to this pass's own count (the logs are read once, so
+        # nothing is counted twice), and an address that stays under the minimum is carried on.
+        floor = self.now - THREAT_LOOKBACK_S
+        for ip, raw in self.carry.items():
+            c = _ts_carry_entry(raw, floor)
+            if not c:
+                continue
+            e = per.setdefault(ip, {'ip': ip, 'first': c['first'], 'last': 0, 'src': {},
+                                    'tok': {}, 'ans': 0, 'blk': 0, 'ban': [], 'dec': 0, 'cve': []})
+            for fam, n in c['src'].items():
+                e['src'][fam] = e['src'].get(fam, 0) + n
+            for fam, toks in c['tok'].items():
+                tk = e['tok'].setdefault(fam, {})
+                for t, n in toks.items():
+                    tk[t] = tk.get(t, 0) + n
+            e['ans'] += c['ans']
+            e['blk'] += c['blk']
+            e['first'] = min(e['first'] or c['first'], c['first'] or e['first'])
+            e['last'] = max(e['last'], c['last'])
         for ip, jails in self.bans.items():
             e = per.setdefault(ip, {'ip': ip, 'first': self.now, 'last': self.now, 'src': {},
                                     'tok': {}, 'ans': 0, 'blk': 0, 'ban': [], 'dec': 0, 'cve': []})
@@ -12164,6 +12202,14 @@ class _TsAgg:
                 if strong(e) or max(list(e['src'].values()) or [0]) >= THREAT_MIN_HITS]
         keep.sort(key=lambda e: (bool(e['ban'] or e['dec']), sum(e['src'].values())), reverse=True)
         dropped = (len(per) - len(keep)) + max(0, len(keep) - THREAT_MAX_EVENTS)
+        kept_ips = {e['ip'] for e in keep}
+        waiting = sorted((e for e in per.values() if e['ip'] not in kept_ips and e['last'] >= floor),
+                         key=lambda e: sum(e['src'].values()), reverse=True)[:THREAT_CARRY_MAX]
+        self.carry_out = {e['ip']: {'src': e['src'], 'first': e['first'], 'last': e['last'],
+                                    'ans': e['ans'], 'blk': e['blk'],
+                                    'tok': {f: dict(sorted(t.items(), key=lambda kv: -kv[1])[:8])
+                                            for f, t in e['tok'].items() if t}}
+                          for e in waiting}
         out = keep[:THREAT_MAX_EVENTS]
         for e in out:
             e['tok'] = {f: dict(sorted(t.items(), key=lambda kv: -kv[1])[:24])
@@ -12695,6 +12741,7 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
         disc = _ts_discover(cfg or {}, now)
         disc['psig'] = psig
     agg, sources, new_files = _TsAgg(now), [], {}
+    agg.carry = state.get('carry') if isinstance(state.get('carry'), dict) else {}
     deadline = time.monotonic() + float(budget_s)
 
     def note(kind, path, state_, n=0, parsed=0, events=0, fmt='', proxied=None):
@@ -12771,7 +12818,8 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
 
     events, dropped = agg.events()
     new_state = {'files': new_files, 'disc': disc, 'cs_last_id': cs_last,
-                 'status_at': state.get('status_at', 0), 'sig': state.get('sig', '')}
+                 'status_at': state.get('status_at', 0), 'sig': state.get('sig', ''),
+                 'carry': agg.carry_out}
     return events, sources, dropped, new_state
 
 

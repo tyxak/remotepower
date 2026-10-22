@@ -166,6 +166,8 @@ host would not match it.
   from its last 2 MB, and nothing older than six hours counts.
 - A plain web address is sent after 3 hostile requests in a pass, or at once if
   fail2ban, CrowdSec or the WAF flagged it.
+  A slow scanner is still caught: the agent keeps what it saw of an address
+  under 3 (up to 2,000 addresses, for six hours) and adds it to the next pass.
 - Network work is limited to 25 addresses a sweep, strongest first, so a short
   daily allowance goes to the addresses that earned it.
 
