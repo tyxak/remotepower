@@ -289,8 +289,12 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         self.go('devices', 2500)
         self._open_by_keyboard("#page-devices button[data-action='openDeviceDrawer']")
         self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open') && document.getElementById('device-drawer').contains(document.activeElement)"))
+        # The drawer fills in after it opens; under a loaded full run the Tabs raced that fill
+        # (failed twice in the JSON gate, passed alone), so let it settle and pace the presses.
+        p.wait_for_timeout(1500)
         for _ in range(40):
             p.keyboard.press('Tab')
+            p.wait_for_timeout(15)
         self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').contains(document.activeElement)"), 'Tab left the host drawer')
         p.keyboard.press('Escape')
         p.wait_for_timeout(500)
