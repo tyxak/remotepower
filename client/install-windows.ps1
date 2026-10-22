@@ -9,7 +9,7 @@
 
   The agent is used from beside this script if present; otherwise it is
   downloaded from the server (and its checksum verified) — so this script works
-  standalone. The smoothest path is the one-liner from "Add device → Quick
+  standalone. The smoothest path is the one-liner from "Add host → Quick
   install"; this script is the scripted / offline equivalent.
 
   Run from an ELEVATED PowerShell:
@@ -60,13 +60,13 @@ if ($Uninstall) {
   schtasks /delete /tn RemotePowerAgent /f 2>$null | Out-Null
   Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
-  Write-Host 'Uninstalled (service, task, files and data removed). Remove the device from the dashboard to stop tracking it.' -ForegroundColor Green
+  Write-Host 'Uninstalled (service, task, files and data removed). Remove the host from the dashboard to stop tracking it.' -ForegroundColor Green
   return
 }
 
 Assert-Admin
 if (-not $Server) { throw 'Provide -Server https://<your-remotepower>' }
-if (-not $Pin -and -not $Token) { throw 'Provide -Token (from "Add device") or -Pin' }
+if (-not $Pin -and -not $Token) { throw 'Provide -Token (from "Add host") or -Pin' }
 
 function Install-PythonIfMissing {
   if (Get-Command python -ErrorAction SilentlyContinue) { return }

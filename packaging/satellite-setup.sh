@@ -24,6 +24,9 @@
 #   RP_UPSTREAM_INSECURE 1 to skip upstream TLS verify (self-signed server)
 #   --self-signed CN     generate a self-signed cert for CN into /etc/remotepower/
 
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 RP_UPSTREAM="${RP_UPSTREAM:-}"

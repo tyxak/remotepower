@@ -31,6 +31,9 @@
 # It NEVER prints the password to logs other than the final summary, and never
 # writes it into world-readable files (the marker is chmod 600).
 
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 RP_DB_NAME="${RP_DB_NAME:-remotepower}"

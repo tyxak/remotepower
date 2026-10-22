@@ -84,7 +84,8 @@ def _py_files():
     out = sorted(p for p in (ROOT / 'server' / 'cgi-bin').glob('*.py')
                  if p.name not in {'storage.py', 'storage_pg.py'})            # SQL and store internals
     out += sorted(p for p in (ROOT / 'server').glob('*/*.py') if p.parent.name not in {'cgi-bin', 'html'})
-    out += [ROOT / 'client' / n for n in ('remotepower-agent.py', 'remotepower-agent-win.py', 'remotepower-agent-mac.py')]
+    out += [ROOT / 'client' / n for n in ('remotepower-agent.py', 'remotepower-agent-win.py', 'remotepower-agent-mac.py',
+                                          'remotepower-satellite.py', 'remotepower-scanner.py')]
     out += sorted((ROOT / 'mcp').glob('*.py')) + sorted((ROOT / 'packaging').glob('*.py'))
     return [p for p in out if p.exists()]
 
@@ -99,6 +100,9 @@ def _script_files():
                                 'docker-compose.yml')]
     files += sorted((ROOT / 'docker').glob('*.sh')) + sorted((ROOT / 'docker').glob('*.yml'))
     files += sorted((ROOT / 'packaging').glob('*.sh')) + sorted((ROOT / 'packaging').glob('*.service'))
+    # The Windows and macOS installers and the agent's unit file sat outside this list, and "Add device" survived in
+    # the Windows one (the dashboard button is Add host).
+    files += [ROOT / 'client' / n for n in ('install-windows.ps1', 'install-macos.sh', 'remotepower-agent.service')]
     return [p for p in files if p.exists()]
 
 

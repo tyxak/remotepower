@@ -21,6 +21,9 @@
 # RemotePower adds target_session_attrs=read-write, so it always writes to the
 # current primary and follows a failover automatically.
 
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 REPL_USER="${REPL_USER:-rp_repl}"

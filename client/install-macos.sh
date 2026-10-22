@@ -2,6 +2,19 @@
 # RemotePower — macOS client installer (launchd).
 # Run with sudo on each Mac you want in the fleet. Enrolls the agent and starts
 # it as a LaunchDaemon so it runs at boot regardless of login.
+#
+# Usage:
+#   sudo bash client/install-macos.sh --server https://rp.example.com --pin 123456
+#   sudo bash client/install-macos.sh https://rp.example.com 123456      (positional, as before)
+#   sudo bash client/install-macos.sh                                     (asks for both)
+#
+# Options:
+#   --server URL          RemotePower server address (https://...).
+#   --pin PIN             Enrollment PIN, from Add host in the dashboard.
+#   --ca-fingerprint FP   SHA-256 fingerprint of your internal CA. The CA is fetched from
+#                         http://<host>/ca.crt and verified against it before it is trusted.
+#   --ca PATH|URL         Use this CA certificate instead of <host>/ca.crt.
+#   -h, --help            Show this help.
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -10,6 +23,21 @@ success() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
+# Positional SERVER / PIN for back-compat; flags add the self-signed CA story.
+SERVER=""; PIN=""; CA_FP=""; CA_SRC=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ca-fingerprint) CA_FP="${2:?--ca-fingerprint needs a value}"; shift 2 ;;
+    --ca)             CA_SRC="${2:?--ca needs a value}"; shift 2 ;;
+    --server)         SERVER="${2:?--server needs a value}"; shift 2 ;;
+    --pin)            PIN="${2:?--pin needs a value}"; shift 2 ;;
+    -h|--help)        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
+    -*)               die "unknown option: $1 (try --help)" ;;
+    *) if [ -z "$SERVER" ]; then SERVER="$1"; elif [ -z "$PIN" ]; then PIN="$1"; fi; shift ;;
+  esac
+done
+
+# After the arguments, so that --help and a mistyped option answer without root.
 [ "$(id -u)" -eq 0 ] || die "Run as root: sudo bash client/install-macos.sh"
 [ "$(uname -s)" = "Darwin" ] || die "This installer is for macOS. Use install-client.sh (Linux) or install-windows.ps1 (Windows)."
 command -v python3 >/dev/null || die "python3 not found — install it (e.g. 'xcode-select --install' or Homebrew)."
@@ -18,18 +46,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$SCRIPT_DIR/remotepower-agent-mac.py"
 [ -f "$SRC" ] || SRC="$SCRIPT_DIR/client/remotepower-agent-mac.py"
 [ -f "$SRC" ] || die "cannot find remotepower-agent-mac.py"
-
-# Positional SERVER / PIN for back-compat; flags add the self-signed CA story.
-SERVER=""; PIN=""; CA_FP=""; CA_SRC=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --ca-fingerprint) CA_FP="$2"; shift 2 ;;
-    --ca)             CA_SRC="$2"; shift 2 ;;
-    --server)         SERVER="$2"; shift 2 ;;
-    --pin)            PIN="$2"; shift 2 ;;
-    *) if [ -z "$SERVER" ]; then SERVER="$1"; elif [ -z "$PIN" ]; then PIN="$1"; fi; shift ;;
-  esac
-done
 if [ -z "$SERVER" ]; then read -r -p "Server URL (https://…): " SERVER; fi
 if [ -z "$PIN" ];    then read -r -p "Enrollment PIN (from the dashboard): " PIN; fi
 [ -n "$SERVER" ] && [ -n "$PIN" ] || die "server URL and PIN required"

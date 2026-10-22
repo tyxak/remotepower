@@ -1,5 +1,5 @@
 [Unit]
-Description=RemotePower Agent - Remote device management client
+Description=RemotePower Agent - remote host management client
 Documentation=https://github.com/tyxak/remotepower
 After=network-online.target
 Wants=network-online.target

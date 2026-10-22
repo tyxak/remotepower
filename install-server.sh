@@ -9,8 +9,6 @@ success() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
-[[ $EUID -ne 0 ]] && die "Run as root: sudo bash install-server.sh"
-
 # ── Enterprise single-node topology (v6.1+) — DEFAULT ON ──────────────────────
 # The standard install is Postgres + the persistent gunicorn/Flask app tier
 # (the only server — CGI/fcgiwrap is retired, see CHANGELOG v6.1.0) + the
@@ -93,6 +91,9 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# After the arguments, so that --help and a mistyped option answer without root.
+[[ $EUID -ne 0 ]] && die "Run as root: sudo bash install-server.sh"
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"

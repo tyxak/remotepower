@@ -4077,21 +4077,46 @@ def run(should_stop=None, wait=None):
         wait(delay)
 
 
+
+def _not_enrolled_message():
+    prog = os.path.basename(sys.argv[0]) or 'remotepower-agent-win.py'
+    return ('This host is not enrolled yet. Enroll it first:\n'
+            f'  {prog} --enroll --server https://your-server --pin 123456')
+
+
+def _clean_server_url(server):
+    """The server address as the agent will use it. Only HTTPS is spoken: a bare host name, or an http:// address,
+    becomes https:// with a notice, as on Linux. (_post_json still refuses anything that is not https://, because the
+    host token and every command the server sends would cross the network unencrypted.)"""
+    s = (server or '').strip().rstrip('/')
+    if not s.lower().startswith('https://'):
+        bare = re.sub(r'^[A-Za-z][A-Za-z0-9+.-]*://', '', s)
+        print(f'Only HTTPS is supported. Using https://{bare}', file=sys.stderr)
+        s = 'https://' + bare
+    return s
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='RemotePower minimal Windows agent')
-    ap.add_argument('--enroll', action='store_true')
-    ap.add_argument('--server')
-    ap.add_argument('--pin')
-    ap.add_argument('--token')
-    ap.add_argument('--name')
-    ap.add_argument('--run', action='store_true')
-    ap.add_argument('--once', action='store_true')
-    ap.add_argument('--version', action='store_true')
+    ap = argparse.ArgumentParser(
+        description='RemotePower minimal Windows agent',
+        epilog='First run:  remotepower-agent-win.py --enroll --server https://rp.example.com --pin 123456\n'
+               'Then:       remotepower-agent-win.py --install-service   (elevated prompt), or --run in a console',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--enroll', action='store_true',
+                    help='enroll this host with the server (needs --server and --pin or --token)')
+    ap.add_argument('--server', help='RemotePower server address, for example https://rp.example.com (HTTPS only)')
+    ap.add_argument('--pin', help='6-digit enrollment PIN, from Add host in the dashboard')
+    ap.add_argument('--token', help='enrollment token, from Add host in the dashboard (a 6-digit PIN goes in --pin)')
+    ap.add_argument('--name', help='display name for this host (default: its host name)')
+    ap.add_argument('--run', action='store_true', help='run in this console: send heartbeats until stopped')
+    ap.add_argument('--once', action='store_true', help="send one heartbeat, print the server's answer and exit")
+    ap.add_argument('--version', action='store_true', help='print the agent version and exit')
     # v6.2.0: Windows-service lifecycle (services.msc).
     ap.add_argument('--service-run', action='store_true',
                     help=argparse.SUPPRESS)        # SCM entry point (internal)
-    ap.add_argument('--install-service', action='store_true')
-    ap.add_argument('--uninstall-service', action='store_true')
+    ap.add_argument('--install-service', action='store_true',
+                    help='install and start the Windows service (run from an elevated prompt)')
+    ap.add_argument('--uninstall-service', action='store_true', help='stop and remove the Windows service')
     a = ap.parse_args(argv)
     if a.version:
         print(VERSION)
@@ -4111,13 +4136,22 @@ def main(argv=None):
             print('That looks like a 6-digit PIN, not an enrollment token — '
                   'use --pin instead of --token.', file=sys.stderr)
             return 2
+        server = _clean_server_url(a.server)
         try:
-            r = enroll(a.server, pin=a.pin, token=a.token, name=a.name)
+            r = enroll(server, pin=a.pin, token=a.token, name=a.name)
+        except urllib.error.URLError as e:
+            print(f'Could not reach {server}: {getattr(e, "reason", e)}', file=sys.stderr)
+            return 1
         except Exception as e:
             print(f'Enrollment failed: {e}', file=sys.stderr)
             return 1
-        print(f'enrolled: device_id={r["device_id"]}')
+        print(f'Enrolled. Host ID: {r["device_id"]}')
+        print(f'  Credentials saved to {_creds_path()}')
         return 0
+    if a.once or a.run:
+        if not load_creds().get('device_id'):
+            print(_not_enrolled_message(), file=sys.stderr)
+            return 1
     if a.once:
         creds = load_creds()
         resp, _ = heartbeat_once(creds, 1)

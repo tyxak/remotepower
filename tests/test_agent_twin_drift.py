@@ -63,6 +63,8 @@ TWINNED = {
     '_luhn_ok', '_redact_secret', 'collect_pii_findings', 'collect_secret_findings',
     # misc shared helpers
     '_exec_timeout_override', '_fmt_uptime', '_spent', '_stable_hash',
+    # server address check: one sentence for a person at a terminal (7.4.0)
+    '_clean_server_url',
     # no-redirect opener — security-critical, must not diverge
     'redirect_request',
 }

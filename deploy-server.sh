@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # RemotePower — quick redeploy after git pull
 # Does NOT touch Nginx config, users.json, or config.json
+#
+# Usage:   sudo bash deploy-server.sh      (run from the repository root, after git pull)
+
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'

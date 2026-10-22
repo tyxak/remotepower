@@ -34,6 +34,10 @@
 #   RP_RESTART_DELAY      seconds before the restart  (default 2 — lets the API's
 #                         HTTP response flush before its worker is killed)
 # ---------------------------------------------------------------------------
+
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 WSGI_SERVICE="${RP_WSGI_SERVICE:-remotepower-wsgi}"

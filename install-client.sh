@@ -39,8 +39,6 @@ success() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
-[[ $EUID -ne 0 && -z "$RP_ROOT" ]] && die "Run as root: sudo bash install-client.sh"
-
 SERVER_URL=""; CA_FP=""; CA_SRC=""; PIN=""; REENROLL=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,10 +47,13 @@ while [ $# -gt 0 ]; do
     --ca)             CA_SRC="$2"; shift 2 ;;
     --pin)            PIN="$2"; shift 2 ;;
     --re-enroll)      REENROLL=1; shift ;;
-    -h|--help)        sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *)                die "unknown option: $1 (try --help)" ;;
   esac
 done
+
+# After the arguments, so that --help and a mistyped option answer without root.
+[[ $EUID -ne 0 && -z "$RP_ROOT" ]] && die "Run as root: sudo bash install-client.sh"
 
 # ── Upgrade detection ────────────────────────────────────────────────────────
 # An enrolled host (credentials present) being re-installed is an UPGRADE:

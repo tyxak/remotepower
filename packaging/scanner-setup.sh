@@ -30,6 +30,9 @@
 #   --mint-local          mint a scanner token directly into RP_DATA_DIR/satellites.json
 #                         and default RP_SERVER_URL to http://127.0.0.1
 
+# -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
+for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
+
 set -euo pipefail
 
 RP_SERVER_URL="${RP_SERVER_URL:-}"
