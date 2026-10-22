@@ -53,6 +53,9 @@ EXEMPT = {
                  'capping it would put the page inside a box',
     'self-status-body': 'a vertical stack of distinct status CARDS, not rows — '
                         'each card caps its own content',
+    'containers-panel-agent': 'three stacked sections (hosts, image updates, '
+                              'compose stacks), each its own table; the 7.4.0 CSV '
+                              'bars took the wrapper past 12 children',
 }
 
 # ~15 rows at the app's row height, plus header and padding.
