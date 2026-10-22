@@ -876,7 +876,7 @@
      margin-left:-1px hack is gone). */
 
   /* v4.1.0: dashboard title row with a small inline Customize button. */
-  .page-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .page-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
   .page-title-row + .page-subtitle { margin-top: -13px; }
   .page-title-row .page-title { margin: 0; }
   .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
@@ -3551,6 +3551,9 @@ body.density-compact .dash-card > .drift-prof-head:first-child {
    * nothing in that strip. */
   main { padding: 12px !important; }
   .app-content { margin-left: 0 !important; }
+  /* The right-to-left rules put the rail's width on the right instead, and nothing here took it off:
+     in Arabic the phone layout kept a 56px strip of nothing beside the content and the header. */
+  [dir="rtl"] .app-content, [dir="rtl"] header { margin-right: 0 !important; }
   .container { padding: 0 !important; }
 
   /* Header gets compact — and spans the full width again (the sidebar is an
@@ -5023,7 +5026,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-61 { flex-wrap:wrap; gap:12px; align-items:flex-end; margin-top:12px }
 .isl-62 { min-width:260px }
 .isl-63 { min-width:160px }
-.isl-64 { display:flex; gap:10px; margin-top:14px; align-items:center }
+.isl-64 { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center }
 .isl-65 { max-width:340px }
 .isl-66 { font-family:var(--font-mono); font-size:12px }
 .isl-67 { display:flex; align-items:center; gap:10px; cursor:pointer; margin:10px 0 }
@@ -5127,7 +5130,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-152 { font-size:12px; color:var(--muted); padding:12px 16px 0 }
 .isl-153 { margin-top:24px; display:none }
 .isl-155 { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px; flex-wrap:wrap }
-.isl-156 { display:flex; align-items:center; gap:8px }
+.isl-156 { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
 .isl-157 { font-size: 13px; font-weight:620; min-width:180px; text-align:center }
 .isl-158 { margin-left:8px; font-size:12px }
 .isl-159 { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; padding:0 4px 8px }
@@ -5341,8 +5344,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .c-amber-bold { color: var(--amber-ink); font-weight: 600; }
 .pointer { cursor: pointer; }
 .row-4-center { display: flex; align-items: center; gap: 4px; }
-.row-6 { display: flex; gap: 6px; }
-.row-6-center { display: flex; gap: 6px; align-items: center; }
+.row-6 { display: flex; flex-wrap: wrap; gap: 6px; }   /* a translated button label is longer; the row wraps at 390px instead of running off the screen */
+.row-6-center { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mb-4 { margin-bottom: 4px; }
 .mt-6 { margin-top: 6px; }
 .mt-12 { margin-top: 12px; }
@@ -6641,6 +6644,9 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .cis-spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 28px; }
 .cis-spark-bar { width: 4px; border-radius: 1px 1px 0 0; background: var(--muted); }
 
+/* A URL or token shown inside a Settings pane has no spaces to wrap at; on a phone it set the width of the page. */
+#page-settings :not(pre) > code { overflow-wrap: anywhere; }
+
 /* v3.4.2: print-friendly fleet report (Reports → Print / Save as PDF) */
 .print-only { display: none; }
 @media print {
@@ -7081,7 +7087,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 
 /* v3.12.0: table pager (Prev / x–y of N / Next) under paginated tables */
-.table-pager { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin: 10px 0 4px; }
+.table-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: flex-end; margin: 10px 0 4px; }
 .table-pager .btn-icon[disabled] { opacity: .4; cursor: default; }
 .table-pager-info { font-size: 12px; color: var(--muted); }
 
@@ -7327,8 +7333,10 @@ body.density-compact .section-title { margin-bottom: 6px; }
    filter/grouping toggles. */
 .segmented {
   display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
-  overflow: hidden; background: var(--surface);
+  overflow-x: auto; overflow-y: hidden; max-width: 100%;   /* four translated labels can be wider than a phone: scroll inside the control */
+  background: var(--surface);
 }
+.segmented button { flex: 0 0 auto; white-space: nowrap; }
 .segmented button {
   padding: 5px 12px; font-family: var(--font-mono); font-size: 12px;
   background: transparent; border: 0; border-right: 1px solid var(--border);
@@ -7713,7 +7721,8 @@ kbd{
    Behind content; never intercepts clicks; the opaque sidebar covers its left
    strip so it reads as centred in the content area. */
 #page-watermark{
-  display:block; position:fixed; inset:auto; right:0; bottom:0; z-index:0; pointer-events:none;
+  display:flex; align-items:flex-end; justify-content:flex-end;
+  position:fixed; inset:0; overflow:hidden; z-index:0; pointer-events:none;
 }
 .app-content{ position:relative; z-index:1; }   /* content above the watermark */
 #page-watermark svg{
