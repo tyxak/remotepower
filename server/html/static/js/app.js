@@ -7418,6 +7418,40 @@ document.addEventListener('click', (e) => {
     () => toast('Could not copy', 'error'));
 });
 
+// v7.4.0: an address or an id that fills a table cell copies on click, without each renderer asking.
+// Renderers write their own rows, so this watches for new cells and marks the ones whose whole text is
+// an IP address, a CIDR, a MAC address, a UUID, a long hex id or a CVE id. Left alone: a cell with
+// anything clickable in it, a cell in a row that opens something (both clicks would fire), and the
+// wildcard addresses, which nobody copies.
+const _COPY_ADDR = /^(?:\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?|(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:\/\d{1,3})?)$/i;
+const _COPY_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{12,64}|CVE-\d{4}-\d{4,7}|[0-9a-f]{2}(?::[0-9a-f]{2}){5,31})$/i;
+const _COPY_NEVER = new Set(['0.0.0.0', '::', '127.0.0.1', '::1']);
+function _markCopyCell(td) {
+  if (td.hasAttribute('data-copy') || td.querySelector('a, button, input, select, textarea, [data-action], [data-copy]')) return;
+  if (td.closest('[data-copy], [data-action], tr[tabindex]')) return;
+  const t = (td.textContent || '').trim();
+  if (!t || t.length > 80 || _COPY_NEVER.has(t)) return;
+  if (!_COPY_ADDR.test(t) && !_COPY_ID.test(t)) return;
+  td.setAttribute('data-copy', '');
+  if (!td.hasAttribute('title')) td.setAttribute('title', 'Click to copy');
+}
+function _markCopyCells(nodes) {
+  for (const n of nodes) {
+    if (n.nodeType !== 1) continue;
+    if (n.tagName === 'TD') _markCopyCell(n);
+    else if (n.querySelectorAll) n.querySelectorAll('td').forEach(_markCopyCell);
+  }
+}
+try {
+  let _copyQueue = [];
+  const _copyFlush = () => { const q = _copyQueue; _copyQueue = []; _markCopyCells(q); };
+  new MutationObserver(muts => {
+    if (!_copyQueue.length) requestAnimationFrame(_copyFlush);
+    for (const m of muts) for (const n of m.addedNodes) _copyQueue.push(n);
+  }).observe(document.body, {childList: true, subtree: true});
+  _markCopyCells([document.body]);
+} catch (_) { /* a browser without MutationObserver keeps the old behaviour */ }
+
 // v6.3.0 (UX wave 1b): global undo/redo stack behind the topbar arrows
 // (MikroTik-style). Flows that know how to invert themselves push an entry
 // {label, undo(), redo?(), alive?()}; alive() lets an entry whose window has
