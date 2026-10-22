@@ -2,77 +2,17 @@
 # One message per line, spelled as the server sends it, sorted. The list only shrinks: translate a
 # message (an entry in DICT in server/html/static/js/i18n.js with all six languages) and delete its line.
 # A new message does not belong here; it arrives translated.
-A Pushgateway URL is required when enabled.
-A manifest URL is required when enabled.
-A scan is already running
-A scan is starting or running — try again shortly
-A valid ip is required
-API key limit reached (max 50)
-API key rate limit exceeded
-Add a Cloudflare API token first
-Add an AbuseIPDB or SniffCat API key first
-Admin password did not match
-Admins and auditors only
-Admins and finance only
-Agent binary not found
-Agentless SSH is disabled. Enable it in Settings → Security.
-Audit forwarding is not enabled in settings.
-Automatic remediation is not enabled for this host. Turn it on in the host settings first.
-Banning at the edge is for the platform operator.
-Batch job not found
-Batch job not found or expired
-Billing webhook secret mismatch
-Blocking is available on Linux agents only
-Cannot change another user's password
-Cannot delete last admin
-Cannot delete yourself
-Cannot demote the last admin
-Choose what to lift: the edge ban, the host blocks, or both
-Choose where to ban it: at the edge, on hosts, or both
-Cloudflare is still applying the last change. Try again in a minute.
-Container image CVE scanning is off — enable it in Settings → Security first.
-Could not read the .p12 — wrong password, or not a PKCS#12 file
-Cross-origin request blocked
-DNS blocker not found
-Demo mode — this is a read-only sandbox.
-Disk-usage scanning is off — enable it in Settings → Security first.
 Disk-usage scanning needs the du tool — Linux and macOS hosts only.
 Either pin or enrollment_token is required
-Empty file
-Enter a public IP address
-Enter an IP address
-Enter your admin password to confirm clearing the audit log.
-Existing host token required for re-enrollment
 Expected /<vmid>
 Expected /<vmid>/<action>
-Expected JSON object
 GET supports op=list or op=read
-Host has no SSH user / host configured.
-Host is in audit (read-only) mode — file writes are disabled.
-Host is quarantined — archiving is disabled.
-Host is quarantined — file writes are disabled.
-Host must be a name or address, optionally with :port.
-IdP did not return id_token
-Incorrect admin password.
-Integrity Guard runs on Linux hosts only
-Invalid PIN format
-Invalid code — check your authenticator app and try again
-Invalid enrollment token format
-Invalid file data
-Invalid hostname or IP in the list
-Invalid or expired PIN
-Invalid or expired enrollment token
-Invalid or expired link
-Invalid username (2-32 chars, alphanumeric/_/-)
 Invalid vuln_id
 KMIP CA missing — enable KMIP first
 KMIP daemon secret missing or wrong
 KMIP is not set up yet — nothing to export
-LDAP is not enabled — turn it on first
 Library limit reached (max 200 snippets)
-Lifting an edge ban is for the platform operator.
 Lookups use the instance API keys and are run by the platform operator.
-MFA enrollment required
 Mailbox watching reads Unix mail spools — Linux hosts only.
 Monitors were just run — wait a moment and refresh
 No PDU configured for this host — set one first
@@ -87,55 +27,41 @@ No push subscription for this account — enable notifications first.
 No recipients configured. Set "smtp_recipients" or pass {"recipient": "..."}
 No target hosts with a known IP.
 No webhook destinations configured — add one in Settings first
-Not signed in
 OIDC issuer metadata missing authorization_endpoint
 OIDC issuer metadata missing token_endpoint
 OPNsense not enabled/configured on this host
-OTLP trace export is not enabled in settings.
-Old password incorrect
 One or more targets are outside your role scope
 PDF export unavailable on this install — pip install reportlab (see packaging/requirements-server.txt)
 PDU host resolves to a blocked (loopback/metadata) address
 PII scanning is off — enable it in Settings → Security first.
 POST op must be 'write', 'mkdir', 'delete' or 'upload'
-Password change required
 Password required (max 1024 chars)
 Patch approvals are an instance-wide policy affecting every tenant's auto-patch — only a platform superadmin can change them
 Path is on the drift-content denylist (/etc/shadow and similar). Hash tracking continues; content retrieval is refused regardless of role.
 Pick one of your hosts for this token. Tokens without a host are managed by the platform operator.
-Provide at least one hostname or IP
 Proxmox VM lifecycle actions are disabled. Enable them in Settings → Virtualization first.
-Proxmox integration is not enabled.
-Push notifications are not enabled in settings.
 Python 'cryptography' package is required for the KMIP server — re-run install-server.sh
 RAG search is limited to full-access roles — the knowledge index is not scoped per role or tenant.
 RDP tunnelling is disabled. Enable it in Settings → General.
 Refusing to probe a loopback, link-local or metadata address.
 Register SSH keys from a signed-in session, not an API key
-Request body too large
 RouterOS not enabled/configured on this host
 SAML assertion has no usable username
 SAML is not available on this server (pysaml2 and/or the xmlsec1 binary are not installed)
-SIEM streaming is not enabled in settings.
 SSH not enabled/configured on this host. Add SSH credentials first.
 Script contains dangerous commands; pass {"confirm_dangerous": true} to acknowledge
 Script has syntax errors; fix or re-run dry run
 Secrets-on-disk scanning is off — enable it in Settings → Security first.
 Server-side execution is disabled — enable it under Settings → Advanced
-Session expired
 Set a "Portal public URL" (Settings → Customer portal) before enabling the customer portal — the sign-in email needs an explicit https:// address (the request host is not trusted for auth links, and is unavailable under the WSGI server).
 Set the dashboard's public URL (Settings → Notifications) before adding Acknowledge / Resolve links to alert emails — the links are signed, and are never built from the address a request arrived on.
 Switch the storage backend to Postgres first — the RAG vector store reuses that connection.
-The SSH gateway module is turned off
-The SSH gateway tunnel is available on Linux agents only
 The bundle must contain both a private key and a certificate
 The executor has no actions to choose from — save a script first. It can only select artifacts you wrote; it cannot author commands.
-The ignore list is managed by the platform operator.
 The list name may use lower-case letters, digits and underscores, and starts with a letter
 The model proposed an action that is not in the catalog; it was refused.
 The report archive is limited to full-access roles — a stored report is a whole-fleet snapshot and carries no per-role or per-tenant scope to filter on. Use a site-scoped report definition instead.
 This account has no local password — you sign in via SSO or a passkey. Clearing the audit log requires a local admin password: set one under My Account, or use an admin account that has one.
-This belongs to the whole installation and is managed by the platform operator.
 This blueprint has live Terraform state — Run → Destroy first, then delete.
 This credential requires an active checkout. Check it out (with a reason) before revealing it.
 This endpoint is reserved for MCP role tokens
