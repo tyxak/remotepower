@@ -1035,7 +1035,13 @@ REPORT_NAMES_IN_EVENT = 5      # addresses named in the ip_reported event; the r
 
 def _announce_reports(reported):
     """One ip_reported event for a sweep that reported addresses, so a busy hour is one
-    line to read and not one message per address. Telling the operator must not stop the sweep."""
+    line to read and not one message per address. Telling the operator must not stop the sweep.
+
+    Not sent when tenancy is on: an alert with no host is visible to every tenant, and this one
+    names addresses that may have attacked another tenant's hosts. The platform operator reads
+    the same reports on the Threat intel page."""
+    if A._tenancy_enforced():
+        return
     services = sorted({s for _, told in reported for s in told})
     shown = [ip for ip, _ in reported[:REPORT_NAMES_IN_EVENT]]
     more = len(reported) - len(shown)

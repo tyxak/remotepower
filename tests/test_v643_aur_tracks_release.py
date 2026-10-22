@@ -142,12 +142,14 @@ class TestTheReleaseChecklistCarriesTheLiveCheck(unittest.TestCase):
         self.assertTrue(t.stat().st_mode & 0o111, "tools/aur-status.sh is not executable")
 
     def test_the_promotion_checklist_mentions_it(self):
-        notes = _ROOT / "CLAUDE.md"
-        if not notes.exists():
-            self.skipTest("CLAUDE.md excluded from this tree")
+        # The checklist moved out of CLAUDE.md into .claude/notes/release.md on 2026-10-21.
+        files = [_ROOT / "CLAUDE.md", _ROOT / ".claude" / "notes" / "release.md"]
+        present = [f for f in files if f.exists()]
+        if not present:
+            self.skipTest("CLAUDE.md and .claude/ are excluded from this tree")
         self.assertIn(
             "aur-status.sh",
-            notes.read_text(encoding="utf-8"),
+            "\n".join(f.read_text(encoding="utf-8") for f in present),
             "the live-AUR check is not in the promotion checklist, so it will "
             "be skipped exactly when it matters",
         )

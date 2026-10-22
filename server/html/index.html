@@ -4770,11 +4770,14 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.4.0 f1nishmatters finish polish themes contrast languages translations honeypot worker guide guides robots.txt decoy trap traps wordpress firewall sources firewalls routers opnsense pfsense mikrotik routeros suricata crowdsec syslog port scan decoy port threat intel">
+          <details class="doc-card" open data-keywords="release notes changelog v7.4.0 f1nishmatters finish polish themes contrast languages translations print phone csv copy slow scanner planted credential fail2ban honeypot worker guide guides robots.txt decoy trap traps wordpress firewall sources firewalls routers opnsense pfsense mikrotik routeros suricata crowdsec syslog port scan decoy port threat intel">
             <summary><strong>What's new — v7.4.0 &ldquo;F1nishMatters&rdquo;</strong> &mdash; a release about finish: what is already there reads, looks and behaves better in every theme and every language, and threat intel reads a firewall&rsquo;s syslog.</summary>
             <div class="doc-body">
               <p><strong>Firewall sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Firewalls and routers</strong>, RemotePower reads the syslog of an OPNsense, pfSense or MikroTik that already sends it, and reports the addresses behind port scans, hits on a decoy port, Suricata and CrowdSec alerts and failed sign-ins, the way it reports what your hosts' logs show. It reads and reports; it blocks nothing on the firewall or router. Off until you turn it on. Step by step: <a href="docs/firewall-sources.md" class="c-accent">Firewall sources: OPNsense and MikroTik</a>.</p>
               <p><strong>Honeypot guides.</strong> Two guides show how to build the Worker that RemotePower's Edge sources read: <a href="docs/honeypot-worker.md" class="c-accent">Run a honeypot Worker on Cloudflare</a> and <a href="docs/honeypot-traps.md" class="c-accent">More traps for your honeypot Worker</a>. The test suite runs each guide's script and sends what it prints through RemotePower's own reader.</p>
+              <p><strong>Wording and language.</strong> A machine you manage is a host everywhere, in all six languages. Notifications read as sentences, a failed action says what happened once, and 265 of the server&rsquo;s refusal messages are translated.</p>
+              <p><strong>Interface.</strong> Text is readable in every theme, pages print in full and fit a phone in every language, a page that cannot load says so and offers a retry, sortable tables export CSV, and an address or id in a table copies when you click it.</p>
+              <p><strong>Threat intel.</strong> A planted credential or decoy sign-in can count as decided on its first hit, an <em>Addresses reported</em> event says when a sweep reported something, the log sensor keeps a slow scanner, and the Log sources card warns when fail2ban reports on its own.</p>
               <p class="hint">See <code>docs/v7.4.0.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>

@@ -68,6 +68,17 @@ class TestReportsAreAnnounced(_Edge):
         self.sweep()
         self.assertEqual(self.sent, [])
 
+    def test_with_tenancy_on_nothing_is_announced(self):
+        """A host-less alert is visible to every tenant, and this one names addresses."""
+        from unittest import mock
+        self.graphql = graphql(group(ATTACKER, count=7))
+        self.trap = {'success': True, 'result': {'events': []}}
+        self.poll()
+        with mock.patch.object(self.api, '_tenancy_enforced', return_value=True):
+            self.sweep()
+        self.assertEqual(self.sent, [])
+        self.assertEqual(_rows(self.api), [])
+
     def test_it_does_not_page_by_default(self):
         kind = self.api.EVENT_REGISTRY['ip_reported']['kind']
         slot = self.api._kind_default(kind)

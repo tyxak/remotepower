@@ -52,6 +52,32 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   RouterOS, Suricata and CrowdSec readers follow those products' documented
   formats.
 
+### Threat intel
+
+- A planted credential that is used, or a sign-in to a decoy service, can count
+  as decided on the first hit. **Count a planted credential or decoy sign-in as
+  decided** on the Edge sources card, unticked by default, reports the address
+  at once instead of waiting for the honeypot Worker to ban it. Nobody innocent
+  lands on those two traps. Other traps still count hits.
+- RemotePower says when it has reported addresses. One **Addresses reported**
+  event per sweep that reported something, naming up to five addresses and the
+  services told, lands in the Alerts inbox and the activity feed. It does not
+  page and stays out of Needs attention until you turn those on, under
+  **Settings → Notifications**.
+  It is not sent on an install with tenancy on, because an alert with no host is
+  visible to every tenant and this one names addresses that may have attacked
+  another tenant's hosts; the platform operator reads the same reports on the
+  Threat intel page.
+- The log sensor keeps a slow scanner. A web address needs 3 hostile requests in
+  one pass, and each pass started from nothing, so an address that sent one
+  request a minute was dropped every time. What a pass saw of an address under
+  3 is now carried to the next pass (up to 2,000 addresses, for six hours),
+  added to its count and cleared once the address is sent.
+- The Log sources card warns when fail2ban reports to AbuseIPDB or SniffCat
+  itself, which makes two reports for each ban. The agent reads `jail.local`,
+  `jail.d` and `fail2ban.local` on uncommented lines and names the host and the
+  services. It never touches fail2ban's configuration.
+
 ### Guides
 
 - **Run a honeypot Worker on Cloudflare** (`docs/honeypot-worker.md`) and **More
@@ -119,9 +145,9 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   key no fire site sends, or "unknown".
 - Refusals read in your language. The server's error messages ("Host not
   found", "port must be 1..65535") reached the dashboard in English whatever
-  language you chose: 7 of the 991 different messages had a translation. The 191
-  that the server sends from more than one place are translated into all six
-  languages now, and a test holds the rest: a new message has to arrive
+  language you chose: 7 of the 991 different messages had a translation. 265 are
+  translated into all six languages now, the ones the server sends from more
+  than one place first, and a test holds the rest: a new message has to arrive
   translated, the list of messages still waiting only shrinks, and the real
   translation engine is asked for every one that has an entry. The toast that
   announces a refused request is the reason alone, with the request under it
@@ -191,6 +217,45 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   knowledge base keep a line break per newline.
 - Every section of **Settings → Alert parameters** links to its own part of
   the guide, which now describes each of the 24 sections and names its fields.
+
+- Every page prints in full and fits the sheet. The screen caps tall panels and
+  scrolls them, and on paper the rest of the rows were simply missing; seven
+  pages also ran tables off the edge of an A4 sheet (a 600 px minimum width, 352 px
+  of row buttons, cells cut with an ellipsis, ten columns at screen padding), and
+  six panels with a cap of their own were missed. A browser test prints all 83
+  pages of the demo fleet and fails on a clipped panel or a box past the right
+  edge.
+- Nothing scrolls sideways on a phone, in any language. A browser test walks 97
+  views at 390 px in six languages and found nine that did. In Arabic the right-to-left
+  rules kept the rail's 56 px on the right of the content and the header, so every
+  Arabic page was 56 px narrower than it should be. Rows of buttons that could not
+  wrap now do (the ticket mailbox and Proxmox settings, the calendar header, the
+  page title row, the table pager), the segmented control scrolls inside itself,
+  the faint page watermark no longer reaches past the edge, and a long URL in a
+  Settings pane breaks instead of setting the width of the page.
+- A page that cannot load says so and offers a retry. A browser test walks all 83
+  pages on a fresh install and again with every request answered 500. On a fresh
+  install the Ansible card waited for ever while Provisioning was off, which is the
+  default. With the server failing, the Alerts incident card, Tuning, KMIP,
+  Compliance and the Patches catalog stayed on "Loading…", Power and Disk health
+  printed "undefined hosts", and Monitor, Logs, Services, CVE and Tasks threw on
+  the error and left a skeleton.
+- Every sortable table with rows can export CSV. The button lived in the pager,
+  which a table gets past 15 rows, and only for tables the table controller draws:
+  13 of 78 on the demo fleet had no export. A table with rows and no pager gets a
+  button of its own after it. Three tables still have none (the grouped Alerts
+  view, Discovery and Custom-script results) and the test names them.
+- An address or an id in a table cell copies when you click it. Renderers write
+  their own rows, so the per-cell copy was missing wherever nobody added it: 214
+  address cells and 18 id cells on 11 pages. A cell whose whole text is an IP
+  address, CIDR, MAC address, UUID, long hex id or CVE id is marked; wildcard and
+  loopback addresses, cells with something clickable in them and rows that open
+  something are left alone.
+- The Windows and macOS agents answer a person at a terminal as the Linux agent
+  does. `--help` described none of their options, `--once` before enrolling
+  ended in a Python traceback that blamed the address, and a plain `http://`
+  address came back as a cut-off sentence showing an API path nobody typed.
+  `install-server.sh --help` no longer asks for root.
 
 ### Fixes
 
