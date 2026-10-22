@@ -64,7 +64,8 @@ EXCEPTIONS = {64: 1, 48: 1, 36: 1, 24: 2, 22: 2, 20: 1}
 
 class TestTypographyScale(unittest.TestCase):
     def _sizes(self):
-        return [s.strip() for s in re.findall(r'font-size:\s*([^;}]+)', CSS)]
+        # `!important` is not a size: the print sheet needs it to beat the screen rules (7.4.0).
+        return [re.sub(r'\s*!important$', '', s.strip()) for s in re.findall(r'font-size:\s*([^;}]+)', CSS)]
 
     def test_no_offscale_fraction_or_relative_font_sizes(self):
         # px only; halves allowed ONLY where the v6 design scale has a .5 stop

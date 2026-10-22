@@ -6743,6 +6743,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   .btn-icon,
   .btn-chip,
   .toast-action { display: none !important; }
+  /* The thin loading bar is position:fixed, so on paper it repeats at the foot of every sheet. */
+  .refresh-bar { display: none !important; }
 
   /* 3. Reclaim the sidebar gutter and the sticky/viewport-locked layout. */
   .app-content, header { margin-left: 0 !important; }
@@ -6776,6 +6778,49 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   }
   /* A sticky header inside a now-unclipped table would repeat mid-page. */
   #main-content .scrollable-table-wrap thead th { position: static !important; }
+  /* Panels that carry their own cap instead of one of the shared classes above. A new one belongs here or on a
+     shared class: tests/test_v740_print_e2e.py prints every page and fails on a box that still clips. */
+  #main-content .integ-tiles,
+  #main-content .board-prob-chips,
+  #main-content #timeline-kinds,
+  #main-content #cmdqueue-body,
+  #main-content #pbs-body,
+  #main-content .iac-cat-list {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  /* A table wider than the paper loses its right-hand columns, and most cells are set not to wrap. On paper
+     they wrap, and the table is no wider than the page. */
+  #main-content table, .modal-overlay.active table, #device-drawer.open table {
+    width: 100% !important;
+    min-width: 0 !important;       /* tables carry min-width: 600px for the screen, wider than a portrait sheet */
+    max-width: 100% !important;
+  }
+  #main-content th, #main-content td,
+  .modal-overlay.active th, .modal-overlay.active td,
+  #device-drawer.open th, #device-drawer.open td {
+    white-space: normal !important;
+    overflow-wrap: break-word;     /* not "anywhere": that lets the table squeeze a column to one character */
+    padding: 4px 6px !important;   /* a table of ten columns needs more than a portrait sheet at screen padding */
+    font-size: 11px !important;
+  }
+  /* A row's action group reserves 352px on screen so the buttons line up; on paper it only widens the table. */
+  #main-content .alert-actions { min-width: 0 !important; max-width: none !important; }
+  /* A cell cut to one line with an ellipsis prints cut: the rest of the text is on screen only in the tooltip. */
+  #main-content .cell-trunc, .modal-overlay.active .cell-trunc, #device-drawer.open .cell-trunc,
+  :is(#main-content, .modal-overlay.active, #device-drawer.open) :is(td, th) code {
+    max-width: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  /* A fingerprint or a key is one unbreakable token and sets the width of its column; in monospace it can
+     break anywhere. */
+  :is(#main-content, .modal-overlay.active, #device-drawer.open) :is(td, th) :is(code, .ff-mono, .mono-12),
+  :is(#main-content, .modal-overlay.active, #device-drawer.open) :is(td, th):is(.ff-mono, .mono-12) {
+    word-break: break-all;
+  }
 
   /* 5. A modal or the drawer owns the screen — print it, not the page behind
      it. Both are lifted out of their fixed/translated positioning into normal
