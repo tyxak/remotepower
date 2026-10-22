@@ -37,6 +37,10 @@ try:
 except ImportError:                                     # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 # A4 at 96 dpi, less the default margins.
 _SHEET_W = 718
 
@@ -70,6 +74,7 @@ _MEASURE = """(sheet) => {
 }"""
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestPrintShowsEverything(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

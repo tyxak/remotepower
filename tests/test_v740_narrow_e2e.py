@@ -32,6 +32,10 @@ try:
 except ImportError:                                     # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 LANGS = ('zh', 'hi', 'es', 'ar', 'fr', 'de')
 WIDTH = 390
 
@@ -56,6 +60,7 @@ _WHO = """() => {
 }"""
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestNoPageScrollsSidewaysOnAPhone(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -232,7 +232,9 @@ class TestEagerJsPayload(unittest.TestCase):
         # data-action dispatcher, which already loads the remaining modules and
         # replays the click. Verified by enumerating every direct call into the
         # module from eager code — three, all guarded — not by assuming.
-        self.assertLess(total, 2_570_000,
+        # 7.4.0: 2_590_000. The table CSV button, click-to-copy cells and the
+        # failed-load states added about 6 KB to app.js, which every page loads.
+        self.assertLess(total, 2_590_000,
                         'the eager JS payload regressed past its budget')
 
 

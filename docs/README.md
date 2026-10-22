@@ -80,13 +80,6 @@ holds long-form docs that don't fit there.
   public reports. Eight issues, all caught before release, among them a SQL
   pattern that matched an ordinary search and a request with raw spaces that was
   cut at its first word.
-- **[security-review-7.1.0.md](security-review-7.1.0.md)** — the v7.1.0
-  pass: eleven issues from a whole-project review plus the shipped web-server
-  configuration under nmap, nikto, nuclei and wapiti. A tenant admin could
-  change state that belongs to the whole install; signed alert-email links took
-  their address from the request; a crafted SSH user name could make threat
-  intel blame someone else; the agent's WebSocket channels followed redirects
-  with the host token; and nginx refused every dashboard edit sent with PUT.
 - **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot

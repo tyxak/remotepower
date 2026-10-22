@@ -46,13 +46,6 @@ are kept:
 - [security-review-7.2.0.md](security-review-7.2.0.md) — scoped to the log sensor:
   eight issues in an agent that reads logs an attacker can write to, and the
   server that turns them into public reports, all caught before release.
-- [security-review-7.1.0.md](security-review-7.1.0.md) — eleven issues, among
-  them a tenant admin able to change install-wide state on multi-tenant
-  installs, signed alert-email links that took their address from the request,
-  a crafted SSH user name that could make threat intel blame an address of the
-  attacker's choosing, and the agent's WebSocket channels following redirects
-  with the host token. Also a functional bug the web-server scans turned up:
-  the shipped nginx configuration refused every dashboard edit sent with PUT.
 
 Each review found real defects, and every one of them was fixed before the
 release went out.
@@ -174,7 +167,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; the latest is
-[security-review-7.1.0.md](security-review-7.1.0.md). The codebase is also
+[security-review-7.4.0.md](security-review-7.4.0.md). The codebase is also
 scanned with a combined **SAST + DAST** pipeline (see *Security testing* below):
 CodeQL reports zero in both languages under the configuration production runs,
 Bandit reports nothing new against its baseline and no high-severity finding,
@@ -361,7 +354,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-7.1.0.md](security-review-7.1.0.md)).
+  [security-review-7.4.0.md](security-review-7.4.0.md)).
 - **SAST** — **CodeQL** with GitHub's query suites (also run on every push),
   [Bandit](https://bandit.readthedocs.io/), [semgrep](https://semgrep.dev/),
   [gitleaks](https://github.com/gitleaks/gitleaks) and an undefined-name check.

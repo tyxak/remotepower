@@ -210,8 +210,9 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
             self.assertTrue((_ROOT / rel).exists(), rel)
 
     def test_the_security_review_is_published_and_indexed(self):
-        self.assertTrue((_ROOT / "docs/security-review-7.1.0.md").exists())
-        self.assertIn("security-review-7.1.0.md", (_ROOT / "docs/README.md").read_text())
+        # Pruned in 7.4.0 under the keep-three rule; the page is gone and the index no longer lists it.
+        self.assertFalse((_ROOT / "docs/security-review-7.1.0.md").exists())
+        self.assertNotIn("security-review-7.1.0.md", (_ROOT / "docs/README.md").read_text())
 
     def test_only_three_security_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))

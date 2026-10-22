@@ -32,6 +32,10 @@ try:
 except ImportError:                                     # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 # thead id -> why it has no export. The table is built after the sort call, so the call finds no header.
 MISSING = {
     'alerts-thead': 'the grouped view sorts nothing through tableCtl; only the flat view does',
@@ -55,6 +59,7 @@ _TABLES = """() => {
 }"""
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestEverySortableTableExports(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

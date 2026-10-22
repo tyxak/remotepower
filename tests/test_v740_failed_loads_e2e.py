@@ -32,6 +32,10 @@ try:
 except ImportError:                                     # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 # Text that means "a loader has not finished". The skeleton blocks are not text and do not count.
 _STUCK = """() => [...document.querySelectorAll('#app .page.active *')]
   .filter(e => e.children.length === 0 && /^\\s*Loading(…|\\.\\.\\.)?\\s*$/.test(e.textContent) && e.offsetParent)
@@ -46,6 +50,7 @@ _KEEP = ('/auth', '/login', '/session', '/me')
 EXEMPT = {}
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestNoPageStaysLoading(unittest.TestCase):
     # Numbered: the Server status page lists the errors the browser reported, so the walk that causes
     # errors has to run after the one that reads that page.

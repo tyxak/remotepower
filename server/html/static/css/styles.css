@@ -8450,3 +8450,6 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
    pair. The BORDER may use the fill colour; the label may not. */
 .rel-chip:hover, .rel-chip:focus-visible { border-color: var(--accent);
                                            color: var(--accent-ink); }
+
+/* The CSV button row above a sortable table (7.4.0); the pager supplies the layout. */
+.table-export-bar { margin-top: 6px; }

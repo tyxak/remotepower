@@ -39,6 +39,10 @@ try:
 except ImportError:                                     # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 
 _STACK = {}
 
@@ -99,6 +103,7 @@ def _go(page, name, wait=1200):
     page.wait_for_timeout(wait)
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class _Base(unittest.TestCase):
 
     @classmethod

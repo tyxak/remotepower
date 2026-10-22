@@ -227,10 +227,10 @@ class TestStatusEndpoint(_ApiCase):
         api.save(api.CONFIG_FILE, {'status_token': 'secret123'})
         os.environ['QUERY_STRING'] = ''
         cap = self._capture(api.handle_status)
-        self.assertEqual(cap['status'], 403)
+        self.assertEqual(cap['status'], 401)
         os.environ['QUERY_STRING'] = 'token=wrong'
         cap = self._capture(api.handle_status)
-        self.assertEqual(cap['status'], 403)
+        self.assertEqual(cap['status'], 401)
         os.environ['QUERY_STRING'] = ''
 
     def test_disabled_when_no_token(self):
