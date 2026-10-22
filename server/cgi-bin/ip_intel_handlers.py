@@ -1375,7 +1375,7 @@ def handle_ip_intel_settings():
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         pol = dict(cfg.get('ip_intel')) if isinstance(cfg.get('ip_intel'), dict) else {}
         for k in ('lookup_enabled', 'report_enabled', 'block_enabled', 'sensor_enabled', 'appliance_enabled',
-                  'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules',
+                  'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules', 'edge_planted_decides',
                   'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
                   'block_edge_hosts'):
             if body.get(k) is not None:

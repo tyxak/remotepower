@@ -578,11 +578,19 @@ def cf_events(rows, rules=None, now=None, since=None, until=None, include_carrie
     return out, stats
 
 
-def trap_events(hits, now=None):
+# The traps where nobody innocent lands: a credential the Worker planted being used, and a sign-in
+# to a decoy service. With the operator's setting on, one hit on either is a decision of its own.
+PLANTED_TOKENS = ("canary", "decoylogin")
+
+
+def trap_events(hits, now=None, decided_tokens=()):
     """(events, stats). One summary per address: hits per trap kind, and the
     Worker's decision when it banned the address. Each log line is one hit. The
     Worker samples the lines of a source it can never ban, so a flood is
-    undercounted here, never overstated."""
+    undercounted here, never overstated.
+
+    `decided_tokens` are trap kinds that count as decided on a single hit, banned
+    or not (see PLANTED_TOKENS); the default is the Worker's own word only."""
     now = int(now or time.time())
     stats = {"hits": len(hits), "kept": 0, "ignored": {}}
     per_ip = {}
@@ -612,7 +620,7 @@ def trap_events(hits, now=None):
         t = "trap:" + token
         e["tok"]["trap"][t] = e["tok"]["trap"].get(t, 0) + 1
         e["src"]["trap"] += 1
-        if action in _TRAP_DECIDED:
+        if action in _TRAP_DECIDED or token in decided_tokens:
             e["trp"] += 1
         at = int(h.get("at") or 0)
         if at:

@@ -94,6 +94,7 @@ DEFAULTS = {
     'edge_poll_minutes': 10,
     'edge_count_list_rules': False,   # count refusals by a rule that also blocks an IP list
     'edge_report_after': 1,       # Cloudflare refusals by an attack mechanism before an address is reported
+    'edge_planted_decides': False,    # a planted credential used, or a decoy sign-in, is reported at once
     # The edge blocklist (v7.3.0): RemotePower keeps one Cloudflare IP list in step with
     # the sources below, with a token of its own that can edit lists. Off until asked for.
     'edgelist_enabled': False,

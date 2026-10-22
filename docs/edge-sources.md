@@ -103,6 +103,7 @@ Open **Security → Threat intel** and scroll to the **Edge sources** card.
 | **Firewall events** | Tick to read Cloudflare's firewall events. | ticked |
 | **Honeypot Worker log** | Tick to read a honeypot Worker's log. Untick it if you do not run one. | ticked |
 | **Count refusals by a rule that also blocks an IP list** | See [Rules that also block an IP list](#rules-that-also-block-an-ip-list). | unticked |
+| **Count a planted credential or decoy sign-in as decided** | Report an address on its first use of a planted credential or its first sign-in to a decoy service, even when the Worker did not ban it. Nobody innocent lands on those two traps. | unticked |
 | **Zones** | One zone id per line. Leave it empty to read every zone the token can see. The Zone ID is on each zone's Overview page. | empty |
 | **Worker names** | The Workers whose log to read, one per line, up to three. | `trap-sink` |
 | **Read every (minutes)** | How often to read, from 5 to 1,440. | 10 |

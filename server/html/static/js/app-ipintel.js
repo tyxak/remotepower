@@ -296,6 +296,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-edge-cf', s.edge_cf_events);
   chk('ipintel-edge-trap', s.edge_trap);
   chk('ipintel-edge-lists', s.edge_count_list_rules);
+  chk('ipintel-edge-planted', s.edge_planted_decides);
   set('ipintel-edge-account', s.edge_account_id || '');
   set('ipintel-edge-zones', (s.edge_zone_ids || []).join('\n'));
   set('ipintel-edge-workers', (s.edge_workers || []).join('\n'));
@@ -968,6 +969,7 @@ async function saveIpIntelSettings() {
       edge_cf_events: v('ipintel-edge-cf').checked,
       edge_trap: v('ipintel-edge-trap').checked,
       edge_count_list_rules: v('ipintel-edge-lists').checked,
+      edge_planted_decides: v('ipintel-edge-planted').checked,
       edge_account_id: v('ipintel-edge-account').value.trim(),
       edge_zone_ids: v('ipintel-edge-zones').value,
       edge_workers: v('ipintel-edge-workers').value,
