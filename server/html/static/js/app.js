@@ -566,6 +566,36 @@ const tableCtl = (() => {
     else if (opts._lastRows) render(name, opts._lastRows);
   }
 
+  function _exportCsvButton(name) {
+    return `<button class="btn-icon" data-action="tblExportCsv" data-arg="${escAttr(name)}" title="Export visible rows (CSV — honors filter & sort)" aria-label="Export visible rows as CSV">${_icon('download', 12)}</button>`;
+  }
+
+  // v7.4.0: the CSV export used to live only in the pager, which a table gets past 15 rows and a custom-rendered
+  // table never gets. A table with rows and no pager gets a bar of its own after it, holding the same button.
+  function _syncExportBar(opts, anchor, total) {
+    const id = 'tableexport-' + opts.name;
+    let bar = document.getElementById(id);
+    if (!anchor || !anchor.parentNode || !total || document.getElementById('tablepager-' + opts.name)) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = id;
+      bar.className = 'table-pager table-export-bar';
+      bar.innerHTML = _exportCsvButton(opts.name);
+    }
+    if (bar.previousSibling !== anchor) anchor.parentNode.insertBefore(bar, anchor.nextSibling);
+  }
+
+  // The custom-rendered tables (wireSortOnly + sortRows): register()ed ones draw theirs from _renderPager.
+  function _syncExportForSort(o) {
+    if (!o || !o.sortHeaders || o.tbody || !o._lastRows) return;
+    const th = document.getElementById(o.sortHeaders);
+    const tbl = th && th.closest('table');
+    _syncExportBar(o, tbl && (tbl.closest('.table-card') || tbl), o._lastRows.length);
+  }
+
   // v3.12.0: Prev / "x–y of N" / Next pager, placed just after the table card.
   // Hidden when everything fits on one page.
   function _renderPager(opts, tbody, total, page, pageSize) {
@@ -577,7 +607,8 @@ const tableCtl = (() => {
     // v6.3.0 (UX wave 2): the bar appears past 15 rows regardless of the
     // chosen page size (so a 100-rows/page view of 40 rows keeps its size
     // select + CSV export), and gains both of those controls.
-    if (total <= 15) { if (pgr) pgr.remove(); return; }
+    if (total <= 15) { if (pgr) pgr.remove(); _syncExportBar(opts, anchor, total); return; }
+    _syncExportBar(opts, anchor, 0);   // the pager carries its own export button from here on
     if (!pgr) {
       pgr = document.createElement('div');
       pgr.id = pid;
@@ -596,8 +627,7 @@ const tableCtl = (() => {
       `<select class="form-input table-pager-size" id="tablepagesize-${escAttr(opts.name)}" data-change="tblPageSize" data-change-arg="${escAttr(opts.name)}" aria-label="Rows per page">`
       + [15, 50, 100].map(n => `<option value="${n}"${n === pageSize ? ' selected' : ''}>${n}/page</option>`).join('')
       + '</select>';
-    const exportBtn =
-      `<button class="btn-icon" data-action="tblExportCsv" data-arg="${escAttr(opts.name)}" title="Export visible rows (CSV — honors filter & sort)" aria-label="Export visible rows as CSV">${_icon('download', 12)}</button>`;
+    const exportBtn = _exportCsvButton(opts.name);
     // v6.3.0 (UX wave 4): columns show/hide — only for tables whose thead
     // carries data-col headers (the register/render contract).
     const colsBtn = opts.sortHeaders
@@ -745,6 +775,7 @@ const tableCtl = (() => {
     // silently dropping sortHeaders/refresh and killing the sort indicators.
     // No table uses both register() and wireSortOnly(), so nothing is clobbered.
     _registry[prefsName] = Object.assign(_registry[prefsName] || {}, opts);
+    _syncExportForSort(_registry[prefsName]);   // sortRows() may have run first, with no header id to find the table by
     // Re-wire on every call (safe — addEventListener on new th elements).
     _wireHeaders(opts);
   }
@@ -760,6 +791,7 @@ const tableCtl = (() => {
     const o = (_registry[prefsName] = _registry[prefsName] || { name: prefsName });
     o._lastRows = rows;
     o.getColumns = getColumns;
+    _syncExportForSort(o);
     return _applySort(rows, prefs.sort || [], getColumns);
   }
 
