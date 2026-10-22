@@ -2760,6 +2760,13 @@ EVENT_REGISTRY = {
         label='The Cloudflare IP list is back in step with its sources',
         kind='threat_intel', title='Edge Blocklist Synced', resolves=('edge_list_held',),
         tags='white_check_mark,shield'),
+    # v7.4.0: Threat intel reported addresses. One event per sweep, naming up to five of them.
+    # It is news, not a fault: nothing in it can recover, and it stays out of Needs Attention
+    # and out of the webhook until an operator turns those on.
+    'ip_reported': dict(
+        label='Threat intel reported addresses to AbuseIPDB or SniffCat',
+        kind='threat_report', title='Addresses Reported', severity='low', lifecycle='point',
+        tags='shield'),
     'dependency_missing': dict(
         # v6.3.1: a DECLARED depends_on edge that was carrying observed traffic
         # (agent peer-conns or the flow receiver) has gone silent while BOTH
@@ -9774,6 +9781,7 @@ CHANNEL_KIND_DEFS = (
     # v4.7.0: homelab software integration health
     ('integration', 'Integration health', 'operational'),
     ('threat_intel', 'Threat intel feeds and blocklist', 'operational'),
+    ('threat_report', 'Threat intel reports', 'security'),  # v7.4.0
     ('github_issue', 'GitHub new issues', 'operational'),  # v5.8.0
     ('reputation', 'IP reputation (DNSBL)', 'operational'),
     ('resolver', 'DNS resolver health', 'operational'),
@@ -9871,6 +9879,8 @@ CHANNEL_KIND_DEFAULTS = {
     # webhook, but it must never sit in Needs Attention, which is the list of
     # things that are BROKEN. Nothing "fixes" a device having joined.
     'enrollment': {'needs_attention': False},
+    # v7.4.0: a report to AbuseIPDB or SniffCat is a record of what was done, like an enrollment.
+    'threat_report': {'needs_attention': False, 'webhook': False},
 }
 
 
@@ -10138,6 +10148,8 @@ def _alert_title(event, payload):
         return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'edge_feed_down':
         return f'Edge feed down: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
+    if event == 'ip_reported':
+        return f'Threat intel: {p.get("detail", "addresses reported")}'[:200]
     if event == 'edge_list_held':
         return f'Cloudflare IP list needs attention: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'ip_blacklisted':

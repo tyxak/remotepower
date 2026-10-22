@@ -45,6 +45,7 @@ import urllib.parse
 import threat_evidence
 
 PROVIDERS = ('abuseipdb', 'sniffcat')
+PROVIDER_LABELS = {'abuseipdb': 'AbuseIPDB', 'sniffcat': 'SniffCat'}
 
 ABUSEIPDB_BASE = 'https://api.abuseipdb.com/api/v2'
 SNIFFCAT_BASE = 'https://api.sniffcat.com/api/v1'

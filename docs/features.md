@@ -140,7 +140,7 @@ Version tags such as *(v7.2.0)* mark features added in the last three releases. 
 | Feature | Notes |
 |---|---|
 | Metric alerts | Disk/memory/swap/CPU-load thresholds with hysteresis; per-host + per-mount overrides |
-| Webhook event registry | 218 event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift |
+| Webhook event registry | 219 event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift |
 | Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients |
 | Notification digest window | Per-destination `digest_minutes` batches non-critical events into one periodic summary delivery; critical/urgent always page immediately |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook |

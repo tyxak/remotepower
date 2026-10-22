@@ -20721,6 +20721,8 @@ function _renderHomeActivity(fleetEvents) {
     // v7.3.0: the health of Threat intel itself, an edge feed that cannot be
     // read and a Cloudflare list sync that waits for a person
     'edge_feed_down', 'edge_feed_recovered', 'edge_list_held', 'edge_list_synced',
+    // v7.4.0: addresses Threat intel reported to AbuseIPDB or SniffCat
+    'ip_reported',
     // v6.4.2: an operator-set bound on a connector metric was crossed.
     'integration_metric_alert', 'integration_metric_recovered',
     // v5.8.0: GitHub issue monitor — new issue on a watched repo
@@ -21072,6 +21074,7 @@ function _homeActivityAttrs(event, p) {
     // v7.3.0: the edge feeds and the Cloudflare list live on Threat intel
     case 'edge_feed_down': case 'edge_feed_recovered':
     case 'edge_list_held': case 'edge_list_synced':
+    case 'ip_reported':
       return `${base} data-home-act="ipintel"`;
     case 'ip_conflict':
       return `${base} data-home-act="sites"`;

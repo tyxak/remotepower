@@ -62,6 +62,7 @@ import urllib.request
 import edge_blocklist
 import edge_evidence
 import ip_intel
+import textfmt
 import threat_evidence
 
 QUEUE_CAP = 500            # pending addresses kept between sweeps
@@ -725,6 +726,7 @@ def run_ip_intel_if_due():
 
     edge_fanout = 0      # host blocks queued this sweep for edge-found addresses
     commands = []        # (dev_id or None, command or None, audit action, detail)
+    newly_reported = []  # (address, services told) for the ip_reported event
 
     # ── phase 1 ──
     # The batch is claimed from the intake first, ranked against the table as this
@@ -896,6 +898,7 @@ def run_ip_intel_if_due():
             done.add(ip)
             if first_of_address:
                 if p['report_ok']:
+                    newly_reported.append((ip, sorted(p['report_ok'])))
                     att.setdefault('reported', {}).update(p['report_ok'])
                     for prov in p['report_ok']:         # an old reason no longer applies
                         if prov not in p['report_err']:
@@ -1010,6 +1013,9 @@ def run_ip_intel_if_due():
             for old in oldest[:len(atts) - ATTACKER_CAP]:
                 atts.pop(old, None)
 
+    if newly_reported:
+        _announce_reports(newly_reported)
+
     for dev_id, cmd, action, detail in commands:
         if cmd:
             try:
@@ -1024,6 +1030,23 @@ def run_ip_intel_if_due():
 
 
 EDGE_AUTOBAN_PER_HOUR = 50     # automatic edge bans per hour: a cap on a runaway
+REPORT_NAMES_IN_EVENT = 5      # addresses named in the ip_reported event; the rest are counted
+
+
+def _announce_reports(reported):
+    """One ip_reported event for a sweep that reported addresses, so a busy hour is one
+    line to read and not one message per address. Telling the operator must not stop the sweep."""
+    services = sorted({s for _, told in reported for s in told})
+    shown = [ip for ip, _ in reported[:REPORT_NAMES_IN_EVENT]]
+    more = len(reported) - len(shown)
+    detail = '%s reported to %s: %s%s' % (
+        textfmt.plural(len(reported), 'address', 'addresses'),
+        ' and '.join(ip_intel.PROVIDER_LABELS.get(s, s) for s in services),
+        ', '.join(shown), ' and %d more' % more if more > 0 else '')
+    try:
+        A.fire_webhook('ip_reported', {'detail': detail[:300]})
+    except Exception:   # nosec B110 — a failed notification must not stop the sweep
+        pass
 
 
 def _edge_ban_ready(pol):
