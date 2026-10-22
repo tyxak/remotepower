@@ -61,6 +61,10 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.0.md](security-review-7.4.0.md)** — the v7.4.0 review,
+  scoped to what changed: the firewall-syslog reader, the agents' new reads, who sees
+  what in the ignore list and the new alert, and the status codes that decide whether
+  the dashboard signs you out. Nine issues, all caught before release.
 - **[security-review-7.3.0.md](security-review-7.3.0.md)** — the v7.3.0 review,
   scoped to what is new rather than the whole project: a stored Cloudflare token,
   two feeds the server reads from outside and turns into public reports, a
