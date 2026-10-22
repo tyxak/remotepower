@@ -2,57 +2,6 @@
 # One message per line, spelled as the server sends it, sorted. The list only shrinks: translate a
 # message (an entry in DICT in server/html/static/js/i18n.js with all six languages) and delete its line.
 # A new message does not belong here; it arrives translated.
-Disk-usage scanning needs the du tool — Linux and macOS hosts only.
-Either pin or enrollment_token is required
-Expected /<vmid>
-Expected /<vmid>/<action>
-GET supports op=list or op=read
-Invalid vuln_id
-KMIP CA missing — enable KMIP first
-KMIP daemon secret missing or wrong
-KMIP is not set up yet — nothing to export
-Library limit reached (max 200 snippets)
-Lookups use the instance API keys and are run by the platform operator.
-Mailbox watching reads Unix mail spools — Linux hosts only.
-Monitors were just run — wait a moment and refresh
-No PDU configured for this host — set one first
-No SIEM URL configured.
-No SSH private key is configured.
-No automatic remediation is available for this check.
-No debug log file found. Enable debug logging first.
-No matching cloud account is configured.
-No matching enrollment token
-No pending TOTP setup — call /api/totp/setup first
-No push subscription for this account — enable notifications first.
-No recipients configured. Set "smtp_recipients" or pass {"recipient": "..."}
-No target hosts with a known IP.
-No webhook destinations configured — add one in Settings first
-OIDC issuer metadata missing authorization_endpoint
-OIDC issuer metadata missing token_endpoint
-OPNsense not enabled/configured on this host
-One or more targets are outside your role scope
-PDF export unavailable on this install — pip install reportlab (see packaging/requirements-server.txt)
-PDU host resolves to a blocked (loopback/metadata) address
-PII scanning is off — enable it in Settings → Security first.
-POST op must be 'write', 'mkdir', 'delete' or 'upload'
-Password required (max 1024 chars)
-Patch approvals are an instance-wide policy affecting every tenant's auto-patch — only a platform superadmin can change them
-Path is on the drift-content denylist (/etc/shadow and similar). Hash tracking continues; content retrieval is refused regardless of role.
-Pick one of your hosts for this token. Tokens without a host are managed by the platform operator.
-Proxmox VM lifecycle actions are disabled. Enable them in Settings → Virtualization first.
-Python 'cryptography' package is required for the KMIP server — re-run install-server.sh
-RAG search is limited to full-access roles — the knowledge index is not scoped per role or tenant.
-RDP tunnelling is disabled. Enable it in Settings → General.
-Refusing to probe a loopback, link-local or metadata address.
-Register SSH keys from a signed-in session, not an API key
-RouterOS not enabled/configured on this host
-SAML assertion has no usable username
-SAML is not available on this server (pysaml2 and/or the xmlsec1 binary are not installed)
-SSH not enabled/configured on this host. Add SSH credentials first.
-Script contains dangerous commands; pass {"confirm_dangerous": true} to acknowledge
-Script has syntax errors; fix or re-run dry run
-Secrets-on-disk scanning is off — enable it in Settings → Security first.
-Server-side execution is disabled — enable it under Settings → Advanced
 Set a "Portal public URL" (Settings → Customer portal) before enabling the customer portal — the sign-in email needs an explicit https:// address (the request host is not trusted for auth links, and is unavailable under the WSGI server).
 Set the dashboard's public URL (Settings → Notifications) before adding Acknowledge / Resolve links to alert emails — the links are signed, and are never built from the address a request arrived on.
 Switch the storage backend to Postgres first — the RAG vector store reuses that connection.
