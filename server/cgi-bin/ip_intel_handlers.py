@@ -1431,7 +1431,7 @@ def handle_ip_intel_settings():
                           ('block_max_per_hour', 1, 1000), ('report_min_count', 1, 100000),
                           ('cache_hours', 1, 24 * 30), ('daily_lookup_budget', 0, 1000000),
                           ('daily_report_budget', 0, 1000000), ('edge_poll_minutes', 5, 1440),
-                          ('edge_report_after', 1, 50), ('report_waf_after', 1, 50), ('edgelist_own_score', 1, 100),
+                          ('edge_report_after', 1, 50), ('report_waf_after', 1, 50), ('report_listed_after', 0, 50), ('edgelist_own_score', 1, 100),
                           ('edgelist_own_days', 1, 365), ('edgelist_abuseipdb_conf', 25, 100),
                           ('edgelist_abuseipdb_limit', 100, 50000), ('edgelist_sniffcat_conf', 30, 100),
                           ('edgelist_sniffcat_limit', 10, 30000), ('edgelist_hours', 1, 168),

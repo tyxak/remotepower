@@ -400,6 +400,14 @@ class TestIds(_Fw):
         self.assertEqual(self.abuse_posts(), [])
 
     def test_alerts_that_name_no_attack_are_read_and_dropped(self):
+        lines = [wire(suricata_fast('ET INFO Observed DNS Query to .biz TLD', 'Misc activity'),
+                      app='suricata', n=i) for i in range(20)]
+        self.post(lines)
+        self.assertEqual(self.queue(), [])
+        self.assertEqual(self.row()['sources'][0]['parsed'], 20)
+
+    def test_a_reputation_list_alone_is_dropped_when_the_bar_is_off(self):
+        self.policy(report_listed_after=0)
         lines = [wire(suricata_fast('ET DROP Dshield Block Listed Source group 1', 'Misc Attack'),
                       app='suricata', n=i) for i in range(20)]
         self.post(lines)

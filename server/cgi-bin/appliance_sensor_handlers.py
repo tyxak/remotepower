@@ -119,6 +119,40 @@ def merge_listed(old, new, now):
     return out
 
 
+def _repeat_bar():
+    """Blocked hits from a reputation-listed address before it is reported; 0 is off."""
+    try:
+        return max(0, int(A.ip_intel_policy().get('report_listed_after') or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def listed_repeats(before, after, new, bar):
+    """Evidence for the addresses whose reputation-list hits reached `bar` in this batch.
+
+    A reputation hit names no attack, so one is context. The same address blocked again
+    and again is a host that keeps trying: the sensor counts the hits it has kept (30 days)
+    and, once an address reaches `bar`, says so as port scanning, with every hit so far on
+    the crossing and only the new ones after it. `rep` carries the count; the report is
+    made on it (threat_evidence.qualifies)."""
+    if bar < 1:
+        return []
+
+    def total(doc, ip):
+        r = (doc or {}).get(ip) if isinstance(doc, dict) else None
+        lists = r.get('l') if isinstance(r, dict) and isinstance(r.get('l'), dict) else {}
+        return sum(int(v) for v in lists.values())
+
+    out = []
+    for ip, lists in (new or {}).items():
+        now_n, was = total(after, ip), total(before, ip)
+        if now_n < bar:
+            continue
+        n = now_n if was < bar else sum(int(v) for v in lists.values())
+        out.append({'ip': ip, 'src': {}, 'tok': {'ids': {'ids:port_scan': n}}, 'rep': n})
+    return out
+
+
 def listed_for(scan_doc, device_ids, now=None):
     """{address: {'at': newest, 'l': {list: count}}} across the devices in `device_ids`, from the
     scan document, for the addresses Threat Intel shows."""
@@ -171,7 +205,7 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
     # same failures forwarded as syslog would be counted a second time.
     if not (isinstance(dev, dict) and not dev.get('agentless')):
         _login_failures(dev_id, str((dev or {}).get('name') or dev_id), lines)
-    listed = {}
+    listed, repeats = {}, []
     hits, events, stats = appliance_evidence.scan(lines, listed)
     if not stats:
         return
@@ -195,7 +229,9 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
             for i in range(3):
                 row[i] += c[i]
         if listed or rec.get('listed'):
-            rec['listed'] = merge_listed(rec.get('listed'), listed, now)
+            before = rec.get('listed')
+            rec['listed'] = merge_listed(before, listed, now)
+            repeats = listed_repeats(before, rec['listed'], listed, _repeat_bar())
         rec.update({'scan': table, 'day': day, 'n': today, 'at': now})
         st[dev_id] = rec
         for d in [d for d, r in st.items() if isinstance(r, dict) and now - int(r.get('at') or 0) > KEEP_DEVICE_S]:
@@ -204,7 +240,7 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
                  'state': 'ok' if c[1] else 'unparsed'}
                 for k, c in sorted(today.items()) if c[0]]
     ignored, evs = {}, []
-    for raw in events + fresh:
+    for raw in events + fresh + repeats:
         ev = threat_evidence.normalize_event(raw, now=now, families=threat_evidence.APPLIANCE_SOURCES)
         if ev is None:
             ignored['invalid'] = ignored.get('invalid', 0) + 1

@@ -69,6 +69,7 @@ DEFAULTS = {
     'block_ttl_hours': 24,        # blocks lift themselves after this
     'block_max_per_hour': 20,     # per host; a cap on a runaway
     'report_min_count': 10,       # failed attempts seen before reporting
+    'report_listed_after': 3,     # blocked hits from a reputation-listed address before it is reported (0 = never)
     'report_waf_after': 1,        # WAF refusals on a host before an address is reported
     'cache_hours': 24,            # how long a lookup answer is reused
     'daily_lookup_budget': 900,   # per provider; AbuseIPDB's free tier is 1000

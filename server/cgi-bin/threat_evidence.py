@@ -532,6 +532,7 @@ def blank(ip=""):
         "ban": [],
         "dec": 0,
         "trp": 0,
+        "rep": 0,
         "cve": [],
     }
 
@@ -578,9 +579,11 @@ def normalize_event(raw, now=None, families=AGENT_SOURCES):
         ]
     if "trap" in families or "dp" in families:
         ev["trp"] = _count(raw.get("trp"))
+    if "ids" in families:
+        ev["rep"] = _count(raw.get("rep"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []
     ev["cve"] = _uniq(c for c in cves if isinstance(c, str) and _CVE_RE.fullmatch(c))[:_MAX_CVES]
-    if not (ev["src"] or ev["tok"] or ev["ban"] or ev["dec"] or ev["trp"]):
+    if not (ev["src"] or ev["tok"] or ev["ban"] or ev["dec"] or ev["trp"] or ev["rep"]):
         return None
     return ev
 
@@ -616,6 +619,7 @@ def merge(a, b):
     out["blk"] = min(_MAX_COUNT, _count(a.get("blk")) + _count(b.get("blk")))
     out["dec"] = min(_MAX_COUNT, _count(a.get("dec")) + _count(b.get("dec")))
     out["trp"] = min(_MAX_COUNT, _count(a.get("trp")) + _count(b.get("trp")))
+    out["rep"] = min(_MAX_COUNT, _count(a.get("rep")) + _count(b.get("rep")))
     out["ban"] = _uniq(list(a.get("ban") or []) + list(b.get("ban") or []))[:_MAX_JAILS]
     out["cve"] = _uniq(list(a.get("cve") or []) + list(b.get("cve") or []))[:_MAX_CVES]
     return out
@@ -732,6 +736,11 @@ def qualifies(ev, min_count, cf_min=None, waf_min=None):
     who = confirmed_by(ev)
     if who:
         return True, f"confirmed by {who}"
+    # A firewall blocked an address on a reputation list again and again. The sensor only
+    # sets `rep` once the operator's bar ("Report listed addresses after") is crossed.
+    rep = _count(ev.get("rep"))
+    if rep:
+        return True, f"blocked {rep} times by a firewall while on a reputation list"
     waf = _count((ev.get("src") or {}).get("waf"))
     try:
         waf_need = max(1, int(waf_min)) if waf_min else WAF_MIN_BLOCKS

@@ -93,12 +93,42 @@ class TestEndToEnd(_Fw):
         return (self.scan_doc().get('fw1') or {}).get('listed') or {}
 
     def test_a_hit_is_kept_and_nothing_is_made_of_it(self):
-        self.post([hit(SPAM, n=i) for i in range(30)])
-        self.assertEqual(self.listed()[ATTACKER]['l'], {'Spamhaus': 30})
+        self.post([hit(SPAM, n=i) for i in range(2)])   # under the bar of 3
+        self.assertEqual(self.listed()[ATTACKER]['l'], {'Spamhaus': 2})
         self.assertEqual(self.queue(), [])                       # no lookup, no report waiting
         self.assertEqual(self.store().get('attackers') or {}, {})  # no row of its own
         self.sweep()
         self.assertEqual((self.abuse_posts(), self.sniff_posts()), ([], []))
+
+    def test_blocked_again_and_again_is_reported_as_port_scanning(self):
+        self.post([hit(SPAM, n=i) for i in range(3)])
+        queued = self.queue()
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]['evidence']['rep'], 3)
+        self.sweep()
+        self.assertEqual(len(self.abuse_posts()), 1)
+        self.assertEqual(len(self.sniff_posts()), 1)
+
+    def test_the_crossing_carries_every_hit_and_later_batches_only_the_new_ones(self):
+        self.post([hit(SPAM, n=1), hit(SPAM, n=2)])
+        self.assertEqual(self.queue(), [])
+        self.post([hit(SPAM, n=3), hit(DSH, n=4)])
+        self.assertEqual([q['evidence']['rep'] for q in self.queue()], [4])
+        self.sweep()
+        self.post([hit(SPAM, n=5)])
+        self.assertEqual([q['evidence']['rep'] for q in self.queue()], [1])
+
+    def test_zero_turns_it_off(self):
+        self.policy(report_listed_after=0)
+        self.post([hit(SPAM, n=i) for i in range(10)])
+        self.assertEqual(self.queue(), [])
+
+    def test_a_raised_bar_waits(self):
+        self.policy(report_listed_after=5)
+        self.post([hit(SPAM, n=i) for i in range(4)])
+        self.assertEqual(self.queue(), [])
+        self.post([hit(SPAM, n=9)])
+        self.assertEqual(len(self.queue()), 1)
 
     def test_the_page_shows_it_beside_an_address_that_is_there_for_another_reason(self):
         self.post(self.scan(ports=12))

@@ -372,6 +372,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 - Swagger UI 5.33.1 → 5.34.0 for the API reference page.
 - Code scanning workflow moves to codeql-action 4.39.1. The server run at the newest reportlab (5.1.0) and websockets (17.3) passes the 559 tests that use them.
 - The AI assistant's per-host attacker document says what each address did (port scan, IDS alert, decoy-port hit, the CVE a signature named) and counts a firewall sensor's events as events, not as failed logins.
+- A firewall's reputation-list hits (Spamhaus DROP, Dshield, CINS) are reported once an address has been blocked 3 times, as port scanning. A single hit stays context. The number is **Report listed addresses after blocks** on the Providers card, and 0 turns it off.
 - A single hit on a honeypot bait path (`.env`, `.git`, a database dump) reports the address at once, where it used to wait for 10 attempts. The setting is **Count one hit on a bait path as decided** on the Edge sources card, on by default. On one install, 182 of 226 honeypot-only addresses had hit a trap once and were never reported.
 - Mute works on an alert that belongs to no host, such as "Addresses Reported" or an edge feed that is down. It answered "device_id and event (or container) are required" before. The mute covers the whole install, only an unscoped admin can set it, and Monitoring → Tuning lists it as "Whole fleet" with the usual Un-silence button.
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's

@@ -173,9 +173,15 @@ own network, and anything marked outbound. A reputation hit means an address is
 on somebody's list. It says nothing about what the address did to you, so
 reporting it would repeat someone else's opinion.
 
+A reputation hit that keeps coming is different. An address that is blocked 3 times
+is trying to reach you, so on the third hit RemotePower files it as port scanning, with
+every hit so far, and reports it like any other address. Change the number under
+**Report listed addresses after blocks** on the Providers card, or set it to 0 to keep
+reputation hits as context only.
+
 A reputation hit is still worth seeing. When the address is in Threat Intel for
 another reason, say it also probed your web server, its row shows **Listed on
-Spamhaus ×3**, and **Details** names the firewall that saw it. It is context: it
+Spamhaus ×3**, and **Details** names the firewall that saw it. One hit is context: it
 does not count toward a report, start a lookup or add a row of its own. RemotePower
 keeps it for 30 days, and for at most 2,000 addresses per firewall.
 

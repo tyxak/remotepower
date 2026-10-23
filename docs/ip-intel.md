@@ -335,6 +335,7 @@ Each service has its own daily limits, and you set them on the same page:
 | **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. |
 | **Reuse a lookup for (hours)** | 24 | How long an answer is kept before the same address is asked about again. |
 | **Report after attempts** | 10 | How many failed attempts an address needs before it is reported. |
+| **Report listed addresses after blocks** | 3 | How many times a firewall must block an address that is on a reputation list (Spamhaus, Dshield, CINS) before it is reported as port scanning. 0 keeps those hits as context only. See [Firewall sources](firewall-sources.md). |
 | **Report after WAF refusals** | 1 | How many requests the WAF on a host must have refused before an address is reported. Raise it if a single refusal is too little for you. |
 
 The defaults stay under AbuseIPDB's free plan of 1,000 a day. Days run in UTC.
