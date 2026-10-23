@@ -61510,6 +61510,7 @@ def handle_inbound_webhook(token_str):
                     if p.get('inbound_token_id') != match.get('id') \
                             or p.get('dedup') != _dedup:
                         continue
+                    first_fired = int(p.get('first_seen') or a.get('first_seen') or a.get('ts') or alert['ts'])
                     a['ts'] = alert['ts']
                     a['severity'] = severity
                     a['title'] = title
@@ -61518,7 +61519,7 @@ def handle_inbound_webhook(token_str):
                     # one persistent problem, not one that just started.
                     p_new = a['payload']
                     p_new['repeats'] = int(p.get('repeats') or 1) + 1
-                    p_new['first_seen'] = int(p.get('first_seen') or a.get('ts') or alert['ts'])
+                    p_new['first_seen'] = first_fired    # read before `ts` moved: the first repeat used to stamp its own time
                     alert = a
                     coalesced = True
                     break

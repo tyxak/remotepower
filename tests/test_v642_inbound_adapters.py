@@ -286,9 +286,17 @@ class TestEndToEnd(_Base):
     def test_the_coalesced_row_keeps_when_it_first_fired(self):
         """Otherwise a long-running problem looks like it started minutes ago,
         every time it re-notifies."""
-        self.post(_AM)
+        from unittest import mock
+        with mock.patch("time.time", return_value=1_800_000_000):
+            self.post(_AM)
         first = self.alerts()[0]["ts"]
-        self.post(_AM)
+        with mock.patch("time.time", return_value=1_800_000_000 + 4 * 3600):
+            self.post(_AM)
+        row = self.alerts()[0]
+        self.assertEqual(row["payload"]["first_seen"], first)
+        self.assertGreater(row["ts"], first)        # `ts` moved to the newest firing, first_seen did not
+        with mock.patch("time.time", return_value=1_800_000_000 + 8 * 3600):
+            self.post(_AM)
         self.assertEqual(self.alerts()[0]["payload"]["first_seen"], first)
 
     def test_two_different_alerts_stay_apart(self):

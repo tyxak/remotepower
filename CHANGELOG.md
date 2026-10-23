@@ -264,6 +264,9 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 ### Fixes
 
+- A repeated alert from an inbound token (Grafana, Alertmanager, Authentik) now keeps the
+  time it first fired. The first repeat stamped its own time instead, so a problem that
+  re-notified every four hours looked as if it had started minutes ago.
 - A wrong password in a re-authentication prompt no longer signs you out. The
   dashboard treats a 401 as "your session is gone", and the step-up dialog,
   turning 2FA off, making new recovery codes and changing your password all
