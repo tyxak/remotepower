@@ -165,13 +165,19 @@ wins:
 | a scan: "ET SCAN", a network scan, a port scan | port scanning |
 | "attempted information leak" | probing for exposed files and admin pages |
 
-An alert that names no attack is read and dropped. That covers Suricata's own
+An alert that names no attack is read and not reported. That covers Suricata's own
 engine events, the reputation lists (ET DROP, Dshield, CINS, compromised hosts,
 Tor), the policy and informational rules (ET INFO, POLICY, CHAT, GAMES, P2P,
 DNS), the malware and command-and-control rules, which fire on traffic from your
 own network, and anything marked outbound. A reputation hit means an address is
 on somebody's list. It says nothing about what the address did to you, so
 reporting it would repeat someone else's opinion.
+
+A reputation hit is still worth seeing. When the address is in Threat Intel for
+another reason, say it also probed your web server, its row shows **Listed on
+Spamhaus ×3**, and **Details** names the firewall that saw it. It is context: it
+does not count toward a report, start a lookup or add a row of its own. RemotePower
+keeps it for 30 days, and for at most 2,000 addresses per firewall.
 
 ### CrowdSec
 

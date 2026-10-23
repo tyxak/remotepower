@@ -50,6 +50,8 @@ import threat_evidence
 
 STATUS_EVERY_S = 60        # how often a device's source counts are written, without a hit to write
 KEEP_DEVICE_S = 7 * 86400  # a device that has sent nothing for this long is forgotten
+LISTED_KEEP_S = 30 * 86400 # a reputation-list hit is shown beside an address for this long
+LISTED_MAX = 2000          # addresses remembered per device; the oldest go first, so a flood cannot grow the document
 
 # The day's line counts per device, kept in this process and written with the scan
 # state. A batch that settles nothing (a pass, a line nobody reads) would otherwise
@@ -97,6 +99,45 @@ def _login_failures(dev_id, name, lines):
     A._detect_brute_force(dev_id, name, 'syslog', lines)
 
 
+def merge_listed(old, new, now):
+    """The reputation-list hits a device has seen, {address: {'at': last time, 'l': {list: count}}}:
+    `new` ({address: {list: count}}) added to `old`, what is older than LISTED_KEEP_S dropped, and
+    the oldest addresses dropped past LISTED_MAX. Context for the Threat Intel page and nothing
+    else: no report, lookup or block is made of it."""
+    out = {}
+    for ip, r in (old if isinstance(old, dict) else {}).items():
+        if isinstance(r, dict) and isinstance(r.get('l'), dict) and now - int(r.get('at') or 0) <= LISTED_KEEP_S:
+            out[ip] = {'at': int(r['at']), 'l': {str(k): int(v) for k, v in r['l'].items()}}
+    for ip, lists in (new or {}).items():
+        row = out.setdefault(ip, {'at': now, 'l': {}})
+        row['at'] = now
+        for name, n in lists.items():
+            row['l'][name] = row['l'].get(name, 0) + int(n)
+    if len(out) > LISTED_MAX:
+        for ip in sorted(out, key=lambda k: out[k]['at'])[:len(out) - LISTED_MAX]:
+            out.pop(ip)
+    return out
+
+
+def listed_for(scan_doc, device_ids, now=None):
+    """{address: {'at': newest, 'l': {list: count}}} across the devices in `device_ids`, from the
+    scan document, for the addresses Threat Intel shows."""
+    now = int(now or time.time())
+    out = {}
+    for dev_id, rec in (scan_doc or {}).items():
+        if dev_id not in device_ids or not isinstance(rec, dict) or not isinstance(rec.get('listed'), dict):
+            continue
+        for ip, r in rec['listed'].items():
+            if not (isinstance(r, dict) and isinstance(r.get('l'), dict)) or now - int(r.get('at') or 0) > LISTED_KEEP_S:
+                continue
+            row = out.setdefault(ip, {'at': 0, 'l': {}, 'on': []})
+            row['at'] = max(row['at'], int(r['at']))
+            row['on'].append(dev_id)
+            for name, n in r['l'].items():
+                row['l'][name] = row['l'].get(name, 0) + int(n)
+    return out
+
+
 def crowdsec_alert_lines(body):
     """Lines for the Logs tab from what CrowdSec's HTTP notification posts: a list of
     alerts, or one. An empty list when none is worth keeping, and None when the body
@@ -130,14 +171,15 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
     # same failures forwarded as syslog would be counted a second time.
     if not (isinstance(dev, dict) and not dev.get('agentless')):
         _login_failures(dev_id, str((dev or {}).get('name') or dev_id), lines)
-    hits, events, stats = appliance_evidence.scan(lines)
+    listed = {}
+    hits, events, stats = appliance_evidence.scan(lines, listed)
     if not stats:
         return
     for ev in events:
         ev['first'] = ev['last'] = now
     _remember(dev_id, stats)
     status_due = now - _noted.get(dev_id, 0) >= STATUS_EVERY_S
-    if not (hits or events or status_due):
+    if not (hits or events or listed or status_due):
         return
     day = time.strftime('%Y-%m-%d', time.gmtime(now))
     counts = _take(dev_id)
@@ -152,6 +194,8 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
             row = today.setdefault(kind, [0, 0, 0])
             for i in range(3):
                 row[i] += c[i]
+        if listed or rec.get('listed'):
+            rec['listed'] = merge_listed(rec.get('listed'), listed, now)
         rec.update({'scan': table, 'day': day, 'n': today, 'at': now})
         st[dev_id] = rec
         for d in [d for d, r in st.items() if isinstance(r, dict) and now - int(r.get('at') or 0) > KEEP_DEVICE_S]:

@@ -1304,6 +1304,15 @@ def explorer_rows(visible):
     return out
 
 
+def _listed_view(row, visible):
+    """What the page shows of an address's reputation-list hits: {'lists': {name: count}, 'at': last,
+    'hosts': [names]}, or None. The names are the hosts' own, as the caller may see them."""
+    if not row:
+        return None
+    return {'lists': dict(sorted(row['l'].items(), key=lambda kv: -kv[1])), 'at': row['at'],
+            'hosts': sorted({str((visible.get(d) or {}).get('name') or d) for d in row['on']})}
+
+
 def handle_ip_intel():
     """GET /api/ip-intel — settings (keys as booleans), recent attackers with
     their reputation and what the logs showed, active blocks, each host's log
@@ -1339,6 +1348,9 @@ def handle_ip_intel():
         for did, name in ip_intel.EDGE_DEVICES.items():
             visible[did] = {'name': name}
     blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
+    # Reputation-list hits a firewall's IDS saw (Spamhaus, Dshield, CINS...), from the hosts the
+    # caller can see. Context beside an address; it is never evidence.
+    listed = A.listed_for(A._load_ro(A.IPINTEL_SCAN_FILE) or {}, set(visible), int(time.time()))
     attackers = []
     for ip, a in (st.get('attackers') or {}).items():
         if not isinstance(a, dict):
@@ -1363,6 +1375,7 @@ def handle_ip_intel():
             'edge_ban': ({'until': bans[edge_blocklist.canonical(ip)]}
                          if edge_blocklist.canonical(ip) in bans else None),
             'evidence': _evidence_view(a),
+            'listed': _listed_view(listed.get(ip), visible),
             'report_log': [e for e in (a.get('report_log') or []) if isinstance(e, dict)][-3:],
         })
     attackers.sort(key=lambda r: int(r.get('last_seen') or 0), reverse=True)

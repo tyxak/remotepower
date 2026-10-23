@@ -434,10 +434,18 @@ function _ipiIgnoredClasses() {
 
 // Plain text for filtering: what the logs showed, in the words the page uses.
 function _ipiEvidenceText(a) {
-  const e = a.evidence;
-  if (!e) return '';
+  const e = a.evidence || {};
   return [(e.classes || []).map(c => _ipiClassName(c.id)).join(' '), (e.jails || []).join(' '),
-    (e.cves || []).join(' '), (e.rules || []).join(' ')].join(' ');
+    (e.cves || []).join(' '), (e.rules || []).join(' '), Object.keys((a.listed || {}).lists || {}).join(' ')].join(' ');
+}
+
+// Reputation lists a firewall's intrusion detection matched the address against ("Spamhaus ×3").
+// Context only: it is not evidence and nothing is reported because of it.
+const _IPI_LIST_WORDS = new Set(['Compromised hosts', 'Other block lists']);   // the others are names: Spamhaus, Dshield, CINS, Tor
+function _ipiListedText(a) {
+  const l = a.listed && a.listed.lists;
+  return l ? Object.entries(l).map(([name, n]) =>
+    `${_IPI_LIST_WORDS.has(name) ? _ipiPhrase(name) : escHtml(name)} ×${escHtml(String(n))}`).join(' · ') : '';
 }
 
 function _ipiEvidenceWeight(a) {
@@ -447,16 +455,17 @@ function _ipiEvidenceWeight(a) {
 
 function _ipiEvidenceHtml(a) {
   const e = a.evidence;
-  if (!e) return '<span class="hint">—</span>';
-  const chips = (e.classes || []).slice(0, 3).map(c =>
+  if (!e && !a.listed) return '<span class="hint">—</span>';
+  const chips = ((e || {}).classes || []).slice(0, 3).map(c =>
     `<span class="ipi-chip">${_ipiPhrase(_ipiClassName(c.id))} <span class="hint">×${escHtml(String(c.n))}</span></span>`).join('');
   const notes = [];
-  if (e.confirmed) {
+  if (a.listed) notes.push(`${_ipiPhrase('Listed on')} ${_ipiListedText(a)}`);
+  if (e && e.confirmed) {
     const who = (e.confirmed === 'the edge honeypot' || e.confirmed === 'a decoy port')
       ? _ipiPhrase(e.confirmed) : escHtml(e.confirmed);
     notes.push(`${_ipiPhrase('confirmed by')} ${who}`);
   }
-  if (e.ans) notes.push(`<span class="c-amber">${_ipiPhrase('answered')} ${escHtml(String(e.ans))}</span>`);
+  if (e && e.ans) notes.push(`<span class="c-amber">${_ipiPhrase('answered')} ${escHtml(String(e.ans))}</span>`);
   const open = _ipiOpen.has(a.ip);
   return `${chips}${notes.length ? `<div class="hint fs-11">${notes.join(' · ')}</div>` : ''}` +
     `<button class="btn-icon" data-ipi-toggle="${escAttr(a.ip)}" aria-expanded="${open}">${_ipiPhrase(open ? 'Hide details' : 'Details')}</button>`;
@@ -477,6 +486,11 @@ function _ipiDetailHtml(a) {
   if (seen.length) facts.push([_ipiPhrase('Seen in'), seen.join(' · ')]);
   const ids = [].concat(e.rules || [], e.cves || [], e.jails || []).map(x => `<code>${escHtml(x)}</code>`);
   if (ids.length) facts.push([_ipiPhrase('Rules'), ids.join(' ')]);
+  if (a.listed) {
+    const l = a.listed;
+    facts.push([_ipiPhrase('Listed on'), `${_ipiListedText(a)} · ${_ipiPhrase('seen by the intrusion detection of')} ${escHtml((l.hosts || []).join(', '))} · ` +
+      `${escHtml(timeAgo(l.at))} · ${_ipiPhrase('context only, not reported')}`]);
+  }
   for (const r of a.report_log || []) {
     const body = r.error
       ? `<span class="c-red">${_ipiReason(r.error)}</span>`

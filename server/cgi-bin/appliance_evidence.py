@@ -260,6 +260,31 @@ _IDS_RULES = tuple(
 )
 
 
+# The reputation lists an IDS rule set carries. A hit names no attack (the address is on
+# somebody's list), so it is never reported, but it is worth showing beside an address.
+# The first row that matches names the list.
+_IDS_LISTS = tuple(
+    (label, re.compile(rx))
+    for label, rx in (
+        ("Spamhaus", r"\bspamhaus\b"),
+        ("Dshield", r"\bdshield\b"),
+        ("CINS", r"\bcins\b"),
+        ("Compromised hosts", r"\bet compromised\b|known compromised"),
+        ("Tor", r"\bet tor\b|\btor exit\b"),
+        ("Other block lists", r"\bet drop\b"),
+    )
+)
+
+
+def reputation_of(signature):
+    """The name of the reputation list an IDS signature stands for, or None."""
+    hay = str(signature or "").lower()
+    for label, rx in _IDS_LISTS:
+        if rx.search(hay):
+            return label
+    return None
+
+
 def classify_ids(signature, classification=""):
     """The attack class an IDS alert stands for, or None for one that names no
     attack (the engine's own events, reputation lists, policy, outbound malware)."""
@@ -308,7 +333,8 @@ def parse_suricata(msg):
     if not src:
         return None
     return {"kind": "ids", "src": src, "proto": proto.lower(), "dport": dport,
-            "cls": classify_ids(sig, cls_name), "cves": _CVE.findall(sig)[:2]}
+            "cls": classify_ids(sig, cls_name), "cves": _CVE.findall(sig)[:2],
+            "rep": reputation_of(sig)}
 
 
 # ── CrowdSec ───────────────────────────────────────────────────────────────────
@@ -462,8 +488,12 @@ def track(table, hits, now):
     return events
 
 
-def scan(lines):
+def scan(lines, listed=None):
     """Read a batch of stored syslog lines, with no state.
+
+    `listed`, when given, is filled with the reputation-list hits of the batch,
+    {address: {list name: count}}. They are context and not evidence: nothing in
+    `events` is made of them.
 
     Returns (hits, events, stats). `hits` are the refused or decoy packets, as
     (address, port, is_trap), for `track` to count over time. `events` are the
@@ -495,6 +525,9 @@ def scan(lines):
             if p:
                 hits.append((ip, p[0], p[1]))
         elif kind == "ids":
+            if rec.get("rep") and listed is not None:
+                row = listed.setdefault(ip, {})
+                row[rec["rep"]] = row.get(rec["rep"], 0) + 1
             if rec["cls"]:
                 row = ids.setdefault(ip, {"cls": {}, "cves": []})
                 row["cls"][rec["cls"]] = row["cls"].get(rec["cls"], 0) + 1

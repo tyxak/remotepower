@@ -54,6 +54,11 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 ### Threat Intel
 
+- A firewall's reputation-list hits show beside an address. When Suricata matches
+  traffic against Spamhaus, Dshield, CINS, compromised hosts or Tor and the address is in
+  Threat Intel for another reason, its row says **Listed on Spamhaus ×3**. It is context
+  only: it is not evidence, so it is never reported, looked up or blocked, and it makes no
+  row of its own. Kept 30 days, at most 2,000 addresses per firewall.
 - An address nobody has seen for 90 days is forgotten. The table was limited by count
   only (5,000, oldest first), so a quiet install kept every address it had ever met.
   The Edge blocklist already dropped addresses after 14 days, and it keeps what it

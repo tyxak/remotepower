@@ -354,7 +354,7 @@ class TestSuricata(unittest.TestCase):
         r = ae.read_line(pre + '[Drop] [1:4294967273:1] RP test [Classification: (null)] [Priority: 3] '
                                '{UDP} 203.0.113.9:123 -> 10.0.0.3:123')
         self.assertEqual(r, ('ids', {'kind': 'ids', 'src': '203.0.113.9', 'proto': 'udp', 'dport': 123,
-                                     'cls': None, 'cves': []}))
+                                     'cls': None, 'cves': [], 'rep': None}))
         r = ae.read_line(pre + '[Drop] [1:2006380:17] ET POLICY Outgoing Basic Auth Base64 HTTP Password '
                                'detected unencrypted [Classification: Potential Corporate Privacy Violation] '
                                '[Priority: 1] {TCP} 10.0.0.2:46816 -> 192.168.2.100:6789')

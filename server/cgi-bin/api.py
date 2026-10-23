@@ -1201,7 +1201,7 @@ appliance_sensor_handlers_mod = _tk_ilu.module_from_spec(_as_spec)
 _as_spec.loader.exec_module(appliance_sensor_handlers_mod)
 appliance_sensor_handlers_mod.bind(globals())
 for _as_name in (
-        'appliance_sensor_ingest', 'crowdsec_alert_lines',
+        'appliance_sensor_ingest', 'crowdsec_alert_lines', 'listed_for', 'merge_listed',
 ):
     globals()[_as_name] = getattr(appliance_sensor_handlers_mod, _as_name)
 del _as_name
