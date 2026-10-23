@@ -248,7 +248,7 @@ A visit from an address in `ALLOW` shows `"action":"allowlisted"`. You can also 
 The Edge sources guide has every click. For this Worker:
 
 1. Create a read-only token with the **Workers Observability** row, as in [Step 1: Create the API token](edge-sources.md#step-1-create-the-api-token), and find your [account id](edge-sources.md#step-2-find-your-account-id).
-2. Enter both under **Security → Threat intel → Edge sources** ([Step 3](edge-sources.md#step-3-enter-it-in-remotepower)). Leave **Honeypot Worker log** ticked. **Worker names** already says `trap-sink`.
+2. Enter both under **Security → Threat Intel → Edge sources** ([Step 3](edge-sources.md#step-3-enter-it-in-remotepower)). Leave **Honeypot Worker log** ticked. **Worker names** already says `trap-sink`.
 3. Press **Test connection** ([Step 4](edge-sources.md#step-4-test-the-connection)). The line `Honeypot log` should say `Works`.
 4. Tick the switch at the top ([Step 5](edge-sources.md#step-5-switch-it-on)).
 

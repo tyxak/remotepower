@@ -1,4 +1,4 @@
-"""The Threat intel tables draw a window of their rows, and say how many there are (v7.3.0).
+"""The Threat Intel tables draw a window of their rows, and say how many there are (v7.3.0).
 
 1,000 attacker rows were 36k DOM nodes and about 0.3 s a render, repeated on every
 keystroke in the filter. The page draws the first 200 now and offers more. What

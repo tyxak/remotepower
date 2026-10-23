@@ -1,4 +1,4 @@
-"""The Threat intel status column is built from phrases the language engine can translate.
+"""The Threat Intel status column is built from phrases the language engine can translate.
 
 The column used to be one string joined in JavaScript: "reported to AbuseIPDB · not blocked:
 auto-block is off". The engine translates a whole text node by exact match, so a sentence

@@ -57,7 +57,7 @@ on, so enabling push is a single toggle:
    no latency benefit. The server host needs it too (it already does if the web
    terminal is installed).
 
-That's it. Confirm on the **Server status → Distributed subsystems** card, or with
+That's it. Confirm on the **Server Status → Distributed subsystems** card, or with
 the **Test daemon connection** button under Settings.
 
 ### Upgrading an existing install (or a hand-rolled vhost)

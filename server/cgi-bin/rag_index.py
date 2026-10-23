@@ -1284,7 +1284,7 @@ def build_threats_corpus(devices, intel=None, sessions=None, now=0):
 
 # What the edge sources and the Cloudflare IP list say, for "is the honeypot
 # catching anything", "what is in the edge blocklist" and "why did the Cloudflare
-# feed stop". The Threat intel page shows all of it to an operator; without this
+# feed stop". The Threat Intel page shows all of it to an operator; without this
 # the assistant could not, because the host-keyed docs above skip an address that
 # only the edge saw (its pseudo-device is not a fleet device).
 _EDGE_FEED_WORDS = {
@@ -1370,9 +1370,9 @@ def build_edge_threats_corpus(intel, now=0):
     if lines:
         docs.append(make_doc(
             'live/fleet#edge_sources', 'live_state', 'edge_sources',
-            "Threat intel edge sources (read from Cloudflare and the honeypot, "
+            "Threat Intel edge sources (read from Cloudflare and the honeypot, "
             "not from a host):\n" + '\n'.join(lines),
-            title='Threat intel — edge sources and blocklist',
+            title='Threat Intel — edge sources and blocklist',
             ts=max([int(f.get('at') or 0) for f in edge.values() if isinstance(f, dict)]
                    + [int(last.get('at') or 0), 0]) or now))
     # The addresses only the edge saw (or saw as well): reputation, what they
@@ -1424,7 +1424,7 @@ def build_edge_threats_corpus(intel, now=0):
             'live/fleet#edge_addresses', 'live_state', 'edge_addresses',
             f"Addresses seen at the edge ({len(rows)} in all, highest reputation first):\n"
             + '\n'.join(r[2] for r in rows[:EDGE_ADDRESSES_SHOWN]),
-            title='Threat intel — addresses seen at the edge',
+            title='Threat Intel — addresses seen at the edge',
             ts=max(r[1] for r in rows) or now))
     return docs
 

@@ -211,4 +211,4 @@ echo "  $n. Open TCP $PORT in this server's firewall (the only new port, and it 
 n=$((n + 1))
 echo "  $n. Settings → Advanced → turn on the SSH gateway module."
 n=$((n + 1))
-echo "  $n. SSH gateway page: set the public host name, opt hosts in, add your key. See docs/sshgw.md."
+echo "  $n. SSH Gateway page: set the public host name, opt hosts in, add your key. See docs/sshgw.md."

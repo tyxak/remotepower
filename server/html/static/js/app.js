@@ -8013,8 +8013,8 @@ const _DYK_TIPS = [
   "Resource alerts flapping? Settings \u2192 Alert parameters has \u201cMetric alert after\u201d (wait N over-threshold checks before a CPU/mem/disk alert) and \u201cSNMP unreachable after\u201d (N failed polls before an SNMP-unreachable alert) \u2014 the metric and SNMP siblings of the per-monitor setting.",
   "A flaky monitor that blips for one check shouldn\u2019t page you \u2014 set \u201cAlert after consecutive failures\u201d on the monitor (Monitoring \u2192 add/edit) so monitor-down only fires after N failures in a row.",
   "A host\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a host-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
-  "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
-  "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
+  "Server Status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
+  "The Server Status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
   "The Audit page has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
   "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
   "The Users table shows each account's MFA method (TOTP, passkey, or none), its auth source (local, OIDC, SAML, SCIM) and whether it's deactivated — so 'who is missing MFA' is one glance, not an audit.",
@@ -8025,9 +8025,9 @@ const _DYK_TIPS = [
   "On the Hosts page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
   "Open a host drawer's Audit tab and its Health & hardware section to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
-  "The Predictive health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
+  "The Predictive Health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
   "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
-  "The SSH keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
+  "The SSH Keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
   "Open a container in the host drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
   "Press / (or Ctrl-K) anywhere for the command palette — it searches open alerts and CVE findings too, not just pages and hosts.",
   "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
@@ -8136,7 +8136,7 @@ const _DYK_TIPS = [
   "Save your most-used commands to the Command Library and reuse them in a single click.",
   "Export patch reports as CSV or XML for compliance and record-keeping.",
   "Track CPU, memory, disk, swap, and load metrics for every agent.",
-  "RemotePower watches itself — disk, webhooks, audit log, and backups — on the Server status page.",
+  "RemotePower watches itself — disk, webhooks, audit log, and backups — on the Server Status page.",
   "Every privileged action is recorded in the audit log, so you always know who did what.",
   "Send notifications to Slack, Discord, email, or any generic webhook.",
   "Trigger actions from your own automation using inbound webhooks.",
@@ -20752,10 +20752,10 @@ function _renderHomeActivity(fleetEvents) {
     'scan_finding',
     // v4.7.0: homelab software integration health
     'integration_down', 'integration_recovered',
-    // v7.3.0: the health of Threat intel itself, an edge feed that cannot be
+    // v7.3.0: the health of Threat Intel itself, an edge feed that cannot be
     // read and a Cloudflare list sync that waits for a person
     'edge_feed_down', 'edge_feed_recovered', 'edge_list_held', 'edge_list_synced',
-    // v7.4.0: addresses Threat intel reported to AbuseIPDB or SniffCat
+    // v7.4.0: addresses Threat Intel reported to AbuseIPDB or SniffCat
     'ip_reported',
     // v6.4.2: an operator-set bound on a connector metric was crossed.
     'integration_metric_alert', 'integration_metric_recovered',
@@ -21067,7 +21067,7 @@ function _homeActivityAttrs(event, p) {
     case 'autoupdate_disabled': case 'autoupdate_enabled':
     case 'password_stale': case 'password_stale_cleared':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
-    // v6.4.2: these are about the server ITSELF, not a host — Server status is
+    // v6.4.2: these are about the server ITSELF, not a host — Server Status is
     // where its version, the sweep table, the scheduler heartbeat and the
     // sidecar rows live.
     case 'server_upgraded':
@@ -21105,7 +21105,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="integrations"`;
     case 'ip_blacklisted': case 'ip_blacklist_cleared':
       return `${base} data-home-act="dmarc"`;
-    // v7.3.0: the edge feeds and the Cloudflare list live on Threat intel
+    // v7.3.0: the edge feeds and the Cloudflare list live on Threat Intel
     case 'edge_feed_down': case 'edge_feed_recovered':
     case 'edge_list_held': case 'edge_list_synced':
     case 'ip_reported':
@@ -25467,7 +25467,7 @@ async function _loadAuditSection(key) {
             ? (gw.enabled ? `reachable${gw.tunnel_seen ? ` · tunnel seen ${escHtml(timeAgo(gw.tunnel_seen))}` : ' · tunnel not connected yet'}` : 'not opted in')
             : 'module off'}</div>`;
         }
-        h += `<div class="hint mt-8"><a href="#" data-action-btn="_showPageBtn" data-page="ipintel" data-prevent-default class="c-accent">Threat intel</a> · <a href="#" data-action-btn="_showPageBtn" data-page="sshgw" data-prevent-default class="c-accent">SSH gateway</a> · <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>`;
+        h += `<div class="hint mt-8"><a href="#" data-action-btn="_showPageBtn" data-page="ipintel" data-prevent-default class="c-accent">Threat Intel</a> · <a href="#" data-action-btn="_showPageBtn" data-page="sshgw" data-prevent-default class="c-accent">SSH gateway</a> · <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>`;
         body.innerHTML = h;
         break;
       }
@@ -31201,7 +31201,7 @@ const _G_NAV = [
   ['m', 'monitor',  'Monitoring'],
   ['r', 'reports',  'Reports'],
   ['t', 'trends',   'Trends'],
-  ['v', 'self',     'Server status'],
+  ['v', 'self',     'Server Status'],
   ['s', 'settings', 'Settings'],
 ];
 const _G_NAV_MAP = Object.fromEntries(_G_NAV.map(([k, page]) => [k, page]));

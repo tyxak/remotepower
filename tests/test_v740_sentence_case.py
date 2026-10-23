@@ -2,7 +2,7 @@
 """7.4.0: card headings and action buttons are in sentence case.
 
 The typography rule has said so since v7.1.0 ("Card/panel headers use .section-title ... plain 13px
-sentence-case ink heading"), and it was kept for most of the interface: "Network metrics", "Server
+sentence-case ink heading"), and it was kept for most of the interface: "Network Metrics", "Server
 status", "Knowledge base". Eighteen strings had slipped through in Title Case ("Listening Ports",
 "Top Processes", "Print / Save as PDF", the host drawer's "System Info" and "Drift State"). Each is a
 dictionary key, so re-casing one means re-keying it in all six languages; that was done with them.
@@ -10,8 +10,8 @@ dictionary key, so re-casing one means re-keying it in all six languages; that w
 Left in Title Case on purpose, and listed in NAMES with the reason:
   * the NAMES OF PAGES (the sidebar label, the page title, and the buttons that open them): "Needs
     Attention", "Data Explorer", "WG Access". 12 of 25 multi-word sidebar labels are written that way and
-    the rest are in sentence case; which one the product means is a decision about 300 references in
-    the guides, the in-app documentation and the tests, not a typo to correct here.
+    the rest were in sentence case. The owner chose Title Case for page names (2026-10-23), so
+    "Threat Intel" and "Server Status" follow "Needs Attention"; test_every_page_name_is_title_case holds it.
   * product, protocol and standard names ("Proxmox Backup Server", "OpenID Connect", "WebAuthn").
 """
 import html.parser
@@ -43,6 +43,11 @@ NAMES = {
     'WG Access': 'the name of a page', 'AI Assistant': 'the name of a page',
     'API Keys': 'the name of a page', 'API Reference': 'the name of a page',
     'Custom Scripts': 'the name of a page',
+    'Threat Intel': 'the name of a page', 'Server Status': 'the name of a page',
+    'Network Metrics': 'the name of a page', 'Predictive Health': 'the name of a page',
+    'App Catalog': 'the name of a page', 'Tags & Groups': 'the name of a page',
+    'Software Policy': 'the name of a page', 'SSH Keys': 'the name of a page',
+    'SSH Gateway': 'the name of a page',
 }
 
 
@@ -151,6 +156,16 @@ class TestSentenceCase(unittest.TestCase):
         scanned_elsewhere = {n for n, why in NAMES.items() if why == 'the name of a page'}
         stale = sorted(n for n in NAMES if n not in seen and n not in scanned_elsewhere)
         self.assertEqual(stale, [], 'these names are not in any scanned heading or button; delete them: ' + repr(stale))
+
+    def test_every_page_name_is_title_case(self):
+        text = (HTML / 'index.html').read_text(encoding='utf-8')
+        labels = re.findall(r'<button class="nav-btn[^"]*" data-page="[^"]+"[^>]*>\s*(?:<svg.*?</svg>\s*)?<span>([^<]+)</span>',
+                            text, re.S)
+        self.assertGreater(len(labels), 50)
+        words = lambda t: [w for w in re.findall(r"[A-Za-z][A-Za-z'’\-]*", t) if w.lower() not in SMALL]
+        bad = [l for l in (x.replace('&amp;', '&') for x in labels)
+               if len(words(l)) > 1 and not all(w[0].isupper() for w in words(l))]
+        self.assertEqual(bad, [], 'page names are in Title Case: ' + repr(bad))
 
     def test_the_rule_can_say_no(self):
         self.assertTrue(is_title_case('Listening Ports'))

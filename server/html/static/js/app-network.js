@@ -1426,7 +1426,7 @@ function _cmdbEsc(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-// ── v5.0.0: Network metrics (per-device throughput, scoped) ──────────────────
+// ── v5.0.0: Network Metrics (per-device throughput, scoped) ──────────────────
 // Fleet-wide RX/TX or rolled up by group / tag / site (a site = a customer).
 // Data from /api/network-metrics (agent `network_io` samples). Mirrors the NOC
 // board's segmented-scope pattern.

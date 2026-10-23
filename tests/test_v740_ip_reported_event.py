@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""7.4.0: Threat intel says so when it reports addresses.
+"""7.4.0: Threat Intel says so when it reports addresses.
 
 Driven for real: the edge poll queues a finding, the report sweep sends it to SniffCat, and
 `fire_webhook` -> `_record_alert` writes the inbox row, because a hand-built payload skips the

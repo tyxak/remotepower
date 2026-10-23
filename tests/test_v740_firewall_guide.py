@@ -98,7 +98,7 @@ def _n(n):
 
 def _on_the_page(label):
     """True when `label` is the text of a label, a section title or a form-label heading on the
-    page. Prose that merely mentions it (the What's new card says "Security -> Threat intel ->
+    page. Prose that merely mentions it (the What's new card says "Security -> Threat Intel ->
     Firewalls and routers") does not count: a renamed card would still pass a plain substring."""
     return re.search(r'(?:>|<input[^>]*>)\s*%s[^<]*</(?:label|div)>' % re.escape(label), _HTML) is not None
 

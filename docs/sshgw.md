@@ -1,4 +1,4 @@
-# SSH gateway
+# SSH Gateway
 
 The SSH gateway lets you reach your servers with the SSH client you already
 use: `ssh`, `scp`, `rsync`, VS Code Remote, Ansible. You don't need to open a
@@ -100,9 +100,9 @@ until you ask for it:
    step. If something sits in front of the container, such as a reverse proxy,
    it must pass `/api/sshgw/tunnel` through with WebSocket upgrade, like the
    route in step 2.
-5. Carry on from step 3. In **Server status** the **SSH gateway** row reads
+5. Carry on from step 3. In **Server Status** the **SSH Gateway** row reads
    **Running** once the container is up. If you mapped a different host port
-   with `RP_SSHGW_PORT`, put that port on the SSH gateway page.
+   with `RP_SSHGW_PORT`, put that port on the SSH Gateway page.
 
 Whichever way you installed, nothing here opens a firewall port for you. Open
 **TCP 2222** (or the port you chose) yourself. That is the only new port, and it
@@ -151,12 +151,12 @@ why.
 
 ### 3. Turn it on
 
-1. **Settings → Advanced → SSH gateway**: turn the module on.
-2. Open the **SSH gateway** page (Access section of the sidebar) and set the
+1. **Settings → Advanced → SSH Gateway**: turn the module on.
+2. Open the **SSH Gateway** page (Access section of the sidebar) and set the
    public host name people will connect to, for example `gw.example.com`.
    Change the port only if you changed the service's port.
 
-**Server status** now has an **SSH gateway** row. It says **Running** when the
+**Server Status** now has an **SSH Gateway** row. It says **Running** when the
 gateway answers on this server, and how many of the servers you allowed have a
 tunnel up. **Enabled — unreachable** means nothing is listening on the tunnel
 port here; check `systemctl status remotepower-sshgw`. If you run the gateway
@@ -164,7 +164,7 @@ on another machine, that row reads unreachable even when all is well.
 
 ### 4. Allow your servers
 
-On the **SSH gateway** page, scroll to **Servers** and tick **Allow SSH** for
+On the **SSH Gateway** page, scroll to **Servers** and tick **Allow SSH** for
 each server you want to reach. Only admins can do this.
 
 A server also needs:
@@ -182,7 +182,7 @@ when it last did. "Never" means it hasn't.
 
 ### 5. Add your key and connect
 
-On the **SSH gateway** page, paste your public key (the contents of
+On the **SSH Gateway** page, paste your public key (the contents of
 `~/.ssh/id_ed25519.pub`) and confirm with your password. The key types
 accepted are ed25519, ECDSA, hardware-backed `sk-` keys, and RSA of 2048 bits
 or more. Each key can belong to only one account.
@@ -244,14 +244,14 @@ Answer `yes` only when the fingerprint matches.
 
 Each connection writes one record: your account, the key's fingerprint, your
 source address, the server, the start time, the duration, and the bytes sent
-each way. Records show on the SSH gateway page for admins and auditors, and in
+each way. Records show on the SSH Gateway page for admins and auditors, and in
 the audit log next to logins, refusals and key changes.
 
 The session is encrypted end to end, so the gateway cannot record keystrokes
 or output. If you need a recorded session, use the web terminal.
 
 **Clear sessions.** Admins see a **Clear sessions** button above the list on the
-SSH gateway page. It empties the list, after you confirm. It does not touch the
+SSH Gateway page. It empties the list, after you confirm. It does not touch the
 audit log, which keeps its own line for every connection and refusal, so the
 record of who connected stays. Clearing also resets the "sessions in the last
 24 hours" figure. An admin who can see only part of the fleet, or a tenant
@@ -304,7 +304,7 @@ its own messages.
 
 | You see | Meaning |
 |---|---|
-| `Permission denied (publickey)` | One of three things. **The account name is wrong** (`User` isn't your RemotePower account name). **The key isn't registered** on that account. **ssh offered a different key** than the one you registered; it tries your default keys unless the gateway's `Host` entry names one with `IdentityFile`. The gateway's journal says which account and fingerprint it refused: `journalctl -u remotepower-sshgw \| grep refused`. Compare the fingerprint with the list on the SSH gateway page. |
+| `Permission denied (publickey)` | One of three things. **The account name is wrong** (`User` isn't your RemotePower account name). **The key isn't registered** on that account. **ssh offered a different key** than the one you registered; it tries your default keys unless the gateway's `Host` entry names one with `IdentityFile`. The gateway's journal says which account and fingerprint it refused: `journalctl -u remotepower-sshgw \| grep refused`. Compare the fingerprint with the list on the SSH Gateway page. |
 | `Permission denied (publickey)` for everyone, right after install | The gateway and RemotePower don't share the secret, or the module is off. Re-run `packaging/install-sshgw.sh`, which repairs the secret, and check that the module is on. |
 | The connection hangs or is refused | Port 2222 isn't open to you on the RemotePower server's firewall. |
 | Refused for 10 minutes | The failed-login throttle. Wait, or fix the cause first and then retry. |
@@ -321,5 +321,5 @@ its own messages.
 | `Permission denied` after the server's own prompt | The gateway let you through, and the server's sshd refused you. Check your login on the server and its keys. |
 | `Host key verification failed` | ssh has no stored host key for that server yet. Connect once without `BatchMode`, compare the fingerprint, and answer `yes`. |
 
-If the **Server status** page shows the **SSH gateway** row as unreachable,
+If the **Server Status** page shows the **SSH Gateway** row as unreachable,
 fix that first: nothing else works while the daemon is down.

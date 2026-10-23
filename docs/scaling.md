@@ -66,7 +66,7 @@ Each heartbeat is a short read-modify-write. The work is small; the limit is
 
 ## How do I know what's actually serving? (verify, don't guess)
 
-Open **Server status** in the app (the sidebar item that watches RemotePower
+Open **Server Status** in the app (the sidebar item that watches RemotePower
 itself) → the **“Serving & runtime”** panel at the top. It shows, live from the
 process handling your request:
 
@@ -197,7 +197,7 @@ request path resumes the cadence.
 
 **Verify it took:** the flag must be set on the **app-server tier** (worker), not
 just the scheduler — that's what makes the request path *skip* the cadence. After
-restarting, open **Server status → Serving & runtime**: the scheduler row should
+restarting, open **Server Status → Serving & runtime**: the scheduler row should
 read *Running* with a recent heartbeat, and *Per-request maintenance* should read
 *Offloaded to scheduler*. If the scheduler row says *Configured — no heartbeat*,
 the `remotepower-scheduler` process isn't running; if *Per-request maintenance*

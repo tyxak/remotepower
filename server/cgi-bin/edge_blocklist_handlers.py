@@ -425,7 +425,7 @@ def _prune_bans(st, now):
 
 def _mark_listed(st, listed, now):
     """Stamp each recorded attacker that is in the list, and clear the stamp from the
-    ones that are not, so the Threat intel table can say which addresses the list
+    ones that are not, so the Threat Intel table can say which addresses the list
     holds. Matching is by address, or by network for a range."""
     exact, nets = edge_blocklist.membership(listed)
     for ip, att in (st.get('attackers') or {}).items():
@@ -503,7 +503,7 @@ def run_edge_blocklist_if_due():
 # ── what the page reads ────────────────────────────────────────────────────────
 
 def edge_list_status(st, pol):
-    """The blocklist's state for the Threat intel page: whether it is on, what the
+    """The blocklist's state for the Threat Intel page: whether it is on, what the
     last real sync and the last preview said, and how old each source copy is. The
     copies themselves are never sent; only counts and times."""
     el = _el(st)
@@ -607,7 +607,7 @@ def _caller_is_operator():
 def _edge_not_ready(pol):
     """Why a ban at the edge cannot take effect, or ''."""
     if not pol.get('edgelist_enabled'):
-        return 'The Edge blocklist is off. Turn it on under Security → Threat intel → Edge blocklist first.'
+        return 'The Edge blocklist is off. Turn it on under Security → Threat Intel → Edge blocklist first.'
     if not pol.get('edge_list_token'):
         return 'The Edge blocklist has no token that can edit lists yet.'
     if not edge_evidence.valid_id(pol.get('edge_account_id')):

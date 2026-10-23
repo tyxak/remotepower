@@ -1,6 +1,6 @@
-"""Clearing what Threat intel has recorded, and the flood that asked for it (v7.3.0).
+"""Clearing what Threat Intel has recorded, and the flood that asked for it (v7.3.0).
 
-The store behind the Threat intel page is one document that every writer rewrites
+The store behind the Threat Intel page is one document that every writer rewrites
 whole, and it holds up to 5,000 addresses. Two questions came out of that. Does a
 burst of attacking sources cost the heartbeat more than it should (it did: ten
 seconds for forty sources at the cap, because the hook took one lock per source),

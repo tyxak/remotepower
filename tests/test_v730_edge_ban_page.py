@@ -1,4 +1,4 @@
-"""The Threat intel page's ban by hand (v7.3.0): the cell, the buttons and the dialog.
+"""The Threat Intel page's ban by hand (v7.3.0): the cell, the buttons and the dialog.
 
 Same questions as the other halves of this page. Do the words match what the server
 sends, has every phrase six languages, is everything printed from the server escaped,

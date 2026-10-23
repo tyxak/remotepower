@@ -1,7 +1,7 @@
 """The edge blocklist, driven for real: the sweep and the endpoints against a small
 in-memory Cloudflare Lists API and the two blacklists.
 
-The seam is `_ip_intel_http`, as in the other Threat intel tests. What matters here
+The seam is `_ip_intel_http`, as in the other Threat Intel tests. What matters here
 is what the feature does to somebody's account: nothing without being asked, nothing
 to a list it did not create until told to take it over, nothing that is protected,
 nothing that would empty or halve a list unasked, and the token never leaves the

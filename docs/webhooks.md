@@ -197,7 +197,7 @@ to a destination, which is handy after a receiver outage.
 
 ## Audit + logging
 
-Every successful POST is logged to `webhook_log.json` with the format suffix: `OK (200) [pushover]`, `HTTP 400 [discord]: Bad Request`, etc. Visible in Settings → Notifications → Recent deliveries, and aggregated for the success-rate stat on the Server status page.
+Every successful POST is logged to `webhook_log.json` with the format suffix: `OK (200) [pushover]`, `HTTP 400 [discord]: Bad Request`, etc. Visible in Settings → Notifications → Recent deliveries, and aggregated for the success-rate stat on the Server Status page.
 
 ## One-click ack from alert emails
 

@@ -3,7 +3,7 @@
 Minimum and recommended hardware for the **server**, plus what a managed
 **agent** costs on the hosts it watches. These are architecture-grounded
 estimates (what each component actually does), not lab-benchmarked
-certified numbers — watch real usage on your box (Server status page →
+certified numbers — watch real usage on your box (Server Status page →
 Serving & runtime panel, or plain `top`/`free`) and adjust from there.
 
 ## Server

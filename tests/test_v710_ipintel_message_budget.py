@@ -1,4 +1,4 @@
-"""Threat intel: the report message is the operator's to write, and the API usage limits are settable.
+"""Threat Intel: the report message is the operator's to write, and the API usage limits are settable.
 
 Reports went out with one fixed sentence and only the lookup limit could be changed
 (not from the page). The message is now a template with placeholders, none

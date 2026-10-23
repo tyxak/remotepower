@@ -1,9 +1,9 @@
-"""Threat intel's two documents, read and written as the one store they used to be.
+"""Threat Intel's two documents, read and written as the one store they used to be.
 
 The table of addresses is `IPINTEL_FILE`. What arrives between sweeps is
 `IPINTEL_INTAKE_FILE`: the queue, each host's sensor record and the edge feeds'
 places in their logs. Before 7.4.0 all of it was one document, and most of the
-Threat intel tests were written against that shape. `read()` gives them that one
+Threat Intel tests were written against that shape. `read()` gives them that one
 dict (`queue` and `sensors` at the top, the feeds' places as `edge.cf_to` and
 `edge.trap_to`) and `write()` splits it again, so a test says what the code does
 and not which key it landed in. The tests of where things live, and of the

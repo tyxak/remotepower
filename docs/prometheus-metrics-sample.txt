@@ -204,7 +204,7 @@ remotepower_edge_bans_active 1
 # HELP remotepower_edge_blocklist_sync_age_seconds Seconds since the list was last synced.
 # TYPE remotepower_edge_blocklist_sync_age_seconds gauge
 remotepower_edge_blocklist_sync_age_seconds 900
-# HELP remotepower_ip_intel_attackers_24h Addresses Threat intel recorded in the last 24 hours.
+# HELP remotepower_ip_intel_attackers_24h Addresses Threat Intel recorded in the last 24 hours.
 # TYPE remotepower_ip_intel_attackers_24h gauge
 remotepower_ip_intel_attackers_24h 1
 # HELP remotepower_compliance_framework_score Compliance score for one framework (0-100).

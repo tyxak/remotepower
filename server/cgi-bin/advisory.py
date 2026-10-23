@@ -412,7 +412,7 @@ def _identity_findings(dev_id, name, dev, bf_sources=None,
             f2b_note = ''
         intel_note = (f' {len(known_bad)} of the sources are listed as abusive by a '
                       'reputation service and are not blocked here — block them '
-                      'first (Security → Threat intel can block them for a set '
+                      'first (Security → Threat Intel can block them for a set '
                       'time, or do it automatically).' if known_bad else '')
         out.append(_finding(
             'id.bruteforce', 'identity',

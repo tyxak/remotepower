@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: RemotePower version
-      description: Shown on the Server status page (e.g. 3.14.0).
+      description: Shown on the Server Status page (e.g. 3.14.0).
       placeholder: "3.14.0"
     validations:
       required: true

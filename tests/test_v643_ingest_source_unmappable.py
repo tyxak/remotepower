@@ -4,7 +4,7 @@
 token by the sender's SOURCE IP, looked up against the enrolled DEVICE's `ip`.
 A token whose device has no `ip`, whose device was deleted, or that is disabled
 is dropped from that map — every packet it was meant to catch is discarded, and
-the only place that said so was a card on the Server status page. Silent data
+the only place that said so was a card on the Server Status page. Silent data
 loss reported on a page nobody has open during an outage is not a control.
 
 This is a per-TOKEN alert, so it has to satisfy the whole per-resource contract

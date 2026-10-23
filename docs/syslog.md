@@ -202,7 +202,7 @@ exists for appliances you *can't* put an agent on.
 
 Check `src-address` on the action if the router has several WAN/LAN addresses.
 
-To have Threat intel read the router's firewall log, a decoy port and failed
+To have Threat Intel read the router's firewall log, a decoy port and failed
 sign-ins, see [Firewall sources](firewall-sources.md#mikrotik-routeros). It
 uses different logging rules from the ones above.
 
@@ -213,7 +213,7 @@ address of the interface that leads to the server, and that is the address the
 host record needs. The full steps, with the fields to fill in, are in
 [opnsense.md](opnsense.md#send-the-firewalls-logs). In short, **System ‣ Settings
 ‣ Logging**, add a target with transport **UDP (IPv4)**, the server's address and
-port `5514`. You do not enter the token on OPNsense. To have Threat intel read
+port `5514`. You do not enter the token on OPNsense. To have Threat Intel read
 the firewall log and Suricata alerts, see
 [Firewall sources](firewall-sources.md#opnsense).
 
@@ -279,7 +279,7 @@ host has been deleted, or that is simply disabled, is dropped from the source
 map: nothing it is pointed at can ever arrive, however correctly the appliance
 is configured.
 
-Server status used to count such a token as one of N working sources. It
+Server Status used to count such a token as one of N working sources. It
 now names it and *why* — "1 of 2 sources wired to nothing · fw01 (no IP on
 the host, so the receiver cannot map its packets)" — and the receiver no
 longer reports itself healthy while one of its sources is wired to nothing. The

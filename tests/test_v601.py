@@ -103,7 +103,7 @@ class TestRefineMattersFeatures(unittest.TestCase):
         sched = html.find('data-group="scheduling"')
         cat = html.find('data-page="catalog"')
         self.assertGreater(auto, 0)
-        self.assertTrue(auto < cat < sched, "App catalog should sit in the Automation group")
+        self.assertTrue(auto < cat < sched, "App Catalog should sit in the Automation group")
 
 
 if __name__ == "__main__":

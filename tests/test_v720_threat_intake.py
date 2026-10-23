@@ -1,4 +1,4 @@
-"""The threat sensor's intake: a Linux agent's summaries reach Threat intel.
+"""The threat sensor's intake: a Linux agent's summaries reach Threat Intel.
 
 The handler is driven for real against a real store. What matters is who is let
 in (only a device speaking for itself), what is let through (only the fixed

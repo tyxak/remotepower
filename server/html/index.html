@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-21">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.0-22">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-21">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.0-22">
 
 </head>
 <body>
@@ -276,7 +276,7 @@
         </button>
         <button class="nav-btn" data-page="taxonomy" title="Every tag and group in use, with host counts — rename, merge or delete a tag across the whole fleet">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-          <span>Tags &amp; groups</span>
+          <span>Tags &amp; Groups</span>
         </button>
         <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
@@ -318,7 +318,7 @@
         </button>
         <button class="nav-btn" data-page="netmetrics" title="Network throughput (RX/TX) per host, rolled up fleet-wide or by group / tag / site">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-6ccc3e4e"/></svg>
-          <span>Network metrics</span>
+          <span>Network Metrics</span>
         </button>
         <button class="nav-btn" data-page="services" title="systemd units watched per host — history, logs and configuration">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -359,9 +359,9 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span>Power</span>
         </button>
-        <button class="nav-btn" data-page="disk-health" title="Predictive health — disks at risk (SMART trend) + frequently-restarting hosts">
+        <button class="nav-btn" data-page="disk-health" title="Predictive Health — disks at risk (SMART trend) + frequently-restarting hosts">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
-          <span>Predictive health</span>
+          <span>Predictive Health</span>
         </button>
         <button class="nav-btn" data-page="storage" title="ZFS / mdadm / btrfs pool health">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
@@ -419,15 +419,15 @@
         </button>
         <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-896fd277"/></svg>
-          <span>Software policy</span>
+          <span>Software Policy</span>
         </button>
         <button class="nav-btn" data-page="ssh-keys" title="Audit authorized_keys across the fleet">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
-          <span>SSH keys</span>
+          <span>SSH Keys</span>
         </button>
         <button class="nav-btn" data-page="ipintel" title="Attacking addresses with their AbuseIPDB and SniffCat reputation, reports and timed blocks">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-          <span>Threat intel</span>
+          <span>Threat Intel</span>
         </button>
         <button class="nav-btn" data-page="tls" title="TLS certificate + domain/DNS expiry monitoring and ACME (Let’s Encrypt) certificates">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
@@ -489,7 +489,7 @@
       <div class="sidebar-group-items" id="sbg-automation">
         <button class="nav-btn" data-page="catalog" title="One-click deploy of curated self-hosted apps via Docker Compose">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          <span>App catalog</span>
+          <span>App Catalog</span>
         </button>
         <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
@@ -579,7 +579,7 @@
         </button>
         <button class="nav-btn" data-page="sshgw" title="Reach hosts with your own SSH client through one gateway — no inbound port on the host">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/></svg>
-          <span>SSH gateway</span>
+          <span>SSH Gateway</span>
         </button>
         <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
@@ -653,7 +653,7 @@
         </button>
         <button class="nav-btn" data-page="self" title="RemotePower watching itself: disk, webhooks, audit, backups">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-          <span>Server status</span>
+          <span>Server Status</span>
         </button>
         <button class="nav-btn" data-page="settings" title="Server configuration">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-71bf7050"/></svg>
@@ -2902,7 +2902,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-pentest" checked> <strong>Pentest</strong> — the authorized vulnerability-scan orchestrator (nuclei / nikto / ZAP / nmap).</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-ai_exec"> <strong>AI executor</strong> — lets the AI <em>propose</em> a remediation for a host. It executes nothing: a proposal is parked in the Confirmations queue and a human admin must approve it, and the AI may only <em>select</em> from your saved scripts and registered playbooks — it cannot write a command. <strong>Off by default</strong>; off means the whole API is 404, not merely a hidden button.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-autonomy" checked> <strong>Autonomous remediation</strong> — the loop that can fix recurring problems on its own. The page is visible by default and the loop is <strong>inert</strong>: every tenant starts at <em>off</em>, which records nothing and acts on nothing. You move a tenant to <em>shadow</em> to have it write receipts you can grade, and only then to <em>enabled</em>. Unticking this hides the page and 404s the API. <a href="docs/autonomy.md" class="c-accent">Documentation</a></label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-sshgw"> <strong>SSH gateway</strong> — reach opted-in servers with your own SSH client through one gateway, with no inbound port on the server. Off by default. It needs the gateway service on this server (<code>install-server.sh --with-sshgw</code>); unticking this refuses every gateway login and 404s the API. <a href="docs/sshgw.md" class="c-accent">Documentation</a></label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-sshgw"> <strong>SSH Gateway</strong> — reach opted-in servers with your own SSH client through one gateway, with no inbound port on the server. Off by default. It needs the gateway service on this server (<code>install-server.sh --with-sshgw</code>); unticking this refuses every gateway login and 404s the API. <a href="docs/sshgw.md" class="c-accent">Documentation</a></label></div>
           </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
@@ -3139,7 +3139,7 @@
           <!-- v3.0.2: backup config -->
           <div class="settings-section">
             <div class="section-title">Scheduled backup</div>
-            <p class="hint">Daily snapshot of <code>/var/lib/remotepower</code> to a tarball. Triggered once per 24h via the heartbeat hook (cheap when not due). Backup state and a "Run now" button are on the <a href="#" data-action-btn="_homeNavAction" data-home-act="self" data-prevent-default class="c-accent">Server status</a> page. <a href="docs/backups.md" class="c-accent">Documentation</a></p>
+            <p class="hint">Daily snapshot of <code>/var/lib/remotepower</code> to a tarball. Triggered once per 24h via the heartbeat hook (cheap when not due). Backup state and a "Run now" button are on the <a href="#" data-action-btn="_homeNavAction" data-home-act="self" data-prevent-default class="c-accent">Server Status</a> page. <a href="docs/backups.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="click-row"><input type="checkbox" id="backup-enabled" checked> <span class="form-label">Enabled</span></label>
             </div>
@@ -3156,7 +3156,7 @@
               <input type="text" id="backup-offsite-dir" class="form-input mw-380" placeholder="/mnt/offsite/remotepower (leave blank for local-host only)">
             </div>
             <div class="settings-row">
-              <label class="form-label" for="backup-rpo-hours">RPO target in hours (0 = off — max acceptable time between successful backups; graded on the Server status page)</label>
+              <label class="form-label" for="backup-rpo-hours">RPO target in hours (0 = off — max acceptable time between successful backups; graded on the Server Status page)</label>
               <input type="number" id="backup-rpo-hours" class="form-input mw-160" min="0" max="8760" placeholder="0">
             </div>
             <div class="settings-row">
@@ -4773,19 +4773,19 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.4.0 f1nishmatters finish polish themes contrast languages translations print phone csv copy slow scanner planted credential fail2ban honeypot worker guide guides robots.txt decoy trap traps wordpress firewall sources firewalls routers opnsense pfsense mikrotik routeros suricata crowdsec syslog port scan decoy port threat intel">
             <summary><strong>What's new — v7.4.0 &ldquo;F1nishMatters&rdquo;</strong> &mdash; a release about finish: what is already there reads, looks and behaves better in every theme and every language, and threat intel reads a firewall&rsquo;s syslog.</summary>
             <div class="doc-body">
-              <p><strong>Firewall sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Firewalls and routers</strong>, RemotePower reads the syslog of an OPNsense, pfSense or MikroTik that already sends it, and reports the addresses behind port scans, hits on a decoy port, Suricata and CrowdSec alerts and failed sign-ins, the way it reports what your hosts' logs show. It reads and reports; it blocks nothing on the firewall or router. Off until you turn it on. Step by step: <a href="docs/firewall-sources.md" class="c-accent">Firewall sources: OPNsense and MikroTik</a>.</p>
+              <p><strong>Firewall sources.</strong> Under <strong>Security &rarr; Threat Intel &rarr; Firewalls and routers</strong>, RemotePower reads the syslog of an OPNsense, pfSense or MikroTik that already sends it, and reports the addresses behind port scans, hits on a decoy port, Suricata and CrowdSec alerts and failed sign-ins, the way it reports what your hosts' logs show. It reads and reports; it blocks nothing on the firewall or router. Off until you turn it on. Step by step: <a href="docs/firewall-sources.md" class="c-accent">Firewall sources: OPNsense and MikroTik</a>.</p>
               <p><strong>Honeypot guides.</strong> Two guides show how to build the Worker that RemotePower's Edge sources read: <a href="docs/honeypot-worker.md" class="c-accent">Run a honeypot Worker on Cloudflare</a> and <a href="docs/honeypot-traps.md" class="c-accent">More traps for your honeypot Worker</a>. The test suite runs each guide's script and sends what it prints through RemotePower's own reader.</p>
               <p><strong>Wording and language.</strong> A machine you manage is a host everywhere, in all six languages. Notifications read as sentences, a failed action says what happened once, and all 991 of the server&rsquo;s refusal messages are translated.</p>
               <p><strong>Interface.</strong> Text is readable in every theme, pages print in full and fit a phone in every language, a page that cannot load says so and offers a retry, sortable tables export CSV, and an address or id in a table copies when you click it.</p>
-              <p><strong>Threat intel.</strong> A planted credential or decoy sign-in can count as decided on its first hit, an <em>Addresses reported</em> event says when a sweep reported something, the log sensor keeps a slow scanner, and the Log sources card warns when fail2ban reports on its own.</p>
+              <p><strong>Threat Intel.</strong> A planted credential or decoy sign-in can count as decided on its first hit, an <em>Addresses reported</em> event says when a sweep reported something, the log sensor keeps a slow scanner, and the Log sources card warns when fail2ban reports on its own.</p>
               <p class="hint">See <code>docs/v7.4.0.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v7.3.0 edg3matters edge cloudflare firewall events honeypot worker trap sink workers logs threat intel abuseipdb sniffcat report reports edge sources token read-only test connection ufw firewall log port scan canary decoy bad bot robots.txt cf-sniffcat ufw-sniffcat only reported never blocked list rule ip access rule challenge waf refusals report after alerts feed down list held blocklist ban unban data explorer metrics timeline relative times tips translated 400 status page security review twenty-two ignore never report ignore list kinds of attack clear forget load all show more window">
             <summary><strong>What's new — v7.3.0 &ldquo;Edg3Matters&rdquo;</strong> &mdash; threat intel reads Cloudflare's firewall events and your honeypot Worker's log, and the host firewall's log.</summary>
             <div class="doc-body">
-              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. Reading blocks nothing: banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Step by step: <a href="docs/edge-sources.md" class="c-accent">Edge sources: Cloudflare</a>.</p>
-              <p><strong>Edge blocklist.</strong> Under <strong>Security &rarr; Threat intel &rarr; Edge blocklist</strong>, RemotePower can keep one Cloudflare IP list up to date from your own entries, the addresses it found, AbuseIPDB's blacklist and SniffCat's blacklist, so a rule of yours that uses the list keeps blocking what they report. It needs a second token that can edit lists, it writes the list and nothing else, it leaves a list it did not create alone until you tell it to take the list over, and it holds a sync that would empty or halve the list. Off until you turn it on. Step by step: <a href="docs/edge-sources.md#edge-blocklist" class="c-accent">Edge blocklist</a>.</p>
+              <p><strong>Edge sources.</strong> Under <strong>Security &rarr; Threat Intel &rarr; Edge sources</strong>, give RemotePower a read-only Cloudflare token and it reads what Cloudflare refused and what your honeypot Worker caught, and reports them the way it reports what your hosts' logs show. Both go through the same evidence, lookup and report path, so an address that the edge and one of your hosts both saw is one report with all of it, filed once to each service. Off until you turn it on. Reading blocks nothing: banning stays with whatever you already use, such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Step by step: <a href="docs/edge-sources.md" class="c-accent">Edge sources: Cloudflare</a>.</p>
+              <p><strong>Edge blocklist.</strong> Under <strong>Security &rarr; Threat Intel &rarr; Edge blocklist</strong>, RemotePower can keep one Cloudflare IP list up to date from your own entries, the addresses it found, AbuseIPDB's blacklist and SniffCat's blacklist, so a rule of yours that uses the list keeps blocking what they report. It needs a second token that can edit lists, it writes the list and nothing else, it leaves a list it did not create alone until you tell it to take the list over, and it holds a sync that would empty or halve the list. Off until you turn it on. Step by step: <a href="docs/edge-sources.md#edge-blocklist" class="c-accent">Edge blocklist</a>.</p>
               <p><strong>What counts.</strong> Only a refusal by a mechanism that means an attack. Challenges, country and ASN rules, IP access rules (a ban somebody else decided) and rules that also block an IP list are set aside, and the <strong>Edge feeds</strong> card says how many and why. An IP access rule is a ban that fail2ban, CrowdSec or your honeypot already decided on, and a rule that also blocks an IP list refuses addresses for being on a community blocklist, so counting either would report the same address again. An address your honeypot banned is reported at once, like one fail2ban banned.</p>
               <p><strong>Nothing a visitor typed is fetched.</strong> Events come back as counts grouped by address, mechanism and rule or, on a plan with no grouped view, as single events that carry only the address, the action, the source and the rule. No path and no user agent come back either way. <strong>Test connection</strong> tries each check and names a missing permission.</p>
               <p><strong>The firewall log.</strong> Linux agents with the log sensor on read UFW&rsquo;s log. An address counts as a scan at four ports or fifteen packets within a minute, inbound TCP only.</p>
@@ -4800,7 +4800,7 @@
           <details class="doc-card" data-keywords="release notes changelog v7.2.0 ev1dencematters evidence threat intel log sensor logs nginx apache modsecurity waf owasp crs audit log fail2ban crowdsec appsec abuseipdb sniffcat report reports categories sql injection path traversal scanner timestamp duplicate repeat once per address standard message ledger cloudflare real ip proxy log sources evidence column details why not reported linux agent">
             <summary><strong>What's new — v7.2.0 &ldquo;Ev1denceMatters&rdquo;</strong> &mdash; threat intel reads your web server, WAF, fail2ban and CrowdSec logs, and a report says what the address actually did.</summary>
             <div class="doc-body">
-              <p><strong>The log sensor.</strong> Switch it on under <strong>Security &rarr; Threat intel &rarr; Log sensor</strong>. Linux agents then read nginx and Apache logs, ModSecurity&rsquo;s audit log, fail2ban&rsquo;s log and CrowdSec&rsquo;s alerts, found from your web server&rsquo;s own configuration, and tell RemotePower what each address did. Only counts and fixed labels leave the host: no log lines, paths or host names. It is off until you turn it on.</p>
+              <p><strong>The log sensor.</strong> Switch it on under <strong>Security &rarr; Threat Intel &rarr; Log sensor</strong>. Linux agents then read nginx and Apache logs, ModSecurity&rsquo;s audit log, fail2ban&rsquo;s log and CrowdSec&rsquo;s alerts, found from your web server&rsquo;s own configuration, and tell RemotePower what each address did. Only counts and fixed labels leave the host: no log lines, paths or host names. It is off until you turn it on.</p>
               <p><strong>Reports say what happened.</strong> SQL injection is filed as SQL injection and path traversal as path traversal, with the time it happened for AbuseIPDB, and once per address however many hosts or logs saw it. An address qualifies when fail2ban or CrowdSec already banned it, the WAF refused it as often as you set (once by default), or it reached your threshold. A repeat the service refuses counts as reported. The standard message names what was seen, so it says &ldquo;brute force&rdquo; only when that is what happened.</p>
               <p><strong>You can see why.</strong> The attackers table has an <strong>Evidence</strong> column with a <strong>Details</strong> row showing what was sent to each service, and a <strong>Log sources</strong> card lists every log each host reads, so a log the agent cannot read says so instead of looking like a quiet night.</p>
               <p><strong>Safeguards.</strong> Cloudflare&rsquo;s addresses are never reported, a web attack arriving through a proxy is not blocked on the host, and one host can add at most 3,000 addresses an hour.</p>
@@ -5068,9 +5068,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="app catalog apps deploy docker compose stack one-click curated self-hosted custom template add containers permission audited v5.1">
-            <summary><strong>App catalog</strong> — one-click app deploys via Docker Compose</summary>
+            <summary><strong>App Catalog</strong> — one-click app deploys via Docker Compose</summary>
             <div class="doc-body">
-              <p>The <strong>App catalog</strong> deploys curated, self-contained apps to a host in one click. Pick an app, pick a target host, and RemotePower instantiates the bundled Docker Compose template as a stack on that host — redeploying an existing same-named stack is idempotent. The target host must have <strong>compose deploys enabled</strong> (a per-host opt-in in the Hosts drawer).</p>
+              <p>The <strong>App Catalog</strong> deploys curated, self-contained apps to a host in one click. Pick an app, pick a target host, and RemotePower instantiates the bundled Docker Compose template as a stack on that host — redeploying an existing same-named stack is idempotent. The target host must have <strong>compose deploys enabled</strong> (a per-host opt-in in the Hosts drawer).</p>
               <p><strong>Custom entries (admin):</strong> add your own app to the shared catalog by pasting a compose template — name it, give it a category and description, and it appears alongside the curated apps for everyone. Built-in entries can't be removed.</p>
               <p>Gated on the <code>containers</code> permission, scope-checked and audited; the deploy itself rides the existing, proven compose-deploy command path — adding a catalog entry never runs anything on its own.</p>
             </div>
@@ -5694,18 +5694,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Twelve groups:</strong> every page sits in one domain. Each group opens and closes on its own, you can keep several open at once, and the browser remembers which. They all start closed, and going to a page opens its group.</p>
               <table class="isl-104 isl-770">
                 <tr><th>Group</th><th>In this group</th></tr>
-                <tr><td><strong>Fleet</strong></td><td>CMDB, Contacts, Containers, History, Library, Links, Network, Query, Sites, Tags &amp; groups, Virtualization</td></tr>
-                <tr><td><strong>Monitoring</strong></td><td>Needs Attention, Checks, Forecast, Integrations, Live Monitor, Logs, Network metrics, Services, Status Board, Timeline, Trends, Tuning</td></tr>
-                <tr><td><strong>Hardware</strong></td><td>GPUs, Power, Predictive health, Storage, Thermal</td></tr>
-                <tr><td><strong>Security</strong></td><td>Advisory, CVEs, Drift, Exposure, Firewall, KMIP, Pentest, Protect, Risk, Software policy, SSH keys, Threat intel, TLS / DNS</td></tr>
+                <tr><td><strong>Fleet</strong></td><td>CMDB, Contacts, Containers, History, Library, Links, Network, Query, Sites, Tags &amp; Groups, Virtualization</td></tr>
+                <tr><td><strong>Monitoring</strong></td><td>Needs Attention, Checks, Forecast, Integrations, Live Monitor, Logs, Network Metrics, Services, Status Board, Timeline, Trends, Tuning</td></tr>
+                <tr><td><strong>Hardware</strong></td><td>GPUs, Power, Predictive Health, Storage, Thermal</td></tr>
+                <tr><td><strong>Security</strong></td><td>Advisory, CVEs, Drift, Exposure, Firewall, KMIP, Pentest, Protect, Risk, Software Policy, SSH Keys, Threat Intel, TLS / DNS</td></tr>
                 <tr><td><strong>Compliance</strong></td><td>Audit, Compliance, Reputation/DMARC</td></tr>
                 <tr><td><strong>Patching</strong></td><td>Patches, Auto-patch, Rollouts</td></tr>
-                <tr><td><strong>Automation</strong></td><td>App catalog, Automation, Autonomy, Command Queue, Confirmations, Data Explorer, IaC Generator, Package Snapshots, Provisioning, Scripts</td></tr>
+                <tr><td><strong>Automation</strong></td><td>App Catalog, Automation, Autonomy, Command Queue, Confirmations, Data Explorer, IaC Generator, Package Snapshots, Provisioning, Scripts</td></tr>
                 <tr><td><strong>Scheduling</strong></td><td>Calendar, Cron, Maintenance, Schedule, Tasks</td></tr>
-                <tr><td><strong>Access</strong></td><td>DNS, Files, SSH gateway, WG Access</td></tr>
+                <tr><td><strong>Access</strong></td><td>DNS, Files, SSH Gateway, WG Access</td></tr>
                 <tr><td><strong>Backups</strong></td><td>Backups</td></tr>
                 <tr><td><strong>Business</strong></td><td>Billing, Knowledge base, Reports, Timesheet</td></tr>
-                <tr><td><strong>Admin</strong></td><td>AI Assistant, API Keys, Release Signing, Server status, Settings, Users, Documentation, About</td></tr>
+                <tr><td><strong>Admin</strong></td><td>AI Assistant, API Keys, Release Signing, Server Status, Settings, Users, Documentation, About</td></tr>
               </table>
               <p><strong>Always visible:</strong> Dashboard, Hosts, Alerts and Tickets sit above the groups. <strong>All pages</strong> opens the whole map on one screen, and the search box finds a page by its name or by what it contains.</p>
               <p><strong>Optional modules:</strong> Billing, Knowledge base and the AI command runner are off until you switch them on under Settings → Advanced. A module that is off has no menu entry and its API answers 404.</p>
@@ -5742,7 +5742,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="server status self monitoring health disk backup webhook delivery">
-            <summary><strong>Server status</strong> — RemotePower watching itself</summary>
+            <summary><strong>Server Status</strong> — RemotePower watching itself</summary>
             <div class="doc-body">
               <p>New sidebar entry. Reports server version + memory, <code>/var/lib/remotepower</code> disk usage with the top 20 largest files, fleet host freshness, webhook delivery success rate (24h + 7d), audit log size, and scheduled backup state.</p>
               <p>Closes the "who monitors the monitor?" gap — if RemotePower itself starts misbehaving (webhooks failing silently, disk filling, agents stuck), the page surfaces it. <code>GET /api/self/status</code> works for external monitoring (Uptime Kuma, Grafana, Homepage).</p>
@@ -5754,7 +5754,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code></summary>
             <div class="doc-body">
               <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery.</p>
-              <p><strong>Manual triggers (Server status page):</strong></p>
+              <p><strong>Manual triggers (Server Status page):</strong></p>
               <ul>
                 <li><strong>Run backup now</strong> — immediately snapshots <code>/var/lib/remotepower</code> regardless of the 24h cadence.</li>
                 <li><strong>Export backup</strong> — also triggers a snapshot before streaming the ZIP download.</li>
@@ -5893,7 +5893,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v3.0.2: Self-monitoring page — RemotePower watching itself ───── -->
       <div id="page-self" class="page">
-        <div class="page-title">Server status</div>
+        <div class="page-title">Server Status</div>
         <div class="page-subtitle">RemotePower watching itself — disk, hosts, webhooks, audit, backups. <a href="docs/self-monitoring.md" class="c-accent">Documentation</a>.</div>
         <div class="isl-122">
           <button class="btn-secondary" data-action="loadSelfStatus" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -6604,7 +6604,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- v5.6.x lazy page: inert until first visit — showPage clones the
            template in place (i18n MutationObserver localises the clone). -->
       <div id="page-ipintel" class="page">
-        <div class="page-title">Threat intel</div>
+        <div class="page-title">Threat Intel</div>
         <div class="page-subtitle">Addresses that attacked your hosts, with their reputation from AbuseIPDB and SniffCat. You can report them back and block them for a while on the host they attacked. <a href="docs/ip-intel.md" class="c-accent">Documentation</a></div>
 
         <div class="dash-card">
@@ -6936,7 +6936,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <div id="page-sshgw" class="page">
-        <div class="page-title">SSH gateway</div>
+        <div class="page-title">SSH Gateway</div>
         <div class="page-subtitle">Reach your servers with your own SSH client through one gateway. Agents dial out, so no server needs an open port, and every session is checked against your role and recorded. <a href="docs/sshgw.md" class="c-accent">Documentation</a></div>
 
         <div class="dash-card">
@@ -7209,7 +7209,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
-      <!-- ── Tags & groups (v6.4.2) ───────────────────────────────────────
+      <!-- ── Tags & Groups (v6.4.2) ───────────────────────────────────────
            Sibling of Sites: both are fleet-organisation surfaces one level
            above the individual device, which is why this lives in the Fleet
            group rather than in Settings. Tags and groups were writable from a
@@ -7217,7 +7217,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
            each device drawer) and readable from none, so a typo'd tag was
            invisible until it silently shrank a targeted rollout. -->
       <div id="page-taxonomy" class="page">
-        <div class="page-title">Tags &amp; groups</div>
+        <div class="page-title">Tags &amp; Groups</div>
         <div class="page-subtitle">Every tag and group actually in use, with the number of hosts carrying it. Rename a tag across the whole fleet, merge two that drifted apart, or delete one that stopped meaning anything. <a href="docs/fleet-management.md" class="c-accent">Documentation</a></div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadTaxonomy"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8120,7 +8120,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v5.0.0: network throughput metrics, scoped fleet/group/tag/site ── -->
       <div id="page-netmetrics" class="page">
         <div class="page-title-row">
-          <div class="page-title">Network metrics</div>
+          <div class="page-title">Network Metrics</div>
           <div class="row-8-center">
             <div class="segmented" id="netmetrics-by" role="group" aria-label="Scope by">
               <button data-action="netMetricsBy" data-arg="fleet" class="active">Fleet</button>
@@ -8449,9 +8449,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
       </div>
-      <!-- ── v5.1.0: App catalog — one-click compose deploy ───────────────── -->
+      <!-- ── v5.1.0: App Catalog — one-click compose deploy ───────────────── -->
       <div id="page-catalog" class="page">
-        <div class="page-title">App catalog</div>
+        <div class="page-title">App Catalog</div>
         <div class="page-subtitle">One-click deploy of curated, self-contained apps to a host via <span class="fw-600">Docker Compose</span>. Requires compose deploys enabled on the target host (per-host opt-in, Hosts → drawer). Gated on the <span class="fw-600">containers</span> permission and audited; the deploy rides the existing compose path. <a href="docs/app-catalog.md" class="c-accent">Documentation</a></div>
         <div class="dash-card mb-16">
           <div class="section-title">Target host</div>
@@ -8828,7 +8828,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->
       <div id="page-disk-health" class="page">
-        <div class="page-title">Predictive health</div>
+        <div class="page-title">Predictive Health</div>
         <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/disk-health.md" class="c-accent">Documentation</a>.</div>
         <div class="dash-card">
         <div class="section-title">Disks at risk</div>
@@ -8884,7 +8884,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
       <div id="page-software-policy" class="page">
-        <div class="page-title">Software policy</div>
+        <div class="page-title">Software Policy</div>
         <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to host tags. <a href="docs/software-policy.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -12346,39 +12346,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.0-21"></script>
+<script defer src="static/js/app.js?v=7.4.0-22"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-containers.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-network.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-containers.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-network.js?v=7.4.0-22"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.0-22"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-dns.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-drift.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-cve.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-backups.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-iac.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-virt.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-ai.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-dns.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-drift.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-cve.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-backups.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-iac.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-virt.js?v=7.4.0-22"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-remote.js?v=7.4.0-21"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-logs.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-remote.js?v=7.4.0-22"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.0-22"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-self.js?v=7.4.0-22"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.0-21"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.0-22"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12388,6 +12388,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.0-21"></script>
+<script defer src="static/js/sw-register.js?v=7.4.0-22"></script>
 </body>
 </html>

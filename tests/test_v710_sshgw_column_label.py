@@ -1,4 +1,4 @@
-"""The opt-in column on the SSH gateway page is called "Allow SSH", not "Gateway".
+"""The opt-in column on the SSH Gateway page is called "Allow SSH", not "Gateway".
 
 "Gateway" names the whole feature, so as a column header it read as a place, and
 people looked for a setting that was not there. The checkbox under it is the

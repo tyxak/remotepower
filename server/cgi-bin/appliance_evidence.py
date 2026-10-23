@@ -365,7 +365,7 @@ def parse_crowdsec(msg):
 # ── login failures ─────────────────────────────────────────────────────────────
 
 # For the brute-force counter, which counts failures per address, alerts at its
-# threshold and queues the address for Threat intel. Group 1 is the address.
+# threshold and queues the address for Threat Intel. Group 1 is the address.
 LOGIN_PATTERNS = {
     # RouterOS: `login failure for user admin from 203.0.113.9 via ssh`
     "ssh": [re.compile(r"login failure for user .* from (\S+) via ssh\b", re.I)],

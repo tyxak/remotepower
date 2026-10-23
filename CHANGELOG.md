@@ -9,15 +9,15 @@ releases only; for an older release the entry below is the record.
 
 A release about finish. What is already there should read, look and behave
 better in every theme and every language, and each fix comes with a check that
-keeps it fixed. One thing is new: Threat intel can read the syslog of a firewall
+keeps it fixed. One thing is new: Threat Intel can read the syslog of a firewall
 or router.
 
 ### Firewall sources
 
-Threat intel reads the syslog of a firewall or router and reports the addresses
+Threat Intel reads the syslog of a firewall or router and reports the addresses
 behind what it finds, the way it does for your hosts' logs. A firewall has no
 agent, but it already sends its logs to RemotePower, and the server reads them
-there. Off until you turn it on, under **Security → Threat intel → Firewalls and
+there. Off until you turn it on, under **Security → Threat Intel → Firewalls and
 routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 - Refused packets from OPNsense, pfSense and MikroTik RouterOS. An address that
@@ -52,7 +52,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   RouterOS, Suricata and CrowdSec readers follow those products' documented
   formats.
 
-### Threat intel
+### Threat Intel
 
 - A planted credential that is used, or a sign-in to a decoy service, can count
   as decided on the first hit. **Count a planted credential or decoy sign-in as
@@ -67,7 +67,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   It is not sent on an install with tenancy on, because an alert with no host is
   visible to every tenant and this one names addresses that may have attacked
   another tenant's hosts; the platform operator reads the same reports on the
-  Threat intel page.
+  Threat Intel page.
 - The log sensor keeps a slow scanner. A web address needs 3 hostile requests in
   one pass, and each pass started from nothing, so an address that sent one
   request a minute was dropped every time. What a pass saw of an address under
@@ -120,10 +120,12 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   "Top Processes", "Print / Save as PDF", "Rates & Fees", and the host drawer's
   "System Info", "Drift State" and "Actions & Settings". Each is a dictionary key,
   so each was re-keyed in all six languages. The names of pages ("Needs
-  Attention", "Data Explorer", "WG Access") are not changed: 12 of 25 sidebar
-  labels are written that way and which style the product means is a decision
-  about some 300 references, not a typo. A test fails on a new Title Case
-  heading or button.
+  Attention", "Data Explorer", "WG Access") are in Title Case, and the nine
+  that were not now are: "Threat Intel", "Server Status", "Network Metrics",
+  "Predictive Health", "App Catalog", "Tags & Groups", "Software Policy",
+  "SSH Keys" and "SSH Gateway", in the sidebar, the page titles, the guides, the
+  in-app documentation and the dictionary. A test fails on a new Title Case
+  heading or button, and on a sidebar label that is not in Title Case.
 - "3 hosts", never "3 host(s)". More than 400 places wrote the bracket form in
   the dashboard, in the server's own findings and in the guides, which is wrong
   for one as well as for three. `plural(n, one, other)` (in the dashboard and
@@ -323,10 +325,10 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   hide another tenant's host from its Containers page and Needs attention. The
   list now shows only entries for hosts you can see, and hiding or un-hiding a
   host you cannot see is refused. Installs without tenancy see no change.
-- Threat intel's **Ignore** button refuses an address that is not public. Such
+- Threat Intel's **Ignore** button refuses an address that is not public. Such
   an address is never looked up, reported or blocked, so the entry it stored
   could never match anything. The Settings list can still name private networks.
-- A heartbeat that reports attackers no longer rewrites Threat intel's whole
+- A heartbeat that reports attackers no longer rewrites Threat Intel's whole
   table. The queue of addresses waiting for a lookup, each host's log-sensor
   status and the place the Cloudflare and honeypot feeds have reached in their
   logs shared one document with every recorded address, and each write rewrote

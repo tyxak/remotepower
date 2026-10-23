@@ -87,7 +87,7 @@ class TestAdvisoryAndRisk(_Seeded):
         self.assertIn('1 known-abusive', f['title'])
         self.assertEqual(f['severity'], 'high')
         self.assertIn('reputation 100/100', f['evidence'][0], 'known-abusive first')
-        self.assertIn('Threat intel', f['fix'])
+        self.assertIn('Threat Intel', f['fix'])
 
     def test_risk_scores_both_attack_factors(self):
         r = {x['device_id']: x for x in self.api._compute_fleet_risk()}

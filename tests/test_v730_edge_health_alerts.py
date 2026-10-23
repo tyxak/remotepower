@@ -2,7 +2,7 @@
 """v7.3.0: a feed that cannot be read and a list sync that waits for a person say so.
 
 Both stop the reporting and the blocklist without a word. The cause is a token or
-a plan, not a host, so no host alert, check or page carried it: the Threat intel
+a plan, not a host, so no host alert, check or page carried it: the Threat Intel
 card showed a red state to someone who had to be looking.
 
 Driven for real, through `fire_webhook` -> `_record_alert` -> `_auto_resolve_alerts`,

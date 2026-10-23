@@ -1,4 +1,4 @@
-"""The Threat intel page's Edge blocklist card (v7.3.0).
+"""The Threat Intel page's Edge blocklist card (v7.3.0).
 
 Four questions, the same as the other halves of this page:
 

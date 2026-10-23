@@ -61,7 +61,7 @@ flagged):
 
 | Page | What it covers | Guide |
 | --- | --- | --- |
-| **Predictive health** | Trends SMART wear/sector data into a per-disk failure ETA and reliability score (`disk_predict_fail`). | [disk-health.md](disk-health.md) |
+| **Predictive Health** | Trends SMART wear/sector data into a per-disk failure ETA and reliability score (`disk_predict_fail`). | [disk-health.md](disk-health.md) |
 | **GPUs** | Every NVIDIA/AMD GPU — utilisation, VRAM, temperature, power, fan, trends. | [gpus.md](gpus.md) |
 | **Thermal health** | CPU/chipset/disk/GPU temperatures in one hottest-first view (`temp_high`). | [thermal.md](thermal.md) |
 | **Power & energy** | UPS status, PDU on/off/cycle control, and per-group energy-cost projection. | [power.md](power.md) |

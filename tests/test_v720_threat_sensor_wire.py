@@ -5,7 +5,7 @@ The other v7.2.0 tests stub the collector and the submit, or call the handlers
 in process, so none of them crosses the wire. This one does. It runs the agent's
 own sensor thread, over real files under a fake host root, against the real
 gunicorn + wsgi stack from tests/e2e_harness, and reads the result back through
-GET /api/ip-intel the way the Threat intel page does. What it can see that the
+GET /api/ip-intel the way the Threat Intel page does. What it can see that the
 rest cannot: authentication by the device token in the body, main()'s
 pre-dispatch gates, the JSON framing, and the setting that reaches the agent in a
 heartbeat response.

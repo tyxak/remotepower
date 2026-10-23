@@ -1,4 +1,4 @@
-"""The Threat intel page's Clear button and the count under the table (v7.3.0).
+"""The Threat Intel page's Clear button and the count under the table (v7.3.0).
 
 The same questions as the page's other halves. Does the button exist, for an
 administrator only, and ask before it does anything; does it send exactly what the

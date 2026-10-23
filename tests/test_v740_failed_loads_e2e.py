@@ -52,7 +52,7 @@ EXEMPT = {}
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
 class TestNoPageStaysLoading(unittest.TestCase):
-    # Numbered: the Server status page lists the errors the browser reported, so the walk that causes
+    # Numbered: the Server Status page lists the errors the browser reported, so the walk that causes
     # errors has to run after the one that reads that page.
     @classmethod
     def setUpClass(cls):

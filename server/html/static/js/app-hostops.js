@@ -1,7 +1,7 @@
 // app-hostops.js — page module extracted from app.js (buildless classic script; all
 // symbols stay global, same as the rest of the client JS).
 // Three sibling host-operation pages that share only the device
-// picker: App catalog, Cron/timers, and the File manager.
+// picker: App Catalog, Cron/timers, and the File manager.
 
 // ── v5.1.0: app catalog (one-click compose deploy) ──────────────────────────
 let _catalogDev = null, _catalogApps = [];

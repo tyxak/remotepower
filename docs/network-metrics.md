@@ -1,8 +1,8 @@
-# Network metrics
+# Network Metrics
 
 *Introduced in v5.0.0.*
 
-The **Network metrics** page (Monitoring → Network metrics) shows per-host
+The **Network Metrics** page (Monitoring → Network Metrics) shows per-host
 network throughput across the fleet, built from the RX/TX byte-rate samples the
 agents already report (`network_io` in the heartbeat). It answers "who's pushing
 traffic right now, and where?" without standing up a separate flow collector.

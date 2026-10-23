@@ -1,8 +1,8 @@
 """The edge feeds, driven for real against a real store: the server reads
 Cloudflare's firewall events and the honeypot Worker's log, queues what they say,
-and Threat intel's own sweep reports it.
+and Threat Intel's own sweep reports it.
 
-The seam is `_ip_intel_http`, as in the other Threat intel tests: Cloudflare's API
+The seam is `_ip_intel_http`, as in the other Threat Intel tests: Cloudflare's API
 is faked there and nothing else is. What matters here: nothing is read without
 the operator turning it on, the token never comes back out, a failing feed says so
 and stops short of moving its cursor, nothing from the edge is ever blocked on a

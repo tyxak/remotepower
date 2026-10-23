@@ -1,4 +1,4 @@
-"""RemotePower — Edge feeds for Threat intel: Cloudflare firewall events and the honeypot Worker's log
+"""RemotePower — Edge feeds for Threat Intel: Cloudflare firewall events and the honeypot Worker's log
 
 A bound-module carve-out following the tls_ct_handlers / dmarc_handlers /
 rack_ipam_handlers pattern:
@@ -360,7 +360,7 @@ _FEED_KEYS = ('state', 'at', 'rows', 'hits', 'kept', 'ignored', 'truncated', 'er
 
 
 def edge_intel_status(st, pol):
-    """The edge feeds' state for the Threat intel page: whether they are on, when
+    """The edge feeds' state for the Threat Intel page: whether they are on, when
     each was last read, how much it held and what was set aside and why. Only
     fixed words and numbers; the one free-text field is the provider's own error
     sentence, which the caller has already cut and cleaned."""

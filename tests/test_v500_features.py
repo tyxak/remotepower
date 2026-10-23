@@ -285,7 +285,7 @@ class TestNetworkMetrics(unittest.TestCase):
 
     def test_i18n_nav_label(self):
         i18n = (_ROOT / "server" / "html" / "static" / "js" / "i18n.js").read_text()
-        self.assertIn("'Network metrics'", i18n)
+        self.assertIn("'Network Metrics'", i18n)
 
 
 if __name__ == "__main__":

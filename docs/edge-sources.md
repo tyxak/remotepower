@@ -16,7 +16,7 @@ You need:
   from everyone else.
 - A Cloudflare account that holds your domains, and the right to create API
   tokens in it.
-- AbuseIPDB or SniffCat keys saved under **Security → Threat intel → Providers**,
+- AbuseIPDB or SniffCat keys saved under **Security → Threat Intel → Providers**,
   with **Report attackers back to both services** ticked (see
   [Set it up](ip-intel.md#set-it-up)). Without them RemotePower still reads and
   shows what Cloudflare refused, but it reports nothing.
@@ -34,7 +34,7 @@ Every ten minutes the RemotePower server calls `api.cloudflare.com` with your to
 4. Reads your honeypot Worker's log, if you tick that feed
    ([The honeypot Worker log](#the-honeypot-worker-log)).
 
-What it finds is queued as evidence on the Threat intel page, in the same list as the addresses your hosts' logs found. From there it takes the normal path: a look-up, then a report to AbuseIPDB and SniffCat.
+What it finds is queued as evidence on the Threat Intel page, in the same list as the addresses your hosts' logs found. From there it takes the normal path: a look-up, then a report to AbuseIPDB and SniffCat.
 
 For each event RemotePower asks Cloudflare for four facts: the address, the action, the mechanism that acted and the rule id. It never asks for the request path, the query string, the user agent or the host name. An attacker typed those, and a report is public.
 
@@ -94,7 +94,7 @@ The id is 32 hexadecimal digits (0 to 9, a to f). RemotePower refuses anything e
 
 ## Step 3: Enter it in RemotePower
 
-Open **Security → Threat intel** and scroll to the **Edge sources** card.
+Open **Security → Threat Intel** and scroll to the **Edge sources** card.
 
 | Field | What to enter | Default |
 |---|---|---|
@@ -181,7 +181,7 @@ An address found at the edge appears in the same table as the addresses your hos
 
 An edge address has no **Block** button. It was seen at the edge and by none of your hosts, so there is no host to block it on, and the row says `not blocked: seen at the edge only, so there is no host to block it on`. The [Edge blocklist](#edge-blocklist) is how such an address can reach a Cloudflare rule. An address that one of your hosts also saw shows that host's reason instead.
 
-To block such addresses on your hosts as well, tick **Also block addresses found at the edge on every Linux agent** under Threat intel (it needs automatic blocking on). Each address that passes the same score and never-block checks gets the block on every Linux agent, for the block lifetime you set, up to 100 hosts per sweep. It stops direct connections to your servers; a visitor who comes through Cloudflare is stopped by the edge list. It stays off on a multi-tenant install.
+To block such addresses on your hosts as well, tick **Also block addresses found at the edge on every Linux agent** under Threat Intel (it needs automatic blocking on). Each address that passes the same score and never-block checks gets the block on every Linux agent, for the block lifetime you set, up to 100 hosts per sweep. It stops direct connections to your servers; a visitor who comes through Cloudflare is stopped by the edge list. It stays off on a multi-tenant install.
 
 With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned. On a multi-tenant install only addresses the edge feeds found are banned this way, because the list belongs to the whole Cloudflare account; a tenant's host block is not copied to it.
 
@@ -264,7 +264,7 @@ or the blocklist without a word, so each one raises an alert on its own:
 | **Edge Blocklist Needs Attention** | A sync is held (see below), the list is not RemotePower's yet, or two syncs in a row failed. | A sync goes through. |
 
 The alerts are in the inbox and go to your webhooks, e-mail and push under the
-kind **Threat intel feeds and blocklist**, so you can route them like any other
+kind **Threat Intel feeds and blocklist**, so you can route them like any other
 (Settings → Notifications). They fire once, when the state changes, and not on
 every read. The same numbers are in Prometheus: `remotepower_edge_feed_up`,
 `remotepower_edge_blocklist_held` and the rest ([monitors.md](monitors.md)).
@@ -357,7 +357,7 @@ A leaked list token can change your lists: it can take an attacker off your bloc
 
 ### Step 2: Enter it in RemotePower
 
-Open **Security → Threat intel** and scroll to the **Edge blocklist** card. The account id is the one under **Edge sources**, so set it there first.
+Open **Security → Threat Intel** and scroll to the **Edge blocklist** card. The account id is the one under **Edge sources**, so set it there first.
 
 | Field | What to enter | Default |
 |---|---|---|
@@ -397,7 +397,7 @@ If another tool updates that list, such as a script on a schedule, stop it first
 
 ### Ban an address by hand
 
-The Attackers table on **Security → Threat intel** has a **Ban** button on every row. It opens a dialog with two separate choices.
+The Attackers table on **Security → Threat Intel** has a **Ban** button on every row. It opens a dialog with two separate choices.
 
 | Choice | What it does |
 |---|---|

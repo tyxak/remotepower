@@ -2,7 +2,7 @@
 """v7.3.0: what the edge sources and the Cloudflare list hold reaches the surfaces
 that read the rest of the fleet's posture.
 
-Threat intel's host data was bound to the AI index, the Data Explorer, the report,
+Threat Intel's host data was bound to the AI index, the Data Explorer, the report,
 the metrics export and the timeline in v7.1.0. The edge feeds and the IP list were
 added after that, and none of those surfaces knew them: an address only the edge
 saw has no host, so every host-keyed reader skipped it, and "is the honeypot

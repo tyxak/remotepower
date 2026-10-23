@@ -1039,7 +1039,7 @@ def _announce_reports(reported):
 
     Not sent when tenancy is on: an alert with no host is visible to every tenant, and this one
     names addresses that may have attacked another tenant's hosts. The platform operator reads
-    the same reports on the Threat intel page."""
+    the same reports on the Threat Intel page."""
     if A._tenancy_enforced():
         return
     services = sorted({s for _, told in reported for s in told})
@@ -1671,7 +1671,7 @@ def _reported_marker(att, now):
 
 
 def handle_ip_intel_clear():
-    """POST /api/ip-intel/clear — administrator. Forget the addresses Threat intel
+    """POST /api/ip-intel/clear — administrator. Forget the addresses Threat Intel
     has recorded, and what is waiting to be looked up, for the hosts the caller can
     see; the platform operator also clears what the edge feeds queued.
 

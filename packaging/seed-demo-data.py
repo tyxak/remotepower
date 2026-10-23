@@ -2449,7 +2449,7 @@ def build_log_watch() -> dict:
 
 def build_self_backup_state() -> dict:
     """v3.0.2 — daily backup state. Seed it as 'never run' so visitors see
-    the empty state on the Server status page, with a clear 'Run backup
+    the empty state on the Server Status page, with a clear 'Run backup
     now' affordance."""
     return {
         'last_run':    0,
@@ -2791,7 +2791,7 @@ def build_config() -> dict:
 
         # v3.11.0 software policy: the RULES live in software_policy.json, not
         # here — see build_software_policy(). This config key was read by
-        # nothing, which is why the Software policy page showed "0 rules ·
+        # nothing, which is why the Software Policy page showed "0 rules ·
         # 4 violations": findings with no rule that could have produced them.
 
         # v3.13.0 — drift config: global default + named profiles + assignments.
@@ -2895,7 +2895,7 @@ def build_config() -> dict:
         'sshgw_enabled':         True,
         'sshgw_public_host':     'gw.demo.example',
         'sshgw_public_port':     2222,
-        # Threat intel: lookups and auto-block on, so the page shows scores,
+        # Threat Intel: lookups and auto-block on, so the page shows scores,
         # reports and blocks. No provider keys: the demo never calls out.
         'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
                      'block_enabled': True, 'sensor_enabled': True,
@@ -3475,7 +3475,7 @@ def build_alerts() -> dict:
          {'device_id': 'pi1', 'device_name': 'pihole.lab'}, 'alice', 'auto'),
         ('service_down',       'high',     'ng01',  'nginx.service was down on nginx.lab',
          {'device_id': 'ng01', 'device_name': 'nginx.lab', 'unit': 'nginx.service'}, 'bob', 'bob'),
-        # v7.3.0: Threat intel's own health, closed again, so the inbox shows what
+        # v7.3.0: Threat Intel's own health, closed again, so the inbox shows what
         # an edge-feed alert looks like and the recover that clears it.
         ('edge_feed_down',     'medium',   None,
          'Edge feed down: Cloudflare firewall events — the token was refused',
@@ -3591,7 +3591,7 @@ def build_software_policy() -> dict:
 
 
 def build_software_violations() -> dict:
-    """v3.11.0 — evaluated software-policy violations (Software policy page table),
+    """v3.11.0 — evaluated software-policy violations (Software Policy page table),
     matching the rules seeded in build_config()."""
     return {
         'ng01': {'name': 'nginx.lab', 'checked_at': now() - 3600, 'violations': [

@@ -1,6 +1,6 @@
-# Software policy
+# Software Policy
 
-**Security → Software policy** evaluates rules against **every host's
+**Security → Software Policy** evaluates rules against **every host's
 installed-package inventory** — so you can enforce what may and may not be
 installed across the fleet.
 

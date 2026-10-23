@@ -270,7 +270,7 @@ def _addresses(values):
 def own_candidates(attackers, now, min_score, days, reported_counts=True):
     """Addresses RemotePower itself found, strongest first: reported to a service
     (it had enough evidence to say so in public) or scored `min_score` or more, and
-    seen within `days`. `attackers` is the Threat intel store's address record."""
+    seen within `days`. `attackers` is the Threat Intel store's address record."""
     cutoff = int(now) - max(1, int(days)) * 86400
     out = []
     for ip, att in (attackers or {}).items():

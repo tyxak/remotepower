@@ -29,8 +29,8 @@ count line shows `N of M nodes — scoped` when a filter is active; leave the
 dropdowns blank for the fleet-wide view. The same filter is available on the API:
 `GET /api/network-map?site=<site>&group=<group>&tag=<tag>`.
 
-> Looking for throughput, not topology? The separate **Network metrics** page
-> (Monitoring → Network metrics) shows per-host RX/TX, scoped the same way.
+> Looking for throughput, not topology? The separate **Network Metrics** page
+> (Monitoring → Network Metrics) shows per-host RX/TX, scoped the same way.
 > See [network-metrics.md](network-metrics.md).
 
 ## What it shows

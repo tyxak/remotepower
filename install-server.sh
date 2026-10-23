@@ -804,7 +804,7 @@ if [[ "$WITH_SSHGW" == "1" ]]; then
         success "SSH gateway installed (remotepower-sshgw, SSH on :2222)"
         info "  1. Open TCP 2222 in this server's firewall."
         info "  2. Settings → Advanced → turn on the SSH gateway module."
-        info "  3. SSH gateway page: set the public hostname, opt hosts in, add your key."
+        info "  3. SSH Gateway page: set the public hostname, opt hosts in, add your key."
     else
         warn "Could not start remotepower-sshgw — check: systemctl status remotepower-sshgw"
     fi

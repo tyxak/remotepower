@@ -1,7 +1,7 @@
-# Threat intel: AbuseIPDB and SniffCat
+# Threat Intel: AbuseIPDB and SniffCat
 
 RemotePower already notices when an address hammers a host with failed SSH
-or web logins. Threat intel builds on that. It can:
+or web logins. Threat Intel builds on that. It can:
 
 - **look up** the address with [AbuseIPDB](https://www.abuseipdb.com) and
   [SniffCat](https://sniffcat.com), so you can see whether it's a known
@@ -11,7 +11,7 @@ or web logins. Threat intel builds on that. It can:
 - **block** it for a while on the host it attacked.
 
 All three are off until you turn them on. You'll find everything under
-**Security → Threat intel**.
+**Security → Threat Intel**.
 
 If you also run a web server, a WAF, fail2ban or CrowdSec, the
 [log sensor](#the-log-sensor) lets RemotePower read what those logs say about
@@ -45,7 +45,7 @@ as [firewall sources](#firewalls-and-routers).
 
 Out of the box RemotePower learns about an attacker from failed SSH logins and
 a few web patterns. The log sensor reads more. Switch it on under
-**Security → Threat intel → Log sensor** and the agent on each Linux host
+**Security → Threat Intel → Log sensor** and the agent on each Linux host
 reads these, read-only, once a minute:
 
 | Log | What it tells RemotePower |
@@ -180,7 +180,7 @@ host would not match it.
 A firewall or router has no agent, but it can send its syslog to RemotePower, and
 the server can read that for the same evidence a host's sensor sends: addresses
 that scanned it, connected to a decoy port, tripped Suricata or CrowdSec, or
-failed to sign in. Switch it on under **Security → Threat intel → Firewalls and
+failed to sign in. Switch it on under **Security → Threat Intel → Firewalls and
 routers**. It reads and reports; it blocks nothing on the firewall or router. Off
 until you turn it on.
 
@@ -204,7 +204,7 @@ way it reports what your hosts' logs show.
 
 Reading does not block anything: banning stays with whatever you already use,
 such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Off until you
-turn it on, under **Security → Threat intel → Edge sources**. The
+turn it on, under **Security → Threat Intel → Edge sources**. The
 [edge blocklist](#the-edge-blocklist) below is a separate card, with its own
 switch and its own token.
 
@@ -283,7 +283,7 @@ If you do not run a honeypot yet, [Run a honeypot Worker on Cloudflare](honeypot
 and its permissions, the account id, Test connection, what each card shows and
 what to do when Cloudflare refuses a read. In short: create a read-only token
 (Zone: Zone, Analytics and Zone WAF; Account: Workers Observability, for the
-honeypot's log), paste it with your account id under **Security → Threat intel →
+honeypot's log), paste it with your account id under **Security → Threat Intel →
 Edge sources**, press **Test connection**, and tick the switch.
 
 RemotePower reads every ten minutes (every five at the fastest). A read never
@@ -320,7 +320,7 @@ scripts, so each address is one report with all the evidence. Keep whatever bans
    - SniffCat: sign in, then **API**.
 
    You can use one service or both.
-2. **Security → Threat intel → Providers**: paste the keys and tick what you
+2. **Security → Threat Intel → Providers**: paste the keys and tick what you
    want. Keys are write-only. The page shows that a key is saved, never the
    key itself.
 3. Save.
@@ -437,7 +437,7 @@ These addresses are **never** blocked:
 - private, loopback, link-local and other non-public ranges;
 - every address your hosts report as their own;
 - the addresses on your UI IP allow-list (Settings → Security);
-- anything on the **Never block** list on the Threat intel page;
+- anything on the **Never block** list on the Threat Intel page;
 - addresses people signed in to RemotePower from in the last 30 days, and
   addresses SSH-gateway sessions came from in that time.
 
@@ -470,7 +470,7 @@ block RemotePower made for that address. The status column says
 
 ## How much it keeps
 
-Threat intel remembers up to 5,000 addresses. When there are more, the ones seen
+Threat Intel remembers up to 5,000 addresses. When there are more, the ones seen
 longest ago go first. The page is sent the 1,000 most recent and says how many there
 are in all when that is more. The filter above the table works on what the page
 has, so **Load all** asks for everything that is kept, and the filter can then find
@@ -490,7 +490,7 @@ host's heartbeats.
 
 ### Clear the list
 
-**Clear**, above the attackers table, forgets the addresses Threat intel has
+**Clear**, above the attackers table, forgets the addresses Threat Intel has
 recorded and the ones waiting to be looked up. It asks first, and it is for
 administrators. On a multi-tenant install a tenant's administrator clears what
 their own hosts saw, and the edge's addresses are the platform operator's.

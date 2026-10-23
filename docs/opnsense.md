@@ -73,7 +73,7 @@ firewall by IP address, and the token stays on the server. [How that works](inbo
    address (`journalctl -u remotepower-syslogd -n 20`).
 
 Once logs arrive, [log-watch.md](log-watch.md) shows how to alert on them.
-[Firewall sources](firewall-sources.md) shows how to have Threat intel read the
+[Firewall sources](firewall-sources.md) shows how to have Threat Intel read the
 same logs for port scans, Suricata and CrowdSec alerts and failed sign-ins, and
 report the addresses behind them.
 
@@ -93,7 +93,7 @@ mirror the logs:
    add RemotePower as the destination: the server's address and port 2055, in
    the form `192.0.2.10:2055`. Save and apply.
 4. **Check.** Open the firewall in **Hosts** and look for the **Network flows**
-   card. The **Server status** page lists a *Flow receiver* row that says whether
+   card. The **Server Status** page lists a *Flow receiver* row that says whether
    it is running and how many exporters it can receive from.
 
 The firewall sees only the traffic it routes. A conversation between two hosts

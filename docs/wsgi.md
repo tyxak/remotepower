@@ -106,7 +106,7 @@ systemctl restart remotepower-wsgi
 
 ## Verify what's serving
 
-Open **Server status** in the app → the **"Serving & runtime"** panel, or
+Open **Server Status** in the app → the **"Serving & runtime"** panel, or
 from the shell run **`sudo rp doctor`** ([cli.md](cli.md)) for a one-shot check of
 the app server, scheduler and the rest of the stack. The raw equivalents:
 

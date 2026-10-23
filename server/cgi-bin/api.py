@@ -116,7 +116,7 @@ FLEET_EVENTS_FILE = DATA_DIR / 'fleet_events.json'
 # v4.3.0: capped ring of requests whose handler ran longer than the slow
 # threshold (config slow_handler_ms, default 1500). Wrapped-list shape, written
 # via list_append — O(1), and only on the rare slow request. Surfaced on the
-# Server status page so "which endpoint is slow on the real fleet?" is
+# Server Status page so "which endpoint is slow on the real fleet?" is
 # answerable without external profiling.
 SLOW_HANDLERS_FILE = DATA_DIR / 'slow_handlers.json'
 MAX_SLOW_HANDLERS  = 100
@@ -1148,9 +1148,9 @@ for _ii_name in (
     globals()[_ii_name] = getattr(ip_intel_handlers_mod, _ii_name)
 del _ii_name
 
-# v7.3.0: the edge feeds for Threat intel. The server reads Cloudflare's firewall
+# v7.3.0: the edge feeds for Threat Intel. The server reads Cloudflare's firewall
 # events and the honeypot Worker's log with a read-only token and queues what they
-# say; the sweep, the evidence and the reports are Threat intel's own.
+# say; the sweep, the evidence and the reports are Threat Intel's own.
 _ei_spec = _tk_ilu.spec_from_file_location(
     'edge_intel_handlers', Path(__file__).parent / 'edge_intel_handlers.py')
 edge_intel_handlers_mod = _tk_ilu.module_from_spec(_ei_spec)
@@ -1179,7 +1179,7 @@ del _eb_name
 
 # v7.2.0: the threat sensor's intake. Linux agents send summaries of what their
 # web server, WAF, fail2ban and CrowdSec logs say about source addresses; they
-# join Threat intel's queue (ip_intel_note_evidence) and go through its sweep.
+# join Threat Intel's queue (ip_intel_note_evidence) and go through its sweep.
 _tsn_spec = _tk_ilu.spec_from_file_location(
     'threat_sensor_handlers', Path(__file__).parent / 'threat_sensor_handlers.py')
 threat_sensor_handlers_mod = _tk_ilu.module_from_spec(_tsn_spec)
@@ -2739,17 +2739,17 @@ EVENT_REGISTRY = {
     'integration_recovered': dict(
         label='An integration target recovered', kind='integration',
         title='Integration Recovered', resolves=('integration_down',)),
-    # v7.3.0: Threat intel's own health. A feed that cannot be read, or a list sync
+    # v7.3.0: Threat Intel's own health. A feed that cannot be read, or a list sync
     # that waits for a person, stops the reporting and the blocklist without a
     # word: the cause is a token or a plan, not a host, so nothing else says so.
     # Both fire on the transition only (a feed needs two failed reads in a row),
     # and the recover event closes the alert by the feed's or the list's label.
     'edge_feed_down': dict(
-        label='A Threat intel edge feed (Cloudflare events or the honeypot log) cannot be read',
+        label='A Threat Intel edge feed (Cloudflare events or the honeypot log) cannot be read',
         kind='threat_intel', title='Edge Feed Down', severity='medium',
         tags='warning,satellite'),
     'edge_feed_recovered': dict(
-        label='A Threat intel edge feed is being read again', kind='threat_intel',
+        label='A Threat Intel edge feed is being read again', kind='threat_intel',
         title='Edge Feed Recovered', resolves=('edge_feed_down',),
         tags='white_check_mark,satellite'),
     'edge_list_held': dict(
@@ -2760,11 +2760,11 @@ EVENT_REGISTRY = {
         label='The Cloudflare IP list is back in step with its sources',
         kind='threat_intel', title='Edge Blocklist Synced', resolves=('edge_list_held',),
         tags='white_check_mark,shield'),
-    # v7.4.0: Threat intel reported addresses. One event per sweep, naming up to five of them.
+    # v7.4.0: Threat Intel reported addresses. One event per sweep, naming up to five of them.
     # It is news, not a fault: nothing in it can recover, and it stays out of Needs Attention
     # and out of the webhook until an operator turns those on.
     'ip_reported': dict(
-        label='Threat intel reported addresses to AbuseIPDB or SniffCat',
+        label='Threat Intel reported addresses to AbuseIPDB or SniffCat',
         kind='threat_report', title='Addresses Reported', severity='low', lifecycle='point',
         tags='shield'),
     'dependency_missing': dict(
@@ -4673,7 +4673,7 @@ def _external_scheduler_configured():
     flag alone, with no opinion about whether it is alive.
 
     v6.4.2: split out of _external_scheduler_active, which now also requires a
-    recent heartbeat. Server status needs both facts and they are
+    recent heartbeat. Server Status needs both facts and they are
     different: "you told me a scheduler owns this" and "one actually does". The
     panel showing them as one number is how a dead scheduler stayed invisible.
     """
@@ -9747,7 +9747,7 @@ CHANNEL_KIND_DEFS = (
     ('health', 'Host health score', 'operational'),
     # v3.11.0: attack-surface / posture / storage kinds
     ('exposure', 'World-exposed services', 'operational'),
-    ('software_policy', 'Software policy', 'operational'),
+    ('software_policy', 'Software Policy', 'operational'),
     ('storage', 'Storage / RAID health', 'operational'),
     ('access', 'New-source logins', 'operational'),
     ('firewall', 'Host firewall changes', 'operational'),
@@ -9780,8 +9780,8 @@ CHANNEL_KIND_DEFS = (
     ('scan', 'Security scan findings', 'operational'),
     # v4.7.0: homelab software integration health
     ('integration', 'Integration health', 'operational'),
-    ('threat_intel', 'Threat intel feeds and blocklist', 'operational'),
-    ('threat_report', 'Threat intel reports', 'security'),  # v7.4.0
+    ('threat_intel', 'Threat Intel feeds and blocklist', 'operational'),
+    ('threat_report', 'Threat Intel reports', 'security'),  # v7.4.0
     ('github_issue', 'GitHub new issues', 'operational'),  # v5.8.0
     ('reputation', 'IP reputation (DNSBL)', 'operational'),
     ('resolver', 'DNS resolver health', 'operational'),
@@ -10149,7 +10149,7 @@ def _alert_title(event, payload):
     if event == 'edge_feed_down':
         return f'Edge feed down: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'ip_reported':
-        return f'Threat intel: {p.get("detail", "addresses reported")}'[:200]
+        return f'Threat Intel: {p.get("detail", "addresses reported")}'[:200]
     if event == 'edge_list_held':
         return f'Cloudflare IP list needs attention: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'ip_blacklisted':
@@ -23357,7 +23357,7 @@ def handle_heartbeat():
     # opted in, both checked on every heartbeat.
     if saved_dev.get('sshgw_enabled') and _module_on('sshgw'):
         common_resp['sshgw_enabled'] = True
-    # v7.2.0: the threat sensor. Linux agents only, and only while Threat intel
+    # v7.2.0: the threat sensor. Linux agents only, and only while Threat Intel
     # has it switched on; a host that stops receiving the key stops reading logs.
     _tsn_cfg = threat_sensor_config_for({'os': saved_dev.get('os', '')})
     if _tsn_cfg:
@@ -39513,7 +39513,7 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
 
             if len(timestamps) == threshold + 1:  # just crossed configured threshold
                 # Queued for AbuseIPDB / SniffCat after the loop, in one write: the
-                # Threat intel store is one document, so a write per source cost a
+                # Threat Intel store is one document, so a write per source cost a
                 # botnet's burst of sources seconds on this request. Appends only;
                 # the lookups run in the cadence sweep, never on the heartbeat.
                 crossed.append((src, len(timestamps)))
@@ -72920,7 +72920,7 @@ def run_sidecar_watch_if_due():
     """Alert when an ENABLED co-located sidecar has stopped.
 
     v6.4.2: `systemctl is-active` rows for remotepower-syslogd / -flowd /
-    -kmipd have been on Server status since v6.3.1 as 
+    -kmipd have been on Server Status since v6.3.1 as 
     INFORMATIONAL watchers — the reasoning being that a sidecar may legitimately
     run on a different host and POST over the network, so "no local unit" is not
     a fault. That reasoning is sound and is preserved exactly: this stays silent

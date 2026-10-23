@@ -5,7 +5,7 @@ activity feed routed to ~28 pages via `_homeNavAction`, and a handful of
 Settings hints linked to drift and exposure. Everything else was reachable only
 from its own sidebar button. Thirty pages had ZERO inbound reference from
 anywhere else in the app — including the flagship Security Advisory ("what do I
-fix first"), Risk, Forecast, Alert Tuning, Command Queue, Predictive health,
+fix first"), Risk, Forecast, Alert Tuning, Command Queue, Predictive Health,
 Package Snapshots, Data Explorer and the NOC Board.
 
 An operator triaging a critical CVE therefore had no route to that host's risk

@@ -1,4 +1,4 @@
-"""The Threat intel page's edge half (v7.3.0): the feeds' state, what was set
+"""The Threat Intel page's edge half (v7.3.0): the feeds' state, what was set
 aside and why, the connection test, and the rows that came from the edge.
 
 Same three questions as the host-log half: the page's words match what the server

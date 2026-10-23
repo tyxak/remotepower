@@ -1,6 +1,6 @@
-# Predictive health
+# Predictive Health
 
-**Hardware → Predictive health** surfaces hardware that is *predicted* to be
+**Hardware → Predictive Health** surfaces hardware that is *predicted* to be
 at risk before it fails — most urgent first:
 
 - **Disks** — the reactive SMART verdict plus trends in reallocated and

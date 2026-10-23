@@ -5308,7 +5308,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .fw-500 { font-weight: 500; }
 .badge-sm { font-size: 11px; padding: 3px 10px; }
 
-/* v7.2.0: Threat intel — what the logs showed about an address. 11px and 12px are
+/* v7.2.0: Threat Intel — what the logs showed about an address. 11px and 12px are
    the design's own stops; colours are the theme tokens, so every theme and the
    light set get a legible chip without a rule of their own. The corners are square:
    a chip here is a label, and the round shape is what marks a status pill. */

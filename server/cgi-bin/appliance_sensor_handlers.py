@@ -88,7 +88,7 @@ def _enabled():
 
 def _login_failures(dev_id, name, lines):
     """A firewall's or router's own logins that failed. The brute-force counter has
-    the thresholds, the alert and the queue for Threat intel; it only needs to be
+    the thresholds, the alert and the queue for Threat Intel; it only needs to be
     shown the lines. A failed SSH login keeps its SSH category, the rest are counted
     under `syslog`."""
     if not any(mark in line for line in lines for mark in _LOGIN_MARKS):
@@ -114,9 +114,9 @@ def crowdsec_alert_lines(body):
 def appliance_sensor_ingest(dev_id, dev, lines, now=None):
     """Read a batch of a device's new syslog lines for evidence about the addresses
     behind them. Called by the syslog intake after the lines are in the log buffer,
-    for every device, and does nothing unless Threat intel's `appliance_enabled` is
+    for every device, and does nothing unless Threat Intel's `appliance_enabled` is
     on. What it finds joins the queue the agents' sensors feed, so lookups, reports
-    and the daily limits are the ones the rest of Threat intel uses.
+    and the daily limits are the ones the rest of Threat Intel uses.
 
     Three kinds of line are read (see appliance_evidence for the formats): refused
     and decoy-port packets, which only mean something once an address has done it

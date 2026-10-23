@@ -1,4 +1,4 @@
-// RemotePower — SSH gateway page: your keys, the ~/.ssh/config block, which
+// RemotePower — SSH Gateway page: your keys, the ~/.ssh/config block, which
 // servers are opted in, and the session log.
 //
 // Lazy, page-scoped module (see _LAZY_PAGE_MODULES in app.js).

@@ -344,9 +344,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'guard_quarantined',                    # v6.4.3 Integrity Guard
             'scan_finding',                          # v4.2.0 (B5)
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
-            'edge_feed_down', 'edge_feed_recovered',      # v7.3.0 Threat intel feed health
+            'edge_feed_down', 'edge_feed_recovered',      # v7.3.0 Threat Intel feed health
             'edge_list_held', 'edge_list_synced',         # v7.3.0 Cloudflare IP list health
-            'ip_reported',                                # v7.4.0 Threat intel reported addresses
+            'ip_reported',                                # v7.4.0 Threat Intel reported addresses
             'github_new_issue',                      # v5.8.0 GitHub issue monitor
             'ct_new_certificate',                    # W1-17 CT-log watch
             'ip_blacklisted', 'ip_blacklist_cleared',  # v4.8.0 IP reputation

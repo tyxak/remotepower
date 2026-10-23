@@ -1,4 +1,4 @@
-"""The Threat intel settings page fills and sends the new fields.
+"""The Threat Intel settings page fills and sends the new fields.
 
 The inputs exist in the markup and the handler accepts the values, but nothing
 joined them: a field the page never sends is a setting nobody can change. This

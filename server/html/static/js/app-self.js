@@ -135,13 +135,13 @@ function _selfSidecarRows(s) {
   }
   const gw = sub.sshgw || {};
   if (!gw.enabled) {
-    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'muted', status: 'Off',
+    rows.push({ key: 'sshgw-daemon', label: 'SSH Gateway', state: 'muted', status: 'Off',
                 detail: 'the optional SSH gateway module is switched off' });
   } else if (gw.reachable) {
-    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'ok', status: 'Running',
+    rows.push({ key: 'sshgw-daemon', label: 'SSH Gateway', state: 'ok', status: 'Running',
                 detail: `agent tunnels on port ${gw.port}, SSH on port ${gw.ssh_port}; ${gw.tunnels} of ${gw.opted_in} opted-in hosts connected` });
   } else {
-    rows.push({ key: 'sshgw-daemon', label: 'SSH gateway', state: 'bad', status: 'Enabled — unreachable',
+    rows.push({ key: 'sshgw-daemon', label: 'SSH Gateway', state: 'bad', status: 'Enabled — unreachable',
                 detail: `nothing listening on port ${gw.port} on this server — check systemctl status remotepower-sshgw` });
   }
   // Syslog / flow receivers are INFORMATIONAL: optional, and they may legitimately

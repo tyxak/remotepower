@@ -439,7 +439,7 @@ class TestSoftwarePolicyRulesBackTheViolations(_SeededBase):
         status, body = self.call(api.handle_software_policy)
         self.assertEqual(status, 200)
         self.assertTrue(body.get('rules'),
-                        'the Software policy page shows violations with no '
+                        'the Software Policy page shows violations with no '
                         'rule that could have produced them')
 
     def test_every_violation_names_a_seeded_rule(self):

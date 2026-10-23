@@ -1,4 +1,4 @@
-"""The ~/.ssh/config block the SSH gateway page hands out names the gateway as its own Host.
+"""The ~/.ssh/config block the SSH Gateway page hands out names the gateway as its own Host.
 
 Under `Host *.rp` an IdentityFile applies to the server being reached, never to
 the jump host, so with several keys ssh offered the wrong one to the gateway and

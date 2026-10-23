@@ -15,7 +15,7 @@
 #   systemctl daemon-reload && systemctl enable --now remotepower-sshgw
 #   systemctl restart remotepower-wsgi          # picks up RP_SSHGW_SECRET
 # Then open TCP 2222 in the server's firewall and turn the module on in
-# Settings → Advanced → SSH gateway.
+# Settings → Advanced → SSH Gateway.
 
 [Unit]
 Description=RemotePower SSH gateway

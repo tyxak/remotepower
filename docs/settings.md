@@ -128,7 +128,7 @@ whole instance — read the inline hint first.
 
 ## Related
 
-- **Server status / self-monitoring** (RemotePower watching itself, plus the
+- **Server Status / self-monitoring** (RemotePower watching itself, plus the
   distributed-subsystem health card): see [self-monitoring.md](self-monitoring.md).
 - **Scaling** (Postgres, the out-of-band scheduler, relay/scan-worker
   satellites): [scaling.md](scaling.md).

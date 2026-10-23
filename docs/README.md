@@ -181,21 +181,21 @@ holds long-form docs that don't fit there.
  and encrypted control-plane disaster recovery.
 - **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
  manager, and host user / SSH-key / firewall management from the drawer.
-- **[ip-intel.md](ip-intel.md)** — Threat intel: look up, report and block
+- **[ip-intel.md](ip-intel.md)** — Threat Intel: look up, report and block
  brute-force sources with AbuseIPDB and SniffCat.
 - **[edge-sources.md](edge-sources.md)** — Edge sources: set up the Cloudflare
- token and feeds that let Threat intel read what Cloudflare refused, step by
+ token and feeds that let Threat Intel read what Cloudflare refused, step by
  step, with troubleshooting.
 - **[firewall-sources.md](firewall-sources.md)** — Firewall sources: let Threat
  intel read the syslog of an OPNsense or MikroTik, for port scans, a decoy port,
  Suricata and CrowdSec alerts and failed sign-ins, step by step.
 - **[honeypot-worker.md](honeypot-worker.md)** — Run a honeypot Worker on
  Cloudflare: one script and one config file that answer decoy paths and write
- the log Threat intel reads, step by step.
+ the log Threat Intel reads, step by step.
 - **[honeypot-traps.md](honeypot-traps.md)** — More traps for the honeypot
  Worker: a robots.txt decoy, a fake git repository and backup directory, WordPress
  probes, a planted password and decoy hosts, in one replacement script.
-- **[sshgw.md](sshgw.md)** — SSH gateway: reach hosts with your own SSH client
+- **[sshgw.md](sshgw.md)** — SSH Gateway: reach hosts with your own SSH client
  through one gateway, with no inbound port on the host, public-key login and a
  per-session audit trail.
 - **[sso.md](sso.md)** — Single sign-on & directory integration: OIDC, SAML 2.0

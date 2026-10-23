@@ -12,7 +12,7 @@ You need:
 
 - RemotePower 7.4.0 or later, and an administrator account. The card is hidden
   from everyone else.
-- AbuseIPDB or SniffCat keys saved under **Security → Threat intel → Providers**,
+- AbuseIPDB or SniffCat keys saved under **Security → Threat Intel → Providers**,
   with **Report attackers back to both services** ticked (see
   [Set it up](ip-intel.md#set-it-up)). Without them RemotePower still reads the
   logs and shows what it found, but it reports nothing.
@@ -52,12 +52,12 @@ further.
 2. With the switch on, RemotePower reads the batch for the five things above.
    Most lines are none of them and are skipped after a quick check.
 3. Refused packets and decoy-port hits are counted per address, in a small store
-   of their own. Writing them into the Threat intel table would rewrite the
+   of their own. Writing them into the Threat Intel table would rewrite the
    whole table on every batch of a busy firewall. Intrusion detection and
    CrowdSec alerts settle within their batch.
 4. An address that qualifies joins the queue your hosts' sensors feed. From
    there it is looked up and, if it qualifies, reported, as described in
-   [Threat intel](ip-intel.md#how-it-works).
+   [Threat Intel](ip-intel.md#how-it-works).
 
 ### Refused packets
 
@@ -89,7 +89,7 @@ none of them.
 
 ## Turn it on
 
-Open **Security → Threat intel** and scroll to the **Firewalls and routers**
+Open **Security → Threat Intel** and scroll to the **Firewalls and routers**
 card.
 
 1. Tick **Read the syslog of firewalls and routers**.
@@ -299,7 +299,7 @@ Both products log a failed sign-in with the address it came from:
 These go through the same brute-force counter as failed SSH logins on your hosts.
 It counts failures per address, raises an alert when the threshold is crossed
 (**Settings → Alert parameters**, 20 failures in 5 minutes by default), and
-queues the address for Threat intel. A failed SSH login keeps its SSH category;
+queues the address for Threat Intel. A failed SSH login keeps its SSH category;
 the others are reported as failed logins.
 
 A host that has an agent is left out of this. The agent already counts its
@@ -327,7 +327,7 @@ Cloudflare's published ranges are set aside and counted on the Log sources card.
 
 ## What a report says
 
-The text is built from fixed phrases and numbers, like every Threat intel
+The text is built from fixed phrases and numbers, like every Threat Intel
 report:
 
 ```
@@ -346,7 +346,7 @@ shows what was sent to each service.
 
 ## Check that it works
 
-Open **Security → Threat intel → Log sources**. Each kind of line that RemotePower
+Open **Security → Threat Intel → Log sources**. Each kind of line that RemotePower
 read from a firewall's syslog has a row under the firewall's name, with the log
 shown as `syslog`:
 
@@ -422,7 +422,7 @@ signature names can appear in the text.
   [edge blocklist](ip-intel.md#the-edge-blocklist), these addresses are
   candidates for it like any other the server found.
 - **It does not raise an alert for a scan or a decoy hit.** They are reported and
-  shown on the Threat intel page. Failed sign-ins do raise the brute-force alert.
+  shown on the Threat Intel page. Failed sign-ins do raise the brute-force alert.
 - **It does not read other formats.** A firewall whose lines are not pf
   `filterlog`, RouterOS, Suricata or CrowdSec lines is stored on the Logs tab and
   not read further.

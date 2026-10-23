@@ -106,7 +106,7 @@ the server after a loss:
   config, tickets, tokens or vault. Every database backend now also exports its
   logical documents into the archive under the same filenames the JSON backend
   uses, which means one archive shape restores onto any backend. `stores` in the
-  backup result and on Server status reports how many were written.
+  backup result and on Server Status reports how many were written.
 - Restoring onto a database backend **imports** the archive rather than just
   unpacking it — extracted files are inert there, because reads go to the
   database, not the disk. The response reports `stores_imported`.

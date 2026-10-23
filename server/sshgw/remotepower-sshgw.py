@@ -566,7 +566,7 @@ class GatewaySSHServer(_SSHServer):
             res = await self.gw.api.authorize(username, fp, '', self.client_ip)
             self._answers[pair] = bool(res.get('ok'))
             if not self._answers[pair]:
-                # The fingerprint is what the SSH gateway page lists for each key,
+                # The fingerprint is what the SSH Gateway page lists for each key,
                 # so an operator can tell "wrong account name" from "key not added".
                 log.info('refused key from %s: key %s user %s reason %s', self.client_ip, fp,
                          _q(username), _q(res.get('error') or 'not authorized', 200))

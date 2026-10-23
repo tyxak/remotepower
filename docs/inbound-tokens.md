@@ -63,7 +63,7 @@ That gives you four things that all have to be right:
 
 The table on the Inbound webhooks page shows the host's name and IP next to
 each token, and says so in amber when a syslog or flow token's host has no IP. The
-**Server status** page has a *Syslog receiver* and a *Flow receiver* row that
+**Server Status** page has a *Syslog receiver* and a *Flow receiver* row that
 say whether the receiver is running and how many of its sources can receive.
 
 ## Which address does the firewall send from?
@@ -133,7 +133,7 @@ addresses costs bandwidth and not memory.
   traffic.
 - [syslog.md](syslog.md) and [flow.md](flow.md): the receivers, their settings
   and the other senders (rsyslog, MikroTik, ESXi, Cisco).
-- [Firewall sources](firewall-sources.md): Threat intel reading a firewall's
+- [Firewall sources](firewall-sources.md): Threat Intel reading a firewall's
   syslog, including the one case where the token does go on the firewall: a
   CrowdSec notification.
 - [agentless-devices.md](agentless-devices.md): records for hosts with no

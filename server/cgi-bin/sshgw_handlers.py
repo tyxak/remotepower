@@ -264,7 +264,7 @@ def handle_sshgw_keys():
 
 
 def handle_sshgw_status():
-    """GET /api/sshgw/status — what the SSH gateway page needs to render: the
+    """GET /api/sshgw/status — what the SSH Gateway page needs to render: the
     public endpoint to put in ~/.ssh/config, whether the caller's role may use
     the gateway, and whether the daemon secret has been set."""
     actor = A.require_auth()

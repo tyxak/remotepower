@@ -1,4 +1,4 @@
-"""What an operator tells Threat intel not to report (v7.3.0).
+"""What an operator tells Threat Intel not to report (v7.3.0).
 
 A report is public and filed under the operator's account, so the ways to say
 "not this one" matter. There are two: an address or a network, and a kind of attack

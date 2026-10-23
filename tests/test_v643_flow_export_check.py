@@ -3,7 +3,7 @@
 
 Until v6.4.3 it was invisible. Nothing said "your exporter stopped": the
 drawer's top-talkers view simply froze on its last window (`latest` was never
-expired either — fixed in the same release), Server status showed the newest
+expired either — fixed in the same release), Server Status showed the newest
 ingest across ALL exporters so one healthy router masked every dead one, and
 `_dependency_health` quietly degraded once the last window aged past
 _DEP_EVIDENCE_TTL — turning a dead exporter into phantom "dependency missing"

@@ -104,7 +104,7 @@ links that were fine.
   skips empty windows, so a standby link that only carries traffic during a
   failover is indistinguishable on the wire from a dead exporter.
 
-Server status counts silent exporters separately, so one healthy router no
+Server Status counts silent exporters separately, so one healthy router no
 longer hides the rest behind a recent "last export" timestamp — and **names
 them** (v7.0.0), because "1 of 3 exporter(s) silent" leaves you to work out
 which of three routers it meant.
@@ -117,7 +117,7 @@ enrolled host's `ip` field. Anything that breaks that lookup drops the token
 from the map, and then nothing can ever arrive no matter how correctly the
 router is configured:
 
-| What Server status says | What it means |
+| What Server Status says | What it means |
 | --- | --- |
 | `no IP on the host, so the receiver cannot map its packets` | The host this token is scoped to has an empty `ip`. The receiver has nothing to match the datagram's source address against. Set the host's IP to the address the flow packets come *from*. |
 | `token disabled` | The token exists but is switched off under Settings → Integrations → Inbound webhooks. |

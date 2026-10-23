@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.4.2 — the two new fleet pages (Needs Attention, Tags & groups).
+"""v6.4.2 — the two new fleet pages (Needs Attention, Tags & Groups).
 
 Both shipped as markup first, with their loaders landing separately, so the
 failure mode this guards is a page shell that *looks* right and is unreachable

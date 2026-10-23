@@ -1,4 +1,4 @@
-// RemotePower — Threat intel page: attacking addresses with their AbuseIPDB /
+// RemotePower — Threat Intel page: attacking addresses with their AbuseIPDB /
 // SniffCat reputation, reports and timed blocks, plus the provider settings.
 //
 // Lazy, page-scoped module (see _LAZY_PAGE_MODULES in app.js). api() resolves
@@ -114,7 +114,7 @@ const _IPI_BAN_WORD = {
   host_skipped: 'skipped: not a Linux agent you can reach',
   host_deferred: 'not reached in time: ban again to continue',
   seen_by: 'Hosts that saw it', of_hosts: 'Linux hosts in all',
-  off_note: 'Turn on the Edge blocklist under Security → Threat intel → Edge blocklist to ban at the edge.',
+  off_note: 'Turn on the Edge blocklist under Security → Threat Intel → Edge blocklist to ban at the edge.',
   operator_note: 'Only the platform operator can ban at the edge.',
   choose: 'Choose at least one place.', could_not: 'Could not ban this address', unbanned: 'Unbanned',
 };
@@ -165,7 +165,7 @@ const _IPI_IGNORE_DIALOG = {
 const _IPI_CLEAR_DIALOG = {
   clear: {
     title: 'Clear recorded addresses',
-    message: 'Forget the addresses Threat intel has recorded and the ones waiting to be looked up. Blocks and bans stay and expire on their own. Addresses the edge blocklist takes from this table stay, so the list does not shrink. An address reported in the last day is remembered by date only, so it is not reported twice.',
+    message: 'Forget the addresses Threat Intel has recorded and the ones waiting to be looked up. Blocks and bans stay and expire on their own. Addresses the edge blocklist takes from this table stay, so the list does not shrink. An address reported in the last day is remembered by date only, so it is not reported twice.',
     confirm: 'Clear',
   },
 };

@@ -680,7 +680,7 @@ def generate_metrics(ctx: dict) -> str:
                 lines.append('# TYPE remotepower_edge_blocklist_sync_age_seconds gauge')
                 lines.append(_metric('remotepower_edge_blocklist_sync_age_seconds', {}, int(bl['age'])))
         if ti.get('attackers_24h') is not None:
-            lines.append('# HELP remotepower_ip_intel_attackers_24h Addresses Threat intel recorded in the last 24 hours.')
+            lines.append('# HELP remotepower_ip_intel_attackers_24h Addresses Threat Intel recorded in the last 24 hours.')
             lines.append('# TYPE remotepower_ip_intel_attackers_24h gauge')
             lines.append(_metric('remotepower_ip_intel_attackers_24h', {}, int(ti['attackers_24h'])))
 

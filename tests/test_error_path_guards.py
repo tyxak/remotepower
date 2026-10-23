@@ -242,11 +242,11 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         # advances the rollout sweep that main()'s cadence runs anyway
         # (_rollout_tick_if_due), and the caller supplies no input to it.
         "handle_rollouts_list",
-        # SSH gateway page status: reads config and the caller's own key count.
+        # SSH Gateway page status: reads config and the caller's own key count.
         # Flagged only because the role lookup goes through verify_token, which
         # can expire a stale session.
         "handle_sshgw_status",
-        # Security → Threat intel listing: reads the attacker and block stores,
+        # Security → Threat Intel listing: reads the attacker and block stores,
         # scoped to visible devices. Flagged for the same verify_token reason.
         "handle_ip_intel",
     }

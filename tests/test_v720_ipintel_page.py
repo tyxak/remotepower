@@ -1,4 +1,4 @@
-"""The Threat intel page shows what the logs said, and says when it cannot read them.
+"""The Threat Intel page shows what the logs said, and says when it cannot read them.
 
 Three things are checked. The page's words match what the server sends (the class
 ids, the source kinds, the states, the formats) so a new one added on either side

@@ -1,7 +1,7 @@
 """v6.4.2 — the control plane tells on itself.
 
 Of 183 registered events only `server_disk_low`/`_ok` concerned the control
-plane. All the self-health data existed and was rendered on Server status —
+plane. All the self-health data existed and was rendered on Server Status —
 per-sweep `last_ok`/`err` in self_observability.json, the scheduler heartbeat,
 `systemctl is-active` rows for the three sidecars — and NONE of it was wired to
 an event. Three concrete gaps:

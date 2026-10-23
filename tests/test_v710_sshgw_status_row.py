@@ -1,4 +1,4 @@
-"""The Server status page has a row for the SSH gateway daemon.
+"""The Server Status page has a row for the SSH gateway daemon.
 
 Every other co-located sidecar (push, satellites, syslog, flow, KMIP) had one;
 the gateway shipped without, so a running daemon and a dead one looked the same

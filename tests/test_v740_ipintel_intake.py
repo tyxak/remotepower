@@ -1,4 +1,4 @@
-"""Threat intel's intake has a document of its own (7.4.0).
+"""Threat Intel's intake has a document of its own (7.4.0).
 
 The queue of addresses waiting for a sweep, each host's sensor record and the edge
 feeds' places in their logs are written whenever a heartbeat or a poll has
