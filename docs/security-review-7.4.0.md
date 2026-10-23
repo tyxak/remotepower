@@ -1,11 +1,11 @@
 # Security review — v7.4.0
 
-7.4.0 is a polish release, so this review is scoped to what changed: 112 server,
-agent and client files since 7.3.0. The whole-project sweep (every route sent hostile
-input as several identities, the scanners run against nginx, the suite on every
-storage backend) runs at the release gate and is added here when it has run.
+7.4.0 is a polish release. The review started with what changed (112 server, agent
+and client files since 7.3.0) and then covered the whole project: every route sent
+hostile input, the scanners ran against the shipped nginx configuration, and the
+suite runs on each storage backend at the release gate.
 
-It found **nine** issues worth reporting. All were **caught before release**, by
+It found **eleven** issues worth reporting. All were **caught before release**, by
 the work that touched the code or by the tests written for it, and all are fixed in
 this release. None came from the field.
 
@@ -28,11 +28,15 @@ this release. None came from the field.
 | Read against the threat model | The new code above, then each place a rule is meant to apply: who may read a host's data, which store is shared across tenants, what a sender of syslog can make the server spend | 9 findings, below |
 | Undefined names (`ruff F821`) | Server, agents, sidecars, tools and tests | 0 |
 | bandit | 129,286 lines of server and agent Python, against the committed baseline | 0 High, 25 Medium (unchanged), 924 Low (2 more than the baseline: the agents' command-line handling and the fail2ban reader, both `try`/`except` or a fixed argument list). The baseline is regenerated |
-| semgrep | The Python, JavaScript and security-audit rulesets over the 112 changed files | 12 results, every one a reviewed false positive (below) |
+| semgrep | The Python, JavaScript and security-audit rulesets over the 112 changed files | 12 results on the changed files and 27 over the whole project, every one a reviewed false positive (below) |
 | gitleaks | Every commit (2,336) and the working tree | No leaks |
 | Dependency audit (`pip-audit`) | The packages the server and agents import: Flask 3.1.3, Werkzeug 3.1.9, pydantic 2.14.1, cryptography 50.0.2, psycopg 3.3.6, Jinja2 3.1.6, requests 2.34.2, asyncssh 2.24.1, psutil 7.2.2, reportlab 5.0.0 | No advisory. The audit of the whole dev environment lists others (anyio, h2, mcp, msgpack, PyJWT, tornado and more); nothing in the server, the agents or the sidecars imports them |
 | eslint correctness rules and undefined names | Every client file; both are tests | Pass |
 | Rendered browser gates | Every page on a seeded fleet: console errors, failed requests, accessibility, box overflow, contrast in 13 themes, keyboard, print, a phone's width in six languages, and every request answered 500 | No console error, no failed request except the two demo integrations that point at addresses that do not exist |
+| Hostile input to every route | All 954 operations in the OpenAPI document on a seeded server, with no token, a wrong token, a valid session and malformed or oversized bodies: 25,522 requests | No 500. Nine routes answer 200 to a caller without a session; each is meant to (installer scripts, agent version, magic-link request, alert action links, client-error beacon). Calls that reach out to the network (DMARC and TLS scans) take up to 15 seconds when DNS is unreachable, and need an admin |
+| nuclei and wapiti | The shipped nginx configuration in front of a seeded server; wapiti signed in, with SQL, XSS, SSRF, file, redirect, XXE, shellshock, upload, header and cookie modules | nuclei: information-level only (technology detection). wapiti: 0 vulnerabilities, 0 anomalies |
+| CodeQL | The repository's own configuration, as the production workflow runs it | 0 results |
+| Timing | All 243 GET routes on the seeded fleet, three runs each | Slowest is the full export at 258 ms; every other route is under 70 ms |
 | Mutation checks | New tests run against the old code or against a version with the fix removed | Most of the gates were shown failing this way; each commit message says which |
 
 **Reviewed false positives in semgrep:** four `chmod` calls set a mode of 0700 on
@@ -54,6 +58,8 @@ escaped; one is a SHA-1 in the demo-data seeder, which is not a security use.
 | 7 | Thirteen test classes removed the data directory setting when they finished | Low, development only: a later test could run the server's start-up against `/var/lib/remotepower`, which on a machine with a real install means writing to it | Tests |
 | 8 | The new `ip_reported` alert has no host, and an alert with no host is visible to every tenant | Medium, caught before release: it names addresses that may have attacked another tenant's hosts. It is not sent when tenancy is on | Server |
 | 9 | The carry file of the log sensor is read back from disk | Low, caught before release: the first version raised on a damaged entry. Every carried number is coerced now and an entry that does not read is skipped | Agent |
+| 10 | The assistant's list of attacking addresses called firewall events "failed logins" and did not say what an address did | Low: a wrong word in an answer. It now says "events seen by the firewall sensor", the attack class and up to three CVE ids | Server |
+| 11 | A mail-path placeholder, a hint and the demo data carried the maintainer's own account name | Low: information in a public file. Replaced with neutral examples | Web UI |
 
 Each has a test. The commit that fixed it says whether the test was run against the old
 code.
@@ -69,7 +75,4 @@ code.
 
 ## Left for the release gate
 
-The scanners against nginx (nuclei, wapiti), the hostile-input pass over every
-route as four identities, the authorization matrix and the suite on JSON, SQLite and
-PostgreSQL. The first two were run on 7.3.0 and found nothing in code that 7.4.0
-leaves alone.
+The suite on JSON, SQLite and PostgreSQL, and the pre-release checks.

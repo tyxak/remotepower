@@ -33,8 +33,8 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
-- [security-review-7.4.0.md](security-review-7.4.0.md) — scoped to what changed in a
-  polish release: nine issues, among them an ignore list shared by every tenant, a
+- [security-review-7.4.0.md](security-review-7.4.0.md) — the changes in a polish
+  release plus a whole-project sweep: eleven issues, among them an ignore list shared by every tenant, a
   syslog line that took the server 165 ms to read, and a new alert that would have
   named one tenant's attackers to another, all caught before release.
 - [security-review-7.3.0.md](security-review-7.3.0.md) — scoped to the edge feeds
