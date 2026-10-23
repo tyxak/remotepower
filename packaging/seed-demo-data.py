@@ -3543,6 +3543,8 @@ def build_fleet_events() -> dict:
         ('edge_feed_down',  None,    {'label': 'Cloudflare firewall events',
                                      'detail': 'the token was refused: Authentication error'}),
         ('edge_feed_recovered', None, {'label': 'Cloudflare firewall events'}),
+        ('ip_reported',     None,    {'detail': '3 addresses reported to AbuseIPDB and SniffCat: '
+                                     '192.0.2.40, 192.0.2.42, 198.51.100.110'}),
         ('kernel_outdated', 'pmx01', {}),
         ('health_degraded', 'nc01',  {'severity': 'warning'}),
         ('health_recovered','nc01',  {}),
