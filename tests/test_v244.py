@@ -63,7 +63,7 @@ class TestHeartbeatPushesMailboxPaths(unittest.TestCase):
         api.save(api.DEVICES_FILE, {'d1': {
             'id': 'd1', 'name': 'mail01', 'token': 'tok',
             'poll_interval': 60,
-            'mailbox_paths': ['/var/mail/vhosts/example.com/jmo/new'],
+            'mailbox_paths': ['/var/mail/vhosts/example.com/user/new'],
         }})
         cap = {}
         def fake_respond(status, body):
@@ -92,7 +92,7 @@ class TestHeartbeatPushesMailboxPaths(unittest.TestCase):
         self.assertIn('body', cap)
         self.assertEqual(
             cap['body'].get('mailbox_paths'),
-            ['/var/mail/vhosts/example.com/jmo/new'])
+            ['/var/mail/vhosts/example.com/user/new'])
 
     def test_saved_dev_caches_mailbox_paths(self):
         # Guard on the fix: mailbox_paths must be cached into saved_dev each

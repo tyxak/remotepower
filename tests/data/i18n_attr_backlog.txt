@@ -31,7 +31,7 @@
 /var/log/myapp/*.log { daily rotate 7 compress missingok notifempty }
 /var/log/myapp/application.log
 /var/log/nginx/error.log
-/var/mail/vhosts/example.com/jmo/new
+/var/mail/vhosts/example.com/user/new
 10.0.0.0/8 192.168.1.42 fd00::/8
 127.0.0.1 localhost ::1 localhost 192.168.1.10 myserver
 192.168.1.1 / host:22 / https://…

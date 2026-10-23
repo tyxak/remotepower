@@ -569,7 +569,7 @@ def _demo_enrich_sysinfo(dev, rng, si):
         }]
     si.setdefault('uptime_seconds', rng.randint(3600, 86400 * 40))
     # ── access watch: recent logins + distinct source IPs ──
-    _users = rng.sample(['jmo', 'root', 'deploy', 'ansible', 'admin'],
+    _users = rng.sample(['ops', 'root', 'deploy', 'ansible', 'admin'],
                         k=rng.randint(1, 3))
     _srcs = rng.sample(['192.168.1.50', '10.0.0.12', '213.174.78.189',
                         '95.166.252.182', '172.19.0.1', '192.168.2.21'],
@@ -1404,7 +1404,7 @@ def build_devices() -> dict:
             if dev['id'] in _FAILED_UNITS:
                 rec['sysinfo']['failed_units'] = _FAILED_UNITS[dev['id']]
             rec['sysinfo']['logged_in'] = rng.choice([
-                [], ['root'], ['jmo'], ['root', 'jmo'], ['deploy'],
+                [], ['root'], ['ops'], ['root', 'ops'], ['deploy'],
             ])
             # Add a few common services
             rec['services'] = build_device_services(dev, rng)
@@ -1505,7 +1505,7 @@ _DEMO_COMPOSE_BY_TAG = {
                     ('sonarr',     '/opt/stacks/arr'),
                     ('radarr',     '/opt/stacks/arr/radarr')],
     'web':         [('caddy',      '/srv/caddy'),
-                    ('wizarr',     '/home/jmo/wizarr')],
+                    ('wizarr',     '/home/ops/wizarr')],
     'proxy':       [('caddy',      '/srv/caddy'),
                     ('authelia',   '/srv/authelia')],
     'git':         [('gitea',      '/opt/gitea')],
@@ -4227,7 +4227,7 @@ def build_apikeys() -> dict:
     rows = [('CI deploy pipeline', 'ci-bot', 'admin', 365, True),
             ('Grafana read-only', 'grafana', 'viewer', None, True),
             ('Claude MCP host', 'mcp', 'mcp', 90, True),
-            ('Old laptop (rotate me)', 'jmo', 'admin', -5, True)]
+            ('Old laptop (rotate me)', 'ops', 'admin', -5, True)]
     out = {}
     for name, user, role, exp_days, active in rows:
         kid = _stable_hex('apikey', name, nbytes=8)
