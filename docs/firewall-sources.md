@@ -38,8 +38,9 @@ CrowdSec is the one source that skips the UDP receiver; see
 
 The refused-packet reader follows pf's `filterlog` layout, which pfSense also
 writes. It has been run against a real OPNsense and not against a pfSense. The
-RouterOS, Suricata and CrowdSec readers follow those products' documented
-formats and have not yet read a live firewall or router. [Check that it works](#check-that-it-works)
+Suricata reader has read the alert lines of a real OPNsense too. The RouterOS and
+CrowdSec readers follow those products' documented formats and have not yet read
+a live firewall or router. [Check that it works](#check-that-it-works)
 shows how you would notice a mismatch.
 
 Lines from any other program stay on the Logs tab as before and are not read
@@ -136,6 +137,11 @@ syslog as one line:
 ```
 [1:2001219:20] ET SCAN Potential SSH Scan [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.9:40222 -> 192.0.2.1:22
 ```
+
+A rule that blocks puts its action in front, as `[Drop] [1:2001219:20] ...`, and
+RemotePower reads that form too. Suricata 8 warns that its syslog output is
+deprecated and goes in Suricata 9, so expect this setting to change in a later
+OPNsense release.
 
 Prefer this to **Enable eve syslog output**. The syslog intake keeps 2,048
 characters of a line, and an EVE record with a payload is longer, so it arrives
@@ -441,6 +447,7 @@ signature names can appear in the text.
 | Nothing from a RouterOS rule | The rule needs `log=yes`, a prefix with a refusing word or `rp-trap`, and a place above the rule that accepts the traffic. |
 | No refused packets from OPNsense | The rule that refused the packet does not have **Log** ticked. |
 | Intrusion detection: **Not understood** | The alerts are EVE records cut at 2,048 characters, or not alert lines. Use **Enable syslog alerts**. |
+| Suricata's own messages arrive ("rule reload", rule errors) but no alerts | Press **Apply** after ticking **Enable syslog alerts**, because Suricata reads it when it starts. Then wait for a rule to fire, or add a test rule under **User defined** with the action **Alert** between one host and an address outside your network. Traffic between two hosts on the same network never crosses the firewall, so Suricata does not see it. |
 | No CrowdSec row | The notification is not arriving. The test command should raise the token's **Hits** by one. If it does not, check the URL, the `Content-Type` header and that the firewall trusts RemotePower's certificate. |
 | `not blocked: host is not a Linux agent` | Expected. RemotePower does not block on a firewall or router. |
 | The same address again the next day | A persistent scanner is queued for each 30-minute window and reported at most once a day to each service. |

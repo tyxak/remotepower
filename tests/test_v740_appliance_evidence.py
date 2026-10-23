@@ -346,6 +346,28 @@ class TestTrack(unittest.TestCase):
 # ── Suricata ──────────────────────────────────────────────────────────────────
 
 class TestSuricata(unittest.TestCase):
+    def test_lines_read_from_a_real_opnsense(self):
+        # OPNsense 26 / Suricata 8.0.7 with "Enable syslog alerts", as RemotePower stored them
+        # (2026-10-23; addresses replaced by documentation ranges). The action in front of the
+        # signature id is `[Drop]` on a blocking rule, and the classification can be `(null)`.
+        pre = '1 2026-10-23T11:05:00+02:00 OPNsense01.example suricata 68879 - [meta sequenceId="335950"] '
+        r = ae.read_line(pre + '[Drop] [1:4294967273:1] RP test [Classification: (null)] [Priority: 3] '
+                               '{UDP} 203.0.113.9:123 -> 10.0.0.3:123')
+        self.assertEqual(r, ('ids', {'kind': 'ids', 'src': '203.0.113.9', 'proto': 'udp', 'dport': 123,
+                                     'cls': None, 'cves': []}))
+        r = ae.read_line(pre + '[Drop] [1:2006380:17] ET POLICY Outgoing Basic Auth Base64 HTTP Password '
+                               'detected unencrypted [Classification: Potential Corporate Privacy Violation] '
+                               '[Priority: 1] {TCP} 10.0.0.2:46816 -> 192.168.2.100:6789')
+        self.assertEqual((r[0], r[1]['src'], r[1]['dport'], r[1]['cls']), ('ids', '10.0.0.2', 6789, None))
+
+    def test_the_engines_own_messages_are_none_of_our_business(self):
+        # the rule-loading errors that fill the log at every restart: 1,000 of 1,000 lines seen live
+        for tail in ('[100733] <Error> -- Duplicate signature "drop http any any -> $HOME_NET any '
+                     '(msg:"ET EXPLOIT Possible Vacron NVR Remote Command Execution"; sid:2023000;)"',
+                     '[100733] <Notice> -- rule reload complete'):
+            line = '1 2026-10-23T02:12:38+02:00 OPNsense01.example suricata 50608 - [meta sequenceId="1"] ' + tail
+            self.assertEqual(ae.read_line(line), ('ids', None))
+
     def test_a_fast_log_alert(self):
         r = ae.parse_suricata(suricata_fast('ET SCAN Potential SSH Scan', 'Attempted Information Leak'))
         self.assertEqual((r['src'], r['proto'], r['dport'], r['cls']), (SCANNER, 'tcp', 22, 'port_scan'))
