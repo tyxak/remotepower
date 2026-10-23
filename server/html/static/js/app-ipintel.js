@@ -483,6 +483,8 @@ function _ipiDetailHtml(a) {
   const facts = [];
   const seen = (e.sources || []).map(s =>
     `${_ipiPhrase(_IPI_SOURCE[s.id] || s.id)}${s.n ? ' ×' + escHtml(String(s.n)) : ''}`);
+  if ((e.kinds || []).length) seen.push((e.kinds || []).map(k =>
+    `<code>${escHtml(k.id)}</code>${k.n > 1 ? ' ×' + escHtml(String(k.n)) : ''}`).join(' '));
   if (e.ans) seen.push(`${_ipiPhrase('answered')} ${escHtml(String(e.ans))}`);
   if (e.blk) seen.push(`${_ipiPhrase('refused')} ${escHtml(String(e.blk))}`);
   if (seen.length) facts.push([_ipiPhrase('Seen in'), seen.join(' · ')]);

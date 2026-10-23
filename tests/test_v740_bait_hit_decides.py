@@ -15,6 +15,7 @@ sys.path.insert(0, str(_CGI))
 import edge_evidence as ee  # noqa: E402
 import edge_intel_handlers as eh  # noqa: E402
 import ip_intel  # noqa: E402
+import ip_intel_handlers as ih  # noqa: E402
 import threat_evidence as te  # noqa: E402
 
 
@@ -41,6 +42,18 @@ class TestBaitHit(unittest.TestCase):
         ok, why = _qualifies([_hit('bait')], ())
         self.assertFalse(ok)
         self.assertIn('of 10', why)
+
+    def test_a_wordpress_probe_is_decided_too(self):
+        for kind in ('wpprobe', 'wpenum'):
+            ok, why = _qualifies([_hit(kind)], ee.BAIT_TOKENS)
+            self.assertTrue(ok, kind)
+
+    def test_the_trap_kind_reaches_the_attackers_row(self):
+        events, _ = ee.trap_events([_hit('wpprobe')], 1_700_000_100, decided_tokens=ee.BAIT_TOKENS)
+        view = ih._evidence_view({'ev': events[0]})
+        self.assertEqual(view['kinds'], [{'id': 'wpprobe', 'n': 1}])
+        self.assertEqual(view['confirmed'], 'the edge honeypot')
+        self.assertEqual(events[0]['tok']['trap'], {'trap:wpprobe': 1})
 
     def test_a_login_hit_still_counts_as_one_attempt(self):
         ok, _ = _qualifies([_hit('login')], ee.BAIT_TOKENS)

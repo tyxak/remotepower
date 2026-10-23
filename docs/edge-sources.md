@@ -104,7 +104,7 @@ Open **Security → Threat Intel** and scroll to the **Edge sources** card.
 | **Honeypot Worker log** | Tick to read a honeypot Worker's log. Untick it if you do not run one. | ticked |
 | **Count refusals by a rule that also blocks an IP list** | See [Rules that also block an IP list](#rules-that-also-block-an-ip-list). | unticked |
 | **Count a planted credential or decoy sign-in as decided** | Report an address on its first use of a planted credential or its first sign-in to a decoy service, even when the Worker did not ban it. Nobody innocent lands on those two traps. | unticked |
-| **Count one hit on a bait path as decided** | Report an address on its first request for a bait path such as `.env`, `.git` or a database dump, without waiting for 10 attempts. Nobody innocent asks for those, and one hit is enough to file the report. Untick it to go back to counting attempts. | ticked |
+| **Count one hit on a bait path as decided** | Report an address on its first request for a bait path such as `.env`, `.git` or a database dump, or for a WordPress file such as `wp-content/debug.log` or the user list, without waiting for 10 attempts. Nobody innocent asks for those, and one hit is enough to file the report. Untick it to go back to counting attempts. | ticked |
 | **Zones** | One zone id per line. Leave it empty to read every zone the token can see. The Zone ID is on each zone's Overview page. | empty |
 | **Worker names** | The Workers whose log to read, one per line, up to three. | `trap-sink` |
 | **Read every (minutes)** | How often to read, from 5 to 1,440. | 10 |

@@ -1138,9 +1138,14 @@ def _evidence_view(att):
         for t_, c in toks.items():
             if t_.startswith('crs:') and threat_evidence.crs_class(t_[4:]):
                 rules[t_[4:]] = max(rules.get(t_[4:], 0), int(c))
+    kinds = {}
+    for t_, c in (tok.get('trap') or {}).items():
+        if t_.startswith('trap:'):
+            kinds[t_[5:]] = int(c)
     return {
         'classes': [{'id': c, 'n': n} for c, n in threat_evidence.dominant(ev, 5)],
         'sources': seen,
+        'kinds': [{'id': k, 'n': n} for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:5]],
         'rules': [r for r, _n in sorted(rules.items(), key=lambda kv: -kv[1])[:5]],
         'cves': list(ev.get('cve') or [])[:3], 'jails': list(ev.get('ban') or [])[:4],
         'ans': int(ev.get('ans') or 0), 'blk': int(ev.get('blk') or 0),

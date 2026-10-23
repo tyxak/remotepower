@@ -583,8 +583,9 @@ def cf_events(rows, rules=None, now=None, since=None, until=None, include_carrie
 PLANTED_TOKENS = ("canary", "decoylogin")
 
 # A bait path is a file that should never be public (.env, .git, a SQL dump). Nobody innocent
-# asks for one, so a single hit is a decision and not one attempt of ten.
-BAIT_TOKENS = ("bait",)
+# asks for one, so a single hit is a decision and not one attempt of ten. The WordPress traps
+# (debug log, wp-includes, the user list) sit on sites that are not WordPress, so they count too.
+BAIT_TOKENS = ("bait", "wpprobe", "wpenum")
 
 
 def trap_events(hits, now=None, decided_tokens=()):
