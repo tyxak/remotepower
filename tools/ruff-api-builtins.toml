@@ -598,6 +598,8 @@ builtins = [
     "ip_intel_note_attacks",
     "ip_intel_note_evidence",
     "ip_intel_policy",
+    "listed_for",
+    "merge_listed",
     "process_backup_jobs",
     "record_config_revision",
     "rule_acked",
