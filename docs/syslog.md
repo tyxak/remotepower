@@ -197,9 +197,13 @@ exists for appliances you *can't* put an agent on.
 
 ```
 /system logging action add name=remotepower target=remote remote=<server-ip> remote-port=5514
-/system logging add topics=info,error,warning,critical action=remotepower
+/system logging add topics=info action=remotepower
+/system logging add topics=error action=remotepower
+/system logging add topics=warning action=remotepower
+/system logging add topics=critical action=remotepower
 ```
 
+One rule per topic, so it works however RouterOS combines the topics of a single rule.
 Check `src-address` on the action if the router has several WAN/LAN addresses.
 
 To have Threat Intel read the router's firewall log, a decoy port and failed

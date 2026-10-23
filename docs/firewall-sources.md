@@ -230,11 +230,12 @@ source address that is on the host record:
 
 ```
 /system logging action add name=remotepower target=remote remote=<server-ip> remote-port=5514 src-address=<router-ip>
-/system logging add topics=firewall action=remotepower
+/system logging add topics=firewall,info action=remotepower
 /system logging add topics=system,error,critical action=remotepower
 ```
 
-The second line sends the firewall log. The third sends failed sign-ins, which
+The second line sends the firewall log: a rule with `log=yes` writes its lines under
+`firewall,info`. The third sends failed sign-ins, which
 RouterOS logs under the topics `system`, `error` and `critical`. RemotePower
 reads both of RouterOS's formats, the plain one and the BSD one that
 `bsd-syslog=yes` switches on.
