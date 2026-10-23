@@ -370,6 +370,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
   variables went with them. `api.py` is still checked against the list of names
   its handler modules bind at run time.
 - Swagger UI 5.33.1 → 5.34.0 for the API reference page.
+- Code scanning workflow moves to codeql-action 4.39.1. The server run at the newest reportlab (5.1.0) and websockets (17.3) passes the 559 tests that use them.
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's
   cache marker, counter included, and `verify` checks every page against it. It
   used to stamp `index.html` alone and drop the counter, the opposite of what
