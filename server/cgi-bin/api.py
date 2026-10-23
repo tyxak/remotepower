@@ -11665,14 +11665,15 @@ def _alert_mute_set():
         return c['set']
     evs, ctrs = set(), set()
     for m in _alert_mutes_load()['mutes']:
-        if not isinstance(m, dict) or not m.get('device_id'):
-            continue
+        if not isinstance(m, dict) or not (m.get('device_id') or m.get('event')):
+            continue    # a mute with no host is a fleet-level event mute (v7.4.0)
         if _mute_expired(m, now):
             continue
         if m.get('container'):
-            ctrs.add((m['device_id'], str(m['container'])))
+            if m.get('device_id'):
+                ctrs.add((m['device_id'], str(m['container'])))
         elif m.get('event'):
-            evs.add((m['device_id'], m['event']))
+            evs.add((m.get('device_id') or '', m['event']))
     c['mtime'] = mt
     c['checked'] = now
     c['set'] = frozenset(evs)
@@ -11716,11 +11717,11 @@ def _alert_muted(event, payload):
     still runs (so a pre-mute open alert can still close), and only the paging
     channels (inbox, webhook, e-mail, web push, needs-attention) go quiet."""
     p = payload if isinstance(payload, dict) else {}
-    dev_id = p.get('device_id')
+    dev_id = p.get('device_id') or ''
+    if (dev_id, event) in _alert_mute_set():
+        return True       # dev_id '' is the fleet-level mute of a hostless event
     if not dev_id:
         return False
-    if (dev_id, event) in _alert_mute_set():
-        return True
     ctr = p.get('container')
     return bool(ctr) and (dev_id, str(ctr)) in _container_mute_set()
 
@@ -60349,6 +60350,7 @@ def handle_alert_mutes():
     # stored as a mute that can never match the full name the agent reports, so
     # the operator would see "muted" and keep being paged. Reject instead.
     container = str(body.get('container', '') or '').strip()
+    fleet_level = False
     if container:
         event = ''
         if not _CONTAINER_NAME_RE.match(container):
@@ -60363,19 +60365,27 @@ def handle_alert_mutes():
         device_id = device_id or (a.get('device_id') or '')
         event = event or (a.get('event') or '')
         device_name = device_name or (a.get('device_name') or '')
-    if not device_id or not (event or container):
+        # v7.4.0: an alert with no host (Threat Intel reported addresses, an edge feed
+        # down) is muted for the whole install. Mute used to answer 400 "device_id ...
+        # required" for these, so the button on the alert did nothing but fail.
+        fleet_level = bool(event and not device_id)
+    if not (device_id or fleet_level) or not (event or container):
         respond(400, {'error': 'device_id and event (or container) are required '
                                '(or a resolvable alert_id)'})
+    if fleet_level and (_tenant_gate() is not None or _caller_scope() is not None):
+        # a hostless alert is visible to everyone, so muting it for everyone is the
+        # platform operator's call and not a tenant's or a scoped key's
+        respond(403, {'error': 'Only an unscoped admin can mute an alert that has no host'})
     # v6.1.1: a tenant-scoped admin may only mute alerts for its own devices —
     # otherwise it could silence another tenant's signal. 404 (not 403) so a
     # cross-tenant device_id / alert_id isn't confirmed to exist.
     _mdev = (load(DEVICES_FILE) or {}).get(device_id, {})
-    if not _tenant_visible(_mdev):
+    if not fleet_level and not _tenant_visible(_mdev):
         respond(404, {'error': 'Host not found'})
     # v6.2.3: also honour role/API-key scope (a scoped admin may only mute its own
     # devices' alerts) — 404 (not 403) to keep hiding cross-scope existence.
     _mscope = _caller_scope()
-    if _mscope is not None and not _device_in_scope(_mscope, _mdev):
+    if not fleet_level and _mscope is not None and not _device_in_scope(_mscope, _mdev):
         respond(404, {'error': 'Host not found'})
     # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
     # which the mute lapses on its own. Mutes were permanent-only, so "silence
@@ -60439,7 +60449,7 @@ def handle_alert_mutes():
     with _LockedUpdate(ALERTS_FILE) as store:
         now = int(time.time())
         for a in store.get('alerts', []):
-            if a.get('device_id') != device_id or a.get('resolved_at'):
+            if (a.get('device_id') or '') != device_id or a.get('resolved_at'):
                 continue
             if container:
                 if str((a.get('payload') or {}).get('container') or '') != container:

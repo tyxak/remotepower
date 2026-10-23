@@ -372,6 +372,7 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 - Swagger UI 5.33.1 → 5.34.0 for the API reference page.
 - Code scanning workflow moves to codeql-action 4.39.1. The server run at the newest reportlab (5.1.0) and websockets (17.3) passes the 559 tests that use them.
 - The AI assistant's per-host attacker document says what each address did (port scan, IDS alert, decoy-port hit, the CVE a signature named) and counts a firewall sensor's events as events, not as failed logins.
+- Mute works on an alert that belongs to no host, such as "Addresses Reported" or an edge feed that is down. It answered "device_id and event (or container) are required" before. The mute covers the whole install, only an unscoped admin can set it, and Monitoring → Tuning lists it as "Whole fleet" with the usual Un-silence button.
 - `tools/release-prep.py bump` stamps every HTML page with the service worker's
   cache marker, counter included, and `verify` checks every page against it. It
   used to stamp `index.html` alone and drop the counter, the opposite of what

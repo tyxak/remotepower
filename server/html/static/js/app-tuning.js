@@ -107,7 +107,7 @@ function _renderTuningMutes(rows) {
     ? `<span class="patch-badge" title="Every alert about this container is silenced">container · ${escHtml(m.container)}</span>`
     : `<span class="patch-badge">${escHtml(m.event)}</span>`;
   el.innerHTML = rows.map(m => `<div class="row-6 ts-entry">
-    <span class="fw-600">${escHtml(m.device_name || m.device_id)}</span>
+    <span class="fw-600">${escHtml(m.device_name || m.device_id || 'Whole fleet')}</span>
     ${_what(m)}
     ${_until(m)}
     <span class="ml-auto"><button class="btn-icon cell-sm c-danger-outline" data-action="unmuteAlert" data-arg="${escAttr(m.id)}" title="Lift this mute — alerts resume">${_icon('bellOff', 12)} Un-silence</button></span>
