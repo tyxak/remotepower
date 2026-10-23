@@ -1215,6 +1215,25 @@ def build_firewall_corpus(devices, now=0):
     return docs
 
 
+def _attacker_did(a):
+    """What an address did, in words, from the evidence Threat Intel keeps for it
+    (port scans, IDS alerts, exploit attempts, the CVE ids a signature named).
+    Empty when there is no evidence or the module is unavailable."""
+    ev = a.get('ev') if isinstance(a.get('ev'), dict) else (
+        (a.get('ev_reported') or {}).get('ev') if isinstance(a.get('ev_reported'), dict) else None)
+    if not isinstance(ev, dict):
+        return ''
+    try:
+        import threat_evidence as _te
+        out = ', '.join(_te.CLASSES[c]['phrase'] for c, _n in _te.dominant(ev, 3))
+    except Exception:
+        return ''
+    cves = [str(c)[:20] for c in (ev.get('cve') or [])[:3] if c]
+    if out and cves:
+        out += ' (' + ', '.join(cves) + ')'
+    return out
+
+
 def build_threats_corpus(devices, intel=None, sessions=None, now=0):
     """v7.1.0: who is attacking which host, and who reached it remotely.
 
@@ -1238,8 +1257,17 @@ def build_threats_corpus(devices, intel=None, sessions=None, now=0):
         for did, seen in (a.get('devices') or {}).items():
             if did not in devs or not isinstance(seen, dict):
                 continue
-            bits = [f"{ip}: {int(seen.get('count') or 0)} failed logins"
-                    f" ({seen.get('unit') or 'auth'})"]
+            if seen.get('unit') == 'threat-sensor':
+                # A firewall's sensor counts what it saw (blocked connections,
+                # scans, IDS alerts), not sign-in failures.
+                bits = [f"{ip}: {int(seen.get('count') or 0)} events seen by the "
+                        f"firewall sensor"]
+            else:
+                bits = [f"{ip}: {int(seen.get('count') or 0)} failed logins"
+                        f" ({seen.get('unit') or 'auth'})"]
+            did_what = _attacker_did(a)
+            if did_what:
+                bits.append(did_what)
             if v.get('score') is not None:
                 bits.append(f"reputation {v['score']}/100")
             if v.get('country'):
@@ -1257,7 +1285,7 @@ def build_threats_corpus(devices, intel=None, sessions=None, now=0):
         rows.sort(key=lambda r: -r[0])
         docs.append(make_doc(
             f"live/{did}#attacks", 'live_state', 'device_attacks',
-            f"{name} brute-force sources and their reputation (IP intel — "
+            f"{name} attacking sources and their reputation (IP intel — "
             f"AbuseIPDB / SniffCat), and whether each is blocked:\n"
             + '\n'.join(r[1] for r in rows[:30]),
             title=f"{name} — attackers", device=did,
