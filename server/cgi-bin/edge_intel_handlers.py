@@ -245,8 +245,12 @@ def _poll_trap(token, pol, edge, now):
             return dict(_fail(res), at=now, workers=workers)
         hits += res['hits']
         truncated = truncated or res['truncated']
-    events, stats = edge_evidence.trap_events(
-        hits, now, decided_tokens=edge_evidence.PLANTED_TOKENS if pol.get('edge_planted_decides') else ())
+    decided = ()
+    if pol.get('edge_planted_decides'):
+        decided += edge_evidence.PLANTED_TOKENS
+    if pol.get('edge_bait_decides'):
+        decided += edge_evidence.BAIT_TOKENS
+    events, stats = edge_evidence.trap_events(hits, now, decided_tokens=decided)
     return {'state': 'ok', 'at': now, 'events': events, 'hits': stats['hits'], 'kept': stats['kept'],
             'ignored': stats['ignored'], 'truncated': truncated, 'to': until, 'workers': workers}
 

@@ -582,6 +582,10 @@ def cf_events(rows, rules=None, now=None, since=None, until=None, include_carrie
 # to a decoy service. With the operator's setting on, one hit on either is a decision of its own.
 PLANTED_TOKENS = ("canary", "decoylogin")
 
+# A bait path is a file that should never be public (.env, .git, a SQL dump). Nobody innocent
+# asks for one, so a single hit is a decision and not one attempt of ten.
+BAIT_TOKENS = ("bait",)
+
 
 def trap_events(hits, now=None, decided_tokens=()):
     """(events, stats). One summary per address: hits per trap kind, and the

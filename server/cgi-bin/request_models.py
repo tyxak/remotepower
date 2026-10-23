@@ -2670,6 +2670,7 @@ if _AVAILABLE:
         edge_trap: Any = None
         edge_count_list_rules: Any = None
         edge_planted_decides: Any = None
+        edge_bait_decides: Any = None
         edge_account_id: Any = None
         edge_zone_ids: Any = None
         edge_workers: Any = None
