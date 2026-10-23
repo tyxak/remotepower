@@ -54,6 +54,10 @@ routers**. It reads and reports; it blocks nothing on the firewall or router.
 
 ### Threat Intel
 
+- An address nobody has seen for 90 days is forgotten. The table was limited by count
+  only (5,000, oldest first), so a quiet install kept every address it had ever met.
+  The Edge blocklist already dropped addresses after 14 days, and it keeps what it
+  still wants when you set it to look back further than 90.
 - A planted credential that is used, or a sign-in to a decoy service, can count
   as decided on the first hit. **Count a planted credential or decoy sign-in as
   decided** on the Edge sources card, unticked by default, reports the address

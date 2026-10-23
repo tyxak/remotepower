@@ -470,8 +470,10 @@ block RemotePower made for that address. The status column says
 
 ## How much it keeps
 
-Threat Intel remembers up to 5,000 addresses. When there are more, the ones seen
-longest ago go first. The page is sent the 1,000 most recent and says how many there
+Threat Intel remembers up to 5,000 addresses. An address that nobody has seen for
+90 days is forgotten, so the table does not fill with the past. When there are more
+than 5,000, the ones seen longest ago go first. If you set the Edge blocklist to
+look back further than 90 days, an address it still wants stays. The page is sent the 1,000 most recent and says how many there
 are in all when that is more. The filter above the table works on what the page
 has, so **Load all** asks for everything that is kept, and the filter can then find
 an older address.

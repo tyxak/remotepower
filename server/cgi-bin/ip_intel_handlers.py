@@ -67,6 +67,7 @@ import threat_evidence
 
 QUEUE_CAP = 500            # pending addresses kept between sweeps
 ATTACKER_CAP = 5000        # addresses remembered
+ATTACKER_KEEP_DAYS = 90    # an address not seen for this long is forgotten, so the table does not fill with the past
 PAGE_ROWS = 1000           # addresses the page is sent: the most recent
 PER_SWEEP = 25             # addresses processed per sweep
 REPORT_EVERY_S = 86400     # report an address to a provider at most daily
@@ -721,7 +722,8 @@ def run_ip_intel_if_due():
     has_expired = any(isinstance(b, dict) and int(b.get('until') or 0) <= now
                       for per in (st_ro.get('blocks') or {}).values() if isinstance(per, dict)
                       for b in per.values())
-    if not _intake_ro().get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now):
+    if (not _intake_ro().get('queue') and not has_expired and not _ledger_catchup(st_ro, pol, now)
+            and not _stale_addresses(st_ro.get('attackers'), now, pol)):
         return
 
     edge_fanout = 0      # host blocks queued this sweep for edge-found addresses
@@ -1008,6 +1010,7 @@ def run_ip_intel_if_due():
                                  f"device={dev_id} ip={ip} score={verdict.get('score')} auto"))
             elif pol['block_enabled'] and not (fanned and not why):
                 seen[dev_id]['not_blocked'] = why
+        _forget_stale(atts, now, pol)
         if len(atts) > ATTACKER_CAP:
             oldest = sorted(atts, key=lambda k: int((atts[k] or {}).get('last_seen') or 0))
             for old in oldest[:len(atts) - ATTACKER_CAP]:
@@ -1641,6 +1644,31 @@ def handle_ip_intel_unblock():
 
 
 # ── clearing what is recorded ──────────────────────────────────────────────────
+
+def _stale_addresses(atts, now, pol):
+    """The addresses nobody has seen for ATTACKER_KEEP_DAYS (longer when the Edge
+    blocklist is set to look further back, so the list never loses an address it still
+    wants), and the leftovers of a clear once the day they were kept for has passed."""
+    keep_s = max(ATTACKER_KEEP_DAYS, int(pol.get('edgelist_own_days') or 0)) * 86400
+    gone = []
+    for ip, att in (atts or {}).items():
+        if not isinstance(att, dict):
+            gone.append(ip)
+        elif att.get('last_seen'):
+            if now - int(att['last_seen']) > keep_s:
+                gone.append(ip)
+        elif set(att) <= {'reported', 'retry'} and _reported_marker(att, now) is None:
+            gone.append(ip)           # what a clear left, and the day it was kept for is over
+    return gone
+
+
+def _forget_stale(atts, now, pol):
+    """Drop _stale_addresses from `atts`. Returns how many went."""
+    gone = _stale_addresses(atts, now, pol)
+    for ip in gone:
+        atts.pop(ip, None)
+    return len(gone)
+
 
 def _held_by_blocklist(st, pol, now):
     """The addresses the Edge blocklist takes from this table at its next sync, as
