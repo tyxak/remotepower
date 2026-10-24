@@ -73,15 +73,27 @@ class TestMonitorProbesRunTogether(unittest.TestCase):
         self.assertEqual(['first', 'bad', 'last'], [r['label'] for r in res])
         self.assertEqual('blocked: invalid target', res[1]['detail'])
 
-    def test_forty_probes_take_two_waves_not_five(self):
-        """A fan-out monitor in an outage: 40 stand-ins of 0.3 s. Eight workers need five waves (1.5 s), thirty-two
-        need two (0.6 s). The bound sits between them."""
-        t0 = time.monotonic()
+    def test_forty_probes_run_thirty_two_at_once(self):
+        """A fan-out monitor in an outage: 40 stand-ins. The pool must put 32 in flight together. This counts the
+        probes in flight instead of timing the sweep, because a wall-clock bound failed on a loaded CI runner
+        (40 probes took 2.35 s against a 1.0 s limit) while the pool was the right size."""
+        lock = threading.Lock()
+        state = {'now': 0, 'peak': 0}
+
+        def counting_probe(mtype, target, label, m):
+            with lock:
+                state['now'] += 1
+                state['peak'] = max(state['peak'], state['now'])
+            time.sleep(2.0)
+            with lock:
+                state['now'] -= 1
+            return {'label': label, 'type': mtype, 'target': target, 'ok': True, 'detail': 'up',
+                    'checked': 1, 'allow_internal': api._allow_internal_monitors()}
+
+        api._run_one_monitor_check = counting_probe
         res = api._execute_monitor_checks(_monitors(40))
-        elapsed = time.monotonic() - t0
         self.assertEqual(40, len(res))
-        self.assertLess(elapsed, 1.0, 'forty probes took %.2fs: the pool is smaller than 32 workers' % elapsed)
-        self.assertGreaterEqual(elapsed, _DELAY * 2 * 0.9, 'finished faster than two waves of probes can')
+        self.assertEqual(32, state['peak'], 'the pool put %d probes in flight, not 32' % state['peak'])
 
     def test_a_single_probe_does_not_start_a_pool(self):
         api._execute_monitor_checks(_monitors(1))
