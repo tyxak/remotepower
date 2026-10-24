@@ -7040,7 +7040,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    controls in card bodies and modals that are taller. */
 :is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
     .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
-    .settings-row, .modal-actions)
+    .settings-row, .field-bar, .modal-actions)
   > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, .btn-update,
         .btn-upgrade, .btn-shutdown, .btn-reboot, input.form-input, select.form-input,
         select.select-sm) {
@@ -7064,13 +7064,13 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    and the select sits at its top edge. */
 :is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
     .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
-    .settings-row, .modal-actions)
+    .settings-row, .field-bar, .modal-actions)
   > .rp-ddwrap {
   align-self: center;
 }
 :is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
     .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
-    .settings-row, .modal-actions)
+    .settings-row, .field-bar, .modal-actions)
   > .rp-ddwrap > :is(select.form-input, select.select-sm) {
   height: 34px;
   min-height: 34px;
@@ -7081,7 +7081,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* non-flex buttons in those rows: centre icon + label within the fixed height */
 :is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .row-6-center,
     .row-8, .batch-bar, .home-ai-ask, .sb-controls, .section-header, .form-row-wrap,
-    .settings-row, .modal-actions)
+    .settings-row, .field-bar, .modal-actions)
   > :is(.btn, .btn-secondary, .btn-primary) {
   display: inline-flex;
   align-items: center;
