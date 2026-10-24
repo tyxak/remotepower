@@ -289,9 +289,18 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         self.go('devices', 2500)
         self._open_by_keyboard("#page-devices button[data-action='openDeviceDrawer']")
         self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open') && document.getElementById('device-drawer').contains(document.activeElement)"))
-        # The drawer fills in after it opens; under a loaded full run the Tabs raced that fill
-        # (failed twice in the JSON gate, passed alone), so let it settle and pace the presses.
-        p.wait_for_timeout(1500)
+        # The drawer fills in after it opens, and a re-render drops the focused element. A fixed
+        # sleep lost that race under a loaded full run (twice in the JSON gate, once in the
+        # staged-tree run), so wait until the drawer has stopped changing for 600 ms, then tab.
+        p.evaluate("""() => {
+          const d = document.getElementById('device-drawer');
+          window.__drawerLast = performance.now();
+          new MutationObserver(() => { window.__drawerLast = performance.now(); })
+            .observe(d, {childList: true, subtree: true, characterData: true});
+        }""")
+        p.wait_for_function('() => performance.now() - window.__drawerLast > 600', timeout=30000)
+        p.evaluate("""() => { const d = document.getElementById('device-drawer');
+          if (!d.contains(document.activeElement)) d.querySelector('button, a[href], input, select, [tabindex]')?.focus(); }""")
         for _ in range(40):
             p.keyboard.press('Tab')
             p.wait_for_timeout(15)
