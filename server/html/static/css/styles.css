@@ -1120,6 +1120,7 @@
   :is(.toolbar, .toolbar-mb24, .row-8, .row-8-center, .row-6-center, .batch-bar,
       .form-row-wrap, .modal-actions, .sb-controls, .section-header)
     > input.select-filter,
+  .qe-bar > input.select-filter,
   .settings-row:not(:has(> .form-label)) > input.select-filter {
     margin: 0; width: auto; flex: 0 1 160px;
   }
@@ -2176,6 +2177,19 @@
      row width by align-items:stretch (flex:0 0 auto can't beat a cross-axis
      stretch). Hug the content instead — buttons stay tidy. */
   .settings-row:has(> .form-label) > :is(.btn-primary, .btn-secondary, .btn-icon) { align-self: flex-start; }
+  /* Data Explorer: the builder rows. Entity / Sort by / Direction are label-over-control
+     fields on one baseline; a condition row and the action row are plain control rows. */
+  .qe-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+  .qe-bar + .qe-bar, #qe-conditions, #qe-conditions + .qe-bar { margin-top: 12px; }
+  #qe-conditions .qe-cond-row + .qe-cond-row { margin-top: 8px; }
+  /* Same three column widths on every condition row, whether or not the dropdown
+     wrapper has been applied to its selects yet. */
+  .qe-cond-row { display: grid; grid-template-columns: repeat(3, 160px) auto; justify-content: start; align-items: center; }
+  .qe-cond-row .form-input, .qe-cond-row .rp-ddwrap { width: 100%; max-width: none; box-sizing: border-box; }
+  .qe-field { display: flex; flex-direction: column; gap: 6px; }
+  .qe-field .form-label { margin: 0; }
+  .qe-bar.qe-actions { align-items: center; }
+  .qe-check { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
   .user-row td:last-child { text-align: right; }
   .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }

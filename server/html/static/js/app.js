@@ -10213,11 +10213,11 @@ function qeAddCondition() {
   const wrap = document.getElementById('qe-conditions');
   if (!wrap) return;
   const row = document.createElement('div');
-  row.className = 'settings-row qe-cond-row';
+  row.className = 'qe-bar qe-cond-row';
   const fieldOpts = fields.map(f => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('');
   const opOpts = _QE_OPS.map(([v, label]) => `<option value="${escAttr(v)}">${escHtml(label)}</option>`).join('');
   row.innerHTML =
-    `<select class="form-input mw-160 qe-cond-field" aria-label="Field">${fieldOpts}</select>` +
+    `<select class="form-input mw-160 qe-cond-field" data-nofilter aria-label="Field">${fieldOpts}</select>` +
     `<select class="form-input mw-160 qe-cond-op" aria-label="Operator">${opOpts}</select>` +
     `<input type="text" class="form-input mw-160 qe-cond-value" placeholder="value" aria-label="Value">` +
     `<button class="btn-icon" data-action="qeRemoveCondition" data-pass-btn="1">Remove</button>`;
