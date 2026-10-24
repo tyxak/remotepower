@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.0 — "F1nishMatters" — unreleased (test)
+## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave
 better in every theme and every language, and each fix comes with a check that

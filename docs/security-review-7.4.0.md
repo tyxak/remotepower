@@ -75,4 +75,10 @@ code.
 
 ## Left for the release gate
 
-The suite on JSON, SQLite and PostgreSQL, and the pre-release checks.
+Run on the commit before the header flip (701261f6): the suite on JSON, 15,544 tests, all
+passing; on SQLite, 15,481, all passing; on PostgreSQL 18, all 28 tests, none skipped; with
+Python 3.14 and the CI dependency list, 15,497, all passing; bandit with no new finding and no
+High; CodeQL, as the production workflow runs it, 0 results. The suite run against the unpacked
+release tarball failed one test, a keyboard check of the host drawer that races the drawer
+filling in under load. It passed on its own six times and the test now waits for the drawer to
+settle; the tarball suite is run again on the tagged commit.
