@@ -5312,6 +5312,21 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
    the design's own stops; colours are the theme tokens, so every theme and the
    light set get a legible chip without a rule of their own. The corners are square:
    a chip here is a label, and the round shape is what marks a status pill. */
+/* Page sections: a strip of counts above tabs, so one group of cards shows at a time (pgTab in app.js) */
+.pg-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+.pg-tile { text-align: start; font: inherit; color: var(--text); background: var(--surface2);
+  border: 1px solid var(--hair); border-radius: 0; padding: 10px 12px; cursor: pointer; }
+.pg-tile:hover { border-color: var(--accent); }
+.pg-tile-n { display: block; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.pg-tile-l { display: block; font-size: 11px; color: var(--muted); }
+.pg-tile.warn .pg-tile-n { color: var(--red-ink); }
+.pg-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; border-bottom: 1px solid var(--hair); }
+.pg-tab { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0;
+  border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; }
+.pg-tab:hover { color: var(--text); }
+.pg-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.pg-tab:focus-visible, .pg-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pg-off { display: none !important; }
 .ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
   border: 1px solid var(--hair); border-radius: 0; background: var(--surface2); color: var(--text); }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }

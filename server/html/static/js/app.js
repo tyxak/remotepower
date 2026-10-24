@@ -2813,6 +2813,40 @@ function _visiblePageHash() {
   return (name === 'settings' && location.hash.startsWith('#settings')) ? location.hash : '#' + name;
 }
 
+// Page sections. A long page is a stack of cards; tag each card `data-pg-tab="<tab>"` and put a
+// `.pg-tabs[data-pg="<page>"][data-default="<tab>"]` bar of `data-action="pgTab" data-arg="<page>:<tab>"`
+// buttons above them, and only the chosen group shows. The choice is kept per browser. A card keeps its
+// own `hidden`; the tab only adds a class on top of it. showPage re-applies it on every visit.
+function pgTabsApply(page, tab) {
+  const bar = document.querySelector(`.pg-tabs[data-pg="${page}"]`);
+  if (!bar) return;
+  const names = [...bar.querySelectorAll('[data-pg-tab-btn]')].map(b => b.dataset.pgTabBtn);
+  if (tab === undefined) { try { tab = localStorage.getItem('pgtab.' + page); } catch (_) { tab = null; } }
+  if (!names.includes(tab)) tab = names.includes(bar.dataset.default) ? bar.dataset.default : names[0];
+  const root = bar.closest('.page') || document;
+  root.querySelectorAll('[data-pg-tab]').forEach(c => c.classList.toggle('pg-off', c.dataset.pgTab !== tab));
+  bar.querySelectorAll('[data-pg-tab-btn]').forEach(b => {
+    const on = b.dataset.pgTabBtn === tab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+
+function pgTab(arg) {
+  const [page, tab] = String(arg).split(':');
+  try { localStorage.setItem('pgtab.' + page, tab); } catch (_) { /* private window */ }
+  pgTabsApply(page, tab);
+}
+
+// A strip of counts above the tabs: [[n, label, tab, warn], ...]. A tile opens the tab that explains it.
+function pgTiles(elId, page, tiles) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = tiles.map(([n, label, tab, warn]) =>
+    `<button class="pg-tile${warn ? ' warn' : ''}" data-action="pgTab" data-arg="${escHtml(page)}:${escHtml(tab)}">` +
+    `<span class="pg-tile-n">${escHtml(String(n))}</span><span class="pg-tile-l"><span>${escHtml(label)}</span></span></button>`).join('');
+}
+
 function showPage(name, btn, opts) {
   // A disabled module's page must not be reachable by deep link / bookmark /
   // command palette either — the nav entry is gone, but the route isn't.
@@ -2863,7 +2897,7 @@ function showPage(name, btn, opts) {
   // (class-only active state is invisible to a screen reader).
   document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-current'); });
   const el = document.getElementById('page-' + name);
-  if (el) el.classList.add('active');
+  if (el) { el.classList.add('active'); pgTabsApply(name); }
   const _navBtn = btn || document.querySelector('.nav-btn[data-page="' + name + '"]');
   if (_navBtn) { _navBtn.classList.add('active'); _navBtn.setAttribute('aria-current', 'page'); }
   try { _paintCrumb(_navBtn, name); } catch (_) {}   // v6.0.0: topbar breadcrumb

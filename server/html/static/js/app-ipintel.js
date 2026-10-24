@@ -241,6 +241,23 @@ function _ipiWire() {
   if (f) f.addEventListener('input', () => { _ipiRowLimit.attackers = _IPI_ROW_STEP; _ipiRenderAttackers(); });
 }
 
+// Counts from what the page already holds, no extra request.
+function _ipiRenderTiles() {
+  const d = _ipiData || {};
+  const rows = d.attackers || [];
+  const reported = rows.filter(a => a.reported && Object.keys(a.reported).length).length;
+  const edge = d.edge || {};
+  const bad = ['cf', 'trap'].filter(k => edge[k] && edge[k].state && edge[k].state !== 'ok').length;
+  const tiles = [
+    [d.attackers_total || rows.length, 'Attackers', 'attackers', false],
+    [reported, 'Reported', 'attackers', false],
+    [d.queued || 0, 'Waiting', 'sources', false],
+    [(d.blocks || []).length, 'Active blocks', 'blocks', false],
+  ];
+  if (_ipiAdmin && d.edge) tiles.push([bad, 'Feeds with a problem', 'sources', bad > 0]);
+  pgTiles('ipintel-tiles', 'ipintel', tiles);
+}
+
 async function loadIpIntel() {
   tableCtl.wireSortOnly('ipintel-att-thead', 'ipintel-att', () => _ipiRenderAttackers());
   tableCtl.wireSortOnly('ipintel-blk-thead', 'ipintel-blk', () => _ipiRenderBlocks());
@@ -263,6 +280,8 @@ async function loadIpIntel() {
   // The list RemotePower keeps in Cloudflare belongs to the instance as well.
   document.getElementById('ipintel-edgelist-card').hidden = !(_ipiAdmin && _ipiData.edge_list);
   if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
+  _ipiRenderTiles();
+  pgTabsApply('ipintel');
   _ipiRenderAttackers();
   _ipiRenderBlocks();
   _ipiRenderSources();
