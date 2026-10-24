@@ -44,7 +44,7 @@ class TestBaitHit(unittest.TestCase):
         self.assertIn('of 10', why)
 
     def test_a_wordpress_probe_is_decided_too(self):
-        for kind in ('wpprobe', 'wpenum'):
+        for kind in ('wpprobe', 'wpenum', 'decoy', 'gitdump'):
             ok, why = _qualifies([_hit(kind)], ee.BAIT_TOKENS)
             self.assertTrue(ok, kind)
 

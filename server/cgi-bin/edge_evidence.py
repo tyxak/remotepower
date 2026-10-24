@@ -585,7 +585,8 @@ PLANTED_TOKENS = ("canary", "decoylogin")
 # A bait path is a file that should never be public (.env, .git, a SQL dump). Nobody innocent
 # asks for one, so a single hit is a decision and not one attempt of ten. The WordPress traps
 # (debug log, wp-includes, the user list) sit on sites that are not WordPress, so they count too.
-BAIT_TOKENS = ("bait", "wpprobe", "wpenum")
+# So do a decoy host name (only DNS brute force finds it) and the fake .git (only a dumper walks it).
+BAIT_TOKENS = ("bait", "wpprobe", "wpenum", "decoy", "gitdump")
 
 
 def trap_events(hits, now=None, decided_tokens=()):
