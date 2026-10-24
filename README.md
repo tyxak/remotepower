@@ -199,10 +199,13 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
-- **v7.4.0 "F1nishMatters"** — a release about finish. It adds no new subsystem:
-  what is already there reads, looks and behaves better in every theme and every
-  language, and each fix comes with a check that keeps it fixed. It also brings
-  two public guides to building the honeypot Worker that RemotePower reads.
+- **v7.4.0 "F1nishMatters"** — a release about finish. What is already there
+  reads, looks and behaves better in every theme and every language, and each fix
+  comes with a check that keeps it fixed. One thing is new: threat intel can read
+  the syslog of an OPNsense, pfSense or MikroTik firewall and report the addresses
+  behind what it finds. Long pages show one group of cards under a tab bar, and
+  there are two public guides to building the honeypot Worker that RemotePower
+  reads.
 - **v7.3.0 "Edg3Matters"** — threat intel reads the edge. RemotePower can read
   Cloudflare's firewall events and your honeypot Worker's log with a read-only
   token and report what they show, with the evidence: only refusals that mean an
