@@ -5317,7 +5317,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .pg-tile { text-align: start; font: inherit; color: var(--text); background: var(--surface2);
   border: 1px solid var(--hair); border-radius: 0; padding: 10px 12px; cursor: pointer; }
 .pg-tile:hover { border-color: var(--accent); }
-.pg-tile-n { display: block; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.pg-tile-n { display: block; font-size: 19px; font-weight: 600; line-height: 1.2; }
 .pg-tile-l { display: block; font-size: 11px; color: var(--muted); }
 .pg-tile.warn .pg-tile-n { color: var(--red-ink); }
 .pg-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; border-bottom: 1px solid var(--hair); }

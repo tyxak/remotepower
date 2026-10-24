@@ -13,6 +13,12 @@ or web logins. Threat Intel builds on that. It can:
 All three are off until you turn them on. You'll find everything under
 **Security → Threat Intel**.
 
+The page has four tabs: **Attackers**, **Active blocks**, **Log sources** and
+**Settings**. A strip of counts above them shows how many addresses were seen,
+reported and are waiting, and opens the matching tab when you click it. The
+provider keys, the log sensor, firewalls and routers, edge sources and the edge
+blocklist are all on **Settings**.
+
 If you also run a web server, a WAF, fail2ban or CrowdSec, the
 [log sensor](#the-log-sensor) lets RemotePower read what those logs say about
 each address, so a report says what the address actually did. If you run

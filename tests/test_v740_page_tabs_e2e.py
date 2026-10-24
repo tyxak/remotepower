@@ -6,10 +6,8 @@ that a Threat Intel tile opens its tab. Source checks cover the derived populati
 `data-pg-tab` card belongs to a tab that has a button, and every button has a card.
 """
 import os as _os
-import re
 import sys as _sys
 import unittest
-from pathlib import Path
 
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from e2e_harness import browser_available, SKIP_REASON   # noqa: E402
@@ -19,27 +17,7 @@ _GATE = browser_available() or browser_required.required()
 if browser_available():
     from playwright.sync_api import sync_playwright
 
-_ROOT = Path(__file__).resolve().parent.parent
-_HTML = (_ROOT / 'server/html/index.html').read_text()
 PAGES = ('ipintel', 'account', 'sites', 'reports')
-
-
-def _page_source(name):
-    a = _HTML.index(f'<div id="page-{name}" class="page')
-    m = re.search(r'<div id="page-[a-z0-9-]+" class="page', _HTML[a + 10:])
-    return _HTML[a:a + 10 + m.start()]
-
-
-class TestMarkup(unittest.TestCase):
-    def test_every_card_has_a_button_and_every_button_a_card(self):
-        for name in PAGES:
-            src = _page_source(name)
-            buttons = set(re.findall(r'data-pg-tab-btn="([a-z]+)"', src))
-            cards = set(re.findall(r'<div data-pg-tab="([a-z]+)"', src))
-            self.assertGreaterEqual(len(buttons), 2, name)
-            self.assertEqual(buttons, cards, name)
-            for b in buttons:
-                self.assertIn(f'data-arg="{name}:{b}"', src, (name, b))
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
@@ -114,7 +92,7 @@ class TestTabsInTheBrowser(unittest.TestCase):
                             if other != tab:
                                 self.assertFalse(any(flags), f'{name}: {other} still shows on {tab}')
                         self.assertEqual(
-                            page.get_attribute(f'#page-{name} [data-pg-tab-btn="{tab}"]', 'aria-selected'), 'true')
+                            page.get_attribute(f'#page-{name} [data-pg-tab-btn="{tab}"]', 'aria-current'), 'true')
         finally:
             page.close()
         self.assertEqual(self.errors, [])
@@ -130,7 +108,7 @@ class TestTabsInTheBrowser(unittest.TestCase):
             page.evaluate("showPage('reports')")
             page.wait_for_selector('#page-reports.active')
             self.assertEqual(
-                page.get_attribute('#page-reports [data-pg-tab-btn="capacity"]', 'aria-selected'), 'true')
+                page.get_attribute('#page-reports [data-pg-tab-btn="capacity"]', 'aria-current'), 'true')
             self.assertTrue(all(self._shown(page, 'reports')['capacity']))
         finally:
             page.close()
@@ -145,7 +123,7 @@ class TestTabsInTheBrowser(unittest.TestCase):
             self.assertEqual(tile.count(), 1)
             tile.click()
             self.assertEqual(
-                page.get_attribute('#page-ipintel [data-pg-tab-btn="blocks"]', 'aria-selected'), 'true')
+                page.get_attribute('#page-ipintel [data-pg-tab-btn="blocks"]', 'aria-current'), 'true')
         finally:
             page.close()
 

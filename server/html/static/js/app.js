@@ -2828,7 +2828,7 @@ function pgTabsApply(page, tab) {
   bar.querySelectorAll('[data-pg-tab-btn]').forEach(b => {
     const on = b.dataset.pgTabBtn === tab;
     b.classList.toggle('active', on);
-    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
 }
 

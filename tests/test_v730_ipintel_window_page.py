@@ -68,7 +68,7 @@ def node(script, timeout=30):
         ' function _ipiEvidenceWeight() { return 0; } function _ipiDetailHtml() { return ""; }'
         ' function _ipiScoreClass() { return ""; } function timeAgo() { return ""; } function timeAgoHtml() { return ""; }'
         ' function _fmtDuration() { return ""; } function _ipiFillSettings() {}'
-        ' function _ipiRenderSources() {} function _ipiRenderEdge() {} function _ipiRenderEdgeList() {}',
+        ' function _ipiRenderSources() {} function _ipiRenderEdge() {} function _ipiRenderEdgeList() {} function _ipiRenderTiles() {} function pgTabsApply() {}',
         srcpin.js_function(_JS, '_ipiPhrase'),
         srcpin.js_function(_JS, '_ipiWindow'),
         srcpin.js_function(_JS, '_ipiRenderMore'),

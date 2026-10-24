@@ -4334,6 +4334,7 @@
     // the submitted value lives in the separate value="" attribute.
     // ── scope pickers ──
     "Whole fleet": { "fr": "Tout le parc", "de": "Gesamte Flotte", "zh": "整个设备群", "hi": "पूरा फ़्लीट", "es": "Toda la flota", "ar": "الأسطول بالكامل" },
+    "Only an unscoped admin can mute an alert that has no host": { "fr": "Seul un administrateur sans périmètre restreint peut mettre en sourdine une alerte qui n'appartient à aucun hôte", "de": "Nur ein Administrator ohne Bereichsbeschränkung kann einen Alarm stummschalten, der zu keinem Host gehört", "zh": "只有不受范围限制的管理员才能静音没有主机的告警", "hi": "केवल बिना दायरे वाला व्यवस्थापक ऐसे अलर्ट को म्यूट कर सकता है जिसका कोई होस्ट नहीं है", "es": "Solo un administrador sin ámbito restringido puede silenciar una alerta que no tiene host", "ar": "يمكن فقط للمسؤول غير المقيّد النطاق كتم تنبيه لا يخص أي مضيف" },
     "Entire fleet": { "fr": "Tout le parc", "de": "Gesamte Flotte", "zh": "整个设备群", "hi": "पूरा फ़्लीट", "es": "Toda la flota", "ar": "الأسطول بالكامل" },
     "Entire fleet (no restriction)": { "fr": "Tout le parc (sans restriction)", "de": "Gesamte Flotte (ohne Einschränkung)", "zh": "整个设备群（无限制）", "hi": "पूरा फ़्लीट (कोई प्रतिबंध नहीं)", "es": "Toda la flota (sin restricción)", "ar": "الأسطول بالكامل (بدون قيد)" },
     "A group": { "fr": "Un groupe", "de": "Eine Gruppe", "zh": "某个分组", "hi": "एक समूह", "es": "Un grupo", "ar": "مجموعة" },

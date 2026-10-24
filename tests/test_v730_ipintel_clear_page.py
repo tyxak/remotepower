@@ -50,7 +50,7 @@ def node(script, real_load=False, timeout=30):
         'const tableCtl = {wireSortOnly() {}};',
         'function _ipiWire() {} function _ipiFillSettings() {} function _ipiRenderAttackers() {}'
         ' function _ipiRenderBlocks() {} function _ipiRenderSources() {} function _ipiRenderEdge() {}'
-        ' function _ipiRenderEdgeList() {}',
+        ' function _ipiRenderEdgeList() {} function _ipiRenderTiles() {} function pgTabsApply() {}',
         srcpin.js_function(_JS, '_ipiPhrase'),
         srcpin.js_function(_JS, '_ipiRenderAttackerNote'),
         srcpin.js_function(_JS, '_ipiClearResultHtml'),
