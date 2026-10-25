@@ -9441,10 +9441,11 @@ async function applyBatchAttrs() {
   if (val('ba-channel')) payload.update_channel = val('ba-channel');
   if (val('ba-poll')) {
     const p = parseInt(val('ba-poll'), 10);
-    // The server 400s outside 30..3600 and writes nothing, so catch it here
-    // rather than failing the whole batch on a typo.
-    if (isNaN(p) || p < 30 || p > 3600) {
-      toast('Poll interval must be 30–3600 seconds', 'error');
+    // The server 400s outside 10..3600 (the range the agents run) and
+    // writes nothing, so catch it here rather than failing the whole
+    // batch on a typo.
+    if (isNaN(p) || p < 10 || p > 3600) {
+      toast('Poll interval must be 10–3600 seconds', 'error');
       document.getElementById('ba-poll')?.focus();
       return;
     }
@@ -24149,11 +24150,11 @@ async function _drawerAdjustPoll() {
   const d = _drawerDeviceData || {};
   const cur = d.poll_interval || 60;
   const val = await uiPrompt({title: 'Adjust poll interval',
-    message: `Poll interval for ${_drawerDeviceName} (seconds, min 30):`,
+    message: `Poll interval for ${_drawerDeviceName} (seconds, min 10):`,
     value: String(cur), confirmText: 'Save'});
   if (!val) return;
   const n = parseInt(val, 10);
-  if (isNaN(n) || n < 30) { toast('Must be ≥ 30 seconds', 'error'); return; }
+  if (isNaN(n) || n < 10) { toast('Must be ≥ 10 seconds', 'error'); return; }
   const r = await api('POST', `/devices/${_drawerDeviceId}`, {poll_interval: n});
   if (r?.ok) { toast('Poll interval updated', 'success'); if (_drawerDeviceData) _drawerDeviceData.poll_interval = n; }
   else failToast(r);
@@ -24228,7 +24229,7 @@ function _renderDrawerSettings() {
     </div>` : ''}
     <div class="drawer-setting-row">
       <label class="drawer-setting-label" for="ds-poll">Poll interval</label>
-      <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
+      <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="10" max="3600">
       <span class="hint">seconds</span>
     </div>
     <div class="drawer-setting-row">
@@ -24506,7 +24507,7 @@ async function _drawerSaveSettings() {
     // v6.4.1 (D9): display-name rename. Blank is ignored server-side, so an
     // untouched empty field can never erase the name.
     name: (document.getElementById('ds-name')?.value || '').trim(),
-    poll_interval: Math.max(30, poll),
+    poll_interval: Math.max(10, poll),
     offline_alert_delay_min: Math.max(0, Math.min(1440, isNaN(_alertDelay) ? 0 : _alertDelay)),
     watched_services: services,
     log_watch: logWatch,

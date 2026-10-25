@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.1-1">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.1-2">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.1-1">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.1-2">
 
 </head>
 <body>
@@ -9693,7 +9693,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <option value="beta">beta</option>
       </select></div>
     <div class="form-group"><label for="ba-poll" class="form-label">Poll interval (s)</label>
-      <input type="number" id="ba-poll" class="form-input" min="30" max="3600" step="10" placeholder="30–3600"></div>
+      <input type="number" id="ba-poll" class="form-input" min="10" max="3600" step="10" placeholder="10–3600"></div>
   </div>
   <p class="hint">Setting a <strong>site</strong> that does not exist is rejected — create it under Fleet → Sites first. Hosts outside your scope or tenant are skipped, so the result may report fewer updated than selected.</p>
   <div class="modal-actions">
@@ -11919,7 +11919,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="device-profile-modal-title">New host profile</div>
   <div class="modal-subtitle">Leave a field blank to omit it — applying a profile only stamps the fields it defines.</div>
   <div class="form-group"><label class="form-label" for="dp-name">Profile name</label><input type="text" id="dp-name" class="form-input" placeholder="Web tier" maxlength="64"></div>
-  <div class="form-group"><label class="form-label" for="dp-poll">Poll interval (seconds)</label><input type="number" id="dp-poll" class="form-input" min="30" max="3600" placeholder="(leave blank to omit)"></div>
+  <div class="form-group"><label class="form-label" for="dp-poll">Poll interval (seconds)</label><input type="number" id="dp-poll" class="form-input" min="10" max="3600" placeholder="(leave blank to omit)"></div>
   <div class="form-group"><label class="form-label" for="dp-units">Watched systemd units (one per line)</label><textarea id="dp-units" class="form-input ff-mono" rows="3" placeholder="nginx.service&#10;php-fpm.service"></textarea></div>
   <div class="form-group"><label class="form-label" for="dp-logs">Log watches (one per line)</label><textarea id="dp-logs" class="form-input ff-mono" rows="2" placeholder="/var/log/nginx/error.log"></textarea></div>
   <div class="form-group"><label class="form-label" for="dp-drift">Drift-watched files (one per line)</label><textarea id="dp-drift" class="form-input ff-mono" rows="2" placeholder="/etc/nginx/nginx.conf"></textarea></div>
@@ -12379,39 +12379,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.1-1"></script>
+<script defer src="static/js/app.js?v=7.4.1-2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-containers.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-network.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-containers.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-network.js?v=7.4.1-2"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.1-2"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-dns.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-drift.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-cve.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-backups.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-iac.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-virt.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-ai.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-dns.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-drift.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-cve.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-backups.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-iac.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-virt.js?v=7.4.1-2"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-remote.js?v=7.4.1-1"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-logs.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-remote.js?v=7.4.1-2"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.1-2"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-self.js?v=7.4.1-2"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.1-1"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.1-2"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12421,6 +12421,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.1-1"></script>
+<script defer src="static/js/sw-register.js?v=7.4.1-2"></script>
 </body>
 </html>

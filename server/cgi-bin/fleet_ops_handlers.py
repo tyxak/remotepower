@@ -277,13 +277,7 @@ def handle_devices_bulk_attrs():
         rm = A._sanitize_str(body.get('reachability') or '', 16).lower()
         updates['reachability'] = rm if rm in ('icmp', 'manual', 'ssh') else 'icmp'
     if 'poll_interval' in body:
-        try:
-            pi_val = int(body.get('poll_interval'))
-        except (TypeError, ValueError, OverflowError):
-            A.respond(400, {'error': 'poll_interval must be an integer'})
-        if pi_val < 30 or pi_val > 3600:
-            A.respond(400, {'error': 'poll_interval must be 30..3600 seconds'})
-        updates['poll_interval'] = pi_val
+        updates['poll_interval'] = A._poll_interval_or_400(body.get('poll_interval'))
     if 'offline_alert_delay_min' in body:
         try:
             _ad = int(body.get('offline_alert_delay_min') or 0)

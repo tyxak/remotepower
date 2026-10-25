@@ -1806,6 +1806,14 @@ OFFLINE_GRACE_S          = 10           # fixed jitter cushion folded into the p
 OFFLINE_MISSED_POLLS     = 5            # offline threshold = max(global ttl, poll_interval * this) + grace
 #                                         (5 missed polls; at the default 60s poll that's 300s, matching DEFAULT_ONLINE_TTL)
 DEFAULT_POLL_INTERVAL    = 60
+# The range a poll interval may take, for one host and for the fleet default
+# alike. All three agents clamp what they are sent to the same range
+# (max(10, min(3600, n))), so a narrower range here is a promise the agent does
+# not keep: the dashboard once refused 10-29 s for an enrolled host while the
+# default allowed 10 s (issue #32). tests/test_v741_poll_interval.py reads the
+# agents' source and drives every entry point against these.
+POLL_INTERVAL_MIN        = 10
+POLL_INTERVAL_MAX        = 3600
 DEFAULT_CVE_CACHE_DAYS   = 7
 # v6.4.2: how many problem hosts the NOC board's attention strip renders. It is
 # a WALL DISPLAY cap (a strip of 3,000 chips is unreadable), which is why the
@@ -3435,7 +3443,20 @@ def get_default_poll_interval():
         v = int(_config_ro().get('default_poll_interval', DEFAULT_POLL_INTERVAL))
     except (TypeError, ValueError, OverflowError):
         v = DEFAULT_POLL_INTERVAL
-    return max(10, min(3600, v))
+    return max(POLL_INTERVAL_MIN, min(POLL_INTERVAL_MAX, v))
+
+
+def _poll_interval_or_400(raw):
+    """A host's poll interval as an int, or a 400. The one check every route that
+    sets a host's cadence shares (host edit, bulk edit, profiles), so the three
+    cannot drift apart again."""
+    try:
+        v = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        respond(400, {'error': 'poll_interval must be an integer'})
+    if not (POLL_INTERVAL_MIN <= v <= POLL_INTERVAL_MAX):
+        respond(400, {'error': 'poll_interval must be 10–3600 seconds'})
+    return v
 
 
 def get_session_ttl(remember_me=False):
@@ -15387,17 +15408,10 @@ def handle_device_save_bulk(dev_id):
             except (TypeError, ValueError, OverflowError):
                 updates['ssh_port'] = 22
 
-        # poll_interval — int, clamp to a reasonable floor
+        # poll_interval — the range the agents run, shared with every other
+        # route that sets one (issue #32: this one alone refused below 30 s)
         if 'poll_interval' in body:
-            try:
-                pi_val = int(body.get('poll_interval'))
-            except (TypeError, ValueError, OverflowError):
-                respond(400, {'error': 'poll_interval must be an integer'})
-            if pi_val < 30:
-                respond(400, {'error': 'poll_interval must be >= 30 seconds'})
-            if pi_val > 3600:
-                respond(400, {'error': 'poll_interval must be <= 3600 seconds'})
-            updates['poll_interval'] = pi_val
+            updates['poll_interval'] = _poll_interval_or_400(body.get('poll_interval'))
 
         # watched_services — list of unit names (server stores them under
         # the `services_watched` key — historical naming, kept for
@@ -15685,13 +15699,7 @@ def _validate_device_profile(body):
     defines). Raises via respond(400) on bad input."""
     out = {}
     if 'poll_interval' in body:
-        try:
-            pi = int(body['poll_interval'])
-        except (TypeError, ValueError, OverflowError):
-            respond(400, {'error': 'poll_interval must be an integer'})
-        if not (30 <= pi <= 3600):
-            respond(400, {'error': 'poll_interval must be 30–3600 seconds'})
-        out['poll_interval'] = pi
+        out['poll_interval'] = _poll_interval_or_400(body['poll_interval'])
     if 'services_watched' in body:
         raw = body['services_watched']
         if not isinstance(raw, list):
@@ -20174,7 +20182,7 @@ def handle_device_poll_interval(dev_id):
         interval = int(get_json_obj().get('poll_interval', 60))
     except (TypeError, ValueError, OverflowError):
         respond(400, {'error': 'poll_interval must be an integer'})
-    interval = max(10, min(3600, interval))
+    interval = max(POLL_INTERVAL_MIN, min(POLL_INTERVAL_MAX, interval))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
             respond(404, {'error': 'Host not found'})
@@ -29190,7 +29198,7 @@ def handle_config_save():
     if 'default_poll_interval' in body:
         try:
             v = int(body['default_poll_interval'])
-            if not (10 <= v <= 3600):
+            if not (POLL_INTERVAL_MIN <= v <= POLL_INTERVAL_MAX):
                 respond(400, {'error': 'default_poll_interval must be 10–3600 seconds'})
             cfg['default_poll_interval'] = v
         except (ValueError, TypeError, OverflowError):

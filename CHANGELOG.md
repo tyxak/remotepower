@@ -10,6 +10,14 @@ releases only; for an older release the entry below is the record.
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one
 mistake: two places that should agree about one thing, and do not.
 
+### Fixes
+
+- **A host's poll interval can be set as low as the fleet default.** Settings
+  accepted a default of 10 seconds and a new host got it, but the interval of a
+  host that was already enrolled was refused below 30 seconds, in the host
+  drawer, in the bulk editor and in host profiles. Every place takes 10 to 3600
+  seconds now, which is the range the agents run. (#32)
+
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave
