@@ -19,6 +19,7 @@ opens or visits nothing fails, and each detector is shown a page made wrong on p
 
 Self-skips without playwright/chromium/gunicorn, like its siblings.
 """
+import json
 import os
 import subprocess
 import sys
@@ -278,6 +279,23 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
 
     def test_the_row_menu_and_the_palette_and_the_drawer_still_do_it(self):
         p = self.page
+        # This measures keyboard behaviour, not the auto-refresh. The 60 s tick rebuilds the
+        # devices list when the fleet changed (seeded hosts cross their offline threshold as
+        # the run ages), which replaces the opener button, and the app does not pause the tick
+        # for an open host drawer (it does for modals and the row menu). A drawer held open for
+        # several seconds under load could meet a tick, and the focus-return assertion below
+        # then failed in the full JSON gate of v7.4.1 with two gates running.
+        p.evaluate("() => { window.__realRefreshPause = window._refreshShouldPause; window._refreshShouldPause = () => true; }")
+        self.addCleanup(lambda: p.evaluate("() => { if (window.__realRefreshPause) window._refreshShouldPause = window.__realRefreshPause; }"))
+        self.assertTrue(p.evaluate("() => _refreshShouldPause()"), 'the auto-refresh could not be paused')
+
+        def state():
+            return json.dumps(p.evaluate("""() => ({
+              openerConnected: !!window.__opener && window.__opener.isConnected,
+              active: document.activeElement ? document.activeElement.tagName + '#' + document.activeElement.id : null,
+              drawerOpen: document.getElementById('device-drawer').classList.contains('open'),
+              msSinceDrawerChange: Math.round(performance.now() - (window.__drawerLast || 0)),
+              refresh: (document.getElementById('last-refresh-label') || {}).textContent })"""))
         # row menu
         self.go('alerts', 2000)
         self._open_by_keyboard("#page-alerts [data-action='rowMoreMenu']")
@@ -326,11 +344,13 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
             p.evaluate("""() => { const d = document.getElementById('device-drawer');
               d.querySelector('button, a[href], input, select, [tabindex]')?.focus(); }""")
             inside, redrawn = tab_through()
-        self.assertTrue(inside, 'Tab left the host drawer' + (' (and it was redrawn during both passes)' if redrawn else ''))
+        self.assertTrue(inside, 'Tab left the host drawer' + (' (and it was redrawn during both passes)' if redrawn else '')
+                        + ' ' + state())
         p.keyboard.press('Escape')
         p.wait_for_timeout(500)
         self.assertFalse(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
-        self.assertTrue(p.evaluate("() => document.activeElement === window.__opener"), 'the drawer did not give focus back')
+        self.assertTrue(p.evaluate("() => document.activeElement === window.__opener"),
+                        'the drawer did not give focus back ' + state())
         # command palette
         p.evaluate("() => document.getElementById('toast-history-btn').focus()")
         p.keyboard.press('Control+k')
