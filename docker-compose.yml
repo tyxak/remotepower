@@ -124,6 +124,9 @@ services:
       dockerfile: Dockerfile.scanner
     container_name: remotepower-scanner
     restart: unless-stopped
+    # Plain `depends_on`, on purpose: the scanner's entrypoint waits for the app's
+    # /api/health itself. `condition: service_healthy` would make `docker compose
+    # up -d` wait for the app's first 60 s probe before it returned.
     depends_on:
       - remotepower
     volumes:

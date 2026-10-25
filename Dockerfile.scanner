@@ -48,6 +48,15 @@ COPY client/remotepower-scanner.py /opt/remotepower/remotepower-scanner.py
 COPY docker/scanner-entrypoint.sh  /usr/local/bin/scanner-entrypoint.sh
 RUN chmod 755 /opt/remotepower/remotepower-scanner.py /usr/local/bin/scanner-entrypoint.sh
 
+# An image built FROM the app image inherits its HEALTHCHECK, a probe of
+# http://localhost:8080/api/health. The scanner serves nothing there, so the
+# inherited check failed for the life of the container and `docker inspect`
+# said "unhealthy" while the worker ran normally (issue #33). The worker is
+# PID 1 (the entrypoint execs it): if it dies the container exits and
+# `restart: unless-stopped` starts it again, so Docker already sees everything
+# a probe could tell it.
+HEALTHCHECK NONE
+
 VOLUME ["/var/lib/remotepower"]
 USER www-data
 ENTRYPOINT ["/usr/local/bin/scanner-entrypoint.sh"]

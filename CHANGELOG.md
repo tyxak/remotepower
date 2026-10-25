@@ -18,6 +18,14 @@ mistake: two places that should agree about one thing, and do not.
   drawer, in the bulk editor and in host profiles. Every place takes 10 to 3600
   seconds now, which is the range the agents run. (#32)
 
+- **The scanner container is no longer reported as "unhealthy".** The scanner
+  image is built from the app image and inherited its health check, a probe of
+  the app's own address, which the scanner does not serve. It has no health
+  check now, because Docker already restarts it when the worker exits. Its
+  entrypoint also waits for the server to answer before the worker starts
+  polling, so the first lines of its log are no longer a refused connection.
+  (#33)
+
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave
