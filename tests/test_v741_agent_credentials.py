@@ -60,7 +60,9 @@ class TestTheHelpers(unittest.TestCase):
         self.held = ("https://rp.example", "dev-A", "tok-A")
 
     def write(self, obj):
-        self.agent.CREDS_FILE.write_text(obj if isinstance(obj, str) else json.dumps(obj))
+        # The agent's own credentials file on a host, not a server storage key.
+        path = self.agent.CREDS_FILE
+        path.write_text(obj if isinstance(obj, str) else json.dumps(obj))
 
     def test_the_same_credentials_are_no_change(self):
         self.write(CREDS_A)

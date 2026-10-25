@@ -672,12 +672,25 @@ class TestDeviceSaveBulk(_ApiTestBase):
                           ['/etc/hosts', '/etc/nginx/conf.d/site.conf'])
 
     def test_poll_interval_floor_enforced(self):
+        # v7.4.1: the floor is the 10 s the agents run, the same as the fleet
+        # default. It was 30 here alone, so an enrolled host could not be set to
+        # the interval a new one is given (issue #32); tests/test_v741_poll_interval.py
+        # drives every entry point against the agents' own range.
         try:
-            self._post('d-1', {'poll_interval': 5})  # below 30
+            self._post('d-1', {'poll_interval': 5})  # below 10
             self.fail('expected 400')
         except self.api.HTTPError as e:
             self.assertEqual(e.status, 400)
-            self.assertIn('30', e.body['error'])
+            self.assertIn('10', e.body['error'])
+
+    def test_poll_interval_accepts_the_floor_and_what_the_old_floor_refused(self):
+        for v in (10, 29):
+            with self.subTest(v=v):
+                try:
+                    self._post('d-1', {'poll_interval': v})
+                except self.api.HTTPError as e:
+                    self.assertEqual(e.status, 200)
+                self.assertEqual(self.api.load(self.api.DEVICES_FILE)['d-1']['poll_interval'], v)
 
     def test_poll_interval_ceiling_enforced(self):
         try:
