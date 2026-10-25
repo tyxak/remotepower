@@ -81,7 +81,9 @@ holds long-form docs that don't fit there.
   pattern that matched an ordinary search and a request with raw spaces that was
   cut at its first word.
 - **[v7.4.1.md](v7.4.1.md)** — "Al1gnMatters": fixes for what a Docker
-  install of 7.4.0 ran into.
+  install of 7.4.0 ran into: enrolling against a self-signed server on any port,
+  a restart when a host is enrolled again, the browser terminal in the image, a
+  10-second poll interval per host, and a sidebar that stays open on touch.
 - **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot

@@ -199,9 +199,11 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
-- **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran
-  into. Most of it is one mistake: two places that should agree about one
-  thing, and do not.
+- **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran into.
+  Agents enrol against a self-signed server with the fingerprint alone, on any
+  port, and enrolling a host again restarts its agent. The browser terminal and
+  the file manager work in the Docker image. A host's poll interval goes down to
+  10 seconds, and the sidebar stays open on a touch screen.
 - **v7.4.0 "F1nishMatters"** — a release about finish. What is already there
   reads, looks and behaves better in every theme and every language, and each fix
   comes with a check that keeps it fixed. One thing is new: threat intel can read

@@ -10,31 +10,7 @@ releases only; for an older release the entry below is the record.
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one
 mistake: two places that should agree about one thing, and do not.
 
-### Fixes
-
-- **A host's poll interval can be set as low as the fleet default.** Settings
-  accepted a default of 10 seconds and a new host got it, but the interval of a
-  host that was already enrolled was refused below 30 seconds, in the host
-  drawer, in the bulk editor and in host profiles. Every place takes 10 to 3600
-  seconds now, which is the range the agents run. (#32)
-
-- **The scanner container is no longer reported as "unhealthy".** The scanner
-  image is built from the app image and inherited its health check, a probe of
-  the app's own address, which the scanner does not serve. It has no health
-  check now, because Docker already restarts it when the worker exits. Its
-  entrypoint also waits for the server to answer before the worker starts
-  polling, so the first lines of its log are no longer a refused connection.
-  (#33)
-
-- **The sidebar no longer opens under a fingertip.** The collapsed sidebar
-  opened on hover and on nothing else. On an iPad a tap counts as a hover that
-  stays until you tap somewhere else, so the sidebar opened over the page
-  whenever you tapped near it. With auto-hide on, which is the default, the
-  Collapse button that would have closed it was hidden, and open alerts held
-  the sidebar open on every refresh, which looked like it reopening by itself.
-  Auto-hide now needs a pointer that can hover. On a touch screen the sidebar
-  stays open, the Collapse button is there, and My Account says why the switch
-  is off. A mouse or trackpad behaves as before. (#35)
+### Enrolling agents
 
 - **An agent enrols against a self-signed server with the fingerprint alone.**
   The installer fetched the server's CA over HTTPS and checked the certificate
@@ -78,6 +54,15 @@ mistake: two places that should agree about one thing, and do not.
   enroll` run by hand, which is what the log line tells you to do) and starts
   over, as a restart does, on its next poll.
 
+### Docker
+
+- **The scanner container is no longer reported as "unhealthy".** The scanner
+  image is built from the app image and inherited its health check, a probe of
+  the app's own address, which the scanner does not serve. It has no health
+  check now, because Docker already restarts it when the worker exits. Its
+  entrypoint also waits for the server to answer before the worker starts
+  polling, so the first lines of its log are no longer a refused connection.
+  (#33)
 - **The browser terminal and the file manager work in the Docker image.** The
   Files page said "WebSocket error" because the image did not carry the daemon
   behind them, did not start one and did not route `/api/webterm/connect` to it
@@ -86,6 +71,30 @@ mistake: two places that should agree about one thing, and do not.
   address, with a secret it shares with the app created in the data volume. It is
   off by default: it is an SSH client that an admin can aim at any address the
   container can reach. (#36)
+
+### The dashboard
+
+- **A host's poll interval can be set as low as the fleet default.** Settings
+  accepted a default of 10 seconds and a new host got it, but the interval of a
+  host that was already enrolled was refused below 30 seconds, in the host
+  drawer, in the bulk editor and in host profiles. Every place takes 10 to 3600
+  seconds now, which is the range the agents run. (#32)
+- **The sidebar no longer opens under a fingertip.** The collapsed sidebar
+  opened on hover and on nothing else. On an iPad a tap counts as a hover that
+  stays until you tap somewhere else, so the sidebar opened over the page
+  whenever you tapped near it. With auto-hide on, which is the default, the
+  Collapse button that would have closed it was hidden, and open alerts held
+  the sidebar open on every refresh, which looked like it reopening by itself.
+  Auto-hide now needs a pointer that can hover. On a touch screen the sidebar
+  stays open, the Collapse button is there, and My Account says why the switch
+  is off. A mouse or trackpad behaves as before. (#35)
+
+### Checks
+
+- **A guard that keeps the scanner off the database network now runs on CI.**
+  It read the compose file with PyYAML and skipped without it, and PyYAML is not
+  among the packages CI installs, so it never ran where a release is gated. It
+  reads the file as text now.
 
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 

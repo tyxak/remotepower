@@ -4780,6 +4780,10 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.4.1 al1gnmatters patch fix fixes poll interval per-host 10 seconds scanner container unhealthy healthcheck docker compose touchscreen ipad tablet auto-hide sidebar installer self-signed ca fingerprint remapped port re-enroll restart web terminal webterm files sftp">
             <summary><strong>What's new — v7.4.1 &ldquo;Al1gnMatters&rdquo;</strong> &mdash; fixes for what a Docker install of 7.4.0 ran into.</summary>
             <div class="doc-body">
+              <p><strong>Enrolling agents.</strong> A server with its own certificate authority, the Docker default, can be enrolled with the CA fingerprint alone, on whatever port it is published on. <em>Quick install command</em> adds a second line for such a server that checks the CA against the fingerprint before it fetches the installer. Enrolling a host again restarts its agent, and a running Linux agent picks up new credentials by itself.</p>
+              <p><strong>Docker.</strong> The browser terminal and the file manager work in the image with <code>RP_WITH_WEBTERM=1</code>. The scanner container is no longer reported as unhealthy, and the HTTP to HTTPS redirect names the port HTTPS is published on.</p>
+              <p><strong>The port reaches the server.</strong> nginx now forwards the host name with its port, so the installer address, the portal magic link, the passkey origin and the single sign-on addresses are right behind a published port other than 443.</p>
+              <p><strong>The dashboard.</strong> A host&rsquo;s poll interval can be 10 to 3600 seconds, as the fleet default and the agents allow. On a touch screen the sidebar stays open.</p>
               <p class="hint">See <code>docs/v7.4.1.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
