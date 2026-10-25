@@ -263,6 +263,14 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     fi
     chown -R www-data:www-data "$TLS_DIR" 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/remotepower-tls /etc/nginx/sites-enabled/remotepower
+    # The HTTP -> HTTPS redirect has to name the port HTTPS is PUBLISHED on, which only
+    # docker-compose.yml knows (RP_HTTPS_PORT -> RP_PUBLIC_HTTPS_PORT). 443 or unset: no port.
+    case "${RP_PUBLIC_HTTPS_PORT:-443}" in
+        443|"") ;;
+        *[!0-9]*) echo "[!] RP_PUBLIC_HTTPS_PORT=${RP_PUBLIC_HTTPS_PORT} is not a port number; the HTTP redirect will not name a port" >&2 ;;
+        *) printf 'map $host $rp_https_suffix { default ":%s"; }\n' "$RP_PUBLIC_HTTPS_PORT" \
+               > /etc/nginx/conf.d/remotepower-https-port.conf ;;
+    esac
     FP="$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')" || true
     echo ""
     echo "  ╔══════════════════════════════════════════════════════════╗"

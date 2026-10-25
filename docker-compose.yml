@@ -36,6 +36,8 @@ services:
       # HTTPS on first boot, no cert wrangling. Set RP_TLS_HOST to your address:
       RP_TLS_SELFSIGNED: "1"
       RP_TLS_HOST: "${RP_TLS_HOST:-localhost}"
+      # The host port HTTPS is published on, so the HTTP -> HTTPS redirect can name it.
+      RP_PUBLIC_HTTPS_PORT: "${RP_HTTPS_PORT:-443}"
       # Admin password is GENERATED and printed ONCE to `docker logs` on first
       # boot — no insecure default to remember to change. Override if you must:
       # RP_ADMIN_PASS: "your-strong-password"

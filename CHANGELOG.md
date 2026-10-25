@@ -36,6 +36,48 @@ mistake: two places that should agree about one thing, and do not.
   stays open, the Collapse button is there, and My Account says why the switch
   is off. A mouse or trackpad behaves as before. (#35)
 
+- **An agent enrols against a self-signed server with the fingerprint alone.**
+  The installer fetched the server's CA over HTTPS and checked the certificate
+  of the very server whose CA it was about to pin, so it failed with curl error
+  60, and everything it downloaded afterwards ignored the CA it had pinned. It
+  now fetches the CA without checking the certificate, keeps it only if its
+  SHA-256 matches the fingerprint you gave, and trusts that CA for the rest of
+  the install, with curl or wget. The old script also wrote the file to the
+  agent's default CA path before comparing it and left it there when the
+  fingerprint did not match; a refused CA is no longer kept. If the server is
+  self-signed and you gave no fingerprint, the error now says to pass one.
+  `install-client.sh` and the macOS installer built the CA address from the
+  host name with the port cut off (port 80 whatever the server's port) and use
+  the server's own address now. (#34)
+- **The port you opened the dashboard on reaches the server.** nginx forwarded
+  the `Host` header without its port, so behind a published port other than 443
+  (Docker with `8460:8443`) the installer's built-in server address, the portal
+  magic link, the passkey origin and the OIDC and SAML redirect addresses were
+  all built without it, and the installer's downloads went to port 443. nginx
+  forwards `Host` as it received it now, in every shipped configuration. In the
+  Docker image the HTTP to HTTPS redirect also names the port HTTPS is published
+  on; set `RP_HTTPS_PORT` as you did for the port mapping and the compose file
+  passes it on. (#34)
+- **Add host shows a second install line for a server with its own CA.** The
+  line `wget -qO- ... | sudo sh` cannot work against a certificate that no trust
+  store holds, and `wget -q` hides why, so nothing happened and nothing said
+  so. When the server has a self-signed CA (the Docker image, or Settings →
+  Security → Self-signed certificate) the dialog adds a line that fetches the
+  CA, refuses to go on unless its fingerprint is the one the dashboard shows,
+  and only then fetches the installer, trusting that CA and nothing else. (#34)
+- **Enrolling a host again restarts its agent.** The installer wrote the new
+  credentials and ran `systemctl enable --now`, which does nothing for a unit
+  that is already running, so the agent kept polling with the old credentials
+  and the host showed as down until someone restarted the service by hand.
+  `install-client.sh --re-enroll` did the same; its upgrade path already
+  restarted. Both restart now, which also starts a stopped agent.
+- **A running Linux agent follows new credentials.** The Windows and macOS
+  agents read their credentials on every pass; the Linux agent read them once.
+  It now notices when the file on disk names a different host, server or token
+  (an installer whose restart did not take effect, or `remotepower-agent
+  enroll` run by hand, which is what the log line tells you to do) and starts
+  over, as a restart does, on its next poll.
+
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave

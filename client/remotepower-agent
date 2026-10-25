@@ -1098,6 +1098,30 @@ def load_credentials():
         pass
     return None
 
+def credentials_changed(held):
+    """The credentials now on disk when they are not the ones this process runs
+    with, else None. `held` is (server_url, device_id, token). A missing,
+    unreadable or incomplete file is "no change": the agent keeps what it has."""
+    now = load_credentials()
+    if not now:
+        return None
+    return now if (now['server_url'], now['device_id'], now['token']) != tuple(held) else None
+
+
+def _restart_self():
+    """Replace this process with a fresh copy of itself (same PID, same arguments,
+    no inherited state), which is what a service restart does. If that cannot be
+    done the agent carries on as it was."""
+    try:
+        if not sys.argv or not sys.argv[0]:
+            raise RuntimeError("no script path to run again")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:])
+    except Exception as e:
+        log.warning(f"could not restart on new credentials ({e}); carrying on as before")
+
+
 def _safe_state_write(name: str, content: str) -> None:
     """Write a small marker file to STATE_DIR if possible, else /tmp/.
 
@@ -13145,6 +13169,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
     while True:
         poll_count += 1
+        # v7.4.1: a host that is enrolled again while this service runs (an
+        # installer, or `remotepower-agent enroll`) has new credentials on disk,
+        # and this loop kept the old ones until somebody restarted the service:
+        # the new host showed as down and the log said "Credentials rejected -
+        # re-enroll". The Windows and macOS agents read them again on every pass.
+        # This one carries state that belongs to the host it started as (delta
+        # hashes, watch lists), so it starts over, as a restart does, instead of
+        # swapping three variables under that state.
+        _fresh = credentials_changed((server, dev_id, token))
+        if _fresh:
+            log.info(f"Credentials changed on disk: restarting as host {_fresh['device_id']}")
+            _restart_self()
         # Check for dynamically updated interval.
         # v3.0.2: read via O_NOFOLLOW helper. Belt-and-suspenders since
         # the primary path is now STATE_DIR/poll-interval (root-only),

@@ -73,17 +73,26 @@ sudo ./install-client.sh --server https://rp.internal \
      --ca-fingerprint F3:E2:20:7D:…:40:7A
 ```
 
-The installer fetches `http://rp.internal/ca.crt`, **verifies it against the
-fingerprint** (refusing to trust on a mismatch — so a MITM on that first, pre-TLS
-fetch can't slip in its own CA), installs it to `/etc/remotepower/ca.crt`, and
-points the agent at it via `RP_CA_BUNDLE`. macOS and Windows are the same:
+The installer fetches `https://rp.internal/ca.crt` from the server's own address
+and port, **without checking the server's certificate** (that certificate is signed
+by the CA being fetched, so there is nothing to check it against yet), then
+**verifies the file against the fingerprint**. It refuses to trust a CA that does
+not match, so someone sitting between you and the server can't slip in their own,
+and it keeps nothing from a refused fetch. A match is installed to
+`/etc/remotepower/ca.crt` and the agent is pointed at it via `RP_CA_BUNDLE`. If
+HTTPS is not reachable it falls back to `http://rp.internal/ca.crt`. macOS is the
+same:
 
 ```bash
 sudo bash client/install-macos.sh --server https://rp.internal --pin 123456 \
      --ca-fingerprint F3:E2:…
 ```
+On Windows, `-CaFingerprint` fetches `http://<host>/ca.crt` on port 80. If the
+server's HTTP port is something else, give the address yourself with `-Ca`:
+
 ```powershell
-.\install-windows.ps1 -Server https://rp.internal -Pin 123456 -CaFingerprint F3:E2:…
+.\install-windows.ps1 -Server https://rp.internal:8460 -Pin 123456 `
+     -Ca http://rp.internal:8461/ca.crt -CaFingerprint F3:E2:…
 ```
 
 > Verification is on by default. Omitting `--ca-fingerprint` falls back to
@@ -162,6 +171,7 @@ real cert) is still the recommended setup.
   `ssl.create_default_context()` (which keeps `CERT_REQUIRED`, hostname checking,
   and the system roots) and merely *adds* the CA with `load_verify_locations()`.
   A wrong hostname or an untrusted issuer is still rejected.
-- **Bootstrap over HTTP is safe** because the CA is pinned by SHA-256 fingerprint
-  at install time; the fingerprint is the out-of-band root of trust.
+- **Fetching the CA is safe** because it is pinned by SHA-256 fingerprint at
+  install time; the fingerprint is the out-of-band root of trust, so it does not
+  matter over which connection the file arrives.
 - **`/ca.crt`** is a public cert (no private material) — safe to serve openly.

@@ -147,6 +147,11 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v741_scanner_container.py",
         "tests/test_v741_sidebar_touch.py",
         "tests/test_v741_sidebar_touch_e2e.py",
+        "tests/installer_harness.py",
+        "tests/test_v741_installer.py",
+        "tests/test_v741_agent_credentials.py",
+        "tests/test_v741_nginx_host_port.py",
+        "tests/test_v741_quick_install.py",
     )
 
     def test_the_list_is_not_empty(self):

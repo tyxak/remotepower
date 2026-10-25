@@ -20425,6 +20425,21 @@ def _purge_expired_enroll_tokens(tokens, now):
     return tokens
 
 
+def _self_signed_ca_fingerprint():
+    """SHA-256 fingerprint ("AA:BB:...") of this server's own CA when it has one in
+    DATA_DIR/tls, else ''. The Docker image (RP_TLS_SELFSIGNED=1) and Settings →
+    Security → Self-signed certificate both put it there. It is public: /ca.crt
+    serves the certificate to anyone. The dashboard uses it to offer the install
+    line that pins the CA, which a server on a public certificate does not need."""
+    import ssl
+    try:
+        der = ssl.PEM_cert_to_DER_cert((DATA_DIR / 'tls' / 'ca.crt').read_text())
+    except (OSError, ValueError):
+        return ''
+    h = hashlib.sha256(der).hexdigest().upper()
+    return ':'.join(h[i:i + 2] for i in range(0, len(h), 2))
+
+
 def handle_enroll_token_create():
     """``POST /api/enrollment-tokens`` — generate a one-time-use enrollment token.
 
@@ -20435,9 +20450,10 @@ def handle_enroll_token_create():
         label         — free-form description shown in the listing endpoint.
 
     Response:
-        ``{token, expires, created, label}`` — the token is shown ONCE here;
-        we never return it again from the GET endpoint (only the truncated
-        prefix), so the caller must capture it now.
+        ``{token, expires, created, label, ca_fingerprint}`` — the token is shown
+        ONCE here; we never return it again from the GET endpoint (only the
+        truncated prefix), so the caller must capture it now. ``ca_fingerprint``
+        is the SHA-256 of this server's own self-signed CA, or '' when it has none.
     """
     actor = require_admin_auth()
     if method() != 'POST':
@@ -20501,6 +20517,7 @@ def handle_enroll_token_create():
         'expires': now + ttl,
         'created': now,
         'label':   label,
+        'ca_fingerprint': _self_signed_ca_fingerprint(),
     })
 
 
@@ -34125,13 +34142,24 @@ _AGENT_INSTALL_SH = r'''#!/bin/sh
 set -eu
 RP_SERVER="@@SERVER@@"
 RP_TOKEN="@@TOKEN@@"   # baked one-time enrolment token (empty if not a baked link)
+# Staging hook, as in install-client.sh: RP_INSTALL_ROOT installs into another root
+# and waives the root check. The unit file still names the real binary path.
+ROOT="${RP_INSTALL_ROOT:-}"
+CONF="$ROOT/etc/remotepower"
+AGENT_BIN=/usr/local/bin/remotepower-agent
+BIN="$ROOT$AGENT_BIN"
+UNIT="$ROOT/etc/systemd/system/remotepower-agent.service"
+CGROUP_FILE="${RP_CGROUP_FILE:-/proc/self/cgroup}"
+die() { echo "[!] $*" >&2; exit 1; }
+need_root() { [ "$(id -u)" = "0" ] || [ -n "$ROOT" ] || die "run as root (use sudo)"; }
+have() { command -v "$1" >/dev/null 2>&1; }
 # Uninstall:  curl -fsSL @@SERVER@@/install | sudo sh -s -- --uninstall
 if [ "${1:-}" = "--uninstall" ]; then
-  [ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
+  need_root
   echo "[*] Uninstalling RemotePower agent ..."
   systemctl disable --now remotepower-agent 2>/dev/null || true
-  rm -f /etc/systemd/system/remotepower-agent.service /usr/local/bin/remotepower-agent
-  rm -rf /etc/remotepower
+  rm -f "$UNIT" "$BIN"
+  rm -rf "$CONF"
   systemctl daemon-reload 2>/dev/null || true
   echo "[+] Agent uninstalled (this host stops reporting; remove it from the dashboard)."
   exit 0
@@ -34146,34 +34174,67 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
-[ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
+need_root
 [ -n "$TOKEN" ] || TOKEN="$RP_TOKEN"   # fall back to the baked token
-[ -n "$TOKEN" ] || { echo "[!] no enrolment token — use a baked link (Add device → Quick install) or pass --token"; exit 1; }
-_fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi; }
-_get()   { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1"; else wget -qO- "$1"; fi; }
+[ -n "$TOKEN" ] || die "no enrolment token — use a baked link (Add device → Quick install) or pass --token"
 
-mkdir -p /etc/remotepower
-# Optional self-signed CA pin: fetch over the same server, verify the SHA-256
-# BEFORE trusting it (so a plain-HTTP fetch can't be substituted by a MITM).
+# The pinned CA, once there is one: every later download trusts it.
+CA_FILE=""
+# _dl URL DEST — download over HTTPS
+_dl() {
+  if have curl; then
+    if [ -n "$CA_FILE" ]; then curl -fsSL --cacert "$CA_FILE" "$1" -o "$2"; else curl -fsSL "$1" -o "$2"; fi
+  elif [ -n "$CA_FILE" ]; then wget -qO "$2" --ca-certificate="$CA_FILE" "$1"
+  else wget -qO "$2" "$1"; fi
+}
+# _get URL — to stdout
+_get() {
+  if have curl; then
+    if [ -n "$CA_FILE" ]; then curl -fsSL --cacert "$CA_FILE" "$1"; else curl -fsSL "$1"; fi
+  elif [ -n "$CA_FILE" ]; then wget -qO- --ca-certificate="$CA_FILE" "$1"
+  else wget -qO- "$1"; fi
+}
+# The CA is fetched WITHOUT checking the server's certificate: that certificate is
+# signed by the CA being fetched, so there is nothing to check it against yet. What
+# authenticates the bytes is the fingerprint compare below, which refuses a
+# substituted file. It also works on whatever port the server is published on.
+_dl_unchecked() {
+  if have curl; then curl -fsSLk "$1" -o "$2"; else wget -qO "$2" --no-check-certificate "$1"; fi
+}
+_fail_dl() {
+  echo "[!] could not download $1" >&2
+  [ -n "$CA_FILE" ] || echo "    If the server uses a self-signed certificate, pass --ca-fingerprint <SHA-256 of its CA>." >&2
+  exit 1
+}
+
+mkdir -p "$CONF"
+# Optional self-signed CA pin. The file is kept only after its SHA-256 matches, so a
+# refused CA never lands where the agent would trust it by default.
 if [ -n "$CA_FP" ]; then
+  have openssl || die "openssl is needed to check the CA fingerprint"
   echo "[*] Pinning server CA ..."
-  _fetch "$RP_SERVER/ca.crt" /etc/remotepower/ca.crt
-  got="$(openssl x509 -in /etc/remotepower/ca.crt -noout -fingerprint -sha256 | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
-  want="$(printf '%s' "$CA_FP" | sed 's/://g' | tr 'A-F' 'a-f')"
-  [ "$got" = "$want" ] || { echo "[!] CA fingerprint mismatch — refusing"; exit 1; }
-  echo "RP_CA_BUNDLE=/etc/remotepower/ca.crt" > /etc/remotepower/agent.env
+  _tmp_ca="$(mktemp)"
+  _dl_unchecked "$RP_SERVER/ca.crt" "$_tmp_ca" || { rm -f "$_tmp_ca"; die "could not fetch $RP_SERVER/ca.crt"; }
+  openssl x509 -in "$_tmp_ca" -noout >/dev/null 2>&1 || { rm -f "$_tmp_ca"; die "$RP_SERVER/ca.crt is not a certificate. Is this the right server and port?"; }
+  got="$(openssl x509 -in "$_tmp_ca" -noout -fingerprint -sha256 | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
+  want="$(printf '%s' "$CA_FP" | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
+  [ "$got" = "$want" ] || { rm -f "$_tmp_ca"; die "CA fingerprint mismatch, refusing. The server's CA is $got"; }
+  cp "$_tmp_ca" "$CONF/ca.crt"; chmod 644 "$CONF/ca.crt"; rm -f "$_tmp_ca"
+  CA_FILE="$CONF/ca.crt"
+  echo "RP_CA_BUNDLE=/etc/remotepower/ca.crt" > "$CONF/agent.env"
+  echo "[+] CA fingerprint verified"
 fi
 
-BIN=/usr/local/bin/remotepower-agent
+mkdir -p "$(dirname "$BIN")"
 echo "[*] Downloading agent from $RP_SERVER ..."
-_fetch "$RP_SERVER/api/agent/download" "$BIN"
+_dl "$RP_SERVER/api/agent/download" "$BIN" || _fail_dl "$RP_SERVER/api/agent/download"
 chmod 755 "$BIN"
 
 # Integrity: verify the binary against the SHA-256 the server publishes (over the
 # same trusted HTTPS) before running it — refuse a tampered/corrupt download.
 _want="$(_get "$RP_SERVER/api/agent/version" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{64\}\)".*/\1/p' | head -1)"
 if [ -n "$_want" ]; then
-  if command -v sha256sum >/dev/null 2>&1; then _got="$(sha256sum "$BIN" | awk '{print $1}')"
+  if have sha256sum; then _got="$(sha256sum "$BIN" | awk '{print $1}')"
   else _got="$(shasum -a 256 "$BIN" | awk '{print $1}')"; fi
   [ "$(printf '%s' "$_got" | tr 'A-F' 'a-f')" = "$(printf '%s' "$_want" | tr 'A-F' 'a-f')" ] || {
     echo "[!] agent checksum mismatch — refusing to run a tampered binary"; rm -f "$BIN"; exit 1; }
@@ -34181,24 +34242,41 @@ if [ -n "$_want" ]; then
 fi
 
 echo "[*] Enrolling ..."
+[ -z "$CA_FILE" ] || export RP_CA_BUNDLE="$CA_FILE"
 if [ -n "$NAME" ]; then "$BIN" enroll-token --server "$RP_SERVER" --name "$NAME" --token "$TOKEN"
 else "$BIN" enroll-token --server "$RP_SERVER" --token "$TOKEN"; fi
 
-cat > /etc/systemd/system/remotepower-agent.service <<UNIT
+mkdir -p "$(dirname "$UNIT")"
+cat > "$UNIT" <<UNIT_EOF
 [Unit]
 Description=RemotePower agent
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN run
+ExecStart=$AGENT_BIN run
 EnvironmentFile=-/etc/remotepower/agent.env
 Restart=always
 RestartSec=10
 [Install]
 WantedBy=multi-user.target
-UNIT
+UNIT_EOF
+# Restart, never `enable --now`: that does nothing for a unit that is already running,
+# and a host being enrolled again IS running, with its old credentials in memory.
+# `restart` also starts a stopped unit.
 systemctl daemon-reload 2>/dev/null || true
-systemctl enable --now remotepower-agent 2>/dev/null || "$BIN" run &
+if systemctl enable remotepower-agent 2>/dev/null; then
+  if grep -q remotepower-agent "$CGROUP_FILE" 2>/dev/null; then
+    # Run from inside the agent's own service (its exec channel): a direct restart
+    # would kill this script mid-run, so schedule it as a transient unit instead.
+    systemd-run --unit=rp-installer-restart --on-active=5 systemctl restart remotepower-agent >/dev/null 2>&1 \
+      || echo "[!] could not schedule the restart; run: systemctl restart remotepower-agent" >&2
+  else
+    systemctl restart remotepower-agent \
+      || echo "[!] could not restart the agent; see: journalctl -u remotepower-agent" >&2
+  fi
+else
+  "$BIN" run &
+fi
 echo "[+] Done — this host appears in the dashboard within ~60s."
 '''
 

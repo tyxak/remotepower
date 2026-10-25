@@ -42,6 +42,22 @@ The dashboard's *Add host → Quick install command* hands you both lines with a
 fresh token. (Windows details, service control, and the offline
 `install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
+**A server with its own certificate authority** (the Docker default) has a
+certificate no host trusts on its own, and `wget -q` fails without a word. When
+the server has its own CA, *Quick install command* adds a second line for Linux
+and macOS. It fetches the CA, refuses to go on unless the CA matches the
+fingerprint the dashboard shows, and only then fetches the installer. If you
+already have the installer on the host, give it the fingerprint yourself:
+
+```bash
+sh install --token <token> --ca-fingerprint <sha256 of the CA>
+```
+
+It keeps the CA only if the fingerprint matches, and trusts that CA, and nothing
+else, for the rest of the install. It works on whatever port the server is
+published on. Running the line again on a host that is already enrolled enrols it
+again and restarts its agent.
+
 **Push to many hosts over SSH at once.** From the server checkout, name the hosts
 to enrol:
 
@@ -237,7 +253,7 @@ docker compose up -d
 
 (To run the published image via compose instead of building, replace `build:.` with `image: ghcr.io/tyxak/remotepower:latest` in `docker-compose.yml`.)
 
-Dashboard at **`https://localhost/`**. Compose publishes host `443` → container `8443` (self-signed HTTPS, on by default) and host `80` → `8080`; remap either with `RP_HTTPS_PORT=8443 RP_HTTP_PORT=8080 docker compose up -d`, and set `RP_TLS_HOST` to the address you actually reach it on (see [tls-selfsigned.md](tls-selfsigned.md)). Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front instead if you'd rather it hold the certificate.
+Dashboard at **`https://localhost/`**. Compose publishes host `443` → container `8443` (self-signed HTTPS, on by default) and host `80` → `8080`; remap either with `RP_HTTPS_PORT=8443 RP_HTTP_PORT=8080 docker compose up -d`, and set `RP_TLS_HOST` to the address you actually reach it on (see [tls-selfsigned.md](tls-selfsigned.md)). The port you open the dashboard on is the port the agent installer, the passkey and single sign-on addresses and the HTTP to HTTPS redirect use, so a remapped port needs no other setting. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front instead if you'd rather it hold the certificate.
 
 ---
 

@@ -3853,6 +3853,31 @@ function _startEnrollWatch(since) {
   _enrollWatchTimer = setInterval(tick, _ENROLL_WATCH_MS);
 }
 
+// The install commands, built from the address the dashboard was opened at (port
+// included), the one-time token and, when the server has a self-signed CA, that
+// CA's SHA-256 fingerprint. Pure, so a test can run the strings it returns.
+//
+// `linux` needs a certificate the host already trusts: wget and curl refuse a
+// server that signed its own, and `wget -q` hides why, so the script it feeds
+// `sh` is empty and nothing seems to happen (issue #34). `linuxPinned` is for a
+// server with its own CA. It fetches ca.crt WITHOUT checking the certificate,
+// because the CA that signed it is what is being fetched, then refuses to go on
+// unless the file's fingerprint is the one this dashboard reported. Only then does
+// it fetch the installer, trusting that CA and nothing else, and hand the
+// fingerprint to the installer so the agent trusts it too.
+function quickInstallLines(server, token, caFp) {
+  const linux = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
+  const win = `powershell -ExecutionPolicy Bypass -Command "iwr '${server}/install.ps1?t=${token}' -UseBasicParsing | iex"`;
+  let linuxPinned = '';
+  if (caFp) {
+    const bare = caFp.replace(/:/g, '');
+    linuxPinned = `f=$(mktemp) && curl -fsSLk "${server}/ca.crt" -o "$f" && ` +
+      `[ "$(openssl x509 -in "$f" -noout -fingerprint -sha256 | sed 's/.*=//;s/://g')" = "${bare}" ] && ` +
+      `curl -fsSL --cacert "$f" "${server}/install?t=${token}" | sudo sh -s -- --ca-fingerprint ${caFp}`;
+  }
+  return { linux, linuxPinned, win };
+}
+
 async function generateQuickInstall() {
   const box = document.getElementById('enroll-quick-result');
   if (!box) return;
@@ -3873,8 +3898,8 @@ async function generateQuickInstall() {
   box.textContent = '';
   // v6.2.0: one-time token, one line per OS. Each downloads the agent from this
   // server, verifies its checksum, enrols, and the host appears by hostname.
-  const linux = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
-  const win = `powershell -ExecutionPolicy Bypass -Command "iwr '${server}/install.ps1?t=${token}' -UseBasicParsing | iex"`;
+  // v7.4.1: a server with its own CA also gets the line that pins it (#34).
+  const { linux, linuxPinned, win } = quickInstallLines(server, token, (data && data.ca_fingerprint) || '');
 
   const block = (label, hint, cmd, idx) => {
     const wrap = document.createElement('div');
@@ -3894,6 +3919,11 @@ async function generateQuickInstall() {
     return wrap;
   };
   box.appendChild(block('Linux / macOS', 'Run on the target host as root.', linux, 0));
+  if (linuxPinned) {
+    box.appendChild(block('Linux / macOS (self-signed certificate)',
+      'Use this one if your browser warned about the certificate. It checks the CA of the server against its fingerprint first, and trusts nothing from the server until they match.',
+      linuxPinned, 2));
+  }
   box.appendChild(block('Windows', 'Run in an elevated PowerShell (Win+X → Terminal (Admin)). Needs Python 3.8+.', win, 1));
   const foot = document.createElement('div');
   foot.className = 'hint mt-6';

@@ -12,7 +12,8 @@
 #   --server URL          RemotePower server address (https://...).
 #   --pin PIN             Enrollment PIN, from Add host in the dashboard.
 #   --ca-fingerprint FP   SHA-256 fingerprint of your internal CA. The CA is fetched from
-#                         http://<host>/ca.crt and verified against it before it is trusted.
+#                         <server>/ca.crt (the server's own port) and verified against
+#                         it before it is trusted.
 #   --ca PATH|URL         Use this CA certificate instead of <host>/ca.crt.
 #   -h, --help            Show this help.
 set -euo pipefail
@@ -55,13 +56,22 @@ norm_fp() { echo "$1" | tr 'a-f' 'A-F' | sed -E 's/.*=//; s/[^0-9A-F]//g'; }
 if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
   command -v openssl >/dev/null 2>&1 || die "openssl required to verify the CA"
   TMPCA="$(mktemp)"; trap 'rm -f "$TMPCA"' EXIT
+  # The server's own address, port included, fetched without checking the certificate
+  # (the CA that signed it is what is being fetched); the fingerprint compare below is
+  # what authenticates the bytes. http://<host>/ca.crt with the port cut off is the
+  # fallback, as it used to be the only way.
+  CA_FALLBACK=""
   if [ -z "$CA_SRC" ]; then
+    CA_SRC="${SERVER%/}/ca.crt"
     host="${SERVER#*://}"; host="${host%%/*}"; host="${host%%:*}"
-    CA_SRC="http://${host}/ca.crt"
+    CA_FALLBACK="http://${host}/ca.crt"
   fi
   info "Fetching CA from ${CA_SRC} …"
   case "$CA_SRC" in
-    http://*|https://*) curl -fsSL "$CA_SRC" -o "$TMPCA" || die "could not fetch CA from $CA_SRC" ;;
+    http://*|https://*)
+      curl -fsSLk "$CA_SRC" -o "$TMPCA" 2>/dev/null \
+        || { [ -n "$CA_FALLBACK" ] && curl -fsSL "$CA_FALLBACK" -o "$TMPCA"; } \
+        || die "could not fetch CA from $CA_SRC" ;;
     *)                  [ -f "$CA_SRC" ] || die "CA file not found: $CA_SRC"; cp "$CA_SRC" "$TMPCA" ;;
   esac
   openssl x509 -in "$TMPCA" -noout >/dev/null 2>&1 || die "fetched file is not a valid certificate"

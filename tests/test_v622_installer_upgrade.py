@@ -60,13 +60,14 @@ class TestInstallerUpgrade(unittest.TestCase):
         self.root = self.tmp / "root"
         self.root.mkdir()
 
-    def _run(self, *args):
+    def _run(self, *args, env_extra=None):
         env = {
             "PATH": f"{self.stub}:{self.realbin}",
             "RP_INSTALL_ROOT": str(self.root),
             "RP_TEST_LOG": str(self.log),
             "HOME": str(self.tmp),
         }
+        env.update(env_extra or {})
         return subprocess.run(
             ["bash", str(self.dist / "install-client.sh"), *args],
             env=env, capture_output=True, text=True, timeout=30)
@@ -85,7 +86,12 @@ class TestInstallerUpgrade(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         calls = self._calls()
         self.assertIn("AGENT enroll --server https://rp.example --pin 123456", calls)
-        self.assertIn("SYSTEMCTL enable --now remotepower-agent", calls)
+        # v7.4.1: enable, then restart. `enable --now` starts a stopped unit and
+        # does nothing for a running one, and a host that is being enrolled again
+        # is a running one; `restart` does both.
+        self.assertIn("SYSTEMCTL enable remotepower-agent", calls)
+        self.assertIn("SYSTEMCTL restart remotepower-agent", calls)
+        self.assertNotIn("enable --now", calls)
         self.assertTrue((self.root / "usr/local/bin/remotepower-agent").exists())
         self.assertTrue(
             (self.root / "etc/systemd/system/remotepower-agent.service").exists())
@@ -139,21 +145,34 @@ class TestInstallerUpgrade(unittest.TestCase):
         r = self._run("--server", "https://rp.example", "--pin", "654321",
                       "--re-enroll")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("AGENT enroll --server https://rp.example --pin 654321",
-                      self._calls())
+        calls = self._calls()
+        self.assertIn("AGENT enroll --server https://rp.example --pin 654321", calls)
+        # v7.4.1: the host was enrolled again, so the agent that is running holds the
+        # old credentials; it must be restarted AFTER the new ones are written.
+        self.assertNotIn("enable --now", calls)
+        self.assertLess(calls.index("AGENT enroll"),
+                        calls.index("SYSTEMCTL restart remotepower-agent"))
 
     # ── the cgroup-suicide guard ─────────────────────────────────────
-    def test_detached_restart_guard_is_present(self):
-        """/proc/self/cgroup can't be faked from a test, so the guard itself is
-        pinned in source: inside the agent's cgroup the restart must be a
-        DETACHED transient unit, or the script kills itself mid-run (v6.2.1
-        remediation lesson — the first fleet batch died exactly this way)."""
-        src = _SCRIPT.read_text()
-        i = src.index("/proc/self/cgroup")
-        block = src[i:i + 400]
-        self.assertIn("systemd-run", block)
-        self.assertIn("--on-active", block)
-        self.assertIn("systemctl restart remotepower-agent", block)
+    def test_inside_the_agents_own_service_the_restart_is_detached(self):
+        """Inside the agent's cgroup the restart must be a DETACHED transient unit,
+        or the script kills itself mid-run (the v6.2.1 remediation lesson: the
+        first fleet batch died exactly this way). RP_CGROUP_FILE stands in for
+        /proc/self/cgroup, so the guard can be driven (v7.4.1) and not only read."""
+        self._enrolled()
+        cg = self.tmp / "cgroup"
+        cg.write_text("0::/system.slice/remotepower-agent.service\n")
+        for extra in ((), ("--re-enroll",)):
+            with self.subTest(extra=extra):
+                self.log.unlink(missing_ok=True)
+                env = {"RP_CGROUP_FILE": str(cg)}
+                r = self._run("--server", "https://rp.example", "--pin", "123456",
+                              *extra, env_extra=env)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                calls = self._calls()
+                self.assertIn("SYSTEMD-RUN --unit=rp-installer-restart --on-active=5 "
+                              "systemctl restart remotepower-agent", calls)
+                self.assertNotIn("SYSTEMCTL restart", calls)
 
 
 if __name__ == "__main__":

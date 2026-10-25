@@ -3,7 +3,7 @@
 # Run as root on each machine you want to be able to control remotely
 #
 # Self-signed-CA deployments (v4.5.0): pass --ca-fingerprint so the agent trusts
-# your internal CA. The CA's public cert is fetched over HTTP and verified
+# your internal CA. The CA's public cert is fetched from the server and verified
 # against the SHA-256 fingerprint you printed from tools/gen-ca.sh, so a MITM on
 # first contact can't substitute its own CA.
 #
@@ -13,8 +13,9 @@
 # Options:
 #   --server URL          Server base URL (https://...). Skips the interactive prompt.
 #   --ca-fingerprint FP   SHA-256 fingerprint of the CA (from gen-ca.sh). Fetches
-#                         http://<host>/ca.crt, verifies it, installs it, and points
-#                         the agent at it via RP_CA_BUNDLE.
+#                         <server>/ca.crt (on the server's own port), verifies it
+#                         against the fingerprint, installs it, and points the agent
+#                         at it via RP_CA_BUNDLE.
 #   --ca PATH|URL         Use this CA cert instead of <host>/ca.crt (still verified
 #                         against --ca-fingerprint if given).
 #   --pin PIN             Enrollment PIN (non-interactive enroll with --server).
@@ -100,16 +101,26 @@ if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
   command -v openssl >/dev/null 2>&1 || die "openssl required to verify the CA"
   TMPCA="$(mktemp)"; trap 'rm -f "$TMPCA"' EXIT
 
-  # Resolve where to get the CA from.
+  # Resolve where to get the CA from: the server's own address, port included.
+  # It is fetched WITHOUT checking the certificate, because the CA that signed it is
+  # what is being fetched; the fingerprint compare below is what authenticates the
+  # bytes. (This used to be http://<host>/ca.crt with the port cut off, which is
+  # port 80 whatever port the server is published on.) The plain-HTTP copy on port
+  # 80 stays as a fallback for a setup that only serves it there.
+  CA_FALLBACK=""
   if [ -z "$CA_SRC" ]; then
-    [ -n "$SERVER_URL" ] || die "--ca-fingerprint needs --server (to locate http://<host>/ca.crt)"
+    [ -n "$SERVER_URL" ] || die "--ca-fingerprint needs --server (to locate <server>/ca.crt)"
+    CA_SRC="${SERVER_URL%/}/ca.crt"
     host="${SERVER_URL#*://}"; host="${host%%/*}"; host="${host%%:*}"
-    CA_SRC="http://${host}/ca.crt"
+    CA_FALLBACK="http://${host}/ca.crt"
   fi
 
   info "Fetching CA from ${CA_SRC} ..."
   case "$CA_SRC" in
-    http://*|https://*) curl -fsSL "$CA_SRC" -o "$TMPCA" || die "could not fetch CA from $CA_SRC" ;;
+    http://*|https://*)
+      curl -fsSLk "$CA_SRC" -o "$TMPCA" 2>/dev/null \
+        || { [ -n "$CA_FALLBACK" ] && curl -fsSL "$CA_FALLBACK" -o "$TMPCA"; } \
+        || die "could not fetch CA from $CA_SRC" ;;
     *)                  [ -f "$CA_SRC" ] || die "CA file not found: $CA_SRC"; cp "$CA_SRC" "$TMPCA" ;;
   esac
   openssl x509 -in "$TMPCA" -noout >/dev/null 2>&1 || die "fetched file is not a valid certificate"
@@ -149,27 +160,33 @@ else
 fi
 
 # ── Enable / restart service ─────────────────────────────────────────────────────
-if [ "$UPGRADE" = "1" ]; then
-  info "Restarting agent into the new unit..."
-  systemctl daemon-reload
-  # `enable --now` is a NO-OP on an already-running unit — the agent would keep
-  # running under the OLD unit definition until something else restarted it
-  # (the exact trap behind the v6.2.1 sandboxing incident). Restart explicitly.
-  # When this script itself runs over the agent's exec channel it lives in the
-  # agent's cgroup, so a direct restart would kill the script mid-run — detach
-  # the restart into its own transient unit in that case.
-  if grep -q 'remotepower-agent' /proc/self/cgroup 2>/dev/null; then
+# `enable --now` is a NO-OP on an already-running unit — the agent would keep
+# running under the OLD unit definition (the v6.2.1 sandboxing incident), and, for
+# a host being enrolled again with --re-enroll, under its OLD CREDENTIALS: the new
+# ones are on disk and the running process never reads them (v7.4.1). So every path
+# restarts, which also starts a stopped unit.
+# When this script itself runs over the agent's exec channel it lives in the
+# agent's cgroup, so a direct restart would kill the script mid-run — detach
+# the restart into its own transient unit in that case.
+restart_agent() {
+  if grep -q 'remotepower-agent' "${RP_CGROUP_FILE:-/proc/self/cgroup}" 2>/dev/null; then
     warn "Running inside the agent's own service — scheduling a detached restart in 5s"
     systemd-run --unit=rp-installer-restart --on-active=5 systemctl restart remotepower-agent \
       || warn "could not schedule restart — run: systemctl restart remotepower-agent"
   else
     systemctl restart remotepower-agent
   fi
+}
+if [ "$UPGRADE" = "1" ]; then
+  info "Restarting agent into the new unit..."
+  systemctl daemon-reload
+  restart_agent
   success "Agent upgraded and restarting"
 else
   info "Enabling systemd service..."
   systemctl daemon-reload
-  systemctl enable --now remotepower-agent
+  systemctl enable remotepower-agent
+  restart_agent
   success "Service enabled and started"
 fi
 

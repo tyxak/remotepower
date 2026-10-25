@@ -76,6 +76,9 @@ COPY docker/nginx-docker-locations.conf  /etc/nginx/snippets/remotepower-docker-
 # WebSocket $connection_upgrade map (http{} context) for the /api/push/connect
 # proxy in the locations snippet. conf.d/*.conf is included inside http{}.
 COPY server/conf/remotepower-ws-map.conf /etc/nginx/conf.d/remotepower-ws-map.conf
+# The port on the HTTP -> HTTPS redirect (default none); the entrypoint rewrites it
+# from RP_PUBLIC_HTTPS_PORT. See the file's own header.
+COPY docker/nginx-docker-https-port.conf /etc/nginx/conf.d/remotepower-https-port.conf
 RUN ln -sf /etc/nginx/sites-available/remotepower /etc/nginx/sites-enabled/remotepower && \
     rm -f /etc/nginx/sites-enabled/default
 
