@@ -196,10 +196,16 @@ class TestTheEndpointExists(unittest.TestCase):
         sys.path.insert(0, str(_ROOT / 'tests'))
         import apisrc
         from srcpin import py_function
-        body = py_function(apisrc.api_source(), 'handle_webterm_hostkeys')
-        self.assertIn('hmac.compare_digest', body,
+        src = apisrc.api_source()
+        body = py_function(src, 'handle_webterm_hostkeys')
+        # v7.4.1: the check moved into one helper shared with the audit endpoint,
+        # which also reads RP_WEBTERM_SECRET for the Docker image.
+        self.assertIn('_daemon_secret_ok()', body,
+                      'the host-key lookup must be gated on the daemon secret')
+        helper = py_function(src, '_daemon_secret_ok')
+        self.assertIn('hmac.compare_digest', helper,
                       'the daemon secret must be compared in constant time')
-        self.assertIn('webterm_daemon_secret', body)
+        self.assertIn('webterm_daemon_secret', helper)
 
 
 if __name__ == '__main__':

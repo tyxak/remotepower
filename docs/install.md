@@ -255,6 +255,16 @@ docker compose up -d
 
 Dashboard at **`https://localhost/`**. Compose publishes host `443` → container `8443` (self-signed HTTPS, on by default) and host `80` → `8080`; remap either with `RP_HTTPS_PORT=8443 RP_HTTP_PORT=8080 docker compose up -d`, and set `RP_TLS_HOST` to the address you actually reach it on (see [tls-selfsigned.md](tls-selfsigned.md)). The port you open the dashboard on is the port the agent installer, the passkey and single sign-on addresses and the HTTP to HTTPS redirect use, so a remapped port needs no other setting. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front instead if you'd rather it hold the certificate.
 
+**Browser terminal and file manager in Docker.** The terminal and the SFTP file
+manager are one daemon that connects to your hosts over SSH. The image has it, but
+it stays off until you ask: set `RP_WITH_WEBTERM=1` (uncomment the line in
+`docker-compose.yml`, or add `-e RP_WITH_WEBTERM=1`) and restart. It listens inside
+the container only, so you publish no port; the browser reaches it through the HTTPS
+port. Without it the Files page says "WebSocket error". It is off by default because
+it is an SSH client that an admin can point at any address the container can reach.
+The secret it shares with the app is created in the data volume on first start, or
+taken from `RP_WEBTERM_SECRET`.
+
 ---
 
 ---

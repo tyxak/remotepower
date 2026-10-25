@@ -306,6 +306,32 @@ if [ "${RP_WITH_SSHGW:-0}" = "1" ] || [ "${RP_WITH_SSHGW:-0}" = "true" ]; then
     echo "[*] SSH gateway enabled (RP_WITH_SSHGW)"
 fi
 
+# ── Web terminal + file manager (opt-in: RP_WITH_WEBTERM=1) ──────────────────
+# The browser terminal and the SFTP file manager are one WebSocket daemon that
+# speaks SSH to the hosts you name; without it the Files page says "WebSocket
+# error" (issue #36). It listens on 127.0.0.1:8765 only, and nginx proxies
+# /api/webterm/connect to it. It shares a secret with the app, which reads it
+# from RP_WEBTERM_SECRET, so the secret is created (once, in the data volume) or
+# taken from the environment and exported HERE, before gunicorn starts. Off by
+# default because it gives the container an SSH client that an admin can aim at
+# any address it can reach. The daemon itself starts further down.
+WEBTERM_ON=0
+WEBTERM_DIR="$DATA_DIR/webterm"
+if [ "${RP_WITH_WEBTERM:-0}" = "1" ] || [ "${RP_WITH_WEBTERM:-0}" = "true" ]; then
+    WEBTERM_ON=1
+    mkdir -p "$WEBTERM_DIR" "$DATA_DIR/webterm-sessions"
+    chmod 700 "$WEBTERM_DIR" "$DATA_DIR/webterm-sessions"
+    if [ -z "${RP_WEBTERM_SECRET:-}" ]; then
+        if [ ! -s "$WEBTERM_DIR/secret" ]; then
+            ( umask 077; openssl rand -hex 32 > "$WEBTERM_DIR/secret" )
+        fi
+        RP_WEBTERM_SECRET="$(tr -d '[:space:]' < "$WEBTERM_DIR/secret")"
+    fi
+    ( umask 077; printf '%s' "$RP_WEBTERM_SECRET" > "$WEBTERM_DIR/secret" )
+    export RP_WEBTERM_SECRET
+    echo "[*] Web terminal enabled (RP_WITH_WEBTERM)"
+fi
+
 # ── Persistent gunicorn/Flask app tier (v6.1.0+, the only server) ────────────
 # server/cgi-bin/wsgi.py is a real Flask app; nginx's shipped location snippets
 # (docker/nginx-docker-locations.conf, nginx-docker-tls.conf) already proxy_pass
@@ -350,6 +376,21 @@ if [ "$SSHGW_ON" = "1" ]; then
     SSHGW_HOST_KEY="$SSHGW_DIR/ssh_host_ed25519_key" \
         python3 /usr/local/bin/remotepower-sshgw --verbose &
     echo "[+] SSH gateway started (pid $!); host key fingerprint is in these logs"
+fi
+
+# ── Web terminal daemon (opt-in; the secret was set up above) ────────────────
+# Tickets are read through the storage backend (it inherits RP_PG_DSN from the
+# container env under Postgres), and the audit and host-key calls go straight to
+# gunicorn on loopback: the HTTP server on 8080 redirects everything but /api/health
+# to HTTPS when RP_TLS_SELFSIGNED=1.
+if [ "$WEBTERM_ON" = "1" ]; then
+    echo "[*] Starting the web terminal on 127.0.0.1:8765"
+    RP_DATA_DIR=/var/lib/remotepower RP_CGI_BIN=/var/www/remotepower/cgi-bin \
+        python3 /usr/local/bin/remotepower-webterm \
+            --host 127.0.0.1 --port 8765 --data-dir /var/lib/remotepower \
+            --api-base http://127.0.0.1:8090/api \
+            --secret-file "$WEBTERM_DIR/secret" --verbose &
+    echo "[+] web terminal started (pid $!)"
 fi
 
 # First-greeting to the logs — the address to open.

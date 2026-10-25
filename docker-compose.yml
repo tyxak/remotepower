@@ -56,6 +56,10 @@ services:
       # port on any server. OFF by default. To turn it on, uncomment this AND the
       # `2222` port mapping above, then follow docs/sshgw.md (Docker section):
       # RP_WITH_SSHGW: "1"
+      # Browser terminal and SFTP file manager (one daemon, SSH out to your hosts).
+      # OFF by default; without it the Files page says "WebSocket error". Needs no
+      # published port: the browser reaches it through the HTTPS port. See docs/install.md.
+      # RP_WITH_WEBTERM: "1"
       # Point the storage backend at the postgres service below:
       RP_STORAGE_BACKEND: "postgres"
       RP_PG_DSN: "postgresql://rp:${RP_PG_PASSWORD:-remotepower-dev-changeme}@postgres:5432/remotepower"

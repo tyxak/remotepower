@@ -46,6 +46,9 @@ COPY client/remotepower-agent-mac.py /var/www/remotepower/agent/remotepower-agen
 COPY server/push/remotepower-push.py /usr/local/bin/remotepower-push
 # The SSH gateway daemon (v7.1.0). Not started unless RP_WITH_SSHGW=1; see docs/sshgw.md.
 COPY server/sshgw/remotepower-sshgw.py /usr/local/bin/remotepower-sshgw
+# The web terminal + file manager daemon (browser <-> SSH, v7.4.1 in the image).
+# Not started unless RP_WITH_WEBTERM=1; it listens on 127.0.0.1:8765 only.
+COPY server/webterm/remotepower-webterm.py /usr/local/bin/remotepower-webterm
 # `rp` — omd/checkmk-style node control. In the container (no systemd) `rp status`
 # and `rp doctor` work via port/process probes; lifecycle is `docker restart`.
 COPY server/rp                       /usr/local/bin/rp
@@ -58,6 +61,7 @@ RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
               /var/www/remotepower/agent/remotepower-agent \
               /usr/local/bin/remotepower-push \
               /usr/local/bin/remotepower-sshgw \
+              /usr/local/bin/remotepower-webterm \
               /usr/local/bin/rp && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \

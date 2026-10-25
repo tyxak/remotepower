@@ -53,6 +53,7 @@ def bind(api_globals):
 # monkeypatching of A.respond / A.load / … keeps working). Constants stay in
 # api.py.
 import hmac
+import os
 import secrets
 import time
 import urllib.parse
@@ -187,6 +188,22 @@ def handle_webterm_auth():
     })
 
 
+def _daemon_secret_ok():
+    """True when this request carries the web terminal daemon's shared secret.
+
+    The secret is config.json's `webterm_daemon_secret` (install-webterm.sh
+    writes it on a bare-metal install) or, in the Docker image, RP_WEBTERM_SECRET
+    from the environment docker/entrypoint.sh sets up before the app server
+    starts; the SSH gateway reads its secret the same way. One check for both
+    callers: the audit POST and the host-key lookup each carried their own copy
+    of it, and a copy that learns a new source is a copy that gets missed.
+    """
+    cfg = A._config_ro() or {}
+    expected = str(cfg.get('webterm_daemon_secret') or os.environ.get('RP_WEBTERM_SECRET', '') or '')
+    provided = A._env('HTTP_X_WEBTERM_SECRET', '')
+    return bool(expected and provided and hmac.compare_digest(expected, provided))
+
+
 def handle_webterm_session_audit():
     """``POST /api/webterm/audit`` — daemon reports session completion.
 
@@ -207,10 +224,7 @@ def handle_webterm_session_audit():
     # written to config.json (only readable by the rp-www user) and to
     # /etc/remotepower/webterm-secret (only readable by the daemon's
     # user). If they match, it's the legit daemon talking.
-    cfg = A.load(A.CONFIG_FILE)
-    expected = cfg.get('webterm_daemon_secret', '')
-    provided = A._env('HTTP_X_WEBTERM_SECRET', '')
-    if not expected or not provided or not hmac.compare_digest(expected, provided):
+    if not _daemon_secret_ok():
         A.respond(403, {'error': 'Daemon secret mismatch'})
 
     actor       = A._sanitize_str(body.get('actor', 'unknown'), 64)
@@ -258,10 +272,7 @@ def handle_webterm_hostkeys():
     """
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
-    cfg = A._config_ro() or {}
-    expected = cfg.get('webterm_daemon_secret', '')
-    provided = A._env('HTTP_X_WEBTERM_SECRET', '')
-    if not expected or not provided or not hmac.compare_digest(expected, provided):
+    if not _daemon_secret_ok():
         A.respond(403, {'error': 'Daemon secret mismatch'})
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     dev_id = A._sanitize_str((qs.get('device_id') or [''])[0], 64)

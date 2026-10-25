@@ -57,7 +57,7 @@ need it. Start at the top; most installs only need the first two rows.
 | **Flow receiver** | `install-server.sh --with-flowd` | agentless NetFlow/IPFIX/sFlow — see [flow.md](flow.md) |
 | **KMIP key server** | `install-server.sh --with-kmip` | hold Synology / TrueNAS / vSphere encryption keys off the appliance — see [kmip.md](kmip.md) |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
-| **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |
+| **Web SSH terminal** | `packaging/install-webterm.sh` (Docker: `RP_WITH_WEBTERM=1`) | optional browser SSH |
 | **Read-only demo** | `packaging/install-demo.sh` | a public sandbox vhost |
 
 ---

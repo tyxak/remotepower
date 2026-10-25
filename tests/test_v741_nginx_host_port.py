@@ -24,22 +24,19 @@ import http.client
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import installer_harness as H  # noqa: E402
+import nginx_rig  # noqa: E402
 
 ROOT = H.ROOT
-NGINX = os.environ.get("RP_NGINX_BIN") or shutil.which("nginx")
-LOCATIONS = Path(os.environ.get("RP_NGINX_LOCATIONS") or ROOT / "docker" / "nginx-docker-locations.conf")
 
 SHIPPED_CONFIGS = (
     "docker/nginx-docker-locations.conf",
@@ -122,12 +119,6 @@ class _Upstream:
         self.httpd.server_close()
 
 
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _entrypoint_port_block():
     """The `case ... esac` the entrypoint uses to write the redirect's port map."""
     src = (ROOT / "docker/entrypoint.sh").read_text()
@@ -135,82 +126,22 @@ def _entrypoint_port_block():
     return src[i:src.index("esac", i) + len("esac")]
 
 
-@unittest.skipUnless(NGINX or os.environ.get("RP_NGINX_REQUIRE") == "1",
-                     "no nginx binary (set RP_NGINX_BIN); RP_NGINX_REQUIRE=1 makes this a failure")
+@unittest.skipUnless(nginx_rig.available(), nginx_rig.SKIP_REASON)
 class TestARealNginx(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not NGINX:
-            raise AssertionError("RP_NGINX_REQUIRE=1 but no nginx binary was found")
-        cls.nginx = NGINX
         cls.up = _Upstream()
-        cls.tmp = Path(tempfile.mkdtemp(prefix="rp-v741-nginx-"))
-        cls.port = _free_port()
-        cls.http_port = _free_port()
-        (cls.tmp / "www").mkdir()
-        loc = LOCATIONS.read_text()
-        for ours, theirs in (("127.0.0.1:8090", f"127.0.0.1:{cls.up.port}"),
-                             ("127.0.0.1:8766", "127.0.0.1:9"), ("127.0.0.1:8767", "127.0.0.1:9")):
-            loc = loc.replace(ours, theirs)
-        (cls.tmp / "locations.conf").write_text(loc)
-        # The shipped HTTP server block (the first `server {` of the TLS file), on a free port.
-        tls = (ROOT / "docker/nginx-docker-tls.conf").read_text()
-        first = tls[:tls.index("server {", tls.index("server {") + 1)]
-        first = first.replace("listen 8080;", f"listen 127.0.0.1:{cls.http_port};") \
-                     .replace("127.0.0.1:8090", f"127.0.0.1:{cls.up.port}")
-        (cls.tmp / "http_server.conf").write_text(first)
-        (cls.tmp / "https-port.conf").write_text((ROOT / "docker/nginx-docker-https-port.conf").read_text())
-        cls.start()
-
-    @classmethod
-    def conf(cls):
-        t = cls.tmp
-        return f"""daemon off;
-pid {t}/nginx.pid;
-error_log {t}/error.log warn;
-events {{ worker_connections 64; }}
-http {{
-    access_log off;
-    client_body_temp_path {t}/b; proxy_temp_path {t}/p; fastcgi_temp_path {t}/f;
-    uwsgi_temp_path {t}/u; scgi_temp_path {t}/s;
-    include {ROOT}/server/conf/remotepower-ws-map.conf;
-    include {t}/https-port.conf;
-    include {t}/http_server.conf;
-    }}
-"""
-
-    @classmethod
-    def start(cls):
-        t = cls.tmp
-        # the app server block, on its own port, with the shipped snippet
-        (t / "app_server.conf").write_text(
-            f"server {{ listen 127.0.0.1:{cls.port}; server_name _; root {t}/www;\n"
-            f"  include {t}/locations.conf; }}\n")
-        text = cls.conf().replace(f"    include {t}/http_server.conf;\n",
-                                  f"    include {t}/http_server.conf;\n    include {t}/app_server.conf;\n")
-        (t / "nginx.conf").write_text(text)
-        chk = subprocess.run([cls.nginx, "-t", "-c", str(t / "nginx.conf"), "-p", str(t),
-                              "-e", str(t / "error.log")], capture_output=True, text=True)
-        if chk.returncode != 0:
-            raise AssertionError("nginx -t failed:\n" + chk.stderr)
-        cls.proc = subprocess.Popen([cls.nginx, "-c", str(t / "nginx.conf"), "-p", str(t),
-                                     "-e", str(t / "error.log")],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", cls.port), 0.2).close()
-                return
-            except OSError:
-                time.sleep(0.1)
-        raise AssertionError("nginx did not start:\n" + (t / "error.log").read_text())
+        cls.rig = nginx_rig.NginxRig({"127.0.0.1:8090": f"127.0.0.1:{cls.up.port}"})
+        cls.port = cls.rig.port
+        cls.http_port = cls.rig.http_port
+        cls.tmp = cls.rig.tmp
+        cls.proc = cls.rig.proc
 
     @classmethod
     def tearDownClass(cls):
-        cls.proc.terminate()
-        cls.proc.wait(10)
+        cls.rig.stop()
         cls.up.close()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def get(self, port, path, host, method="GET"):
         c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -257,19 +188,16 @@ http {{
         r = subprocess.run(["bash", "-c", block], env={"RP_PUBLIC_HTTPS_PORT": "8460", "PATH": os.environ["PATH"]},
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        (self.tmp / "https-port.conf").write_text(out.read_text())
+        self.rig.write_https_port_conf(out.read_text())
         try:
-            self.proc.send_signal(1)         # SIGHUP: reload
-            time.sleep(1.0)
+            self.rig.reload()
             st, h, _b = self.get(self.http_port, "/some/page", "rp.example:8081")
             self.assertEqual(st, 301)
             self.assertEqual(h["Location"], "https://rp.example:8460/some/page",
                              "the redirect sent a browser on 8081 to a dead port")
         finally:
-            (self.tmp / "https-port.conf").write_text(
-                (ROOT / "docker/nginx-docker-https-port.conf").read_text())
-            self.proc.send_signal(1)
-            time.sleep(1.0)
+            self.rig.write_https_port_conf((ROOT / "docker/nginx-docker-https-port.conf").read_text())
+            self.rig.reload()
 
 
 class TestTheEntrypointPortBlock(unittest.TestCase):

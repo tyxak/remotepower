@@ -78,6 +78,15 @@ mistake: two places that should agree about one thing, and do not.
   enroll` run by hand, which is what the log line tells you to do) and starts
   over, as a restart does, on its next poll.
 
+- **The browser terminal and the file manager work in the Docker image.** The
+  Files page said "WebSocket error" because the image did not carry the daemon
+  behind them, did not start one and did not route `/api/webterm/connect` to it
+  (`install-webterm.sh` is for bare-metal installs). Set `RP_WITH_WEBTERM=1`, as
+  you do for the SSH gateway, and the container starts it on its own loopback
+  address, with a secret it shares with the app created in the data volume. It is
+  off by default: it is an SSH client that an admin can aim at any address the
+  container can reach. (#36)
+
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave
