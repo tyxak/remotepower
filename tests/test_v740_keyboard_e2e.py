@@ -301,10 +301,32 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         p.wait_for_function('() => performance.now() - window.__drawerLast > 600', timeout=30000)
         p.evaluate("""() => { const d = document.getElementById('device-drawer');
           if (!d.contains(document.activeElement)) d.querySelector('button, a[href], input, select, [tabindex]')?.focus(); }""")
-        for _ in range(40):
-            p.keyboard.press('Tab')
-            p.wait_for_timeout(15)
-        self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').contains(document.activeElement)"), 'Tab left the host drawer')
+        # The trap only wraps focus from the first or last control, so a redraw that drops the
+        # focused element to <body> lets the next Tab leave the drawer. Under a loaded full run a
+        # late fill-in landed inside this loop (it failed the JSON gate of v7.4.1 once, with two
+        # gates and a sandbox running; it passed alone three times). A leak with NO redraw in
+        # the loop is a broken trap and fails at once; a redraw gets one settled second pass.
+        def tab_through():
+            p.evaluate("() => { window.__tabLoopStart = performance.now(); }")
+            # Two full cycles of the drawer's tab stops plus a margin. A fixed 40 was fewer
+            # than the Quick actions tab has (up to ~48), so with the trap deleted focus never
+            # reached the end of the drawer and this assertion could not fail.
+            stops = p.evaluate("""() => Array.from(document.getElementById('device-drawer').querySelectorAll(
+              'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )).filter(el => el.offsetParent !== null).length""")
+            self.assertGreaterEqual(stops, 2, 'the host drawer has nothing to tab through')
+            for _ in range(min(250, 2 * stops + 5)):
+                p.keyboard.press('Tab')
+                p.wait_for_timeout(15)
+            return (p.evaluate("() => document.getElementById('device-drawer').contains(document.activeElement)"),
+                    p.evaluate("() => window.__drawerLast > window.__tabLoopStart"))
+        inside, redrawn = tab_through()
+        if not inside and redrawn:
+            p.wait_for_function('() => performance.now() - window.__drawerLast > 1500', timeout=30000)
+            p.evaluate("""() => { const d = document.getElementById('device-drawer');
+              d.querySelector('button, a[href], input, select, [tabindex]')?.focus(); }""")
+            inside, redrawn = tab_through()
+        self.assertTrue(inside, 'Tab left the host drawer' + (' (and it was redrawn during both passes)' if redrawn else ''))
         p.keyboard.press('Escape')
         p.wait_for_timeout(500)
         self.assertFalse(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
