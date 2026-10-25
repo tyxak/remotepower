@@ -366,7 +366,25 @@ class TestSuricata(unittest.TestCase):
                      '(msg:"ET EXPLOIT Possible Vacron NVR Remote Command Execution"; sid:2023000;)"',
                      '[100733] <Notice> -- rule reload complete'):
             line = '1 2026-10-23T02:12:38+02:00 OPNsense01.example suricata 50608 - [meta sequenceId="1"] ' + tail
-            self.assertEqual(ae.read_line(line), ('ids', None))
+            self.assertEqual(ae.read_line(line), (None, None))
+
+    def test_engine_messages_do_not_make_a_source_unreadable(self):
+        # opnsense01 2026-10-25: 13,852 `suricata` lines, none an alert (the IDS had logged no
+        # alert at all), and the source read "Not understood" because each counted as a line the
+        # reader failed to parse. Lines from the live log, and the EVE events that are not alerts.
+        pre = '1 2026-10-25T13:07:04+02:00 OPNsense01.example suricata 31682 - [meta sequenceId="9"] '
+        lines = [pre + " [100491] <Warning> -- flowbit 'is_proto_irc' is checked but not set. Checked in 2002029 and 4 other sigs",
+                 pre + " [100491] <Notice> -- Threads created -> W: 2 FM: 1 FR: 1   Engine started.",
+                 pre + '{"timestamp":"2026-10-25T13:08:00","event_type":"flow","src_ip":"203.0.113.9"}',
+                 pre + '{"event_type":"stats","stats":{}}']
+        for ln in lines:
+            self.assertEqual(ae.read_line(ln), (None, None), ln)
+        self.assertEqual(ae.scan(lines)[2], {})
+        # an alert beside them still counts, as parsed
+        alert = pre + '[Drop] [1:2001219:20] ET SCAN Potential SSH Scan [Classification: Attempted Information Leak] [Priority: 2] {TCP} ' + SCANNER + ':4444 -> 10.0.0.5:22'
+        self.assertEqual(ae.scan(lines + [alert])[2], {'ids': {'lines': 1, 'parsed': 1, 'events': 1}})
+        # an alert that cannot be read is still a line that was not understood
+        self.assertEqual(ae.scan([pre + '[1:2001219:20] ET SCAN broken, no tail'])[2]['ids']['parsed'], 0)
 
     def test_a_fast_log_alert(self):
         r = ae.parse_suricata(suricata_fast('ET SCAN Potential SSH Scan', 'Attempted Information Leak'))

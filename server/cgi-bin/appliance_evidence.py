@@ -202,6 +202,12 @@ def parse_routeros_firewall(msg):
 _SURI_HEAD = re.compile(r"\[\d+:\d+:\d+\]\s+")
 _SURI_TAIL = re.compile(r"\{(?P<proto>[A-Za-z0-9_-]+)\}\s+(?P<src>\S+)\s+->\s+(?P<dst>\S+)")
 _CVE = re.compile(r"CVE-\d{4}-\d{4,7}")
+# What Suricata says about itself under the same program name: `[100491] <Warning> -- flowbit
+# 'x' is checked but not set`, written by the thousand on every rule reload, and the
+# non-alert events of the EVE output (flow, dns, stats). Neither is an alert the reader failed
+# to understand, so neither counts as a line of this source.
+_SURI_ENGINE = re.compile(r"^\s*(?:\[\d+\]\s+)?<(?:Error|Warning|Notice|Info|Perf|Config|Debug)>")
+_SURI_EVE_OTHER = re.compile(r'^\s*\{.{0,400}?"event_type"\s*:\s*"(?!alert")', re.S)
 
 
 def _split_host_port(s):
@@ -416,6 +422,8 @@ def read_line(line):
     if app == "filterlog":
         return "fw", parse_pf(msg)
     if app == "suricata":
+        if _SURI_ENGINE.match(msg) or _SURI_EVE_OTHER.match(msg):
+            return None, None
         return "ids", parse_suricata(msg)
     if app == "routeros":
         t = _TOPICS.match(msg)
