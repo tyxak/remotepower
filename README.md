@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,9 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran
+  into. Most of it is one mistake: two places that should agree about one
+  thing, and do not.
 - **v7.4.0 "F1nishMatters"** — a release about finish. What is already there
   reads, looks and behaves better in every theme and every language, and each fix
   comes with a check that keeps it fixed. One thing is new: threat intel can read
@@ -241,7 +244,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   the risk score, the Data Explorer, the fleet report and the AI assistant. One
   body size and one heading size across the interface, and dashboard edits
   saved with PUT work on a standard nginx install again.
-- **v7.0.3 "C4useMatters"** — three failures that named the wrong cause. A
   monitor reported a host as down when a bot filter at the edge had turned the
   probe away; the probe was identifying itself as Python and putting an older
   TLS version back on the wire. That second half was a whole class: of eleven

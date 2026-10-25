@@ -80,6 +80,8 @@ holds long-form docs that don't fit there.
   public reports. Eight issues, all caught before release, among them a SQL
   pattern that matched an ordinary search and a request with raw spaces that was
   cut at its first word.
+- **[v7.4.1.md](v7.4.1.md)** — "Al1gnMatters": fixes for what a Docker
+  install of 7.4.0 ran into.
 - **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot
@@ -89,10 +91,6 @@ holds long-form docs that don't fit there.
   Only refusals that mean an attack count; an address your honeypot banned is
   reported at once; nothing a visitor typed is fetched. Reporting only: banning
   stays with what you already use.
-- **[v7.2.0.md](v7.2.0.md)** — "Ev1denceMatters": threat intel reads your web
-  server, WAF, fail2ban and CrowdSec logs, and reports say what the address
-  actually did, once per address. Counts and fixed labels only leave the host;
-  the page shows the evidence, what was sent and which logs could not be read.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
