@@ -26,6 +26,16 @@ mistake: two places that should agree about one thing, and do not.
   polling, so the first lines of its log are no longer a refused connection.
   (#33)
 
+- **The sidebar no longer opens under a fingertip.** The collapsed sidebar
+  opened on hover and on nothing else. On an iPad a tap counts as a hover that
+  stays until you tap somewhere else, so the sidebar opened over the page
+  whenever you tapped near it. With auto-hide on, which is the default, the
+  Collapse button that would have closed it was hidden, and open alerts held
+  the sidebar open on every refresh, which looked like it reopening by itself.
+  Auto-hide now needs a pointer that can hover. On a touch screen the sidebar
+  stays open, the Collapse button is there, and My Account says why the switch
+  is off. A mouse or trackpad behaves as before. (#35)
+
 ## v7.4.0 — "F1nishMatters" — 2026-10-24
 
 A release about finish. What is already there should read, look and behave

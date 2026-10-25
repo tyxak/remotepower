@@ -145,6 +145,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
     FILES = (
         "tests/test_v741_poll_interval.py",
         "tests/test_v741_scanner_container.py",
+        "tests/test_v741_sidebar_touch.py",
+        "tests/test_v741_sidebar_touch_e2e.py",
     )
 
     def test_the_list_is_not_empty(self):

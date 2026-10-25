@@ -29574,6 +29574,18 @@ function toggleSidebarCollapse() {
   requestAnimationFrame(() => requestAnimationFrame(
     () => document.body.classList.remove('no-anim')));
 }
+// v7.4.1 (#35): can the primary pointer hover? The rail expands on :hover and on
+// nothing else, so auto-hide only makes sense where something can hover. On an
+// iPad a tap counts as a hover that stays until the next tap somewhere else, so
+// the sidebar opened over the page on any tap near it, and auto-hide hides the
+// one button (Collapse) that would have undone it. The stylesheet keys the hover
+// reveal off body.pointer-hover; this keeps that class in step with the media
+// query, which also follows a mouse being plugged in or taken away.
+const _HOVER_MQ = (() => {
+  try { return window.matchMedia('(hover: hover) and (pointer: fine)'); } catch (_) { return null; }
+})();
+function _canHover() { return _HOVER_MQ ? _HOVER_MQ.matches : true; }
+
 // Restore preference on load. Use DOMContentLoaded so the class is applied
 // before the first paint — avoids a flash of the expanded sidebar.
 (function _initSidebarCollapse() {
@@ -29581,6 +29593,7 @@ function toggleSidebarCollapse() {
     document.body.classList.add('sidebar-collapsed');
     // (v6: the collapse chevron rotates via CSS — no icon patching needed)
   }
+  document.body.classList.toggle('pointer-hover', _canHover());
 })();
 
 // v6.0.0: AUTO-HIDE SIDEBAR (default ON; My Account → Appearance → Navigation).
@@ -29611,9 +29624,17 @@ function _applySidebarAlertPin() {
   document.body.classList.toggle('sidebar-alert-pinned', pin);
 }
 
-function toggleAutohideSidebar(on) {
-  document.body.classList.toggle('autohide-sidebar', !!on);
-  try { localStorage.setItem('rp_autohide_sidebar', on ? '1' : '0'); } catch (_) {}
+// The stored choice. Auto-hide is on until the operator says otherwise.
+function _autohidePref() {
+  try { return (localStorage.getItem('rp_autohide_sidebar') || '1') === '1'; } catch (_) { return true; }
+}
+
+// The one place that decides whether the sidebar auto-hides: the stored choice
+// AND a pointer that can hover (v7.4.1, #35). Called at load, from the switch and
+// when the pointer capability changes.
+function _applyAutohide() {
+  const on = _autohidePref() && _canHover();
+  document.body.classList.toggle('autohide-sidebar', on);
   if (on) document.body.classList.add('sidebar-collapsed');
   else {
     // manual mode: restore the last manual collapse preference (default expanded)
@@ -29622,6 +29643,12 @@ function toggleAutohideSidebar(on) {
     document.body.classList.toggle('sidebar-collapsed', manual === '1');
   }
   _applySidebarAlertPin();
+  _syncAutohideControls();
+}
+
+function toggleAutohideSidebar(on) {
+  try { localStorage.setItem('rp_autohide_sidebar', on ? '1' : '0'); } catch (_) {}
+  _applyAutohide();
 }
 
 function toggleAutohideThroughAlerts(on) {
@@ -29629,17 +29656,28 @@ function toggleAutohideThroughAlerts(on) {
   _applySidebarAlertPin();
 }
 
+// My Account → Navigation. On a screen that cannot hover the switches are off and
+// disabled, and a line says why, instead of a switch that turns the sidebar into
+// a rail nothing can open.
+function _syncAutohideControls() {
+  const hover = _canHover();
+  const a = document.getElementById('acct-autohide-sidebar');
+  if (a) { a.checked = document.body.classList.contains('autohide-sidebar'); a.disabled = !hover; }
+  const t = document.getElementById('acct-autohide-thru-alerts');
+  if (t) { t.checked = _autohideThroughAlerts(); t.disabled = !hover; }
+  const h = document.getElementById('acct-autohide-touch-hint');
+  if (h) h.hidden = hover;
+}
+
 (function _initAutohide() {
-  let sb = '1';   // v6 default: sidebar auto-hide ON
-  try { sb = localStorage.getItem('rp_autohide_sidebar') || '1'; } catch (_) {}
-  if (sb === '1') { document.body.classList.add('autohide-sidebar', 'sidebar-collapsed'); }
-  const sync = () => {
-    const a = document.getElementById('acct-autohide-sidebar');
-    if (a) a.checked = document.body.classList.contains('autohide-sidebar');
-    const t = document.getElementById('acct-autohide-thru-alerts');
-    if (t) t.checked = _autohideThroughAlerts();
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync); else sync();
+  _applyAutohide();   // v6 default: auto-hide ON, where the pointer can hover
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _syncAutohideControls);
+  try {
+    if (_HOVER_MQ) _HOVER_MQ.addEventListener('change', () => {
+      document.body.classList.toggle('pointer-hover', _canHover());
+      _applyAutohide();
+    });
+  } catch (_) { /* no change events: the state read at load stands */ }
 })();
 
 // v3.0.1: short-window in-flight cache for GET /devices. Multiple pages

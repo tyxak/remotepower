@@ -74,7 +74,11 @@ class TestAlertsDoNotBlockCollapse(unittest.TestCase):
             "group items, search, star, account row) lost some of its selectors")
         # The pin and the hover reveal must stay the same shape: every pinned
         # rule has a `.sidebar:hover` twin, or the two modes render differently.
-        self.assertGreaterEqual(css.count("body.sidebar-collapsed .sidebar:hover"), 12)
+        # v7.4.1 (#35): the twin carries body.pointer-hover (a pointer that can
+        # hover); tests/test_v741_sidebar_touch.py holds that no hover rule is
+        # left ungated.
+        self.assertGreaterEqual(
+            css.count("body.sidebar-collapsed.pointer-hover .sidebar:hover"), 12)
 
     def test_the_pin_requires_autohide_and_honours_the_opt_out(self):
         js = _JS.read_text()
@@ -95,7 +99,10 @@ class TestAlertsDoNotBlockCollapse(unittest.TestCase):
     def test_both_toggles_and_the_alert_paint_re_evaluate_the_pin(self):
         """A preference flip must take effect now, not at the next alert poll."""
         js = _JS.read_text()
-        for fn in ("toggleAutohideSidebar", "toggleAutohideThroughAlerts",
+        # v7.4.1: the switch goes through _applyAutohide, the one place that
+        # decides whether the sidebar auto-hides, and that re-applies the pin.
+        self.assertIn("_applyAutohide()", js_function(js, "toggleAutohideSidebar"))
+        for fn in ("_applyAutohide", "toggleAutohideThroughAlerts",
                    "_paintAlertsBadge"):
             self.assertIn("_applySidebarAlertPin()", js_function(js, fn),
                           f"{fn} does not re-apply the sidebar pin")
@@ -175,9 +182,13 @@ class TestKeepHidingOptOut(unittest.TestCase):
 
     def test_the_checkbox_reflects_the_stored_value_on_load(self):
         js = _JS.read_text()
-        init = js_function(js, "_initAutohide")
-        self.assertIn("acct-autohide-thru-alerts", init)
-        self.assertIn("_autohideThroughAlerts()", init)
+        # v7.4.1: the sync moved out of the init into _syncAutohideControls,
+        # which _applyAutohide calls, so it also runs when the pointer changes.
+        sync = js_function(js, "_syncAutohideControls")
+        self.assertIn("acct-autohide-thru-alerts", sync)
+        self.assertIn("_autohideThroughAlerts()", sync)
+        self.assertIn("_applyAutohide()", js_function(js, "_initAutohide"))
+        self.assertIn("_syncAutohideControls()", js_function(js, "_applyAutohide"))
 
     def test_the_label_is_translated_into_all_six_languages(self):
         i18n = _I18N.read_text()
