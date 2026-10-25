@@ -95,8 +95,12 @@ class TestStaticMarkupFitsTheEngineCap(unittest.TestCase):
         over_400, _ = long_text_nodes(self.html, 400)
         self.assertGreaterEqual(len(over_400), 3, 'the About blurb and Settings hints are over 400')
         with_docs, _ = long_text_nodes(self.html, 400, docs_excluded=False)
-        self.assertGreater(len(with_docs), len(over_400) + 5,
-                           'the Documentation page carries long paragraphs the exclusion hides')
+        # How many long paragraphs the Documentation page holds depends on the
+        # release cards it keeps (three, and the oldest goes at every bump), so
+        # the margin is a floor that proves the walker sees the page, not a
+        # count of release prose: it read "+ 5" until v7.4.1 dropped a card.
+        self.assertGreaterEqual(len(with_docs) - len(over_400), 3,
+                                'the Documentation page carries long paragraphs the exclusion hides')
 
     def test_the_cap_helper_reads_the_engine_source(self):
         self.assertEqual(text_node_cap('if (trimmed.length < 2 || trimmed.length > 777) return;'), 777)
