@@ -72,4 +72,8 @@ regexes = [
   # hex string that matched generic-api-key. The working-tree fixture was
   # renamed; the historical commit is permanent.
   '''0123456789abcdef0123456789abcdef''',
+  # test_v741_webterm_docker.py hands the web terminal daemon a placeholder shared
+  # secret (commit 9e913a02): a counting hex string that matched generic-api-key.
+  # The daemon runs on loopback inside the test; the historical commit is permanent.
+  '''^0123456789abcdef$''',
 ]

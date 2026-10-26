@@ -43,6 +43,25 @@ Thanks to everyone who has contributed fixes, features, and reports.
 - **@shrekki1816** — first contributed in v6.0.1:
   - #22 — reported the New Script dialog gave no visual feedback on save (it only
     closed after an edit, not when creating a new script)
+- **@SCR7575** — first contributed in v7.4.1:
+  - #32 — reported that a host's poll interval was refused below 30 seconds while
+    the fleet default is 10, and, in a comment, that enrolling a host again left
+    the running agent on the old credentials
+  - #33 — reported the scanner container always showing as unhealthy
+  - #34 — reported that the installer's CA fingerprint check failed against a
+    self-signed server, that the port the dashboard was opened on never reached
+    the server, and that the quick-install line failed without saying why
+  - #35 — reported the auto-hide sidebar being unusable on a touch screen
+  - #36 — asked for the web terminal in the Docker image
+  - #37 — asked for NIC errors and drops to be judged separately, with
+    per-host thresholds
+  - #38 — reported that a default watched file the host never had alerted as
+    removed
+  - #39 — asked for folders and patterns in the drift watch, and for per-host
+    lists that add to the default
+  - #40 — asked for a way to turn off a thinking model's thinking for Ollama
+  - #41 — reported that the maintenance window form never showed the cron field
+    or the duration
 
 ---
 
