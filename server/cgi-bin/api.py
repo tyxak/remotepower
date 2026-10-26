@@ -46497,6 +46497,17 @@ DEFAULT_WATCHED_FILES = [
 # being watched, and it auto-revives if the file reappears.
 DRIFT_MISSING_DORMANT_AFTER = 3
 
+
+def _drift_file_was_present(rec):
+    """Has this watched file ever been seen on the host? New records say so
+    (`ever_present`); a record written before that key existed is judged by what
+    it holds: a file that was there has a hash, or at least a size (the agent sends
+    one for a file it could not hash), and a file that was never there has neither."""
+    if 'ever_present' in rec:
+        return bool(rec['ever_present'])
+    return (rec.get('baseline_hash') is not None or rec.get('baseline_size') is not None
+            or rec.get('prior_hash') is not None)
+
 # Maximum history entries kept per file
 DRIFT_HISTORY_CAP = 20
 
@@ -53771,6 +53782,10 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                     'last_check':      now,
                     'drift_count':     0,
                     'exists':          exists,
+                    # Was the file ever there? A default entry the host never had
+                    # (/etc/apt/sources.list on a system that only uses
+                    # sources.list.d) goes dormant without a "removed" alert.
+                    'ever_present':    exists,
                     'history':         [],
                 }
                 continue
@@ -53797,19 +53812,24 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                     existing['dormant']      = True
                     existing['dormant_since'] = now
                     # Fire one event so the operator knows — once, not
-                    # every poll. After this the file is quiet.
-                    fired_events.append({
-                        'path':           path,
-                        'baseline_hash':  existing.get('baseline_hash'),
-                        'current_hash':   None,
-                        'exists':         False,
-                        'reason':         'file_absent',
-                    })
+                    # every poll. After this the file is quiet. Not for a
+                    # file that was never there: nothing was removed, and
+                    # "removed" on a host that has never had the file read
+                    # as tampering (issue #38).
+                    if _drift_file_was_present(existing):
+                        fired_events.append({
+                            'path':           path,
+                            'baseline_hash':  existing.get('baseline_hash'),
+                            'current_hash':   None,
+                            'exists':         False,
+                            'reason':         'file_absent',
+                        })
                 # While missing (dormant or not yet) skip drift compare —
                 # a missing file's None hash must not trip the change path.
                 continue
             else:
                 # File present (again). Clear any missing state.
+                existing['ever_present'] = True
                 if existing.get('missing_streak') or existing.get('dormant'):
                     existing['missing_streak'] = 0
                     if existing.get('dormant'):
