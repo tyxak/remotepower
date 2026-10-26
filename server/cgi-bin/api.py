@@ -13,6 +13,7 @@ import re
 import sys
 import json
 import time
+import fnmatch
 import hashlib
 import hmac
 import ipaddress
@@ -10210,7 +10211,8 @@ def _alert_title(event, payload):
     if event == 'drift_detected':
         # File-integrity drift carries the single watched path that changed.
         path = p.get('path') or '?'
-        verb = 'removed' if p.get('exists') is False else 'changed'
+        verb = ('removed' if p.get('exists') is False
+                else 'added' if p.get('reason') == 'file_added' else 'changed')
         return f'Config drift on {name}: {path} {verb}'
     if event == 'config_drift':
         # Host-config drift carries a list of drifting sections.
@@ -22870,7 +22872,7 @@ def handle_heartbeat():
     # already succeeded.
     if 'drift' in body and isinstance(body['drift'], dict):
         try:
-            _ingest_drift_report(dev_id, body['drift'])
+            _ingest_drift_report(dev_id, body['drift'], patterns=body.get('drift_patterns'))
         except Exception as e:
             sys.stderr.write(f"[remotepower] drift ingest failed dev={dev_id}: {e}\n")
 
@@ -22880,7 +22882,9 @@ def handle_heartbeat():
     # the old load(DEVICES_FILE) was a cold full-fleet read on every heartbeat
     # (the device write just invalidated the load cache). get_watched_files_for
     # only ever indexes devices[dev_id], so a one-entry dict is equivalent.
-    watched_files = get_watched_files_for(dev_id, devices={dev_id: device_get(dev_id)})
+    _wf_dev = device_get(dev_id)
+    watched_files = _agent_watch_list(
+        get_watched_files_for(dev_id, devices={dev_id: _wf_dev}), _wf_dev)
 
     # v2.4.3: mailbox-count monitor. Ingest the counts the agent
     # reported, and tell the agent which paths to count next round.
@@ -53932,24 +53936,107 @@ def _with_compose_watch(dev_id, dev, drift_cfg, files):
     return out[:80]
 
 
-def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
+def _clean_drift_patterns(raw):
+    """{entry: {'count': int, 'truncated': bool}} from the agent's `drift_patterns`: the
+    folders and patterns it expanded in this report, whether or not they matched anything."""
+    out = {}
+    if isinstance(raw, dict):
+        for entry, meta in list(raw.items())[:100]:
+            if isinstance(entry, str) and entry.startswith('/') and len(entry) <= 512 and isinstance(meta, dict):
+                try:
+                    n = max(0, int(meta.get('count') or 0))
+                except (TypeError, ValueError, OverflowError):
+                    n = 0
+                out[entry] = {'count': n, 'truncated': bool(meta.get('truncated'))}
+    return out
+
+
+def _watch_matches(path, entry):
+    """Does this absolute path belong to this watch-list entry? A plain entry is itself; a
+    folder (a trailing slash) is the files directly in it; a pattern matches segment by
+    segment, the way the agents expand it (expand_watch_entries). A path with a '.', '..'
+    or empty segment belongs to nothing."""
+    if not (isinstance(path, str) and isinstance(entry, str)
+            and path.startswith('/') and entry.startswith('/')):
+        return False
+    psegs = path.split('/')[1:]
+    if any(sg in ('', '.', '..') for sg in psegs):
+        return False
+    if not _is_watch_pattern(entry):
+        return path == entry
+    esegs = [sg for sg in (entry + '*' if entry.endswith('/') else entry).split('/') if sg]
+    if len(esegs) != len(psegs):
+        return False
+    return all(fnmatch.fnmatchcase(ps, es) if any(c in es for c in DRIFT_GLOB_CHARS) else ps == es
+               for ps, es in zip(psegs, esegs))
+
+
+def _path_is_watched(path, watched):
+    """Is this path one of the host's watched files, directly or through a folder or pattern?"""
+    return any(_watch_matches(path, e) for e in (watched or []))
+
+
+def _agent_watch_list(files, dev):
+    """The list an agent is sent. An agent older than DRIFT_GLOB_MIN_AGENT reads a folder or
+    pattern as a literal path and reports it missing, so it gets the plain entries only."""
+    if _ver_tuple((dev or {}).get('version')) >= DRIFT_GLOB_MIN_AGENT:
+        return files
+    return [f for f in files if not _is_watch_pattern(f)]
+
+
+def _ingest_drift_report(dev_id, drift_payload, actor='agent', patterns=None):
     """Process a drift report submitted by the agent. Called from
     handle_heartbeat when payload['drift'] is present.
 
     drift_payload is a dict mapping file path → {hash, size, mtime,
-    exists}. We compare each against the stored baseline; on the first
+    exists[, via]}. We compare each against the stored baseline; on the first
     sighting of a file we accept the current value as the baseline
     (operator can re-baseline at any time). On a change, we increment
     drift_count, push to history, and fire a webhook.
+
+    v7.4.1 (#39): a file the agent found through a folder or pattern carries `via`, that
+    entry, and `patterns` says which entries were expanded (`drift_patterns`). The first
+    report that lists an entry is its baseline. After that a file that appears under it is
+    drift ("added"), and a file it used to list and no longer does is a missing sighting,
+    unless the agent says it stopped looking (`truncated`).
     """
     if not isinstance(drift_payload, dict):
         return
 
+    pats = _clean_drift_patterns(patterns)
     fired_events = []
     now = int(time.time())
     with _LockedUpdate(DRIFT_STATE_FILE) as state:
         dev_state = state.setdefault(dev_id, {})
         files = dev_state.setdefault('files', {})
+        known_patterns = dev_state.setdefault('patterns', {})
+        baselined = set(known_patterns)          # entries an earlier report already listed
+
+        def note_missing(path, rec):
+            """A watched file is not there. v2.2.6: dormant handling for files that aren't on
+            the host. A watched file reporting exists:false used to count as drift forever
+            (missing hash != baseline hash), nagging the operator about a file that simply
+            isn't there. Now: after DRIFT_MISSING_DORMANT_AFTER consecutive missing
+            sightings the file is marked dormant — it stops counting as drift. If the file
+            comes back, dormant clears and normal drift comparison resumes. The file is
+            never deleted, so the operator can still see it in the per-device detail."""
+            miss = rec.get('missing_streak', 0) + 1
+            rec['missing_streak'] = miss
+            if miss >= DRIFT_MISSING_DORMANT_AFTER and not rec.get('dormant'):
+                rec['dormant']       = True
+                rec['dormant_since'] = now
+                # Fire one event so the operator knows — once, not every poll. After this the
+                # file is quiet. Not for a file that was never there: nothing was removed, and
+                # "removed" on a host that has never had the file read as tampering (issue #38).
+                if _drift_file_was_present(rec):
+                    fired_events.append({
+                        'path':           path,
+                        'baseline_hash':  rec.get('baseline_hash'),
+                        'current_hash':   None,
+                        'exists':         False,
+                        'reason':         'file_absent',
+                    })
+
         for path, info in drift_payload.items():
             if not isinstance(info, dict):
                 continue
@@ -53957,9 +54044,39 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
             cur_size  = info.get('size')
             cur_mtime = info.get('mtime')
             exists    = bool(info.get('exists', True))
+            via       = info.get('via') if (isinstance(info.get('via'), str)
+                                            and len(info['via']) <= 512) else ''
 
             existing = files.get(path)
             if existing is None:
+                if via and not exists:
+                    continue        # listed by a folder, gone before it was read: nothing to record
+                if via and exists and via in baselined:
+                    # A file that was not in this folder when we started watching it is the
+                    # change a folder watch exists to catch: drift, not a baseline (#39).
+                    files[path] = {
+                        'current_hash':    cur_hash,
+                        'current_size':    cur_size,
+                        'current_mtime':   cur_mtime,
+                        'baseline_hash':   None,
+                        'baseline_size':   None,
+                        'baseline_set_at': now,
+                        'baseline_set_by': actor,
+                        'first_seen':      now,
+                        'last_check':      now,
+                        'drift_count':     1,
+                        'exists':          True,
+                        'ever_present':    True,
+                        'added':           True,
+                        'via':             via,
+                        'prior_hash':      cur_hash,
+                        'history':         [{'ts': now, 'hash': cur_hash, 'size': cur_size,
+                                             'exists': True}],
+                    }
+                    fired_events.append({'path': path, 'baseline_hash': None,
+                                         'current_hash': cur_hash, 'exists': True,
+                                         'reason': 'file_added'})
+                    continue
                 # First sighting — accept as baseline.
                 files[path] = {
                     'current_hash':    cur_hash,
@@ -53979,6 +54096,8 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                     'ever_present':    exists,
                     'history':         [],
                 }
+                if via:
+                    files[path]['via'] = via
                 continue
 
             existing['current_hash']  = cur_hash
@@ -53986,35 +54105,11 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
             existing['current_mtime'] = cur_mtime
             existing['last_check']    = now
             existing['exists']        = exists
+            if via:
+                existing['via'] = via
 
-            # v2.2.6: dormant handling for files that aren't on the host.
-            # A watched file reporting exists:false used to count as
-            # drift forever (missing hash != baseline hash), nagging the
-            # operator about a file that simply isn't there. Now: after
-            # DRIFT_MISSING_DORMANT_AFTER consecutive missing sightings
-            # the file is marked dormant — it stops counting as drift.
-            # If the file comes back, dormant clears and normal drift
-            # comparison resumes. The file is never deleted, so the
-            # operator can still see it in the per-device detail.
             if not exists:
-                miss = existing.get('missing_streak', 0) + 1
-                existing['missing_streak'] = miss
-                if miss >= DRIFT_MISSING_DORMANT_AFTER and not existing.get('dormant'):
-                    existing['dormant']      = True
-                    existing['dormant_since'] = now
-                    # Fire one event so the operator knows — once, not
-                    # every poll. After this the file is quiet. Not for a
-                    # file that was never there: nothing was removed, and
-                    # "removed" on a host that has never had the file read
-                    # as tampering (issue #38).
-                    if _drift_file_was_present(existing):
-                        fired_events.append({
-                            'path':           path,
-                            'baseline_hash':  existing.get('baseline_hash'),
-                            'current_hash':   None,
-                            'exists':         False,
-                            'reason':         'file_absent',
-                        })
+                note_missing(path, existing)
                 # While missing (dormant or not yet) skip drift compare —
                 # a missing file's None hash must not trip the change path.
                 continue
@@ -54054,6 +54149,28 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                         'exists':         exists,
                     })
 
+        # A file an entry used to list that this report does not list has left the folder.
+        # Only when the agent looked in full: a cut-short search says nothing about the rest.
+        for entry, meta in pats.items():
+            if meta['truncated'] or entry not in baselined:
+                continue
+            for path, rec in files.items():
+                if rec.get('via') == entry and path not in drift_payload:
+                    rec['current_hash'], rec['current_size'], rec['current_mtime'] = None, None, None
+                    rec['last_check'], rec['exists'] = now, False
+                    note_missing(path, rec)
+        # What this report listed is the baseline for the next one. An entry the agent no
+        # longer expands (taken off the list) is forgotten, so putting it back later starts a
+        # fresh baseline instead of reading everything that arrived meanwhile as "added".
+        for entry, meta in pats.items():
+            keep = known_patterns.get(entry) or {}
+            known_patterns[entry] = {'since': keep.get('since', now), 'last': now,
+                                     'count': meta['count'], 'truncated': meta['truncated']}
+        for entry in [e for e in known_patterns if e not in pats]:
+            del known_patterns[entry]
+        if not known_patterns:
+            dev_state.pop('patterns', None)
+
     # Fire webhooks outside the lock
     if fired_events:
         # v5.6.x perf: single-device read (only the name is needed) instead of
@@ -54068,6 +54185,7 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                     'exists':      ev['exists'],
                     'baseline_hash': ev['baseline_hash'],
                     'current_hash':  ev['current_hash'],
+                    **({'reason': ev['reason']} if ev.get('reason') else {}),
                 })
             except Exception as e:
                 sys.stderr.write(f"[remotepower] drift webhook failed: {e}\n")
@@ -54480,6 +54598,7 @@ def handle_device_drift_baseline(dev_id):
             entry['baseline_set_by'] = actor
             entry['drift_count']     = 0
             entry['prior_hash']      = entry.get('current_hash')
+            entry.pop('added', None)     # v7.4.1: accepted, so no longer "new in a watched folder"
             updated.append(path)
     audit_log(actor, 'drift_baseline',
               detail=f"device={dev_id} paths={updated}")
@@ -54546,7 +54665,7 @@ def _maybe_mirror_drift_content(dev_id, cmd_text, output, rc, ts):
         return
     # Is this path even being watched for drift on this device?
     watched = get_watched_files_for(dev_id)
-    if path not in watched:
+    if not _path_is_watched(path, watched):
         return
 
     safe_output = (output or '')[:MAX_DRIFT_CONTENT_BYTES]
@@ -54595,7 +54714,7 @@ def handle_drift_fetch_content(dev_id):
     if not isinstance(paths, list):
         respond(400, {'error': 'paths must be a list'})
 
-    watched = set(get_watched_files_for(dev_id, devices))
+    watched = get_watched_files_for(dev_id, devices)
     queued, denied, not_watched = [], [], []
     # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
     # command queue did load/mutate/save with nothing held across the pair,
@@ -54614,10 +54733,11 @@ def handle_drift_fetch_content(dev_id):
             if p in DRIFT_CONTENT_DENYLIST:
                 denied.append(p)
                 continue
-            if p not in watched:
+            if not _path_is_watched(p, watched):
                 # Only allow content fetch for files we're actively
                 # watching — otherwise this endpoint is just an
-                # arbitrary file-read primitive.
+                # arbitrary file-read primitive. A folder or pattern entry covers
+                # the files it matches, and nothing with a '.' or '..' in its path.
                 not_watched.append(p)
                 continue
             # v4.4.0 (SECURITY): shell-quote the path with shlex.quote — the old

@@ -377,6 +377,9 @@ async function openDriftDetail(devId, devName) {
         statusHtml = '<span class="c-red">● Missing</span>';
       } else if (dormant) {
         statusHtml = '<span class="c-muted">○ Dormant</span>';
+      } else if (drifted && f.added) {
+        // v7.4.1 (#39): a file that was not in a watched folder when the watch began.
+        statusHtml = '<span class="c-amber">● Added</span>';
       } else if (drifted) {
         statusHtml = '<span class="c-amber">● Drifted</span>';
       } else {
@@ -407,7 +410,7 @@ async function openDriftDetail(devId, devName) {
         ? 'border-bottom:1px solid var(--border);opacity:0.55'
         : 'border-bottom:1px solid var(--border)';
       html += `<tr class="isl-543">
-        <td class="isl-544">${escHtml(p)}</td>
+        <td class="isl-544">${escHtml(p)}${f.via ? `<div class="hint">${escHtml(f.via)}</div>` : ''}</td>
         <td class="cell-pad">${statusHtml}</td>
         <td class="isl-545">${lastCheck}</td>
         <td class="cell-pad">${f.drift_count || 0}</td>

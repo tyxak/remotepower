@@ -69,6 +69,64 @@ resolved — `device-override`, `profile:<device|tag|group>` (with the
 profile name), `default`, or `disabled` — so it's never a mystery
 which rule won.
 
+### What an entry can be *(v7.4.1)*
+
+One entry per line, in the host drawer, in a drift profile or in a host
+profile:
+
+| Entry | Watches |
+|---|---|
+| `/etc/ssh/sshd_config` | that file |
+| `/etc/apt/sources.list.d/` | every regular file directly in the folder (a trailing `/`) |
+| `/etc/apt/sources.list.d/*.list` | every file whose name matches |
+| `/home/*/.ssh/authorized_keys` | a wildcard can stand in any part of the path |
+
+A wildcard matches one part of the path (`*`, `?` and `[abc]` work; `**`
+does not). Hidden files are included. Subfolders are not searched, and a
+link to a file counts as that file. Patterns are case-sensitive, except on
+Windows. A pattern with `..` in it matches nothing.
+
+A folder or pattern is read for the first time when you add it, and what it
+lists then is its baseline. After that:
+
+- a **new file** is drift, shown as *Added* on the Drift page, and fires
+  `drift_detected` once. Accept it as the baseline when it is expected;
+- a file that **changed** is drift, as for any watched file;
+- a file that **leaves** the folder is handled like any file that goes
+  missing: after three reports without it, it goes dormant and fires the event
+  once.
+
+If a folder holds more files than the agent will look at (200 in all), the
+agent says it stopped looking and nothing is read as removed.
+
+### Adding to the default instead of replacing it *(v7.4.1)*
+
+A list without the markers below replaces the list it would otherwise get, as
+before. Two markers let a host's list, or a profile's list, build on it
+instead:
+
+- `@defaults` stands for the list the host would otherwise get, at that
+  position. For a host with a profile that is the profile's list; for a
+  profile it is the global default.
+- `-<entry>` removes that entry, written exactly as it is in the list it comes
+  from. It needs `@defaults` in the same list.
+
+A host that has no `/etc/apt/sources.list` because it keeps its apt sources
+in `sources.list.d`:
+
+```
+@defaults
+-/etc/apt/sources.list
+/etc/apt/sources.list.d/
+```
+
+It keeps following the default as the default grows, drops the file it does
+not have, and watches the folder. The global default list itself cannot use
+the markers: there is nothing for it to inherit.
+
+A file that was never on a host does not raise a *removed* alert when it goes
+dormant. Only a file that was there and left does.
+
 ## How it works
 
 1. On every poll, the server hands the agent the current
@@ -79,6 +137,9 @@ which rule won.
    - File size
    - mtime
    - existence flag (some watched files are conditional)
+   A folder or pattern entry is expanded first. Each file it finds is
+   reported with `via`, the entry it came from, and the entries the agent
+   expanded are listed in `drift_patterns`.
 3. Submits this report as the `drift` field in the next heartbeat.
 4. Server's `_ingest_drift_report`:
    - On first sighting → records as baseline, drift_count=0.
@@ -124,9 +185,14 @@ after a planned config change rollout.
   "path":          "/etc/ssh/sshd_config",
   "exists":        true,
   "baseline_hash": "sha256:original...",
-  "current_hash":  "sha256:new..."
+  "current_hash":  "sha256:new...",
+  "reason":        "file_added"
 }
 ```
+
+`reason` is only there when there is one: `file_added` for a new file in a
+watched folder, `file_absent` for a file that went missing. `baseline_hash` is
+`null` for an added file.
 
 Route these to a Slack / Discord / ntfy channel you actually
 check. Configuration changes during business hours are usually
@@ -199,7 +265,17 @@ All require authentication. Baseline-acceptance is audit-logged.
 
 Per-file history capped at the last 20 changes.
 
+For files found through a folder or pattern, the record also has `via` (the
+entry), and an added file has `"added": true` until you accept it as the
+baseline. Each host has a `patterns` map of the entries the agent has
+expanded. A record also has `ever_present`, which says whether the file has
+ever been seen on the host.
+
 ## Agent requirements
+
+Folders and patterns need **agent v7.4.1+** (Linux, Windows and macOS). An
+older agent would read `/etc/apt/sources.list.d/*` as the name of one file, so
+it is sent the plain entries of the list only and ignores the rest.
 
 Drift reporting needs **agent v2.2.0+**. Older agents simply don't
 send the `drift` field; the host shows up as "no data" on the

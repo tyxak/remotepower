@@ -27,6 +27,7 @@ Usage:
     remotepower-agent-mac --once       # one heartbeat, print the response
 """
 import argparse
+import fnmatch
 import hashlib
 import json
 import logging
@@ -1364,12 +1365,87 @@ MAX_DRIFT_FILES = 200
 _LAUNCHD_LABEL_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
-def compute_drift_report(paths):
+# v7.4.1 (#39): a watch-list entry may be a folder (a trailing "/": every regular file directly in
+# it) or a pattern ("*", "?" and "[..]" in any segment, case-sensitive except on Windows). The first
+# report for an entry is its baseline, so a file that appears in it later is drift. The same code is
+# in the Linux, Windows and macOS agents (tests/test_v741_drift_globs.py holds them identical).
+MAX_GLOB_LISTINGS = 200       # directory listings one report may make
+MAX_GLOB_CANDIDATES = 4000    # paths one pattern may carry from segment to segment
+
+
+def _glob_files(pattern, real, budget):
+    """The regular files a '/'-separated pattern matches, and whether the search was cut short.
+    A segment with a wildcard matches directory entries (dotfiles too); the others are literal.
+    `real` maps a path to where it can be read (the containerized agent's host root)."""
+    segs = [s for s in pattern.split('/') if s]
+    if '..' in segs:
+        return [], False
+    paths, truncated = [''], False                   # '' is the root
+    for seg in segs:
+        nxt = []
+        if not any(c in seg for c in '*?['):
+            nxt = [base + '/' + seg for base in paths]
+        else:
+            for base in paths:
+                if budget['listings'] >= MAX_GLOB_LISTINGS:
+                    truncated = True
+                    break
+                budget['listings'] += 1
+                try:
+                    names = sorted(os.listdir(real(base or '/')))
+                except OSError:
+                    continue
+                nxt.extend(base + '/' + n for n in names if fnmatch.fnmatch(n, seg))
+        if len(nxt) > MAX_GLOB_CANDIDATES:
+            nxt, truncated = nxt[:MAX_GLOB_CANDIDATES], True
+        paths = nxt
+        if not paths:
+            break
+    return [p for p in paths if os.path.isfile(real(p))], truncated
+
+
+def expand_watch_entries(entries, limit=200, real=lambda p: p):
+    """Turn a watch list into the files to hash: ([(path, via)], {entry: {'count', 'truncated'}}).
+    A plain path is itself (via ''). A folder or pattern becomes the regular files it matches
+    (via the entry), at most `limit` files in all. `truncated` says an entry matched more than
+    was looked at, so the server does not read a missing file into that."""
+    files, seen, info = [], set(), {}
+    budget = {'listings': 0}
+    for entry in entries or []:
+        if len(files) >= limit:
+            break
+        if not isinstance(entry, str) or not entry.startswith('/'):
+            continue
+        pattern = entry + '*' if (entry.endswith('/') and len(entry) > 1) else entry
+        if not any(c in pattern for c in '*?['):
+            if entry not in seen:
+                seen.add(entry)
+                files.append((entry, ''))
+            continue
+        matched, truncated = _glob_files(pattern, real, budget)
+        for m in matched:
+            if m in seen:
+                continue
+            if len(files) >= limit:
+                truncated = True
+                break
+            seen.add(m)
+            files.append((m, entry))
+        info[entry] = {'count': len(matched), 'truncated': bool(truncated)}
+    return files, info
+
+
+def compute_drift_report(paths, patterns_out=None):
     """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
-    contract to the Linux and Windows agents; pure file I/O, so it is
-    OS-agnostic."""
+    contract to the Linux and Windows agents; pure file I/O, so it is OS-agnostic.
+    A folder or pattern entry produces one record per matching file, each with
+    `via` (the entry); `patterns_out`, when given, is filled with
+    {entry: {count, truncated}}."""
     out = {}
-    for p in (paths or [])[:MAX_DRIFT_FILES]:
+    files, found = expand_watch_entries(paths, MAX_DRIFT_FILES)
+    if patterns_out is not None:
+        patterns_out.update(found)
+    for p, _via in files:
         try:
             st = os.stat(p)
         except OSError:
@@ -1385,6 +1461,9 @@ def compute_drift_report(paths):
         except OSError:
             out[p] = {'hash': None, 'size': st.st_size,
                       'mtime': int(st.st_mtime), 'exists': False}
+    for p, via in files:
+        if via and p in out:
+            out[p]['via'] = via
     return out
 
 
@@ -2451,9 +2530,12 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     # expensive part, and a watched file changing between beats still shows up).
     if _watched_files and (poll_count <= 1 or poll_count % 12 == 0):
         try:
-            drift = compute_drift_report(_watched_files)
-            if drift:
+            _pats = {}
+            drift = compute_drift_report(_watched_files, _pats)
+            if drift or _pats:
                 payload['drift'] = drift
+            if _pats:
+                payload['drift_patterns'] = _pats
         except Exception:
             pass
     # v6.4.1: watched-service states, on the same slower cadence as sysinfo

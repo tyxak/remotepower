@@ -67,6 +67,9 @@ TWINNED = {
     '_clean_server_url',
     # no-redirect opener — security-critical, must not diverge
     'redirect_request',
+    # drift watch: what a folder or pattern entry expands to (7.4.1, #39). The Linux agent
+    # carries the same two; tests/test_v741_drift_globs.py holds all three identical.
+    '_glob_files', 'expand_watch_entries',
 }
 
 

@@ -19,6 +19,7 @@ import subprocess
 import platform
 import argparse
 import logging
+import fnmatch
 import hashlib
 import shutil
 import stat
@@ -401,15 +402,29 @@ MAX_FILE_SIZE_HASH = 5 * 1024 * 1024   # don't try to hash files >5MB
 # watched file's (mtime, size); a difference on any file returns True so the
 # heartbeat re-hashes now instead of waiting the full DRIFT_EVERY cadence.
 _drift_mtime_cache = {}
+_drift_set_cache = {}      # v7.4.1: folder/pattern entry -> the set of files it matched last time
 
 
 def _watched_files_changed(watched_files):
     changed = False
     seen = set()
-    for f in (watched_files or [])[:MAX_DRIFT_FILES]:
-        p = f.get('path') if isinstance(f, dict) else f
-        if not p:
-            continue
+    # Entries have been plain paths, and {'path': ...} dicts are still accepted here.
+    entries = [f.get('path') if isinstance(f, dict) else f for f in (watched_files or [])]
+    files, info = expand_watch_entries(entries, MAX_DRIFT_FILES, real=host_path)
+    # A file that appeared in a watched folder, or left it, is a change. The first look at an
+    # entry seeds the cache silently, like the per-file signatures below.
+    by_entry = {}
+    for p, via in files:
+        if via:
+            by_entry.setdefault(via, set()).add(p)
+    for entry in info:
+        now = frozenset(by_entry.get(entry, ()))
+        if entry in _drift_set_cache and _drift_set_cache[entry] != now:
+            changed = True
+        _drift_set_cache[entry] = now
+    for gone in [k for k in _drift_set_cache if k not in info]:
+        _drift_set_cache.pop(gone, None)
+    for p, _via in files:
         seen.add(p)
         try:
             st = os.stat(host_path(p))
@@ -11150,7 +11165,77 @@ def count_mailbox_paths(paths):
     return out
 
 
-def compute_drift_report(paths):
+# v7.4.1 (#39): a watch-list entry may be a folder (a trailing "/": every regular file directly in
+# it) or a pattern ("*", "?" and "[..]" in any segment, case-sensitive except on Windows). The first
+# report for an entry is its baseline, so a file that appears in it later is drift. The same code is
+# in the Linux, Windows and macOS agents (tests/test_v741_drift_globs.py holds them identical).
+MAX_GLOB_LISTINGS = 200       # directory listings one report may make
+MAX_GLOB_CANDIDATES = 4000    # paths one pattern may carry from segment to segment
+
+
+def _glob_files(pattern, real, budget):
+    """The regular files a '/'-separated pattern matches, and whether the search was cut short.
+    A segment with a wildcard matches directory entries (dotfiles too); the others are literal.
+    `real` maps a path to where it can be read (the containerized agent's host root)."""
+    segs = [s for s in pattern.split('/') if s]
+    if '..' in segs:
+        return [], False
+    paths, truncated = [''], False                   # '' is the root
+    for seg in segs:
+        nxt = []
+        if not any(c in seg for c in '*?['):
+            nxt = [base + '/' + seg for base in paths]
+        else:
+            for base in paths:
+                if budget['listings'] >= MAX_GLOB_LISTINGS:
+                    truncated = True
+                    break
+                budget['listings'] += 1
+                try:
+                    names = sorted(os.listdir(real(base or '/')))
+                except OSError:
+                    continue
+                nxt.extend(base + '/' + n for n in names if fnmatch.fnmatch(n, seg))
+        if len(nxt) > MAX_GLOB_CANDIDATES:
+            nxt, truncated = nxt[:MAX_GLOB_CANDIDATES], True
+        paths = nxt
+        if not paths:
+            break
+    return [p for p in paths if os.path.isfile(real(p))], truncated
+
+
+def expand_watch_entries(entries, limit=200, real=lambda p: p):
+    """Turn a watch list into the files to hash: ([(path, via)], {entry: {'count', 'truncated'}}).
+    A plain path is itself (via ''). A folder or pattern becomes the regular files it matches
+    (via the entry), at most `limit` files in all. `truncated` says an entry matched more than
+    was looked at, so the server does not read a missing file into that."""
+    files, seen, info = [], set(), {}
+    budget = {'listings': 0}
+    for entry in entries or []:
+        if len(files) >= limit:
+            break
+        if not isinstance(entry, str) or not entry.startswith('/'):
+            continue
+        pattern = entry + '*' if (entry.endswith('/') and len(entry) > 1) else entry
+        if not any(c in pattern for c in '*?['):
+            if entry not in seen:
+                seen.add(entry)
+                files.append((entry, ''))
+            continue
+        matched, truncated = _glob_files(pattern, real, budget)
+        for m in matched:
+            if m in seen:
+                continue
+            if len(files) >= limit:
+                truncated = True
+                break
+            seen.add(m)
+            files.append((m, entry))
+        info[entry] = {'count': len(matched), 'truncated': bool(truncated)}
+    return files, info
+
+
+def compute_drift_report(paths, patterns_out=None):
     """v2.2.0: hash each watched file, return dict suitable for shipping
     in the heartbeat payload. Each entry has:
       hash:   "sha256:<hex>" or None if the file is missing
@@ -11160,13 +11245,20 @@ def compute_drift_report(paths):
               never-existed; both look the same in current_hash but the
               server uses this to render "file removed" in the UI.
 
+    v7.4.1: an entry may be a folder or a pattern (see expand_watch_entries). A file
+    it produced carries `via` (the entry); `patterns_out`, when given, is filled with
+    {entry: {count, truncated}} for every folder or pattern, matched or not.
+
     Errors per-file are silently logged + the entry is still emitted
     with exists=False so the server can render "unreadable" — better
     than silently dropping a file that may have been moved or chmod-ed
     out from under the agent.
     """
     out = {}
-    for p in (paths or [])[:MAX_DRIFT_FILES]:
+    files, found = expand_watch_entries(paths, MAX_DRIFT_FILES, real=host_path)
+    if patterns_out is not None:
+        patterns_out.update(found)
+    for p, _via in files:
         # Containerized agent: hash the Docker HOST's file, not the slim image's
         # copy. host_path() is identity natively. The report stays keyed by the
         # clean path `p` (mirrors _eval_one_agent_check).
@@ -11209,6 +11301,9 @@ def compute_drift_report(paths):
             log.debug(f"drift: read({p}) failed: {e}")
             out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
                       'exists': True, 'note': 'read_failed'}
+    for p, via in files:
+        if via and p in out:
+            out[p]['via'] = via
     return out
 
 
@@ -13315,7 +13410,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 pass
         if _drift_due:
             try:
-                payload['drift'] = compute_drift_report(watched_files)
+                _drift_pats = {}
+                payload['drift'] = compute_drift_report(watched_files, _drift_pats)
+                if _drift_pats:
+                    payload['drift_patterns'] = _drift_pats
                 log.debug(f'Drift report: hashed {len(payload["drift"])} files')
             except Exception as e:
                 log.debug(f'Drift report error: {e}')

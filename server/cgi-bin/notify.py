@@ -788,7 +788,11 @@ def _webhook_message(event, payload):
         sec_str = ", ".join(sections[:5]) if sections else "unknown"
         return f"{name}: host config drift in {sec_str}"
     elif event == "drift_detected":
-        verb = "removed" if not payload.get("exists", True) else "changed"
+        verb = (
+            "removed"
+            if not payload.get("exists", True)
+            else "added" if payload.get("reason") == "file_added" else "changed"
+        )
         return f'{name}: watched file {payload.get("path", "?")} {verb}'
     elif event == "tls_expiry":
         host = payload.get("host", "?")
