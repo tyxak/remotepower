@@ -8289,6 +8289,9 @@ async function upgradePackages(id, name) {
 // DELETEs the overrides so the device falls back to fleet-wide defaults.
 
 let _currentMetricThresholdsDevice = null;
+// The keys this host had its own value for when the editor opened. A field emptied since
+// then is sent as null, so the override is removed rather than silently kept.
+let _metricThresholdsHad = new Set();
 
 async function openMetricThresholds(id, name) {
   _currentMetricThresholdsDevice = id;
@@ -8299,7 +8302,8 @@ async function openMetricThresholds(id, name) {
 
   // Clear the form before loading — avoids flashing stale values
   ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit',
-   'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit']
+   'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit','mailq-warn','mailq-crit',
+   'nic-err','nic-drop']
     .forEach(k => {
       const el = document.getElementById('thr-' + k);
       if (el) el.value = '';
@@ -8316,10 +8320,12 @@ async function openMetricThresholds(id, name) {
   // the user can see at a glance what's customised vs. inherited.
   const o = data.overrides || {};
   const d = data.defaults  || {};
+  _metricThresholdsHad = new Set(Object.keys(o));
 
   const fillField = (fieldId, key) => {
     const el = document.getElementById(fieldId);
-    el.placeholder = String(d[key]);
+    // The fleet's drop floor is null while errors and drops are added together: no number to show.
+    el.placeholder = d[key] == null ? '' : String(d[key]);
     el.value = (key in o) ? String(o[key]) : '';
   };
   fillField('thr-mem-warn',  'mem_warn_percent');
@@ -8338,6 +8344,9 @@ async function openMetricThresholds(id, name) {
   // v4.2.0 sweep: mail-queue depth (message counts)
   fillField('thr-mailq-warn',    'mailq_warn_count');
   fillField('thr-mailq-crit',    'mailq_crit_count');
+  // v7.4.1 (#37): NIC error and drop floors (counts per report)
+  fillField('thr-nic-err',       'nic_err_alert_min');
+  fillField('thr-nic-drop',      'nic_drop_alert_min');
 
   // Per-mount overrides
   const perMount = (o.disk_per_mount || {});
@@ -8388,11 +8397,16 @@ async function saveMetricThresholds() {
 
   const payload = {};
 
+  // A box with a value is sent as that number. An empty box that had an override when the
+  // editor opened is sent as null, which removes it; an empty box that never had one is left out.
+  const readOne = (id, key) => {
+    const v = document.getElementById(id).value.trim();
+    if (v !== '') payload[key] = parseFloat(v);
+    else if (_metricThresholdsHad.has(key)) payload[key] = null;
+  };
   const readPair = (warnId, critId, warnKey, critKey) => {
-    const w = document.getElementById(warnId).value.trim();
-    const c = document.getElementById(critId).value.trim();
-    if (w !== '') payload[warnKey] = parseFloat(w);
-    if (c !== '') payload[critKey] = parseFloat(c);
+    readOne(warnId, warnKey);
+    readOne(critId, critKey);
   };
   readPair('thr-mem-warn',  'thr-mem-crit',  'mem_warn_percent',   'mem_crit_percent');
   readPair('thr-swap-warn', 'thr-swap-crit', 'swap_warn_percent',  'swap_crit_percent');
@@ -8402,6 +8416,7 @@ async function saveMetricThresholds() {
   readPair('thr-snmp-cpu-warn', 'thr-snmp-cpu-crit', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent');
   readPair('thr-temp-warn',     'thr-temp-crit',     'temp_warn_celsius',     'temp_crit_celsius');
   readPair('thr-mailq-warn',    'thr-mailq-crit',    'mailq_warn_count',      'mailq_crit_count');
+  readPair('thr-nic-err',       'thr-nic-drop',      'nic_err_alert_min',     'nic_drop_alert_min');
 
   // Per-mount overrides
   const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');

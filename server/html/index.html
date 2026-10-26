@@ -10031,6 +10031,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <input type="number" class="form-input" id="thr-mailq-crit" min="1" max="1000000" placeholder="500" aria-label="500">
     </div>
 
+    <!-- v7.4.1 (#37): the NIC error and drop floors for this host -->
+    <div class="isl-198">
+      <div class="isl-199">NIC errors and drops</div>
+      <div class="isl-200">New errors or drops on one interface between two reports before an alert. The first box is errors, the second is drops. Leave a box blank to follow the fleet setting under Settings, Alert parameters. A drop floor of 0 turns drop alerts off for this host.</div>
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">NIC floors (errors, drops)</label>
+      <input type="number" class="form-input" id="thr-nic-err" min="1" max="100000" aria-label="NIC error floor">
+      <input type="number" class="form-input" id="thr-nic-drop" min="0" max="100000" aria-label="NIC drop floor">
+    </div>
+
     <div class="isl-198">
       <div class="isl-199">Per-mount disk overrides</div>
       <div class="isl-200">Different thresholds for specific mount points. Useful when /var fills with logs (lower threshold) or /backup is meant to fill (higher threshold).</div>

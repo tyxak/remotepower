@@ -10508,6 +10508,13 @@ def _nic_fleet_floors(cfg):
     return err, drop
 
 
+def _is_nic_floor(v, lo):
+    """A host's own NIC floor: a whole number from `lo` to 100000. A bool is not a number
+    here, and 5.7 is refused rather than quietly stored as 5."""
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and float(v).is_integer() and lo <= v <= 100000)
+
+
 def _nic_alert_detail(iface, breach):
     """The nic_errors alert line. It names what rose and does not blame the cable for
     drops: a media server dropping packets while it streamed was told "a failing cable,
@@ -15592,10 +15599,17 @@ def handle_device_metric_thresholds(dev_id):
                   'temp_warn_celsius',     'temp_crit_celsius'):
             if k in overrides:
                 effective[k] = overrides[k]
+        # v7.4.1 (#37): the NIC floors. `defaults` carries the FLEET's values (Settings →
+        # Alert parameters), which is what a host with none of its own falls back to;
+        # a drops floor of None means errors and drops are added, shown as null.
+        _fleet_err, _fleet_drop = _nic_fleet_floors(_config_ro())
+        effective['nic_err_alert_min'], effective['nic_drop_alert_min'] = \
+            checks_mod.nic_floors(dev, _fleet_err, _fleet_drop)
         respond(200, {
             'overrides': overrides,
             'effective': effective,
-            'defaults':  DEFAULT_METRIC_THRESHOLDS,
+            'defaults':  dict(DEFAULT_METRIC_THRESHOLDS, nic_err_alert_min=_fleet_err,
+                              nic_drop_alert_min=_fleet_drop),
             # v6.4.2: sensors this device's operator has taken out of the
             # temperature picture (a dead/unconnected board pin). Kept OUT of
             # `overrides` so a DELETE — "reset my thresholds" — does not also
@@ -15616,6 +15630,33 @@ def handle_device_metric_thresholds(dev_id):
 
     body = _read_valid(request_models.DeviceMetricThresholdsRequest)
     overrides = dev.get('metric_thresholds') or {}
+
+    # v7.4.1: a null removes that one override, so the host follows the default (or, for
+    # the NIC floors, the fleet setting) again. The editor used to ignore a field you
+    # emptied, and "Reset to defaults" was the only way back, which also threw away
+    # every other override on the host. A drop floor of 0 is a value (drop alerts off),
+    # so blank and 0 have to be told apart.
+    for k in ('disk_warn_percent', 'disk_crit_percent', 'mem_warn_percent', 'mem_crit_percent',
+              'swap_warn_percent', 'swap_crit_percent', 'cpu_warn_load_ratio',
+              'cpu_crit_load_ratio', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent',
+              'temp_warn_celsius', 'temp_crit_celsius', 'mailq_warn_count', 'mailq_crit_count',
+              'nic_err_alert_min', 'nic_drop_alert_min'):
+        if k in body and body[k] is None:
+            overrides.pop(k, None)
+            del body[k]
+
+    # NIC floors for this host: new errors or drops on one interface between two reports
+    # (issue #37). The errors floor is at least 1. The drops floor may be 0, which turns
+    # drop alerts off for this host.
+    for k, lo in (('nic_err_alert_min', 1), ('nic_drop_alert_min', 0)):
+        if k in body:
+            v = body[k]
+            if not _is_nic_floor(v, lo):
+                # Fixed sentences, so the dashboard can translate them (see the server-messages gate).
+                if k == 'nic_err_alert_min':
+                    respond(400, {'error': 'The NIC error floor must be a whole number from 1 to 100000'})
+                respond(400, {'error': 'The NIC drop floor must be a whole number from 0 to 100000'})
+            overrides[k] = int(v)
 
     # Percentage thresholds (1-99 — 0 and 100 don't make sense as alerts)
     pct_keys = ('disk_warn_percent', 'disk_crit_percent',
@@ -15826,6 +15867,16 @@ def _validate_device_profile(body):
             if not (lo <= v <= hi):
                 respond(400, {'error': f'{k} must be {lo}–{hi} ({unit})'})
             clean[k] = float(v)
+        # v7.4.1 (#37): the NIC floors are counts, not percentages. 0 on the drops floor
+        # turns drop alerts off for the hosts the profile is applied to.
+        for k, lo in (('nic_err_alert_min', 1), ('nic_drop_alert_min', 0)):
+            if k in mt:
+                v = mt[k]
+                if not _is_nic_floor(v, lo):
+                    if k == 'nic_err_alert_min':
+                        respond(400, {'error': 'The NIC error floor must be a whole number from 1 to 100000'})
+                    respond(400, {'error': 'The NIC drop floor must be a whole number from 0 to 100000'})
+                clean[k] = int(v)
         # v6.4.3: warn must be BELOW crit. The per-device PATCH has always
         # enforced this; the profile path did not, so a profile with
         # mem_warn=90 / mem_crit=50 was accepted and stamped across the fleet —
