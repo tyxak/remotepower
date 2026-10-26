@@ -94,6 +94,55 @@ mistake: two places that should agree about one thing, and do not.
   with the drawer open, Escape left focus on the page itself and a keyboard user
   lost their place in the list. The drawer now finds the same host's button in
   the rebuilt list.
+- **Choosing "Recurring (cron)" in a maintenance window shows the cron field and
+  the duration.** The form kept them in a row that carries the `d-none` class and
+  tried to show it with `style.display = ''`, which only clears the inline
+  property, so the class kept the row hidden. A recurring window could not be made
+  from the form, and editing one showed neither its cron expression nor its
+  length. (#41)
+- **Ten more things that stayed hidden now show.** The same write hid steps 2 and
+  3 of the ACME issue wizard, the Timeline and Logs tabs of a certificate, the AI
+  Conversation tab on the IaC page, the file-path field of a log alert rule (a
+  rule could not be pointed at a file from the form) and the two hints beside the
+  rule's fields, and the "saved" badges beside the SMTP and LDAP passwords. Each
+  was measured in a browser on the old code. (#41)
+- **The sign-in page shows only the sign-in methods the server has turned on.**
+  The SSO, SAML and passkey buttons carry a class that hides them until the
+  server says the method is on, and a later style rule overrode it, so every
+  install drew all three whether it had set them up or not. The same override left
+  `d-none` powerless on the Back and Issue buttons of the ACME wizard, which only
+  worked because a script wrote an inline display. A hidden control stays hidden
+  now; a script that sets its display still shows it. (#41)
+- **The check that was meant to catch this now does.** It matched only a literal
+  `style.display = ''`, 4 of the 31 writes that can be blank, and none of the
+  elements that were broken. It reads every write that can be blank, resolves the
+  element it points at (by id, through a variable, or through a class selector)
+  and fails when the markup or the stylesheet hides that element. A second test
+  measures, over the whole page in a browser, that nothing carrying `d-none` is
+  drawn. (#41)
+
+### AI assistant
+
+- **A reasoning-effort setting turns a thinking model's thinking off.** Settings,
+  AI assistant has **Reasoning effort**: the provider's default, none, low, medium
+  or high. It goes out as `reasoning_effort` with requests to OpenAI, DeepSeek,
+  Ollama and LocalAI. Ollama only stops a thinking model when it gets
+  `reasoning_effort: "none"`; a `/no_think` line in the prompt does not, and
+  RemotePower never sent the field, so a model could spend its whole token
+  allowance thinking and return nothing. A prompt can set its own value under
+  Fine-tuning, and it wins over the setting. Left on the default, nothing is sent
+  and the requests are the same as before. Anthropic, opencode and openclaw have
+  no such field and never get one. (#40)
+- **An empty answer that stopped at the token limit says why.** A thinking model
+  that used the whole allowance reasoning left Mitigate saying "the response was
+  empty". It now says the model reached the token limit and points at the
+  setting. A partial answer that stopped at the limit is shown as before. (#40)
+- **Fine-tuning reaches Mitigate, alert triage and the log sweep.** The maximum
+  tokens, temperature, top_p and context size you saved for these prompts were
+  read from the wrong place in the configuration, so they never applied to the 19
+  prompts that go through that route (alert triage, the log sweep and the 17
+  Mitigate prompts). They apply now, so a value you saved earlier takes effect on
+  the next run. (#40)
 
 ### Alerts
 

@@ -18,6 +18,7 @@ Measured in a real browser on a seeded instance, with the controls a person uses
 
 The source half is test_v741_display_reveal. Self-skips without playwright/chromium/gunicorn.
 """
+import json
 import os
 import subprocess
 import sys
@@ -161,6 +162,54 @@ class TestSignInPage(_Base):
         self.assertTrue(carrying, 'no sign-in button carries d-none on the seeded instance: %s' % info)
         drawn = {k: v for k, v in carrying.items() if v['display'] != 'none' or v['w'] or v['h']}
         self.assertEqual(drawn, {}, 'a hidden sign-in button is drawn: %s' % drawn)
+
+
+    def sign_in_page_with(self, **flags):
+        """A fresh sign-in page whose public-info reply says which methods are on."""
+        page = _STACK['browser'].new_page(viewport={'width': 1440, 'height': 900})
+        page.set_default_timeout(15000)
+
+        def patch(route):
+            resp = route.fetch()
+            info = resp.json()
+            info.update(flags)
+            route.fulfill(response=resp, body=json.dumps(info))
+        page.route('**/api/public-info', patch)
+        try:
+            page.goto(self.base + '/index.html')
+            page.wait_for_selector('#login-form', state='visible', timeout=60000)
+            page.wait_for_timeout(2500)
+            return page.evaluate(_SIGNIN_JS, list(_LOGIN_BUTTONS)), page.evaluate(
+                "() => getComputedStyle(document.getElementById('login-sso-divider')).display")
+        finally:
+            page.close()
+
+    def test_a_method_the_server_turns_on_still_shows_its_button(self):
+        """The rule that keeps a hidden button hidden must not keep a revealed one hidden: the page
+        removes d-none when public-info says the method is on."""
+        info, divider = self.sign_in_page_with(oidc_enabled=True, saml_enabled=True, webauthn_enabled=True)
+        for name, state in info.items():
+            with self.subTest(button=name):
+                self.assertFalse(state['dnone'], '%s kept d-none although the server turned it on' % name)
+                self.assertNotEqual(state['display'], 'none')
+                self.assertGreater(state['w'] * state['h'], 0)
+        self.assertEqual(divider, 'flex', 'the divider above the extra sign-in methods is not shown')
+
+    def test_with_every_method_off_none_is_drawn_and_neither_is_the_divider(self):
+        info, divider = self.sign_in_page_with(oidc_enabled=False, saml_enabled=False, webauthn_enabled=False)
+        for name, state in info.items():
+            with self.subTest(button=name):
+                self.assertEqual((state['display'], state['w'], state['h']), ('none', 0, 0))
+        self.assertEqual(divider, 'none')
+
+    def test_each_method_is_shown_on_its_own(self):
+        for flag, button in (('oidc_enabled', 'login-oidc-btn'), ('saml_enabled', 'login-saml-btn'),
+                             ('webauthn_enabled', 'login-passkey-btn')):
+            with self.subTest(method=flag):
+                flags = {'oidc_enabled': False, 'saml_enabled': False, 'webauthn_enabled': False, flag: True}
+                info, _ = self.sign_in_page_with(**flags)
+                drawn = sorted(k for k, v in info.items() if v['display'] != 'none')
+                self.assertEqual(drawn, [button])
 
 
 class TestMaintenanceWindowForm(_Base):

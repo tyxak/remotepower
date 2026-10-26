@@ -552,6 +552,7 @@ Version tags such as *(v7.2.0)* mark features added in the last three releases. 
 | Rate limiting | Per-user daily cap + per-response token cap |
 | Free-form chat | Multi-turn chat page with model picker + local history |
 | Local-model support | Ollama/LocalAI — no egress, no API key; shows loaded models + VRAM |
+| Reasoning effort | Settings → AI assistant, or per prompt under Fine-tuning: provider default (nothing sent), `none`, `low`, `medium` or `high`, sent as `reasoning_effort` on OpenAI, DeepSeek, Ollama and LocalAI requests. `none` is what stops an Ollama thinking model from spending the whole token allowance reasoning; an empty reply that hit the token limit names the setting; [ai.md](ai.md) *(v7.4.1)* |
 | RAG over your fleet | Cited `<retrieved_context>` from **34 sources** — host state, services, CVEs, containers, firewall/fail2ban, integrations, backups, DNS/email, security posture, CMDB, runbooks, commands, alerts, tickets, knowledge base, **provisioning blueprints, rollouts and network topology**, the **internal contact directory, status-page incidents, maintenance windows and your saved scripts (bodies scrubbed of inline secrets)**, and the advisor-grounding set: **resolved-incident memory, container-image CVEs, OpenSCAP results, security findings, automation rules, hardware inventory, billing/time, applied remediations, config-revision history, the privileged-command (sudo) trail, controller self-observability and physical/IPAM inventory**, product docs; BM25 lexical + optional semantic (RRF); vault never indexed |
 
 ## MCP server

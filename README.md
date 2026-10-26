@@ -204,7 +204,9 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   port, and enrolling a host again restarts its agent. The browser terminal and
   the file manager work in the Docker image. A host's poll interval goes down to
   10 seconds, and the sidebar stays open on a touch screen. NIC errors and drops
-  have floors of their own, and drift watches can be folders and patterns.
+  have floors of their own, and drift watches can be folders and patterns. A
+  reasoning-effort setting turns a thinking model's thinking off, and a recurring
+  maintenance window can be made from the form again.
 - **v7.4.0 "F1nishMatters"** — a release about finish. What is already there
   reads, looks and behaves better in every theme and every language, and each fix
   comes with a check that keeps it fixed. One thing is new: threat intel can read

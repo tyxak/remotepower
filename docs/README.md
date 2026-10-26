@@ -84,7 +84,9 @@ holds long-form docs that don't fit there.
   install of 7.4.0 ran into: enrolling against a self-signed server on any port,
   a restart when a host is enrolled again, the browser terminal in the image, a
   10-second poll interval per host, a sidebar that stays open on touch, NIC drop
-  floors, and folders and patterns in the drift watch.
+  floors, folders and patterns in the drift watch, a reasoning-effort setting for
+  thinking models, and a recurring maintenance window that can be made from the
+  form again.
 - **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot
