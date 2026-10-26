@@ -3806,11 +3806,16 @@
               <input type="number" id="ap-nic-err-min" class="form-input isl-80" min="1" max="100000" placeholder="5">
             </div>
             <div class="form-group">
+              <label for="ap-nic-drop-min" class="form-label">NIC drop floor</label>
+              <input type="number" id="ap-nic-drop-min" class="form-input isl-80" min="0" max="100000">
+            </div>
+            <div class="form-group">
               <label for="ap-clock-skew-ms" class="form-label">Clock skew (ms)</label>
               <input type="number" id="ap-clock-skew-ms" class="form-input isl-80" min="1" max="86400000" placeholder="1000">
             </div>
           </div>
           <p class="hint">New errors/drops on one interface in a single heartbeat before <code>nic_errors</code>; NTP offset before <code>clock_skew</code>.</p>
+          <p class="hint">Errors and drops are added together against the error floor. Set a drop floor to judge them apart: drops rise with traffic even on a healthy interface. 0 turns drop alerts off. A host can have its own floors under Metric thresholds.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 

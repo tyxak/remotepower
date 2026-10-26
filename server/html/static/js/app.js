@@ -22721,6 +22721,8 @@ function _renderProcessesFiltered() {
 // number falls back to the shown placeholder default on save.
 const _ALERT_PARAM_FIELDS = [
   ['ap-nic-err-min',               'nic_err_alert_min',          5],
+  // v7.4.1 (#37): blank judges drops with the errors, as before; 0 turns drop alerts off.
+  ['ap-nic-drop-min',              'nic_drop_alert_min',         ''],
   ['ap-snmp-fails',                'snmp_failures_before_alert', 2],
   ['ap-snmp-dead',                 'snmp_dead_threshold',        72],
   ['ap-metric-fails',              'metric_failures_before_alert', 1],
@@ -22966,7 +22968,7 @@ function _apMarkModified(el, dflt) {
     btn.className = 'btn-icon ap-reset';
     btn.setAttribute('data-action', 'apResetField');
     btn.setAttribute('data-arg', el.id);
-    btn.title = `Reset to default (${dflt})`;
+    btn.title = dflt === '' ? 'Reset to default (blank)' : `Reset to default (${dflt})`;
     btn.setAttribute('aria-label', 'Reset to default');
     btn.innerHTML = _icon('undo', 11);
     grp.appendChild(btn);

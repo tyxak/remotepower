@@ -373,7 +373,6 @@ def _host_checks(
     disk_encryption=False,
     secure_boot=False,
     drift_rec=None,
-    nic_err_min=5,
     nic_drop_min=None,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
@@ -631,7 +630,7 @@ def _host_checks(
     # "any", the row being the early warning the alert's floor is not.
     nics = si.get("network_io")
     if isinstance(nics, list):
-        _, row_drop_min = nic_floors(dev, nic_err_min, nic_drop_min)
+        _, row_drop_min = nic_floors(dev, 1, nic_drop_min)
         bad = []
         for n in nics:
             hit = nic_breach(n, 1, row_drop_min) if isinstance(n, dict) else None

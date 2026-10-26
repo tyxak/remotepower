@@ -28567,6 +28567,7 @@ def handle_config_get():
     # but had no UI (operators had to hand-edit config.json). Defaults mirror the
     # code constants so an unconfigured server renders the effective value.
     safe.setdefault('nic_err_alert_min', _NIC_ERR_ALERT_MIN)        # NIC err/drop floor per beat
+    safe.setdefault('nic_drop_alert_min', '')                       # blank = judge drops with the errors
     safe.setdefault('snmp_dead_threshold', _SNMP_DEAD_THRESHOLD)    # consecutive SNMP fails → dead
     safe.setdefault('temp_alert_threshold_c', 85)                   # temp_high °C
     safe.setdefault('clock_skew_threshold_ms', 1000)               # clock_skew ms
@@ -30123,6 +30124,9 @@ def handle_config_save():
     # constants, never 0, so they keep a floor of 1.
     for _tk, _lo, _hi, _blankable in (
         ('nic_err_alert_min',         1,   100000, True),
+        # v7.4.1 (#37): a floor for drops of their own. Blank keeps errors and
+        # drops added together against the one above; 0 turns drop alerts off.
+        ('nic_drop_alert_min',        0,   100000, True),
         ('snmp_dead_threshold',       1,   100000, True),
         ('temp_alert_threshold_c',    0,   200,    True),
         ('clock_skew_threshold_ms',   0,   86400000, True),
@@ -49162,9 +49166,10 @@ def _checks_threshold_kwargs(cfg):
         # the two above — an operator who wants LUKS warnings has not asked to
         # be told about every host running DKMS modules.
         'secure_boot':               bool(cfg.get('secure_boot_checks', False)),
-        # v7.4.1 (#37): the fleet's NIC floors. A host's own, in its
-        # metric_thresholds, are applied inside the engine (checks.nic_floors).
-        'nic_err_min':               _nic_fleet_floors(cfg)[0],
+        # v7.4.1 (#37): the fleet's drops floor (None = judge drops with errors). A
+        # host's own is applied inside the engine (checks.nic_floors). The errors
+        # floor is not threaded in: the row warns on any error, and only the alert
+        # and the reliability score use that floor.
         'nic_drop_min':              _nic_fleet_floors(cfg)[1],
     }
 

@@ -337,12 +337,10 @@ class TestReliabilityAndCheckRow(_Base):
         self.assertIn("+2 errors, +40 drops", rows[0]["output"])
 
     def test_the_fleet_floors_reach_the_checks_engine_through_the_shared_kwargs(self):
-        kw = api._checks_threshold_kwargs({"nic_err_alert_min": 9, "nic_drop_alert_min": 300})
-        self.assertEqual((kw["nic_err_min"], kw["nic_drop_min"]), (9, 300))
-        kw = api._checks_threshold_kwargs({})
-        self.assertEqual((kw["nic_err_min"], kw["nic_drop_min"]), (api._NIC_ERR_ALERT_MIN, None))
-        kw = api._checks_threshold_kwargs({"nic_err_alert_min": "x", "nic_drop_alert_min": "-4"})
-        self.assertEqual((kw["nic_err_min"], kw["nic_drop_min"]), (api._NIC_ERR_ALERT_MIN, None))
+        self.assertEqual(api._checks_threshold_kwargs({"nic_drop_alert_min": 300})["nic_drop_min"], 300)
+        self.assertIsNone(api._checks_threshold_kwargs({})["nic_drop_min"])
+        self.assertIsNone(api._checks_threshold_kwargs({"nic_drop_alert_min": "-4"})["nic_drop_min"])
+        self.assertEqual(api._checks_threshold_kwargs({"nic_drop_alert_min": 0})["nic_drop_min"], 0)
 
 
 if __name__ == "__main__":

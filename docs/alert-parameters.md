@@ -69,7 +69,23 @@ data stale (s).
 
 When interface errors and clock drift count as a problem.
 
-Fields: NIC error floor, Clock skew (ms).
+Fields: NIC error floor, NIC drop floor, Clock skew (ms).
+
+The NIC floors count new errors or drops on one interface between two reports.
+Errors point to a failing cable, a dirty SFP or a dying switch port, so the error
+floor is low. Drops rise with traffic on a healthy interface (a media server can
+drop dozens of packets a second while it streams), so they can have a floor of
+their own.
+
+- Leave the drop floor blank and errors and drops are added together against the
+  error floor, as before.
+- Set it and they are judged apart: errors against the error floor, drops against
+  the drop floor.
+- 0 turns drop alerts off.
+
+A host can have its own floors under Metric thresholds. When a report is late
+because the server was down, the counts are scaled back to what a normal gap would
+have collected, so a restart does not look like a burst.
 
 ### Hardware & power
 

@@ -898,8 +898,13 @@ def handle_threshold_preview():
                                hw_all, cve_all, eta_all, now, ttl)
     worse, better = {}, {}
     for did, rows in after.items():
-        for key, status in rows.items():
-            was = (before.get(did) or {}).get(key)
+        # A row some checks only emit while they are bad (nic_errors) is ABSENT when the
+        # host is fine, so walking `after` alone never sees it vanish. Walk the union and
+        # read an absent row as "not breaching".
+        before_rows = before.get(did) or {}
+        for key in set(rows) | set(before_rows):
+            status = rows.get(key)
+            was = before_rows.get(key)
             if was == status:
                 continue
             name = (devices.get(did) or {}).get('name', did)
