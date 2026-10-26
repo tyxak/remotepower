@@ -651,6 +651,9 @@ class TestTheScreens(unittest.TestCase):
 
     def test_a_prompts_fine_tuning_has_the_select_and_sends_null_for_blank(self):
         self.assertIn('data-field="reasoning-effort"', APP_AI)
+        # a select with no accessible name is a critical axe finding, and there is one per prompt (70)
+        self.assertIn('<label class="isl-666" for="ai-reasoning-${escAttr(p.key)}">', APP_AI)
+        self.assertIn('<select id="ai-reasoning-${escAttr(p.key)}" class="form-input fs-12" data-field="reasoning-effort">', APP_AI)
         self.assertIn("reasoning_effort: _v('[data-field=\"reasoning-effort\"]')", APP_AI)
         self.assertIn('|| !!params.reasoning_effort', APP_AI)       # a set value opens the Fine-tuning box
         m = re.search(r'data-field="reasoning-effort">(.*?)</select>', APP_AI, re.S)

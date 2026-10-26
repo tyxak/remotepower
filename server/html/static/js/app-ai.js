@@ -1701,8 +1701,8 @@ async function loadAiPrompts() {
             <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx fs-12" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
           </div>
           <div>
-            <label class="isl-666">Reasoning effort (OpenAI-compatible)</label>
-            <select class="form-input fs-12" data-field="reasoning-effort">
+            <label class="isl-666" for="ai-reasoning-${escAttr(p.key)}">Reasoning effort (OpenAI-compatible)</label>
+            <select id="ai-reasoning-${escAttr(p.key)}" class="form-input fs-12" data-field="reasoning-effort">
               <option value="" ${lvl === '' ? 'selected' : ''}>Use the global setting</option>
               <option value="none" ${lvl === 'none' ? 'selected' : ''}>None (turn thinking off)</option>
               <option value="low" ${lvl === 'low' ? 'selected' : ''}>Low</option>
