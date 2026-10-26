@@ -498,37 +498,21 @@ class TestCSPMigrationFidelity(unittest.TestCase):
         was `style.display = ''`. Operators see: panel content never
         appears after clicking the tab/button.
 
-        This test catches the `document.getElementById('X').style.display = ''`
-        form where X is in HTML with a class that has display:none. The
-        variable form (`section.style.display = ''`) can't be statically
-        resolved, but `style.display = 'block'` (or 'flex'/'inline-block')
-        is the universal correct reveal — make sure ANY .style.display
-        empty-string reveal is on an element with no display:none class."""
-        import re
-        html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
-        css  = (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
-        js   = client_js()
-
-        hidden_classes = set(re.findall(
-            r'\.([a-z][a-z0-9_-]*)\s*\{[^}]*display\s*:\s*none[^}]*\}', css))
-        id_classes = {}
-        for m in re.finditer(r'<[a-z][^>]*\bid="([^"]+)"[^>]*>', html):
-            cm = re.search(r'\bclass="([^"]+)"', m.group(0))
-            if cm:
-                id_classes[m.group(1)] = cm.group(1).split()
-
-        bugs = []
-        for m in re.finditer(
-                r"document\.getElementById\(['\"]([^'\"]+)['\"]\)"
-                r"\.style\.display\s*=\s*['\"][\"\']", js):
-            elid = m.group(1)
-            hidden = [c for c in id_classes.get(elid, []) if c in hidden_classes]
-            if hidden:
-                line = js[:m.start()].count('\n') + 1
-                bugs.append(f'app.js:{line}  #{elid} hidden by class {hidden}')
+        The scan lives in tests/display_writes.py (its controls are in
+        test_v741_display_reveal). This test used to match only a literal
+        `= ''`: 4 of the 31 writes that can be blank, and none of the 11
+        elements that were broken, which were all written `cond ? '' : 'none'`.
+        It now reads every write that can be blank, resolves a literal id, a
+        variable bound to one and a class-selector loop, and checks the markup."""
+        import display_writes as dw
+        js, html, css = dw.shipped_sources()
+        r = dw.scan(js, html, css)
+        bugs = ['%s:%d  %s hidden by class %s' % v for v in r['violations']
+                if (v[0], v[2]) not in dw.ALLOW]
         self.assertEqual(bugs, [],
-            'Empty-string display reveal against display:none class — use explicit '
-            '"block" / "flex" / "inline-block" instead:\n  ' + '\n  '.join(bugs))
+            'Empty-string display reveal against display:none class — toggle the '
+            'd-none class, or use explicit "block" / "flex" / "inline-block":\n  '
+            + '\n  '.join(bugs))
 
     # ── 14. <a href="#"> with data-action but no data-prevent-default ──────
     def test_data_action_anchors_have_prevent_default(self):

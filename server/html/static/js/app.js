@@ -5510,7 +5510,7 @@ async function loadSettings() {
   document.getElementById('cfg-smtp-password').value  = '';  // never echo back
   document.getElementById('cfg-smtp-helo').value      = data.smtp_helo_name || '';
   document.getElementById('cfg-smtp-recipients').value = data.smtp_recipients || '';
-  document.getElementById('cfg-smtp-pw-set-badge').style.display = data.smtp_password_set ? '' : 'none';
+  document.getElementById('cfg-smtp-pw-set-badge').classList.toggle('d-none', !data.smtp_password_set);
   // v3.0.3: surface the RP_SMTP_PASSWORD env-var override status. Same
   // pattern as proxmox_token_secret_from_env (v2.3.1).
   {
@@ -5537,7 +5537,7 @@ async function loadSettings() {
   document.getElementById('cfg-ldap-admin-group').value  = data.ldap_admin_group || '';
   document.getElementById('cfg-ldap-tls-verify').checked = data.ldap_tls_verify !== false;
   document.getElementById('cfg-ldap-timeout').value      = data.ldap_timeout || 5;
-  document.getElementById('cfg-ldap-pw-set-badge').style.display = data.ldap_bind_password_set ? '' : 'none';
+  document.getElementById('cfg-ldap-pw-set-badge').classList.toggle('d-none', !data.ldap_bind_password_set);
   // v3.0.3: RP_LDAP_BIND_PASSWORD env-var override status.
   {
     const ldapPwEl = document.getElementById('cfg-ldap-bind-password');
@@ -12830,8 +12830,11 @@ function onMaintScopeChange() {
 
 function onMaintTypeChange() {
   const t = document.getElementById('maint-type').value;
-  document.getElementById('maint-oneshot-row').style.display = (t === 'oneshot') ? '' : 'none';
-  document.getElementById('maint-cron-row').style.display    = (t === 'cron')    ? '' : 'none';
+  // #maint-cron-row starts hidden with the d-none class. Writing style.display = ''
+  // only clears the inline property, so the class kept the row hidden and picking
+  // "Recurring (cron)" showed neither the cron field nor the duration (#41).
+  document.getElementById('maint-oneshot-row').classList.toggle('d-none', t !== 'oneshot');
+  document.getElementById('maint-cron-row').classList.toggle('d-none', t !== 'cron');
 }
 
 // Weekly day-picker → cron string in #maint-cron (server cron is day-of-week 0-6).

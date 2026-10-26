@@ -4763,6 +4763,14 @@ body.sidebar-collapsed.sidebar-alert-pinned .sidebar .nav-fav-empty { display: b
  * `.d-none` and left filtered rows visible (the count + Select-all disagreed
  * with the screen). Scope the !important to those rows only — never globally. */
 .cs-device-row.d-none { display: none !important; }
+/* Two later rules also out-rank the plain `.d-none` for a control: the row rule that
+ * gives a button in a toolbar or modal footer `display: inline-flex` (two classes of
+ * specificity) and `.login-btn-oidc { display: block }`. So the Back and Issue buttons
+ * of the ACME wizard, and the SSO, SAML and passkey buttons on the sign-in page, were
+ * shown with `d-none` on them. The doubled class lifts this rule above both, in any
+ * order. It stays non-!important for the same reason as `.d-none`: an inline display
+ * written by a script still shows the control. */
+:is(.btn, .btn-icon, .btn-secondary, .btn-primary, .login-btn).d-none.d-none { display: none; }
 .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .w-full { width: 100%; }
 .flex-1 { flex: 1; }
@@ -4988,7 +4996,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-33 { display:flex; align-items:center; gap:8px; margin-bottom:14px; cursor:pointer }
 .isl-34 { width:18px; height:18px; accent-color:var(--accent) }
 .isl-35 { flex:2 }
-.isl-36 { font-size:11px; color:var(--green-ink); display:none }
+.isl-36 { font-size:11px; color:var(--green-ink) }
 .isl-37 { font-size:11px; color:var(--green-ink); margin-top:4px; display:none }
 .isl-38 { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap }
 .isl-39 { flex:1; min-width:240px }
@@ -5092,7 +5100,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-96 { width:100%; min-height:70px; font-family:var(--font-mono); font-size:12px; resize:vertical }
 .isl-97 { display:flex; gap:8px; flex-direction:column }
 .isl-98 { width:100%; background:var(--accent2) }
-.isl-99 { display:none; margin-top:10px }
 .isl-100 { color:var(--muted); font-size:13px }
 .isl-101 { font-size:12px; padding:4px 10px }
 .isl-102 { display:flex; flex-direction:column; gap:12px; max-width:920px }
@@ -5271,7 +5278,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 /* v6.4.0 box-overflow: the ACME timeline + logs panes grow one row per cert
    event / acme.sh run and sat inside an overflow:hidden modal — cap + scroll
    internally instead of clipping (box-overflow rule). */
-.isl-252 { font-size:13px; min-height:240px; max-height:52vh; overflow-y:auto; display:none }
+.isl-252 { font-size:13px; min-height:240px; max-height:52vh; overflow-y:auto }
 .isl-253 { min-height:280px }
 /* v6.4.0 box-overflow: outer stacks that grow one card/table PER DEVICE (command
    queue) or PER INSTANCE (PBS datastores) — the inner tables are each capped,
@@ -5305,8 +5312,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-279 { justify-content:space-between }
 .isl-280 { display:none; color:var(--red-ink); border-color:rgba(239,68,68,0.3) }
 .isl-281 { font-size:11px; color:var(--muted); margin:4px 0 8px; display:none }
-.isl-282 { display:none; font-size:12px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:10px; border-radius:6px }
-.isl-283 { display:none; font-size:11px; color:var(--muted) }
+.isl-282 { font-size:12px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:10px; border-radius:6px }
+.isl-283 { font-size:11px; color:var(--muted) }
 .isl-284 { display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:13px }
 .isl-285 { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; max-height:200px; overflow-y:auto }
 .isl-286 { font-size:16px; text-align:center; max-width:80px }

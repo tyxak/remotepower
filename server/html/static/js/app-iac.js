@@ -174,8 +174,8 @@ function _iacSavePref() {
 function _iacStatus(msg, cls='') {
   const el = document.getElementById('iac-status');
   if (!el) return;
-  el.style.display = msg ? '' : 'none';
-  el.className = 'iac-status ' + cls;
+  // The class list is rebuilt on every call, so the hidden state travels with it.
+  el.className = 'iac-status ' + cls + (msg ? '' : ' d-none');
   el.textContent = msg;
 }
 
@@ -377,8 +377,9 @@ async function _iacRerunAi(btn) {
 }
 
 function _iacSwitchTab(tab) {
-  document.getElementById('iac-code-output').style.display  = tab === 'code'  ? '' : 'none';
-  document.getElementById('iac-convo-output').style.display = tab === 'convo' ? '' : 'none';
+  // The conversation pane starts hidden with d-none; style.display = '' never showed it.
+  document.getElementById('iac-code-output').classList.toggle('d-none', tab !== 'code');
+  document.getElementById('iac-convo-output').classList.toggle('d-none', tab !== 'convo');
   document.getElementById('iac-tab-btn-code').classList.toggle('active',  tab === 'code');
   document.getElementById('iac-tab-btn-convo').classList.toggle('active', tab === 'convo');
 }

@@ -1855,7 +1855,7 @@
                 <input type="text" id="cfg-smtp-username" class="form-input" autocomplete="off" placeholder="">
               </div>
               <div class="form-group flex-1">
-                <label for="cfg-smtp-password" class="form-label">Password <span id="cfg-smtp-pw-set-badge" class="isl-36"> · saved</span></label>
+                <label for="cfg-smtp-password" class="form-label">Password <span id="cfg-smtp-pw-set-badge" class="isl-36 d-none"> · saved</span></label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
                 <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_SMTP_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
                 <p class="hint isl-37" id="smtp-env-hint">✓ Password is currently being read from <code>RP_SMTP_PASSWORD</code>. The field above is ignored.</p>
@@ -2299,7 +2299,7 @@
               <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
             </div>
             <div class="form-group">
-              <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
+              <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36 d-none"> · saved</span></label>
               <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
               <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
               <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
@@ -4706,7 +4706,7 @@
               </button>
             </div>
 
-            <div id="iac-status" class="iac-status isl-99"></div>
+            <div id="iac-status" class="iac-status d-none"></div>
           </div>
 
           <!-- RIGHT panel: tabbed output -->
@@ -11416,8 +11416,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="drawer-tab-btn" id="acme-tab-btn-logs" role="tab" aria-selected="false" aria-controls="acme-detail-logs" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs"  tabindex="-1">Logs</button>
   </div>
   <div id="acme-detail-overview" class="acme-detail-pane isl-251" role="tabpanel" aria-labelledby="acme-tab-btn-overview"></div>
-  <div id="acme-detail-timeline" class="acme-detail-pane isl-252" role="tabpanel" aria-labelledby="acme-tab-btn-timeline"></div>
-  <div id="acme-detail-logs" class="acme-detail-pane isl-252" role="tabpanel" aria-labelledby="acme-tab-btn-logs"></div>
+  <div id="acme-detail-timeline" class="acme-detail-pane isl-252 d-none" role="tabpanel" aria-labelledby="acme-tab-btn-timeline"></div>
+  <div id="acme-detail-logs" class="acme-detail-pane isl-252 d-none" role="tabpanel" aria-labelledby="acme-tab-btn-logs"></div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="acme-detail-modal" >Close</button>
   </div>
@@ -11755,7 +11755,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="log-rule-modal-title" id="log-rule-modal"><div class="modal"><div class="modal-title" id="log-rule-modal-title">Add per-host log alert rule</div>
   <div class="isl-224">Matching log lines fire a <code>log_alert</code> webhook when the threshold is reached within a single agent submission (~5 min window).</div>
   <div class="form-group" id="log-rule-device-row"><label>Host</label><select id="log-rule-device" class="device-combo" aria-label="Host"></select></div>
-  <div class="form-group isl-282" id="log-rule-global-hint">
+  <div class="form-group isl-282 d-none" id="log-rule-global-hint">
     Fleet-wide rule: applies to every host that submits logs for this unit. Use <code>*</code> to match any unit on any host (useful for patterns like <code>OOMkilled</code>).
   </div>
   <div class="form-group">
@@ -11769,7 +11769,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </label>
     </div>
   </div>
-  <div class="form-group" id="log-rule-unit-row"><label>Unit <span id="log-rule-unit-hint" class="isl-283">(or <code>*</code> for any unit)</span></label><input type="text" id="log-rule-unit" placeholder="nginx.service" maxlength="128" aria-label="Unit (or * for any unit)"></div>
+  <div class="form-group" id="log-rule-unit-row"><label>Unit <span id="log-rule-unit-hint" class="isl-283 d-none">(or <code>*</code> for any unit)</span></label><input type="text" id="log-rule-unit" placeholder="nginx.service" maxlength="128" aria-label="Unit (or * for any unit)"></div>
   <div class="form-group d-none" id="log-rule-path-row">
     <label>File path</label>
     <input type="text" id="log-rule-path" placeholder="/var/log/myapp/application.log" maxlength="512" class="ff-mono" aria-label="File path">

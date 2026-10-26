@@ -832,8 +832,9 @@ async function acmeOpenDetail(devId, domain) {
 
 function acmeDetailTab(tab) {
   _syncTabs(document.querySelectorAll('#acme-detail-modal .drawer-tab-btn'), b => b.dataset.acmeTab === tab);
+  // The Timeline and Logs panes start hidden with d-none; style.display = '' would not show them.
   document.querySelectorAll('.acme-detail-pane').forEach(p =>
-    p.style.display = p.id === `acme-detail-${tab}` ? '' : 'none');
+    p.classList.toggle('d-none', p.id !== `acme-detail-${tab}`));
 }
 
 function _acmeRenderDetail(r) {
@@ -1028,17 +1029,19 @@ function acmeIssueStep(delta) {
 }
 
 function _acmeRenderStep() {
+  // Steps 2 and 3, Back and Issue start hidden with d-none, so they are shown by
+  // taking the class off; style.display = '' left all four hidden.
   document.querySelectorAll('.acme-step').forEach(el => {
-    el.style.display = parseInt(el.dataset.step) === _acmeIssueStep ? '' : 'none';
+    el.classList.toggle('d-none', parseInt(el.dataset.step) !== _acmeIssueStep);
   });
   document.querySelectorAll('.acme-step-pill').forEach(el => {
     const s = parseInt(el.dataset.step);
     el.classList.toggle('active', s === _acmeIssueStep);
     el.classList.toggle('done', s < _acmeIssueStep);
   });
-  document.getElementById('acme-issue-back').style.display = _acmeIssueStep > 1 ? '' : 'none';
-  document.getElementById('acme-issue-next').style.display = _acmeIssueStep < 3 ? '' : 'none';
-  document.getElementById('acme-issue-go').style.display   = _acmeIssueStep === 3 ? '' : 'none';
+  document.getElementById('acme-issue-back').classList.toggle('d-none', _acmeIssueStep <= 1);
+  document.getElementById('acme-issue-next').classList.toggle('d-none', _acmeIssueStep >= 3);
+  document.getElementById('acme-issue-go').classList.toggle('d-none', _acmeIssueStep !== 3);
   if (_acmeIssueStep === 3) _acmeRenderPreview();
 }
 

@@ -377,9 +377,10 @@ async function openAddRuleModal() {
   const isGlobal = (logsRulesTab === 'global');
   document.getElementById('log-rule-modal-title').textContent =
     isGlobal ? 'Add fleet-wide log alert rule' : 'Add per-host log alert rule';
-  document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
-  document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
-  document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
+  // Both hints start hidden with d-none, so they are shown by taking it off.
+  document.getElementById('log-rule-device-row').classList.toggle('d-none', isGlobal);
+  document.getElementById('log-rule-global-hint').classList.toggle('d-none', !isGlobal);
+  document.getElementById('log-rule-unit-hint').classList.toggle('d-none', !isGlobal);
   if (!isGlobal) {
     const sel = document.getElementById('log-rule-device');
     sel.innerHTML = logsState.devicesCache.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}</option>`).join('');
@@ -407,9 +408,9 @@ function _editLogRuleBtn(btn) {
   _logRuleEditing = {scope: data.scope, rule: r};
   document.getElementById('log-rule-modal-title').textContent =
     isGlobal ? 'Edit fleet-wide log alert rule' : 'Edit per-host log alert rule';
-  document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
-  document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
-  document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
+  document.getElementById('log-rule-device-row').classList.toggle('d-none', isGlobal);
+  document.getElementById('log-rule-global-hint').classList.toggle('d-none', !isGlobal);
+  document.getElementById('log-rule-unit-hint').classList.toggle('d-none', !isGlobal);
   // Source toggle (unit vs file path)
   const isPath = !!r.path;
   document.querySelector(`input[name="log-rule-source"][value="${isPath ? 'path' : 'unit'}"]`).checked = true;
@@ -562,8 +563,10 @@ function _renderLogTemplatePreview() {
 // v3.0.1: toggle visibility of unit vs path field in the log rule modal
 function _toggleLogRuleSource() {
   const sourceType = document.querySelector('input[name="log-rule-source"]:checked')?.value || 'unit';
-  document.getElementById('log-rule-unit-row').style.display = sourceType === 'unit' ? '' : 'none';
-  document.getElementById('log-rule-path-row').style.display = sourceType === 'path' ? '' : 'none';
+  // The path row starts hidden with d-none; style.display = '' never showed it, so a log
+  // rule could not be pointed at a file from the form.
+  document.getElementById('log-rule-unit-row').classList.toggle('d-none', sourceType !== 'unit');
+  document.getElementById('log-rule-path-row').classList.toggle('d-none', sourceType !== 'path');
 }
 
 async function deleteLogRule(devId, unit, pattern) {
