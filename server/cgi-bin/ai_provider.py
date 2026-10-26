@@ -445,7 +445,10 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
             usage = resp.get('usage', {}) or {}
             # An empty reply that stopped at the token limit is not an answer: say why,
             # instead of handing every caller a blank string to describe as "empty".
-            if not (text or '').strip() and choice.get('finish_reason') == 'length':
+            # A content that is not a string (a server that sends a list of parts) is
+            # passed through as it always was.
+            empty = not (text.strip() if isinstance(text, str) else text)
+            if empty and choice.get('finish_reason') == 'length':
                 return {'ok': False, 'error': _NO_ANSWER_AT_LIMIT}
             return {
                 'ok':       True,

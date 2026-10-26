@@ -225,6 +225,21 @@ class TestAnEmptyReplyIsExplained(unittest.TestCase):
         self.assertTrue(res['ok'])
         self.assertEqual(res['text'], 'half of the')
 
+    def test_a_content_that_is_a_list_of_parts_is_passed_through_as_before(self):
+        """Some servers send the content as a list. .strip() on it would raise, and an exception
+        out of the adapter is a 500 for a reply that used to work."""
+        parts = [{'type': 'text', 'text': 'an answer'}]
+        for reason in ('stop', 'length'):
+            with self.subTest(finish_reason=reason):
+                res = self.call({'message': {'content': parts}, 'finish_reason': reason})
+                self.assertTrue(res['ok'])
+                self.assertEqual(res['text'], parts)
+
+    def test_an_empty_list_at_the_limit_is_the_same_error_as_an_empty_string(self):
+        res = self.call({'message': {'content': []}, 'finish_reason': 'length'})
+        self.assertFalse(res['ok'])
+        self.assertIn('Reasoning effort', res['error'])
+
     def test_an_empty_reply_that_ended_normally_is_left_alone(self):
         res = self.call({'message': {'content': ''}, 'finish_reason': 'stop'})
         self.assertTrue(res['ok'])
