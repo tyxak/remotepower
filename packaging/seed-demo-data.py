@@ -2804,7 +2804,8 @@ def build_config() -> dict:
             'profiles': [
                 {'id': 'dp_web', 'name': 'Web servers',
                  'files': ['/etc/nginx/nginx.conf', '/etc/ssh/sshd_config',
-                           '/etc/letsencrypt/cli.ini', '/etc/hosts'],
+                           '/etc/letsencrypt/cli.ini', '/etc/hosts',
+                           '/etc/nginx/conf.d/'],
                  'created': now() - 86400 * 30, 'updated': now() - 86400 * 4},
                 {'id': 'dp_db', 'name': 'Database hosts',
                  'files': ['/etc/mysql/my.cnf', '/etc/ssh/sshd_config', '/etc/fstab'],
@@ -3668,6 +3669,34 @@ def build_drift() -> dict:
                 'history':         history,
             }
         out[dev_id] = {'files': frec}
+
+    # v7.4.1 (#39): a folder watch on ng01 (the Web servers profile lists
+    # /etc/nginx/conf.d/). Shapes mirror _ingest_drift_report: a file the folder listed
+    # when the watch began is an ordinary baseline with `via`; one that arrived later has
+    # no baseline hash, `added`, and drift_count 1.
+    folder = '/etc/nginx/conf.d/'
+    rng = _seeded_random('drift', 'ng01', 'folder')
+    began = now() - 86400 * rng.randint(20, 60)
+    seen_hash = _h('ng01', folder + 'default.conf')
+    new_hash = _h('ng01', folder + 'extra.conf')
+    arrived = now() - rng.randint(3600, 86400 * 2)
+    out['ng01']['files'][folder + 'default.conf'] = {
+        'current_hash': seen_hash, 'current_size': 912, 'current_mtime': began,
+        'baseline_hash': seen_hash, 'baseline_size': 912, 'baseline_set_at': began,
+        'baseline_set_by': 'agent', 'first_seen': began,
+        'last_check': now() - rng.randint(60, 3600), 'drift_count': 0, 'exists': True,
+        'ever_present': True, 'via': folder, 'history': [],
+    }
+    out['ng01']['files'][folder + 'extra.conf'] = {
+        'current_hash': new_hash, 'current_size': 388, 'current_mtime': arrived,
+        'baseline_hash': None, 'baseline_size': None, 'baseline_set_at': arrived,
+        'baseline_set_by': 'agent', 'first_seen': arrived,
+        'last_check': now() - rng.randint(60, 3600), 'drift_count': 1, 'exists': True,
+        'ever_present': True, 'added': True, 'via': folder, 'prior_hash': new_hash,
+        'history': [{'ts': arrived, 'hash': new_hash, 'size': 388, 'exists': True}],
+    }
+    out['ng01']['patterns'] = {folder: {'since': began, 'last': now() - 600, 'count': 2,
+                                        'truncated': False}}
     return out
 
 
