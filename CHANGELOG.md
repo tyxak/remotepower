@@ -95,6 +95,65 @@ mistake: two places that should agree about one thing, and do not.
   lost their place in the list. The drawer now finds the same host's button in
   the rebuilt list.
 
+### Alerts
+
+- **NIC errors and drops are judged apart, and each has a floor of its own.** The
+  agent sends a NIC's errors and drops as four counters, and the server added
+  them together and compared the sum with one fleet-wide floor. A media server
+  that dropped about 80 packets per 10 s while it streamed, with no errors,
+  paged as "a failing cable, dirty SFP or dying switch port", and raising the
+  floor to stop that hid real errors on every host. Settings, Alert parameters
+  has a new **NIC drop floor** next to the error floor. Left blank, errors and
+  drops are added as before, so an install that changes nothing alerts as it
+  did. Set it and they are judged apart; 0 turns drop alerts off. A host can
+  have its own floors under Metric thresholds, and a host profile can carry them
+  through the API, so a busy host tolerates more drops without loosening the
+  check on the rest of the fleet. The alert says what rose ("+7 errors",
+  "+340 drops") and blames the cable only when errors rose. The Checks row still
+  warns on any error since the last check, and follows the drop floor for drops.
+  (#37)
+- **A restart no longer reads as a burst of drops.** A sample arrives every
+  tenth heartbeat, so a missed slot made the next count cover twice the time,
+  and the same steady rate showed as +1020 after a two-minute restart. A count
+  whose gap is more than half again the usual one is scaled back to what the
+  usual gap would have collected. (#37)
+- **An emptied field in the Metric thresholds editor removes its override.** The
+  editor ignored a field you cleared, and Reset to defaults, which also clears
+  every other override on the host, was the only way back. With a drop floor of
+  0 meaning something, blank and 0 have to differ. (#37)
+- **The threshold preview sees a check that goes quiet.** It walked only the
+  rows of the new run, and the NIC row exists only while it is bad, so a change
+  that made a host fine was never listed as "newly passing". (#37)
+
+### Drift
+
+- **A watched file the host never had no longer alerts as "removed".**
+  `/etc/apt/sources.list` is in the default list, and on a system that keeps its
+  apt sources only in `sources.list.d` it has never existed. The file went
+  dormant after three missing reports and raised "removed" about something that
+  was never there. It goes dormant quietly now. A file that was there and left
+  still says so. (#38)
+- **A watch entry can be a folder or a pattern.** `/etc/apt/sources.list.d/`
+  watches the regular files directly in the folder, and `*`, `?` and `[..]` work
+  in any part of a path (`/home/*/.ssh/authorized_keys`). What an entry lists
+  when you add it is its baseline. A file that appears in it later is drift,
+  shown as *Added* and reported once; a file that leaves is handled like any file
+  that goes missing. The Linux, Windows and macOS agents all expand entries, the
+  search is bounded and says when it stopped early, and an agent older than
+  7.4.1, which would read a pattern as one file name, is sent the plain entries
+  only. (#39)
+- **A host's or a profile's list can add to the default or remove from it.** A
+  per-host list used to replace the default entirely, so the host stopped
+  following every later change to it. `@defaults` stands for the list the host
+  would otherwise get, and `-/path` removes an entry, so
+  `@defaults`, `-/etc/apt/sources.list`, `/etc/apt/sources.list.d/` is the default
+  list with the folder in place of the file. A list with neither replaces, as
+  before. One validator now guards every place a list is entered. (#39)
+- **A host profile's drift-watched files reach the agent.** Applying a profile
+  stamped them onto a field nothing reads, so they never changed what an agent
+  watched. They become the host's watch list now, and a profile that leaves the
+  field blank does not switch a host's watching off. (#39)
+
 ### Checks
 
 - **A guard that keeps the scanner off the database network now runs on CI.**
