@@ -96,8 +96,9 @@ function _ensureDriftProfileModal() {
     <input type="hidden" id="drift-profile-id">
     <div class="form-group"><label class="form-label" for="drift-profile-name">Name</label>
       <input id="drift-profile-name" class="form-input" placeholder="e.g. web-server set" maxlength="80"></div>
-    <div class="form-group"><label class="form-label" for="drift-profile-files">Watched files — one absolute path per line</label>
-      <textarea id="drift-profile-files" class="form-textarea" rows="10" placeholder="/etc/nginx/nginx.conf&#10;/etc/ssh/sshd_config"></textarea></div>
+    <div class="form-group"><label class="form-label" for="drift-profile-files">Watched files — one entry per line</label>
+      <textarea id="drift-profile-files" class="form-textarea" rows="10" placeholder="/etc/nginx/nginx.conf&#10;/etc/ssh/sshd_config"></textarea>
+      <div class="hint">An entry is a file, a folder ending in /, or a pattern such as /etc/apt/sources.list.d/*. Start with @defaults to add to the global default list, and use -/path to remove one of its entries.</div></div>
     <div class="modal-actions">
       <button class="btn-secondary" data-action="closeModal" data-arg="drift-profile-modal">Cancel</button>
       <button class="btn-primary" data-action="saveDriftProfile">Save profile</button>

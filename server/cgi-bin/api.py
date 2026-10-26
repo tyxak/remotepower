@@ -15506,17 +15506,15 @@ def handle_device_save_bulk(dev_id):
                     log_rules.append({'unit': unit, 'pattern': pattern})
             updates['log_watch'] = log_rules
 
-        # watched_files — list of absolute paths
+        # watched_files — absolute paths, folders and patterns; v7.4.1: also the
+        # @defaults marker and - exclusions, so the list can add to or remove from
+        # what the host would otherwise be watching. The same validator the drift
+        # profiles and the host profiles use: this was the fourth inline copy.
         if 'watched_files' in body:
             raw_wf = body.get('watched_files') or []
             if not isinstance(raw_wf, list):
                 respond(400, {'error': 'watched_files must be a list'})
-            files = []
-            for p in raw_wf[:50]:
-                s = str(p).strip()
-                if s.startswith('/') and len(s) <= 512:
-                    files.append(s)
-            updates['watched_files'] = files
+            updates['watched_files'] = _validate_drift_files(raw_wf, inherit=True)
 
         # cmd_allowlist — list of command strings.
         # Storage name is `allowed_commands` because that's what
@@ -15838,7 +15836,7 @@ def _validate_device_profile(body):
                     rules.append({'path': path})
         out['log_watch'] = rules
     if 'drift_files' in body:
-        out['drift_files'] = _validate_drift_files(body['drift_files'])
+        out['drift_files'] = _validate_drift_files(body['drift_files'], inherit=True)
     if 'metric_thresholds' in body:
         mt = body['metric_thresholds']
         if not isinstance(mt, dict):
@@ -15904,6 +15902,13 @@ def _apply_profile_to_device(dev, profile):
     for f in _PROFILE_FIELDS:
         if f in profile:
             updated[f] = profile[f]
+    # v7.4.1: a profile's drift-watched files were stamped onto `drift_files`, a key
+    # nothing reads. The list the agent is sent is the host's `watched_files`, so a
+    # profile's drift list never reached an agent. And a profile that leaves the field
+    # blank carries an empty list, which as `watched_files` would mean "watch nothing":
+    # blank is "not defined", as the editor says.
+    if profile.get('drift_files'):
+        updated['watched_files'] = list(profile['drift_files'])
     if 'metric_thresholds' in profile:
         # v6.4.3: MERGE, don't replace. Overwriting the whole dict silently
         # destroyed a device's per-mount overrides (`disk_per_mount`) and any
@@ -53766,45 +53771,115 @@ def handle_force_package_scan(dev_id):
                              'fresh inventory within the next minute or two.'})
 
 
-def _resolve_drift_profile_files(dev_id, dev, drift_cfg):
-    """v3.13.0: resolve an assigned drift profile to its watched-file list.
+# v7.4.1 (#39): a host's or a profile's list can add to the list it would otherwise
+# get, or remove from it, instead of replacing it. `@defaults` stands for the inherited
+# list (a profile's, else the global default) at that position, and `-<entry>` removes
+# that entry, written exactly as it is in the list it comes from. A list with neither is
+# a replacement, as it always was. Entries may also be folders (`/etc/apt/sources.list.d/`)
+# or patterns (`/etc/apt/sources.list.d/*`): the agent expands those.
+DRIFT_INHERIT = '@defaults'
+DRIFT_GLOB_CHARS = '*?['
+# Agents older than this treat a pattern as a literal path, so they are not sent one.
+DRIFT_GLOB_MIN_AGENT = (7, 4, 1)
 
-    A profile is a named, reusable set of watched files
-    (``drift_cfg['profiles']``). Assignments (``drift_cfg['assignments']``) map a
-    profile onto a device, tag, or group. Precedence within profiles:
-    device assignment > tag assignment > group assignment. Returns the file list
-    or None if no profile applies."""
+
+def _is_watch_pattern(entry):
+    """A folder (trailing slash) or a path with a wildcard: the agent expands it."""
+    return isinstance(entry, str) and (
+        (entry.endswith('/') and len(entry) > 1) or any(c in entry for c in DRIFT_GLOB_CHARS))
+
+
+def _resolve_watch_list(entries, inherited):
+    """The files to watch for one list, given the list it inherits from.
+
+    Without `@defaults` the list stands alone (stray exclusions are ignored). With it,
+    the inherited list is spliced in where the marker is, the other entries are
+    added, and every `-entry` removes that entry from the whole result. Order is kept,
+    repeats are dropped.
+    """
+    entries = [e for e in (entries or []) if isinstance(e, str)]
+    if DRIFT_INHERIT not in entries:
+        return [e for e in entries if not e.startswith('-')]
+    out, removed = [], set()
+    for e in entries:
+        if e == DRIFT_INHERIT:
+            out.extend(inherited or [])
+        elif e.startswith('-'):
+            removed.add(e[1:])
+        else:
+            out.append(e)
+    seen, result = set(), []
+    for e in out:
+        if e not in removed and e not in seen:
+            seen.add(e)
+            result.append(e)
+    return result
+
+
+def _drift_profile_for(dev_id, dev, drift_cfg):
+    """(profile, scope) assigned to this host, or (None, None).
+
+    A profile is a named, reusable set of watched files (``drift_cfg['profiles']``).
+    Assignments (``drift_cfg['assignments']``) map a profile onto a device, tag, or
+    group. Precedence: device assignment > tag assignment > group assignment.
+    """
     profiles = {p['id']: p for p in (drift_cfg.get('profiles') or [])
                 if isinstance(p, dict) and p.get('id')}
     if not profiles:
-        return None
-    by_device, by_tag, by_group = {}, {}, {}
+        return None, None
+    by = {'device': {}, 'tag': {}, 'group': {}}
     for a in (drift_cfg.get('assignments') or []):
-        if not isinstance(a, dict):
-            continue
-        pid = a.get('profile_id')
-        if pid not in profiles:
-            continue
-        t, v = a.get('scope_type'), a.get('scope_value')
-        if t == 'device':
-            by_device[v] = pid
-        elif t == 'tag':
-            by_tag[v] = pid
-        elif t == 'group':
-            by_group[v] = pid
-    pid = by_device.get(dev_id)
+        if isinstance(a, dict) and a.get('profile_id') in profiles and a.get('scope_type') in by:
+            by[a['scope_type']][a.get('scope_value')] = a['profile_id']
+    pid = scope = None
+    if dev_id in by['device']:
+        pid, scope = by['device'][dev_id], 'device'
     if not pid:
         for tg in (dev.get('tags') or []):
-            if tg in by_tag:
-                pid = by_tag[tg]
+            if tg in by['tag']:
+                pid, scope = by['tag'][tg], 'tag'
                 break
     if not pid:
         g = dev.get('group')
-        if g and g in by_group:
-            pid = by_group[g]
+        if g and g in by['group']:
+            pid, scope = by['group'][g], 'group'
     if pid and pid in profiles and isinstance(profiles[pid].get('files'), list):
-        return list(profiles[pid]['files'])
-    return None
+        return profiles[pid], scope
+    return None, None
+
+
+def _resolve_drift_profile_files(dev_id, dev, drift_cfg):
+    """v3.13.0: resolve an assigned drift profile to its watched-file list, exactly as
+    written (the entries are not yet resolved against the default). The file list or
+    None if no profile applies."""
+    prof, _scope = _drift_profile_for(dev_id, dev, drift_cfg)
+    return list(prof['files']) if prof else None
+
+
+def _drift_resolve(dev_id, dev, drift_cfg):
+    """(files, source, profile name) for one host: the ONE place a watched list is
+    resolved, for the agent (get_watched_files_for) and for the Drift page
+    (_drift_effective) alike.
+
+    Precedence: an explicit per-host ``watched_files`` list wins; else an assigned
+    drift profile (device, then tag, then group); else the global default
+    (``drift.default_watched_files`` / DEFAULT_WATCHED_FILES). A profile's list can
+    inherit the default and a host's list can inherit what the profile gives it
+    (see DRIFT_INHERIT). source is one of device-override | profile:<scope> | default
+    | disabled.
+    """
+    if not drift_cfg.get('enabled', True):
+        return [], 'disabled', None
+    defaults = list(drift_cfg.get('default_watched_files') or DEFAULT_WATCHED_FILES)
+    prof, scope = _drift_profile_for(dev_id, dev, drift_cfg) if dev else (None, None)
+    if prof:
+        inherited = _resolve_watch_list(prof['files'], defaults)
+        source, pname = f'profile:{scope}', prof.get('name')
+    else:
+        inherited, source, pname = defaults, 'default', None
+    if dev and isinstance(dev.get('watched_files'), list):
+        return _resolve_watch_list(dev['watched_files'], inherited), 'device-override', None
+    return inherited, source, pname
 
 
 def get_watched_files_for(dev_id, devices=None):
@@ -53813,23 +53888,17 @@ def get_watched_files_for(dev_id, devices=None):
     Precedence: an explicit per-device ``watched_files`` override (set manually
     from the device drawer) wins; else an assigned drift profile (v3.13.0); else
     the global default (``drift.default_watched_files`` / DEFAULT_WATCHED_FILES).
+    v7.4.1: a list can inherit the next one down (see _drift_resolve).
     """
     cfg = _config_ro()
     drift_cfg = cfg.get('drift') or {}
     if not drift_cfg.get('enabled', True):
         return []
-    defaults = drift_cfg.get('default_watched_files') or DEFAULT_WATCHED_FILES
     if devices is None:
         devices = load(DEVICES_FILE)
     dev = devices.get(dev_id) if isinstance(devices, dict) else None
-    if dev and isinstance(dev.get('watched_files'), list):
-        # Explicit per-device override completely replaces everything else.
-        return _with_compose_watch(dev_id, dev, drift_cfg, list(dev['watched_files']))
-    if dev:
-        prof = _resolve_drift_profile_files(dev_id, dev, drift_cfg)
-        if prof is not None:
-            return _with_compose_watch(dev_id, dev, drift_cfg, prof)
-    return _with_compose_watch(dev_id, dev, drift_cfg, list(defaults))
+    files, _source, _profile = _drift_resolve(dev_id, dev, drift_cfg)
+    return _with_compose_watch(dev_id, dev, drift_cfg, files)
 
 
 def _with_compose_watch(dev_id, dev, drift_cfg, files):
@@ -54013,48 +54082,39 @@ def _drift_effective(dev_id, dev, drift_cfg=None):
     {files, source, profile}. source ∈ device-override | profile:device |
     profile:tag | profile:group | default | disabled."""
     dc = drift_cfg if drift_cfg is not None else ((_config_ro().get('drift')) or {})
-    if not dc.get('enabled', True):
-        return {'files': [], 'source': 'disabled', 'profile': None}
-    if isinstance(dev.get('watched_files'), list):
-        return {'files': list(dev['watched_files']),
-                'source': 'device-override', 'profile': None}
-    profiles = {p['id']: p for p in (dc.get('profiles') or [])
-                if isinstance(p, dict) and p.get('id')}
-    if profiles:
-        by = {'device': {}, 'tag': {}, 'group': {}}
-        for a in (dc.get('assignments') or []):
-            if isinstance(a, dict) and a.get('profile_id') in profiles and a.get('scope_type') in by:
-                by[a['scope_type']][a.get('scope_value')] = a['profile_id']
-        pid = scope = None
-        if dev_id in by['device']:
-            pid, scope = by['device'][dev_id], 'device'
-        if not pid:
-            for tg in (dev.get('tags') or []):
-                if tg in by['tag']:
-                    pid, scope = by['tag'][tg], 'tag'
-                    break
-        if not pid:
-            g = dev.get('group')
-            if g and g in by['group']:
-                pid, scope = by['group'][g], 'group'
-        if pid:
-            p = profiles[pid]
-            return {'files': list(p.get('files') or []),
-                    'source': f'profile:{scope}', 'profile': p.get('name')}
-    return {'files': list(dc.get('default_watched_files') or DEFAULT_WATCHED_FILES),
-            'source': 'default', 'profile': None}
+    files, source, profile = _drift_resolve(dev_id, dev, dc)
+    return {'files': files, 'source': source, 'profile': profile}
 
 
-def _validate_drift_files(raw):
-    """Sanitise a watched-files list: absolute paths, ≤512 chars, ≤50 entries,
-    deduped, order preserved."""
+def _validate_drift_files(raw, inherit=False):
+    """Sanitise a watched-files list: absolute paths, folders (a trailing slash) or
+    patterns (``*``, ``?``, ``[...]``), ≤512 chars, ≤50 entries, deduped, order preserved.
+
+    v7.4.1 (#39): ``inherit=True`` is for a host's or a profile's list, which may also
+    carry the ``@defaults`` marker and ``-<entry>`` exclusions (see DRIFT_INHERIT).
+    Anywhere else (the global default has nothing to inherit from) they are refused,
+    and so is an exclusion in a list with no marker, which has nothing to remove
+    from. The messages are fixed sentences so the dashboard can translate them.
+    """
     files, seen = [], set()
+    marker = exclusion = False
     if isinstance(raw, list):
         for p in raw[:80]:
             s = str(p).strip()
-            if s.startswith('/') and len(s) <= 512 and s not in seen:
+            if s == DRIFT_INHERIT or (s.startswith('-') and s[1:].startswith('/')):
+                if not inherit:
+                    respond(400, {'error': 'Only a host or a profile list can use @defaults and - exclusions'})
+                marker = marker or s == DRIFT_INHERIT
+                exclusion = exclusion or s != DRIFT_INHERIT
+            elif not (s.startswith('/') and len(s) <= 512):
+                continue
+            elif _is_watch_pattern(s) and '..' in s.split('/'):
+                continue          # a pattern that climbs out of its folder
+            if len(s) <= 512 and s not in seen:
                 seen.add(s)
                 files.append(s)
+    if exclusion and not marker:
+        respond(400, {'error': 'A - exclusion needs @defaults in the same list, to say what it removes from'})
     return files[:50]
 
 
@@ -54074,7 +54134,7 @@ def handle_drift_profiles():
         name = _sanitize_str(body.get('name', ''), 80).strip()
         if not name:
             respond(400, {'error': 'name required'})
-        files = _validate_drift_files((body or {}).get('files'))
+        files = _validate_drift_files((body or {}).get('files'), inherit=True)
         pid = 'dp_' + secrets.token_urlsafe(8)
         now = int(time.time())
         with _LockedUpdate(CONFIG_FILE) as cfg:
@@ -54114,7 +54174,7 @@ def handle_drift_profile_edit(pid):
                     respond(409, {'error': 'a profile with that name already exists'})
                 prof['name'] = nm
             if 'files' in body:
-                prof['files'] = _validate_drift_files(body.get('files'))
+                prof['files'] = _validate_drift_files(body.get('files'), inherit=True)
             prof['updated'] = int(time.time())
             nfiles = len(prof.get('files') or [])
         audit_log(actor, 'drift_profile_edit', f'{pid} ({nfiles} files)')
@@ -67357,7 +67417,7 @@ def _gitops_reconcile(manifest, dry=False):
         name = _sanitize_str(str(p.get('name', '')), 80).strip()
         if not name:
             continue
-        desired[name] = _validate_drift_files(p.get('files'))
+        desired[name] = _validate_drift_files(p.get('files'), inherit=True)
     # Desired assignments: {(scope_type, scope_value): profile_name}
     desired_assigns = []
     for a in (raw_assigns or [])[:500]:

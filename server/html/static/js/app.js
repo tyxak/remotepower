@@ -8281,6 +8281,14 @@ async function upgradePackages(id, name) {
   else failToast(data);
 }
 
+// A host's drift watch list: one entry per line. A file, a folder ending in / or a pattern
+// (*, ?, [..]) as an absolute path; v7.4.1 also `@defaults` (the list this host would
+// otherwise get goes here) and `-/path` (remove that entry). Anything else is not an entry.
+function _parseWatchList(raw) {
+  return String(raw || '').split('\n').map(s => s.trim())
+    .filter(s => s.startsWith('/') || s === '@defaults' || /^-\//.test(s));
+}
+
 // ─── v1.12.0: per-device metric thresholds editor ───────────────────────────
 //
 // Modal accessible from the device dropdown. Loads current overrides + defaults
@@ -24334,6 +24342,7 @@ function _renderDrawerSettings() {
     <div class="drawer-setting-row isl-622">
       <span class="drawer-setting-label isl-623">Drift watch files</span>
       <textarea class="form-input isl-624" id="ds-drift" rows="3" placeholder="/etc/nginx/nginx.conf\n/etc/hosts">${escHtml(driftList)}</textarea>
+      <span class="hint">One entry per line: a file, a folder ending in /, or a pattern such as /etc/apt/sources.list.d/*. Start with @defaults to add to the list this host would otherwise get, and use -/path to remove one of its entries.</span>
     </div>
     <div class="drawer-setting-row isl-622">
       <span class="drawer-setting-label isl-623">Command allowlist</span>
@@ -24564,7 +24573,7 @@ async function _drawerSaveSettings() {
 
   const tags     = tagsRaw.split(',').map(s=>s.trim()).filter(Boolean);
   const services = svcRaw.split(',').map(s=>s.trim()).filter(Boolean);
-  const driftFiles = driftRaw.split('\n').map(s=>s.trim()).filter(s=>s.startsWith('/'));
+  const driftFiles = _parseWatchList(driftRaw);
   const allowlist  = allowRaw.split('\n').map(s=>s.trim()).filter(Boolean);
 
   // Parse log rules: "unit : pattern" per line
