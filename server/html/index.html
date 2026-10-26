@@ -3336,6 +3336,23 @@
                 <div id="ai-base-url-hint" class="meta-sm"></div>
               </div>
             </div>
+
+            <!-- v7.4.1 (#40): only the OpenAI-compatible providers take it, so onAIProviderChange shows it for those -->
+            <div id="ai-reasoning-row" class="d-none">
+              <div class="settings-row isl-72">
+                <div class="form-group isl-73">
+                  <label for="ai-reasoning-effort" class="form-label">Reasoning effort</label>
+                  <select id="ai-reasoning-effort" class="form-input">
+                    <option value="">Provider default (nothing is sent)</option>
+                    <option value="none">None (turn thinking off)</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  <div class="meta-sm">Sent as reasoning_effort on OpenAI, DeepSeek, Ollama and LocalAI requests; nothing is sent while this is on the default. Ollama only turns thinking off for None, and a /no_think line in the prompt does not. A prompt can set its own value under Fine-tuning.</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="settings-section">

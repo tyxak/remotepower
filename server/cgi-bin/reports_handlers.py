@@ -464,7 +464,7 @@ def _build_report_summary(report):
             'system':     A.ai_provider.SYSTEM_PROMPTS['report_summary'],
             'max_tokens': (_rs_params.get('max_tokens') or 600),
         }
-        for _p in ('temperature', 'top_p', 'num_ctx'):
+        for _p in A._AI_FORWARDED_PARAMS:
             if _rs_params.get(_p) is not None:
                 _rs_kwargs[_p] = _rs_params[_p]
         res = A.ai_provider.chat(

@@ -1666,7 +1666,8 @@ if _AVAILABLE:
         privacy: bool = False
         provider: str = ''
         rag: str = ''
-        _v0 = field_validator('api_key', 'base_url', 'limits', 'provider', 'rag', mode='before')(_coerce_str_loose)
+        reasoning_effort: str = ''
+        _v0 = field_validator('api_key', 'base_url', 'limits', 'provider', 'rag', 'reasoning_effort', mode='before')(_coerce_str_loose)
         _v1 = field_validator('context', 'privacy', mode='before')(_coerce_bool_loose)
 
     class AiRagIndexMigrateRequest(BaseModel):
@@ -2389,7 +2390,8 @@ if _AVAILABLE:
     class AiParamsSaveRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         key: str = ''
-        _v0 = field_validator('key', mode='before')(_coerce_str_loose)
+        reasoning_effort: str = ''
+        _v0 = field_validator('key', 'reasoning_effort', mode='before')(_coerce_str_loose)
 
     class AcmeDnsCredentialsSetRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

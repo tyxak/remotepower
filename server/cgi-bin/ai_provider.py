@@ -103,6 +103,20 @@ DEFAULT_MODELS = {
     PROVIDER_OPENCLAW:  '',      # blank → openclaw uses its own configured model
 }
 
+# Reasoning effort for the OpenAI-compatible chat adapter, sent as the top-level
+# `reasoning_effort` field. Ollama's /v1 endpoint only stops a thinking model from
+# thinking when this is "none"; a "/no_think" in the prompt does not do it. Blank means
+# nothing is sent, which leaves the provider on its own default. Anthropic, opencode and
+# openclaw have no such field and never get one.
+REASONING_EFFORTS = ('none', 'low', 'medium', 'high')
+
+
+def normalize_reasoning_effort(value):
+    """The level to send, or '' when nothing should be sent (unset, blank, or not a known level)."""
+    v = str(value or '').strip().lower()
+    return v if v in REASONING_EFFORTS else ''
+
+
 # Bounds. Cloud provider costs are real; the operator can lift these in
 # their config but the defaults should prevent a runaway loop from
 # producing a memorable invoice.
@@ -264,6 +278,9 @@ def validate_config(cfg):
     """Return (ok, error_msg). Doesn't modify cfg."""
     if not isinstance(cfg, dict):
         return False, 'cfg must be a dict'
+    effort = cfg.get('reasoning_effort')
+    if str(effort or '').strip() and not normalize_reasoning_effort(effort):
+        return False, 'reasoning_effort must be blank or one of %s' % ', '.join(REASONING_EFFORTS)
     if not cfg.get('enabled'):
         return True, None  # disabled config is always "valid"
     provider = cfg.get('provider')
@@ -352,8 +369,15 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=Fal
         return 0, {'error': f'{type(e).__name__}: {e}'}
 
 
+# What the operator reads when a reply is empty because the token allowance ran out first.
+_NO_ANSWER_AT_LIMIT = ('The model reached the token limit before it wrote an answer. A thinking model '
+                       'usually spends the whole allowance reasoning. Set Reasoning effort to none in '
+                       'Settings → AI assistant (or in the prompt\'s Fine-tuning), or raise the token limit.')
+
+
 def chat_openai_compatible(cfg, messages, system, max_tokens,
-                            temperature=None, top_p=None, num_ctx=None):
+                            temperature=None, top_p=None, num_ctx=None,
+                            reasoning_effort=None):
     """OpenAI-compatible /v1/chat/completions. Used for OpenAI itself,
     DeepSeek, Ollama, LocalAI, and most "OpenAI-compatible" forks.
 
@@ -371,6 +395,10 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
     about unknown keys); Ollama and LocalAI honour it.
 
     v3.0.1: per-call override for temperature, top_p, num_ctx.
+
+    v7.4.1: reasoning_effort (none | low | medium | high) goes out as the top-level
+    `reasoning_effort` field. The per-call value wins over cfg['reasoning_effort'];
+    blank sends nothing. Ollama only turns thinking off when this is "none".
     """
     provider = cfg['provider']
     base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
@@ -392,6 +420,10 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
         body['temperature'] = max(0.0, min(float(temperature), 2.0))
     if top_p is not None:
         body['top_p']       = max(0.0, min(float(top_p), 1.0))
+    effort = normalize_reasoning_effort(
+        reasoning_effort if reasoning_effort is not None else cfg.get('reasoning_effort'))
+    if effort:
+        body['reasoning_effort'] = effort
     # Ollama / LocalAI specifically benefit from an explicit num_ctx —
     # without it, Ollama caps the input window at 2048 tokens, which is
     # too small for any non-trivial runbook or investigation. 16384 is
@@ -408,8 +440,13 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
                                     insecure_ssl=bool(cfg.get('insecure_ssl')))
     if status == 200 and isinstance(resp, dict):
         try:
-            text = resp['choices'][0]['message']['content']
+            choice = resp['choices'][0]
+            text = choice['message']['content']
             usage = resp.get('usage', {}) or {}
+            # An empty reply that stopped at the token limit is not an answer: say why,
+            # instead of handing every caller a blank string to describe as "empty".
+            if not (text or '').strip() and choice.get('finish_reason') == 'length':
+                return {'ok': False, 'error': _NO_ANSWER_AT_LIMIT}
             return {
                 'ok':       True,
                 'text':     text,
@@ -737,7 +774,7 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
 
 
 def chat(cfg, messages, system=None, max_tokens=None, model=None,
-         temperature=None, top_p=None, num_ctx=None):
+         temperature=None, top_p=None, num_ctx=None, reasoning_effort=None):
     """Dispatch to the right adapter. cfg is cfg['ai'] (already validated).
 
     `model` overrides cfg['model'] for this one request — used by the AI
@@ -749,6 +786,10 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None,
       - top_p        (0.0 - 1.0)   - nucleus sampling
       - num_ctx      (int)         - context window override (Ollama/LocalAI only)
     None means "let the provider use its default" — we don't fabricate values.
+
+    v7.4.1: reasoning_effort (none | low | medium | high) for the OpenAI-compatible
+    providers. None falls back to cfg['reasoning_effort']; Anthropic, opencode and
+    openclaw ignore it.
 
     Returns: {ok: bool, text: str, model: str, tokens_in: int,
               tokens_out: int}  on success
@@ -780,7 +821,7 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None,
     else:
         return chat_openai_compatible(cfg, safe_messages, safe_system, max_tokens,
                                       temperature=temperature, top_p=top_p,
-                                      num_ctx=num_ctx)
+                                      num_ctx=num_ctx, reasoning_effort=reasoning_effort)
 
 
 # ── Embeddings (v3.4.0: Level-3 RAG) ───────────────────────────────────────

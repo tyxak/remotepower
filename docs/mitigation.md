@@ -70,7 +70,7 @@ category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
 
 Each ships with a conservative default prompt that instructs the model to propose exactly one shell command, marked between `BEGIN_FIX` / `END_FIX`, and to never propose destructive operations without flagging them. Edit per-key as needed for your model (e.g. terser for small local models, more cautious for less-tuned ones).
 
-Per-key inference parameters (temperature, max_tokens, num_ctx) live under the same Settings page in the AI parameters section.
+Per-key inference parameters (temperature, top_p, max_tokens, num_ctx and reasoning effort) live under the same Settings page, in **Prompt customization**, under each prompt's **Fine-tuning**. They apply to the Mitigate prompts since 7.4.1; before that these prompts ignored them.
 
 ## Storage
 

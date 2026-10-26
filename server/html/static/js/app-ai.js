@@ -34,6 +34,7 @@ async function loadAISettings() {
   document.getElementById('ai-provider').value = cfg.provider || 'anthropic';
   document.getElementById('ai-model').value    = cfg.model    || '';
   document.getElementById('ai-base-url').value = cfg.base_url || '';
+  document.getElementById('ai-reasoning-effort').value = cfg.reasoning_effort || '';
   // Show the masked key as placeholder; never put it in the value or
   // it gets re-submitted on every save.
   const keyInput = document.getElementById('ai-api-key');
@@ -124,6 +125,9 @@ function onAIProviderChange() {
   document.getElementById('ai-model').placeholder = d.model || '';
   document.getElementById('ai-model-hint').textContent =
     d.model ? `default: ${d.model}` : '';
+  // Reasoning effort is a field of the OpenAI chat API; Anthropic, opencode and openclaw have none.
+  document.getElementById('ai-reasoning-row').classList.toggle('d-none',
+    !['openai', 'deepseek', 'ollama', 'localai'].includes(provider));
   // #10: the API key is OPTIONAL (not blocked) for local providers — LocalAI,
   // and Ollama behind an auth proxy, can require one. Never disable the field.
   document.getElementById('ai-api-key').disabled = false;
@@ -333,6 +337,9 @@ async function saveAISettings() {
     provider: document.getElementById('ai-provider').value,
     model:    document.getElementById('ai-model').value.trim(),
     base_url: document.getElementById('ai-base-url').value.trim(),
+    // '' clears it (nothing is sent); the row is hidden for providers that ignore it, and the
+    // value still travels so switching provider back does not lose it
+    reasoning_effort: document.getElementById('ai-reasoning-effort').value,
     privacy: {
       send_hostnames:  document.getElementById('ai-priv-hostnames').checked,
       send_ips:        document.getElementById('ai-priv-ips').checked,
@@ -1653,7 +1660,9 @@ async function loadAiPrompts() {
   list.innerHTML = r.prompts.map(p => {
     const params = paramsByKey[p.key] || {};
     const hasParams = (params.temperature != null) || (params.top_p != null)
-                   || (params.max_tokens != null)  || (params.num_ctx != null);
+                   || (params.max_tokens != null)  || (params.num_ctx != null)
+                   || !!params.reasoning_effort;
+    const lvl = params.reasoning_effort || '';
     return `
     <div class="prompt-card isl-659" data-key="${escAttr(p.key)}">
       <div class="isl-660">
@@ -1673,7 +1682,7 @@ async function loadAiPrompts() {
                 placeholder="(empty = use default)">${escHtml(p.current)}</textarea>
 
       <details ${hasParams ? 'open' : ''} class="isl-26">
-        <summary class="isl-664">Fine-tuning (temperature, top_p, tokens, context)</summary>
+        <summary class="isl-664">Fine-tuning (temperature, top_p, tokens, context, reasoning)</summary>
         <div class="isl-665">
           <div>
             <label class="isl-666">Temperature (0.0–2.0)</label>
@@ -1690,6 +1699,16 @@ async function loadAiPrompts() {
           <div>
             <label class="isl-666">num_ctx (Ollama/LocalAI)</label>
             <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx fs-12" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
+          </div>
+          <div>
+            <label class="isl-666">Reasoning effort (OpenAI-compatible)</label>
+            <select class="form-input fs-12" data-field="reasoning-effort">
+              <option value="" ${lvl === '' ? 'selected' : ''}>Use the global setting</option>
+              <option value="none" ${lvl === 'none' ? 'selected' : ''}>None (turn thinking off)</option>
+              <option value="low" ${lvl === 'low' ? 'selected' : ''}>Low</option>
+              <option value="medium" ${lvl === 'medium' ? 'selected' : ''}>Medium</option>
+              <option value="high" ${lvl === 'high' ? 'selected' : ''}>High</option>
+            </select>
           </div>
         </div>
         <div class="isl-667">
@@ -1715,6 +1734,7 @@ async function saveAiParams(key, btn) {
     top_p:       _v('.prompt-topp'),
     max_tokens:  _v('.prompt-maxtok'),
     num_ctx:     _v('.prompt-numctx'),
+    reasoning_effort: _v('[data-field="reasoning-effort"]'),
   };
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = '…';

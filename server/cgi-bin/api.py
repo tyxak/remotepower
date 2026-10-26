@@ -43262,6 +43262,9 @@ _AI_DEFAULTS = {
     'base_url': '',
     'api_key':  '',
     'insecure_ssl': False,
+    # v7.4.1: '' sends nothing; none | low | medium | high is sent as the top-level
+    # `reasoning_effort` on OpenAI-compatible requests (Ollama needs "none" to stop thinking).
+    'reasoning_effort': '',
     # v2.1.7: project + fleet context (Level-1 RAG). Always-on by
     # default — these blocks are 1-3 KB of cheap context that makes
     # the model know what RemotePower is and what your fleet looks
@@ -43527,6 +43530,9 @@ def handle_ai_config_set():
         for k in ('enabled', 'provider', 'model', 'base_url', 'insecure_ssl'):
             if k in body:
                 cur[k] = body[k]
+        # v7.4.1: blank clears it; an unknown level is refused by validate_config below.
+        if 'reasoning_effort' in body:
+            cur['reasoning_effort'] = str(body['reasoning_effort'] or '').strip().lower()
         # API key: only update if non-empty; empty/missing keeps existing.
         # Special value '__clear__' wipes the stored key.
         if body.get('api_key') == '__clear__':
@@ -45105,7 +45111,7 @@ def handle_ai_chat():
     }
     # Only pass tuning params when set — avoids breaking test mocks that don't
     # accept the new kwargs, and lets each adapter decide what "default" means.
-    for _p in ('temperature', 'top_p', 'num_ctx'):
+    for _p in _AI_FORWARDED_PARAMS:
         if _ai_params.get(_p) is not None:
             _chat_kwargs[_p] = _ai_params[_p]
     result = ai_provider.chat(cfg, messages, **_chat_kwargs)
@@ -46418,7 +46424,7 @@ def handle_runbook_generate(dev_id):
         'system':     system_prompt,
         'max_tokens': (_rb_params.get('max_tokens') or 4000),
     }
-    for _p in ('temperature', 'top_p', 'num_ctx'):
+    for _p in _AI_FORWARDED_PARAMS:
         if _rb_params.get(_p) is not None:
             _rb_kwargs[_p] = _rb_params[_p]
     result = ai_provider.chat(
@@ -74554,7 +74560,7 @@ def handle_iac_generate():
         'system':     system_prompt,
         'max_tokens': (_iac_params.get('max_tokens') or 8000),
     }
-    for _p in ('temperature', 'top_p', 'num_ctx'):
+    for _p in _AI_FORWARDED_PARAMS:
         if _iac_params.get(_p) is not None:
             _iac_kwargs[_p] = _iac_params[_p]
 
@@ -75026,13 +75032,21 @@ def handle_force_acme_rescan(dev_id):
 
 
 # ══ v3.0.1: AI per-feature param customization ══════════════════════════════
-# Per-prompt overrides for temperature / top_p / max_tokens / num_ctx.
+# Per-prompt overrides for temperature / top_p / max_tokens / num_ctx, and since
+# v7.4.1 reasoning_effort.
 # Stored in config.json under "ai_param_overrides": {key: {...}, ...}.
-# None / missing = use the provider's default for that field.
+# None / missing = use the provider's default for that field (for reasoning_effort:
+# whatever Settings -> AI assistant says).
 # ════════════════════════════════════════════════════════════════════════════
 
+# The fields a per-prompt override can carry that go to the provider as keyword
+# arguments. A caller that forwards the overrides loops over this, so a field added
+# here reaches every caller at once (tests/test_v741_reasoning_effort.py holds that).
+_AI_FORWARDED_PARAMS = ('temperature', 'top_p', 'num_ctx', 'reasoning_effort')
+
+
 def _resolve_ai_params(key):
-    """Return {temperature, top_p, max_tokens, num_ctx} for a prompt key.
+    """Return {temperature, top_p, max_tokens, num_ctx, reasoning_effort} for a prompt key.
     Each value may be None (caller should pass through as 'use default')."""
     overrides = (load(CONFIG_FILE) or {}).get('ai_param_overrides') or {}
     p = overrides.get(key) or {}
@@ -75049,6 +75063,7 @@ def _resolve_ai_params(key):
                     out[k] = float(v)
             except (TypeError, ValueError, OverflowError):
                 out[k] = None
+    out['reasoning_effort'] = ai_provider.normalize_reasoning_effort(p.get('reasoning_effort')) or None
     return out
 
 
@@ -75066,13 +75081,14 @@ def handle_ai_params_get():
             'top_p':       cur.get('top_p'),
             'max_tokens':  cur.get('max_tokens'),
             'num_ctx':     cur.get('num_ctx'),
+            'reasoning_effort': cur.get('reasoning_effort'),
         })
     respond(200, {'params': out})
 
 
 def handle_ai_params_save():
-    """POST /api/ai/params — body {key, temperature, top_p, max_tokens, num_ctx}.
-    Each field may be omitted/empty/null to clear (revert to default)."""
+    """POST /api/ai/params — body {key, temperature, top_p, max_tokens, num_ctx,
+    reasoning_effort}. Each field may be omitted/empty/null to clear (revert to default)."""
     require_instance_admin_auth('AI model parameters')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
@@ -75110,6 +75126,11 @@ def handle_ai_params_save():
     _f('top_p',       0.0, 1.0)
     _i('max_tokens',  1,    16000)
     _i('num_ctx',     512,  131072)
+    _effort = str(body.get('reasoning_effort') or '').strip().lower()
+    if _effort:
+        if not ai_provider.normalize_reasoning_effort(_effort):
+            respond(400, {'error': 'reasoning_effort must be none, low, medium or high'}); return
+        out['reasoning_effort'] = _effort
 
     with _LockedUpdate(CONFIG_FILE) as cfg:
         overrides = cfg.get('ai_param_overrides') or {}
@@ -76111,20 +76132,13 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     if not ai_cfg.get('enabled'):
         raise RuntimeError('AI not enabled — configure in Settings → AI Assistant')
     provider = ai_cfg.get('provider', 'ollama')
-    overrides = (ai_cfg.get('ai_param_overrides') or {}).get(prompt_key, {})
 
-    # Translate the overrides dict into the kwargs the provider expects.
-    # max_tokens / num_ctx are ints, temperature / top_p are floats;
-    # _resolve_ai_params normalises these elsewhere but here we trust
-    # the stored values (set by an admin via /api/ai/params).
-    kwargs = {}
-    if isinstance(overrides, dict):
-        if overrides.get('max_tokens') is not None:
-            kwargs['max_tokens'] = overrides['max_tokens']
-        if overrides.get('temperature') is not None:
-            kwargs['temperature'] = overrides['temperature']
-        if overrides.get('top_p') is not None:
-            kwargs['top_p'] = overrides['top_p']
+    # The per-prompt overrides live at the top level of the config, where
+    # handle_ai_params_save writes them. This used to read them from cfg['ai'], where
+    # they never are, so a Fine-tuning row did nothing for any prompt that comes
+    # through here: the mitigate prompts, alert triage, the log-sweep RCA and the
+    # AI exec proposal. _resolve_ai_params also normalises the types.
+    kwargs = {k: v for k, v in _resolve_ai_params(prompt_key).items() if v is not None}
 
     messages = [{'role': 'user', 'content': user_prompt}]
     if provider == 'anthropic':
@@ -76134,15 +76148,14 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
             temperature=kwargs.get('temperature'),
             top_p=kwargs.get('top_p'),
         )
-    # OpenAI-compatible path additionally accepts num_ctx for local providers
-    if isinstance(overrides, dict) and overrides.get('num_ctx') is not None:
-        kwargs['num_ctx'] = overrides['num_ctx']
+    # The OpenAI-compatible path also takes num_ctx (local providers) and reasoning_effort
     return ai_provider.chat_openai_compatible(
         ai_cfg, messages, system_prompt,
         kwargs.get('max_tokens') or 4000,
         temperature=kwargs.get('temperature'),
         top_p=kwargs.get('top_p'),
         num_ctx=kwargs.get('num_ctx'),
+        reasoning_effort=kwargs.get('reasoning_effort'),
     )
 
 

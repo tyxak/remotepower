@@ -108,6 +108,36 @@ This block must appear **before** any catch-all `location ^~ /api/`
 block in the same server stanza — nginx routes on first match.
 `sudo nginx -t && sudo systemctl reload nginx` after editing.
 
+### Thinking models (Ollama and others)
+
+A thinking model reasons before it answers, and the reasoning counts
+against the token limit. A small local model can spend the whole
+allowance thinking and return nothing, so you wait a couple of minutes
+for an empty reply.
+
+Set **Reasoning effort** to **None** under **Settings → AI assistant**
+to turn thinking off. RemotePower then sends `reasoning_effort: "none"`
+with every request to an OpenAI-compatible provider (OpenAI, DeepSeek,
+Ollama and LocalAI). Ollama only stops a thinking model when it gets
+that field. A `/no_think` line in the prompt does not do it.
+
+| Reasoning effort | What is sent |
+|---|---|
+| Provider default | Nothing. The model behaves as it did before. |
+| None | `reasoning_effort: "none"` |
+| Low, Medium, High | `reasoning_effort` with that value |
+
+A single prompt can have its own value: open **Prompt customization**,
+then the prompt's **Fine-tuning**. It wins over the setting above.
+**Use the global setting** follows Settings again.
+
+Anthropic, opencode and openclaw have no such field. The row is hidden
+for them and nothing is sent.
+
+If a reply is empty because the model reached the token limit first,
+RemotePower says so, and names this setting, instead of showing an
+empty box.
+
 ## What the model is told about your fleet
 
 Every request carries a short **fleet snapshot** preamble: a count line, then one
@@ -469,6 +499,14 @@ Ollama at `10.0.0.2`, check that the server can resolve and reach
 that address — if you're running RemotePower in a container or
 behind tight egress firewalling, the app-server process may not have the
 network path.
+
+### "The model reached the token limit before it wrote an answer"
+
+A thinking model used the whole token allowance reasoning and had none
+left for the answer. Set **Reasoning effort** to **None** in Settings →
+AI assistant, or for one prompt under its **Fine-tuning**. You can also
+raise the token limit, which is slower and ties up the GPU for longer.
+See "Thinking models" above.
 
 ### "Test connection succeeds but real chats fail"
 
