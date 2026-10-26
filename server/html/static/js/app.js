@@ -23560,6 +23560,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   // v5.4.1 (H3): remember the opener + move focus into the drawer so keyboard /
   // screen-reader users land inside it (and get restored on close).
   window._drawerReturnFocus = document.activeElement;
+  window._drawerReturnTo = _focusLocator(document.activeElement);
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
   setTimeout(() => {
@@ -23598,6 +23599,29 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   switchDrawerTab(defaultTab);
 }
 
+// Where focus goes back to when the drawer closes. The control that opened it sits in the
+// hosts list, and that list is rebuilt whenever a refresh finds a change (every minute on a
+// live fleet). After a minute with the drawer open the saved element is gone from the page,
+// focus() on it does nothing, and focus fell to <body>: a keyboard user lost their place.
+// So also keep what the control does (its data-action and data-arg, here "open the drawer for
+// this host") and look for that control again when the saved one is gone.
+function _focusLocator(el) {
+  if (!el || !el.getAttribute) return null;
+  const action = el.getAttribute('data-action');
+  return action ? { action, arg: el.getAttribute('data-arg') } : null;
+}
+function _restoreDrawerFocus() {
+  const saved = window._drawerReturnFocus;
+  if (saved && saved.isConnected) { if (saved.focus) saved.focus(); return; }
+  const want = window._drawerReturnTo;
+  if (!want) return;
+  // A page that is not showing has no boxes, so a copy of the control on one of those is skipped.
+  const target = Array.from(document.querySelectorAll('[data-action]')).find(el =>
+    el.getAttribute('data-action') === want.action && el.getAttribute('data-arg') === want.arg
+    && el.getClientRects().length > 0);
+  if (target) target.focus();
+}
+
 function closeDeviceDrawer() {
   if (typeof _stopLiveView === 'function') _stopLiveView();   // W3-19: stop live polling
   const drawer = document.getElementById('device-drawer');
@@ -23611,8 +23635,9 @@ function closeDeviceDrawer() {
     if (location.hash.startsWith('#device/')) history.replaceState(null, '', '#devices');
   } catch (_) {}
   // v5.4.1 (H3): restore focus to whatever opened the drawer.
-  try { if (window._drawerReturnFocus && window._drawerReturnFocus.focus) window._drawerReturnFocus.focus(); } catch (_) {}
+  try { _restoreDrawerFocus(); } catch (_) {}
   window._drawerReturnFocus = null;
+  window._drawerReturnTo = null;
 }
 
 // Close on Escape

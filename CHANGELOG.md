@@ -88,6 +88,12 @@ mistake: two places that should agree about one thing, and do not.
   Auto-hide now needs a pointer that can hover. On a touch screen the sidebar
   stays open, the Collapse button is there, and My Account says why the switch
   is off. A mouse or trackpad behaves as before. (#35)
+- **Closing the host drawer puts focus back on the host's row.** The hosts list
+  is rebuilt whenever a refresh finds a change, which on a live fleet is every
+  minute, and that replaced the button that had opened the drawer. After a minute
+  with the drawer open, Escape left focus on the page itself and a keyboard user
+  lost their place in the list. The drawer now finds the same host's button in
+  the rebuilt list.
 
 ### Checks
 

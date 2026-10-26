@@ -212,7 +212,7 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
 
     def _open_by_keyboard(self, selector):
         self.page.wait_for_selector(selector, state='visible', timeout=20000)
-        self.page.evaluate("s => { const e = [...document.querySelectorAll(s)].find(x => x.offsetParent !== null); e.focus(); window.__opener = e; }", selector)
+        self.page.evaluate("s => { const e = [...document.querySelectorAll(s)].find(x => x.offsetParent !== null); e.focus(); window.__opener = e; window.__openerKey = e.getAttribute('data-action') + '|' + e.getAttribute('data-arg'); }", selector)
         self.page.keyboard.press('Enter')
         self.page.wait_for_timeout(800)
 
@@ -265,6 +265,42 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         self.assertFalse(p.evaluate("() => !!document.getElementById('kbd-cheat-overlay')"), 'Escape did not close the sheet')
         self.assertTrue(p.evaluate("() => document.activeElement === window.__opener"), 'focus did not go back')
 
+    def test_the_drawer_gives_focus_back_after_the_hosts_list_was_redrawn(self):
+        """The control that opens the host drawer is a row of a list that is rebuilt whenever a refresh
+        finds a change, which on a live fleet is every minute. With the drawer open that long, the saved
+        control is gone from the page, focus() on it does nothing and focus fell to <body> (it failed the
+        drawer test below in the full JSON gate of v7.4.1). Focus now goes to the same host's control in the
+        rebuilt list. The third row is used so that "the first control of that kind" cannot pass."""
+        p = self.page
+        self.go('devices', 2500)
+        sel = "#page-devices button[data-action='openDeviceDrawer']"
+        p.wait_for_selector(sel, state='visible', timeout=20000)
+        host = p.evaluate("""s => { const all = [...document.querySelectorAll(s)].filter(x => x.offsetParent !== null);
+            if (all.length < 3) return null;
+            const e = all[2]; e.focus(); window.__opener = e; return e.getAttribute('data-arg'); }""", sel)
+        self.assertTrue(host, 'fewer than three hosts on the page')
+        self.addCleanup(lambda: p.evaluate("() => { if (typeof closeDeviceDrawer === 'function') closeDeviceDrawer(); }"))
+        p.keyboard.press('Enter')
+        p.wait_for_timeout(800)
+        self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
+        # A copy of the same control that is not showing (the same host can be listed on another page), placed
+        # BEFORE the list in the document: focusing it does nothing, so a restore that does not look at
+        # whether the control is showing ends on <body>.
+        p.evaluate("""h => { document.body.insertAdjacentHTML('afterbegin',
+            '<div id="kb-decoy" hidden><button data-action="openDeviceDrawer" data-arg="' + h + '">x</button></div>'); }""", host)
+        self.addCleanup(lambda: p.evaluate("() => { const d = document.getElementById('kb-decoy'); if (d) d.remove(); }"))
+        # rebuild the list under the open drawer, the way a refresh does
+        p.evaluate("() => { renderDevices(); }")
+        self.assertFalse(p.evaluate("() => window.__opener.isConnected"),
+                         'the redraw kept the opener, so the check below would prove nothing')
+        p.keyboard.press('Escape')
+        p.wait_for_timeout(400)
+        self.assertFalse(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
+        landed = p.evaluate("""() => { const a = document.activeElement;
+            return a && a.getAttribute ? [a.tagName, a.getAttribute('data-action'), a.getAttribute('data-arg'), a.isConnected] : null; }""")
+        self.assertEqual(landed, ['BUTTON', 'openDeviceDrawer', host, True],
+                         "focus did not go back to the same host's control after the list was redrawn")
+
     def test_the_notification_popover(self):
         self.go('home')
         self.page.evaluate("() => document.getElementById('toast-history-pop').classList.add('hidden')")
@@ -288,6 +324,29 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         p.evaluate("() => { window.__realRefreshPause = window._refreshShouldPause; window._refreshShouldPause = () => true; }")
         self.addCleanup(lambda: p.evaluate("() => { if (window.__realRefreshPause) window._refreshShouldPause = window.__realRefreshPause; }"))
         self.assertTrue(p.evaluate("() => _refreshShouldPause()"), 'the auto-refresh could not be paused')
+        # What rebuilt the host list, and when, for the failure message below. A redraw that lands
+        # while the drawer is open takes the opener out of the page, and the page state alone
+        # cannot say who asked for it.
+        p.evaluate(r"""() => {
+          window.__redraws = [];
+          window.__openerGone = null;
+          const real = {};
+          const caller = () => (new Error().stack || '').split('\n').slice(3, 8)
+            .map(s => s.trim().replace(/^at /, '').replace(/https?:\/\/[^/]+\/static\/js\//, '').slice(0, 80)).join(' < ');
+          for (const n of ['renderDevices', 'loadDevices']) {
+            real[n] = window[n];
+            window[n] = function (...a) {
+              window.__redraws.push({at: performance.now(), call: n, from: caller()});
+              return real[n].apply(this, a);
+            };
+          }
+          const watch = new MutationObserver(() => {
+            if (!window.__openerGone && window.__opener && !window.__opener.isConnected) window.__openerGone = performance.now();
+          });
+          watch.observe(document.body, {childList: true, subtree: true});
+          window.__stopRedrawLog = () => { watch.disconnect(); for (const n in real) window[n] = real[n]; };
+        }""")
+        self.addCleanup(lambda: p.evaluate("() => { if (window.__stopRedrawLog) window.__stopRedrawLog(); }"))
 
         def state():
             return json.dumps(p.evaluate("""() => ({
@@ -295,6 +354,8 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
               active: document.activeElement ? document.activeElement.tagName + '#' + document.activeElement.id : null,
               drawerOpen: document.getElementById('device-drawer').classList.contains('open'),
               msSinceDrawerChange: Math.round(performance.now() - (window.__drawerLast || 0)),
+              openerGoneMsAgo: window.__openerGone ? Math.round(performance.now() - window.__openerGone) : null,
+              redraws: (window.__redraws || []).slice(-6).map(r => Math.round(performance.now() - r.at) + 'ms ago ' + r.call + ' <- ' + r.from),
               refresh: (document.getElementById('last-refresh-label') || {}).textContent })"""))
         # row menu
         self.go('alerts', 2000)
@@ -305,6 +366,7 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         self.assertTrue(p.evaluate("() => document.activeElement === window.__opener"), 'the row menu did not give focus back')
         # host drawer
         self.go('devices', 2500)
+        p.evaluate("() => { window.__redraws.length = 0; window.__openerGone = null; }")
         self._open_by_keyboard("#page-devices button[data-action='openDeviceDrawer']")
         self.assertTrue(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open') && document.getElementById('device-drawer').contains(document.activeElement)"))
         # The drawer fills in after it opens, and a re-render drops the focused element. A fixed
@@ -349,7 +411,12 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         p.keyboard.press('Escape')
         p.wait_for_timeout(500)
         self.assertFalse(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
-        self.assertTrue(p.evaluate("() => document.activeElement === window.__opener"),
+        # The opener itself, or, when the hosts list was redrawn while the drawer was open, the control
+        # for the same host that replaced it (test_the_drawer_gives_focus_back_after_the_hosts_list_was_redrawn
+        # holds that case on its own).
+        self.assertTrue(p.evaluate("""() => { const a = document.activeElement;
+            return a === window.__opener || (!!a && a.isConnected && !!a.getAttribute
+              && a.getAttribute('data-action') + '|' + a.getAttribute('data-arg') === window.__openerKey); }"""),
                         'the drawer did not give focus back ' + state())
         # command palette
         p.evaluate("() => document.getElementById('toast-history-btn').focus()")
