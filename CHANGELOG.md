@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.1 — "Al1gnMatters" — unreleased (test)
+## v7.4.1 — "Al1gnMatters" — 2026-10-26
 
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one
 mistake: two places that should agree about one thing, and do not.
