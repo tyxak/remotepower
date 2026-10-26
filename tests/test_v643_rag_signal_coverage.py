@@ -35,6 +35,8 @@ DELIBERATELY_UNINDEXED = {
     'top_processes': 'changes every heartbeat; re-embeds the device chunk for '
                      'no retrieval value',
     'network_io': 'per-interface counters, same churn argument',
+    'network_io_ts': 'sampling bookkeeping for the NIC counters: when the last sample arrived',
+    'network_io_gaps': 'sampling bookkeeping for the NIC counters: the last few gaps between samples',
     'custom_metrics': 'operator-defined numeric series — belongs in the metrics '
                       'corpus, not the prose one',
     'uptime_seconds': 'duplicate of `uptime`',

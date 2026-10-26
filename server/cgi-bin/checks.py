@@ -161,6 +161,111 @@ def posture_flags(si):
     }
 
 
+# ── NIC errors and drops (issue #37) ────────────────────────────────────────
+#
+# Errors (a failing cable, a dirty SFP, a dying switch port) and drops (a receive
+# queue that overflowed, a link running full) are different problems, and drops
+# rise with traffic on a healthy interface. The agent has always sent them as four
+# counters (rx_err, tx_err, rx_drop, tx_drop) and the server used to add the four
+# together and compare the sum with one fleet-wide floor, so a media server
+# dropping packets while it streamed paged as a failing cable.
+#
+# These helpers are the one place that decides what counts as a breach, for the
+# alert, the Checks row and the reliability score. The server stores, for every
+# interface at every sample, `errors_delta` and `drops_delta` (what accrued since
+# the previous sample, scaled down when the gap to it was unusually long: see
+# api.py) and keeps `err_delta`, their unscaled sum, as it always was.
+
+
+def _is_count(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e12
+
+
+def nic_floors(dev, fleet_err_min, fleet_drop_min):
+    """(errors floor, drops floor) in force for one host.
+
+    The errors floor is this host's own `nic_err_alert_min` (in its
+    metric_thresholds) or else the fleet's. The drops floor is the host's own
+    `nic_drop_alert_min`, else the fleet's, else None. None means "no separate
+    drops floor": errors and drops are counted together against the errors floor,
+    which is what the alert did before the two could be set apart. 0 means drops
+    never breach.
+    """
+    mt = dev.get("metric_thresholds") if isinstance(dev, dict) else None
+    mt = mt if isinstance(mt, dict) else {}
+    own_err = mt.get("nic_err_alert_min")
+    err = int(own_err) if _is_count(own_err) and own_err >= 1 else fleet_err_min
+    own_drop = mt.get("nic_drop_alert_min")
+    if _is_count(own_drop) and own_drop >= 0:
+        return err, int(own_drop)
+    return err, fleet_drop_min
+
+
+def nic_parts(n):
+    """(errors, drops) that accrued on one interface since the previous sample.
+
+    An entry stored before the two were split carries only `err_delta`, their sum;
+    that is read as errors, which is how it was compared.
+    """
+    if not isinstance(n, dict):
+        return 0, 0
+    e, d = n.get("errors_delta"), n.get("drops_delta")
+    if _is_count(e) or _is_count(d):
+        return (int(e) if _is_count(e) and e > 0 else 0, int(d) if _is_count(d) and d > 0 else 0)
+    legacy = n.get("err_delta")
+    return (int(legacy) if _is_count(legacy) and legacy > 0 else 0), 0
+
+
+def nic_breach(n, err_min, drop_min):
+    """None while the interface is within its floors, else {"errors": e, "drops": d}.
+
+    With a drops floor, errors and drops are judged apart: errors against
+    `err_min`, drops against `drop_min` (0 = never). Without one (None), they are
+    added and the sum is judged against `err_min`.
+    """
+    e, d = nic_parts(n)
+    if drop_min is None:
+        hit = (e + d) >= err_min
+    else:
+        hit = e >= err_min or (drop_min > 0 and d >= drop_min)
+    return {"errors": e, "drops": d} if hit else None
+
+
+def nic_gap_scale(gap, gaps):
+    """The factor (0 < f <= 1) to scale one sample's counter deltas by.
+
+    Samples arrive every few heartbeats. When a slot is missed (the server was
+    down, the agent was stopped) the gap to the next sample is longer, the deltas
+    cover more time, and a steady rate reads as a burst: a media server dropping
+    about 8 packets a second showed +1020 after a two-minute restart. `gap` is the
+    seconds since the previous sample and `gaps` the last few sample gaps, this one
+    included. A gap within half again of the median changes nothing; a longer one
+    scales the deltas back to what that median would have collected. Never above 1:
+    a short gap is not scaled up. With fewer than three gaps to go on, nothing is
+    scaled.
+    """
+    if not _is_count(gap) or gap <= 0:
+        return 1.0
+    usual = sorted(g for g in (gaps or []) if _is_count(g) and g > 0)
+    if len(usual) < 3:
+        return 1.0
+    mid = len(usual) // 2
+    median = usual[mid] if len(usual) % 2 else (usual[mid - 1] + usual[mid]) / 2
+    if gap <= median * 1.5:
+        return 1.0
+    return median / gap
+
+
+def nic_summary(e, d):
+    """ "+12 errors", "+340 drops" or "+12 errors, +340 drops"."""
+    bits = []
+    if e:
+        bits.append(f"+{plural(e, 'error', 'errors')}")
+    if d:
+        bits.append(f"+{plural(d, 'drop', 'drops')}")
+    return ", ".join(bits) or "+0"
+
+
 def cve_ignore_applies(entry, dev_id, dev_tenant=None):
     """Does an accepted-risk record suppress a CVE finding on this device?
 
@@ -268,6 +373,8 @@ def _host_checks(
     disk_encryption=False,
     secure_boot=False,
     drift_rec=None,
+    nic_err_min=5,
+    nic_drop_min=None,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -515,22 +622,30 @@ def _host_checks(
     # every fleet-wide view and could not page anyone. `err_delta` is computed at
     # ingest against the previous heartbeat, so this fires on errors accruing NOW,
     # not on a counter a long-lived host accumulated months ago.
+    #
+    # v7.4.1 (#37): any ERROR since the last check still warns here (an error
+    # counter should stand still on a healthy link), but drops warn only from the
+    # drops floor, because drops rise with traffic on a healthy interface. With no
+    # drops floor set, errors and drops are added, as before. This host's own
+    # floors (metric_thresholds) apply to the drops floor; the errors side stays at
+    # "any", the row being the early warning the alert's floor is not.
     nics = si.get("network_io")
     if isinstance(nics, list):
-        bad = [
-            n
-            for n in nics
-            if isinstance(n, dict) and isinstance(n.get("err_delta"), int) and n["err_delta"] > 0
-        ]
+        _, row_drop_min = nic_floors(dev, nic_err_min, nic_drop_min)
+        bad = []
+        for n in nics:
+            hit = nic_breach(n, 1, row_drop_min) if isinstance(n, dict) else None
+            if hit:
+                bad.append((n, hit))
         if bad:
-            worst = max(bad, key=lambda n: n["err_delta"])
+            worst_n, worst = max(bad, key=lambda t: t[1]["errors"] + t[1]["drops"])
             add(
                 "nic_errors",
                 "NIC errors / drops",
                 "network",
                 "warning",
-                f"{worst.get('iface', '?')}: +{worst['err_delta']} since last check"
-                + (f" (+{len(bad) - 1} more)" if len(bad) > 1 else ""),
+                f"{worst_n.get('iface', '?')}: {nic_summary(worst['errors'], worst['drops'])} "
+                "since last check" + (f" (+{len(bad) - 1} more)" if len(bad) > 1 else ""),
             )
 
     lo = si.get("last_oom_ts")

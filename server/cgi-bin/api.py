@@ -10481,6 +10481,63 @@ def _alert_title(event, payload):
 # one packet under load" — so require a handful of new errors in a single beat.
 _NIC_ERR_ALERT_MIN = 5
 
+
+def _nic_fleet_floors(cfg):
+    """(errors floor, drops floor) the whole fleet falls back to (issue #37).
+
+    The errors floor is `nic_err_alert_min`. The drops floor is
+    `nic_drop_alert_min`: blank or unset gives None, which means errors and drops
+    are added and the sum is judged against the errors floor, the way the alert
+    worked before the two could be set apart; 0 turns drop alerts off. A host's own
+    values (metric_thresholds) override both: see checks.nic_floors.
+    """
+    try:
+        err = int(cfg.get('nic_err_alert_min') or _NIC_ERR_ALERT_MIN)
+    except (TypeError, ValueError, OverflowError):
+        err = _NIC_ERR_ALERT_MIN
+    if err < 1:
+        err = _NIC_ERR_ALERT_MIN
+    raw = cfg.get('nic_drop_alert_min')
+    drop = None
+    if raw not in (None, ''):
+        try:
+            if int(raw) >= 0:
+                drop = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            drop = None
+    return err, drop
+
+
+def _nic_alert_detail(iface, breach):
+    """The nic_errors alert line. It names what rose and does not blame the cable for
+    drops: a media server dropping packets while it streamed was told "a failing cable,
+    dirty SFP or dying switch port" (issue #37)."""
+    e, d = breach['errors'], breach['drops']
+    what = checks_mod.nic_summary(e, d)
+    if e:
+        why = 'a failing cable, dirty SFP or dying switch port is the usual cause'
+    else:
+        why = ('drops usually mean a receive queue that overflowed or a link running '
+               'full, not a failing cable')
+    return f'{iface}: {what} since the last heartbeat — {why}'
+
+
+def _nic_counter_delta(cur, prev, cols):
+    """Increase in the summed counters `cols` between two samples of one interface.
+
+    Only an increase that can be MEASURED is news. When the previous sample had none
+    of these counters (an agent that only now sends them, a new interface), the
+    current total is the host's lifetime total, and a plain subtraction would page
+    for errors from months ago (that hit two prod hosts on the first heartbeat after
+    a deploy, v6.2.2). A counter that went backwards (a reboot, a driver reload) is
+    a fresh baseline, not a negative delta.
+    """
+    now_total = sum(cur.get(k, 0) for k in cols)
+    was_total = sum(prev.get(k, 0) for k in cols)
+    if not any(k in prev for k in cols) or now_total < was_total:
+        return 0
+    return now_total - was_total
+
 # device. Two open alerts for the same event + device + these identity values
 # are the SAME ongoing condition and must coalesce into one row, never stack up.
 _ALERT_IDENTITY_FIELDS = (
@@ -14884,7 +14941,7 @@ def _bf_active(dev_bf, cutoff, threshold):
 # that every open page re-fetches once a minute. A key belongs here when no
 # client file reads it off this response; verify with a grep over
 # server/html/static/js before adding one.
-_ROSTER_SYSINFO_OMIT = frozenset({'proc_names'})
+_ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gaps'})
 
 
 def handle_devices_list():
@@ -21446,6 +21503,21 @@ def handle_heartbeat():
                 for _p in ((dev.get('sysinfo') or {}).get('network_io') or []):
                     if isinstance(_p, dict) and _p.get('iface'):
                         _prev_io[_p['iface']] = _p
+                # v7.4.1 (#37): samples come every few heartbeats, so a missed slot
+                # makes the gap to this one longer and its deltas cover more time.
+                # Remember when each sample arrived and the last few gaps, and scale
+                # a delta back when its gap is unusually long (checks.nic_gap_scale).
+                _prev_sysinfo = dev.get('sysinfo') or {}
+                _prev_ts = _prev_sysinfo.get('network_io_ts')
+                _gap = (now - _prev_ts) if (isinstance(_prev_ts, int)
+                                            and 0 < now - _prev_ts <= 7 * 86400) else 0
+                _gaps = [g for g in (_prev_sysinfo.get('network_io_gaps') or [])
+                         if isinstance(g, int) and 0 < g <= 7 * 86400][-4:]
+                if _gap:
+                    _gaps.append(_gap)
+                _nic_scale = checks_mod.nic_gap_scale(_gap, _gaps)
+                safe_si['network_io_ts'] = now
+                safe_si['network_io_gaps'] = _gaps
                 for nio in si['network_io'][:20]:
                     if not isinstance(nio, dict):
                         continue
@@ -21458,21 +21530,18 @@ def handle_heartbeat():
                         if isinstance(v, (int, float)) and 0 <= v < 1e15:
                             ent[k] = int(v)
                     _p = _prev_io.get(ent['iface']) or {}
-                    _ecols = ('rx_err', 'tx_err', 'rx_drop', 'tx_drop')
-                    _cur_bad = sum(ent.get(k, 0) for k in _ecols)
-                    _prev_bad = sum(_p.get(k, 0) for k in _ecols)
-                    # v6.2.2 FIX: only an INCREASE we can actually MEASURE is news.
-                    # If the previous sample had NO error counters (a just-upgraded
-                    # agent that only now sends them, or a newly-appearing NIC),
-                    # `_prev_bad` is 0 and `_cur_bad` is the host's ACCUMULATED
-                    # LIFETIME error total — so a plain delta would fire an alert for
-                    # errors that happened MONTHS ago. That spurious fire hit two
-                    # prod hosts on the first heartbeat after deploy. Baseline the
-                    # first sighting silently (err_delta 0); a real delta needs a
-                    # prior counter to subtract from.
-                    _has_prev = any(k in _p for k in _ecols)
-                    _delta = (_cur_bad - _prev_bad) if (_has_prev and _cur_bad >= _prev_bad) else 0
-                    ent['err_delta'] = _delta
+                    # What accrued since the previous sample, errors and drops apart:
+                    # the alert, the Checks row and the reliability score judge them
+                    # apart (checks.nic_breach). `err_delta` stays their plain sum.
+                    # `errors_delta` and `drops_delta` are scaled for an unusually
+                    # long gap; `delta_scale` says by how much, when it did.
+                    _e = _nic_counter_delta(ent, _p, ('rx_err', 'tx_err'))
+                    _d = _nic_counter_delta(ent, _p, ('rx_drop', 'tx_drop'))
+                    ent['err_delta'] = _e + _d
+                    ent['errors_delta'] = int(_e * _nic_scale + 0.5)
+                    ent['drops_delta'] = int(_d * _nic_scale + 0.5)
+                    if _nic_scale < 1.0:
+                        ent['delta_scale'] = round(_nic_scale, 3)
                     safe_io.append(ent)
                 safe_si['network_io'] = safe_io
             # Metrics — legacy three (root-mount disk, cpu, memory) plus
@@ -23131,7 +23200,7 @@ def handle_heartbeat():
     if any(_si.get(k) for k in _POSTURE_INGEST_KEYS) \
             or _si.get('modules_visible') is not None:
         try:
-            _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
+            _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si, dev=saved_dev)
         except Exception as e:
             sys.stderr.write(f"[remotepower] posture ingest failed dev={dev_id}: {e}\n")
     # v3.14.0 #36: watched-process CPU/memory threshold alerting.
@@ -38768,7 +38837,7 @@ _POSTURE_INGEST_KEYS = (
 )
 
 
-def _ingest_posture_v3110(dev_id, dev_name, si):
+def _ingest_posture_v3110(dev_id, dev_name, si, dev=None):
     """v3.11.0: edge-triggered detections over the heartbeat's posture
     fields. State per device is kept in POSTURE_STATE_FILE so each
     condition fires once per transition (not every heartbeat):
@@ -38977,33 +39046,26 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     if isinstance(nio, list):
         # A high-severity page needs a MEANINGFUL delta — a busy NIC drops the odd
         # packet under load without a failing cable, so a delta of 1-2 between beats
-        # is noise. Require >= the configured floor (Settings → Alert parameters;
-        # _NIC_ERR_ALERT_MIN is the default) new errors/drops in one interval.
-        try:
-            _nic_min = int(_config_ro().get('nic_err_alert_min') or _NIC_ERR_ALERT_MIN)
-        except (TypeError, ValueError, OverflowError):
-            _nic_min = _NIC_ERR_ALERT_MIN
-        if _nic_min < 1:
-            _nic_min = _NIC_ERR_ALERT_MIN
-        cur_bad = sorted({
-            _sanitize_str(str(n.get('iface', '')), 32)
-            for n in nio
-            if isinstance(n, dict) and isinstance(n.get('err_delta'), int)
-            and n['err_delta'] >= _nic_min and n.get('iface')
-        })
+        # is noise. The floors are this host's own (Metric thresholds) or else the
+        # fleet's (Settings → Alert parameters; _NIC_ERR_ALERT_MIN is the default),
+        # and errors and drops can have a floor each: checks.nic_breach decides.
+        if dev is None:
+            dev = device_get(dev_id) or {}
+        _nic_err_min, _nic_drop_min = checks_mod.nic_floors(
+            dev, *_nic_fleet_floors(_config_ro()))
+        breaches = {}
+        for n in nio:
+            if isinstance(n, dict) and n.get('iface'):
+                _b = checks_mod.nic_breach(n, _nic_err_min, _nic_drop_min)
+                if _b:
+                    breaches[_sanitize_str(str(n.get('iface', '')), 32)] = _b
+        cur_bad = sorted(breaches)
         prev_bad = set(prev.get('nic_err_ifaces') or [])
         if not first_seen:
             for _if in cur_bad:
                 if _if not in prev_bad:
-                    _worst = max((n for n in nio if n.get('iface') == _if),
-                                 key=lambda n: n.get('err_delta', 0), default={})
-                    _fire('nic_errors', {
-                        'iface': _if,
-                        'detail': (f'{_if}: +{_worst.get("err_delta", "?")} errors/'
-                                   'drops since the last heartbeat — a failing '
-                                   'cable, dirty SFP or dying switch port is the '
-                                   'usual cause'),
-                    })
+                    _fire('nic_errors', {'iface': _if,
+                                         'detail': _nic_alert_detail(_if, breaches[_if])})
             for _if in sorted(prev_bad - set(cur_bad)):
                 _fire('nic_errors_cleared', {'iface': _if,
                                              'detail': f'{_if}: errors stopped'})
@@ -49100,6 +49162,10 @@ def _checks_threshold_kwargs(cfg):
         # the two above — an operator who wants LUKS warnings has not asked to
         # be told about every host running DKMS modules.
         'secure_boot':               bool(cfg.get('secure_boot_checks', False)),
+        # v7.4.1 (#37): the fleet's NIC floors. A host's own, in its
+        # metric_thresholds, are applied inside the engine (checks.nic_floors).
+        'nic_err_min':               _nic_fleet_floors(cfg)[0],
+        'nic_drop_min':              _nic_fleet_floors(cfg)[1],
     }
 
 
@@ -51652,10 +51718,10 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
 
     # v6.4.2: a NIC accumulating errors/drops — the same per-interface err_delta
     # the nic_errors alert fires on, at the same operator-tunable floor.
-    _nic_floor = _rel_int('nic_err_alert_min', _NIC_ERR_ALERT_MIN)
+    _nic_err_min, _nic_drop_min = checks_mod.nic_floors(dev, *_nic_fleet_floors(_rc))
     _bad_nics = [n.get('iface') for n in (si.get('network_io') or [])
-                 if isinstance(n, dict) and isinstance(n.get('err_delta'), int)
-                 and n['err_delta'] >= _nic_floor]
+                 if isinstance(n, dict)
+                 and checks_mod.nic_breach(n, _nic_err_min, _nic_drop_min)]
     if _bad_nics:
         _add('nic_errors', w['nic_errors'],
              'errors/drops rising on ' + ', '.join(str(i) for i in _bad_nics[:5] if i))
