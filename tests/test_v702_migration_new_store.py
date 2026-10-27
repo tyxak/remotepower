@@ -136,7 +136,13 @@ class TestAStoreCreatedDuringMigrationSurvives(unittest.TestCase):
         self.assertTrue(before.get('ok'), before)
         n_before = before['files']
 
+        # A second setUp() for a fresh dir. It would record the CURRENT value of the backend variable
+        # as the one to restore, and the first setUp() already popped it, so tearDown restored
+        # nothing and every module after this one ran on JSON inside `make test-sqlite` (19% of that
+        # gate). Carry the values saved by the first call across the second.
+        env, cache = self._env, self._cache
         self.setUp()                       # fresh dir, same seed
+        self._env, self._cache = env, cache
         self._seed()
         after = self._migrate(during=lambda: self.storage._write_json_atomic(
             self.dir / 'alerts.json', {'alerts': []}))
