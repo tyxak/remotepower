@@ -1086,6 +1086,61 @@ def poll_hr_storage(host, community, port=161, timeout=2.0, max_entries=24):
     return out
 
 
+# The hrStorage rows that stand for main memory. Compared lower-cased: Windows
+# says "Physical Memory", MikroTik "main memory", net-snmp "Physical memory".
+_PHYSICAL_MEMORY_ROWS = ('physical memory', 'main memory', 'memory')
+
+
+def memory_in_use(storage):
+    """Physical memory in use, with the cache and the buffers left out (v7.4.2).
+
+    net-snmp's "Physical memory" row counts the page cache and the buffers as used (its used
+    figure is the size minus the free pages) and lists them again as rows of their own,
+    "Cached memory" and "Memory buffers". Read as it stands, a FreeBSD firewall or a NAS with
+    a quarter of its memory in use reports 94%, and every threshold on it trips. This takes
+    the two rows off the used figure, the way ``free`` has always shown a Linux box.
+
+    ``storage`` is what :func:`poll_hr_storage` returns. The result is None when there is no
+    memory row, else a dict:
+
+      index, size_bytes   the memory row and its size
+      used_bytes/used_pct in use WITHOUT the cache (the figure to alert on)
+      raw_used_bytes/raw_used_pct   as the device reports it
+      cache_bytes         what was taken off; 0 when there was nothing to take
+
+    A host that has no cache rows (Windows, MikroTik, ESXi) comes back as the device reports
+    it. So does one whose cache plus buffers is larger than its used figure: that host's
+    "used" cannot include them, and subtracting would invent a negative.
+    """
+    rows = [s for s in (storage or []) if isinstance(s, dict)]
+    mem = next((s for s in rows
+                if str(s.get('descr') or '').strip().lower() in _PHYSICAL_MEMORY_ROWS), None)
+    if mem is None:
+        return None
+    size, used = mem.get('size_bytes'), mem.get('used_bytes')
+    cache = 0
+    for s in rows:
+        if str(s.get('descr') or '').strip().lower() in ('cached memory', 'memory buffers'):
+            n = s.get('used_bytes')
+            if isinstance(n, int) and n > 0:
+                cache += n
+    if used is None or cache > used:
+        cache = 0
+    in_use = None if used is None else used - cache
+    pct = mem.get('used_pct')
+    if cache and size:
+        pct = round(in_use * 100.0 / size, 1)
+    return {
+        'index':          mem.get('index'),
+        'size_bytes':     size,
+        'used_bytes':     in_use,
+        'used_pct':       pct,
+        'raw_used_bytes': used,
+        'raw_used_pct':   mem.get('used_pct'),
+        'cache_bytes':    cache,
+    }
+
+
 # ── Mikrotik vendor MIB (1.3.6.1.4.1.14988.*) ──────────────────────────────
 
 MIKROTIK_OIDS = {

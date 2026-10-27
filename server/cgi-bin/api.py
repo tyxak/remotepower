@@ -15104,19 +15104,15 @@ def handle_devices_list():
                           if isinstance(p.get('load_pct'), (int, float))]
                 if loads:
                     cpu_pct = round(sum(loads) / len(loads), 1)
-            # Memory % — physical/main memory entry from hrStorage
-            mem_pct = None
-            mem_total_kb = None
-            mem_used_kb  = None
-            for s in (sd.get('storage') or []):
-                descr = str(s.get('descr') or '').lower()
-                if descr in ('physical memory', 'main memory', 'memory'):
-                    mem_pct = s.get('used_pct')
-                    if s.get('size_bytes'):
-                        mem_total_kb = s['size_bytes'] // 1024
-                    if s.get('used_bytes') is not None:
-                        mem_used_kb = s['used_bytes'] // 1024
-                    break
+            # Memory % — the physical/main memory entry from hrStorage, cache and
+            # buffers left out (v7.4.2, #42): the same sum the alert reads.
+            import snmp as _snmp_mod
+            _mem = _snmp_mod.memory_in_use(sd.get('storage')) or {}
+            mem_pct = _mem.get('used_pct')
+            mem_total_kb = _mem['size_bytes'] // 1024 if _mem.get('size_bytes') else None
+            mem_used_kb = (_mem['used_bytes'] // 1024
+                           if _mem.get('used_bytes') is not None else None)
+            mem_cache_kb = _mem['cache_bytes'] // 1024 if _mem.get('cache_bytes') else None
             # Filesystem-like storage entries (skip memory/swap/cache)
             mounts = []
             for s in (sd.get('storage') or []):
@@ -15156,6 +15152,7 @@ def handle_devices_list():
                 'mem_pct':    mem_pct,
                 'mem_total_kb': mem_total_kb,
                 'mem_used_kb':  mem_used_kb,
+                'mem_cache_kb': mem_cache_kb,
                 'mounts':     mounts,
                 'temp_board': temp_board,
                 'temp_cpu':   temp_cpu,
@@ -68994,13 +68991,13 @@ def _snmp_threshold_warn_crit(dev, kind):
 
 
 def _snmp_memory_used_pct(snmp_entry):
-    """Pick memory used % from the polled storage table. Looks for the
-    physical/main memory entry first; falls back to None."""
-    for s in snmp_entry.get('storage') or []:
-        descr = str(s.get('descr') or '').lower()
-        if descr in ('physical memory', 'main memory', 'memory'):
-            return s.get('used_pct')
-    return None
+    """Memory used % from the polled storage table: the physical/main memory row with the
+    cache and the buffers left out (v7.4.2, #42 -- see snmp.memory_in_use), or None.
+
+    The alert, the metric history and the devices-list cell all read this one sum."""
+    import snmp as _snmp_mod
+    mem = _snmp_mod.memory_in_use(snmp_entry.get('storage'))
+    return mem['used_pct'] if mem else None
 
 
 def _snmp_storage_mounts(snmp_entry):

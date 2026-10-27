@@ -600,7 +600,7 @@ Version tags such as *(v7.2.0)* mark features added in the last three releases. 
 | Store-and-forward | Agent spools metric samples locally when the server is unreachable (bounded ring) and backfills the gap into the sparklines on reconnect; backfilled history never triggers retro-alerts |
 | Adjustable poll interval | Per-host cadence (10–3600s), applied on next heartbeat |
 | Mailbox monitor | Counts files in configured directories (Maildir unread); `mailbox_threshold` |
-| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy). An **OID browser** in the host drawer walks any subtree with the host's stored credentials — presets for the common MIBs, well-known OIDs resolved to names, admin-only and audited, capped per walk. `POST /api/devices/{id}/snmp/walk` |
+| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); memory is the share in use **without** the cache and buffers net-snmp counts as used, for the alert, the history, the Hosts page and the card *(v7.4.2)*; `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy). An **OID browser** in the host drawer walks any subtree with the host's stored credentials — presets for the common MIBs, well-known OIDs resolved to names, admin-only and audited, capped per walk. `POST /api/devices/{id}/snmp/walk` |
 
 ## Platform, scale & storage backend
 

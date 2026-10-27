@@ -257,6 +257,11 @@ def handle_device_snmp_deep(dev_id):
                                                    port=port, timeout=2.5)
     except Exception as e:
         out['errors']['storage'] = f'{type(e).__name__}: {e}'
+    # Memory with the cache left out (v7.4.2, #42): the rows stay as the device reports
+    # them, and the card shows this sum beside them. The same sum the alert reads.
+    _mem = snmp_mod.memory_in_use(out.get('storage'))
+    if _mem:
+        out['memory'] = _mem
 
     # 5. hrProcessorTable — per-CPU load %. Standard MIB-2, works on
     #    Mikrotik + Linux + BSD + most enterprise gear.

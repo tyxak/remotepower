@@ -97,6 +97,18 @@ without anything installed on the host.
   vendor extras (e.g. MikroTik board/CPU temperatures) surfaced on the
   host card. See the [SNMP walkthrough](cookbook.md#watch-an-agentless-host-with-snmp)
   for setup.
+- **Memory without the cache (v7.4.2).** net-snmp counts the page cache
+  and the buffers as used in the "Physical memory" row and lists them again
+  as the rows "Cached memory" and "Memory buffers", so a firewall or a NAS
+  can read 90% when most of it is cache. RemotePower takes those two rows
+  off the figure. The result is what the memory alert, the history graph,
+  the Hosts page and the SNMP tab show; the tab also shows the figure the
+  host reports, with the cache and buffers next to it. A host that lists
+  no such rows (Windows, MikroTik) is read as it reports. The figure can
+  still be higher than the host's own `top`: SNMP lists only those rows,
+  and a host may keep other reusable pages that it does not list. To alert
+  at a different level, set the memory warning and critical thresholds
+  for the host under **Metric thresholds**.
 - **OID browser (v6.4.1).** Open the host drawer, go to the **Audit** tab,
   and expand **System → SNMP**; the browser is at the bottom of that section,
   under **Browse OID tree**. The poll above reads a fixed set of OIDs — the

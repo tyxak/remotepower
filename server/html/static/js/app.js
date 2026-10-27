@@ -25882,8 +25882,12 @@ async function _loadAuditSection(key) {
           if (u.memTotalReal && u.memAvailReal) {
             const usedKb = u.memTotalReal - u.memAvailReal;
             const usedPct = (usedKb / u.memTotalReal * 100).toFixed(1);
-            const col = usedPct > 90 ? 'var(--red)' : usedPct > 75 ? 'var(--amber)' : 'inherit';
-            h += `<div class="mt-8 fs-13"><strong>Real memory:</strong> <span data-color="${col}">${(usedKb/1024).toFixed(0)} / ${(u.memTotalReal/1024).toFixed(0)} MB (${usedPct}%)</span></div>`;
+            // Total minus FREE pages, so the cache is in it. When the storage table shows
+            // there is cache to take off, the Memory block below carries the figure that
+            // matters, and this one is the device's own number: shown, not coloured.
+            const withCache = !!(data.memory && data.memory.cache_bytes > 0);
+            const col = withCache ? 'inherit' : usedPct > 90 ? 'var(--red)' : usedPct > 75 ? 'var(--amber)' : 'inherit';
+            h += `<div class="mt-8 fs-13"><strong>Real memory:</strong> <span data-color="${col}">${(usedKb/1024).toFixed(0)} / ${(u.memTotalReal/1024).toFixed(0)} MB (${usedPct}%)</span>${withCache ? ' <span class="hint">includes cache and buffers</span>' : ''}</div>`;
           }
           if (u.memTotalSwap && u.memAvailSwap != null) {
             const swapUsedKb = u.memTotalSwap - u.memAvailSwap;
@@ -25950,6 +25954,19 @@ async function _loadAuditSection(key) {
             h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
           }
           h += '</table>';
+        }
+        // Memory with the cache left out. The server did the sum (snmp.memory_in_use, the one
+        // the alert reads); the rows in the Storage table below stay as the device reports them.
+        if (data.memory && data.memory.cache_bytes > 0 && data.memory.used_pct != null) {
+          const m = data.memory;
+          const mb = b => Math.round(b / 1048576).toLocaleString(_localeTag());
+          const col = m.used_pct > 90 ? 'var(--red)' : m.used_pct > 75 ? 'var(--amber)' : 'inherit';
+          h += '<h4 class="mt-12">Memory</h4><div class="sysinfo-row">'
+            + `<div class="sysinfo-pill"><div class="label">In use</div><div class="value isl-348" data-color="${col}">${m.used_pct.toFixed(1)}%</div></div>`
+            + `<div class="sysinfo-pill"><div class="label">Cache and buffers</div><div class="value">${mb(m.cache_bytes)} MB</div></div>`
+            + `<div class="sysinfo-pill"><div class="label">Total</div><div class="value">${mb(m.size_bytes)} MB</div></div>`
+            + '</div>'
+            + `<div class="hint mt-4">The host counts its cache and buffers as used, so it reports ${escHtml(String(m.raw_used_pct))}%. RemotePower alerts on the share without them.</div>`;
         }
         // Storage table
         if (Array.isArray(data.storage) && data.storage.length) {
