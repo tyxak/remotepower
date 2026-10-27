@@ -148,12 +148,12 @@ class TestTheCard(unittest.TestCase):
             row(1, "Physical memory", 7918, 7454), row(2, "Cached memory", 3919, 3919),
             row(3, "Memory buffers", 802, 502), row(4, "Swap space", 8192, 0), row(5, "/", 220000, 41000)]))
         self.assertIn("Memory", card["heads"])
-        pills = {p["label"]: p for p in card["pills"] if p["label"] in ("In use", "Cache and buffers", "Total")}
+        pills = {p["label"]: p for p in card["pills"] if p["label"] in ("In use", "Cache and buffers", "Total", "Host reports")}
         self.assertEqual(pills["In use"]["value"], "38.3%")
         self.assertEqual(pills["Cache and buffers"]["value"], "4,421 MB")
         self.assertEqual(pills["Total"]["value"], "7,918 MB")
+        self.assertEqual(pills["Host reports"]["value"], "94.1%", "what the host says itself, beside the share without the cache")
         self.assertEqual(pills["In use"]["color"], "inherit", "38% is not a warning colour")
-        self.assertIn("reports 94.1%", card["text"])
         self.assertIn("alerts on the share without them", card["text"])
         self.assertTrue(card["real"], "the device's own UCD line should still be there")
         self.assertIn("94.1%", card["real"]["text"])

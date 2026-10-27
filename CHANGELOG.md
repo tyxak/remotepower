@@ -98,6 +98,21 @@ dashboard says one thing and the host is doing another.
   integration until the service stopped sending it. Such values are stored as
   empty and the rest are saved. Found while building the card above.
 
+### Translations
+
+- **The text 7.4.2 added is translated.** The Container exclude list card on
+  Monitoring → Tuning and its row in *Everything currently silenced*, the Memory
+  block of the SNMP tab (the label that was a sentence with a number in it is a
+  label and a value now, so it can be translated) and the integrations section of
+  the host card with its hourly line are in Chinese, Hindi, Spanish, Arabic,
+  German and French. They were written without a native reader; if one reads
+  wrong, tell us. A line that puts a number inside a sentence (the section's
+  count badge, "Last 20 checks: 18 ok") stays in English, as it does in the other
+  sections of the card. A test holds the list: each string must translate in all
+  six languages under the real engine, must still be in the file that renders it
+  (a reworded line would otherwise stop translating without an error), and must
+  keep `image:` and the arrow of a menu path as written.
+
 ## v7.4.1 — "Al1gnMatters" — 2026-10-26
 
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one

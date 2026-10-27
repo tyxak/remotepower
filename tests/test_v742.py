@@ -151,6 +151,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v742_host_integrations.py",
         "tests/test_v742_host_integrations_e2e.py",
         "tests/test_v742_integration_trend.py",
+        "tests/test_v742_translations.py",
         "tests/test_v742_drawer_focus_e2e.py",
         "tests/test_v742_recoveries_follow_the_window.py",
     )

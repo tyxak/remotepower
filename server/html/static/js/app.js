@@ -25779,7 +25779,7 @@ async function _loadAuditSection(key) {
         if (!rows.length) {
           body.innerHTML = data && data.show_homelab === false
             ? '<div class="c-muted">Homelab software integrations are hidden on this instance.</div>'
-            : '<div class="c-muted">No integrations are bound to this host. Bind one under Settings &rarr; Integrations with <em>Runs on host</em>.</div>';
+            : '<div class="c-muted">No integrations are bound to this host. To bind one, open it under Settings &rarr; Integrations and fill in Runs on host.</div>';
           badge.textContent = 'none'; return;
         }
         badge.textContent = `${rows.length} integration${rows.length !== 1 ? 's' : ''}`;
@@ -26070,8 +26070,11 @@ async function _loadAuditSection(key) {
             + `<div class="sysinfo-pill"><div class="label">In use</div><div class="value isl-348" data-color="${col}">${m.used_pct.toFixed(1)}%</div></div>`
             + `<div class="sysinfo-pill"><div class="label">Cache and buffers</div><div class="value">${mb(m.cache_bytes)} MB</div></div>`
             + `<div class="sysinfo-pill"><div class="label">Total</div><div class="value">${mb(m.size_bytes)} MB</div></div>`
+            // What the host says itself, as a pill of its own: a number inside a sentence cannot be translated.
+            + (m.raw_used_pct != null
+                ? `<div class="sysinfo-pill"><div class="label">Host reports</div><div class="value">${escHtml(String(m.raw_used_pct))}%</div></div>` : '')
             + '</div>'
-            + `<div class="hint mt-4">The host counts its cache and buffers as used, so it reports ${escHtml(String(m.raw_used_pct))}%. RemotePower alerts on the share without them.</div>`;
+            + '<div class="hint mt-4">The host counts its cache and buffers as used. RemotePower alerts on the share without them.</div>';
         }
         // Storage table
         if (Array.isArray(data.storage) && data.storage.length) {
