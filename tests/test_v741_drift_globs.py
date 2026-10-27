@@ -19,7 +19,6 @@ import re
 import sys as _rp_sys
 import pathlib as _rp_pl
 import tempfile
-import time
 import unittest
 
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))

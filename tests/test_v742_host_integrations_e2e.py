@@ -192,6 +192,8 @@ class TestTheSection(unittest.TestCase):
         self.assertIn("31", s["rows"][1]["stats"])
         self.assertEqual(s["sparks"], 2, "a trend per number with two or more points, none for the single one")
         self.assertIn("520000 → 412345", s["text"])
+        self.assertNotIn("31 → 31", s["text"],
+                         "a number with one point has no line, and no 'from, to' text either")
         self.assertIn("Last 3 checks: 2 ok · 1 warning", s["text"])
         self.assertEqual(_STACK["errors"], [], "the page threw")
 

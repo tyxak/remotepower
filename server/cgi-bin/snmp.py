@@ -1098,7 +1098,7 @@ def memory_in_use(storage):
     figure is the size minus the free pages) and lists them again as rows of their own,
     "Cached memory" and "Memory buffers". Read as it stands, a FreeBSD firewall or a NAS with
     a quarter of its memory in use reports 94%, and every threshold on it trips. This takes
-    the two rows off the used figure, the way ``free`` has always shown a Linux box.
+    the two rows off the used figure, as ``free`` does for a Linux box.
 
     ``storage`` is what :func:`poll_hr_storage` returns. The result is None when there is no
     memory row, else a dict:
@@ -1108,9 +1108,9 @@ def memory_in_use(storage):
       raw_used_bytes/raw_used_pct   as the device reports it
       cache_bytes         what was taken off; 0 when there was nothing to take
 
-    A host that has no cache rows (Windows, MikroTik, ESXi) comes back as the device reports
-    it. So does one whose cache plus buffers is larger than its used figure: that host's
-    "used" cannot include them, and subtracting would invent a negative.
+    A host that has no cache rows comes back as the device reports it. So does one
+    whose cache plus buffers is larger than its used figure: that host's "used"
+    cannot include them, and subtracting would invent a negative.
     """
     rows = [s for s in (storage or []) if isinstance(s, dict)]
     mem = next((s for s in rows
