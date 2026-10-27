@@ -83,7 +83,8 @@ holds long-form docs that don't fit there.
 - **[v7.4.2.md](v7.4.2.md)** — "Re4lMatters": fixes for four reports from a
   Docker install of 7.4.1. A stopped container's alert closes when it runs
   again, container excludes match an image, SNMP memory leaves out the cache,
-  and a host's card lists the integrations bound to it.
+  and a host's card lists the integrations bound to it. A maintenance window
+  holds recovery notices with their alerts.
 - **[v7.4.1.md](v7.4.1.md)** — "Al1gnMatters": fixes for what a Docker
   install of 7.4.0 ran into: enrolling against a self-signed server on any port,
   a restart when a host is enrolled again, the browser terminal in the image, a
