@@ -102,11 +102,15 @@ if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
   TMPCA="$(mktemp)"; trap 'rm -f "$TMPCA"' EXIT
 
   # Resolve where to get the CA from: the server's own address, port included.
-  # It is fetched WITHOUT checking the certificate, because the CA that signed it is
-  # what is being fetched; the fingerprint compare below is what authenticates the
-  # bytes. (This used to be http://<host>/ca.crt with the port cut off, which is
-  # port 80 whatever port the server is published on.) The plain-HTTP copy on port
-  # 80 stays as a fallback for a setup that only serves it there.
+  # With a fingerprint it is fetched WITHOUT checking the certificate, because the CA
+  # that signed it is what is being fetched; the fingerprint compare below is what
+  # authenticates the bytes. Without one nothing would, so an address given with --ca
+  # alone is fetched with the certificate checked, as it was before 7.4.1, and one that
+  # fails the check is refused. (The default used to be http://<host>/ca.crt with the
+  # port cut off, which is port 80 whatever port the server is published on.) The
+  # plain-HTTP copy on port 80 stays as a fallback for a setup that only serves it there.
+  CURL_K=""
+  if [ -n "$CA_FP" ]; then CURL_K="-k"; fi
   CA_FALLBACK=""
   if [ -z "$CA_SRC" ]; then
     [ -n "$SERVER_URL" ] || die "--ca-fingerprint needs --server (to locate <server>/ca.crt)"
@@ -118,7 +122,7 @@ if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
   info "Fetching CA from ${CA_SRC} ..."
   case "$CA_SRC" in
     http://*|https://*)
-      curl -fsSLk "$CA_SRC" -o "$TMPCA" 2>/dev/null \
+      curl -fsSL $CURL_K "$CA_SRC" -o "$TMPCA" 2>/dev/null \
         || { [ -n "$CA_FALLBACK" ] && curl -fsSL "$CA_FALLBACK" -o "$TMPCA"; } \
         || die "could not fetch CA from $CA_SRC" ;;
     *)                  [ -f "$CA_SRC" ] || die "CA file not found: $CA_SRC"; cp "$CA_SRC" "$TMPCA" ;;

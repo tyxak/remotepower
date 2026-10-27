@@ -283,6 +283,34 @@ class TestInstallClientAgainstASelfSignedServer(_Rig):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.sb.running_creds(), "111111-credentials")
 
+    # v7.4.2 (security review): 7.4.1 fetched EVERY address with the certificate check off, on
+    # the reasoning that the fingerprint authenticates the file. It does, when there is one.
+    def test_an_address_given_with_ca_alone_is_fetched_with_the_certificate_checked(self):
+        """--ca <address> with no fingerprint has nothing but TLS to authenticate the file. This
+        server's certificate is signed by a CA that no trust store holds, so a checked fetch fails and
+        nothing is trusted. With the check off it was a silent trust on first use of whatever answered."""
+        r = self.run_installer("--server", self.srv.url, "--pin", "123456",
+                               "--ca", f"{self.srv.url}/ca.crt")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.sb.root / "etc/remotepower/ca.crt").exists(),
+                         "a CA nothing authenticated was installed")
+        self.assertNotIn("AGENT enroll", self.sb.calls())
+
+    def test_the_same_address_with_the_fingerprint_is_trusted(self):
+        """The control: the fingerprint is what makes an unchecked fetch safe, so with it the address
+        works even though the certificate cannot be checked."""
+        r = self.run_installer("--server", self.srv.url, "--pin", "123456",
+                               "--ca", f"{self.srv.url}/ca.crt", "--ca-fingerprint", self.fp)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.sb.root / "etc/remotepower/ca.crt").read_bytes(),
+                         (self.tls / "ca.crt").read_bytes())
+
+    def test_a_ca_file_without_a_fingerprint_is_still_accepted_with_the_warning(self):
+        """A local file involves no fetch. It is trust on first use, said out loud, as it always was."""
+        r = self.run_installer("--server", self.srv.url, "--pin", "123456", "--ca", str(self.tls / "ca.crt"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("WITHOUT verification", r.stdout + r.stderr)
+
 
 class TestNoInstallerBuildsTheCaAddressFromAPortlessHost(unittest.TestCase):
     """The same defect was written three times, in the three installers that read a
@@ -322,6 +350,42 @@ class TestNoInstallerBuildsTheCaAddressFromAPortlessHost(unittest.TestCase):
         for rel in self.KNOWN_OPEN:
             self.assertRegex(self.code(rel), self.PORTLESS,
                              f"{rel} no longer has the defect: remove it from KNOWN_OPEN")
+
+
+class TestNoInstallerSkipsTheCertificateCheckForAnAddressNothingAuthenticates(unittest.TestCase):
+    """The two installers that fetch a CA from an address. The check is skipped only through CURL_K,
+    which is set only when a fingerprint was given; a literal -k would bring the 7.4.1 hole back."""
+
+    FILES = ("install-client.sh", "client/install-macos.sh")
+
+    def code(self, rel):
+        return "\n".join(ln for ln in (H.ROOT / rel).read_text().splitlines() if not ln.lstrip().startswith("#"))
+
+    def test_the_population_is_the_two_installers(self):
+        for rel in self.FILES:
+            self.assertTrue((H.ROOT / rel).exists(), rel)
+
+    def test_no_literal_unchecked_fetch(self):
+        import re
+        for rel in self.FILES:
+            with self.subTest(file=rel):
+                code = self.code(rel)
+                self.assertIsNone(re.search(r"curl\s+-[A-Za-z]*k[A-Za-z]*\s", code), "curl -...k")
+                self.assertNotIn("--insecure", code)
+                self.assertNotIn("--no-check-certificate", code)
+
+    def test_the_check_is_skipped_only_with_a_fingerprint(self):
+        import re
+        for rel in self.FILES:
+            with self.subTest(file=rel):
+                code = self.code(rel)
+                self.assertRegex(code, r'CURL_K=""\s*\n\s*if \[ -n "\$CA_FP" \]; then CURL_K="-k"; fi')
+                self.assertEqual(len(re.findall(r'\$CURL_K', code)), 1, "one fetch uses it")
+
+    def test_the_check_can_fail(self):
+        """The control: the old line is seen as a literal unchecked fetch."""
+        import re
+        self.assertIsNotNone(re.search(r"curl\s+-[A-Za-z]*k[A-Za-z]*\s", 'curl -fsSLk "$CA_SRC" -o "$TMPCA"'))
 
 
 class TestUninstall(_Rig):
