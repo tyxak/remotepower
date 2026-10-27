@@ -234,20 +234,24 @@ class TestTheSnmpCard(_Base, _Call):
     """GET /api/devices/<id>/snmp/deep feeds the card on the host drawer."""
 
     def stub_polls(self, storage):
-        self._saved = {n: getattr(snmp_mod, n) for n in (
+        # The handler imports snmp when it runs, and test_v320 deletes the module from sys.modules and
+        # imports it again, so the object this file imported at load time can be a stale one by then.
+        # Stub the module the handler will get.
+        self._snmp = importlib.import_module("snmp")
+        self._saved = {n: getattr(self._snmp, n) for n in (
             "poll_system", "poll_interfaces", "poll_host_resources", "poll_hr_storage",
             "poll_processors", "poll_ucd_snmp", "poll_synology")}
-        snmp_mod.poll_system = lambda *a, **k: {"sysName": "opnsense"}
-        snmp_mod.poll_interfaces = lambda *a, **k: []
-        snmp_mod.poll_host_resources = lambda *a, **k: {}
-        snmp_mod.poll_hr_storage = lambda *a, **k: storage
-        snmp_mod.poll_processors = lambda *a, **k: []
-        snmp_mod.poll_ucd_snmp = lambda *a, **k: {"memTotalReal": 7918 * 1024, "memAvailReal": 464 * 1024}
-        snmp_mod.poll_synology = lambda *a, **k: {}
+        self._snmp.poll_system = lambda *a, **k: {"sysName": "opnsense"}
+        self._snmp.poll_interfaces = lambda *a, **k: []
+        self._snmp.poll_host_resources = lambda *a, **k: {}
+        self._snmp.poll_hr_storage = lambda *a, **k: storage
+        self._snmp.poll_processors = lambda *a, **k: []
+        self._snmp.poll_ucd_snmp = lambda *a, **k: {"memTotalReal": 7918 * 1024, "memAvailReal": 464 * 1024}
+        self._snmp.poll_synology = lambda *a, **k: {}
 
     def tearDown(self):
         for n, v in getattr(self, "_saved", {}).items():
-            setattr(snmp_mod, n, v)
+            setattr(self._snmp, n, v)
         super().tearDown()
 
     def test_the_card_gets_the_sum_beside_the_raw_rows(self):

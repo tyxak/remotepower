@@ -44,6 +44,12 @@ _spec.loader.exec_module(api)
 import ai_provider  # noqa: E402
 import request_models  # noqa: E402
 
+# Discovery imports every test module before it runs one, so these are the real functions, even when an
+# earlier module (test_v213, test_v217) left a fake chat() installed. setUpModule puts them back: this
+# file measures what goes over the wire and cannot do that through somebody else's fake.
+_REAL_AI = {n: f for n, f in vars(ai_provider).items()
+            if callable(f) and getattr(f, '__module__', None) == 'ai_provider'}
+
 LANGS = ("zh", "hi", "es", "ar", "de", "fr")
 I18N = (ROOT / "server/html/static/js/i18n.js").read_text()
 HTML = (ROOT / "server/html/index.html").read_text()
@@ -97,6 +103,8 @@ _EP = {}
 
 
 def setUpModule():
+    for _n, _f in _REAL_AI.items():
+        setattr(ai_provider, _n, _f)
     _EP['ep'] = _Endpoint()
 
 

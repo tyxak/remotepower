@@ -281,6 +281,7 @@ class TestChatPrependsContext(_Base):
             self._captured_system.append(system)
             return {'ok': True, 'text': 'mocked', 'model': 'm',
                     'tokens_in': 1, 'tokens_out': 1}
+        self.addCleanup(setattr, ai_provider, 'chat', ai_provider.chat)   # a fake left behind breaks every later module
         ai_provider.chat = fake_chat
 
     def _chat(self, body):
@@ -359,6 +360,7 @@ class TestRunbookGenerate(_Base):
                                 'max_tokens': max_tokens})
             return {'ok': True, 'text': '# Runbook\n\n## Purpose\n\nweb01 is a web server.',
                     'model': 'test-model', 'tokens_in': 100, 'tokens_out': 200}
+        self.addCleanup(setattr, ai_provider, 'chat', ai_provider.chat)   # a fake left behind breaks every later module
         ai_provider.chat = fake_chat
 
     def _generate(self, dev_id='dev1'):

@@ -549,6 +549,7 @@ class TestApiEmbeddings(unittest.TestCase):
         _patch_respond()
         _seed_fleet()
         _enable_rag(provider="ollama", embeddings=True)
+        self.addCleanup(setattr, ai_provider, 'supports_embeddings', ai_provider.supports_embeddings)
         self.state, self._orig = _stub_embed()
 
     def tearDown(self):

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.2-8">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.2-9">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.2-8">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.2-9">
 
 </head>
 <body>
@@ -4804,7 +4804,7 @@
             <div class="doc-body">
               <p><strong>Containers.</strong> An alert for a stopped container closes when the container is running again, also after it was removed and created again and for a host whose containers were all stopped at once, as a nightly backup does. Alerts that were already open close on the first report after you upgrade. Inside a maintenance window the stop notice was held; the recovery notice is held now too. Entries of <code>container_alert_excludes</code> that start with <code>image:</code> match the image, which is what helper containers that exit by design and get a random name need, and the list now also applies to the Needs Attention list and the dashboard&rsquo;s stopped-containers widget. See <a href="docs/containers.md" class="c-accent">Container awareness</a>.</p>
               <p><strong>SNMP memory.</strong> The memory alert, the history graph, the Hosts page and the SNMP tab leave out the cache and buffers a net-snmp host counts as used, so a firewall with a quarter of its memory in use no longer reads 94%. The SNMP tab shows the share in use, the cache and buffers, and what the host itself reports. See <a href="docs/agentless-devices.md" class="c-accent">Agentless hosts</a>.</p>
-              <p><strong>A host&rsquo;s card shows its integrations.</strong> On a host&rsquo;s <strong>Audit</strong> tab, <strong>Integrations on this host</strong> lists the integrations bound to it with <em>Runs on host</em>: status, last check, the latest values, a trend for each number and how the recent checks went. It opens by itself when something is bound. A probe that reads a service printing <code>NaN</code> no longer stops integrations being saved. See <a href="docs/integrations.md" class="c-accent">Integrations</a>.</p>
+              <p><strong>A host&rsquo;s card shows its integrations.</strong> On a host&rsquo;s <strong>Audit</strong> tab, <strong>Integrations on this host</strong> lists the integrations bound to it with <em>Runs on host</em>: status, last check, the latest values, a trend for each number and how the recent checks went. It opens by itself when something is bound. A probe that reads a sensor value a service could not supply no longer stops integrations being saved. See <a href="docs/integrations.md" class="c-accent">Integrations</a>.</p>
               <p class="hint">See <code>docs/v7.4.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -12414,39 +12414,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.2-8"></script>
+<script defer src="static/js/app.js?v=7.4.2-9"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-containers.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-network.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-containers.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-network.js?v=7.4.2-9"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.2-9"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-dns.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-drift.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-cve.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-backups.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-iac.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-virt.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-ai.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-dns.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-drift.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-cve.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-backups.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-iac.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-virt.js?v=7.4.2-9"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-remote.js?v=7.4.2-8"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-logs.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-remote.js?v=7.4.2-9"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.2-9"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-self.js?v=7.4.2-9"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.2-8"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.2-9"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12456,6 +12456,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.2-8"></script>
+<script defer src="static/js/sw-register.js?v=7.4.2-9"></script>
 </body>
 </html>

@@ -402,6 +402,7 @@ class TestAIChatEndpoint(_Base):
                                      'model': model})
             return {'ok': True, 'text': 'mocked response',
                     'model': model or 'mock-1', 'tokens_in': 10, 'tokens_out': 5}
+        self.addCleanup(setattr, ai_provider, 'chat', ai_provider.chat)   # a fake left behind breaks every later module
         ai_provider.chat = fake_chat
 
     def _chat(self, body):
@@ -522,6 +523,7 @@ class TestAIIntrospection(_Base):
         }})
 
     def test_models_endpoint_returns_list(self):
+        self.addCleanup(setattr, ai_provider, 'list_models', ai_provider.list_models)   # a fake left behind breaks every later module
         ai_provider.list_models = lambda cfg: {'ok': True, 'models': [
             {'name': 'llama3.1:8b', 'size_bytes': 4000000000},
             {'name': 'smallthinker:latest', 'size_bytes': 2000000000},
@@ -543,6 +545,7 @@ class TestAIIntrospection(_Base):
             self.assertEqual(c.status, 400)
 
     def test_stats_endpoint_returns_provider_info(self):
+        self.addCleanup(setattr, ai_provider, 'provider_stats', ai_provider.provider_stats)   # a fake left behind breaks every later module
         ai_provider.provider_stats = lambda cfg: {
             'ok': True, 'provider': 'ollama',
             'version': '0.1.32', 'reachable': True,
