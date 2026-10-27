@@ -8,8 +8,9 @@ changed and to the places where a rule the product already follows might have be
 missed.
 
 It found **three** issues worth reporting. All three were caught before 7.4.2 is
-released, and all three are fixed in it. Two came in with 7.4.1; the third is much
-older. None came from the field.
+released, and all three are fixed in it. One came in with 7.4.1 (the installers), one was
+made larger by 7.4.1 (the agent's reads of files other users own), and one is much older
+(the agent's state files, from 3.0.2). None came from the field.
 
 ## What changed that a reviewer should look at
 
@@ -37,7 +38,7 @@ older. None came from the field.
 | Undefined names (`ruff F821`) | Server, agents, sidecars, tools and tests | 0 |
 | bandit | 130,649 lines of server and agent Python, against the committed baseline | 0 High, 25 Medium and 924 Low, the same numbers as the baseline. The one finding that moved is the agent's restart after new credentials (`os.execv`, 7.4.1), which runs the agent again with its own arguments. The baseline is regenerated |
 | semgrep | The Python, JavaScript and security-audit rule sets over the 44 files changed since 7.4.0 | 35 results on 29 distinct lines (the agent's extensionless file is a copy of the `.py`), every one a reviewed false positive (below), and 2 rule and file pairs that timed out on the largest files |
-| gitleaks | Every commit (2,426) and the unpacked release tarball | No leaks |
+| gitleaks | Every commit (2,428) and the unpacked release tarball | No leaks |
 | Dependency audit (`pip-audit`) | The packages the server and agents import: Flask 3.1.3, Werkzeug 3.1.9, pydantic 2.14.1, cryptography 50.0.2, psycopg 3.3.6, Jinja2 3.1.6, requests 2.34.2, asyncssh 2.24.1, psutil 7.2.2, reportlab 5.0.0 | No advisory. The audit of the whole development environment lists others (anyio, black, filelock, graphql-core, h2, mcp, msgpack, openapi-python-client, opentelemetry-api, PyJWT, tornado and uv); nothing the server, the agents or the sidecars import |
 | Undefined names and correctness in the client | Every client file; it is a test | Pass |
 | Rendered browser gates | Every page on a seeded fleet, the accessibility, box-overflow and icon-gap sweeps with the new card on the Tuning page: 28 tests | Pass |
@@ -53,7 +54,21 @@ not run this time. 7.4.2 did not change the web server configuration, and the ch
 made to it (the `Host` header forwarded with its port, a web terminal location, the
 redirect) were read line by line instead; see *Not found*.
 
-**Reviewed false positives in semgrep:** 35 results on 29 lines, and every line but one was in the code at 7.4.0. Thirteen are `chmod` calls that set a mode on the agents' and the server's own directories and binaries. Four are SHA-1 uses that all say `usedforsecurity=False`: two signatures of log lines, the prefix of a breached-password lookup that the service's protocol requires, and the demo-data seeder; the lookup's `urlopen` goes to a fixed https host and is annotated. Four are `xml.etree` imports: two write XML for exports and the agent reads the file oscap wrote for it (counted twice, as its extensionless file is a copy). Three are `shell=True`: a command an operator sets in the environment, annotated, and the agent's root command channel, which is its job. Two are `os.execv`, the agent's restart after new credentials (7.4.1, the one new line), which runs the agent again with its own arguments. Four are `proxy_pass` locations without `internal`, the installer routes, public by design. One is the AES mode that SNMPv3's user security model requires. Two are `insertAdjacentHTML` calls whose templates escape every field (the log viewer and the painter of long tables). One is a logger message that names an error, not a secret.
+**Reviewed false positives in semgrep:** 35 results on 29 lines, and every line but one was
+in the code at 7.4.0. Thirteen are `chmod` calls that set a mode on the agents' and the
+server's own directories and binaries. Four are SHA-1 uses that all say
+`usedforsecurity=False`: two signatures of log lines, the prefix of a breached-password
+lookup that the service's protocol requires, and the demo-data seeder; the lookup's
+`urlopen` goes to a fixed https host and is annotated. Four are `xml.etree` imports: two
+write XML for exports and the agent reads the file oscap wrote for it (counted twice, as its
+extensionless file is a copy). Three are `shell=True`: a command an operator sets in the
+environment, annotated, and the agent's root command channel, which is its job. Two are
+`os.execv`, the agent's restart after new credentials (7.4.1, the one new line), which runs
+the agent again with its own arguments. Four are `proxy_pass` locations without `internal`,
+the installer routes, public by design. One is the AES mode that SNMPv3's user security
+model requires. Two are `insertAdjacentHTML` calls whose templates escape every field (the
+log viewer and the painter of long tables). One is a logger message that names an error, not
+a secret.
 
 ## Summary
 
@@ -106,7 +121,6 @@ says whether the test was run against the old code.
   matters for finding 1, and the other two are hardening rather than a way in. Giving new
   quick-install hosts the same unit would change how commands run over the agent's exec
   channel, which needs its own look, so it was left alone and is listed for the maintainers.
-
 - Settings are one store for the whole install, and every signed-in role can read its
   non-secret keys. With tenancy on, that includes the host identifiers behind the exposure
   mutes, the labels and bound hosts of integration instances, and the container exclude
@@ -121,4 +135,14 @@ says whether the test was run against the old code.
 
 ## Left for the release gate
 
-Run on the commit before the header flip: the suite on each storage backend, bandit, CodeQL and gitleaks again. The release commit adds the numbers.
+Run on the commit before the header flip (30e06d0c): the suite on JSON, 16,218 tests, and on
+SQLite, 16,054 tests. Both pass except `test_v643_aur_tracks_release` (two subtests), which
+compares the AUR packages with the newest dated release in the changelog. It goes red the
+moment the header carries a date and stays red until the AUR packages are bumped, and that
+bump needs the checksum of a published tarball, so for a release that is not published it is
+red by design. bandit: no new finding and no High. CodeQL, as the production workflow runs it:
+0 results. gitleaks over every commit and the unpacked tarball: no leaks.
+
+Not run for this release: the PostgreSQL suite and the run with Python 3.14 and the CI
+dependency list (both belong to `make pre-release`, which cannot finish on a dated header
+for the same reason), and the nginx scanners (above).
