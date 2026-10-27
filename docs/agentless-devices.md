@@ -104,11 +104,14 @@ without anything installed on the host.
   off the figure. The result is what the memory alert, the history graph,
   the Hosts page and the SNMP tab show; the tab also shows the figure the
   host reports, with the cache and buffers next to it. A host that lists
-  no such rows is read as it reports. The figure can
-  still be higher than the host's own `top`: SNMP lists only those rows,
-  and a host may keep other reusable pages that it does not list. To alert
-  at a different level, set the memory warning and critical thresholds
-  for the host under **Metric thresholds**.
+  no such rows is read as it reports. The figure can still be higher than
+  the host's own `top`. The poll reads one table, and a host may keep
+  reusable memory that it does not put in it; RemotePower cannot tell which
+  from here. To see what your host does offer, open the **SNMP** tab, go to
+  **Browse OID tree** and walk the presets **Storage table** and **Memory
+  (UCD-SNMP)**; the second names `memShared`, `memBuffer` and `memCached`.
+  To alert at a different level, set the memory warning and critical
+  thresholds for the host under **Metric thresholds**.
 - **OID browser (v6.4.1).** Open the host drawer, go to the **Audit** tab,
   and expand **System → SNMP**; the browser is at the bottom of that section,
   under **Browse OID tree**. The poll above reads a fixed set of OIDs — the

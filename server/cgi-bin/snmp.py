@@ -454,6 +454,16 @@ _OID_NAMES = {
     '1.3.6.1.2.1.47':         'entityMIB',
     '1.3.6.1.4.1':            'enterprises',
     '1.3.6.1.4.1.2021':       'ucdavis (UCD-SNMP-MIB)',
+    # v7.4.2: the memory group, so a walk of it reads as names (the instance .0 is covered by the prefix).
+    '1.3.6.1.4.1.2021.4.3':   'memTotalSwap',
+    '1.3.6.1.4.1.2021.4.4':   'memAvailSwap',
+    '1.3.6.1.4.1.2021.4.5':   'memTotalReal',
+    '1.3.6.1.4.1.2021.4.6':   'memAvailReal',
+    '1.3.6.1.4.1.2021.4.11':  'memTotalFree',
+    '1.3.6.1.4.1.2021.4.12':  'memMinimumSwap',
+    '1.3.6.1.4.1.2021.4.13':  'memShared',
+    '1.3.6.1.4.1.2021.4.14':  'memBuffer',
+    '1.3.6.1.4.1.2021.4.15':  'memCached',
     '1.3.6.1.4.1.14988':      'mikrotik',
     '1.3.6.1.4.1.10002':      'ubiquiti',
 }

@@ -144,6 +144,30 @@ class TestHandlerContract(unittest.TestCase):
         import clientjs
         self.assertNotIn('SNMP_WALK_FALLBACK_PRESETS', clientjs.client_js())
 
+    def test_there_is_a_preset_for_the_memory_a_net_snmp_host_reports(self):
+        """v7.4.2 (#42): when the share in use does not match the host's own tools, the storage table
+        and the UCD memory group are where to look. Both are one click."""
+        oids = {oid: label for oid, label in api.SNMP_WALK_PRESETS}
+        self.assertIn('1.3.6.1.2.1.25.2.3.1', oids)
+        self.assertIn('1.3.6.1.4.1.2021.4', oids)
+        self.assertIn('UCD', oids['1.3.6.1.4.1.2021.4'])
+
+    def test_the_memory_scalars_read_as_names_in_a_walk(self):
+        import snmp
+        for oid, name in (('1.3.6.1.4.1.2021.4.3.0', 'memTotalSwap'), ('1.3.6.1.4.1.2021.4.4.0', 'memAvailSwap'),
+                          ('1.3.6.1.4.1.2021.4.5.0', 'memTotalReal'), ('1.3.6.1.4.1.2021.4.6.0', 'memAvailReal'),
+                          ('1.3.6.1.4.1.2021.4.11.0', 'memTotalFree'), ('1.3.6.1.4.1.2021.4.12.0', 'memMinimumSwap'),
+                          ('1.3.6.1.4.1.2021.4.13.0', 'memShared'), ('1.3.6.1.4.1.2021.4.14.0', 'memBuffer'),
+                          ('1.3.6.1.4.1.2021.4.15.0', 'memCached')):
+            self.assertEqual(snmp.oid_label(oid), name, oid)
+
+    def test_the_names_agree_with_the_oids_the_poller_reads(self):
+        """The poller asks for memTotalReal and memAvailReal by number. If the walker named a different
+        number than the poller reads, the browser would send an operator to the wrong place."""
+        import snmp
+        for key in ('memTotalReal', 'memAvailReal'):
+            self.assertEqual(snmp.oid_label(snmp.UCD_SNMP_OIDS[key]), key)
+
     def test_presets_ride_on_the_snmp_config_response(self):
         """NOT on the deep poll: that is exactly the call that fails on the
         devices where hand-exploration matters most, and the browser renders

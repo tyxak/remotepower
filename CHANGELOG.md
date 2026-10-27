@@ -59,7 +59,10 @@ dashboard says one thing and the host is doing another.
   two rows off the figure. The alert, the history graph, the Hosts page and the
   SNMP tab agree, and the tab shows the figure the host reports next to it, with
   the cache and buffers. A host that lists no such rows is read as it reports,
-  and a host that really is short of memory still alerts. (#42)
+  and a host that really is short of memory still alerts. It can still read
+  higher than the host's own `top`: the poll reads one table. The OID browser
+  has a new preset for the UCD memory group (and names for its scalars) beside
+  the storage table, so you can see what your host reports. (#42)
 
 ### Hosts
 

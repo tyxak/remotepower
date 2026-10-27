@@ -314,6 +314,9 @@ SNMP_WALK_PRESETS = (
     ('1.3.6.1.2.1.2.2.1', 'Interface table (ifTable)'),
     ('1.3.6.1.2.1.31.1.1.1', 'Interface names and aliases (ifXTable)'),
     ('1.3.6.1.2.1.25.2.3.1', 'Storage table (hrStorageTable)'),
+    # v7.4.2 (#42): the other place a net-snmp host reports memory. When the share in use does not
+    # match the host's own tools, this and the storage table are where to look for what is left.
+    ('1.3.6.1.4.1.2021.4',   'Memory (UCD-SNMP: real, swap, shared, buffers, cached)'),
     ('1.3.6.1.2.1.25.3.3.1', 'Processor load (hrProcessorTable)'),
     ('1.3.6.1.2.1.4.20.1',   'IP address table'),
     ('1.3.6.1.4.1',          'Enterprises (vendor subtree — large, expect a cap hit)'),
