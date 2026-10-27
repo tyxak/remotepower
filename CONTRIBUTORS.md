@@ -62,6 +62,12 @@ Thanks to everyone who has contributed fixes, features, and reports.
   - #40 — asked for a way to turn off a thinking model's thinking for Ollama
   - #41 — reported that the maintenance window form never showed the cron field
     or the duration
+  - #42 — reported that SNMP memory counted the cache as used, so a firewall with a
+    quarter of its memory in use read 94% and raised a memory alert
+  - #43 — asked for container alert excludes to match the image, not only the name
+  - #44 — asked for the integrations bound to a host to show on that host's card
+  - #45 — reported that a stopped container's alert never closed, and traced it to
+    the agent listing only running containers
 
 ---
 
