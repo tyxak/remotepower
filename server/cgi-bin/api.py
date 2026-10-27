@@ -69244,6 +69244,27 @@ def _container_is_running(status_str):
     return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
 
 
+def _container_exclude_entries(raw):
+    """v7.4.2 (#43): the entries of config 'container_alert_excludes' that exclude something,
+    as ``(names, images)``: name substrings, and ``(image substring, names a tag)`` pairs from
+    the ``image:`` entries, lower-cased.
+
+    One reader for the matcher below and for Monitoring -> Tuning, which lists what is
+    silenced. A blank line and a bare ``image:`` match no container, so neither is returned,
+    and the page cannot list an entry the matcher ignores. Anything but a list reads as
+    empty (a hand-edited string would otherwise be read one character at a time)."""
+    names, images = [], []
+    for pat in (raw if isinstance(raw, (list, tuple)) else []):
+        p = str(pat).strip()
+        if p[:6].lower() == 'image:':
+            p = p[6:].strip().lower()
+            if p:
+                images.append((p, ':' in p.rsplit('/', 1)[-1]))
+        elif p:
+            names.append(p)
+    return names, images
+
+
 def _container_alert_excluder():
     """v7.4.2 (#43): a predicate ``excluded(name, image='', tag='')`` for the containers
     the operator keeps out of alerts.
@@ -69256,18 +69277,10 @@ def _container_alert_excluder():
     matches an image with 'latest' in its name and not every container on that tag.
     Docker names cannot contain ':', so an entry cannot be both. The list is read once
     here, so a loop over a fleet's containers does not read the config per container."""
-    names, images = [], []
     try:
-        for pat in _config_ro().get('container_alert_excludes') or []:
-            p = str(pat).strip()
-            if p[:6].lower() == 'image:':
-                p = p[6:].strip().lower()
-                if p:
-                    images.append((p, ':' in p.rsplit('/', 1)[-1]))
-            elif p:
-                names.append(p)
+        names, images = _container_exclude_entries(_config_ro().get('container_alert_excludes'))
     except Exception:
-        pass
+        names, images = [], []
 
     def excluded(name, image='', tag=''):
         n = str(name or '')

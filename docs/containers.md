@@ -283,7 +283,14 @@ For a fleet-wide rule instead of a per-host one, the config key
 containers on every host. An entry is a substring of the container
 name. An entry that starts with `image:` is a substring of the image
 instead (v7.4.2), which is the one to use for helper containers that
-exit by design and get a random name on every run:
+exit by design and get a random name on every run.
+
+In the dashboard, open **Monitoring → Tuning**. The **Container exclude
+list** card holds one entry per line, up to 200 entries of 128
+characters. **Save exclude list** stores it. Only an administrator can
+change the list, and the change is in the audit log. Each entry also
+shows in **Everything currently silenced** on the same page. The same
+list through the API:
 
 ```bash
 curl -X POST https://your-server/api/config \

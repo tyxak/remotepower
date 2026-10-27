@@ -14,6 +14,7 @@ async function loadTuning() {
       if (el) _errorState(el, loadTuning);
     });
     loadSuppressions();   // its table has its own placeholder and its own error text
+    loadContainerExcludes();
     return;
   }
   _tuningData = d;
@@ -23,6 +24,7 @@ async function loadTuning() {
   // v6.4.2: the unified suppression view rides the same page load. Separate
   // endpoint, fire-and-forget — a failure there must not blank the Tuning page.
   loadSuppressions();
+  loadContainerExcludes();
 }
 
 function _renderTuningNoisy(rows) {
@@ -161,6 +163,59 @@ async function unmuteAlert(id) {
   else failToast(r);
 }
 
+// ── v7.4.2 (#43): the container exclude list ─────────────────────────────────
+//
+// `container_alert_excludes` could only be set through the API. The list is one line per entry in
+// a box, read from GET /api/config and written back with a one-key POST /api/config (the other
+// settings are untouched). Three ways this can lose someone's list, and what stops each:
+//   * a box that never received the list is disabled, with Retry, so it cannot be saved empty;
+//   * a background reload (Refresh, a mute action) leaves text the reader has typed alone;
+//   * a failed save keeps the text and says why, instead of reloading over it.
+let _ceLoaded = null;   // the text the box was last filled with; null before the first load
+
+async function loadContainerExcludes(replace) {
+  const ta = document.getElementById('container-excludes');
+  if (!ta) return;
+  const btn = document.getElementById('container-excludes-save');
+  const st = document.getElementById('container-excludes-status');
+  const cfg = await api('GET', '/config').catch(() => null);
+  if (!cfg || cfg.error) {
+    ta.disabled = true;
+    if (btn) btn.disabled = true;
+    _errorState(st, loadContainerExcludes);
+    return;
+  }
+  const text = (Array.isArray(cfg.container_alert_excludes) ? cfg.container_alert_excludes : []).join('\n');
+  if (replace || _ceLoaded === null || ta.value === _ceLoaded) ta.value = text;
+  _ceLoaded = text;
+  const admin = !!(_meCache && _meCache.admin);
+  ta.disabled = false;
+  ta.readOnly = !admin;
+  if (btn) { btn.disabled = false; btn.classList.toggle('hidden', !admin); }
+  if (st) st.textContent = admin ? '' : 'Only an administrator can change this list.';
+}
+
+async function saveContainerExcludes() {
+  const ta = document.getElementById('container-excludes');
+  const btn = document.getElementById('container-excludes-save');
+  if (!ta || ta.disabled || ta.readOnly) return;
+  // The server drops blank lines too; trimming here keeps what is sent equal to what is kept.
+  const entries = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', '/config', { container_alert_excludes: entries });
+    if (r && r.ok) {
+      toast('Settings saved', 'success');
+      await loadContainerExcludes(true);   // the box shows what the server kept
+      loadSuppressions();                  // and the rollup below lists it
+    } else failToast(r);
+  } finally {
+    // Not when the reload after a save could not read the list: that left the box locked, and a
+    // usable-looking button beside a locked box does nothing.
+    if (btn && !ta.disabled) btn.disabled = false;
+  }
+}
+
 // ── v6.4.2: the unified suppression view ─────────────────────────────────────
 //
 // "Why isn't this alerting?" had no single answer surface. A host stops paging
@@ -181,6 +236,7 @@ const _SUPPRESSION_LABELS = {
   exposure_mute: 'Exposure mute',
   maintenance:   'Maintenance window',
   quiet_hours:   'Quiet hours',
+  container_exclude: 'Container exclusion',
 };
 
 let _suppressions = null;
@@ -232,6 +288,11 @@ function _renderSuppressions() {
 // "unmute" flows would be a seventh place for this state to drift.
 function gotoSuppression(page, tab) {
   if (!page) return;
+  // The exclude list is edited on this very page: take the reader to its box.
+  if (page === 'tuning' && tab === 'container-excludes') {
+    const box = document.getElementById('container-excludes');
+    if (box) { box.scrollIntoView({block: 'center'}); box.focus(); return; }
+  }
   showPage(String(page));
   if (tab) setTimeout(() => document.getElementById('settings-tab-btn-' + tab)?.click(), 60);
 }

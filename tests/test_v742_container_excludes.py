@@ -140,6 +140,99 @@ class TestThroughTheHeartbeat(_Base):
                          ["container_restarting"], "the control: with no exclusion it fires")
 
 
+class _Rollup:
+    """GET /api/suppressions through the real handler."""
+
+    def rollup(self):
+        class Cap(SystemExit):
+            pass
+        out = {}
+
+        def fake(status, data):
+            out["status"], out["body"] = status, data
+            raise Cap()
+        saved = (api.respond, api.require_auth)
+        api.respond, api.require_auth = fake, (lambda *a, **k: None)
+        try:
+            api.handle_suppressions()
+        except Cap:
+            pass
+        finally:
+            api.respond, api.require_auth = saved
+        self.assertEqual(out["status"], 200)
+        return out["body"]
+
+    def rows(self):
+        api._LOAD_CACHE.clear()
+        return [r for r in self.rollup()["suppressions"] if r["kind"] == "container_exclude"]
+
+
+class TestAValueThatIsNotAList(_Rollup, _Base):
+    """The save handler refuses a non-list, but the config can also be edited by hand or imported.
+    A string used to be read one character at a time, so "pause" excluded every container with a
+    p, an a, a u, an s or an e in its name."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {"container_alert_excludes": "pause"})
+        api._LOAD_CACHE.clear()
+
+    def test_the_matcher_excludes_nothing(self):
+        self.assertFalse(api._container_alert_excluded("pause"))
+        self.assertFalse(api._container_alert_excluded("web"))      # holds an 'e', as 'pause' does
+
+    def test_the_parser_reads_it_as_empty(self):
+        for raw in ("pause", None, 5, {"a": 1}):
+            with self.subTest(raw=raw):
+                self.assertEqual(api._container_exclude_entries(raw), ([], []))
+
+    def test_the_rollup_lists_nothing(self):
+        self.assertEqual(self.rows(), [])
+
+
+class TestTheRollup(_Rollup, _Base):
+    """Monitoring -> Tuning answers "why isn't this alerting?" from every suppression mechanism. The
+    exclude list is one of them, and a container hidden by an entry had no explanation anywhere."""
+
+    def test_an_empty_list_adds_nothing(self):
+        exclude()
+        self.assertEqual(self.rows(), [])
+        self.assertNotIn("container_exclude", self.rollup()["counts"])
+
+    def test_each_entry_is_a_row_that_says_what_it_matches(self):
+        exclude("pause", "image:" + HELPER_IMAGE)
+        rows = sorted(self.rows(), key=lambda r: r["label"])
+        self.assertEqual([r["label"] for r in rows], ["image:" + HELPER_IMAGE, "pause"])
+        by = {r["label"]: r for r in rows}
+        self.assertIn("name", by["pause"]["detail"])
+        self.assertIn("image", by["image:" + HELPER_IMAGE]["detail"])
+        for r in rows:
+            self.assertEqual(r["page"], "tuning")
+            self.assertEqual(r["tab"], "container-excludes", "the Open button must reach the box")
+            self.assertEqual(r["device_id"], "")
+            self.assertIn("no stopped or restart alert", r["detail"])
+
+    def test_the_count_and_the_total_include_them(self):
+        exclude("pause", "image:" + HELPER_IMAGE, "ephemeral-")
+        body = self.rollup()
+        self.assertEqual(body["counts"]["container_exclude"], 3)
+        self.assertGreaterEqual(body["total"], 3)
+
+    def test_entries_that_exclude_nothing_are_not_listed(self):
+        """A blank line and a bare `image:` match no container; listing them would say something is
+        silenced that is not."""
+        exclude("pause", "  ", "image:", "IMAGE:   ")
+        self.assertEqual([r["label"] for r in self.rows()], ["pause"])
+
+    def test_the_matcher_and_the_rollup_read_the_list_the_same_way(self):
+        """One parser: whatever the rollup lists is what excludes something, and nothing else."""
+        exclude("pause", "image:", "Image:  GHCR.io/X/Tools ", "", "k8s_POD")
+        listed = sorted(r["label"] for r in self.rows())
+        self.assertEqual(listed, ["image:ghcr.io/x/tools", "k8s_POD", "pause"])
+        self.assertTrue(api._container_alert_excluded("x", "ghcr.io/x/tools", "1"))
+        self.assertFalse(api._container_alert_excluded("web", "nginx", "1"))
+
+
 class TestTheDigestAndTheWidget(_Base):
 
     def setUp(self):

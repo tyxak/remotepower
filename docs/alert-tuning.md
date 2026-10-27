@@ -30,9 +30,33 @@ The Tuning page reads the fleet-event **timeline** and ranks:
 - **Noisiest alerts** — the top `(host, event)` pairs by count, each with a
   **Silence** button (or a "silenced" badge);
 - **Noisiest sources** — the top event types fleet-wide;
-- **Active mutes** — every mute, with **Un-silence** to lift it.
+- **Active mutes** — every mute, with **Un-silence** to lift it;
+- **Container exclude list** — containers kept out of alerts for the whole
+  fleet, one entry per line (below);
+- **Everything currently silenced** — every active suppression in one table,
+  from all eight mechanisms: alert mutes, Needs Attention ignores and class
+  rules, accepted-risk CVEs, exposure mutes, running maintenance windows, quiet
+  hours and the container exclude list. Each row has the host, the reason and a
+  link to the page that can lift it.
 
 Silencing from here creates the same `(host, event)` mute as the X button.
+
+### Container exclude list
+
+A container that matches an entry raises no stopped or restart alert, and it
+stays out of Needs Attention and the dashboard's stopped-containers widget.
+Use it for containers that exit by design. One entry per line, up to 200
+entries of 128 characters:
+
+- `pause` matches containers with `pause` in the name;
+- `image:ghcr.io/getarcaneapp/tools` matches containers whose image contains
+  that text, whatever the name and the tag. Use it for helper containers that
+  get a random name on every run.
+
+**Save exclude list** stores the list and the change shows in **Everything
+currently silenced** at once. Only an administrator can change the list;
+everyone else sees it. The change is in the audit log. See
+[containers.md](containers.md) for the matching rules and the API form.
 
 ## API
 

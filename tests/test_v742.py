@@ -145,6 +145,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
     FILES = (
         "tests/test_v742_container_recovery.py",
         "tests/test_v742_container_excludes.py",
+        "tests/test_v742_container_excludes_card_e2e.py",
         "tests/test_v742_snmp_memory.py",
         "tests/test_v742_snmp_card_e2e.py",
         "tests/test_v742_host_integrations.py",

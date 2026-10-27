@@ -37,6 +37,17 @@ dashboard says one thing and the host is doing another.
   and get a random name on every run. The list now also applies to the Needs
   Attention list and the dashboard's stopped-containers widget; before, only
   the stop and restart-loop alerts honoured it. (#43)
+- **The container exclude list has a box on Monitoring → Tuning.**
+  `container_alert_excludes` could only be set through the API. The Tuning page
+  now has a *Container exclude list* card: one entry per line, stored with *Save
+  exclude list* (administrators; everyone else sees the list read-only). Saving
+  sends that one key, so no other setting changes, and the change is in the audit
+  log and the configuration history. The box stays disabled until the list has
+  been read, so a failed load cannot be saved over the real list, and text being
+  typed is not replaced when the page reloads. *Everything currently silenced*
+  lists each entry as an eighth mechanism, with a button that goes to the box.
+  A value in the config file that is not a list now reads as empty; it was read
+  one character at a time. (#43)
 
 ### Maintenance windows
 

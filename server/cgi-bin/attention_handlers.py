@@ -356,7 +356,7 @@ def handle_ignored_remove():
 # end one level up.
 
 def handle_suppressions():
-    """GET /api/suppressions — every active suppression, from all seven
+    """GET /api/suppressions — every active suppression, from all eight
     mechanisms, in one list. Read-only. Auth: require_auth (nothing here is a
     secret; it is the same data each owning page already shows)."""
     A.require_auth()
@@ -498,6 +498,22 @@ def handle_suppressions():
                 'settings', tab='dashboard')
     except Exception as e:
         A.sys.stderr.write(f'[remotepower] suppressions: quiet hours: {e}\n')
+
+    # 8. the container exclude list (v7.4.2, #43): names and images the operator keeps out of
+    #    container alerts. Read with the matcher's own parser, so a blank line or a bare
+    #    `image:` (which excludes nothing) is not listed as if it silenced something.
+    try:
+        names, images = A._container_exclude_entries(cfg.get('container_alert_excludes'))
+        for p in names:
+            add('container_exclude', p,
+                'Containers whose name contains this raise no stopped or restart alert '
+                'and are left out of Needs attention', 'tuning', tab='container-excludes')
+        for p, _with_tag in images:
+            add('container_exclude', 'image:' + p,
+                'Containers whose image contains this raise no stopped or restart alert '
+                'and are left out of Needs attention', 'tuning', tab='container-excludes')
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] suppressions: container excludes: {e}\n')
 
     counts = {}
     for r in rows:
