@@ -86,6 +86,17 @@ def _series(history):
     return out
 
 
+def _series_long(rows):
+    """{metric: [{ts, val}, ...]} from the hourly rollup, oldest first: each point is the average
+    of the polls in one clock hour (v7.4.2). The rows are read through the same cleaner the
+    poll writes them with, so a damaged row costs a point and not the answer."""
+    out = {}
+    for r in A._integ_hourly_clean(rows):
+        for name, (total, n) in r['m'].items():
+            out.setdefault(name, []).append({'ts': r['h'], 'val': round(total / n, 3)})
+    return out
+
+
 def handle_device_integrations(dev_id):
     """GET /api/devices/<id>/integrations -- what runs on this host that the host cannot
     report itself (v7.4.2, #44).
@@ -108,6 +119,7 @@ def handle_device_integrations(dev_id):
     state = A._load_ro(A.INTEG_STATE_FILE) or {}
     latest = state.get('latest') or {}
     hist = state.get('history') or {}
+    hourly = state.get('hourly') if isinstance(state.get('hourly'), dict) else {}
     mod = A.integrations_mod
     rows = []
     for inst in A._get_integrations(cfg):
@@ -131,6 +143,7 @@ def handle_device_integrations(dev_id):
             'metrics':    metrics,
             'stats':      mod.format_stats(inst.get('type'), r.get('metrics')),
             'series':     _series(h),
+            'series_long': _series_long(hourly.get(key)) if enabled else {},
             'history':    [{'ts': e.get('ts'), 'status': e.get('status')}
                            for e in h[-_STRIP_MAX:] if isinstance(e, dict)],
         })

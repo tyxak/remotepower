@@ -26893,6 +26893,70 @@ def _integ_numeric_metrics(metrics):
     return out
 
 
+# v7.4.2 (#44): the longer trend. How many clock hours of hourly averages an instance bound to a
+# host keeps next to its last 100 polls: seven days.
+_INTEG_HOURLY_KEEP = 168
+
+
+def _integ_hourly_clean(rows):
+    """The rows of an hourly rollup that can be used, oldest first (v7.4.2, #44).
+
+    A row is ``{'h': start of a clock hour, 'm': {metric: [sum, count]}}``. The file can be
+    hand-edited, restored from a backup or written by a later version, so a row or a metric
+    that does not read is left out instead of raised on. Always new objects: the caller may
+    be holding the shared copy of the store."""
+    by_hour = {}
+    for r in (rows if isinstance(rows, list) else []):
+        h = r.get('h') if isinstance(r, dict) else None
+        if not isinstance(h, int) or isinstance(h, bool) or not isinstance(r.get('m'), dict):
+            continue
+        m = {}
+        for k, v in r['m'].items():
+            if (isinstance(v, (list, tuple)) and len(v) == 2
+                    and all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                            and x == x and x not in (float('inf'), float('-inf')) for x in v)
+                    and v[1] > 0):
+                m[str(k)[:64]] = [v[0], v[1]]
+        if m:
+            by_hour[h] = {'h': h, 'm': m}
+    return [by_hour[h] for h in sorted(by_hour)]
+
+
+def _integ_hourly_fold(rows, ts, nums):
+    """Fold one poll's numbers into an hourly rollup and return the new rows (v7.4.2, #44).
+
+    The host card draws a trend from the numbers of the last 100 polls, about eight hours at the
+    default cycle. For a slow thing (a hub's free memory, a NAS volume) that says little, so an
+    instance bound to a host also keeps one row per clock hour, the newest _INTEG_HOURLY_KEEP of
+    them. A sum and a count per metric rather than an average, so the average stays exact however
+    many polls an hour held and a metric that only some polls carry averages over those that did.
+    The rows live inside the file the polls already write; nothing new to back up or purge.
+
+    A poll that belongs to an hour before the newest row, and has no row of its own, is dropped:
+    the clock stepped back, and its numbers do not belong to the hour they claim. ``ts`` that is
+    not a time counts as now."""
+    out = _integ_hourly_clean(rows)
+    nums = _integ_numeric_metrics(nums)
+    if not nums:
+        return out
+    if not (isinstance(ts, (int, float)) and not isinstance(ts, bool) and 0 < ts < 4102444800):
+        ts = time.time()
+    h = int(ts) // 3600 * 3600
+    row = next((r for r in out if r['h'] == h), None)
+    if row is None:
+        if out and h < out[-1]['h']:
+            return out
+        row = {'h': h, 'm': {}}
+        out.append(row)
+    for k, v in nums.items():
+        if k not in row['m'] and len(row['m']) >= _INTEG_NUMERIC_MAX:
+            continue
+        acc = row['m'].setdefault(k, [0, 0])
+        acc[0] += v
+        acc[1] += 1
+    return out[-_INTEG_HOURLY_KEEP:]
+
+
 def _integ_metric_alerts(key, label, rtype, metrics, thresholds, notified,
                          bound_extra):
     """(pending_events, changed_flags) for one integration's metric thresholds.
@@ -26948,6 +27012,7 @@ def _persist_integration_results(results):
     state = load(INTEG_STATE_FILE) or {}
     latest = state.get('latest') or {}
     hist = state.get('history') or {}
+    hourly = state.get('hourly') if isinstance(state.get('hourly'), dict) else {}
     cfg = load(CONFIG_FILE)
     notified = cfg.get('integration_notified') or {}
     pending = []
@@ -26970,6 +27035,11 @@ def _persist_integration_results(results):
         if isinstance(_ti, dict) and isinstance(_ti.get('metric_thresholds'), list):
             thresholds_by_key[str(_ti.get('id') or _ti.get('label'))] = \
                 _ti['metric_thresholds']
+
+    # The configured instances, read once: the loop below needs them to tell "bound to nothing" from
+    # "not in the config I just read", and the purge after it needs them too.
+    configured = {str(i.get('id') or i.get('label'))
+                  for i in _get_integrations(cfg) if isinstance(i, dict)}
 
     for r in results:
         if not isinstance(r, dict):
@@ -27036,6 +27106,17 @@ def _persist_integration_results(results):
             _hm = _integ_numeric_metrics(r.get('metrics'))
             if _hm:
                 _hentry['m'] = _hm
+                # ...and the hourly averages behind them, for the longer trend.
+                hourly[key] = _integ_hourly_fold(hourly.get(key), r.get('checked'), _hm)
+        elif key in configured:
+            # Configured and bound to nothing (or not any more): nothing reads the numbers, so drop
+            # what an earlier binding left, in the short history and in the hourly rows. An instance
+            # missing from the config just read is left alone: that read can be empty for a moment
+            # during an upgrade restart, and must not cost a week of trend.
+            hourly.pop(key, None)
+            for _e in hist[key]:
+                if isinstance(_e, dict):
+                    _e.pop('m', None)
         hist[key].append(_hentry)
         hist[key] = hist[key][-100:]
 
@@ -27072,8 +27153,6 @@ def _persist_integration_results(results):
     # Drop history/notified only for integrations no longer CONFIGURED — keying
     # off `results` would wrongly purge instances that were merely disabled or
     # skipped by the per-cycle time budget this round.
-    configured = {str(i.get('id') or i.get('label'))
-                  for i in _get_integrations(cfg) if isinstance(i, dict)}
     # Only purge state for no-longer-configured integrations when we actually
     # have a configured set. A transient empty/partial config load (e.g. during
     # an upgrade restart) would otherwise drop EVERY `*_notified` flap flag, so
@@ -27082,10 +27161,14 @@ def _persist_integration_results(results):
     # Leaving stale state when configured is empty is harmless and self-heals
     # the moment a real config load returns.
     if configured:
-        for stale in [k for k in latest if k not in configured]:
-            latest.pop(stale, None); hist.pop(stale, None)
+        for stale in [k for k in set(latest) | set(hourly) if k not in configured]:
+            latest.pop(stale, None); hist.pop(stale, None); hourly.pop(stale, None)
     state['latest'] = latest
     state['history'] = hist
+    if hourly:
+        state['hourly'] = hourly
+    else:
+        state.pop('hourly', None)
     save(INTEG_STATE_FILE, state)
     if dirty_cfg:
         with _LockedUpdate(CONFIG_FILE) as _live:   # v6.4.2: was unlocked

@@ -82,11 +82,14 @@ something is bound to the host and stays shut when nothing is.
 - **Who sees it.** Anyone who may open the host. The address and the
   credentials of an instance are never part of what the card is given.
   `GET /api/devices/<id>/integrations` returns the same rows.
-- **How much trend.** The line is drawn from the last 100 checks, which is all
-  the history RemotePower keeps for an instance: about eight hours at the
-  default five-minute cycle. It starts when you bind the instance, because the
-  numbers are kept only for an instance bound to a host. A check that returns
-  text rather than a number has a status history and no trend.
+- **How much trend.** Each number has a line drawn from the last 100 checks,
+  about eight hours at the default five-minute cycle. Behind it a second line
+  shows the average of each clock hour, for up to seven days. The second line
+  appears for a number once it reaches back an hour or more further than the
+  first, so a newly bound instance shows one line. Both start when you bind the
+  instance, because the numbers are kept only for an instance bound to a host,
+  and unbinding the instance drops what was kept. A check that returns text
+  rather than a number has a status history and no trend.
 - **A value that is not a number.** A service that prints `NaN` when a sensor
   read fails used to stop RemotePower saving the results of every integration,
   for as long as it kept doing so. Those values are now stored as empty, and

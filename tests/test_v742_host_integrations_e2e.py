@@ -94,15 +94,20 @@ NOW = int(time.time())
 
 
 def row(label, status="ok", detail="HTTP 200", metrics=None, series=None, history=None,
-        enabled=True, stats=None, type_="custom_probe", checked=NOW - 120):
+        enabled=True, stats=None, type_="custom_probe", checked=NOW - 120, series_long=None):
     return {"id": label, "label": label, "type": type_, "type_label": "Custom HTTP probe",
             "enabled": enabled, "status": status, "detail": detail, "checked": checked,
             "version": None, "metrics": metrics or {}, "stats": stats or [],
-            "series": series or {}, "history": history or []}
+            "series": series or {}, "series_long": series_long or {}, "history": history or []}
 
 
 def pts(*vals):
     return [{"ts": NOW - 300 * (len(vals) - i), "val": v} for i, v in enumerate(vals)]
+
+
+def hpts(*vals):
+    """Hourly averages, the longer trend."""
+    return [{"ts": NOW - 3600 * (len(vals) - i), "val": v} for i, v in enumerate(vals)]
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
@@ -196,6 +201,52 @@ class TestTheSection(unittest.TestCase):
                          "a number with one point has no line, and no 'from, to' text either")
         self.assertIn("Last 3 checks: 2 ok · 1 warning", s["text"])
         self.assertEqual(_STACK["errors"], [], "the page threw")
+
+    def test_a_longer_trend_is_drawn_when_it_reaches_further_back_than_the_last_polls(self):
+        self.answer([row("hub memory", metrics={"freeMemory": 400000},
+                         series={"freeMemory": pts(520000, 480000, 455000, 412345)},
+                         series_long={"freeMemory": hpts(900000, 800000, 700000, 600000, 520000)})])
+        self.open_audit()
+        self.wait_open()
+        s = self.section()
+        self.assertEqual(s["sparks"], 2, "the last polls, and the hourly averages behind them")
+        self.assertIn("hourly average", s["text"])
+        self.assertIn("900000 → 520000", s["text"])
+        self.assertIn("520000 → 412345", s["text"], "the short trend is still there")
+        self.assertEqual(_STACK["errors"], [])
+
+    def test_the_same_line_twice_is_not_drawn(self):
+        """A long trend that reaches no further back than the short one, or has too few points to
+        be a line, adds nothing to the card."""
+        self.answer([
+            # two points are not a line, however far apart they are
+            row("a", series={"n": pts(1, 2, 3, 4)},
+                series_long={"n": [{"ts": NOW - 36000, "val": 5}, {"ts": NOW - 3600, "val": 6}]}),
+            row("b", series={"n": hpts(1, 2, 3, 4)}, series_long={"n": hpts(1, 2, 3, 4)}),
+        ])
+        self.open_audit()
+        self.wait_open()
+        s = self.section()
+        self.assertEqual(s["sparks"], 2, "one line for each of a and b, and no second line")
+        self.assertNotIn("hourly average", s["text"])
+
+    def test_a_longer_trend_is_drawn_for_a_number_the_last_polls_no_longer_carry(self):
+        self.answer([row("x", series={}, series_long={"old_metric": hpts(1, 2, 3)})])
+        self.open_audit()
+        self.wait_open()
+        s = self.section()
+        self.assertEqual(s["sparks"], 1)
+        self.assertIn("old_metric", s["text"])
+
+    def test_the_name_of_a_longer_trend_is_text_not_markup(self):
+        evil = "<img src=x onerror=window.__pwned=1>"
+        self.answer([row("x", series_long={evil: hpts(1, 2, 3)})])
+        self.open_audit()
+        self.wait_open()
+        s = self.section()
+        self.assertNotIn("<img", s["html"])
+        self.assertIn(evil, s["text"])
+        self.assertIsNone(self.page.evaluate("() => window.__pwned || null"))
 
     def test_a_host_with_nothing_bound_is_left_shut_and_says_so_when_opened(self):
         self.answer([])

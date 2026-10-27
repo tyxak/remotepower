@@ -82,9 +82,10 @@ dashboard says one thing and the host is doing another.
   (*Runs on host*), worst first: status, last check, the latest values, a trend
   for each number and how the recent checks went. It opens by itself when
   something is bound, so a host with no agent and no SNMP no longer looks empty.
-  The trend is drawn from the last 100 checks and starts when you bind the
-  instance. The address and the credentials of an instance are never sent to the
-  card. `GET /api/devices/<id>/integrations`. (#44)
+  The trend is drawn from the last 100 checks (about eight hours) with the
+  average of each clock hour for the last seven days behind it. Both start when
+  you bind the instance and are dropped when you unbind it. The address and the
+  credentials of an instance are never sent to the card. `GET /api/devices/<id>/integrations`. (#44)
 - **Closing the host drawer gives focus back to what opened it, however it was
   opened.** Opening the drawer a second time while it was already open (a key
   handler and the click it makes, the command palette) made a button inside the

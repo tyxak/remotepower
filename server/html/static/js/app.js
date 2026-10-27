@@ -24863,6 +24863,16 @@ function _hostIntegrationHtml(r) {
     return `<div class="fs-12 mt-4"><span class="hint">${escHtml(name)}</span> ${_sparkline(pts)} `
       + `<span class="hint">${escHtml(String(first))} &rarr; ${escHtml(String(last))}</span></div>`;
   }).join('');
+  // The hourly averages behind them, up to seven days. Drawn for a metric only where they reach
+  // further back than the last polls do (an hour or more): the same line twice adds nothing.
+  const reach = pts => (pts && pts.length > 1) ? Number(pts[pts.length - 1].ts) - Number(pts[0].ts) : 0;
+  const longSeries = Object.entries(r.series_long || {})
+    .filter(([name, pts]) => pts.length >= 3 && reach(pts) > reach((r.series || {})[name]) + 3600)
+    .map(([name, pts]) => {
+      const first = pts[0].val, last = pts[pts.length - 1].val;
+      return `<div class="fs-12 mt-4"><span class="hint">${escHtml(name)}</span> <span class="hint">hourly average</span> ${_sparkline(pts)} `
+        + `<span class="hint">${escHtml(String(first))} &rarr; ${escHtml(String(last))}</span></div>`;
+    }).join('');
   const n = {};
   (r.history || []).forEach(h => { n[h.status] = (n[h.status] || 0) + 1; });
   const checks = (r.history || []).length
@@ -24870,7 +24880,7 @@ function _hostIntegrationHtml(r) {
       + ['ok', 'warning', 'critical', 'unknown'].filter(k => n[k]).map(k => `${n[k]} ${k}`).join(' &middot; ')
       + '</div>'
     : '';
-  return `<div>${tile}${why}${series}${checks}</div>`;
+  return `<div>${tile}${why}${series}${longSeries}${checks}</div>`;
 }
 
 function _onAuditToggle(key, el) {
