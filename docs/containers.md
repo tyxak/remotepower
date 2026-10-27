@@ -139,6 +139,20 @@ Webhook payload:
 }
 ```
 
+**It closes when the container runs again (v7.4.2).** The agent lists the containers that
+are running, so a container you stop leaves the list and the alert gives its status as
+`gone`. When a container with the same name is running again, the alert closes on that report
+and a `container_recovered` event goes out. That holds when the container was removed and
+created again under the same name, and when every container on the host was stopped at once,
+as a nightly backup often does. Alerts that were already open when you upgraded close on the
+first report after it, for the containers that are running.
+
+A container that comes back under a different name is a different container, so its old alert
+stays open until you resolve it. Mute or exclude the container if it should not alert at all.
+
+Inside a maintenance window the alert is still recorded and the stop notice is held. The
+recovery notice is held too, and the alert still closes.
+
 ### `container_restarting`
 
 Fired when a container's `restart_count` increased by 1 or more
@@ -495,7 +509,8 @@ same name (typical for `docker run --name X` and Kubernetes
 deployments), we see the old one disappear and the new one
 appear and fire the webhook. In practice this is the alert you
 want — restarts that aren't expected are exactly what you wanted
-to know about. To suppress for known-flappy containers, disable
+to know about. The alert closes on the report that shows the new
+instance running. To suppress for known-flappy containers, disable
 the event globally in Settings → Notifications.
 
 **No `container_stopped` alerts despite restarts I can see.** Are

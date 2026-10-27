@@ -22809,8 +22809,10 @@ def handle_heartbeat():
     if 'containers' in body:
         normalised = containers_mod.normalize_listing(body.get('containers'))
         _restarting_alerted = []
+        _ctr_state = {}
         try:
-            _restarting_alerted = process_container_report(dev_id, normalised, now) or []
+            _restarting_alerted = process_container_report(
+                dev_id, normalised, now, state=_ctr_state) or []
         except Exception:
             # never let container processing break the heartbeat, but don't
             # hide a recurring processing bug either (mirror the metric path).
@@ -22820,6 +22822,11 @@ def handle_heartbeat():
         # recovery is edge-triggered across heartbeats.
         if _restarting_alerted:
             _rec['restarting_alerted'] = _restarting_alerted
+        # v7.4.2 (#45): and the names under an open container_stopped alert, so the
+        # alert closes when the container runs again. An empty list is stored too: a
+        # missing one means "never recorded" and sends the next report to the ledger.
+        if 'stopped_alerted' in _ctr_state:
+            _rec['stopped_alerted'] = _ctr_state['stopped_alerted']
         # v6.1.2: `docker system df` — the disk-footprint breakdown, on its own
         # slow cadence (the agent only sends it ~hourly, since docker has to walk
         # the layer store). It arrives on SOME container reports, not all, so
@@ -68037,6 +68044,11 @@ SUPPRESSIBLE_EVENTS = (
     'reboot_required',
     'container_stopped', 'container_restarting', 'containers_stale',
     'backup_stale',
+    # v7.4.2 (#45): a container that runs again closes its stop alert, and does it
+    # the way a host coming back does (device_online above): the notice is held by the
+    # window that held the stop. Otherwise a backup that stops its containers inside a
+    # window ends with a "Container Recovered" for each one nobody was told had stopped.
+    'container_recovered',
     # v6.4.2: a self-hosted app is only ever as up as the box under it, so
     # rebooting that box during a declared window paged once per integration
     # running on it — inside the window the operator had just declared. The
@@ -69181,6 +69193,30 @@ def _container_alert_excluded(name):
     return False
 
 
+# v7.4.2 (#45): how many container names one host keeps waiting for a recovery. A host
+# whose containers get a new name every run (CI jobs, `docker run` without --name) adds
+# names that never return; the cap keeps the newest, so the entry cannot grow without limit.
+_STOPPED_ALERTED_CAP = 200
+
+
+def _open_container_stopped_names(dev_id):
+    """v7.4.2 (#45): the container names that have an open container_stopped alert on this
+    host, read from the alert ledger.
+
+    Used once per host, when its container entry has no `stopped_alerted` list yet (the entry
+    was written by 7.4.1 or earlier, or its container data was cleared). After that the list
+    on the entry is the record, so a container report never reads the ledger."""
+    names = []
+    for a in (_load_ro(ALERTS_FILE) or {}).get('alerts') or []:
+        if (not isinstance(a, dict) or a.get('resolved_at')
+                or a.get('event') != 'container_stopped' or a.get('device_id') != dev_id):
+            continue
+        n = str((a.get('payload') or {}).get('container') or '')
+        if n and n not in names:
+            names.append(n)
+    return names
+
+
 def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
     dev = device_get(dev_id) or {}
@@ -69236,7 +69272,7 @@ def _sanitize_docker_df(raw):
     return out or None
 
 
-def process_container_report(dev_id, normalised, now):
+def process_container_report(dev_id, normalised, now, state=None):
     """Diff a heartbeat's container list against the previous one and fire webhooks.
 
     Called from :func:`handle_heartbeat` *before* the new list overwrites the
@@ -69249,6 +69285,9 @@ def process_container_report(dev_id, normalised, now):
         normalised: The new list of normalised container dicts (already
             passed through :func:`containers_mod.normalize_listing`).
         now: Current Unix timestamp.
+        state: Optional dict. It receives ``stopped_alerted``, the container names that
+            have an open container_stopped alert after this report (v7.4.2); the caller
+            stores it on the entry next to the restart-loop names this function returns.
     """
     if not isinstance(normalised, list):
         return []
@@ -69266,9 +69305,40 @@ def process_container_report(dev_id, normalised, now):
     prev_restarting = set(prev_entry.get('restarting_alerted') or [])
     restarting_now = set()
 
-    # First report ever for this device — nothing to diff against.
+    # v7.4.2 (#45): names under an open container_stopped alert. The agent lists the
+    # containers that are RUNNING, so a stopped one is absent from the next report
+    # ("gone") and, when it starts again, is a name no earlier report holds. Neither
+    # can be found by diffing two reports, so the names are kept on the entry and a name
+    # that is running again closes its alert. An entry without the list (written by
+    # 7.4.1 or earlier, or cleared) asks the alert ledger once, so alerts that are
+    # already open close too.
+    waiting = prev_entry.get('stopped_alerted')
+    if isinstance(waiting, list):
+        waiting = list(dict.fromkeys(str(n) for n in waiting if n))
+    else:
+        waiting = _open_container_stopped_names(dev_id)
+    running_now = {}
+    for c in normalised:
+        if c.get('name') and _container_is_running(c.get('status')):
+            running_now.setdefault(c['name'], c)
+    recovered_now = set()
+    for name in [n for n in waiting if n in running_now]:
+        cur = running_now[name]
+        _fire_container_webhook('container_recovered', dev_id, name, {
+            'runtime':   cur.get('runtime', 'unknown'),
+            'namespace': cur.get('namespace', ''),
+            'image':     cur.get('image', ''),
+            'status':    cur.get('status', ''),
+        })
+        waiting.remove(name)
+        recovered_now.add(name)
+
+    # First report ever for this device — nothing to diff against. Also the report after
+    # an EMPTY one (every container stopped), which is why the recoveries above come first.
     # Skip transition detection but DO let storage proceed (caller's job).
     if not prev_items:
+        if state is not None:
+            state['stopped_alerted'] = waiting[-_STOPPED_ALERTED_CAP:]
         return sorted(prev_restarting)
 
     # Index by (runtime, name) to make k8s pods in different namespaces
@@ -69290,7 +69360,8 @@ def process_container_report(dev_id, normalised, now):
             # container_recovered so the open container_stopped alert auto-resolves
             # (matched per-container-name in _auto_resolve_alerts).
             cur = new_by_key.get(key)
-            if cur is not None and _container_is_running(cur.get('status')):
+            if (cur is not None and _container_is_running(cur.get('status'))
+                    and prev.get('name') not in recovered_now):
                 _fire_container_webhook('container_recovered', dev_id, prev.get('name', '?'), {
                     'runtime':   prev.get('runtime', 'unknown'),
                     'namespace': prev.get('namespace', ''),
@@ -69309,6 +69380,8 @@ def process_container_report(dev_id, normalised, now):
                 'previous_status': prev.get('status', ''),
                 'status':          'gone',
             })
+            if prev.get('name') not in waiting:
+                waiting.append(prev['name'])
         elif not _container_is_running(cur.get('status')):
             # still listed, but no longer running (e.g. "Exited (1) 3s ago")
             _fire_container_webhook('container_stopped', dev_id, prev.get('name', '?'), {
@@ -69318,6 +69391,8 @@ def process_container_report(dev_id, normalised, now):
                 'previous_status': prev.get('status', ''),
                 'status':          cur.get('status', ''),
             })
+            if prev.get('name') not in waiting:
+                waiting.append(prev['name'])
 
     # 2) Containers whose restart_count climbed since the last report.
     # v3.10.0: the agent now reports a real restart_count for docker/podman too
@@ -69365,6 +69440,8 @@ def process_container_report(dev_id, normalised, now):
             'runtime':   _c.get('runtime', 'unknown'),
             'namespace': _c.get('namespace', ''),
         })
+    if state is not None:
+        state['stopped_alerted'] = waiting[-_STOPPED_ALERTED_CAP:]
     return sorted((prev_restarting | restarting_now) - recovered_names)
 
 

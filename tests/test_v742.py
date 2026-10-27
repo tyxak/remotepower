@@ -138,5 +138,21 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("edg3matters", kw.lower())
 
 
+class TestTheReleaseContainsItsGuards(unittest.TestCase):
+    """A release pin, not a behavioural one: each file carries its own proof,
+    watched failing before it was committed. This pins that they ship."""
+
+    FILES = (
+        "tests/test_v742_container_recovery.py",
+    )
+
+    def test_the_list_is_not_empty(self):
+        self.assertGreater(len(self.FILES), 0)
+
+    def test_every_guard_file_exists(self):
+        for rel in self.FILES:
+            self.assertTrue((_ROOT / rel).exists(), rel)
+
+
 if __name__ == "__main__":
     unittest.main()
