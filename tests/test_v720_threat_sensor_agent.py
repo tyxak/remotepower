@@ -934,7 +934,10 @@ class TestReader(_Agent):
         import inspect
         src = inspect.getsource(self.agent._ts_read_log)
         body = src.split('"""', 2)[2]              # the code, not its docstring
-        self.assertIn("open(real, 'rb')", body)
+        # _open_regular opens O_RDONLY without blocking (test_v742_agent_fifo); a plain open() of a
+        # FIFO that replaced the log would have waited for a writer.
+        self.assertIn("_open_regular(real)", body)
+        self.assertNotIn("open(real,", body)
         for bad in ("'w'", "'a'", "'r+'", 'os.unlink', 'os.remove', 'os.rename', '.truncate(', 'os.chmod'):
             self.assertNotIn(bad, body, bad)
 

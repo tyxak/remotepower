@@ -70,6 +70,8 @@ TWINNED = {
     # drift watch: what a folder or pattern entry expands to (7.4.1, #39). The Linux agent
     # carries the same two; tests/test_v741_drift_globs.py holds all three identical.
     '_glob_files', 'expand_watch_entries',
+    # the non-blocking regular-file open every read of a path another user can reach goes through (7.4.2)
+    '_open_regular',
 }
 
 

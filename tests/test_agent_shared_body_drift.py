@@ -50,6 +50,7 @@ _AGENTS = {
 SHARED_BY_ALL = (
     '_canary_status',
     '_luhn_ok',
+    '_open_regular',      # v7.4.2: the non-blocking regular-file open (test_v742_agent_fifo)
     '_stable_hash',
     'redirect_request',
 )

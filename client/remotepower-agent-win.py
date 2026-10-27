@@ -52,6 +52,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import stat
 import platform
 import re
 import socket
@@ -2323,7 +2324,10 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
                     if sz == 0 or sz > max_file_bytes:
                         continue
                     visited += 1
-                    with open(fpath, 'rb') as f:
+                    f = _open_regular(fpath)
+                    if f is None:
+                        continue                  # a FIFO or device by the time it was opened
+                    with f:
                         chunk = f.read(max_file_bytes)
                     if b'\x00' in chunk[:4096]:
                         continue
@@ -2656,7 +2660,10 @@ def collect_pii_findings(paths=None, max_findings=300, max_file_bytes=2097152,
                     if sz == 0 or sz > max_file_bytes:
                         continue
                     visited += 1
-                    with open(fpath, 'rb') as f:
+                    f = _open_regular(fpath)
+                    if f is None:
+                        continue                  # a FIFO or device by the time it was opened
+                    with f:
                         chunk = f.read(max_file_bytes)
                     if b'\x00' in chunk[:4096]:
                         continue
@@ -3421,6 +3428,30 @@ def expand_watch_entries(entries, limit=200, real=lambda p: p):
     return files, info
 
 
+def _open_regular(path):
+    """Open `path` for binary reading, or return None when what is there is not a regular file.
+
+    A name another user can write may be a FIFO (or be swapped for one between a stat() and the
+    open() that follows it), and a plain open() of a FIFO waits for a writer that never comes: the
+    agent stops, and a web root or a home directory is all it takes to stop it. Opening without
+    blocking and asking the descriptor what it really is closes both the planted FIFO and the
+    race. A missing or unreadable file raises OSError, as open() does; a directory, FIFO, socket
+    or device comes back as None."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_CLOEXEC', 0)
+                 | getattr(os, 'O_BINARY', 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return None
+        return os.fdopen(fd, 'rb')
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+
 def compute_drift_report(paths, patterns_out=None):
     """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
     contract to the Linux agent; pure file I/O, so it is OS-agnostic. A folder or
@@ -3441,7 +3472,12 @@ def compute_drift_report(paths, patterns_out=None):
             continue
         try:
             h = hashlib.sha256()
-            with open(p, 'rb') as f:
+            f = _open_regular(p)
+            if f is None:
+                out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
+                          'exists': True, 'note': 'not_regular_file'}
+                continue
+            with f:
                 for chunk in iter(lambda: f.read(65536), b''):
                     h.update(chunk)
             out[p] = {'hash': 'sha256:' + h.hexdigest(),

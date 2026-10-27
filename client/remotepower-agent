@@ -1180,13 +1180,42 @@ def _safe_state_write(name: str, content: str) -> None:
         log.warning(f'_safe_state_write({name}): both STATE_DIR and /tmp failed: {e}')
 
 
+def _open_state_file(cand):
+    """Open a state-file candidate for reading and return the descriptor, or None when the file is
+    not the agent's own.
+
+    STATE_DIR is root-only, but a state file the agent has not written yet is looked for in /tmp
+    as well, and /tmp is where any local user can leave things for a root process to find: a FIFO
+    (the read waits for a writer that never comes and the agent's loop stops with it), or a file of
+    their choosing (a poll interval of ten million seconds, a baseline, a scan time, a stashed
+    command result) for the agent to trust. So the file has to be a regular file, owned by the
+    user the agent runs as, that nobody else can write. The agent's own files, created 0600, pass.
+    O_NOFOLLOW as before, and no blocking open. Raises OSError as os.open does."""
+    fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, 'O_NONBLOCK', 0)
+                 | getattr(os, 'O_CLOEXEC', 0))
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or (st.st_mode & 0o022):
+            os.close(fd)
+            return None
+        return fd
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+
 def _safe_state_read(name: str) -> str | None:
     """Read a marker file from STATE_DIR (preferred) or /tmp/, with
     O_NOFOLLOW so a pre-placed symlink can't redirect the read. Returns
     None if neither exists or both fail."""
     for cand in (STATE_DIR / name, Path('/tmp/remotepower-' + name)):
         try:
-            fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+            fd = _open_state_file(cand)
+            if fd is None:
+                continue                      # not the agent's own (see _open_state_file)
             try:
                 return os.read(fd, 4096).decode(errors='replace')
             finally:
@@ -1212,7 +1241,9 @@ def _safe_state_read_big(name: str, cap: int = 1_000_000) -> str | None:
     O_NOFOLLOW so a pre-placed symlink can't redirect the read."""
     for cand in (STATE_DIR / name, Path('/tmp/remotepower-' + name)):
         try:
-            fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+            fd = _open_state_file(cand)
+            if fd is None:
+                continue                      # not the agent's own (see _open_state_file)
             try:
                 return os.read(fd, cap).decode(errors='replace')
             finally:
@@ -1477,7 +1508,10 @@ def _guard_sha(path, cap=1048576):
     """
     try:
         h = hashlib.sha256()
-        with open(path, 'rb') as fh:
+        fh = _open_regular(path)
+        if fh is None:
+            return ''
+        with fh:
             h.update(fh.read(cap))
         return h.hexdigest()[:12]
     except OSError:
@@ -2358,7 +2392,10 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
                     if sz == 0 or sz > max_file_bytes:
                         continue
                     visited += 1
-                    with open(fpath, 'rb') as f:
+                    f = _open_regular(fpath)
+                    if f is None:
+                        continue                  # a FIFO or device by the time it was opened
+                    with f:
                         chunk = f.read(max_file_bytes)
                     if b'\x00' in chunk[:4096]:          # binary — skip
                         continue
@@ -2493,7 +2530,10 @@ def collect_pii_findings(paths=None, max_findings=300, max_file_bytes=2097152,
                     if sz == 0 or sz > max_file_bytes:
                         continue
                     visited += 1
-                    with open(fpath, 'rb') as f:
+                    f = _open_regular(fpath)
+                    if f is None:
+                        continue                  # a FIFO or device by the time it was opened
+                    with f:
                         chunk = f.read(max_file_bytes)
                     if b'\x00' in chunk[:4096]:          # binary — skip
                         continue
@@ -5080,7 +5120,10 @@ def collect_log_sweep():
             if not _file_log_path_allowed(logical):
                 skipped += 1
                 continue
-            with open(p, 'rb') as f:
+            f = _open_regular(p)
+            if f is None:
+                continue                          # swapped for a FIFO since the stat above
+            with f:
                 if st.st_size > LOG_SWEEP_TAIL_BYTES:
                     f.seek(st.st_size - LOG_SWEEP_TAIL_BYTES)
                 data = f.read(LOG_SWEEP_TAIL_BYTES)
@@ -7989,7 +8032,10 @@ def _eval_one_agent_check(c):
                                 f'{len(cands)} path(s))')
         try:
             hh = hashlib.sha256()
-            with open(target, 'rb') as fh:
+            fh = _open_regular(target)
+            if fh is None:
+                return 'unknown', 'read failed'      # a FIFO or a device, not a file to hash
+            with fh:
                 for blk in iter(lambda: fh.read(65536), b''):
                     hh.update(blk)
             cur = hh.hexdigest()
@@ -8170,7 +8216,10 @@ def _eval_one_agent_check(c):
                         continue
                     fp = os.path.join(root, fn)
                     try:
-                        with open(fp, 'rb') as fh:
+                        fh = _open_regular(fp)
+                        if fh is None:
+                            continue                    # a FIFO planted in the tree is not a loader
+                        with fh:
                             blob = fh.read(262144)      # 256 KB is plenty for a loader
                     except OSError:
                         continue
@@ -11235,6 +11284,30 @@ def expand_watch_entries(entries, limit=200, real=lambda p: p):
     return files, info
 
 
+def _open_regular(path):
+    """Open `path` for binary reading, or return None when what is there is not a regular file.
+
+    A name another user can write may be a FIFO (or be swapped for one between a stat() and the
+    open() that follows it), and a plain open() of a FIFO waits for a writer that never comes: the
+    agent stops, and a web root or a home directory is all it takes to stop it. Opening without
+    blocking and asking the descriptor what it really is closes both the planted FIFO and the
+    race. A missing or unreadable file raises OSError, as open() does; a directory, FIFO, socket
+    or device comes back as None."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_CLOEXEC', 0)
+                 | getattr(os, 'O_BINARY', 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return None
+        return os.fdopen(fd, 'rb')
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+
 def compute_drift_report(paths, patterns_out=None):
     """v2.2.0: hash each watched file, return dict suitable for shipping
     in the heartbeat payload. Each entry has:
@@ -11285,7 +11358,13 @@ def compute_drift_report(paths, patterns_out=None):
             continue
         try:
             h = hashlib.sha256()
-            with open(hp, 'rb') as fh:
+            fh = _open_regular(hp)
+            if fh is None:
+                # A regular file when it was stat'ed, something else by the time it was opened.
+                out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
+                          'exists': True, 'note': 'not_regular_file'}
+                continue
+            with fh:
                 while True:
                     chunk = fh.read(65536)
                     if not chunk:
@@ -12856,7 +12935,10 @@ def _ts_read_log(path, st, audit=False):
     if start >= size:
         return [], {'ino': sb.st_ino, 'pos': size if fresh else start}, 'idle'
     try:
-        with open(real, 'rb') as f:
+        f = _open_regular(real)
+        if f is None:
+            return [], {}, 'unsupported'      # swapped for a FIFO since the stat above
+        with f:
             f.seek(start)
             data = f.read(min(size - start, THREAT_READ_CAP))
     except PermissionError:
@@ -13236,9 +13318,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         for cand in (STATE_DIR / 'pending-cmd.json',
                      Path('/tmp/remotepower-pending-cmd.json')):
             try:
-                fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+                fd = _open_state_file(cand)
             except (FileNotFoundError, OSError):
                 continue
+            if fd is None:
+                continue                      # not the agent's own (see _open_state_file)
             try:
                 chunks = []
                 while True:
