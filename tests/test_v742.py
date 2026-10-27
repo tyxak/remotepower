@@ -149,6 +149,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v742_snmp_card_e2e.py",
         "tests/test_v742_host_integrations.py",
         "tests/test_v742_host_integrations_e2e.py",
+        "tests/test_v742_drawer_focus_e2e.py",
     )
 
     def test_the_list_is_not_empty(self):

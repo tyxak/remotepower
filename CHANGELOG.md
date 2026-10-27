@@ -59,6 +59,12 @@ dashboard says one thing and the host is doing another.
   The trend is drawn from the last 100 checks and starts when you bind the
   instance. The address and the credentials of an instance are never sent to the
   card. `GET /api/devices/<id>/integrations`. (#44)
+- **Closing the host drawer gives focus back to what opened it, however it was
+  opened.** Opening the drawer a second time while it was already open (a key
+  handler and the click it makes, the command palette) made a button inside the
+  drawer the place to return to, and closing then left focus on nothing. A
+  keyboard user lost their place. Found while chasing a keyboard test that failed
+  once in three runs under load.
 - **A `NaN` from a service no longer stops integrations being saved.** A probe
   that reads a JSON field from a service which prints `NaN` when a sensor read
   fails produced a value the store refuses, and that aborted the save for every

@@ -23591,8 +23591,14 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   const drawer = document.getElementById('device-drawer');
   // v5.4.1 (H3): remember the opener + move focus into the drawer so keyboard /
   // screen-reader users land inside it (and get restored on close).
-  window._drawerReturnFocus = document.activeElement;
-  window._drawerReturnTo = _focusLocator(document.activeElement);
+  // Only on the first call. By the time a second one comes (a key handler and the click it
+  // makes, the command palette, a deep link), focus is already inside the drawer, so remembering
+  // it again would make a button in the drawer the place to return to: closing then focuses
+  // something that is hidden, and focus falls away from the opener.
+  if (!drawer.classList.contains('open')) {
+    window._drawerReturnFocus = document.activeElement;
+    window._drawerReturnTo = _focusLocator(document.activeElement);
+  }
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
   setTimeout(() => {
