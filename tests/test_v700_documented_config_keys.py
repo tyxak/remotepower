@@ -119,6 +119,15 @@ class TestTheDocumentedKeysPersist(_Base):
         self.assertEqual(st, 200)
         self.assertEqual(cfg.get('container_alert_excludes'), ['pause', 'k8s_POD'])
 
+    def test_container_alert_excludes_keeps_image_entries_as_typed(self):
+        """v7.4.2 (#43): an `image:` entry is read at match time, so the save must hand it
+        back unchanged, ':' and '/' included, next to the name entries."""
+        entries = ['image:ghcr.io/getarcaneapp/tools', 'image:registry.lan:5000/ops/tools:1.0',
+                   'pause']
+        st, cfg = self.save({'container_alert_excludes': entries})
+        self.assertEqual(st, 200)
+        self.assertEqual(cfg.get('container_alert_excludes'), entries)
+
     def test_container_alert_excludes_rejects_a_non_list(self):
         st, _cfg = self.save({'container_alert_excludes': 'pause'})
         self.assertEqual(st, 400)

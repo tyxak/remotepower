@@ -50048,6 +50048,7 @@ def _compute_attention():
         # depressing the host's and the fleet's score with no operator recourse —
         # exactly the v6.1.2 lesson about applying mutes at the digest.
         c_mutes  = _container_mute_set()
+        c_excl   = _container_alert_excluder()      # v7.4.2 (#43): the operator's exclusions too
         for dev_id, entry in cstore.items():
             if dev_id not in monitored:
                 continue
@@ -50061,6 +50062,9 @@ def _compute_attention():
                 its = [c for c in its
                        if not (isinstance(c, dict)
                                and (dev_id, str(c.get('name') or '')) in c_mutes)]
+            its = [c for c in its
+                   if not (isinstance(c, dict)
+                           and c_excl(c.get('name'), c.get('image'), c.get('tag')))]
             summary = containers_mod.summarise(its) if its else {}
             stopped    = (summary or {}).get('stopped', 0)
             restarting = (summary or {}).get('restarting', 0)
@@ -52609,11 +52613,13 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         try:
             stopped = 0
             store = load(CONTAINERS_FILE) or {}
+            c_excl = _container_alert_excluder()    # v7.4.2 (#43)
             for dev_id, entry in store.items():
                 if dev_id not in devices_raw or not isinstance(entry, dict):
                     continue
                 for it in (entry.get('items') or []):
-                    if isinstance(it, dict) and not _container_is_running(it.get('status')):
+                    if (isinstance(it, dict) and not _container_is_running(it.get('status'))
+                            and not c_excl(it.get('name'), it.get('image'), it.get('tag'))):
                         stopped += 1
             out['containers'] = {'stopped': stopped}
         except Exception:
@@ -69176,21 +69182,47 @@ def _container_is_running(status_str):
     return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
 
 
-def _container_alert_excluded(name):
-    """v4.2.0 (#4): skip container alerts for ephemeral pentest-scan containers
-    (rp-scan-*) and any operator-configured name substrings
-    (config 'container_alert_excludes' — a list of substrings)."""
-    n = str(name or '')
-    if n.startswith('rp-scan-'):
-        return True
+def _container_alert_excluder():
+    """v7.4.2 (#43): a predicate ``excluded(name, image='', tag='')`` for the containers
+    the operator keeps out of alerts.
+
+    An entry of config 'container_alert_excludes' is a name substring, or, with the
+    ``image:`` prefix, a substring of the container's image. Helper containers that exit
+    by design often get a random name each run (Arcane's, for one), so only their image
+    is stable. An image entry is read against the image alone, unless it names a tag
+    (a ':' after its last '/'), and then against ``image:tag``; so ``image:latest``
+    matches an image with 'latest' in its name and not every container on that tag.
+    Docker names cannot contain ':', so an entry cannot be both. The list is read once
+    here, so a loop over a fleet's containers does not read the config per container."""
+    names, images = [], []
     try:
         for pat in _config_ro().get('container_alert_excludes') or []:
             p = str(pat).strip()
-            if p and p in n:
-                return True
+            if p[:6].lower() == 'image:':
+                p = p[6:].strip().lower()
+                if p:
+                    images.append((p, ':' in p.rsplit('/', 1)[-1]))
+            elif p:
+                names.append(p)
     except Exception:
         pass
-    return False
+
+    def excluded(name, image='', tag=''):
+        n = str(name or '')
+        if n.startswith('rp-scan-') or any(p in n for p in names):
+            return True
+        if images and image:
+            img = str(image).lower()
+            ref = f'{img}:{str(tag or "").lower()}'
+            return any(p in (ref if with_tag else img) for p, with_tag in images)
+        return False
+    return excluded
+
+
+def _container_alert_excluded(name, image='', tag=''):
+    """v4.2.0 (#4): skip container alerts for ephemeral pentest-scan containers
+    (rp-scan-*) and any operator-configured exclusions (see _container_alert_excluder)."""
+    return _container_alert_excluder()(name, image, tag)
 
 
 # v7.4.2 (#45): how many container names one host keeps waiting for a recovery. A host
@@ -69304,6 +69336,7 @@ def process_container_report(dev_id, normalised, now, state=None):
     # of container_stopped/restarting).
     prev_restarting = set(prev_entry.get('restarting_alerted') or [])
     restarting_now = set()
+    excluded = _container_alert_excluder()
 
     # v7.4.2 (#45): names under an open container_stopped alert. The agent lists the
     # containers that are RUNNING, so a stopped one is absent from the next report
@@ -69352,8 +69385,8 @@ def process_container_report(dev_id, normalised, now, state=None):
 
     # 1) Containers that disappeared or transitioned out of "running"
     for key, prev in prev_by_key.items():
-        if _container_alert_excluded(prev.get('name', '')):
-            continue  # ephemeral scan containers + operator name excludes
+        if excluded(prev.get('name', ''), prev.get('image', ''), prev.get('tag', '')):
+            continue  # ephemeral scan containers + operator name / image excludes
         prev_was_running = _container_is_running(prev.get('status'))
         if not prev_was_running:
             # v5.6.0: was stopped/exited last beat — did it come back? Fire
@@ -69418,7 +69451,7 @@ def process_container_report(dev_id, normalised, now, state=None):
             # v4.2.0 sweep: honour the operator's exclude list here too — it
             # only covered the stopped/vanished loop, so an excluded container
             # still paged on restarts.
-            if _container_alert_excluded(cur.get('name', '')):
+            if excluded(cur.get('name', ''), cur.get('image', ''), cur.get('tag', '')):
                 continue
             _fire_container_webhook('container_restarting', dev_id, cur.get('name', '?'), {
                 'runtime':       cur.get('runtime', 'unknown'),

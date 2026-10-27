@@ -144,6 +144,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
 
     FILES = (
         "tests/test_v742_container_recovery.py",
+        "tests/test_v742_container_excludes.py",
     )
 
     def test_the_list_is_not_empty(self):

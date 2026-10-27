@@ -279,8 +279,25 @@ Add `"hours": 24` to let the mute lapse on its own — a mute you
 forget about is monitoring you have silently stopped doing.
 
 For a fleet-wide rule instead of a per-host one, the config key
-`container_alert_excludes` takes a list of name substrings and
-suppresses matching containers on every host.
+`container_alert_excludes` takes a list and suppresses matching
+containers on every host. An entry is a substring of the container
+name. An entry that starts with `image:` is a substring of the image
+instead (v7.4.2), which is the one to use for helper containers that
+exit by design and get a random name on every run:
+
+```bash
+curl -X POST https://your-server/api/config \
+     -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+     -d '{"container_alert_excludes": ["pause", "image:ghcr.io/getarcaneapp/tools"]}'
+```
+
+The list you send replaces the one you had, so include the entries you
+want to keep. `image:ghcr.io/getarcaneapp/tools` matches that image
+whatever its tag, and ignores case. Add a tag to match one tag only
+(`image:ghcr.io/getarcaneapp/tools:1.2`). A container kept out this way
+raises no stopped or restart-loop alert, and it is not counted in the
+Needs Attention list or in the dashboard's stopped-containers widget.
+The Containers page still lists it.
 
 Two limits worth knowing. A mute is keyed on `(host, container
 name)` and is **namespace-blind**, so two Kubernetes pods with the

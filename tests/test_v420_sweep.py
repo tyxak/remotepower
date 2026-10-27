@@ -359,7 +359,9 @@ class TestRoutingMatrixAdditions(unittest.TestCase):
         self.assertIn('scan', api._RBAC_PERMS)
 
     def test_container_restart_exclude(self):
-        self.assertIn("_container_alert_excluded(cur.get('name'", _API_SRC)
+        # Was a pin on the text of the call. The behaviour (a restart loop honours the
+        # exclude list, by name and by image) is driven in test_v742_container_excludes.
+        self.assertTrue(hasattr(api, '_container_alert_excluder'))
 
     def test_webhook_titles_added(self):
         for ev in ('image_update_available', 'image_updated', 'snmp_unreachable',
