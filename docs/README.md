@@ -61,6 +61,11 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.2.md](security-review-7.4.2.md)** — the v7.4.2 review, which
+  also covers 7.4.1: a root agent that a FIFO or a planted state file in `/tmp` could
+  stop or steer, and an installer that trusted a CA address nothing authenticated.
+  Three issues, all caught before release, with the scans and the hostile-input run
+  behind them.
 - **[security-review-7.4.0.md](security-review-7.4.0.md)** — the v7.4.0 review,
   scoped to what changed: the firewall-syslog reader, the agents' new reads, who sees
   what in the ignore list and the new alert, and the status codes that decide whether
@@ -74,12 +79,6 @@ holds long-form docs that don't fit there.
   before release, among them a stored session hash that worked as a session, an
   IPv6 zone id that reached a root shell and an agent that could have claimed the
   honeypot's decision.
-- **[security-review-7.2.0.md](security-review-7.2.0.md)** — the v7.2.0 review,
-  scoped to the new log sensor rather than the whole project: an agent
-  summarising logs an attacker can write to, and a server turning that into
-  public reports. Eight issues, all caught before release, among them a SQL
-  pattern that matched an ordinary search and a request with raw spaces that was
-  cut at its first word.
 - **[v7.4.2.md](v7.4.2.md)** — "Re4lMatters": fixes for four reports from a
   Docker install of 7.4.1. A stopped container's alert closes when it runs
   again, container excludes match an image, SNMP memory leaves out the cache,

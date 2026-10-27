@@ -138,6 +138,54 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("edg3matters", kw.lower())
 
 
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it names
+    what it found, and the three kept reviews are the last three."""
+
+    DOC = "docs/security-review-7.4.2.md"
+
+    def text(self):
+        return re.sub(r"\s+", " ", (_ROOT / self.DOC).read_text())
+
+    def test_it_exists_and_is_indexed(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md"):
+            self.assertIn("security-review-7.4.2.md", (_ROOT / rel).read_text(), rel)
+
+    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
+        text = self.text()
+        self.assertIn("so this one covers both", text)
+        self.assertIn("7.4.1 went out as a pre-release without a review of its own", text)
+        self.assertIn("were not run this time", text)          # the nginx scanners
+        self.assertIn("## Known and unchanged", text)
+
+    def test_it_names_the_three_findings_and_the_summary_has_three_rows(self):
+        text = self.text()
+        self.assertIn("**three** issues", text)
+        for needle in ("state files from `/tmp`", "turn into a FIFO", "certificate check off"):
+            self.assertIn(needle, text)
+        rows = re.findall(r"^\| ([123]) \|", (_ROOT / self.DOC).read_text(), re.M)
+        self.assertEqual(rows, ["1", "2", "3"])
+
+    def test_no_placeholder_is_left(self):
+        self.assertNotIn("@@", (_ROOT / self.DOC).read_text())
+
+    def test_it_reveals_no_command_for_the_attack(self):
+        text = (_ROOT / self.DOC).read_text()
+        self.assertNotIn("mkfifo", text)
+        self.assertNotIn("/tmp/remotepower-poll-interval", text)
+
+    def test_the_changelog_and_the_notes_agree_on_the_count(self):
+        for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.2.md", "## Security review")):
+            body = (_ROOT / rel).read_text()
+            section = body[body.index(heading):][:900]
+            self.assertIn("three issues", re.sub(r"\s+", " ", section), rel)
+
+    def test_only_the_last_three_reviews_are_kept(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(reviews, ["security-review-7.3.0.md", "security-review-7.4.0.md", "security-review-7.4.2.md"])
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof,
     watched failing before it was committed. This pins that they ship."""
@@ -152,6 +200,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v742_host_integrations_e2e.py",
         "tests/test_v742_integration_trend.py",
         "tests/test_v742_translations.py",
+        "tests/test_v742_agent_fifo.py",
         "tests/test_v742_drawer_focus_e2e.py",
         "tests/test_v742_recoveries_follow_the_window.py",
     )

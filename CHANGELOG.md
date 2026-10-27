@@ -113,6 +113,42 @@ dashboard says one thing and the host is doing another.
   (a reworded line would otherwise stop translating without an error), and must
   keep `image:` and the arrow of a menu path as written.
 
+### Security
+
+7.4.1 had no review of its own, so the review of this release covers both, back to
+the last reviewed one (7.4.0). It found three issues, one old and two from 7.4.1,
+and all three are fixed. See `docs/security-review-7.4.2.md`.
+
+- **The agent trusts a state file only when it is its own.** The agent keeps small
+  state files (the poll interval the server asked for, check baselines, scan times,
+  a stashed command result) in its own directory, and looked for one in `/tmp` when
+  its own directory did not have it yet. Any local user can leave a file in `/tmp`.
+  A FIFO left there under the name of one of those files stopped the agent's loop
+  for good, and a file of the user's making was believed: a poll interval of ten million seconds,
+  a baseline, a scan time, a command result sent to the server as the agent's. The
+  file has to be a regular file, owned by the user the agent runs as and writable by
+  nobody else, and it is opened without blocking. The fallback dates from 3.0.2. The
+  unit `install-client.sh` installs gives the agent a private `/tmp`, so those hosts
+  could not be reached this way; the unit the quick-install line writes does not.
+- **The agent no longer waits on a file another user can turn into a FIFO.** The
+  agent runs as root and reads files whose names other people choose: the files and
+  folders you ask it to watch for drift, the home directories its secret and PII
+  scans walk, the trees a loader check looks through, the logs it sweeps. A plain
+  open of a FIFO waits for a writer that never comes, so a local user who could
+  write one of those folders could stop the agent by leaving a FIFO there, or by
+  swapping a file for one at the right moment: a second process doing that hung the
+  drift report in 353 rounds. Watching folders and patterns, new in 7.4.1, widened
+  the set of names. All three agents now open without blocking and ask the
+  descriptor what it is, at every read of a path another user can reach, and a test
+  lists every other binary read with the reason nobody but root can reach it.
+- **The installers check the certificate when nothing else authenticates the CA.**
+  7.4.1 made `install-client.sh` and `install-macos.sh` fetch every CA address with
+  the certificate check off. That is right when `--ca-fingerprint` authenticates the
+  file and wrong when no fingerprint is given: `--ca https://...` alone had become
+  trust on first use of whatever answered. They skip the check only with a
+  fingerprint now. The line the dashboard prints and the script the server serves
+  were already right.
+
 ## v7.4.1 — "Al1gnMatters" — 2026-10-26
 
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one

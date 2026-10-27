@@ -165,18 +165,12 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         self.assertEqual(mk.count("server/cgi-bin/threat_evidence.py"), 2,
                          "a new pure module joins both the lint and the type-check list at creation")
 
-    def test_the_security_review_is_published_and_indexed(self):
-        self.assertTrue((_ROOT / "docs/security-review-7.2.0.md").exists())
-        self.assertIn("security-review-7.2.0.md", (_ROOT / "docs/README.md").read_text())
-        self.assertIn("security-review-7.2.0.md", (_ROOT / "docs/security.md").read_text())
-
-    def test_the_review_says_what_it_did_not_cover(self):
-        """A review that implied it covered the whole project would be worse
-        than none: this one is scoped to the log sensor and must say so."""
-        text = _flat("docs/security-review-7.2.0.md")
-        self.assertIn("does not", text)
-        self.assertIn("What this review did not cover", text)
-        self.assertIn("A production host's real logs", text)
+    def test_the_security_review_has_left_the_window(self):
+        """Only the last three reviews are kept; 7.2.0's was dropped when 7.4.2's arrived, and no
+        index still points at it."""
+        self.assertFalse((_ROOT / "docs/security-review-7.2.0.md").exists())
+        self.assertNotIn("security-review-7.2.0.md", (_ROOT / "docs/README.md").read_text())
+        self.assertNotIn("security-review-7.2.0.md", (_ROOT / "docs/security.md").read_text())
 
     def test_only_three_security_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
