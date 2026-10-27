@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.2 "Re4lMatters"** — fixes for four reports from a Docker install of
+  7.4.1. In each, the dashboard says one thing and the host is doing another.
 - **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran into.
   Agents enrol against a self-signed server with the fingerprint alone, on any
   port, and enrolling a host again restarts its agent. The browser terminal and
@@ -238,7 +240,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   your threshold. Only counts and fixed labels leave the host. The page shows
   the evidence, what was sent, and any log the agent could not read; Cloudflare
   addresses are never reported. Off until you turn it on.
-- **v7.1.0 "G4tewayMatters"** — the front door. Reach any opted-in Linux host
   with your own `ssh` client through one gateway, over a tunnel the host opens
   outward, so no inbound port is open on the host; every connection is checked
   against your permission, scope and tenant, and every session is recorded.

@@ -80,6 +80,9 @@ holds long-form docs that don't fit there.
   public reports. Eight issues, all caught before release, among them a SQL
   pattern that matched an ordinary search and a request with raw spaces that was
   cut at its first word.
+- **[v7.4.2.md](v7.4.2.md)** — "Re4lMatters": fixes for four reports from a
+  Docker install of 7.4.1. In each, the dashboard says one thing and the host is
+  doing another.
 - **[v7.4.1.md](v7.4.1.md)** — "Al1gnMatters": fixes for what a Docker
   install of 7.4.0 ran into: enrolling against a self-signed server on any port,
   a restart when a host is enrolled again, the browser terminal in the image, a
@@ -91,11 +94,6 @@ holds long-form docs that don't fit there.
   already there reads, looks and behaves better in every theme and language, and
   each fix comes with a check that keeps it fixed. Includes the two honeypot
   Worker guides.
-- **[v7.3.0.md](v7.3.0.md)** — "Edg3Matters": threat intel reads Cloudflare's
-  firewall events and your honeypot Worker's log, and the host firewall's log.
-  Only refusals that mean an attack count; an address your honeypot banned is
-  reported at once; nothing a visitor typed is fetched. Reporting only: banning
-  stays with what you already use.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

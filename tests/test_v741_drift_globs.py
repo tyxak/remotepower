@@ -552,9 +552,14 @@ class TestTheListAnAgentIsSent(_Base):
         self.assertEqual(api.get_watched_files_for(self.DEV), ["/etc/hosts", "/etc/apt/sources.list.d/"])
 
     def test_the_gate_version_is_the_release_that_carries_the_expansion(self):
+        """The gate names the release that first expanded patterns (7.4.1). An
+        agent built later keeps the expansion, so it must be at or past the gate,
+        never pinned to the gate's own release."""
         self.assertEqual(api.DRIFT_GLOB_MIN_AGENT, (7, 4, 1))
         for k, p in AGENTS.items():
-            self.assertRegex(p.read_text(), r"VERSION\s*=\s*'7\.4\.1'", k)
+            m = re.search(r"^VERSION\s*=\s*'(\d+)\.(\d+)\.(\d+)'", p.read_text(), re.M)
+            self.assertTrue(m, k)
+            self.assertGreaterEqual(tuple(int(x) for x in m.groups()), api.DRIFT_GLOB_MIN_AGENT, k)
 
 
 class TestThroughTheRealHeartbeat(_Base):
