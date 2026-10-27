@@ -38,6 +38,18 @@ dashboard says one thing and the host is doing another.
   Attention list and the dashboard's stopped-containers widget; before, only
   the stop and restart-loop alerts honoured it. (#43)
 
+### Maintenance windows
+
+- **A recovery notice is held with its alert.** A window held `metric_warning`
+  and then delivered `metric_recovered`, a message about something the people
+  inside the window were never told. Fifteen recover events resolve an event a
+  window holds, and only seven were held with it. The other eight are now:
+  `patch_ok`, `cve_cleared`, `service_recover`, `container_restarting_cleared`,
+  `containers_current`, `metric_recovered`, `reboot_cleared` and
+  `backup_recovered`. A test derives the list from the event registry, so a
+  recover event added later cannot be missed. A held notice is not sent when the
+  window ends; see [maintenance.md](docs/maintenance.md).
+
 ### SNMP
 
 - **Memory is the share in use without the cache.** net-snmp counts the page

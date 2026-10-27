@@ -68108,6 +68108,15 @@ SUPPRESSIBLE_EVENTS = (
     # window that held the stop. Otherwise a backup that stops its containers inside a
     # window ends with a "Container Recovered" for each one nobody was told had stopped.
     'container_recovered',
+    # v7.4.2: the rest of the recoveries. 15 recover events resolve a suppressible event and only 7
+    # of them were in this tuple (device_online, monitor_up, service_up, failed_unit_cleared,
+    # timer_failed_cleared, integration_recovered, and container_recovered above): a window held
+    # metric_warning and delivered metric_recovered. tests/test_v742_recoveries_follow_the_window.py
+    # derives the rule from EVENT_REGISTRY, so a recover event added later cannot be missed. A held
+    # recovery is not sent later: a pager that was told about the alert before the window began is
+    # not told that it cleared (docs/maintenance.md says so).
+    'patch_ok', 'cve_cleared', 'service_recover', 'container_restarting_cleared',
+    'containers_current', 'metric_recovered', 'reboot_cleared', 'backup_recovered',
     # v6.4.2: a self-hosted app is only ever as up as the box under it, so
     # rebooting that box during a declared window paged once per integration
     # running on it — inside the window the operator had just declared. The

@@ -290,6 +290,9 @@ class TestSuppressibleEvents(unittest.TestCase):
             'backup_stale',
             # v7.4.2: a container that runs again rides the window that held its stop
             'container_recovered',
+            # v7.4.2: and so does every other recovery of a suppressible event
+            'patch_ok', 'cve_cleared', 'service_recover', 'container_restarting_cleared',
+            'containers_current', 'metric_recovered', 'reboot_cleared', 'backup_recovered',
             # v6.4.2: an integration bound to a host rides that host's window
             'integration_down', 'integration_recovered',
         }

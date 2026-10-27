@@ -27,6 +27,16 @@ expected downtime (patching, reboots, migrations) doesn't page anyone.
 - It suppresses **notification**, not monitoring — checks keep running and the
   data keeps flowing, so [Trends](trends.md) and [Timeline](timeline.md) stay
   complete.
+- It holds a recovery notice with the alert it recovers. A window that holds
+  `metric_warning` holds `metric_recovered` too, and `device_offline` and
+  `device_online` go together, so nobody inside the window is told that something
+  cleared that they were never told about. Every event that recovers a held
+  event is held; a test derives that list from the event registry (v7.4.2).
+- A held notice is not sent when the window ends. The alert in the
+  [Alerts](alerts.md) inbox still opens and closes as usual, and the suppression
+  log shows what was held. If an alert was delivered to a pager **before** the
+  window began and clears **inside** it, the pager gets no resolve; end the
+  window before the recovery, or resolve it there.
 - [Auto-patch](auto-patch.md) upgrades and [scheduled commands](schedule.md)
   honour maintenance windows and host quarantine.
 
