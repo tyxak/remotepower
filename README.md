@@ -201,6 +201,9 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 - **v7.4.2 "Re4lMatters"** — fixes for four reports from a Docker install of
   7.4.1. In each, the dashboard says one thing and the host is doing another.
+  An alert for a stopped container closes when the container runs again, and
+  container excludes can match an image. SNMP memory leaves out the cache and
+  buffers the host counts as used. A host's card lists the integrations bound to it.
 - **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran into.
   Agents enrol against a self-signed server with the fingerprint alone, on any
   port, and enrolling a host again restarts its agent. The browser terminal and

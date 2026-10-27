@@ -10,6 +10,61 @@ releases only; for an older release the entry below is the record.
 A patch release for four reports from a Docker install of 7.4.1. In each, the
 dashboard says one thing and the host is doing another.
 
+### Containers
+
+- **An alert for a stopped container closes when the container is running
+  again.** The agent reports the containers that are running, so a container you
+  stop leaves the list and RemotePower raises *Container stopped* with the
+  status `gone`. Nothing closed that alert afterwards: the check for a container
+  coming back only looked at containers that were still in the previous report,
+  and a container that starts again is a name no report holds. A host whose
+  containers were all stopped at once, as a nightly backup does, was skipped
+  entirely, because the next report had nothing to compare with. The names that
+  have an open alert are now kept with the host, and a name that is running
+  again closes its alert, including after the container was removed and created
+  again. Alerts that were already open when you upgrade close on the first
+  report after it, for the containers that are running. Inside a maintenance
+  window the stop notice was already held; the recovery notice is held too now
+  (`container_recovered` is a suppressible event), and the alert still closes.
+  The agent is unchanged and still lists only running containers: listing
+  stopped ones as well (`docker ps -a`) would put every one-shot container on
+  the list and could push long-running ones past the 100 a report holds. (#45)
+- **Container alert excludes can match the image.** An entry of
+  `container_alert_excludes` that starts with `image:` is read against the
+  container's image instead of its name: `image:ghcr.io/getarcaneapp/tools`
+  matches that image whatever its tag, and a tag after it limits the match to
+  that tag. That is the way to keep out helper containers that exit by design
+  and get a random name on every run. The list now also applies to the Needs
+  Attention list and the dashboard's stopped-containers widget; before, only
+  the stop and restart-loop alerts honoured it. (#43)
+
+### SNMP
+
+- **Memory is the share in use without the cache.** net-snmp counts the page
+  cache and the buffers as used in the "Physical memory" row and lists them again
+  as "Cached memory" and "Memory buffers", so a FreeBSD firewall with a quarter
+  of its memory in use read 94% and raised `snmp_mem`. RemotePower takes those
+  two rows off the figure. The alert, the history graph, the Hosts page and the
+  SNMP tab agree, and the tab shows the figure the host reports next to it, with
+  the cache and buffers. A host that lists no such rows is read as it reports,
+  and a host that really is short of memory still alerts. (#42)
+
+### Hosts
+
+- **A host's card shows the integrations bound to it.** Open a host, go to the
+  Audit tab, and *Integrations on this host* lists every instance bound to it
+  (*Runs on host*), worst first: status, last check, the latest values, a trend
+  for each number and how the recent checks went. It opens by itself when
+  something is bound, so a host with no agent and no SNMP no longer looks empty.
+  The trend is drawn from the last 100 checks and starts when you bind the
+  instance. The address and the credentials of an instance are never sent to the
+  card. `GET /api/devices/<id>/integrations`. (#44)
+- **A `NaN` from a service no longer stops integrations being saved.** A probe
+  that reads a JSON field from a service which prints `NaN` when a sensor read
+  fails produced a value the store refuses, and that aborted the save for every
+  integration until the service stopped sending it. Such values are stored as
+  empty and the rest are saved. Found while building the card above.
+
 ## v7.4.1 — "Al1gnMatters" — 2026-10-26
 
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one
