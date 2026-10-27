@@ -386,6 +386,7 @@ builtins = [
     "handle_device_backups",
     "handle_device_flows",
     "handle_device_inherited_credentials",
+    "handle_device_integrations",
     "handle_device_metric_rollup",
     "handle_device_netconfig",
     "handle_device_netconfig_revision",

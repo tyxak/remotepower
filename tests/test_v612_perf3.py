@@ -234,7 +234,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # module from eager code — three, all guarded — not by assuming.
         # 7.4.0: 2_590_000. The table CSV button, click-to-copy cells and the
         # failed-load states added about 6 KB to app.js, which every page loads.
-        self.assertLess(total, 2_590_000,
+        # 7.4.2: 2_600_000. The host drawer's Integrations section and the SNMP tab's Memory
+        # block add about 5 KB. Not moved to a lazy module on purpose: the section is drawn
+        # from the drawer, which any host opens, so a lazy module would cost every first
+        # Audit view a 57 KB fetch for a section most hosts leave empty.
+        self.assertLess(total, 2_600_000,
                         'the eager JS payload regressed past its budget')
 
 

@@ -69,6 +69,29 @@ instance *after* its down-alert was recorded, the stored alert has no host
 while the recovery carries one, and requiring both to match would strand that
 alert open forever.
 
+### On the host's card *(v7.4.2)*
+
+A host with no agent and no SNMP, a Hubitat hub for one, gets its health from
+the integrations bound to it, and its card used to show nothing but whether it
+answers. Open the host, go to the **Audit** tab, and **Integrations on this
+host** lists every instance bound to it, worst first: the status, when it was
+last checked, the latest values the connector read, a trend line for each
+number, and how the last checks went. The section opens by itself when
+something is bound to the host and stays shut when nothing is.
+
+- **Who sees it.** Anyone who may open the host. The address and the
+  credentials of an instance are never part of what the card is given.
+  `GET /api/devices/<id>/integrations` returns the same rows.
+- **How much trend.** The line is drawn from the last 100 checks, which is all
+  the history RemotePower keeps for an instance: about eight hours at the
+  default five-minute cycle. It starts when you bind the instance, because the
+  numbers are kept only for an instance bound to a host. A check that returns
+  text rather than a number has a status history and no trend.
+- **A value that is not a number.** A service that prints `NaN` when a sensor
+  read fails used to stop RemotePower saving the results of every integration,
+  for as long as it kept doing so. Those values are now stored as empty, and
+  the rest are saved.
+
 ## Security model
 
 - Every outbound request goes through RemotePower's **SSRF guard**: the target

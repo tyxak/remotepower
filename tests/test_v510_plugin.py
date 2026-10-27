@@ -7,11 +7,15 @@ logic + that the declarative spec survives the save path.
 """
 
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / 'server' / 'cgi-bin'
+# integrations.py imports its siblings (textfmt). Inside the full run another module has put
+# cgi-bin on the path by now; run alone, nothing had, and this file could not even import.
+sys.path.insert(0, str(_CGI))
 _spec = importlib.util.spec_from_file_location('integ_plugin', _CGI / 'integrations.py')
 integ = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(integ)

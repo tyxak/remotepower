@@ -1099,6 +1099,19 @@ for _ri_name in (
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
 
+# v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
+# bound module rather than another inline handler.
+_di_spec = _tk_ilu.spec_from_file_location(
+    'device_integrations_handlers', Path(__file__).parent / 'device_integrations_handlers.py')
+device_integrations_handlers_mod = _tk_ilu.module_from_spec(_di_spec)
+_di_spec.loader.exec_module(device_integrations_handlers_mod)
+device_integrations_handlers_mod.bind(globals())
+for _di_name in (
+        'handle_device_integrations',
+):
+    globals()[_di_name] = getattr(device_integrations_handlers_mod, _di_name)
+del _di_name
+
 # v7.0.3: web-terminal ticket issue, session audit and host-key lookup. Carved
 # out when adding the host-key endpoint pushed api.py past the inline-handler
 # ceiling — the documented answer to which is a module, not a raised ceiling.
@@ -26845,6 +26858,41 @@ def _integ_threshold_breached(op, value, bound):
     }.get(op, False)
 
 
+def _drop_non_finite(obj):
+    """A copy of ``obj`` with every NaN / Infinity replaced by None (v7.4.2).
+
+    A poll result is whatever a remote service said, and Python's json.loads accepts the
+    non-standard NaN and Infinity tokens that some embedded hubs print when a sensor read
+    fails. The store refuses them (save() raises, by design), and one such value in one
+    probe aborted _persist_integration_results for EVERY integration: nothing was saved and
+    no alert fired until the hub stopped sending it."""
+    if isinstance(obj, float):
+        return obj if obj == obj and obj not in (float('inf'), float('-inf')) else None
+    if isinstance(obj, dict):
+        return {k: _drop_non_finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_drop_non_finite(v) for v in obj]
+    return obj
+
+
+# v7.4.2 (#44): how many numbers one poll keeps per instance bound to a host.
+_INTEG_NUMERIC_MAX = 12
+
+
+def _integ_numeric_metrics(metrics):
+    """The numbers of a poll result, for the trend on the host card: finite ints and floats
+    (a bool is not a point on a line), at most _INTEG_NUMERIC_MAX of them."""
+    out = {}
+    if isinstance(metrics, dict):
+        for k, v in metrics.items():
+            if len(out) >= _INTEG_NUMERIC_MAX:
+                break
+            if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and v == v and v not in (float('inf'), float('-inf'))):
+                out[str(k)[:64]] = v
+    return out
+
+
 def _integ_metric_alerts(key, label, rtype, metrics, thresholds, notified,
                          bound_extra):
     """(pending_events, changed_flags) for one integration's metric thresholds.
@@ -26926,6 +26974,7 @@ def _persist_integration_results(results):
     for r in results:
         if not isinstance(r, dict):
             continue
+        r = _drop_non_finite(r)     # v7.4.2: a NaN from a remote service must not abort the batch
         key = str(r.get('id') or r.get('label'))
         # Use .get() throughout: one result missing a key must not KeyError and
         # abort the WHOLE persist batch (silent loss of every other
@@ -26980,7 +27029,14 @@ def _persist_integration_results(results):
                 r['gh_state'].setdefault(repo, mark)
         latest[key] = r
         hist.setdefault(key, [])
-        hist[key].append({'ts': r.get('checked'), 'status': status, 'detail': detail})
+        _hentry = {'ts': r.get('checked'), 'status': status, 'detail': detail}
+        # v7.4.2 (#44): the numbers too, but only for an instance bound to a host -- the host
+        # card is what reads them, and an unbound instance would keep them for nothing.
+        if bound.get(key, {}).get('device_id'):
+            _hm = _integ_numeric_metrics(r.get('metrics'))
+            if _hm:
+                _hentry['m'] = _hm
+        hist[key].append(_hentry)
         hist[key] = hist[key][-100:]
 
         was_down = bool(notified.get(key))
@@ -72443,7 +72499,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -72500,6 +72556,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH',), '/api/devices/', '/compose_enabled', 'handle_device_compose_enabled', "pi.startswith('/api/devices/') and pi.endswith('/compose_enabled') and m == 'PATCH'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/poll', 'handle_device_snmp_poll', "pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/integrations', 'handle_device_integrations', "pi.startswith('/api/devices/') and pi.endswith('/integrations') and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
@@ -72879,7 +72936,9 @@ def _route_code_5(pi, m):
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)
                                      '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',
-                                     '/decommissioned'))):
+                                     '/decommissioned',
+                                     # v7.4.2 (#44)
+                                     '/integrations'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False

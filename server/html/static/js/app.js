@@ -23564,6 +23564,8 @@ let _drawerDeviceId   = null;
 let _drawerDeviceName = null;
 let _drawerDeviceData = null;          // cached device object from /api/devices
 let _drawerAuditLoaded = {};           // which audit sections have been fetched
+let _drawerIntegrations = null;        // {id, data}: the host's bound integrations, fetched as the drawer opens
+let _drawerOpenSeq = 0;                // bumped on every open and close, so a slow answer can tell it is stale
 
 // ── Open / close ──────────────────────────────────────────────────────────────
 
@@ -23577,6 +23579,8 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _drawerDeviceId   = id;
   _drawerDeviceName = name;
   _drawerAuditLoaded = {};
+  _drawerIntegrations = null;
+  _drawerOpenSeq++;
 
   // Fall back to the id so the header never reads "undefined" when the drawer
   // is opened without a name (e.g. from the command palette). The real name is
@@ -23658,6 +23662,8 @@ function closeDeviceDrawer() {
   _drawerDeviceId   = null;
   _drawerDeviceName = null;
   _drawerAuditLoaded = {};
+  _drawerIntegrations = null;
+  _drawerOpenSeq++;
   // Leave the URL on the devices page once the deep-linked drawer closes.
   try {
     if (location.hash.startsWith('#device/')) history.replaceState(null, '', '#devices');
@@ -24695,6 +24701,8 @@ const _AUDIT_SECTIONS = [
   {key: 'backups',   title: 'Backups',           icon: 'hardDrive',group: 'System'},
   {key: 'snmp',      title: 'SNMP',              icon: 'radio',    group: 'System'},
   {key: 'hostcfg',   title: 'Host Config',       icon: 'settings', group: 'System'},
+  // v7.4.2 (#44): what runs on this host that the host cannot report itself.
+  {key: 'integrations', title: 'Integrations on this host', icon: 'link', group: 'Integrations'},
 ];
 const _AUDIT_GROUP_ORDER = ['Health', 'Security', 'Software', 'Activity', 'System', 'Integrations'];
 
@@ -24758,7 +24766,11 @@ function _postureRadarSvg(axes) {
 
 function _renderDrawerAuditSections() {
   const el = document.getElementById('drawer-audit-sections');
-  if (!el || el.dataset.rendered === _drawerDeviceId) return;
+  if (!el) return;
+  if (el.dataset.rendered === _drawerDeviceId) {
+    _prefetchHostIntegrations(_drawerDeviceId);   // the sections are kept between views; this one is cheap to refresh
+    return;
+  }
   el.dataset.rendered = _drawerDeviceId;
 
   // CSP L1 (v3.0.5 fix): the inline `onToggle="…"` attribute was
@@ -24797,6 +24809,62 @@ function _renderDrawerAuditSections() {
   el.querySelectorAll('details[data-audit-key]').forEach(d => {
     d.addEventListener('toggle', () => _onAuditToggle(d.dataset.auditKey, d));
   });
+  _prefetchHostIntegrations(_drawerDeviceId);
+}
+
+// v7.4.2 (#44): a host whose health comes from integrations (a hub with no agent and no SNMP)
+// looks empty until someone thinks to open this section, so ask as the sections render and,
+// when something is bound to the host, say how many and open it. The answer is kept for the
+// section to draw, so opening it costs no second request. A host with nothing bound is left
+// collapsed; the section is there and says so when opened.
+//
+// The answer is dropped if the drawer was closed or reopened while it was on its way (the
+// sequence number), so a slow answer for a host you left cannot open anything on the next one.
+async function _prefetchHostIntegrations(id) {
+  const seq = _drawerOpenSeq;
+  let data;
+  try { data = await api('GET', `/devices/${id}/integrations`); } catch (_) { return; }
+  if (_drawerOpenSeq !== seq || _drawerDeviceId !== id || !data) return;
+  // An error answer is kept too: a section left open from an earlier view must show the
+  // refusal, not the rows it had. It never opens a shut section (no rows, so no open below).
+  _drawerIntegrations = { id, data };
+  const sec = document.getElementById('audit-sec-integrations');
+  if (!sec) return;
+  if (sec.open) {
+    // Already open (kept from an earlier view of this host): draw the fresh answer over it.
+    _drawerAuditLoaded.integrations = true;
+    _loadAuditSection('integrations');
+  } else if ((data.integrations || []).length) {
+    sec.open = true;                          // fires the toggle, which draws the cached answer and the badge
+  }
+}
+
+// One bound integration: the same row the Integrations page draws, then a trend for every
+// number the poll kept and a count of how the recent checks went.
+function _hostIntegrationHtml(r) {
+  const chips = (r.stats && r.stats.length ? r.stats
+      : Object.entries(r.metrics || {}).map(([label, v]) => ({
+          label, value: typeof v === 'number' ? v.toLocaleString(_localeTag()) : String(v) })));
+  const tile = _integrationTiles([{
+    label: r.label, type: r.type, status: r.enabled ? r.status : 'unknown', detail: r.detail,
+    version: r.version, checked: r.checked, stats: chips,
+  }]);
+  // The row shows the values OR the detail, and a probe's detail is where it says why it is
+  // warning ("freeMemory=412345 fails (lt 500000)"), so with values on the row it goes below.
+  const why = chips.length && r.detail ? `<div class="hint mt-4">${escHtml(String(r.detail))}</div>` : '';
+  const series = Object.entries(r.series || {}).filter(([, pts]) => pts.length >= 2).map(([name, pts]) => {
+    const first = pts[0].val, last = pts[pts.length - 1].val;
+    return `<div class="fs-12 mt-4"><span class="hint">${escHtml(name)}</span> ${_sparkline(pts)} `
+      + `<span class="hint">${escHtml(String(first))} &rarr; ${escHtml(String(last))}</span></div>`;
+  }).join('');
+  const n = {};
+  (r.history || []).forEach(h => { n[h.status] = (n[h.status] || 0) + 1; });
+  const checks = (r.history || []).length
+    ? `<div class="hint mt-4">Last ${(r.history || []).length} checks: `
+      + ['ok', 'warning', 'critical', 'unknown'].filter(k => n[k]).map(k => `${n[k]} ${k}`).join(' &middot; ')
+      + '</div>'
+    : '';
+  return `<div>${tile}${why}${series}${checks}</div>`;
 }
 
 function _onAuditToggle(key, el) {
@@ -25679,6 +25747,27 @@ async function _loadAuditSection(key) {
           body.insertAdjacentHTML('beforeend',
             `<div class="mt-8"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName || '')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen', 13)} Suggest a remediation runbook &rarr;</a></div>`);
         }
+        break;
+      }
+
+      case 'integrations': {
+        // v7.4.2 (#44): drawn from the answer fetched as the drawer opened, or fetched now
+        // if that has not arrived.
+        const data = (_drawerIntegrations && _drawerIntegrations.id === id)
+          ? _drawerIntegrations.data : await api('GET', `/devices/${id}/integrations`);
+        if (data && data.error) {
+          body.innerHTML = `<div class="c-red">${escHtml(String(data.error))}</div>`;
+          badge.textContent = 'error'; return;
+        }
+        const rows = (data && data.integrations) || [];
+        if (!rows.length) {
+          body.innerHTML = data && data.show_homelab === false
+            ? '<div class="c-muted">Homelab software integrations are hidden on this instance.</div>'
+            : '<div class="c-muted">No integrations are bound to this host. Bind one under Settings &rarr; Integrations with <em>Runs on host</em>.</div>';
+          badge.textContent = 'none'; return;
+        }
+        badge.textContent = `${rows.length} integration${rows.length !== 1 ? 's' : ''}`;
+        body.innerHTML = '<div class="integ-tiles">' + rows.map(_hostIntegrationHtml).join('') + '</div>';
         break;
       }
 
