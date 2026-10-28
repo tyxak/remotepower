@@ -21528,7 +21528,7 @@ def handle_heartbeat():
                     {'id': _sanitize_str(str(e.get('id', '')), 64),
                      'orig': _sanitize_str(str(e.get('orig', '')), 512),
                      'check': _sanitize_str(str(e.get('check', '')), 64),
-                     'ts': int(e.get('ts', 0) or 0)}
+                     'ts': _hb_int(e.get('ts'), 0)}
                     for e in _gq[:50] if isinstance(e, dict)]
                 # v6.4.3: and TELL somebody. Edge-triggered on the quarantine
                 # ledger's ids: anything present now that was not present on the
@@ -21743,8 +21743,9 @@ def handle_heartbeat():
                 _cm_safe = {}
                 for k, v in list(_cm.items())[:32]:
                     k = str(k).lower()
-                    if re.match(r'^[a-z][a-z0-9_]{0,63}$', k) and isinstance(v, (int, float)):
-                        _cm_safe[k] = round(float(v), 4)
+                    if re.match(r'^[a-z][a-z0-9_]{0,63}$', k) and isinstance(v, (int, float)) \
+                            and _hb_float(v) is not None:
+                        _cm_safe[k] = round(_hb_float(v), 4)
                 if _cm_safe:
                     safe_si['custom_metrics'] = _cm_safe
             # v4.2.0 sweep: mail-queue depth. _host_checks and the drawer pill
@@ -21796,9 +21797,9 @@ def handle_heartbeat():
                         continue
                     entry = {
                         'path':     p,
-                        'used_gb':  round(float(m.get('used_gb', 0)), 2)
+                        'used_gb':  round(_hb_float(m.get('used_gb'), 0.0), 2)
                                       if isinstance(m.get('used_gb'), (int, float)) else 0,
-                        'total_gb': round(float(m.get('total_gb', 0)), 2)
+                        'total_gb': round(_hb_float(m.get('total_gb'), 0.0), 2)
                                       if isinstance(m.get('total_gb'), (int, float)) else 0,
                         'fstype':   _sanitize_str(m.get('fstype', ''), 32),
                     }
@@ -21865,8 +21866,8 @@ def handle_heartbeat():
                 synced = bool(c.get('synced', True))
                 off = c.get('offset_ms')
                 safe_clk = {'synced': synced}
-                if isinstance(off, (int, float)):
-                    safe_clk['offset_ms'] = round(float(off), 1)
+                if isinstance(off, (int, float)) and _hb_float(off) is not None:
+                    safe_clk['offset_ms'] = round(_hb_float(off), 1)
                 try:
                     _ct = float(_config_ro().get('clock_skew_threshold_ms', 1000))
                 except (TypeError, ValueError, OverflowError):
@@ -22003,8 +22004,8 @@ def handle_heartbeat():
                     safe_procs.append({
                         'pid':  pid,
                         'name': _sanitize_str(p.get('name', ''), 64),
-                        'cpu':  round(float(p.get('cpu') or 0), 1),
-                        'mem':  round(float(p.get('mem') or 0), 2),
+                        'cpu':  round(_hb_float(p.get('cpu') or 0, 0.0), 1),
+                        'mem':  round(_hb_float(p.get('mem') or 0, 0.0), 2),
                     })
                 safe_si['top_processes'] = safe_procs
             # v4.1.0: persist the running-process name set so the server-side
@@ -22112,12 +22113,12 @@ def handle_heartbeat():
                         if not isinstance(_f, dict):
                             continue
                         _r = _f.get('rpm')
-                        if not isinstance(_r, (int, float)):
+                        if not isinstance(_r, (int, float)) or _hb_float(_r) is None:
                             continue
                         safe_fans.append({
                             'name': _sanitize_str(str(_f.get('name', '')), 32),
                             'chip': _sanitize_str(str(_f.get('chip', '')), 32),
-                            'rpm':  max(0, min(100000, int(_r))),
+                            'rpm':  max(0, min(100000, _hb_int(_r, 0))),
                         })
                     if safe_fans:
                         safe_ph['fans'] = safe_fans
@@ -22176,8 +22177,8 @@ def handle_heartbeat():
                 if safe_de:
                     safe_si['disk_encryption'] = safe_de
             # persist last_boot for the drawer uptime display
-            if isinstance(si.get('last_boot'), (int, float)):
-                safe_si['last_boot'] = int(si['last_boot'])
+            if isinstance(si.get('last_boot'), (int, float)) and _hb_int(si['last_boot']) is not None:
+                safe_si['last_boot'] = _hb_int(si['last_boot'])
             # v3.11.0: storage / RAID health (zfs / mdadm / btrfs)
             if isinstance(si.get('storage_health'), list):
                 safe_pools = []
@@ -27394,13 +27395,22 @@ def handle_integrations_list():
     """GET /api/integrations — instances (redacted) + the connector catalog."""
     require_auth()
     _il_user, _il_role = verify_token(get_token_from_request())
-    _il_admin = bool(_resolve_role(_il_role).get('admin'))
+    # Under tenancy the integrations are the platform operator's (saving and testing them already
+    # say so), so a tenant admin reads them the way a viewer does: no address, no path, no lines.
+    # Found in the 7.4.3 review: they were handed the raw URL and, from 7.4.3 on, a probe's path, which
+    # can carry a token.
+    _il_foreign = _tenancy_enforced() and not _caller_is_superadmin()
+    _il_admin = bool(_resolve_role(_il_role).get('admin')) and not _il_foreign
     cfg = load(CONFIG_FILE)
     state = load(INTEG_STATE_FILE) or {}
     latest = state.get('latest') or {}
     insts = []
+    _il_devices = _load_ro(DEVICES_FILE) if _il_foreign else {}
     for i in _get_integrations(cfg):
         if not isinstance(i, dict):
+            continue
+        # An instance bound to a host another tenant owns says which host, its state and its numbers.
+        if _il_foreign and i.get('device_id') and not _tenant_visible((_il_devices or {}).get(i.get('device_id')) or {}):
             continue
         safe = _redact_integration(i, admin=_il_admin)
         key = str(i.get('id') or i.get('label'))
@@ -27605,8 +27615,12 @@ def handle_integration_test():
     """POST /api/integrations/test — probe one instance without saving (admin).
 
     Body: a single instance dict (may include a blank secret → falls back to the
-    stored secret matched by id). Returns {ok, status, detail, version?}."""
-    require_admin_auth()
+    stored secret matched by id). Returns {ok, status, detail, version?}.
+
+    Instance-wide, like the save: the poll runs from the server's own network position and hands
+    back what it read, so a tenant admin who could press Test could read values off any private
+    address the server can reach (found in the 7.4.3 review)."""
+    require_instance_admin_auth('Integrations')
     raw = _read_valid(request_models.IntegrationTestRequest)
     typ = str(raw.get('type', '')).strip()
     if typ not in integrations_mod.CONNECTORS:
@@ -65577,6 +65591,10 @@ def handle_smtp_test():
     Body may include 'recipient' to override the configured recipient list.
     """
     actor = require_admin_auth()
+    # Takes its recipient from the request and sends from the platform's own mail identity, so it is
+    # the platform operator's: under tenancy a tenant admin could otherwise mail any address as the
+    # platform (found in the 7.4.3 review).
+    _require_platform_operator('Mail settings')
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
     body = _read_valid(request_models.SmtpTestRequest)
@@ -65629,6 +65647,10 @@ def handle_ldap_test():
     enabling LDAP login.
     """
     actor = require_admin_auth()
+    # Takes its destination (or its recipient) from the request, so it is the platform operator's:
+    # under tenancy a tenant admin could otherwise aim the server at any host and port it can reach
+    # (found in the 7.4.3 review, the same shape as the integration Test button).
+    _require_platform_operator('Directory settings')
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
@@ -65654,6 +65676,8 @@ def handle_ldap_test_user():
     role, and group-derived flags. Doesn't create a session.
     """
     actor = require_admin_auth()
+    # A password oracle for the platform's directory: the directory settings are the platform operator's.
+    _require_platform_operator('Directory settings')
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
     body = _read_valid(request_models.LdapTestUserRequest)
@@ -68821,7 +68845,8 @@ def handle_maintenance_add():
     maint['windows'] = windows
     save(MAINT_FILE, maint)
     audit_log(actor, 'maintenance_add',
-              detail=f'id={window["id"]} scope={scope} target={target} reason={reason[:60]}')
+              detail=f'id={window["id"]} scope={scope} target={target} suppress={window["suppress"]} '
+                     f'reason={reason[:60]}')
     respond(200, {'ok': True, 'window': window})
 
 
@@ -68924,7 +68949,7 @@ def handle_maintenance_update(window_id):
         maint['windows'] = [w if w.get('id') != window_id else new_win for w in windows]
     audit_log(actor, 'maintenance_update',
               detail=f'id={window_id} scope={clean["scope"]} target={clean["target"]} '
-                     f'reason={clean["reason"][:60]}')
+                     f'suppress={clean["suppress"]} reason={clean["reason"][:60]}')
     respond(200, {'ok': True, 'window': new_win})
 
 
@@ -69977,8 +70002,38 @@ def _container_limits_for(fleet, host, name, image='', tag=''):
     return out
 
 
+def _hb_float(v, default=None):
+    """float(v) for a figure in a host's report, or `default` when it is not a usable number: a
+    string that is not one, a list, None, NaN, an infinity, or an integer too large for a float.
+
+    A host can send any of them, and each used to be a 500 for its own heartbeat at the bare
+    float()/int() that read it (twelve places, found by fuzzing in the 7.4.3 review). A numeric string
+    is still accepted, as the bare float() accepted it."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return f if f == f and f not in (float('inf'), float('-inf')) else default
+
+
+def _hb_int(v, default=None):
+    """int(v) for a figure in a host's report, or `default` (see _hb_float)."""
+    f = _hb_float(v)
+    return default if f is None else int(f)
+
+
 def _finite_number(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float('inf'), float('-inf'))
+    """A number a figure can be compared with and converted from: not a bool, not NaN, not infinite and
+    not an integer too large for a float. The last one is what a report from a host can carry (10**400
+    compares fine and raises OverflowError the moment anything calls float() on it), and it took a
+    heartbeat down with a 500 before this was checked (found in the 7.4.3 review)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        f = float(v)
+    except OverflowError:
+        return False
+    return f == f and f not in (float('inf'), float('-inf'))
 
 
 def _evaluate_container_resources(dev_id, running_now, prev_entry, excluded, state, now):

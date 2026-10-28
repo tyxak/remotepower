@@ -82,6 +82,8 @@ def handle_proxmox_test() -> None:
     used for the probe so "Test" works before "Save".
     """
     A.require_admin_auth()
+    # A fresh host comes from the request; the Proxmox settings are the platform operator's (7.4.3 review).
+    A._require_platform_operator('Proxmox settings')
     cfg = A.load(A.CONFIG_FILE)
     pc = A.proxmox_client.config_from(cfg)
     body = A._read_valid(A.request_models.ProxmoxTestRequest)

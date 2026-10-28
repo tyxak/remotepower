@@ -968,6 +968,11 @@ def handle_ticket_imap_test():
     """POST /api/tickets/imap/test — connect + login + select the folder using the
     posted form values (blank password falls back to the saved one). Read-only."""
     actor = A.require_admin_auth()
+    # The host and the port come from the request and the connection is a plain imaplib one, with no
+    # address guard (a local mail server is a normal setup), so this is the platform operator's: under
+    # tenancy a tenant admin could otherwise use it to probe any host and port the server can reach
+    # (found in the 7.4.3 review).
+    A._require_platform_operator('Ticket mailbox settings')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()

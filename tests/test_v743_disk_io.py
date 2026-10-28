@@ -239,6 +239,25 @@ class TestTheIngest(_Hb):
         self.assertNotIn("await_ms", got["big"])
         self.assertEqual(len(next(r for r in got if r.startswith("d" * 32))), 32)
 
+    def test_a_number_too_big_for_a_float_is_dropped_not_an_error(self):
+        """10**400 compares fine and raises OverflowError the moment float() is called on it; a report that
+        carried one in busy_pct took the heartbeat down with a 500 (found by the 7.4.3 review)."""
+        huge = 10 ** 400
+        rows = [{"dev": "big", "busy_pct": huge}, {"dev": "neg", "busy_pct": -huge},
+                {"dev": "ok", "busy_pct": 10.0, "read_mbs": huge, "write_mbs": -huge, "riops": huge, "wiops": 5,
+                 "await_ms": huge}]
+        self.beat_si(rows)                                         # beat_si fails the test on anything but a 200
+        got = {r["dev"]: r for r in self.stored()}
+        self.assertNotIn("big", got)
+        self.assertNotIn("neg", got)
+        self.assertEqual(got["ok"], {"dev": "ok", "busy_pct": 10.0, "wiops": 5.0})
+
+    def test_the_finite_number_rule_itself(self):
+        for good in (0, 1, -1, 0.5, 10 ** 300, -10 ** 300):
+            self.assertTrue(api._finite_number(good), good)
+        for bad in (True, False, None, "5", [], {}, float("nan"), float("inf"), float("-inf"), 10 ** 400, -10 ** 400):
+            self.assertFalse(api._finite_number(bad), repr(bad)[:20])
+
     def test_at_most_thirty_two_rows_and_only_a_list(self):
         self.beat_si([{"dev": f"d{i}", "busy_pct": 1.0} for i in range(80)])
         self.assertEqual(len(self.stored()), 32)

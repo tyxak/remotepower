@@ -168,6 +168,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v743_disk_io_e2e.py",          # #49: the Hardware tab table, the host's boxes, the fleet's pane
         "tests/test_v743_prometheus.py",           # #46: the parsers, the connectors, the client, the handlers, the host card
         "tests/test_v743_prometheus_e2e.py",       # #46: the card with its box of lines, the round trip, a refused line
+        "tests/test_v743_security.py",             # the review: tenant admins and the Test routes, the integration list, hostile reports
         "tests/test_v743_translations.py",      # the text the release added, in six languages
     )
 
