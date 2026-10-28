@@ -70007,7 +70007,7 @@ def _hb_float(v, default=None):
     string that is not one, a list, None, NaN, an infinity, or an integer too large for a float.
 
     A host can send any of them, and each used to be a 500 for its own heartbeat at the bare
-    float()/int() that read it (twelve places, found by fuzzing in the 7.4.3 review). A numeric string
+    float()/int() that read it (nine places, found by fuzzing in the 7.4.3 review). A numeric string
     is still accepted, as the bare float() accepted it."""
     try:
         f = float(v)

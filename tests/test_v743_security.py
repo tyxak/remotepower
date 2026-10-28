@@ -9,7 +9,7 @@
      bound to other tenants' hosts with their state and numbers.
   3. A window that raises no alerts was audited like one that holds notifications: the trail did not say
      which. It hides more than the other, so it has to say so.
-  4. A report from a host could take its own heartbeat down with a 500: twelve bare float()/int() calls on
+  4. A report from a host could take its own heartbeat down with a 500: nine bare float()/int() calls on
      figures the host sends (an integer too large for a float, NaN, an infinity, a string, a list). Found by
      placing hostile values in realistic reports; 33 of every 100 such reports failed before.
 """
@@ -331,6 +331,39 @@ class TestTheAuditTrailSaysWhatKindOfWindow(_Base):
         box = self.run_as_admin(api.handle_maintenance_update, self.window("alerts"), wid, verb="PUT")
         self.assertEqual(box["status"], 200, box)
         self.assertIn("suppress=alerts", json.dumps(box["audit"]))
+
+
+class TestAWindowThatRaisesNoAlertsReachesOnlyItsOwnTenant(_Tenancy):
+    """A window that raises no alerts hides more than one that holds notifications, and a tenant administrator can
+    write one. The setting is one more value on a window that in_maintenance() already scopes by the window's tenant,
+    so this pins the reach of the new kind. The windows go through the real add handler, so the tenant stamp is the
+    real one."""
+
+    def add(self, user, scope="global", target=""):
+        now = int(time.time())
+        iso = lambda ts: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))   # noqa: E731
+        body = {"reason": "backup", "scope": scope, "target": target, "start": iso(now - 60), "end": iso(now + 3600),
+                "cron": "", "duration": 0, "events": [], "suppress": "alerts"}
+        box = self.as_user(user, api.handle_maintenance_add, body)
+        api._LOAD_CACHE.clear()
+        return box
+
+    def reach(self, host):
+        return (api.in_maintenance("container_stopped", {"device_id": host}) or {}).get("suppress")
+
+    def test_a_tenant_admins_global_window_covers_its_own_hosts_and_not_another_tenants(self):
+        self.assertEqual(self.add("tadmin")["status"], 200)
+        self.assertEqual(self.reach("hostA"), "alerts")
+        self.assertIsNone(self.reach("hostB"))
+
+    def test_the_platform_operators_global_window_covers_every_tenant(self):
+        self.assertEqual(self.add("alice")["status"], 200)
+        self.assertEqual(self.reach("hostA"), "alerts")
+        self.assertEqual(self.reach("hostB"), "alerts")
+
+    def test_a_tenant_admin_cannot_aim_a_window_at_another_tenants_host(self):
+        self.add("tadmin", scope="device", target="hostB")      # refused or stored, it must not reach hostB
+        self.assertIsNone(self.reach("hostB"))
 
 
 class TestAReportFromAHostCannotMakeItsOwnHeartbeatFail(_Base):
