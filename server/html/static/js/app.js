@@ -18414,6 +18414,7 @@ const EVENT_CLASS = {
   'metric_recovered': 'ok',
   'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
   'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
+  'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
   'log_alert': 'warn',
   'mailbox_threshold': 'warn', 'mailbox_recovered': 'ok',
@@ -20787,6 +20788,7 @@ function _renderHomeActivity(fleetEvents) {
     'service_down', 'service_up', 'unit_flapping', 'unit_flapping_cleared',   // v6.1.2
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
+    'container_resource_high', 'container_resource_ok',   // v7.4.3 (#50)
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
@@ -21079,6 +21081,7 @@ function _homeActivityAttrs(event, p) {
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'container_restarting_cleared': case 'containers_stale': case 'containers_current':
+    case 'container_resource_high': case 'container_resource_ok':   // v7.4.3 (#50)
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     // v6.3.1 recover events: click through to where the condition lived.
@@ -25840,11 +25843,20 @@ async function _loadAuditSection(key) {
           return ` <span class="${cls} fs-11">(${escHtml(h)})</span>`;
         };
         const _resCell = (c) => {
+          // v7.4.3 (#50): what is over its line is red, and two small trends sit under the numbers.
+          const over = new Set(c.res_alerting || []);
+          const red = on => on ? '<span class="c-red fw-600">' : '<span>';
           const parts = [];
-          if (typeof c.cpu_percent === 'number') parts.push(`${c.cpu_percent.toFixed(1)}% cpu`);
-          if (typeof c.mem_percent === 'number') parts.push(`${c.mem_percent.toFixed(1)}% mem`);
-          else if (c.mem_usage) parts.push(escHtml(c.mem_usage));
-          return parts.length ? parts.join(' · ') : '—';
+          if (typeof c.cpu_percent === 'number') parts.push(`${red(over.has('cpu'))}${c.cpu_percent.toFixed(1)}% cpu</span>`);
+          if (typeof c.mem_percent === 'number') parts.push(`${red(over.has('memory') || over.has('memory_mb'))}${c.mem_percent.toFixed(1)}% mem</span>`);
+          else if (c.mem_usage) parts.push(`${red(over.has('memory_mb'))}${escHtml(c.mem_usage)}</span>`);
+          if (!parts.length) return '—';
+          const h = c.hist || [];
+          const cpuS = h.map(r => r[1]).filter(v => typeof v === 'number');
+          const memS = h.map(r => (typeof r[2] === 'number' ? r[2] : r[3])).filter(v => typeof v === 'number');
+          const trend = (cpuS.length > 1 || memS.length > 1)
+            ? `<div class="row-6 mt-4">${cpuS.length > 1 ? renderSparkline(cpuS, {width: 60, height: 14}) : ''}${memS.length > 1 ? renderSparkline(memS, {width: 60, height: 14}) : ''}</div>` : '';
+          return parts.join(' · ') + trend;
         };
         // v3.13.0 bind: surface restart_count (the crash-loop signal the
         // server alerts on, container_restart_loop) — previously collected
@@ -25899,7 +25911,13 @@ async function _loadAuditSection(key) {
                 <td class="hint">${escHtml(age)}</td>
               </tr>`;
             }).join('')}
-          </tbody></table></div>`;
+          </tbody></table></div>`
+          + await (async () => {
+            // v7.4.3 (#50): the host's own CPU and memory lines, for the people who can change them.
+            if (!(_meCache && (_meCache.admin || (_meCache.permissions || []).length))) return '';
+            const t = await api('GET', `/devices/${id}/container-thresholds`).catch(() => null);
+            return t && t.thresholds ? _hostLimitsFormHtml(id, t.thresholds, t.fleet) : '';
+          })();
         break;
       }
 
@@ -26386,6 +26404,74 @@ function _fmtDays(d) {
 // The "is this disk failing?" verdict is computed server-side
 // (_smart_disk_failed) and delivered as `disk.failed`, so the client never
 // re-derives the rule — the front/back copies drifted once (UNKNOWN handling).
+// v7.4.3 (#50): the container CPU and memory lines. The fleet's live on the Tuning page and each host's
+// in its Containers section, and both write overrides as one line each: a name, or image: and part of the
+// image, then any of cpu=, mem=, mb= and sustain=.
+const _CTL_KEYS = { cpu: 'cpu_pct', mem: 'mem_pct', mb: 'mem_mb', sustain: 'sustain' };
+function ctlFormatOverrides(ovs) {
+  return (Array.isArray(ovs) ? ovs : []).map(o => [o.match,
+    ...Object.entries(_CTL_KEYS).filter(([, k]) => o[k] !== undefined && o[k] !== null).map(([t, k]) => `${t}=${o[k]}`)
+  ].join(' ')).join('\n');
+}
+function ctlParseOverrides(text) {
+  const out = [];
+  const lines = String(text || '').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    const row = { match: parts[0] };
+    for (const tok of parts.slice(1)) {
+      const m = /^(cpu|mem|mb|sustain)=(\d+(?:\.\d+)?)$/.exec(tok);
+      if (!m) return { error: `Line ${i + 1}: "${tok}" is not cpu=, mem=, mb= or sustain= with a number` };
+      row[_CTL_KEYS[m[1]]] = Number(m[2]);
+    }
+    if (Object.keys(row).length === 1) return { error: `Line ${i + 1}: "${parts[0]}" sets nothing` };
+    out.push(row);
+  }
+  return { overrides: out };
+}
+// The four boxes and the overrides box, as the object the server keeps: a box left empty is not sent.
+function ctlReadForm(root) {
+  const num = id => { const v = root.querySelector(id).value.trim(); return v === '' ? null : Number(v); };
+  const o = ctlParseOverrides(root.querySelector('[data-ctl="overrides"]').value);
+  if (o.error) return o;
+  const out = {};
+  for (const [sel, key] of [['[data-ctl="cpu"]', 'cpu_pct'], ['[data-ctl="memp"]', 'mem_pct'],
+                            ['[data-ctl="memmb"]', 'mem_mb'], ['[data-ctl="sustain"]', 'sustain']]) {
+    const n = num(sel);
+    if (n !== null && !isNaN(n)) out[key] = n;
+  }
+  if (o.overrides.length) out.overrides = o.overrides;
+  return { thresholds: out };
+}
+// v7.4.3 (#50): the host's own lines, under the containers table.
+async function saveHostContainerLimits() {
+  const form = document.getElementById('hctl-form');
+  if (!form) return;
+  const r = ctlReadForm(form);
+  if (r.error) { toast(r.error, 'error'); return; }
+  const res = await api('PUT', `/devices/${encodeURIComponent(form.dataset.dev)}/container-thresholds`, { thresholds: r.thresholds });
+  if (res && res.ok) {
+    toast('Settings saved', 'success');
+    _loadAuditSectionForce('containers');
+  } else failToast(res);
+}
+function _hostLimitsFormHtml(id, mine, fleet) {
+  mine = mine || {}; fleet = fleet || {};
+  const box = (key, sel, label, max, step) => `<div class="settings-row"><label class="form-label">${label}</label><input type="number" class="form-input mw-100" data-ctl="${sel}" min="0" max="${max}"${step ? ' step="any"' : ''} value="${mine[key] ?? ''}" placeholder="${fleet[key] ?? 'off'}"></div>`;
+  return `<details class="mt-8"><summary>Lines for this host</summary>
+    <div id="hctl-form" data-dev="${escAttr(id)}" class="mt-6">
+      <div class="hint mb-6">Empty boxes use the fleet's lines (Monitoring → Tuning), shown in grey. Overrides listed here win over the fleet's for the same container.</div>
+      ${box('cpu_pct', 'cpu', 'CPU %', 6400, true)}
+      ${box('mem_pct', 'memp', "Memory, % of the container's limit", 100, true)}
+      ${box('mem_mb', 'memmb', 'Memory in use, MB', 4194304, false)}
+      ${box('sustain', 'sustain', 'Reports in a row', 20, false)}
+      <textarea class="form-input ff-mono mt-6" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off" data-ctl="overrides" aria-label="Overrides">${escHtml(ctlFormatOverrides(mine.overrides))}</textarea>
+      <button class="btn-primary mt-6" data-action="saveHostContainerLimits">Save lines</button>
+    </div></details>`;
+}
+
 // v7.4.3 (#47): save the names typed under the SMART table. The host id is read off the form, not
 // passed through data-arg, which would turn a numeric-looking id into a number.
 async function saveDiskNames() {

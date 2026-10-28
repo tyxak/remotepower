@@ -52,6 +52,22 @@ NEW = (
     ("Save names", APP),
     ("No serial number reported, so these cannot be named:", APP),
     ("Disk names saved", APP),
+    # Containers: CPU and memory lines (Monitoring -> Tuning card; each host's own form)
+    ("Container CPU and memory lines", INDEX),
+    ("A container that stays at or over a line for several reports in a row raises one alert, which closes "
+     "when the container drops under the line, stops or is excluded. A line left empty or at 0 keeps that "
+     "resource off, so nothing alerts until you set one.", INDEX),
+    ("Docker's figure: 100 is one core.", INDEX),
+    ("Memory, % of the container's limit", INDEX),
+    ("Memory in use, MB", INDEX),
+    ("Reports in a row", INDEX),
+    ("Overrides, one per line: a name, or image: and part of the image, then any of cpu=, mem=, mb= and "
+     "sustain=. The first line that matches a container applies, and 0 turns a resource off for it.", INDEX),
+    ("Save lines", INDEX),
+    ("Only an administrator can change these lines.", "server/html/static/js/app-tuning.js"),
+    ("Lines for this host", APP),
+    ("Empty boxes use the fleet's lines (Monitoring → Tuning), shown in grey. Overrides listed here win over "
+     "the fleet's for the same container.", APP),
     ("no alerts", APP),
     ("Covered events are kept out of the Alerts inbox and Needs attention as well as out of notifications. "
      "An alert that was already open stays open.", APP),
@@ -61,6 +77,11 @@ NEW = (
 LITERALS = (
     ("HEAD", ("Auto sends HEAD",)),
     ("GET", ("Auto sends HEAD",)),
+    ("image:", ("Overrides, one per line",)),
+    ("cpu=", ("Overrides, one per line",)),
+    ("mem=", ("Overrides, one per line",)),
+    ("mb=", ("Overrides, one per line",)),
+    ("sustain=", ("Overrides, one per line",)),
 )
 
 
@@ -68,7 +89,7 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_list_was_found(self):
         """The control on the population: a list that shrank to nothing would pass every test below."""
-        self.assertGreaterEqual(len(NEW), 14)
+        self.assertGreaterEqual(len(NEW), 25)
         self.assertEqual(len({s for s, _ in NEW}), len(NEW), "a string is listed twice")
 
     def test_the_real_engine_translates_each_in_every_language(self):
@@ -110,6 +131,14 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_source_check_can_fail(self):
         self.assertFalse(rendered_in("A sentence nobody put on this page.", INDEX))
+
+    def test_the_menu_path_keeps_its_arrow(self):
+        path = next(s for s, _ in NEW if "Monitoring → Tuning" in s)
+        got = translations([path])
+        if got is None:
+            self.skipTest("node is not installed")
+        for lang in LANGS:
+            self.assertTrue(any(a in got[lang][path] for a in ("→", "←")), f"{lang}: no arrow in the menu path")
 
     def test_literal_text_survives_translation(self):
         got = translations([s for s, _ in NEW])

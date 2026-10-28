@@ -44,6 +44,28 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   with "requires a target". Editing one showed an empty target, and a target
   typed for one window was still in the box for the next. (#48)
 
+### Containers
+
+- **CPU and memory lines for containers.** The agent has always collected CPU and memory
+  per container (`docker stats`), and the only container alerts were a stop and a restart
+  loop, so a media server pegging the CPU or a database leaking toward its limit raised
+  nothing. A line can now be set for docker's CPU figure, for the share of the container's
+  memory limit and for memory in MB, each held for a number of reports in a row (3 unless
+  you say otherwise) so a spike does not alert. **Container resource high** opens once per
+  container and resource; **Container resource normal** closes it on the first reading
+  under the line, and also when the container stops, leaves the list, is excluded or the
+  line is turned off, so nothing stays open for a condition that cannot be checked any
+  more. A report with no reading neither counts nor clears. Lines are fleet-wide
+  (*Monitoring → Tuning → Container CPU and memory lines*), per host (*Lines for this host*
+  under its Containers section) and per container, as overrides matched like the exclude
+  list: a name, or `image:` and part of the image. The most specific wins. Nothing alerts
+  until a line is set. The host's Containers view colours a reading that is over its line
+  and draws a CPU and a memory trend from the last 60 reports of that container
+  (`container_stats_hist.json`, one row per host). A maintenance window holds both events.
+  Docker reports CPU per core, and the container normaliser had clamped it to 100, which
+  hid a container using two cores from every line; it keeps up to 6,400 now, and a NaN or
+  an infinity is no reading instead of a stored NaN. (#50)
+
 ### Disks
 
 - **A drive can have a name.** Disks were listed by kernel name plus model and serial,

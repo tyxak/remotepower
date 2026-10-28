@@ -51,10 +51,22 @@ class TestContainerNormalizePreservesLiveFields(unittest.TestCase):
         self.assertEqual(n["health"], "")
 
     def test_pct_clamped(self):
+        """Memory is a share, so it stops at 100. CPU is docker's per-core figure (a container on four
+        cores reads 400), so since 7.4.3 it stops at 6,400 instead: the clamp to 100 hid a container
+        using two cores from every line an operator could set."""
         n = containers_mod.normalize_container(
-            {"name": "x", "cpu_percent": 250, "mem_percent": -5})
-        self.assertEqual(n["cpu_percent"], 100.0)
+            {"name": "x", "cpu_percent": 250, "mem_percent": 250})
+        self.assertEqual(n["cpu_percent"], 250.0)
+        self.assertEqual(n["mem_percent"], 100.0)
+        n = containers_mod.normalize_container({"name": "x", "cpu_percent": 10 ** 9, "mem_percent": -5})
+        self.assertEqual(n["cpu_percent"], 6400.0)
         self.assertEqual(n["mem_percent"], 0.0)
+
+    def test_a_reading_that_is_not_a_number_is_no_reading(self):
+        for bad in (float("nan"), float("inf"), float("-inf"), "x", [], {}):
+            n = containers_mod.normalize_container({"name": "x", "cpu_percent": bad, "mem_percent": bad})
+            self.assertIsNone(n["cpu_percent"], bad)
+            self.assertIsNone(n["mem_percent"], bad)
 
 
 # ─── B8: apply_ignore_list must not mutate the caller's input ────────────────

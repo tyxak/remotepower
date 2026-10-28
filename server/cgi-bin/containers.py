@@ -119,18 +119,28 @@ def _float_or_zero(value: Any) -> float:
     return n
 
 
-def _pct_or_none(value: Any):
-    """Coerce to a clamped 0–100 float, or None if absent/unparseable. Used for
-    container cpu_percent / mem_percent, which the agent may omit (no `stats`)."""
+def _pct_or_none(value: Any, top: float = 100.0):
+    """Coerce to a clamped 0-`top` float, or None if absent/unparseable/not finite. Used for
+    container cpu_percent / mem_percent, which the agent may omit (no `stats`).
+
+    v7.4.3: NaN and infinity are None. They used to pass through as NaN (the clamp compares
+    False both ways), and a NaN in the store is a reading nothing can compare."""
     if value is None:
         return None
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if f != f or f in (float('inf'), float('-inf')):
         return None
     if f < 0:
         return 0.0
-    return 100.0 if f > 100 else f
+    return top if f > top else f
+
+
+# docker stats reports CPU per core: a container using four cores reads 400%. The clamp to 100 that
+# the memory share needs hid a container pegging two cores from every line an operator could set.
+_CPU_PCT_TOP = 6400.0
 
 
 def _normalize_runtime(runtime: Any) -> str:
@@ -195,7 +205,7 @@ def normalize_container(item: Any) -> dict | None:
         # `docker stats`), but the normaliser used to drop them so the UI could
         # never show a container's health badge or live CPU/mem. Preserve them.
         "health": _str(item.get("health"), 32),
-        "cpu_percent": _pct_or_none(item.get("cpu_percent")),
+        "cpu_percent": _pct_or_none(item.get("cpu_percent"), _CPU_PCT_TOP),
         "mem_percent": _pct_or_none(item.get("mem_percent")),
         "mem_usage": _str(item.get("mem_usage"), 48),
         # v6.1.2: the configured LIMITS (0 = unlimited, docker's own convention).

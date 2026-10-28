@@ -514,6 +514,7 @@ WEBHOOK_SCHEMA_VERSION = '1'
 
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
 CONTAINERS_FILE = DATA_DIR / 'containers.json'
+CONTAINER_STATS_HIST_FILE = DATA_DIR / 'container_stats_hist.json'   # v7.4.3 (#50): {host: {container: [[ts, cpu, mem%, mem MiB], ...]}}
 # v3.3.4: container image-update detection. A registry-digest cache keyed
 # by "image:tag" — { "images": {"<ref>": {registry_digest, last_checked,
 # last_error}}, "last_full_scan": <ts> }. Whether a container is stale is
@@ -1125,6 +1126,18 @@ for _dn_name in (
 ):
     globals()[_dn_name] = getattr(disk_names_handlers_mod, _dn_name)
 del _dn_name
+
+# v7.4.3 (#50): a host's own CPU and memory lines for its containers. A new route, so a bound module.
+_ct_spec = _tk_ilu.spec_from_file_location(
+    'container_thresholds_handlers', Path(__file__).parent / 'container_thresholds_handlers.py')
+container_thresholds_handlers_mod = _tk_ilu.module_from_spec(_ct_spec)
+_ct_spec.loader.exec_module(container_thresholds_handlers_mod)
+container_thresholds_handlers_mod.bind(globals())
+for _ct_name in (
+        'handle_device_container_thresholds',
+):
+    globals()[_ct_name] = getattr(container_thresholds_handlers_mod, _ct_name)
+del _ct_name
 
 # v7.0.3: web-terminal ticket issue, session audit and host-key lookup. Carved
 # out when adding the host-key endpoint pushed api.py past the inline-handler
@@ -2120,6 +2133,17 @@ EVENT_REGISTRY = {
         label='A container stopped restart-looping (restart count stable)',
         kind='container', title='Container Restart Loop Cleared',
         resolves=('container_restarting',), tags='white_check_mark,whale'),
+    # v7.4.3 (#50): a container held over a CPU or memory line the operator set for a run of reports.
+    # One event with a `metric` (cpu | memory | memory_mb), because two resources on one container are two
+    # alerts, told apart by (container, metric), both in _ALERT_IDENTITY_FIELDS.
+    'container_resource_high': dict(
+        label='A container stayed over its CPU or memory line', kind='container',
+        title='Container Resource High', severity='medium', tags='warning,whale',
+        symptom=True),
+    'container_resource_ok': dict(
+        label='A container is back under its CPU or memory line (or stopped, or left the list)',
+        kind='container', title='Container Resource Normal',
+        resolves=('container_resource_high',), tags='white_check_mark,whale'),
     'containers_stale': dict(
         label='No container report for >TTL', kind='container', title='Container Data Stale',
         severity='medium', priority=4, tags='warning,hourglass', symptom=True),
@@ -10367,6 +10391,9 @@ def _alert_title(event, payload):
     if event == 'timer_failed_cleared':
         return f'Scheduled job recovered on {name}: {p.get("unit","?")}'
     # v3.14.0 events
+    if event == 'container_resource_high':      # v7.4.3 (#50)
+        return (f'Container {p.get("container", "?")} on {name}: '
+                f'{notify_mod.container_resource_phrase(p)}')
     if event == 'disk_predict_fail':
         eta = p.get('eta_days')
         when = f' (~{eta}d to failure)' if isinstance(eta, int) else ''
@@ -12383,6 +12410,11 @@ def _auto_resolve_alerts(event, payload):
         # v5.2.0: WG Access clients aren't devices — match the open
         # vpn_client_disconnected / vpn_handshake_stale alert by client_id.
         sub_match['client_id'] = p.get('client_id')
+    elif event == 'container_resource_ok':
+        # v7.4.3 (#50): per container AND per resource, so the CPU alert of web closes without
+        # touching its memory alert or the alerts of another container.
+        sub_match['container'] = p.get('container')
+        sub_match['metric'] = p.get('metric')
     elif event == 'container_recovered':
         # v5.6.0: a container running again resolves the open container_stopped
         # alert for THAT container (per-name, so a recovered web1 doesn't clear
@@ -15237,6 +15269,7 @@ def _purge_device(dev_id):
         BRUTE_FORCE_FILE, SOFTWARE_VIOLATIONS_FILE, CVE_FINDINGS_FILE,
         SNMP_DATA_FILE, HARDWARE_FILE, AV_FILE,
         DISK_NAMES_FILE,        # v7.4.3 (#47): a deleted host takes its disk names with it
+        CONTAINER_STATS_HIST_FILE,   # v7.4.3 (#50): and its container samples
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -22867,6 +22900,12 @@ def handle_heartbeat():
         # missing one means "never recorded" and sends the next report to the ledger.
         if 'stopped_alerted' in _ctr_state:
             _rec['stopped_alerted'] = _ctr_state['stopped_alerted']
+        # v7.4.3 (#50): the run of reports each container has been over a line, and the (container,
+        # resource) pairs with an open alert. Left off when empty, so a host without lines keeps the
+        # entry it always had.
+        for _rk in ('res_streak', 'res_alerted'):
+            if _ctr_state.get(_rk):
+                _rec[_rk] = _ctr_state[_rk]
         # v6.1.2: `docker system df` — the disk-footprint breakdown, on its own
         # slow cadence (the agent only sends it ~hourly, since docker has to walk
         # the layer store). It arrives on SOME container reports, not all, so
@@ -22881,6 +22920,9 @@ def handle_heartbeat():
             if isinstance(_prev, dict) and _prev.get('df'):
                 _rec['df'] = _prev['df']
         _entity_write_one(CONTAINERS_FILE, dev_id, _rec)
+        _record_container_stats(dev_id, _ctr_state.get('hist_samples') or {},
+                                [c['name'] for c in normalised
+                                 if c.get('name') and _container_is_running(c.get('status'))], now)
         # v1.11.4: this device just gave us fresh container data, so clear
         # any "containers_stale" notified flag — the next time it goes stale
         # we want a new webhook to fire (matches device_offline pattern).
@@ -31539,6 +31581,15 @@ def handle_config_save():
             respond(400, {'error': 'container_alert_excludes must be a list'})
         cfg['container_alert_excludes'] = [
             _sanitize_str(str(x), 128) for x in _cae[:200] if str(x).strip()]
+    if 'container_thresholds' in body:
+        # v7.4.3 (#50): the fleet's CPU and memory lines for containers (docs/containers.md).
+        if not isinstance(body['container_thresholds'], dict):
+            respond(400, {'error': 'container_thresholds must be an object'})
+        _ctl = _clean_container_thresholds(body['container_thresholds'])
+        if _ctl:
+            cfg['container_thresholds'] = _ctl
+        else:
+            cfg.pop('container_thresholds', None)
     for _wk in ('webterm_daemon_url', 'webterm_daemon_secret'):
         if _wk in body:
             _wv = _sanitize_str(str(body[_wk] or ''), 512)
@@ -37908,11 +37959,25 @@ def handle_device_containers(dev_id: str) -> None:
                  if isinstance(m, dict) and m.get('container')
                  and m.get('device_id') == dev_id and not _mute_expired(m, _cm_now)}
     stamped = []
+    # v7.4.3 (#50): what each container is judged against, what is alerting, and its recent samples.
+    _fleet_l = _config_ro().get('container_thresholds')
+    _fleet_l = _fleet_l if isinstance(_fleet_l, dict) else {}
+    _host_l = devices[dev_id].get('container_thresholds')
+    _host_l = _host_l if isinstance(_host_l, dict) else {}
+    _res_open = {}
+    for _k in (entry.get('res_alerted') or []):
+        _nm, _sep, _mt = str(_k).rpartition('|')
+        _res_open.setdefault(_nm, []).append(_mt)
+    _stats_hist = _entity_read_one(CONTAINER_STATS_HIST_FILE, dev_id, {}) or {}
     for c in items:
         if not isinstance(c, dict):
             stamped.append(c)
             continue
         c = dict(c)
+        c['limits'] = _container_limits_for(_fleet_l, _host_l, c.get('name', ''), c.get('image', ''), c.get('tag', ''))
+        c['res_alerting'] = sorted(_res_open.get(str(c.get('name') or ''), []))
+        _h = _stats_hist.get(c.get('name')) if isinstance(_stats_hist, dict) else None
+        c['hist'] = _h[-30:] if isinstance(_h, list) else []
         image = str(c.get('image') or '').strip()
         ref = f"{image}:{str(c.get('tag') or '').strip() or 'latest'}"
         reg_dig = str((img_cache.get(ref) or {}).get('registry_digest') or '').strip()
@@ -68396,6 +68461,8 @@ SUPPRESSIBLE_EVENTS = (
     'reboot_required',
     'container_stopped', 'container_restarting', 'containers_stale',
     'backup_stale',
+    # v7.4.3 (#50): a window holds a container's resource alert, and its recovery with it.
+    'container_resource_high', 'container_resource_ok',
     # v7.4.2 (#45): a container that runs again closes its stop alert, and does it
     # the way a host coming back does (device_online above): the notice is held by the
     # window that held the stop. Otherwise a backup that stops its containers inside a
@@ -69607,6 +69674,224 @@ def _container_alert_excluded(name, image='', tag=''):
     return _container_alert_excluder()(name, image, tag)
 
 
+# v7.4.3 (#50): CPU and memory lines for containers.
+#
+#   {"cpu_pct": 100, "mem_pct": 90, "mem_mb": 2048, "sustain": 3,
+#    "overrides": [{"match": "jellyfin", "cpu_pct": 400}, {"match": "image:acme/job", "mem_mb": 0}]}
+#
+# cpu_pct is docker's own figure (100 per core), mem_pct is the share of the container's memory LIMIT
+# (a container with no limit has none), mem_mb is memory in use in MiB, and sustain is how many reports in
+# a row it has to be at or over the line. 0 turns a resource off; a key that is not there is inherited.
+# The fleet has one, a host has one on its record, and an override is matched like an exclude-list entry
+# (a name substring, or image: and part of the image). Most specific wins: the fleet's defaults, then the
+# host's, then the first matching override of the fleet, then the first matching override of the host.
+_CTR_LIMITS = (('cpu_pct', 0.0, 6400.0, False), ('mem_pct', 0.0, 100.0, False),
+               ('mem_mb', 0, 4194304, True), ('sustain', 1, 20, True))
+_CTR_OVERRIDES_MAX = 50
+_CTR_HIST_MIN_GAP = 60      # seconds between two samples of one container's history
+_CTR_HIST_MAX = 60          # samples kept per container
+_RES_ALERTED_CAP = 200      # (container, resource) pairs one host keeps open
+_MEM_UNITS = {'b': 1, 'kib': 1024, 'mib': 1024 ** 2, 'gib': 1024 ** 3, 'tib': 1024 ** 4,
+              'kb': 1000, 'mb': 1000 ** 2, 'gb': 1000 ** 3, 'tb': 1000 ** 4}
+
+
+def _threshold_number(value, lo, hi, as_int):
+    """One figure as it is kept: a finite number clamped into [lo, hi], or None."""
+    if isinstance(value, bool) or value is None or value == '':
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if n != n or n in (float('inf'), float('-inf')):
+        return None
+    n = max(lo, min(hi, n))
+    return int(n) if as_int else n
+
+
+def _clean_container_thresholds(raw):
+    """The container-threshold object as it is kept (see the block above). Only the keys that
+    were set survive; anything that is not an object is empty."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key, lo, hi, as_int in _CTR_LIMITS:
+        n = _threshold_number(raw.get(key), lo, hi, as_int)
+        if n is not None:
+            out[key] = n
+    ovs = []
+    for ov in (raw.get('overrides') if isinstance(raw.get('overrides'), list) else [])[:_CTR_OVERRIDES_MAX * 4]:
+        if not isinstance(ov, dict) or not isinstance(ov.get('match'), str):
+            continue
+        match = ' '.join(ov['match'].split())[:128]
+        if not match:
+            continue
+        row = {'match': match}
+        for key, lo, hi, as_int in _CTR_LIMITS:
+            n = _threshold_number(ov.get(key), lo, hi, as_int)
+            if n is not None:
+                row[key] = n
+        if len(row) > 1:
+            ovs.append(row)
+        if len(ovs) >= _CTR_OVERRIDES_MAX:
+            break
+    if ovs:
+        out['overrides'] = ovs
+    return out
+
+
+def _container_mem_mb(text):
+    """Memory in use, from docker's own text ('512MiB', '1.5GiB', '800MB'), in MiB; None when
+    it does not read as a size."""
+    m = re.fullmatch(r'\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)\s*', text) if isinstance(text, str) else None
+    mult = _MEM_UNITS.get(m.group(2).lower()) if m else None
+    if not mult:
+        return None
+    try:
+        return float(m.group(1)) * mult / (1024 * 1024)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _container_override_matches(match, name, image='', tag=''):
+    """An override's `match`, read exactly as an exclude-list entry is: a name substring, or with
+    the image: prefix a substring of the image (of image:tag when the entry names a tag)."""
+    names, images = _container_exclude_entries([match])
+    if any(p in str(name or '') for p in names):
+        return True
+    if images and image:
+        img = str(image).lower()
+        ref = f'{img}:{str(tag or "").lower()}'
+        return any(p in (ref if with_tag else img) for p, with_tag in images)
+    return False
+
+
+def _container_limits_for(fleet, host, name, image='', tag=''):
+    """The effective lines for one container: {cpu_pct, mem_pct, mem_mb, sustain}."""
+    out = {'cpu_pct': 0, 'mem_pct': 0, 'mem_mb': 0, 'sustain': 3}
+    for src in (fleet, host):
+        if isinstance(src, dict):
+            for key in out:
+                if key in src:
+                    out[key] = src[key]
+    for src in (fleet, host):
+        for ov in (src.get('overrides') if isinstance(src, dict) else None) or []:
+            if isinstance(ov, dict) and _container_override_matches(ov.get('match', ''), name, image, tag):
+                for key in out:
+                    if key in ov:
+                        out[key] = ov[key]
+                break
+    return out
+
+
+def _finite_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float('inf'), float('-inf'))
+
+
+def _evaluate_container_resources(dev_id, running_now, prev_entry, excluded, state, now):
+    """v7.4.3 (#50): hold each running container's CPU and memory against its lines, once per report.
+
+    A container alerts when a resource has been at or over its line for `sustain` reports in a row,
+    once; it closes on the first reading under the line, and also when the container is no longer
+    running, was excluded, or the line was turned off, so nothing stays open for a condition that
+    cannot be checked any more. A report with no reading for a resource (docker stats timed out)
+    neither counts nor clears. What it keeps goes to `state`: the run of each pair, the pairs with an
+    open alert, and the sample to add to the history."""
+    if state is None:
+        return
+    cfg = _config_ro()
+    fleet = cfg.get('container_thresholds') if isinstance(cfg.get('container_thresholds'), dict) else {}
+    hostc = (device_get(dev_id) or {}).get('container_thresholds')
+    hostc = hostc if isinstance(hostc, dict) else {}
+    streak_prev = prev_entry.get('res_streak') if isinstance(prev_entry.get('res_streak'), dict) else {}
+    alerted_prev = [str(k) for k in (prev_entry.get('res_alerted') or []) if isinstance(k, str)]
+    streak, alerted, samples, seen = {}, [], {}, set()
+
+    def clear(key, why, value=None):
+        name, _sep, metric = key.rpartition('|')
+        extra = {'metric': metric, 'reason': why}
+        if _finite_number(value):
+            extra['value'] = value
+        _fire_container_webhook('container_resource_ok', dev_id, name, extra)
+
+    for name, c in running_now.items():
+        image, tag = c.get('image', ''), c.get('tag', '')
+        cpu = c.get('cpu_percent')
+        memp = c.get('mem_percent') if c.get('mem_limit_bytes') else None
+        memmb = _container_mem_mb(c.get('mem_usage'))
+        sample = [now, round(cpu, 1) if _finite_number(cpu) else None,
+                  round(c['mem_percent'], 1) if _finite_number(c.get('mem_percent')) else None,
+                  round(memmb, 1) if memmb is not None else None]
+        if any(v is not None for v in sample[1:]):
+            samples[name] = sample                       # history is kept for every container, judged or not
+        if excluded(name, image, tag):
+            continue                                     # not judged; an open alert is closed below
+        lim = _container_limits_for(fleet, hostc, name, image, tag)
+        try:
+            sustain = max(1, int(lim['sustain']))
+        except (TypeError, ValueError, OverflowError):
+            sustain = 3
+        mine = streak_prev.get(name) if isinstance(streak_prev.get(name), dict) else {}
+        now_run = {}
+        for metric, value, line in (('cpu', cpu, lim['cpu_pct']), ('memory', memp, lim['mem_pct']),
+                                    ('memory_mb', memmb, lim['mem_mb'])):
+            key = f'{name}|{metric}'
+            was = key in alerted_prev
+            seen.add(key)
+            if not _finite_number(line) or line <= 0:
+                if was:
+                    clear(key, 'off', value)
+                continue
+            if not _finite_number(value):
+                if was:
+                    alerted.append(key)                 # unknown: hold, as a run is held
+                n_prev = mine.get(metric)
+                if isinstance(n_prev, int) and n_prev > 0:
+                    now_run[metric] = n_prev
+                continue
+            if value >= line:
+                n = min((mine.get(metric) if isinstance(mine.get(metric), int) else 0) + 1, 1000)
+                now_run[metric] = n
+                if was:
+                    alerted.append(key)
+                elif n >= sustain:
+                    _fire_container_webhook('container_resource_high', dev_id, name, {
+                        'metric': metric, 'value': value, 'threshold': line, 'sustain': sustain,
+                        'image': image, 'runtime': c.get('runtime', 'unknown')})
+                    alerted.append(key)
+            elif was:
+                clear(key, 'below', value)
+        if now_run:
+            streak[name] = now_run
+    for key in alerted_prev:                              # an alert whose container is not judged any more
+        if key not in seen:
+            clear(key, 'gone')                            # stopped, removed from the list, or excluded
+    state['res_streak'] = dict(list(streak.items())[:_STOPPED_ALERTED_CAP])
+    state['res_alerted'] = alerted[-_RES_ALERTED_CAP:]
+    state['hist_samples'] = samples
+
+
+def _record_container_stats(dev_id, samples, running_names, now):
+    """v7.4.3 (#50): add this report's samples to the host's history (at most one a minute for each
+    container, sixty kept) and forget the containers that are not running any more."""
+    try:
+        hist = _entity_read_one(CONTAINER_STATS_HIST_FILE, dev_id, {}) or {}
+        if not isinstance(hist, dict):
+            hist = {}
+        out = {}
+        for name in running_names:
+            rows = hist.get(name) if isinstance(hist.get(name), list) else []
+            s = samples.get(name)
+            if s and (not rows or now - rows[-1][0] >= _CTR_HIST_MIN_GAP):
+                rows = rows + [s]
+            if rows:
+                out[name] = rows[-_CTR_HIST_MAX:]
+        if out != hist:
+            _entity_write_one(CONTAINER_STATS_HIST_FILE, dev_id, out)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] container stats history: {e}\n')
+
+
 # v7.4.2 (#45): how many container names one host keeps waiting for a recovery. A host
 # whose containers get a new name every run (CI jobs, `docker run` without --name) adds
 # names that never return; the cap keeps the newest, so the entry cannot grow without limit.
@@ -69747,6 +70032,13 @@ def process_container_report(dev_id, normalised, now, state=None):
         })
         waiting.remove(name)
         recovered_now.add(name)
+
+    # v7.4.3 (#50): CPU and memory against the operator's lines. Before the early return below, because
+    # a first report is a report like any other.
+    try:
+        _evaluate_container_resources(dev_id, running_now, prev_entry, excluded, state, now)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
 
     # First report ever for this device — nothing to diff against. Also the report after
     # an EMPTY one (every container stopped), which is why the recoveries above come first.
@@ -72828,7 +73120,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -72887,6 +73179,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/integrations', 'handle_device_integrations', "pi.startswith('/api/devices/') and pi.endswith('/integrations') and m == 'GET'"),
     ('pat', ('PUT',), '/api/devices/', '/disk-names', 'handle_device_disk_names', "pi.startswith('/api/devices/') and pi.endswith('/disk-names') and m == 'PUT'"),
+    ('pat', ('GET', 'PUT'), '/api/devices/', '/container-thresholds', 'handle_device_container_thresholds', "pi.startswith('/api/devices/') and pi.endswith('/container-thresholds') and m in ('GET', 'PUT')"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
@@ -73270,7 +73563,9 @@ def _route_code_5(pi, m):
                                      # v7.4.2 (#44)
                                      '/integrations',
                                      # v7.4.3 (#47)
-                                     '/disk-names'))):
+                                     '/disk-names',
+                                     # v7.4.3 (#50)
+                                     '/container-thresholds'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False

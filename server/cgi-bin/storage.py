@@ -174,6 +174,10 @@ ENTITY_FILES = {
     'smart_history.json',
     'gpu_history.json',
     'custom_metrics_hist.json',
+    # v7.4.3 (#50): container_stats_hist.json -- per-host, per-container CPU and memory samples
+    # ({device_id: {container: [[ts, cpu, mem%, mem MiB], ...]}}), written with every container report.
+    # Born an ENTITY file, so one host's report is one row and there is no cold blob to migrate.
+    'container_stats_hist.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

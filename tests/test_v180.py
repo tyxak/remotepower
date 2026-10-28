@@ -295,6 +295,8 @@ class TestSuppressibleEvents(unittest.TestCase):
             'containers_current', 'metric_recovered', 'reboot_cleared', 'backup_recovered',
             # v6.4.2: an integration bound to a host rides that host's window
             'integration_down', 'integration_recovered',
+            # v7.4.3 (#50): a container's CPU and memory alert, and its close
+            'container_resource_high', 'container_resource_ok',
         }
         self.assertEqual(set(api_module.SUPPRESSIBLE_EVENTS), expected)
 

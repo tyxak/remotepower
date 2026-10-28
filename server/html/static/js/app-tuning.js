@@ -15,6 +15,7 @@ async function loadTuning() {
     });
     loadSuppressions();   // its table has its own placeholder and its own error text
     loadContainerExcludes();
+    loadContainerLimits();
     return;
   }
   _tuningData = d;
@@ -25,6 +26,7 @@ async function loadTuning() {
   // endpoint, fire-and-forget — a failure there must not blank the Tuning page.
   loadSuppressions();
   loadContainerExcludes();
+  loadContainerLimits();
 }
 
 function _renderTuningNoisy(rows) {
@@ -213,6 +215,73 @@ async function saveContainerExcludes() {
     // Not when the reload after a save could not read the list: that left the box locked, and a
     // usable-looking button beside a locked box does nothing.
     if (btn && !ta.disabled) btn.disabled = false;
+  }
+}
+
+// ── v7.4.3 (#50): the fleet's CPU and memory lines for containers ────────────
+//
+// `container_thresholds` is read from GET /api/config and written back with a one-key POST
+// /api/config, like the exclude list above, and for the same reasons the form starts disabled and a
+// background reload leaves text the reader has typed alone. The card has four boxes and a box of
+// overrides (ctlParseOverrides / ctlFormatOverrides, shared with each host's own form in app.js).
+let _ctlLoaded = null;   // the object the boxes were last filled from, as JSON; null before the first load
+
+function _ctlCard() { return document.getElementById('container-limits-card'); }
+
+async function loadContainerLimits(replace) {
+  const card = _ctlCard();
+  if (!card) return;
+  const st = document.getElementById('ctl-status');
+  const btn = document.getElementById('ctl-save');
+  const cfg = await api('GET', '/config').catch(() => null);
+  const boxes = card.querySelectorAll('input, textarea');
+  if (!cfg || cfg.error) {
+    boxes.forEach(b => { b.disabled = true; });
+    if (btn) btn.disabled = true;
+    _errorState(st, loadContainerLimits);
+    return;
+  }
+  const v = (cfg.container_thresholds && typeof cfg.container_thresholds === 'object') ? cfg.container_thresholds : {};
+  const dirty = _ctlLoaded !== null && JSON.stringify(_ctlRead(card)) !== _ctlLoaded;
+  if (replace || !dirty) {
+    const set = (id, x) => { document.getElementById(id).value = x === undefined || x === null ? '' : x; };
+    set('ctl-cpu', v.cpu_pct); set('ctl-memp', v.mem_pct); set('ctl-memmb', v.mem_mb); set('ctl-sustain', v.sustain);
+    set('ctl-overrides', ctlFormatOverrides(v.overrides));
+    _ctlLoaded = JSON.stringify(_ctlRead(card));
+  }
+  const admin = !!(_meCache && _meCache.admin);
+  boxes.forEach(b => { b.disabled = false; b.readOnly = !admin; });
+  if (btn) { btn.disabled = false; btn.classList.toggle('hidden', !admin); }
+  if (st) st.textContent = admin ? '' : 'Only an administrator can change these lines.';
+}
+
+function _ctlRead(card) {
+  return {
+    cpu: card.querySelector('#ctl-cpu').value, memp: card.querySelector('#ctl-memp').value,
+    memmb: card.querySelector('#ctl-memmb').value, sustain: card.querySelector('#ctl-sustain').value,
+    overrides: card.querySelector('#ctl-overrides').value,
+  };
+}
+
+async function saveContainerLimits() {
+  const card = _ctlCard();
+  const btn = document.getElementById('ctl-save');
+  if (!card || (btn && btn.disabled)) return;
+  // ctlReadForm reads by data-ctl, which the card's boxes carry too.
+  card.querySelector('#ctl-cpu').dataset.ctl = 'cpu'; card.querySelector('#ctl-memp').dataset.ctl = 'memp';
+  card.querySelector('#ctl-memmb').dataset.ctl = 'memmb'; card.querySelector('#ctl-sustain').dataset.ctl = 'sustain';
+  card.querySelector('#ctl-overrides').dataset.ctl = 'overrides';
+  const r = ctlReadForm(card);
+  if (r.error) { toast(r.error, 'error'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('POST', '/config', { container_thresholds: r.thresholds });
+    if (res && res.ok) {
+      toast('Settings saved', 'success');
+      await loadContainerLimits(true);   // the boxes show what the server kept
+    } else failToast(res);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

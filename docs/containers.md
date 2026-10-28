@@ -180,6 +180,63 @@ Webhook payload:
 }
 ```
 
+### `container_resource_high` and `container_resource_ok` *(v7.4.3)*
+
+A container that stays over a CPU or memory line you set raises **Container resource
+high**, once, and the alert closes with **Container resource normal** when the
+container drops under the line, stops, leaves the list or is excluded, or when you turn
+the line off. Nothing alerts until you set a line.
+
+| Line | What it is | Applies to |
+| --- | --- | --- |
+| `cpu_pct` | Docker's own CPU figure: 100 is one core, a container using four reads 400 | every container |
+| `mem_pct` | Memory in use as a share of the container's memory **limit** | containers that have a limit |
+| `mem_mb` | Memory in use, in MB | every container |
+| `sustain` | How many reports in a row the container has to be at or over the line (1 to 20, default 3) | every container |
+
+0 or empty turns a resource off. A report with no reading for a resource (`docker stats`
+timed out) neither counts toward the run nor closes an open alert.
+
+Set the lines for the whole fleet under **Monitoring → Tuning → Container CPU and memory
+lines**, and for one host under its **Containers** section, in **Lines for this host**
+(empty boxes use the fleet's). Overrides name one container, one per line, in the same
+way the exclude list does: a name, or `image:` and part of the image, then any of `cpu=`,
+`mem=`, `mb=` and `sustain=`:
+
+```text
+jellyfin cpu=400 mb=4096
+image:ghcr.io/acme/job cpu=0 mb=0
+nextcloud mem=95 sustain=6
+```
+
+The most specific line wins: the fleet's lines, then the host's, then the first override
+of the fleet that matches the container, then the first override of the host that
+matches. A container on the [exclude list](#muting-one-container-v642) is not judged.
+
+The host's Containers section colours a reading that is over its line and draws a small
+trend for CPU and memory, from the last 60 reports of that container (at most one a
+minute). `GET /api/devices/{id}/containers` carries `limits`, `res_alerting` and `hist`
+for each container; the host's own lines are `GET` and `PUT
+/api/devices/{id}/container-thresholds`, and the fleet's are the `container_thresholds`
+key of `POST /api/config`. A maintenance window holds both events like the other
+container events, and a deleted host takes its samples with it.
+
+Webhook payload of the first:
+
+```json
+{
+  "device_id": "dev-abc123",
+  "name": "nas01",
+  "container": "jellyfin",
+  "metric": "cpu",
+  "value": 412.5,
+  "threshold": 400,
+  "sustain": 3
+}
+```
+
+`metric` is `cpu`, `memory` (share of the limit) or `memory_mb`.
+
 ### `containers_stale`
 
 Fired when a host hasn't reported container data within

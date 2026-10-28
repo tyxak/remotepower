@@ -617,6 +617,29 @@ def _build_matrix_body(event, title, message, dest):
     return body, {"Authorization": f"Bearer {token}"}, "application/json"
 
 
+def _num(v):
+    """A figure as a person writes it: 100.0 is 100, 412.5 stays, 1536.0 is 1,536."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    return f'{f:,.0f}' if f == int(f) else f'{f:,.1f}'
+
+
+def container_resource_phrase(payload):
+    """What a container is doing over its line, for container_resource_high (v7.4.3, #50):
+    'CPU 412.5% (alert at 100%)', 'memory 94% of its limit (alert at 90%)',
+    'memory 1,536 MB (alert at 1,024 MB)'."""
+    p = payload or {}
+    value, line = _num(p.get('value', '?')), _num(p.get('threshold', '?'))
+    metric = p.get('metric')
+    if metric == 'memory_mb':
+        return f'memory {value} MB (alert at {line} MB)'
+    if metric == 'memory':
+        return f'memory {value}% of its limit (alert at {line}%)'
+    return f'CPU {value}% (alert at {line}%)'
+
+
 def _webhook_message(event, payload):
     """Build a human-readable message string for push notifications."""
     # Prefer the friendly hostname; only fall back to the internal device_id
@@ -738,6 +761,11 @@ def _webhook_message(event, payload):
             f'restarted {plural(payload.get("delta", "?"), "time", "times")} since last report '
             f'(total restart_count={payload.get("restart_count", "?")})'
         )
+    elif event == "container_resource_high":
+        return f'{name}: container "{payload.get("container", "?")}" {container_resource_phrase(payload)}'
+    elif event == "container_resource_ok":
+        res = {"cpu": "CPU", "memory": "memory", "memory_mb": "memory"}.get(payload.get("metric"), "resource")
+        return f'{name}: container "{payload.get("container", "?")}" back under its {res} line'
     elif event == "containers_stale":
         return (
             f'{name}: no container report for {payload.get("age_minutes", "?")} '

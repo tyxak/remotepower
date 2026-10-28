@@ -162,6 +162,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v743_maintenance_form_e2e.py", # #48: the window form, and the targets it could not save
         "tests/test_v743_disk_names.py",           # #47: names for drives, keyed on serial
         "tests/test_v743_disk_names_e2e.py",       # #47: the Hardware tab box and the fleet list
+        "tests/test_v743_container_thresholds.py", # #50: the lines, the run, the alert and its close, the history
+        "tests/test_v743_container_limits_e2e.py", # #50: the Tuning card, each host's form, the colours and trends
         "tests/test_v743_translations.py",      # the text the release added, in six languages
     )
 

@@ -264,6 +264,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'log_alert',
             # v1.11.4: container alerts
             'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale',
+            'container_resource_high', 'container_resource_ok',   # v7.4.3 (#50)
             # v3.2.x: container image update tracking
             'image_update_available', 'image_updated',
             # v1.11.10: metric thresholds

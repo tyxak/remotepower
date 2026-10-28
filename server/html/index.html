@@ -7794,6 +7794,24 @@ image:ghcr.io/getarcaneapp/tools</pre>
           <div class="row-6 mt-8"><button class="btn-primary" id="container-excludes-save" data-action="saveContainerExcludes" disabled>Save exclude list</button></div>
           <div id="container-excludes-status" class="hint mt-6" role="status" aria-live="polite"></div>
         </div>
+        <!-- v7.4.3 (#50): the fleet's CPU and memory lines for containers. Disabled until the lines have been
+             read, for the reason the exclude list is: saving a form that never received them would clear them.
+             The examples sit in a <pre> (the translator skips it, and they are data). -->
+        <div class="dash-card mt-16" id="container-limits-card">
+          <div class="section-header"><div class="section-title" id="container-limits-title">Container CPU and memory lines</div></div>
+          <p class="hint">A container that stays at or over a line for several reports in a row raises one alert, which closes when the container drops under the line, stops or is excluded. A line left empty or at 0 keeps that resource off, so nothing alerts until you set one.</p>
+          <div class="settings-row"><label class="form-label" for="ctl-cpu">CPU %</label><input type="number" id="ctl-cpu" class="form-input mw-100" min="0" max="6400" step="any" placeholder="off" disabled><span class="hint">Docker's figure: 100 is one core.</span></div>
+          <div class="settings-row"><label class="form-label" for="ctl-memp">Memory, % of the container's limit</label><input type="number" id="ctl-memp" class="form-input mw-100" min="0" max="100" step="any" placeholder="off" disabled></div>
+          <div class="settings-row"><label class="form-label" for="ctl-memmb">Memory in use, MB</label><input type="number" id="ctl-memmb" class="form-input mw-100" min="0" max="4194304" placeholder="off" disabled></div>
+          <div class="settings-row"><label class="form-label" for="ctl-sustain">Reports in a row</label><input type="number" id="ctl-sustain" class="form-input mw-100" min="1" max="20" placeholder="3" disabled></div>
+          <p class="hint">Overrides, one per line: a name, or image: and part of the image, then any of cpu=, mem=, mb= and sustain=. The first line that matches a container applies, and 0 turns a resource off for it.</p>
+          <pre class="ff-mono fs-12 mt-8">jellyfin cpu=400 mb=4096
+image:ghcr.io/acme/job cpu=0 mb=0
+nextcloud mem=95 sustain=6</pre>
+          <textarea id="ctl-overrides" class="form-input ff-mono mt-8" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off" aria-labelledby="container-limits-title" disabled></textarea>
+          <div class="row-6 mt-8"><button class="btn-primary" id="ctl-save" data-action="saveContainerLimits" disabled>Save lines</button></div>
+          <div id="ctl-status" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
         <!-- v6.4.2: "why isn't this alerting?" had no single answer. Suppression
              state is split across EIGHT mechanisms — alert mutes, NA per-item
              ignores, NA class rules, accepted-risk CVEs, exposure mutes,
