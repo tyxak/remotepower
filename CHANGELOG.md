@@ -11,6 +11,25 @@ The next batch of requests from the same Docker install, filed on tyxak/remotepo
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
 rough edges of the HTTP monitors. Each change adds its own entry here when it lands.
 
+### Monitors
+
+- **An HTTP monitor can expect a 4xx or 5xx.** Apps that sit behind a login (Sonarr,
+  Radarr, Lidarr, Readarr, Prowlarr) answer 401 at their root, and *Expected HTTP
+  status* could not be set to 401: urllib reports a 3xx it does not follow, a 4xx and
+  a 5xx as errors, and that branch decided with "below 400" first, so the expected
+  status could turn a pass into a failure and never the other way. An expected status
+  now decides alone, for every status. The answer is judged the same way whatever its
+  status: the body, JSON and latency checks you set apply to it, and a status that is
+  not the expected one is named first (`200 (expected 401)`). With no expected status
+  nothing changes: below 400 is up. The form says so under the field. (#51)
+- **A monitor you edit while it is down still closes its alert.** The recovery looked
+  for the open alert by label *and* target, and the alert holds the target the monitor
+  had when it went down, so a monitor edited to a working target (adding `/ping`, say)
+  went green and its alert stayed open until someone resolved it by hand. The label is
+  the monitor's identity everywhere else (its history, its down flag, its failure
+  streak), so the recovery matches on it alone. Deleting or renaming a monitor that is
+  down closes its alert when you save, as pausing one already did. (#51)
+
 ## v7.4.2 — "Re4lMatters" — 2026-10-27
 
 A patch release for four reports from a Docker install of 7.4.1. In each, the

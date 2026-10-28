@@ -143,6 +143,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
     watched failing before it was committed. This pins that they ship."""
 
     FILES = (
+        "tests/test_v743_monitors.py",          # #51: an expected 4xx/5xx, and the alert an edit stranded
     )
 
     def test_every_guard_file_exists(self):

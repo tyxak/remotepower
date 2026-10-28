@@ -27,6 +27,17 @@ be pointed at a private/rebound address. Each check raises **`monitor_down`** wh
 it fails and **`monitor_up`** when it recovers. The `/api/monitor` endpoint can
 also be pinged by an external scheduler to force a run.
 
+### HTTP checks
+
+An `http` check is up when the answer is below 400. Fill in **Expected HTTP status**
+and only that code is up, so an app behind a login that answers 401 at its root can
+be watched for 401, and an API root that answers 404 for 404. The body, JSON and
+latency checks you set are applied to that answer, whatever its status.
+
+An alert belongs to the check's name. Change the target of a check that is down and
+its alert closes the first time the new target passes. Delete or rename it and the
+alert closes when you save, because nothing will probe the old name again.
+
 Everyday controls on each row: **Pause** stops probing a target without
 deleting it — config, history and uptime % survive, no alerts fire, and the
 row stays visible (badged *PAUSED*) until you Resume. **Clone** prefills the

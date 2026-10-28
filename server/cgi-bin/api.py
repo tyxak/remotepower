@@ -12228,9 +12228,11 @@ def _auto_resolve_alerts(event, payload):
         # open custom_check_failed alert (device_id + check_id).
         sub_match['check_id'] = p.get('check_id')
     elif event == 'monitor_up':
-        # Monitor events have no device_id — match by label+target instead
-        sub_match['label']  = p.get('label')
-        sub_match['target'] = p.get('target')
+        # Monitor events have no device_id; the label is the monitor's identity (its history, its
+        # down flag and its failure streak are all keyed by it). v7.4.3 (#51): the target used to
+        # be matched as well, so a monitor edited to a new target while it was down could never
+        # close the alert it had opened with the old one.
+        sub_match['label'] = p.get('label')
     elif event == 'mailflow_ok':
         # W4-16: mail round-trip recovers — clear the open mailflow_delayed
         # alert (no device_id; matched by the fixed 'mailflow' label).
@@ -25944,6 +25946,26 @@ def _edge_refusal_detail(code, headers):
     return None
 
 
+def _http_status_verdict(status, want_status, lat, headers):
+    """(ok, detail) for the status line alone; the body and latency checks only run on a pass.
+
+    v7.4.3 (issue #51): an expected status decides alone. It was applied after the "under 400"
+    rule, so it could turn a pass into a failure and never the other way round, and an app that
+    answers 401 behind its login could not be watched for a 401. With none set, anything under
+    400 is up, as before.
+    """
+    ok = status == want_status if isinstance(want_status, int) else status < 400
+    if ok:
+        return True, f'{status} · {lat}ms'
+    # Who refused comes first (7.0.3): a bare 403 reads like a host that is down.
+    refused = _edge_refusal_detail(status, headers)
+    if refused:
+        return False, refused
+    if isinstance(want_status, int):
+        return False, f'{status} (expected {want_status})'
+    return False, str(status)
+
+
 # Set by _run_monitor_probes for the probes it fans out to threads. A worker thread starts with a cold
 # per-request cache, so a probe that read allow_internal_monitors itself would open a storage connection
 # of its own to fetch one boolean. A context variable, not an argument, so the probe functions keep the
@@ -26069,11 +26091,17 @@ def _run_one_monitor_check(mtype, target, label, m):
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
                                         ssl_ctx=ctx, no_redirect=True)
             t0 = time.monotonic()
-            with _opener.open(req, timeout=5) as resp:
+            try:
+                resp = _opener.open(req, timeout=5)
+            except urllib.error.HTTPError as e:
+                # urllib raises for a 3xx it may not follow, a 4xx and a 5xx. Each is still a complete
+                # answer with headers and a body, so it is judged below exactly like a 2xx.
+                resp = e
+            with resp:
                 lat = int((time.monotonic() - t0) * 1000)
                 status = resp.status
-                ok = status < 400
-                detail = f'{status} · {lat}ms'
+                ok, detail = _http_status_verdict(status, want_status, lat,
+                                                  getattr(resp, 'headers', None))
                 body_txt = ''
                 if ok and (bm or ej):
                     body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
@@ -26111,20 +26139,9 @@ def _run_one_monitor_check(mtype, target, label, m):
                             ok = False
                             detail = (f'{status} · json {jpath[:40]}='
                                       f'{str(jv)[:40]} (expected {str(want)[:40]})')
-                # v4.1.0: explicit status + latency-SLA assertions.
-                if ok and isinstance(want_status, int) and status != want_status:
-                    ok = False; detail = f'{status} (expected {want_status})'
+                # v4.1.0: latency SLA.
                 if ok and isinstance(max_lat, (int, float)) and lat > max_lat:
                     ok = False; detail = f'{status} · {lat}ms > {int(max_lat)}ms SLA'
-        except urllib.error.HTTPError as e:
-            ok = e.code < 400
-            if ok and isinstance(want_status, int) and e.code != want_status:
-                ok = False
-            # v7.0.3: say who refused, when the response says so. A bare '403'
-            # reads as "the host is down" and sends the operator to an origin
-            # log that has nothing in it, because the request never arrived.
-            detail = _edge_refusal_detail(e.code, getattr(e, 'headers', None)) \
-                or str(e.code)
         except Exception as e:
             # 'error' named nothing at all. The exception class separates a DNS
             # failure from a refused connection from a timeout, which is the
@@ -31715,6 +31732,16 @@ def handle_config_save():
     # block having run — an unrelated settings save leaves history untouched.
     if 'monitors' in body and '_mon_valid_labels' in locals():
         _prune_orphan_monitor_history(_mon_valid_labels)
+        # v7.4.3 (#51): a monitor that was down when it was deleted or renamed leaves its alert open
+        # for good, because nothing probes that label again. Close it, as pausing a monitor already
+        # does. The flags are read from the snapshot taken before the prune above.
+        _was_down = _cfg_before.get('monitor_notified')
+        for _gone in sorted(k for k, v in (_was_down.items() if isinstance(_was_down, dict) else ())
+                            if v and not _monitor_label_is_live(k, _mon_valid_labels)):
+            try:
+                _auto_resolve_alerts('monitor_up', {'label': _gone})
+            except Exception as _e:
+                sys.stderr.write(f'[remotepower] monitor removal auto-resolve failed: {_e}\n')
     # v5.4.1 (D4): audit which settings changed (key NAMES only — values are never
     # logged, so secrets can't leak into the audit trail). The most security-
     # sensitive surface (MFA policy, IP allowlist, SSO/SCIM/LDAP, session caps,

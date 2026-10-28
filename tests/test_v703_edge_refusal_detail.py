@@ -95,22 +95,26 @@ class TestItDoesNotGuess(unittest.TestCase):
 
 class TestTheProbeUsesIt(unittest.TestCase):
 
-    def _probe_source(self):
+    def _source_of(self, name):
         import ast
         tree = ast.parse((_CGI / 'api.py').read_text(encoding='utf-8'))
         for node in ast.walk(tree):
-            if (isinstance(node, ast.FunctionDef)
-                    and '_edge_refusal_detail(' in ast.unparse(node)
-                    and node.name != '_edge_refusal_detail'):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
                 return ast.unparse(node)
-        self.fail('no probe calls _edge_refusal_detail')
+        self.fail(f'{name} is gone from api.py')
+
+    def _probe_source(self):
+        return self._source_of('_run_one_monitor_check')
 
     def test_the_http_error_branch_calls_it(self):
-        src = self._probe_source()
-        self.assertIn('_edge_refusal_detail(e.code', src)
-        self.assertIn('or str(e.code)', src,
+        """7.4.3: an error status is judged by the same helper as any other answer, and that
+        helper is where the refusal is named. The probe has to hand it the response's headers."""
+        verdict = self._source_of('_http_status_verdict')
+        self.assertIn('_edge_refusal_detail(status, headers)', verdict)
+        self.assertIn('return (False, str(status))', verdict,
                       'fall back to the bare status when the response does not '
                       'say who refused')
+        self.assertIn("getattr(resp, 'headers', None)", self._probe_source())
 
     def test_the_generic_http_failure_names_the_exception(self):
         """Scoped to the HTTP branch. The ping and tcp branches have their own
