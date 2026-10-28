@@ -138,6 +138,19 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("f1nishmatters", kw.lower())
 
 
+class TestTheDocsKeepWhatTheyPromised(unittest.TestCase):
+    """A closing comment on a report said "we will say so in the docs"; the sentence has to be there."""
+
+    def test_the_snmp_memory_note_says_what_the_laundry_does(self):
+        text = (_ROOT / "docs" / "agentless-devices.md").read_text(encoding="utf-8")
+        i = text.index("**Memory without the cache")
+        para = text[i:text.index("\n- **", i + 10)]
+        flat = " ".join(para.split())
+        self.assertIn("FreeBSD", flat)
+        self.assertIn("Laundry", flat)
+        self.assertIn("count as in use", flat)
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof,
     watched failing before it was committed. This pins that they ship."""

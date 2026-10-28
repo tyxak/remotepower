@@ -105,7 +105,10 @@ without anything installed on the host.
   the Hosts page and the SNMP tab show; the tab also shows the figure the
   host reports, with the cache and buffers next to it. A host that lists
   no such rows is read as it reports. The figure can still be higher than
-  the host's own `top`. The poll reads one table, and a host may keep
+  the host's own `top`. On FreeBSD (OPNsense, pfSense) the pages waiting to
+  be written back to disk, which `top` lists as Laundry, count as in use, as
+  they do in the host's own "Real memory" row, so the figure sits above
+  Active plus Wired. The poll reads one table, and a host may keep
   reusable memory that it does not put in it; RemotePower cannot tell which
   from here. To see what your host does offer, open the **SNMP** tab, go to
   **Browse OID tree** and walk the presets **Storage table** and **Memory

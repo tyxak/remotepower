@@ -11,6 +11,14 @@ The next batch of requests from the same Docker install, filed on tyxak/remotepo
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
 rough edges of the HTTP monitors. Each change adds its own entry here when it lands.
 
+### Documentation
+
+- **The SNMP memory note says what the laundry does.** On FreeBSD (OPNsense,
+  pfSense) the pages waiting to be written back to disk, which `top` lists as
+  Laundry, count as in use in the memory figure, as they do in the host's own
+  "Real memory" row. The note in *Agentless hosts* said only that the figure can
+  sit above `top`. (#42)
+
 ### Monitors
 
 - **An HTTP monitor can expect a 4xx or 5xx.** Apps that sit behind a login (Sonarr,
