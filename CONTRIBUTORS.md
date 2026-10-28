@@ -68,6 +68,19 @@ Thanks to everyone who has contributed fixes, features, and reports.
   - #44 — asked for the integrations bound to a host to show on that host's card
   - #45 — reported that a stopped container's alert never closed, and traced it to
     the agent listing only running containers
+  - #46 — asked for an integration that reads Prometheus, by a PromQL query or by
+    scraping an exporter's `/metrics` page, with the values as metrics that have thresholds
+  - #47 — asked for drives to have names that follow the serial number, since `sdd`
+    means nothing on a host with eleven drives
+  - #48 — asked for a maintenance window that raises no alerts at all, not only one that
+    holds the notifications, after a nightly backup put 17 container alerts on the dashboard
+  - #49 — asked for how busy each disk is, with its throughput and wait, and thresholds
+  - #50 — asked for CPU and memory lines for containers, since the agent already
+    collects the figures
+  - #51 — reported that an HTTP monitor could not expect a 4xx, and that editing a
+    monitor's target left its open alert stranded
+  - #52 — asked for a certificate-check switch and a choice of request method on an
+    HTTP monitor
 
 ---
 
