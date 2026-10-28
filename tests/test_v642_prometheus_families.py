@@ -12,10 +12,14 @@ works.
 import importlib.util
 import math
 import re
+import sys
 import unittest
 from pathlib import Path
 
 _CGI = Path(__file__).resolve().parent.parent / "server" / "cgi-bin"
+# prometheus_export imports its sibling `checks`; run on its own, this module had no path to it and
+# only passed because an earlier module in the same discover run had put the directory there.
+sys.path.insert(0, str(_CGI))
 
 _spec = importlib.util.spec_from_file_location(
     "prometheus_export_v642", _CGI / "prometheus_export.py")

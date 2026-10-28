@@ -384,6 +384,7 @@ builtins = [
     "handle_dependency_health",
     "handle_detection_selftest",
     "handle_device_backups",
+    "handle_device_disk_names",
     "handle_device_flows",
     "handle_device_inherited_credentials",
     "handle_device_integrations",

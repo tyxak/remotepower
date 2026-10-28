@@ -238,7 +238,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # block add about 5 KB. Not moved to a lazy module on purpose: the section is drawn
         # from the drawer, which any host opens, so a lazy module would cost every first
         # Audit view a 57 KB fetch for a section most hosts leave empty.
-        self.assertLess(total, 2_600_000,
+        # 7.4.3: 2_620_000. The monitor form's Method and Verify TLS controls, the maintenance
+        # window's setting (and the fix that lets its form save a site, tag or smart-group target),
+        # and the Disk names box under the SMART table add about 8 KB to app.js. All three sit in
+        # surfaces the page draws from the eager core (the monitor modal, the window modal and the
+        # host drawer's Hardware section), and the translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_620_000,
                         'the eager JS payload regressed past its budget')
 
 

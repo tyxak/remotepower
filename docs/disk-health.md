@@ -13,6 +13,27 @@ Tracked/unstable disk state also appears in the host drawer's SMART view.
 Unmonitored hosts are shown and flagged; only monitored hosts raise the
 `disk_predict_fail` alert.
 
+## Naming your disks *(v7.4.3)*
+
+A host with eleven drives, several of the same model, lists them as `/dev/sda` to
+`/dev/sdk`, and the letters can change after a reboot or a controller change. Give a
+drive a name and it keeps it. Open the host, go to the **Audit** tab, expand **Health &
+hardware** and fill in **Disk names** under the SMART table.
+
+- The name is kept against the drive's **serial number**, so it follows the drive when
+  its letter changes. A disk that reports no serial number cannot be named.
+- It appears where the letter was: in the SMART table, on this page, in the *SMART
+  failure* and *Disk predicted to fail* alerts (`Pool disk 2 (/dev/sdd, sn WD-1234)`),
+  in Needs attention and in the reasons on the reliability card. The letter and the
+  serial always stay next to the name.
+- Administrators and roles with an action permission can set names. Everyone who can
+  see the host sees them.
+- An empty box removes the name. Deleting a host deletes its names. A drive that moves
+  to another host starts without a name there.
+- From a script: `PUT /api/devices/{id}/disk-names` with
+  `{"names": {"<serial>": "<name>"}}`. A serial the host does not report is left out and
+  listed under `ignored`.
+
 ## Host reliability prediction *(v6.2.0)*
 
 The page's third card, **Hosts likely to fail**, folds every failure signal into

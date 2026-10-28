@@ -2320,6 +2320,10 @@ if _AVAILABLE:
         _v1 = field_validator('duration', mode='before')(_coerce_int_or(0))
         _v2 = field_validator('gate_exec', 'public', mode='before')(_coerce_bool_loose)
 
+    class DiskNamesRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        names: Any = None
+
     class ServicesConfigRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         log_watch: Any = None

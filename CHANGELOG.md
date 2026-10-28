@@ -44,6 +44,25 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   with "requires a target". Editing one showed an empty target, and a target
   typed for one window was still in the box for the next. (#48)
 
+### Disks
+
+- **A drive can have a name.** Disks were listed by kernel name plus model and serial,
+  and on a host with eleven drives, several of the same model, `sdd` means nothing at a
+  glance; the letters also change after a reboot or a controller change. The Hardware
+  tab has a *Disk names* box under the SMART table. A name is kept against the drive's
+  serial number, so it follows the drive whatever its letter, and it shows where the
+  letter was: in the SMART table, on Predictive Health, in the *SMART failure* and *Disk
+  predicted to fail* alerts and their titles (`Pool disk 2 (/dev/sdd, sn WD-1234)`),
+  in Needs attention and in the reliability reasons. The letter and the serial stay
+  next to the name. Administrators and roles with an action permission set names
+  (`PUT /api/devices/{id}/disk-names`, audited with the host and the count, not the
+  words); everyone who can see the host sees them. A disk that reports no serial
+  number cannot be named, because its letter is the one thing that moves. The names are
+  a table of their own (`disk_names.json`, per host), not part of the hardware record,
+  so a heartbeat can never overwrite one, and a deleted host takes its names with it.
+  The first column of the SMART table was headed *Host*, which was a leftover of the
+  rename sweep; it says *Disk* again. (#47)
+
 ### Monitors
 
 - **An HTTP monitor can expect a 4xx or 5xx.** Apps that sit behind a login (Sonarr,

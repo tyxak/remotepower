@@ -45,6 +45,13 @@ NEW = (
     ("An alert that was open before the window starts stays open and closes when the problem clears. A problem "
      "that begins inside the window and is still there at the end shows in Needs attention again, but no alert "
      "is raised for it later.", INDEX),
+    # Hardware tab: names for the drives
+    ("Disk names", APP),
+    ("A name follows the drive by its serial number, whatever letter it is given, and shows here, on the disk "
+     "health page and in alerts.", APP),
+    ("Save names", APP),
+    ("No serial number reported, so these cannot be named:", APP),
+    ("Disk names saved", APP),
     ("no alerts", APP),
     ("Covered events are kept out of the Alerts inbox and Needs attention as well as out of notifications. "
      "An alert that was already open stays open.", APP),
@@ -61,7 +68,7 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_list_was_found(self):
         """The control on the population: a list that shrank to nothing would pass every test below."""
-        self.assertGreaterEqual(len(NEW), 9)
+        self.assertGreaterEqual(len(NEW), 14)
         self.assertEqual(len({s for s, _ in NEW}), len(NEW), "a string is listed twice")
 
     def test_the_real_engine_translates_each_in_every_language(self):

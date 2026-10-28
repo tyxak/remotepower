@@ -17792,7 +17792,7 @@ function _renderDiskHealth() {
   rows = tableCtl.sortRows('diskhealth', rows, (r) => ({
     risk: _rank[r.risk] ?? 9,
     device: (r.device || '').toLowerCase(),
-    disk: (r.disk || '').toLowerCase(),
+    disk: (r.name || r.disk || '').toLowerCase(),
     wear: r.wear_pct || 0,
     eta: r.eta_days != null ? r.eta_days : 1e9,
     reasons: (r.reasons || []).join(' '),
@@ -17812,6 +17812,9 @@ function _renderDiskHealth() {
       ? ` (${t.power_on_hours - t.selftest_hours}h ago)` : '';
     return `${failed ? '✗' : '✓'} ${t.selftest_type || 'self-test'}: ${t.selftest_result}${ago}`;
   };
+  // v7.4.3 (#47): a disk the operator named reads as its name, with the letter, the model and the
+  // serial number under it.
+  const diskCell = (x) => `<td>${x.name ? `<div class="fw-500">${escHtml(x.name)}</div>` : ''}<code>${escHtml(x.disk)}</code>${x.model ? `<div class="fs-11 c-muted">${escHtml(x.model)}</div>` : ''}${x.serial ? `<div class="fs-11 c-muted">sn ${escHtml(x.serial)}</div>` : ''}</td>`;
   const trackedRow = (t) => {
     const det = [];
     if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
@@ -17824,7 +17827,7 @@ function _renderDiskHealth() {
     return `<tr>
       <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
       <td class="fw-500">${escHtml(t.device)}</td>
-      <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
+      ${diskCell(t)}
       <td class="ta-center ${_riskClass(t.wear_pct,_HW_BANDS.wear_high,_HW_BANDS.wear_warn)}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
       <td class="ta-center">—</td>
       <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
@@ -17859,7 +17862,7 @@ function _renderDiskHealth() {
     return `<tr>
       <td>${riskPill(r.risk)}</td>
       <td class="fw-500">${escHtml(r.device)}</td>
-      <td><code>${escHtml(r.disk)}</code>${r.model ? `<div class="fs-11 c-muted">${escHtml(r.model)}</div>` : ''}</td>
+      ${diskCell(r)}
       <td class="ta-center ${_riskClass(r.wear_pct,_HW_BANDS.wear_high,_HW_BANDS.wear_warn)}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
       <td class="ta-center ${etaCls}">${eta}</td>
       <td class="hint">${escHtml([...(r.reasons || []),
@@ -26383,6 +26386,20 @@ function _fmtDays(d) {
 // The "is this disk failing?" verdict is computed server-side
 // (_smart_disk_failed) and delivered as `disk.failed`, so the client never
 // re-derives the rule — the front/back copies drifted once (UNKNOWN handling).
+// v7.4.3 (#47): save the names typed under the SMART table. The host id is read off the form, not
+// passed through data-arg, which would turn a numeric-looking id into a number.
+async function saveDiskNames() {
+  const form = document.getElementById('hw-diskname-form');
+  if (!form) return;
+  const names = {};
+  form.querySelectorAll('input[data-serial]').forEach(inp => { names[inp.dataset.serial] = inp.value.trim(); });
+  const r = await api('PUT', `/devices/${encodeURIComponent(form.dataset.dev)}/disk-names`, { names });
+  if (r && r.ok) {
+    toast('Disk names saved', 'success');
+    _loadAuditSectionForce('hardware');
+  } else failToast(r);
+}
+
 function _renderHardwareSection(id, hw, fc, ch) {
   let h = '';
   const k = hw.kernel || {};
@@ -26404,7 +26421,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
   if (disks.length) {
     const _uncorr = d => Math.max(d.offline_uncorrectable || 0, d.reported_uncorrect || 0);
     const sorted = tableCtl.sortRows('hw_smart', disks, d => ({
-      device: d.device, health: d.health, model: d.model,
+      device: (d.name || d.device), health: d.health, model: d.model,
       realloc: d.reallocated_sectors || 0, pending: d.pending_sectors || 0,
       crc: (d.crc_errors || 0) + _uncorr(d),
       temp: d.temperature_c || 0, hours: d.power_on_hours || 0,
@@ -26419,7 +26436,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
     };
     h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
       <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="hw-smart-thead"><tr>
-        <th data-col="device">Host</th><th data-col="model">Model</th>
+        <th data-col="device">Disk</th><th data-col="model">Model</th>
         <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
         <th data-col="pending">Pending</th><th data-col="crc" title="CRC errors / uncorrectable sectors — these drive the FAILED verdict">CRC / Unc.</th><th data-col="temp">Temp</th>
         <th data-col="hours">Power-on h</th><th data-col="wear" title="SSD/NVMe wear (used %); projected life from wear rate">Wear</th></tr></thead><tbody>` +
@@ -26441,7 +26458,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
         const crcBad = (crc || 0) > 0 || unc > 0;
         const crcCell = (crc == null && !unc) ? '—'
           : `${crc ?? 0}<span class="c-muted"> / </span>${unc}`;
-        return `<tr><td><code>${escHtml(d.device)}</code>${d.serial ? `<div class="fs-11 c-muted">sn ${escHtml(d.serial)}</div>` : ''}</td>
+        return `<tr><td>${d.name ? `<div class="fw-500">${escHtml(d.name)}</div>` : ''}<code>${escHtml(d.device)}</code>${d.serial ? `<div class="fs-11 c-muted">sn ${escHtml(d.serial)}</div>` : ''}</td>
           <td>${escHtml(d.model||'—')}</td>
           <td class="${healthCls}"${healthTitle ? ` title="${escAttr(healthTitle)}"` : ''}>${escHtml(healthTxt)}</td>
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
@@ -26451,6 +26468,19 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center">${d.power_on_hours??'—'}</td>
           <td class="ta-center ${d.wear_pct>=90?'c-red':d.wear_pct>=80?'c-amber':''}">${d.wear_pct!=null?`${d.wear_pct}%${_wearEol(d)?`<div class="fs-11 c-muted">${_wearEol(d)}</div>`:''}`:'—'}</td></tr>`;
       }).join('') + `</tbody></table></div>`;
+    // v7.4.3 (#47): a name for each drive, kept against its serial number so it follows the drive
+    // whatever its device letter. Only the people who can change things see the boxes.
+    if (_meCache && (_meCache.admin || (_meCache.permissions || []).length)) {
+      const nameable = disks.filter(d => d && d.serial);
+      const unnamable = disks.filter(d => d && !d.serial);
+      h += `<div class="mt-8" id="hw-diskname-form" data-dev="${escAttr(id)}">
+        <div class="hw-h">Disk names</div>
+        <div class="hint mb-6">A name follows the drive by its serial number, whatever letter it is given, and shows here, on the disk health page and in alerts.</div>`
+        + nameable.map(d => `<div class="settings-row"><label class="form-label"><code>${escHtml(d.device)}</code> ${escHtml(d.model || '')} <span class="c-muted">sn ${escHtml(d.serial)}</span></label><input type="text" class="form-input" maxlength="64" data-serial="${escAttr(d.serial)}" value="${escAttr(d.name || '')}" aria-label="Name for ${escAttr(d.device)}"></div>`).join('')
+        + (unnamable.length ? `<div class="hint mt-4"><span>No serial number reported, so these cannot be named:</span> <code>${unnamable.map(d => escHtml(d.device)).join(', ')}</code></div>` : '')
+        + (nameable.length ? `<button class="btn-primary mt-6" data-action="saveDiskNames">Save names</button>` : '')
+        + `</div>`;
+    }
     // Cross-feature: a failing disk → a prefilled AI runbook.
     const bad = disks.filter(d => d && d.failed);
     if (bad.length) {

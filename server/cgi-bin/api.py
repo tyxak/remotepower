@@ -447,6 +447,7 @@ CMDB_SSH_PORT_MAX     = 65535
 # device (disk/mem/inode) for forecasting + "what changed"; helm.json keeps
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
+DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_id: {serial: name}}
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
@@ -1111,6 +1112,19 @@ for _di_name in (
 ):
     globals()[_di_name] = getattr(device_integrations_handlers_mod, _di_name)
 del _di_name
+
+# v7.4.3 (#47): names for a host's disks, kept against the serial number. A new route, so a bound
+# module rather than another inline handler.
+_dn_spec = _tk_ilu.spec_from_file_location(
+    'disk_names_handlers', Path(__file__).parent / 'disk_names_handlers.py')
+disk_names_handlers_mod = _tk_ilu.module_from_spec(_dn_spec)
+_dn_spec.loader.exec_module(disk_names_handlers_mod)
+disk_names_handlers_mod.bind(globals())
+for _dn_name in (
+        'handle_device_disk_names',
+):
+    globals()[_dn_name] = getattr(disk_names_handlers_mod, _dn_name)
+del _dn_name
 
 # v7.0.3: web-terminal ticket issue, session audit and host-key lookup. Carved
 # out when adding the host-key endpoint pushed api.py past the inline-handler
@@ -9594,6 +9608,7 @@ def _record_fleet_event(event, payload):
                     # the config_drift row; `size`/`median` fix the backup_size_
                     # anomaly row that always read "0 B".
                     'disks', 'disk', 'eta_days',        # smart_failure / disk_predict_fail
+                    'disk_name',                        # v7.4.3 (#47): the name of the drive
                     'tool', 'infected',                 # av_infected (rendered blank)
                     'jail',                             # fail2ban_ban
                     'script_name', 'check_name',        # custom_script_fail / custom_check_*
@@ -10355,7 +10370,10 @@ def _alert_title(event, payload):
     if event == 'disk_predict_fail':
         eta = p.get('eta_days')
         when = f' (~{eta}d to failure)' if isinstance(eta, int) else ''
-        return f'Disk predicted to fail on {name}: {p.get("disk","?")}{when}'
+        _disk = p.get('disk') or '?'
+        if p.get('disk_name'):      # v7.4.3 (#47)
+            _disk = f'{p["disk_name"]} ({_disk}' + (f', sn {p["serial"]})' if p.get('serial') else ')')
+        return f'Disk predicted to fail on {name}: {_disk}{when}'
     if event == 'ups_on_battery':
         return f'UPS on battery on {name}: {p.get("ups","?")} (battery {p.get("battery_pct","?")}%)'
     if event == 'ups_on_line':
@@ -11950,6 +11968,9 @@ def _record_alert(event, payload):
                     # (policy_compliant). proto/port (port_closed) + path
                     # (backup_verified) are already above.
                     'disk', 'rule',
+                    # v7.4.3 (#47): the name an operator gave the drive (and `serial`, above), so the
+                    # inbox row says which drive and not only which letter.
+                    'disk_name',
                     # v6.4.2: integration_metric_alert — `metric` is already
                     # whitelisted above (and is in _ALERT_IDENTITY_FIELDS, so
                     # two thresholds on one integration stay separate rows);
@@ -15215,6 +15236,7 @@ def _purge_device(dev_id):
         PORT_BASELINE_FILE, POSTURE_STATE_FILE, SSH_KEY_BASELINE_FILE,
         BRUTE_FORCE_FILE, SOFTWARE_VIOLATIONS_FILE, CVE_FINDINGS_FILE,
         SNMP_DATA_FILE, HARDWARE_FILE, AV_FILE,
+        DISK_NAMES_FILE,        # v7.4.3 (#47): a deleted host takes its disk names with it
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -45400,9 +45422,14 @@ def handle_device_hardware(dev_id):
     # here too so records written before this shipped get it without waiting
     # for the next heartbeat — the client never recomputes the rule.
     _smart = hw.get('smart', [])
+    _names = _disk_names_for(dev_id)        # v7.4.3 (#47): the names live in their own table
     for _d in _smart:
         if isinstance(_d, dict) and 'failed' not in _d:
             _d['failed'] = _smart_disk_failed(_d)
+        if isinstance(_d, dict):
+            _nm = _disk_name_of(_names, _d)
+            if _nm:
+                _d['name'] = _nm
     speed = (load(SPEEDTEST_FILE) or {}).get(dev_id, [])
     disc  = (load(DISCOVERY_FILE) or {}).get(dev_id, {})
     respond(200, {
@@ -47496,6 +47523,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
     if isinstance(body.get('smart'), list):
         disks = []
         failed_devs = []
+        failed_entries = {}         # v7.4.3 (#47): device -> entry, so the alert can name the drive
         for d in body['smart'][:MAX_SMART_DISKS]:
             if not isinstance(d, dict):
                 continue
@@ -47549,6 +47577,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
             entry['failed'] = _smart_disk_failed(entry)
             if entry['failed']:
                 failed_devs.append(entry['device'])
+                failed_entries[entry['device']] = entry
             disks.append(entry)
         rec['smart'] = disks
         # v3.14.0: snapshot per-disk SMART counters once/UTC-day for trend
@@ -47562,9 +47591,13 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         cur_failed = sorted(set(failed_devs))
         prev_failed = set(rec.get('_smart_failed_devs') or [])
         if set(cur_failed) - prev_failed:
+            # v7.4.3 (#47): a drive with a name reads "Pool disk 2 (/dev/sdd, sn WD-1234)". Whether
+            # a disk is new to the failed set is still decided on the device, as it always was.
+            _dn = _disk_names_for(dev_id)
             events.append(('smart_failure', {
                 'device_id': dev_id, 'name': dev_name,
-                'disks': ', '.join(cur_failed) or 'unknown',
+                'disks': ', '.join(_disk_label(_dn, failed_entries[x]) if x in failed_entries else x
+                                   for x in cur_failed) or 'unknown',
             }))
         elif prev_failed and not cur_failed:
             # v5.6.x: every previously-failing disk is healthy again (or was
@@ -48127,6 +48160,37 @@ def _disk_key(d):
     return str(d.get('serial') or '').strip() or str(d.get('device') or '').strip()
 
 
+def _disk_names_for(dev_id):
+    """The names an operator gave this host's disks, {serial: name}. v7.4.3 (#47).
+
+    A read of the shared cached store: callers must not change what they get back."""
+    try:
+        mine = (_load_ro(DISK_NAMES_FILE) or {}).get(dev_id)
+    except Exception:
+        return {}
+    return mine if isinstance(mine, dict) else {}
+
+
+def _disk_name_of(names, d):
+    """The name for one SMART disk entry, or ''. Keyed on the serial number, because the device
+    letter moves; a disk that reports no serial has no name."""
+    serial = str((d or {}).get('serial') or '').strip()
+    name = names.get(serial) if serial else ''
+    return name if isinstance(name, str) else ''
+
+
+def _disk_label(names, d):
+    """How a disk is written in an alert or a digest line: 'Pool disk 2 (/dev/sdd, sn WD-1234)'
+    when it has a name, '/dev/sdd' when it does not. The letter and the serial stay next to the
+    name, so the drive can still be found in the machine."""
+    dev = str((d or {}).get('device') or '?')
+    name = _disk_name_of(names, d)
+    if not name:
+        return dev
+    serial = str(d.get('serial') or '').strip()
+    return f'{name} ({dev}, sn {serial})' if serial else f'{name} ({dev})'
+
+
 MAX_GPU_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
 
 
@@ -48258,6 +48322,7 @@ def _disk_health_view():
         # Telemetry view — show unmonitored hosts' disks too (alerting suppressed).
         disks = (hw_all.get(dev_id) or {}).get('smart') or []
         dhist = hist.get(dev_id) or {}
+        names = _disk_names_for(dev_id)     # v7.4.3 (#47)
         for d in disks:
             if not isinstance(d, dict):
                 continue
@@ -48331,7 +48396,7 @@ def _disk_health_view():
                 'device_id': dev_id, 'device': dev.get('name', dev_id),
                 'monitored': dev.get('monitored') is not False,
                 'disk': d.get('device', key), 'model': d.get('model', ''),
-                'serial': d.get('serial', ''),
+                'serial': d.get('serial', ''), 'name': _disk_name_of(names, d),
                 'risk': risk, 'eta_days': eta_days,
                 'reallocated': realloc, 'pending': pending,
                 'wear_pct': d.get('wear_pct'), 'temperature_c': d.get('temperature_c'),
@@ -48362,6 +48427,7 @@ def _disk_tracked_view():
         # Telemetry view — include unmonitored hosts' disks (alerting suppressed).
         disks = (hw_all.get(dev_id) or {}).get('smart') or []
         dhist = hist.get(dev_id) or {}
+        names = _disk_names_for(dev_id)     # v7.4.3 (#47)
         for d in disks:
             if not isinstance(d, dict):
                 continue
@@ -48370,7 +48436,8 @@ def _disk_tracked_view():
                 'device_id': dev_id, 'device': dev.get('name', dev_id),
                 'monitored': dev.get('monitored') is not False,
                 'disk': d.get('device', key), 'model': d.get('model', ''),
-                'serial': d.get('serial', ''), 'failed': bool(d.get('failed')),
+                'serial': d.get('serial', ''), 'name': _disk_name_of(names, d),
+                'failed': bool(d.get('failed')),
                 'reallocated': d.get('reallocated_sectors'),
                 'pending': d.get('pending_sectors'),
                 'wear_pct': d.get('wear_pct'), 'temperature_c': d.get('temperature_c'),
@@ -48485,6 +48552,9 @@ def _maybe_check_disk_predictions():
             fire_webhook('disk_predict_fail', {
                 'device_id': r['device_id'], 'name': r['device'],
                 'disk': r.get('disk', ''), 'eta_days': r.get('eta_days'),
+                # v7.4.3 (#47): the drive's name and serial, so the alert says which one. `disk` stays
+                # the device letter: the recovery matches on it.
+                'disk_name': r.get('name', ''), 'serial': r.get('serial', ''),
                 'reason': '; '.join(r.get('reasons') or [])[:200]})
         except Exception:
             pass
@@ -50921,11 +50991,12 @@ def _compute_attention():
             rec = hw_all.get(dev_id) or {}
             bad = [d for d in (rec.get('smart') or []) if _smart_disk_failed(d)]
             if bad:
+                _dn = _disk_names_for(dev_id)       # v7.4.3 (#47)
                 items.append({
                     'severity': 'critical', 'kind': 'hardware',
                     'device':   dev.get('name', dev_id),
                     'summary':  'SMART failure on '
-                                + ', '.join(d.get('device', '?') for d in bad[:3]),
+                                + ', '.join(_disk_label(_dn, d) for d in bad[:3]),
                 })
             kern = rec.get('kernel') or {}
             if kern.get('reboot_for_kernel'):
@@ -51978,10 +52049,12 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     si = dev.get('sysinfo') or {}
 
     # ── disks: the single best predictor we have ──────────────────────────────
+    _dnames = _disk_names_for(dev_id)       # v7.4.3 (#47)
     for d in (hw_rec.get('smart') or []):
         if not isinstance(d, dict):
             continue
-        disk = d.get('device') or d.get('model') or 'disk'
+        disk = (_disk_label(_dnames, d) if _disk_name_of(_dnames, d)
+                else d.get('device') or d.get('model') or 'disk')
         if _smart_disk_failed(d):
             _add('smart_failing', w['smart_failing'],
                  f'{disk}: SMART reports the drive as failing')
@@ -72755,7 +72828,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -72813,6 +72886,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/snmp/poll', 'handle_device_snmp_poll', "pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/integrations', 'handle_device_integrations', "pi.startswith('/api/devices/') and pi.endswith('/integrations') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/devices/', '/disk-names', 'handle_device_disk_names', "pi.startswith('/api/devices/') and pi.endswith('/disk-names') and m == 'PUT'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
@@ -73194,7 +73268,9 @@ def _route_code_5(pi, m):
                                      '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',
                                      '/decommissioned',
                                      # v7.4.2 (#44)
-                                     '/integrations'))):
+                                     '/integrations',
+                                     # v7.4.3 (#47)
+                                     '/disk-names'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False

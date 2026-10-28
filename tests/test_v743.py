@@ -160,6 +160,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v743_monitor_form_e2e.py",  # #52: the form carries Method and Verify TLS both ways
         "tests/test_v743_maintenance_alerts.py",   # #48: a window that raises no alerts at all
         "tests/test_v743_maintenance_form_e2e.py", # #48: the window form, and the targets it could not save
+        "tests/test_v743_disk_names.py",           # #47: names for drives, keyed on serial
+        "tests/test_v743_disk_names_e2e.py",       # #47: the Hardware tab box and the fleet list
         "tests/test_v743_translations.py",      # the text the release added, in six languages
     )
 
