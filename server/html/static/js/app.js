@@ -4053,6 +4053,8 @@ function _monClearFields() {
   set('mon-target', ''); set('mon-port', ''); set('mon-expect', '');
   set('mon-dbkind', 'postgres');
   set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
+  set('mon-method', '');   // v7.4.3: Auto
+  const tls = document.getElementById('mon-verify-tls'); if (tls) tls.checked = true;
   set('mon-failures-before-alert', '1');
   set('mon-body-mode', ''); set('mon-body-value', '');
   set('mon-json-path', ''); set('mon-json-value', '');
@@ -4110,6 +4112,8 @@ async function editMonitor(idx) {
   set('mon-dbkind', m.db_kind || 'postgres');
   set('mon-expect', m.expect);
   set('mon-status', m.expect_status);
+  set('mon-method', m.method || '');
+  const tls = document.getElementById('mon-verify-tls'); if (tls) tls.checked = m.verify_tls !== false;
   set('mon-latency', m.max_latency_ms);
   set('mon-loss', m.max_loss_pct);
   set('mon-failures-before-alert', m.failures_before_alert || 1);
@@ -4168,6 +4172,8 @@ function monTypeChanged() {
   show('mon-dbkind-grp', type === 'db');
   show('mon-expect-grp', type === 'dns');
   show('mon-status-grp', type === 'http');
+  show('mon-method-grp', type === 'http');
+  show('mon-tls-grp', type === 'http');
   show('mon-latency-grp', type === 'http' || type === 'icmp');
   show('mon-loss-grp', type === 'icmp');
   show('mon-body-grp', type === 'http');
@@ -4270,6 +4276,12 @@ async function addMonitor() {
   if (type === 'db') { entry.db_kind = document.getElementById('mon-dbkind')?.value || 'postgres'; }
   if (type === 'dns') { const e = (document.getElementById('mon-expect')?.value || '').trim(); if (e) entry.expect = e; }
   if (type === 'http') { const s = numOf('mon-status'); if (s !== null) entry.expect_status = Math.round(s); }
+  if (type === 'http') {   // v7.4.3: stored only when it differs from the default (Auto, certificate checked)
+    const verb = document.getElementById('mon-method')?.value || '';
+    if (verb) entry.method = verb;
+    const tlsBox = document.getElementById('mon-verify-tls');
+    if (tlsBox && !tlsBox.checked) entry.verify_tls = false;
+  }
   if (type === 'http' || type === 'icmp') { const l = numOf('mon-latency'); if (l !== null) entry.max_latency_ms = Math.round(l); }
   if (type === 'icmp') { const lp = numOf('mon-loss'); if (lp !== null) entry.max_loss_pct = lp; }
   // v4.3.0: flap dampening — alert only after N consecutive failures (1 = default).

@@ -26073,75 +26073,94 @@ def _run_one_monitor_check(mtype, target, label, m):
         ej = m.get('expect_json') if isinstance(m.get('expect_json'), dict) else None
         want_status = m.get('expect_status')
         max_lat = m.get('max_latency_ms')
-        # GET when we need the body (content/JSON match), else HEAD.
-        #
-        # The User-Agent is load-bearing. Without it urllib sends
-        # `Python-urllib/3.x`, which Cloudflare's Browser Integrity Check —
-        # and most other WAFs — block outright with a 403 that never reaches
-        # the origin. A monitor on any Cloudflare-fronted host then reads as
-        # permanently down, with nothing in the origin's access log to explain
-        # it. Measured: `Python-urllib/3.12` -> 403, `RemotePower/<ver>` -> 200
-        # against the same URL.
+        # v7.4.3 (#52): the method is Auto unless the monitor says head or get. Auto sends HEAD,
+        # which costs the target nothing, and tries GET once when HEAD is answered with 404, 405 or
+        # 501: Home Assistant, Dagu and Navidrome answer HEAD with 405 and VoidAuth with 404, and all
+        # of them answer GET. A body or JSON check needs the body, so it always sends GET.
+        pref = m.get('method') if m.get('method') in ('head', 'get') else 'auto'
         try:
-            req = urllib.request.Request(
-                target, method='GET' if (bm or ej) else 'HEAD',
-                headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
-            ctx = _get_ssl_context()
+            # v7.4.3 (#52): verify_tls false skips the certificate check for a self-signed target. Only
+            # a real False does; the address guard of the opener below is unchanged.
+            ctx = (_get_unverified_ssl_context() if m.get('verify_tls') is False
+                   else _get_ssl_context())
             _allow_internal = _allow_internal_monitors()
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
                                         ssl_ctx=ctx, no_redirect=True)
-            t0 = time.monotonic()
-            try:
-                resp = _opener.open(req, timeout=5)
-            except urllib.error.HTTPError as e:
-                # urllib raises for a 3xx it may not follow, a 4xx and a 5xx. Each is still a complete
-                # answer with headers and a body, so it is judged below exactly like a 2xx.
-                resp = e
-            with resp:
-                lat = int((time.monotonic() - t0) * 1000)
-                status = resp.status
-                ok, detail = _http_status_verdict(status, want_status, lat,
-                                                  getattr(resp, 'headers', None))
-                body_txt = ''
-                if ok and (bm or ej):
-                    body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
-                if ok and bm:
-                    val = bm.get('value', '')
-                    mode = bm.get('mode')
-                    if mode == 'not_contains':
-                        if val and val in body_txt:
-                            ok = False; detail = f'{status} · matched "{val[:40]}"'
-                    elif mode == 'regex':
-                        # W1-12: regex assertion (compile-validated at save; guard anyway).
+
+            def _attempt(verb):
+                """One request with this method. Returns (status, ok, detail)."""
+                # The User-Agent is load-bearing. Without it urllib sends
+                # `Python-urllib/3.x`, which Cloudflare's Browser Integrity Check —
+                # and most other WAFs — block outright with a 403 that never reaches
+                # the origin. A monitor on any Cloudflare-fronted host then reads as
+                # permanently down, with nothing in the origin's access log to explain
+                # it. Measured: `Python-urllib/3.12` -> 403, `RemotePower/<ver>` -> 200
+                # against the same URL.
+                req = urllib.request.Request(
+                    target, method=verb,
+                    headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
+                t0 = time.monotonic()
+                try:
+                    resp = _opener.open(req, timeout=5)
+                except urllib.error.HTTPError as e:
+                    # urllib raises for a 3xx it may not follow, a 4xx and a 5xx. Each is still a
+                    # complete answer with headers and a body, so it is judged below exactly like a 2xx.
+                    resp = e
+                with resp:
+                    lat = int((time.monotonic() - t0) * 1000)
+                    status = resp.status
+                    ok, detail = _http_status_verdict(status, want_status, lat,
+                                                      getattr(resp, 'headers', None))
+                    body_txt = ''
+                    if ok and (bm or ej):
+                        body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
+                    if ok and bm:
+                        val = bm.get('value', '')
+                        mode = bm.get('mode')
+                        if mode == 'not_contains':
+                            if val and val in body_txt:
+                                ok = False; detail = f'{status} · matched "{val[:40]}"'
+                        elif mode == 'regex':
+                            # W1-12: regex assertion (compile-validated at save; guard anyway).
+                            try:
+                                if val and not re.search(val, body_txt):
+                                    ok = False; detail = f'{status} · regex "{val[:40]}" not matched'
+                            except re.error:
+                                ok = False; detail = 'invalid body regex'
+                        else:
+                            if val and val not in body_txt:
+                                ok = False; detail = f'{status} · "{val[:40]}" not found'
+                    # W1-12: JSON-field assertion — parse body, walk the dot-path.
+                    if ok and ej:
                         try:
-                            if val and not re.search(val, body_txt):
-                                ok = False; detail = f'{status} · regex "{val[:40]}" not matched'
-                        except re.error:
-                            ok = False; detail = 'invalid body regex'
-                    else:
-                        if val and val not in body_txt:
-                            ok = False; detail = f'{status} · "{val[:40]}" not found'
-                # W1-12: JSON-field assertion — parse body, walk the dot-path.
-                if ok and ej:
-                    try:
-                        doc = json.loads(body_txt)
-                    except ValueError:
-                        ok = False; detail = f'{status} · body is not JSON'
-                    else:
-                        jpath = str(ej.get('path', ''))
-                        found, jv = _monitor_json_path(doc, jpath)
-                        want = ej.get('value')
-                        if not found:
-                            ok = False
-                            detail = f'{status} · json "{jpath[:60]}" missing'
-                        elif want is not None and str(jv) != want \
-                                and json.dumps(jv) != want:
-                            ok = False
-                            detail = (f'{status} · json {jpath[:40]}='
-                                      f'{str(jv)[:40]} (expected {str(want)[:40]})')
-                # v4.1.0: latency SLA.
-                if ok and isinstance(max_lat, (int, float)) and lat > max_lat:
-                    ok = False; detail = f'{status} · {lat}ms > {int(max_lat)}ms SLA'
+                            doc = json.loads(body_txt)
+                        except ValueError:
+                            ok = False; detail = f'{status} · body is not JSON'
+                        else:
+                            jpath = str(ej.get('path', ''))
+                            found, jv = _monitor_json_path(doc, jpath)
+                            want = ej.get('value')
+                            if not found:
+                                ok = False
+                                detail = f'{status} · json "{jpath[:60]}" missing'
+                            elif want is not None and str(jv) != want \
+                                    and json.dumps(jv) != want:
+                                ok = False
+                                detail = (f'{status} · json {jpath[:40]}='
+                                          f'{str(jv)[:40]} (expected {str(want)[:40]})')
+                    # v4.1.0: latency SLA.
+                    if ok and isinstance(max_lat, (int, float)) and lat > max_lat:
+                        ok = False; detail = f'{status} · {lat}ms > {int(max_lat)}ms SLA'
+                    return status, ok, detail
+
+            first = 'GET' if (bm or ej or pref == 'get') else 'HEAD'
+            status, ok, detail = _attempt(first)
+            if first == 'HEAD' and pref == 'auto' and not ok and status in (404, 405, 501):
+                head_status = status
+                _t0 = time.monotonic()      # the recorded time is the request that decided
+                status, ok, detail = _attempt('GET')
+                if ok:
+                    detail += f' · GET (HEAD answered {head_status})'
         except Exception as e:
             # 'error' named nothing at all. The exception class separates a DNS
             # failure from a refused connection from a timeout, which is the
@@ -26687,16 +26706,9 @@ class _SSRFIntegrationClient(integrations_mod.HTTPClient):
         self._timeout = timeout
         import http.cookiejar
         self._jar = http.cookiejar.CookieJar()
-        if verify_tls:
-            ctx = _get_ssl_context()
-        else:
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            # verify_tls=False opts out of CERTIFICATE verification for
-            # self-signed homelab targets, not out of the protocol floor.
-            _raise_tls_floor(ctx)
+        # verify_tls=False opts out of CERTIFICATE verification for self-signed homelab targets,
+        # not out of the protocol floor.
+        ctx = _get_ssl_context() if verify_tls else _get_unverified_ssl_context()
         # allow_loopback=False blocks 127.0.0.0/8 + link-local/metadata; RFC1918
         # LAN is allowed (homelab targets live there).
         self._opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=ctx,
@@ -28035,6 +28047,20 @@ def _get_ssl_context():
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
     # v4.1.0: never negotiate obsolete TLS 1.0/1.1 on outbound HTTPS.
+    return _raise_tls_floor(ctx)
+
+
+def _get_unverified_ssl_context():
+    """An outgoing HTTPS context that does not check the certificate, for a target the operator
+    has marked as self-signed (an integration, or an http monitor, with Verify TLS off).
+
+    It opts out of trust, not out of the protocol: the TLS floor stays. The connect-time address
+    guard of _ssrf_safe_opener is a separate check, so this opens no private range that was closed.
+    """
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     return _raise_tls_floor(ctx)
 
 
@@ -29996,6 +30022,21 @@ def handle_config_save():
             if mtype == 'http' and isinstance(m.get('expect_status'), int) \
                     and 100 <= m['expect_status'] <= 599:
                 entry['expect_status'] = m['expect_status']
+            # v7.4.3 (#52): how an http monitor asks and whether it checks the certificate. Both are
+            # stored only when they differ from the default (Auto, certificate checked), so a config
+            # that never used them is unchanged. Only a real false turns the check off.
+            if mtype == 'http':
+                _verb = m.get('method')
+                _verb = _verb.strip().lower() if isinstance(_verb, str) else ''
+                if _verb in ('head', 'get'):
+                    if _verb == 'head' and (entry.get('body_match') or entry.get('expect_json')):
+                        _mon_reject(_mon_name,
+                                    'a HEAD request has no body, so it cannot carry a body or JSON '
+                                    'check; use Auto or GET', m)
+                        continue
+                    entry['method'] = _verb
+                if m.get('verify_tls') is False:
+                    entry['verify_tls'] = False
             if mtype in ('http', 'icmp'):
                 ml = m.get('max_latency_ms')
                 if isinstance(ml, (int, float)) and 0 < ml <= 600000:
@@ -66848,7 +66889,7 @@ def handle_export_monitors():
              ('label', 'type', 'target', 'target_kind', 'port', 'expect',
               'expect_status', 'max_latency_ms', 'max_loss_pct', 'db_kind',
               'body_match', 'expect_json', 'steps', 'failures_before_alert',
-              'paused')
+              'paused', 'method', 'verify_tls')
              if m.get(k) not in (None, '')}
         # via_satellite is an id local to THIS install — it would be meaningless
         # (or worse, wrong) on the instance importing this file.

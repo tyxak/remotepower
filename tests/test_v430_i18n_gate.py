@@ -404,6 +404,8 @@ _DELIBERATE_ENGLISH = {
     "Err",
     "Errs",
     "FS",
+    "GET",
+    "HEAD",
     "MD5",
     'Names (comma-separated; ignored for "All")',
     "OID",

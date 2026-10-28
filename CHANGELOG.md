@@ -29,6 +29,26 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   the monitor's identity everywhere else (its history, its down flag, its failure
   streak), so the recovery matches on it alone. Deleting or renaming a monitor that is
   down closes its alert when you save, as pausing one already did. (#51)
+- **An HTTP monitor chooses its method.** A monitor sent HEAD unless it had a body or
+  JSON check. Home Assistant, Dagu and Navidrome answer HEAD with 405 and VoidAuth
+  with 404, so they read as down while GET worked, and the workaround was a body check
+  on `.`, which nobody would guess. The form has a *Method* now. *Auto*, which every
+  existing monitor gets, sends HEAD and tries GET once when HEAD is answered with 404,
+  405 or 501, and reports the answer to the GET; *HEAD* and *GET* send only that one.
+  A body or JSON check still sends GET, and a save that asks for HEAD together with
+  one is refused, so a check never reads green without having run. The time recorded
+  for the check is the request that decided. (#52)
+- **An HTTP monitor can skip the certificate check.** Every monitor verified the
+  certificate, so each service on a self-signed one (Cockpit, OpenMediaVault,
+  Nextcloud, Vaultwarden, Frigate) read as down with `URLError`, while the
+  integrations already had a *Verify TLS* switch. The form has the same checkbox now.
+  Only a real `false` turns the check off, so a string or a number that reads as
+  "off" cannot switch a security check off by accident. The protocol floor and the
+  address guard stay on: a monitor with the check off still cannot reach a private
+  address the instance has closed. One helper now defines "certificate check off" for
+  the monitors and the integrations. *Method* and *Verify TLS* are in the monitor
+  export and import, and an Uptime Kuma import carries over *Ignore TLS/SSL errors*
+  and the request method. (#52)
 
 ## v7.4.2 — "Re4lMatters" — 2026-10-27
 

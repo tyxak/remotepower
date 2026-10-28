@@ -66,7 +66,23 @@ def _mon(label: str, mtype: str, target: str, **extra: Any) -> Dict[str, Any]:
 
 _RP_PASSTHROUGH = ('port', 'expect', 'expect_status', 'max_latency_ms',
                    'max_loss_pct', 'db_kind', 'body_match', 'expect_json',
-                   'steps', 'failures_before_alert', 'paused')
+                   'steps', 'failures_before_alert', 'paused', 'method', 'verify_tls')
+
+
+def _http_options(extra: Dict[str, Any], mtype: str) -> None:
+    """Keep the two http options in the shapes the config save would have stored, and drop the rest.
+
+    v7.4.3. verify_tls survives only as a real false (the one value that turns a security check
+    off), method only as head or get, and neither survives on a monitor that is not http.
+    """
+    if mtype != 'http' or extra.get('verify_tls') is not False:
+        extra.pop('verify_tls', None)
+    verb = extra.get('method')
+    verb = verb.strip().lower() if isinstance(verb, str) else ''
+    if mtype == 'http' and verb in ('head', 'get'):
+        extra['method'] = verb
+    else:
+        extra.pop('method', None)
 
 
 def _parse_remotepower(doc: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
@@ -81,6 +97,7 @@ def _parse_remotepower(doc: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[
                              'reason': 'no target'})
             continue
         extra = {k: m[k] for k in _RP_PASSTHROUGH if m.get(k) not in (None, '')}
+        _http_options(extra, str(m['type']))
         if m.get('target_kind') in ('tag', 'group'):
             extra['target_kind'] = m['target_kind']
         monitors.append(_mon(str(m.get('label') or ''), str(m['type']), target, **extra))
@@ -107,6 +124,13 @@ def _parse_kuma(doc: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[st
             kw = str(m.get('keyword') or '').strip()
             if kind == 'keyword' and kw:
                 mon['body_match'] = {'mode': 'contains', 'value': kw[:200]}
+            # v7.4.3: Kuma's "Ignore TLS/SSL errors" and its request method carry over. A HEAD request
+            # cannot carry the keyword check, so that pair keeps the default method.
+            if m.get('ignoreTls') is True:
+                mon['verify_tls'] = False
+            verb = str(m.get('method') or '').strip().lower()
+            if verb == 'get' or (verb == 'head' and 'body_match' not in mon):
+                mon['method'] = verb
             monitors.append(mon)
         elif kind in ('port', 'tcp'):
             host = str(m.get('hostname') or '').strip()

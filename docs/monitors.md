@@ -34,6 +34,17 @@ and only that code is up, so an app behind a login that answers 401 at its root 
 be watched for 401, and an API root that answers 404 for 404. The body, JSON and
 latency checks you set are applied to that answer, whatever its status.
 
+**Method.** The default, Auto, sends a HEAD request, which costs the target almost
+nothing, and tries a GET once when HEAD is answered with 404, 405 or 501. Home
+Assistant, Navidrome and a few other apps refuse HEAD and answer GET. Pick HEAD or GET
+to send only that one. A body or JSON check always uses GET, so it cannot be combined
+with HEAD.
+
+**Verify TLS.** Untick it for a service on a self-signed certificate. The connection
+is still encrypted and the address checks still apply; only the certificate is not
+checked. Both options travel with the monitor through **Export** and **Import**, and an
+Uptime Kuma import carries over *Ignore TLS/SSL errors* and the request method.
+
 An alert belongs to the check's name. Change the target of a check that is down and
 its alert closes the first time the new target passes. Delete or rename it and the
 alert closes when you save, because nothing will probe the old name again.
