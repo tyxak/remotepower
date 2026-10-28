@@ -101,7 +101,7 @@ def _bump_nav(wiki: Path, version: str):
     if hm.exists():
         t = hm.read_text()
         t = re.sub(r"Current release: \*\*v\d+\.\d+\.\d+[^\n]*",
-                   f"Current release: **{newest} \"Re4lMatters\"** — see the",
+                   f"Current release: **{newest} \"M3asureMatters\"** — see the",
                    t, count=1)
         t = re.sub(r"\[v\d+\.\d+\.\d+ release notes\]\(v\d+\.\d+\.\d+\)",
                    f"[{newest} release notes]({newest})", t, count=1)

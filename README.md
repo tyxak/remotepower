@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.3 "M3asureMatters"** — the next batch of requests from the same Docker
+  install: more to measure and alert on, and a few rough edges of the HTTP monitors.
 - **v7.4.2 "Re4lMatters"** — fixes for four reports from a Docker install of
   7.4.1. In each, the dashboard says one thing and the host is doing another.
   An alert for a stopped container closes when the container runs again, and
@@ -235,37 +237,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   recorded. The release is also a security pass over the whole product with the
   scanners listed below:
   twenty-three issues, all fixed before release, and the review is public.
-- **v7.2.0 "Ev1denceMatters"** — threat intel reads what your hosts' own logs
-  say. A Linux agent can read nginx and Apache logs, ModSecurity's audit log,
-  fail2ban's log and CrowdSec's alerts, and a report to AbuseIPDB and SniffCat
-  now says what the address actually did instead of "brute force": SQL
-  injection, path traversal, scanning, with the time it happened, once per
-  address however many hosts or logs saw it. An address qualifies when fail2ban
-  or CrowdSec already banned it, the WAF refused it enough times, or it reached
-  your threshold. Only counts and fixed labels leave the host. The page shows
-  the evidence, what was sent, and any log the agent could not read; Cloudflare
-  addresses are never reported. Off until you turn it on.
-  with your own `ssh` client through one gateway, over a tunnel the host opens
-  outward, so no inbound port is open on the host; every connection is checked
-  against your permission, scope and tenant, and every session is recorded.
-  Addresses that brute-force a host are looked up against AbuseIPDB and
-  SniffCat, reported back if you choose, and blocked for a while on the
-  attacked host if they are known to be abusive — never your own addresses or
-  anywhere someone recently signed in from. Both reach the Security Advisory,
-  the risk score, the Data Explorer, the fleet report and the AI assistant. One
-  body size and one heading size across the interface, and dashboard edits
-  saved with PUT work on a standard nginx install again.
-  monitor reported a host as down when a bot filter at the edge had turned the
-  probe away; the probe was identifying itself as Python and putting an older
-  TLS version back on the wire. That second half was a whole class: of eleven
-  places that pin a minimum TLS version, ten set it where they meant to raise
-  it, so a server hardened to TLS 1.3 was quietly handed a context that would
-  still speak 1.2. Eight are fixed across the server, all three agents, the
-  satellite, the scanner and the key server; the two left are appliances whose
-  firmware negotiates nothing newer, each with its reason recorded. The web
-  terminal also verifies a host's SSH key before sending your password, and the
-  Data Explorer, risk score, compliance checklist and Prometheus exporter now
-  use signals the agents were already sending.
 
 ## Security
 

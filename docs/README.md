@@ -79,6 +79,9 @@ holds long-form docs that don't fit there.
   before release, among them a stored session hash that worked as a session, an
   IPv6 zone id that reached a root shell and an agent that could have claimed the
   honeypot's decision.
+- **[v7.4.3.md](v7.4.3.md)** — "M3asureMatters": the next batch of requests from
+  the same Docker install: more to measure and alert on, and a few rough edges of
+  the HTTP monitors.
 - **[v7.4.2.md](v7.4.2.md)** — "Re4lMatters": fixes for four reports from a
   Docker install of 7.4.1. A stopped container's alert closes when it runs
   again, container excludes match an image, SNMP memory leaves out the cache,
@@ -91,10 +94,6 @@ holds long-form docs that don't fit there.
   floors, folders and patterns in the drift watch, a reasoning-effort setting for
   thinking models, and a recurring maintenance window that can be made from the
   form again.
-- **[v7.4.0.md](v7.4.0.md)** — "F1nishMatters": a release about finish. What is
-  already there reads, looks and behaves better in every theme and language, and
-  each fix comes with a check that keeps it fixed. Includes the two honeypot
-  Worker guides.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

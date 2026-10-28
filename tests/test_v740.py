@@ -73,16 +73,13 @@ class TestVersionBumps(unittest.TestCase):
                  if l.startswith("## v")][0]
         self.assertTrue(first.startswith(f'## v{_server_version()} — "'), first)
 
-    def test_version_doc_still_exists_inside_the_keep_three_window(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
+    def test_version_doc_left_the_keep_three_window(self):
+        """v7.4.3 pushed v7.4.0 out of the three kept version docs. Its history
+        stays in CHANGELOG.md."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(),
+                         f"docs/v{V}.md should have been removed at the v7.4.3 bump")
 
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary",
-                     "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_changelog_entry_has_no_template_left(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         top = changelog[changelog.index(f"## v{V}"):changelog.index("\n## v7.3.0")]
         for stub in ("CODENAME", "YYYY-MM-DD", "One-paragraph release summary", "Headline change"):
@@ -101,7 +98,6 @@ class TestVersionBumps(unittest.TestCase):
         vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md")
                       if re.fullmatch(r"v\d+\.\d+\.\d+", p.stem))
         self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
-        self.assertIn(f"v{V}", vers)
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -117,11 +113,13 @@ class TestVersionBumps(unittest.TestCase):
         cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
         self.assertEqual(cards[0], _server_version(), "the new release leads")
-        self.assertIn(V, cards)
-        head = html[:html.index(f"What's new — v{V}")]
-        kw = head[head.rindex('data-keywords="'):]
+        self.assertNotIn(V, cards, "v7.4.0 left the three kept cards at v7.4.3")
+        # Its search keywords moved to the "Older releases" card, so doc search
+        # still finds the release by its codename.
+        older = html[html.index('older versions history'):]
+        kw = older[:older.index('"')]
         self.assertIn(CODENAME.lower(), kw.lower(),
-                      "data-keywords must carry the codename for doc search")
+                      "the older-releases card must carry the codename for doc search")
 
     def test_no_dangling_links_to_the_dropped_docs(self):
         for dropped in ("v7.1.0.md", "v7.2.0.md"):
