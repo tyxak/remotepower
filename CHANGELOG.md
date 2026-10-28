@@ -19,6 +19,31 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   "Real memory" row. The note in *Agentless hosts* said only that the figure can
   sit above `top`. (#42)
 
+### Maintenance windows
+
+- **A window can raise no alerts at all.** A window held the notifications and
+  still raised the alert, so a nightly backup that stops and starts 17
+  containers put 17 *Container stopped* alerts on the dashboard and in the alert
+  history every night. The window form has a new setting, *While the window is
+  active*: *Hold notifications only* (every existing window, and the default) or
+  *Raise no alerts at all*. With the second, an event the window covers (by host
+  and by event, as before) is not written to the Alerts inbox, and it is left out
+  of Needs attention and the stopped-containers count on Home, and so out of the
+  health score they feed. Each one is still listed in the suppression log, with
+  the kind of hold, and still recorded in the activity feed. An alert that was
+  open before the window starts stays open, and a recovery that arrives inside
+  the window still closes it. A problem that begins inside the window and is
+  still there at the end is not turned into an alert later; it shows in Needs
+  attention again once the window is over. When two windows cover the same
+  event, the one that raises no alerts decides. The window list marks such a
+  window *no alerts*. The windows are asked once per event, before the alert row
+  is written, instead of after it. (#48)
+- **The window form can save a site, a tag or a smart group.** The server has
+  accepted those scopes since 7.0.2 and the scope list offers them, but the form
+  read the target text only for a group, so a window for anything else came back
+  with "requires a target". Editing one showed an empty target, and a target
+  typed for one window was still in the box for the next. (#48)
+
 ### Monitors
 
 - **An HTTP monitor can expect a 4xx or 5xx.** Apps that sit behind a login (Sonarr,

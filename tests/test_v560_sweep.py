@@ -12,6 +12,7 @@ import sys as _as_sys
 from pathlib import Path as _as_Path
 _as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
 from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
+from srcpin import py_function as _py_function
 from pathlib import Path
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-sweep-'))
@@ -23,8 +24,7 @@ _APPJS = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
 
 class TestMuteSuppressesWebpush(unittest.TestCase):
     def test_mute_computed_once_and_guards_webpush(self):
-        seg = _API[_API.index('def fire_webhook'):
-                   _API.index('def fire_webhook') + 6000]
+        seg = _py_function(_API, 'fire_webhook')    # the whole function: a window of N characters went stale at 7.4.3
         # the mute is computed once, before the delivery channels…
         self.assertIn('_muted = _alert_muted(event, payload)', seg)
         # …and the browser push is gated on it (was firing before the mute check)
@@ -35,8 +35,7 @@ class TestMuteSuppressesWebpush(unittest.TestCase):
                         'the webpush call must sit under the `if not _muted:` guard')
 
     def test_delivery_gate_reuses_the_flag(self):
-        seg = _API[_API.index('def fire_webhook'):
-                   _API.index('def fire_webhook') + 8000]
+        seg = _py_function(_API, 'fire_webhook')
         self.assertIn('if _muted:\n        return', seg)
 
 

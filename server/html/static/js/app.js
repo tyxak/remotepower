@@ -12652,6 +12652,9 @@ function _registerMaintTable() {
       const when = w.cron ? `<code class="fs-11">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
                           : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
       const events = (w.events && w.events.length) ? w.events.join(', ') : '<em class="c-muted">all</em>';
+      // v7.4.3 (#48): a window that raises no alerts says so in its row.
+      const noAlerts = w.suppress === 'alerts'
+        ? ` <span class="chk-pill chk-warning" title="${escAttr('Covered events are kept out of the Alerts inbox and Needs attention as well as out of notifications. An alert that was already open stays open.')}">${escHtml('no alerts')}</span>` : '';
       const status = w.active
         ? '<span class="c-amber-bold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> ACTIVE</span>'
         : '<span class="c-muted">scheduled</span>';
@@ -12674,7 +12677,7 @@ function _registerMaintTable() {
         <td><span class="group-badge">${escHtml(w.scope)}</span></td>
         <td class="isl-415">${target}</td>
         <td class="fs-12">${when}</td>
-        <td class="meta-sm-nm">${events}</td>
+        <td class="meta-sm-nm">${events}${noAlerts}</td>
         <td class="ta-center">${status}</td>
         <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action-btn="_deleteMaintenanceBtn" data-id="${escAttr(w.id)}" >${_icon('trash',14)}</button></div></td>
       </tr>`;
@@ -12759,10 +12762,12 @@ async function openNewMaintModal() {
   // Reset form
   document.getElementById('maint-reason').value = '';
   document.getElementById('maint-scope').value = 'device';
+  document.getElementById('maint-target-group').value = '';
   document.getElementById('maint-type').value = 'oneshot';
   document.getElementById('maint-cron').value = '';
   document.getElementById('maint-duration').value = 60;
   const _ge = document.getElementById('maint-gate-exec'); if (_ge) _ge.checked = false;
+  const _su = document.getElementById('maint-suppress'); if (_su) _su.value = 'notifications';   // v7.4.3
   document.querySelectorAll('.maint-event-cb').forEach(cb => cb.checked = false);
   // Default start/end: now+5min, now+65min
   const pad = n => n.toString().padStart(2,'0');
@@ -12797,8 +12802,10 @@ async function _editMaintenanceBtn(btn) {
   document.getElementById('maint-reason').value = w.reason || '';
   document.getElementById('maint-scope').value  = w.scope  || 'device';
   const _ge = document.getElementById('maint-gate-exec'); if (_ge) _ge.checked = !!w.gate_exec;
+  const _su = document.getElementById('maint-suppress'); if (_su) _su.value = w.suppress === 'alerts' ? 'alerts' : 'notifications';   // v7.4.3
+  document.getElementById('maint-target-group').value = '';
   if (w.scope === 'device') sel.value = w.target || '';
-  else if (w.scope === 'group') document.getElementById('maint-target-group').value = w.target || '';
+  else if (w.scope && w.scope !== 'global') document.getElementById('maint-target-group').value = w.target || '';
   const isCron = !!(w.cron && w.duration);
   document.getElementById('maint-type').value = isCron ? 'cron' : 'oneshot';
   if (isCron) {
@@ -12866,12 +12873,15 @@ async function saveMaintenance() {
   const type   = document.getElementById('maint-type').value;
   let target = '';
   if (scope === 'device') target = document.getElementById('maint-target-device').value;
-  else if (scope === 'group') target = document.getElementById('maint-target-group').value.trim();
+  // v7.4.3: every scope but a single host and the whole fleet types its target into the one text
+  // box. Only 'group' was read from it, so a site, tag or smart-group window could not be saved.
+  else if (scope !== 'global') target = document.getElementById('maint-target-group').value.trim();
   const events = Array.from(document.querySelectorAll('.maint-event-cb'))
     .filter(cb => cb.checked).map(cb => cb.value);
 
   const gateExec = !!(document.getElementById('maint-gate-exec') || {}).checked;
-  const body = {reason, scope, target, events, gate_exec: gateExec};
+  const body = {reason, scope, target, events, gate_exec: gateExec,
+                suppress: document.getElementById('maint-suppress')?.value || 'notifications'};   // v7.4.3 (#48)
   if (type === 'oneshot') {
     const s = document.getElementById('maint-start').value;
     const e = document.getElementById('maint-end').value;

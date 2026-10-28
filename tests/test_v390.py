@@ -145,7 +145,7 @@ class TestV390MonitorSSRF(_ApiTestBase):
             self.api._ssrf_safe_opener = lambda **k: _fake_opener(302)
             r = self.api._execute_monitor_checks(
                 [{'type': 'http', 'target': 'https://jelly.example.com:8920', 'label': 'j'}])
-            self.assertTrue(r[0]['ok']); self.assertEqual(r[0]['detail'], '302')
+            self.assertTrue(r[0]['ok']); self.assertTrue(r[0]['detail'].startswith('302'), r[0]['detail'])   # '302 · 0ms' since 7.4.3: an error status is judged like any answer
 
             self.api._ssrf_safe_opener = lambda **k: _fake_opener(404)
             r = self.api._execute_monitor_checks(

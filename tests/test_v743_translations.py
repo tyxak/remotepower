@@ -26,6 +26,7 @@ from i18n_engine import LANGS, text_node_cap, unchanged_by_engine  # noqa: E402
 from test_v742_translations import rendered_in, translations  # noqa: E402
 
 INDEX = "server/html/index.html"
+APP = "server/html/static/js/app.js"
 
 # (English text as the page shows it, the file that renders it)
 NEW = (
@@ -34,6 +35,19 @@ NEW = (
      "app behind a login can be watched for 401.", INDEX),
     ("Auto sends HEAD, and tries GET once when HEAD is answered with 404, 405 or 501. A body or JSON check "
      "always sends GET.", INDEX),
+    # Maintenance windows: what a window holds back
+    ("While the window is active", INDEX),
+    ("Hold notifications only", INDEX),
+    ("Raise no alerts at all", INDEX),
+    ("Notifications are always held back. With Raise no alerts at all, covered events are also kept out of "
+     "the Alerts inbox, Needs attention and the stopped-containers count, and each one is still listed in "
+     "the suppression log below.", INDEX),
+    ("An alert that was open before the window starts stays open and closes when the problem clears. A problem "
+     "that begins inside the window and is still there at the end shows in Needs attention again, but no alert "
+     "is raised for it later.", INDEX),
+    ("no alerts", APP),
+    ("Covered events are kept out of the Alerts inbox and Needs attention as well as out of notifications. "
+     "An alert that was already open stays open.", APP),
 )
 
 # Text that must come through a translation as it is written.
@@ -47,7 +61,7 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_list_was_found(self):
         """The control on the population: a list that shrank to nothing would pass every test below."""
-        self.assertGreaterEqual(len(NEW), 2)
+        self.assertGreaterEqual(len(NEW), 9)
         self.assertEqual(len({s for s, _ in NEW}), len(NEW), "a string is listed twice")
 
     def test_the_real_engine_translates_each_in_every_language(self):

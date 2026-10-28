@@ -11877,6 +11877,14 @@ image:ghcr.io/getarcaneapp/tools</pre>
       <label><input type="checkbox" class="maint-event-cb" value="log_alert"> log_alert</label>
     </div>
   </div>
+  <div class="form-group"><label for="maint-suppress">While the window is active</label>
+    <select id="maint-suppress" aria-label="While the window is active">
+      <option value="notifications">Hold notifications only</option>
+      <option value="alerts">Raise no alerts at all</option>
+    </select>
+    <div class="hint">Notifications are always held back. With Raise no alerts at all, covered events are also kept out of the Alerts inbox, Needs attention and the stopped-containers count, and each one is still listed in the suppression log below.</div>
+    <div class="hint">An alert that was open before the window starts stays open and closes when the problem clears. A problem that begins inside the window and is still there at the end shows in Needs attention again, but no alert is raised for it later.</div>
+  </div>
   <div class="form-group"><label class="row-8-center"><input type="checkbox" id="maint-gate-exec"> <span>Gate command/upgrade execution to this window</span></label>
     <div class="page-subtitle mt-4">When checked, exec/upgrade commands for covered hosts are <strong>held</strong> until this window is active — a change window, not just alert suppression.</div>
   </div>

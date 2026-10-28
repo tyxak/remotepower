@@ -2314,8 +2314,9 @@ if _AVAILABLE:
         reason: str = ''
         scope: str = ''
         start: str = ''
+        suppress: str = ''
         target: str = ''
-        _v0 = field_validator('cron', 'end', 'public_title', 'reason', 'scope', 'start', 'target', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('cron', 'end', 'public_title', 'reason', 'scope', 'start', 'suppress', 'target', mode='before')(_coerce_str_loose)
         _v1 = field_validator('duration', mode='before')(_coerce_int_or(0))
         _v2 = field_validator('gate_exec', 'public', mode='before')(_coerce_bool_loose)
 

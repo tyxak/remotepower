@@ -13169,6 +13169,14 @@ def fire_webhook(event, payload):
                 get_online_ttl())
         except Exception:
             _upstream_collateral = None
+    # v7.4.3 (#48): ask the maintenance windows now, before the alert row is written. A window set to
+    # raise no alerts (suppress == 'alerts') keeps the event out of the inbox, and so out of everything
+    # that reads the inbox. The same answer decides the delivery gate further down, so the windows are
+    # read once. The event itself is still recorded above and listed in the suppression log below.
+    try:
+        mw = in_maintenance(event, payload)
+    except Exception:
+        mw = None
     try:
         # A COPY — never mutate the caller's payload; several call sites reuse
         # theirs for the webhook body and for a later event.
@@ -13176,7 +13184,8 @@ def fire_webhook(event, payload):
         if _upstream_collateral and isinstance(payload, dict):
             _alert_payload = dict(payload)
             _alert_payload['upstream_down'] = _upstream_collateral
-        _record_alert(event, _alert_payload)
+        if not (mw and mw.get('suppress') == 'alerts'):
+            _record_alert(event, _alert_payload)
     except Exception as e:
         sys.stderr.write(f'[remotepower] alert ledger record failed {event}: {e}\n')
     try:
@@ -13320,11 +13329,8 @@ def fire_webhook(event, payload):
                              f'no findings match severity filter {sorted(allowed_sev)}')
             return
 
-    # v1.8.0: maintenance-window suppression — applies to BOTH channels
-    try:
-        mw = in_maintenance(event, payload)
-    except Exception:
-        mw = None
+    # v1.8.0: maintenance-window suppression — applies to BOTH channels. (`mw` was asked for
+    # above, before the alert row; v7.4.3.)
     if mw:
         try:
             log_suppression(event, payload, mw)
@@ -19504,7 +19510,7 @@ def _autopatch_sync(pol, remove=False):
                     'scope': _scope, 'target': _target,
                     'start': '', 'end': '',
                     'cron': pol['cron'], 'duration': 3600,
-                    'events': [], 'gate_exec': False,
+                    'events': [], 'gate_exec': False, 'suppress': 'notifications',
                     'created_by': 'auto-patch', 'created_at': int(time.time()),
                     'autopatch_id': pid, 'auto': True,
                     # SEC (v7.0.2): inherit the policy's tenant, exactly as the
@@ -51028,6 +51034,12 @@ def _compute_attention():
     # fleet_events, not this list).
     items = [i for i in items if not _na_item_muted(i)]
 
+    # v7.4.3 (#48): a maintenance window set to raise no alerts leaves out what it covers, the way a
+    # mute does. The problem is still there and the digest shows it again when the window ends.
+    _held = _alert_hold_windows()
+    if _held:
+        items = [i for i in items if not _na_item_held(i, _held, devices)]
+
     return items
 
 
@@ -51109,6 +51121,60 @@ def _na_item_muted(item):
     return any((dev_id, ev) in muted for ev in events)
 
 
+def _alert_hold_windows(now=None):
+    """The maintenance windows that are active now and raise no alerts at all (suppress == 'alerts').
+
+    v7.4.3 (#48). Empty on nearly every install, so a caller that looks at many hosts asks this once
+    and stops when it is empty.
+    """
+    try:
+        windows = (_load_ro(MAINT_FILE) or {}).get('windows') or []
+    except Exception:
+        return []
+    now = int(now or time.time())
+    held = []
+    for w in windows:
+        if isinstance(w, dict) and w.get('suppress') == 'alerts':
+            try:
+                if _window_active(w, now):
+                    held.append(w)
+            except Exception:
+                continue
+    return held
+
+
+def _held_by_window(held, dev_id, dev, events):
+    """True if one of the no-alert windows in `held` covers this host for at least one of `events`.
+
+    The same two questions in_maintenance asks of an event, asked of a host's standing problem: does
+    the window apply to the host, and is the event one it covers (a window's own list narrows it, and
+    only events a window can hold count).
+    """
+    if not held or not dev_id:
+        return False
+    for w in held:
+        try:
+            if not _window_applies(w, dev_id, dev=dev or {}):
+                continue
+        except Exception:
+            continue
+        allowed = w.get('events')
+        if any(ev in SUPPRESSIBLE_EVENTS and (not allowed or ev in allowed) for ev in events):
+            return True
+    return False
+
+
+def _na_item_held(item, held, devices):
+    """True if a no-alert maintenance window covers what this Needs-Attention item reports."""
+    dev_id = item.get('device_id')
+    if not dev_id:
+        return False        # fleet-level items have no host for a window to cover
+    events = _NA_MUTE_EVENTS.get((item.get('kind'), item.get('severity')))
+    if not events:
+        return False
+    return _held_by_window(held, dev_id, devices.get(dev_id), events)
+
+
 _ATTENTION_CACHE_TTL = 10
 
 
@@ -51129,7 +51195,7 @@ def _attention_fingerprint():
     from these items, the fleet score did not move either.
     """
     parts = [_device_set_fingerprint()]
-    for src in (IGNORED_ITEMS_FILE, ALERT_MUTES_FILE, CONFIG_FILE):
+    for src in (IGNORED_ITEMS_FILE, ALERT_MUTES_FILE, CONFIG_FILE, MAINT_FILE):
         try:
             parts.append(str(backend_mtime(src)))
         except Exception:
@@ -52818,8 +52884,11 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             stopped = 0
             store = load(CONTAINERS_FILE) or {}
             c_excl = _container_alert_excluder()    # v7.4.2 (#43)
+            c_held = _alert_hold_windows(now)       # v7.4.3 (#48)
             for dev_id, entry in store.items():
                 if dev_id not in devices_raw or not isinstance(entry, dict):
+                    continue
+                if c_held and _held_by_window(c_held, dev_id, devices_raw.get(dev_id), ('container_stopped',)):
                     continue
                 for it in (entry.get('items') or []):
                     if (isinstance(it, dict) and not _container_is_running(it.get('status'))
@@ -68304,6 +68373,7 @@ def in_maintenance(event, payload):
         _maint_dev = device_get(dev_id) or {}
         dev_group = (_maint_dev.get('group') or '')
 
+    found = None
     for w in windows:
         scope = (w.get('scope') or 'device').lower()
         if not _window_applies(w, dev_id, dev=_maint_dev, dev_group=dev_group):
@@ -68313,13 +68383,20 @@ def in_maintenance(event, payload):
             allowed = w.get('events')
             if allowed and event not in allowed:
                 continue
-            return {
+            info = {
                 'window_id': w.get('id', ''),
                 'reason':    w.get('reason', 'maintenance window active'),
                 'scope':     scope,
                 'target':    w.get('target', ''),
+                # v7.4.3 (#48): 'alerts' keeps the event out of the Alerts inbox as well as
+                # out of the notifications. A window without the field holds notifications only.
+                'suppress':  'alerts' if w.get('suppress') == 'alerts' else 'notifications',
             }
-    return None
+            if info['suppress'] == 'alerts':
+                return info          # of two windows that cover the same event, the stronger decides
+            if found is None:
+                found = info
+    return found
 
 
 def _exec_gated(dev_id, dev, now=None):
@@ -68358,6 +68435,7 @@ def log_suppression(event, payload, info):
             'window_id':  info.get('window_id', ''),
             'reason':     info.get('reason', ''),
             'scope':      info.get('scope', ''),
+            'suppress':   info.get('suppress', 'notifications'),
         })
         entries = entries[-500:]  # keep last 500
         log['entries'] = entries
@@ -68530,6 +68608,11 @@ def _validate_maintenance_body(body):
         # every edit.
         'public':       bool(body.get('public')),
         'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
+        # v7.4.3 (#48): what the window holds back. 'notifications' is what every window has always
+        # done; 'alerts' also keeps the covered events out of the Alerts inbox, Needs attention and
+        # the stopped-containers count. Always present, so an edit can switch it back.
+        'suppress':     'alerts' if str(body.get('suppress') or '').strip().lower() == 'alerts'
+                        else 'notifications',
     }
 
 
