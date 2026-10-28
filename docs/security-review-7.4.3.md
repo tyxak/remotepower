@@ -42,14 +42,14 @@ code with its fix taken out.
 | Undefined names and other pyflakes errors (`ruff F`, `E9`) | Server, agents, sidecars, tools and tests | 0, once five unused imports in the new tests were removed |
 | bandit | 131,966 lines of server and agent Python | 0 High, 25 Medium and 926 Low. Against the committed baseline nothing is new. Compared by file, test and code there are three Low: two `except Exception: continue` where the maintenance windows are read, and a false positive on the constant that names the password kind of form field, whose neighbour line changed. The baseline is regenerated |
 | semgrep | The Python, JavaScript and security-audit rule sets over the 27 server, agent and page files changed since 7.4.2 | 25 results on 21 distinct lines (the agent's extensionless file is a copy of the `.py`). None is on a line that changed since 7.4.2, and every one is a reviewed false positive (below). Three rule and file pairs timed out on `api.py` |
-| gitleaks | Every commit (2,442) | No leaks |
+| gitleaks | Every commit (2,446) and the unpacked release tarball | No leaks |
 | Dependency audit (`pip-audit`) | The 16 packages the server and agents import: Flask 3.1.3, Werkzeug 3.1.9, pydantic 2.14.1, cryptography 50.0.2, psycopg 3.3.6, Jinja2 3.1.6, requests 2.34.2, asyncssh 2.24.1, psutil 7.2.2, reportlab 5.0.0, gunicorn 26.2.0, bcrypt 5.0.0, dnspython 2.9.0, webauthn 3.0.1, pysaml2 7.5.5 and websockets 10.4 | No advisory |
 | CodeQL | The repository's own configuration, as the production workflow runs it, for Python and JavaScript | 0 results |
 | nuclei | 6,553 templates (exposure, misconfiguration, tokens, default logins, XSS, SQL injection, file inclusion, redirects, CORS, SSRF and traversal) against a seeded server | 15 informational results, none about the release: the file server of the test setup sends none of the security headers that nginx sends, technology fingerprints, and an upload form |
 | The new connectors, attacked from the server's network position | 26 spellings of an address, saved and tested through both connectors; redirects; paths with a full address, `//`, `@`, `..`, a fragment, a query and a line break; slow, hanging and endless targets; a login page where a metrics page should be | No request reached a listener kept on the loopback address for the purpose, and none read a value. See *Not found* |
 | Who may do what | The new and changed routes as eight callers: the platform operator, the administrators of two tenants, a viewer of one tenant, a viewer of the default tenant, and a finance, an on-call and a patch role | Each route refuses the callers it should. The exceptions are findings 1 and 2 |
 | A write from another origin | `POST /api/config` with a foreign `Origin` header | 403 |
-| Hostile input to every route | All 958 operations of the OpenAPI document (753 paths) on a seeded server with tenancy on: 913 requests with no session (45 operations that sign out, change a password, restore, update, restart and the like are left out), 1,152 reads as the platform operator, as a viewer and as a tenant administrator, and 3,456 writes, eight bad bodies for each of 432 operations, as the platform operator | No 500. Seventeen requests answered 503, all on the three SAML routes, because the SAML library is not installed here. The same fifteen operations answer 200 or 204 without a session as in 7.4.2 (the sign-in, the installer scripts and agent versions, the portal's magic-link request, alert action links, the start of a passkey sign-in, the two report beacons for CSP and client errors, the customer satisfaction link, the health check and the public information) |
+| Hostile input to every route | The 958 operations of the OpenAPI document (753 paths) on a seeded server with tenancy on. With no session: 913 requests (the 45 that sign out, change a password, restore, update, restart and the like are left out). The 384 reads, as the platform operator, as a viewer and as a tenant administrator: 1,152 requests. The 432 writes (`POST`, `PUT` and `PATCH`), as the platform operator, with eight bad bodies each: 3,456 requests | No 500. Seventeen requests answered 503, all on the three SAML routes, because the SAML library is not installed here. The same fifteen operations answer 200 or 204 without a session as in 7.4.2 (the sign-in, the installer scripts and agent versions, the portal's magic-link request, alert action links, the start of a passkey sign-in, the two report beacons for CSP and client errors, the customer satisfaction link, the health check and the public information) |
 | Hostile heartbeats | The report of a host through the real handler: 2,500 reports built from the reports of 14 seeded hosts, with a hostile value placed anywhere in them (an integer too large for a float, NaN, an infinity, a string, a list, a dictionary, 3,000 characters, a NUL byte, markup) | Before the fix 827 and 799 of 2,500 answered 500 in two runs, about a third. After it, 2,500 of 2,500 answer 200 |
 | Planted text in a real browser | A drive name, a container match, an integration label, the error text of a remote service, a disk name sent by a host and a window's reason, each holding an image tag with an `onerror`, then 14 pages and panes opened (Home, the Alerts inbox, Predictive Health, Containers, Tuning, Maintenance, Integrations, two Settings panes, the host's drawer and four of its sections) | No script ran, no element appeared, no dialog opened, no page error was raised. Where the text is shown it is shown as text |
 | Mutation checks | Each new test run against the code with its fix taken out: 27 changes | 26 caught. The one that survived is a second line of defence (below) |
@@ -157,12 +157,17 @@ that fixed it says whether the test was run against the old code.
 
 ## Left for the release gate
 
-The suite on both storage backends, and the checks that need the release commit (the tarball
-scan and the signature), run on the commit before the header flip. The release commit adds
-their numbers here.
+Run on the commit before the header flip (84e2656b): the suite on JSON, 16,640 tests, and on
+SQLite, 16,434 tests. Both pass except `test_v643_aur_tracks_release` (two subtests), which
+compares the AUR packages with the newest dated release in the changelog. It goes red the
+moment the header carries a date and stays red until the AUR packages are bumped, and that
+bump needs the checksum of a published tarball, so for a release that is not published it is
+red by design. The PostgreSQL suite (`tests.test_pg`, 28 tests) ran against a real server and
+passes; it was PostgreSQL 18.6 here, and CI runs 16. `tools/release-prep.py verify`: 0 failures.
+gitleaks over every commit and over the unpacked release tarball: no leaks.
 
 Not run for this release: a live probe of the maintainer's own instance (it needs a one-time
 token), the nginx scanners (above), the SAML routes (the library is not installed here, so
-all three answer 503), the PostgreSQL suite and the run with Python 3.14 and the CI
-dependency list (both belong to `make pre-release`, which cannot finish on a dated header
-while the AUR packages trail it), and a native read of the new translations.
+all three answer 503), the run with Python 3.14 and the CI dependency list (it belongs to
+`make pre-release`, which cannot finish on a dated header while the AUR packages trail it),
+and a native read of the new translations.

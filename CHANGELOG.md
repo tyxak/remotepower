@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.3 — "M3asureMatters" — unreleased (test)
+## v7.4.3 — "M3asureMatters" — 2026-10-28
 
 The next batch of requests from the same Docker install, filed on tyxak/remotepower
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
