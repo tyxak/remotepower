@@ -9,7 +9,7 @@ releases only; for an older release the entry below is the record.
 
 The next batch of requests from the same Docker install, filed on tyxak/remotepower
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
-rough edges of the HTTP monitors. Each change adds its own entry here when it lands.
+rough edges of the HTTP monitors. The release page is [docs/v7.4.3.md](docs/v7.4.3.md).
 
 ### Documentation
 

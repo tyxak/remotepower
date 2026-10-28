@@ -200,7 +200,12 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 ### Recent releases
 
 - **v7.4.3 "M3asureMatters"** — the next batch of requests from the same Docker
-  install: more to measure and alert on, and a few rough edges of the HTTP monitors.
+  install. Linux hosts report how busy each disk is, with an alert for a disk that
+  stays busy, and a drive can have a name that follows its serial number.
+  Containers get CPU and memory lines. A maintenance window can raise no alerts at
+  all. HTTP monitors can expect a 401, choose HEAD or GET and skip the certificate
+  check. Two new integrations read Prometheus, by PromQL query or by scraping an
+  exporter.
 - **v7.4.2 "Re4lMatters"** — fixes for four reports from a Docker install of
   7.4.1. In each, the dashboard says one thing and the host is doing another.
   An alert for a stopped container closes when the container runs again, and
