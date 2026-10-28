@@ -95,6 +95,7 @@ def tearDownModule():
         _STACK["shutdown"]()
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class _Page(unittest.TestCase):
 
     @property
