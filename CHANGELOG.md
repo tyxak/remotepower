@@ -175,6 +175,39 @@ rough edges of the HTTP monitors. The release page is [docs/v7.4.3.md](docs/v7.4
   export and import, and an Uptime Kuma import carries over *Ignore TLS/SSL errors*
   and the request method. (#52)
 
+### Security
+
+The review of this release found four issues. All four were caught before release and are
+fixed. See `docs/security-review-7.4.3.md`.
+
+- **The Test buttons that name an address or a recipient are the platform operator's.** On
+  an install with tenancy on, the administrator of one tenant could press the integration
+  Test button and have the server call any address it can reach, and read back the numbers
+  a service there holds. It was reproduced against an exporter on a private address, and
+  the Prometheus connectors make that far more useful than before. The mail test sent a
+  message to any recipient as the platform, the directory test connected to any directory
+  address, the directory sign-in test was a password oracle for the platform's directory,
+  the ticket mailbox test connected to any host and port with no address guard, and the
+  Proxmox test connected to a host named in the request. The saves beside them were already
+  the platform operator's. The six buttons are now too, and a test lists every handler whose
+  name says it is a test (22) and requires each to carry the gate or to give the reason it
+  needs none. Nothing changes on an install with tenancy off.
+- **A tenant administrator reads the integration list as a viewer does.** The list returned
+  every integration with its raw address, and from 7.4.3 with a probe's path (which can carry
+  a token) and a Prometheus instance's lines. It also listed the integrations bound to another
+  tenant's hosts, with their state and numbers. With tenancy on, the raw fields go to the
+  platform operator only and rows bound to hosts outside the caller's tenant are left out. The
+  stored secret was never returned.
+- **A host's report can no longer make its own heartbeat fail.** Nine places read a figure in
+  the report with a bare `float()` or `int()`, and the check for the new disk figures raised on
+  an integer too large for a float. An integer that large, NaN, an infinity, a string or a list
+  in the wrong place answered 500 and the report was lost. About a third of 2,500 reports with a
+  hostile value placed in them failed (827 and 799 in two runs); none does now.
+- **The audit entry for a window says what kind it is.** A window that keeps events out of the
+  Alerts inbox hides more than one that holds notifications, and the entry for adding or
+  editing a window said only the scope, the target and the reason. It says `suppress=alerts` or
+  `suppress=notifications`.
+
 ## v7.4.2 — "Re4lMatters" — 2026-10-27
 
 A patch release for four reports from a Docker install of 7.4.1. In each, the

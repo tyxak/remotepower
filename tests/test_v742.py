@@ -175,6 +175,8 @@ class TestTheSecurityReview(unittest.TestCase):
     def test_the_changelog_and_the_notes_agree_on_the_count(self):
         for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.2.md", "## Security review")):
             body = (_ROOT / rel).read_text()
+            if rel == "CHANGELOG.md":
+                body = body[body.index("## v7.4.2 \u2014 "):]      # the newer entries have a Security section too
             section = body[body.index(heading):][:900]
             self.assertIn("three issues", re.sub(r"\s+", " ", section), rel)
 

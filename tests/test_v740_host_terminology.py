@@ -36,8 +36,7 @@ HTML = ROOT / 'server' / 'html'
 JS = HTML / 'static' / 'js'
 
 # Release notes and reviews that describe an earlier version in that version's words.
-HISTORY = {'v7.1.0.md', 'v7.2.0.md', 'v7.3.0.md',
-           'security-review-7.3.0.md'}
+HISTORY = {'v7.1.0.md', 'v7.2.0.md', 'v7.3.0.md'}
 
 # Exceptions: (file, regular expression the leftover context must match) -> why the word stays.
 # Every entry must still match something, so the list can only shrink.

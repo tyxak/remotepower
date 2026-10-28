@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.3-1">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.3-2">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.3-1">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.3-2">
 
 </head>
 <body>
@@ -4819,7 +4819,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.4.3 m3asurematters measure metrics http monitor expected status verify tls certificate method head get maintenance window alerts entirely disk names serial smart container cpu memory thresholds disk io busy prometheus promql exporter node_exporter scrape">
+          <details class="doc-card" open data-keywords="release notes changelog v7.4.3 m3asurematters measure metrics http monitor expected status verify tls certificate method head get maintenance window alerts entirely disk names serial smart container cpu memory thresholds disk io busy prometheus promql exporter node_exporter scrape security review tenant administrator test button integration list heartbeat audit">
             <summary><strong>What's new — v7.4.3 &ldquo;M3asureMatters&rdquo;</strong> &mdash; the next batch of requests from the same Docker install.</summary>
             <div class="doc-body">
               <p><strong>Disks.</strong> The Hardware tab has a <em>Disk I/O</em> table: for each whole disk and RAID array on a Linux host, how busy it is, the read and write rate, IOPS, the wait and an hour of trend. Set how busy a disk may be under <strong>Settings &rarr; Alert parameters &rarr; Disk activity</strong>, or for one host under its Metric thresholds, and a disk that stays over the line for several reports in a row raises one alert. A drive can also have a name, kept against its serial number so it follows the drive whatever its letter. Update the Linux agents to get the disk figures. See <a href="docs/disk-health.md" class="c-accent">Predictive Health</a>.</p>
@@ -4827,6 +4827,7 @@
               <p><strong>Maintenance windows.</strong> A window can raise no alerts at all: what it covers stays out of the Alerts inbox, Needs attention and the stopped-containers count, and each held event is still listed in the suppression log. Windows for a site, a tag or a smart group can be saved from the form. See <a href="docs/maintenance.md" class="c-accent">Maintenance windows</a>.</p>
               <p><strong>HTTP monitors.</strong> An expected status decides alone, so an app behind a login can be watched for 401. A monitor you edit while it is down closes its alert. A monitor chooses its method (Auto, HEAD or GET) and can skip the certificate check. See <a href="docs/monitors.md" class="c-accent">Active monitors</a>.</p>
               <p><strong>Prometheus.</strong> Two new integrations read Prometheus: a PromQL query against a server, and a scrape of an exporter&rsquo;s <code>/metrics</code> page. Each value you name is a metric you can alert on and, with <em>Runs on host</em>, see on that host&rsquo;s card with its trend. An integration&rsquo;s own fields and its <em>Alert on a metric</em> thresholds now come back when its form is opened again; they were saved and not sent back, so the next save removed them. See <a href="docs/integrations.md" class="c-accent">Integrations</a>.</p>
+              <p><strong>Security review.</strong> Four issues were fixed before release. The Test buttons that make the server call an address or send mail belong to the platform operator, a tenant administrator reads the integration list as a viewer does, a host&rsquo;s report can no longer make its own heartbeat fail, and the audit entry for a maintenance window says what kind it is. See <a href="docs/security-review-7.4.3.md" class="c-accent">the review</a>.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v7.4.3.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
@@ -12492,39 +12493,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.3-1"></script>
+<script defer src="static/js/app.js?v=7.4.3-2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-containers.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-network.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-containers.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-network.js?v=7.4.3-2"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.3-2"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-dns.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-drift.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-cve.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-backups.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-iac.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-virt.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-ai.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-dns.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-drift.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-cve.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-backups.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-iac.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-virt.js?v=7.4.3-2"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-remote.js?v=7.4.3-1"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-logs.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-remote.js?v=7.4.3-2"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.3-2"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-self.js?v=7.4.3-2"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.3-1"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.3-2"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12534,6 +12535,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.3-1"></script>
+<script defer src="static/js/sw-register.js?v=7.4.3-2"></script>
 </body>
 </html>

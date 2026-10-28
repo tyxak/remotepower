@@ -2,11 +2,11 @@
 """v7.4.3 "M3asureMatters" — release pins.
 
 The CURRENT release carries the strict version pins; older test_vXYZ.py files
-have theirs loosened to shape checks. Headline: a patch release for four
-reports from a Docker install of 7.4.1. In each, the dashboard says one thing
-and the host is doing another. The behaviour lives in the per-item test files,
-each guard watched failing before it was trusted; what is here is that the
-release contains them.
+have theirs loosened to shape checks. Headline: the next batch of requests from
+the same Docker install (#46 to #52): more of what the fleet knows measured and
+alerted on, and a few rough edges of the HTTP monitors. The behaviour lives in
+the per-item test files, each guard watched failing before it was trusted; what
+is here is that the release contains them.
 """
 
 import re
@@ -136,6 +136,72 @@ class TestVersionBumps(unittest.TestCase):
         older = html[html.index('older versions history'):]
         kw = older[:older.index('"')]
         self.assertIn("f1nishmatters", kw.lower())
+
+
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it names
+    what it found, it says what it did not run, and the three kept reviews are the last three."""
+
+    DOC = "docs/security-review-7.4.3.md"
+
+    def raw(self):
+        return (_ROOT / self.DOC).read_text()
+
+    def text(self):
+        return re.sub(r"\s+", " ", self.raw())
+
+    def test_it_exists_and_is_indexed(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md"):
+            self.assertIn("security-review-7.4.3.md", (_ROOT / rel).read_text(), rel)
+
+    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
+        text = self.text()
+        self.assertIn("everything that changed since 7.4.2, the last reviewed release", text)
+        self.assertIn("were not run this time", text)           # the nginx scanners
+        self.assertIn("## Known and unchanged", text)
+        self.assertIn("a live probe of the maintainer's own instance", text)
+
+    def test_it_names_the_four_findings_and_the_summary_has_four_rows(self):
+        text = self.text()
+        self.assertIn("**four** issues", text)
+        for needle in ("Six Test buttons that take an address or a recipient from the request",
+                       "The integration list showed a tenant administrator more than a viewer sees",
+                       "A host's report could make its own heartbeat fail",
+                       "did not say that a window raises no alerts"):
+            self.assertIn(needle, text)
+        rows = re.findall(r"^\| ([1-9]) \|", self.raw(), re.M)
+        self.assertEqual(rows, ["1", "2", "3", "4"])
+
+    def test_no_placeholder_is_left(self):
+        self.assertNotIn("@@", self.raw())
+
+    def test_it_reveals_no_command_for_the_attack(self):
+        text = self.raw()
+        for needle in ("curl", "X-Token", "wget", "nc -"):
+            self.assertNotIn(needle, text, needle)
+
+    def test_the_changelog_and_the_notes_agree_on_the_count(self):
+        for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.3.md", "## Security review")):
+            body = (_ROOT / rel).read_text()
+            section = body[body.index(heading):][:900]
+            self.assertIn("four issues", re.sub(r"\s+", " ", section), rel)
+
+    def test_the_card_links_the_review(self):
+        html = _html()
+        card = html[html.index("What's new — v" + V):]
+        card = card[:card.index("</details>")]
+        self.assertIn("docs/security-review-7.4.3.md", card)
+
+    def test_three_reviews_are_kept_and_this_is_one_of_them(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(len(reviews), 3, reviews)
+        self.assertIn("security-review-7.4.3.md", reviews)
+
+    def test_the_review_that_left_the_window_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.3.0.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.3.0.md", (_ROOT / rel).read_text(), rel)
 
 
 class TestTheDocsKeepWhatTheyPromised(unittest.TestCase):

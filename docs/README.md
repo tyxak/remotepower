@@ -61,6 +61,11 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.3.md](security-review-7.4.3.md)** — the v7.4.3 review: the Test
+  buttons that let a tenant administrator make the server call an address or send mail,
+  an integration list that showed a tenant administrator more than a viewer sees, and a
+  host report that could make its own heartbeat fail. Four issues, all caught before
+  release, with the scans and the run over every route behind them.
 - **[security-review-7.4.2.md](security-review-7.4.2.md)** — the v7.4.2 review, which
   also covers 7.4.1: a root agent that a FIFO or a planted state file in `/tmp` could
   stop or steer, and an installer that trusted a CA address nothing authenticated.
@@ -70,15 +75,6 @@ holds long-form docs that don't fit there.
   scoped to what changed: the firewall-syslog reader, the agents' new reads, who sees
   what in the ignore list and the new alert, and the status codes that decide whether
   the dashboard signs you out. Nine issues, all caught before release.
-- **[security-review-7.3.0.md](security-review-7.3.0.md)** — the v7.3.0 review,
-  scoped to what is new rather than the whole project: a stored Cloudflare token,
-  two feeds the server reads from outside and turns into public reports, a
-  firewall-log reader, and a second token that can edit lists with a sync that
-  writes one, and the automatic bans between hosts and the edge, plus a pass over
-  the rest of the product with the scanners we use. Twenty-three issues, all caught
-  before release, among them a stored session hash that worked as a session, an
-  IPv6 zone id that reached a root shell and an agent that could have claimed the
-  honeypot's decision.
 - **[v7.4.3.md](v7.4.3.md)** — "M3asureMatters": the next batch of requests from
   the same Docker install: more to measure and alert on, and a few rough edges of
   the HTTP monitors.
