@@ -7231,6 +7231,8 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   margin-bottom:12px; background:var(--surface); }
 .integration-card-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
 .integration-card .settings-row { gap:14px; flex-wrap:wrap; }
+/* v7.4.3 (#46): a field of several lines (the Prometheus connectors' values) takes the whole row. */
+.integration-card .settings-row .form-group.form-group-wide { flex: 1 1 100%; }
 /* Connector-catalog rows: label + meta share a text baseline (not the
    form-row flex-end that bottom-aligns differently-sized text). */
 .connector-row { display:flex; align-items:baseline; gap:6px; padding:3px 0; flex-wrap:wrap; }

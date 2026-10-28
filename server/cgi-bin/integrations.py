@@ -24,6 +24,7 @@ import json
 import re
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.parse
 
@@ -37,6 +38,7 @@ UNKNOWN = "unknown"
 # Field kinds the Settings UI knows how to render.
 TEXT = "text"
 PASSWORD = "password"
+TEXTAREA = "textarea"  # v7.4.3: several lines (the Prometheus connectors' values)
 
 
 class IntegrationError(Exception):
@@ -2498,6 +2500,381 @@ def _custom_probe(inst, c):
     return {"status": OK, "detail": f"HTTP {r.status}", "metrics": metrics}
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# v7.4.3 (#46) — Prometheus: a PromQL query against a server, or a scrape of an
+# exporter's /metrics page. Both read named values, so the thresholds under
+# "Alert on a metric", the host card and its trend treat them like any other
+# connector's numbers.
+# ══════════════════════════════════════════════════════════════════════════════
+PROM_MAX_VALUES = 12  # the history keeps twelve numbers an instance (api._INTEG_NUMERIC_MAX)
+# Connectors whose headline chips are every number they read, under the names the operator chose, so
+# _STATS has nothing to list for them.
+DYNAMIC_STATS = frozenset({"prometheus", "prometheus_exporter"})
+_PROM_BUDGET_S = 20.0  # one poll asks for its values for this long at most; the rest wait for the next poll
+_PROM_MAX_LINE = 500  # characters in one value line
+_PROM_MAX_SAMPLES = 200_000  # sample lines read from one page
+_PROM_MAX_LABELS = 64  # labels read from one sample
+_PROM_MAX_LABEL_VALUE = 1024
+_PROM_MAX_MATCHERS = 16
+_PROM_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.:-]{0,63})\s*=(?![=~])\s*(\S.*)$")
+_PROM_METRIC_RE = re.compile(r"^[A-Za-z_:][A-Za-z0-9_:]*$")
+_PROM_NAME_AT = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]*")
+_PROM_LABEL_AT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_PROM_ESCAPES = {"n": "\n", "\\": "\\", '"': '"', "'": "'"}
+
+
+def _prom_num(v):
+    """A whole number as an int (a byte count reads better than 6200000000.0), anything else as it is."""
+    return int(v) if v == int(v) and abs(v) < 1e15 else v
+
+
+def parse_prom_lines(text, need_alias=True):
+    """The value lines of a Prometheus instance: ``name = expression``, one to a line.
+
+    Blank lines and lines that start with # are skipped. Returns ``[(line number, name or None,
+    expression)]``. A line that cannot be used raises IntegrationError naming it: a value that is
+    silently left out is one the operator believes is being read."""
+    out = []
+    for n, raw in enumerate(str(text or "").splitlines(), 1):
+        line = "".join(ch for ch in raw if ch == "\t" or (ord(ch) >= 0x20 and ord(ch) != 0x7F)).strip()
+        if not line or line.startswith("#"):
+            continue
+        if len(line) > _PROM_MAX_LINE:
+            raise IntegrationError(f"line {n} is longer than {_PROM_MAX_LINE} characters")
+        m = _PROM_LINE_RE.match(line)
+        if m:
+            name, expr = m.group(1), m.group(2).strip()
+        elif need_alias:
+            raise IntegrationError(f"line {n}: write it as  name = expression")
+        else:
+            name, expr = None, line
+        out.append((n, name, expr))
+        if len(out) > PROM_MAX_VALUES:
+            raise IntegrationError(f"at most {PROM_MAX_VALUES} values to an instance; add a second instance")
+    return out
+
+
+def parse_query_lines(text):
+    """The lines of a PromQL instance -> ``[(name, expression)]``, each name used once."""
+    out, seen = [], set()
+    for n, name, expr in parse_prom_lines(text, need_alias=True):
+        if name in seen:
+            raise IntegrationError(f"line {n}: the name {name} is used twice")
+        seen.add(name)
+        out.append((name, expr))
+    return out
+
+
+def parse_selector(expr):
+    """``metric`` or ``metric{label="value", other!="x"}`` -> ``(metric, [(label, op, value)])``.
+
+    Only = and != matchers. A page of samples is not searched with expressions, and a pattern the
+    operator wrote is not run against text a remote host chose; the query form takes any PromQL."""
+    s = str(expr).strip()
+    brace = s.find("{")
+    metric = (s if brace < 0 else s[:brace]).strip()
+    if not _PROM_METRIC_RE.match(metric):
+        raise IntegrationError(f"{metric[:40]!r} is not a metric name")
+    if brace < 0:
+        return metric, []
+    if not s.endswith("}"):
+        raise IntegrationError("a selector ends with }")
+    body = s[brace + 1 : -1]
+    matchers, i, n = [], 0, len(body)
+    while True:
+        while i < n and body[i] in " \t,":
+            i += 1
+        if i >= n:
+            break
+        m = _PROM_LABEL_AT.match(body, i)
+        if not m:
+            raise IntegrationError("a label name is expected inside { }")
+        label, i = m.group(0), m.end()
+        while i < n and body[i] in " \t":
+            i += 1
+        op = body[i : i + 2] if body[i : i + 2] in ("!=", "=~", "!~") else body[i : i + 1]
+        if op in ("=~", "!~"):
+            raise IntegrationError("regular expression matchers are not supported on a scrape; use the query form")
+        if op not in ("=", "!="):
+            raise IntegrationError(f"after {label} write = or !=")
+        i += len(op)
+        while i < n and body[i] in " \t":
+            i += 1
+        if i >= n or body[i] not in "\"'":
+            raise IntegrationError(f"the value of {label} goes in quotes")
+        quote = body[i]
+        i += 1
+        buf = []
+        while i < n and body[i] != quote:
+            if body[i] == "\\" and i + 1 < n:
+                buf.append(_PROM_ESCAPES.get(body[i + 1], "\\" + body[i + 1]))
+                i += 2
+            else:
+                buf.append(body[i])
+                i += 1
+        if i >= n:
+            raise IntegrationError(f"the quote after {label} is not closed")
+        i += 1
+        matchers.append((label, op, "".join(buf)))
+        if len(matchers) > _PROM_MAX_MATCHERS:
+            raise IntegrationError(f"at most {_PROM_MAX_MATCHERS} matchers to a value")
+    return metric, matchers
+
+
+def parse_scrape_lines(text):
+    """The lines of an exporter instance -> ``[(name, metric, matchers)]``. The name is the
+    metric's own when the line does not give one, and each name is used once."""
+    out, seen = [], set()
+    for n, name, expr in parse_prom_lines(text, need_alias=False):
+        try:
+            metric, matchers = parse_selector(expr)
+        except IntegrationError as e:
+            raise IntegrationError(f"line {n}: {e}") from None
+        name = name or metric
+        if name in seen:
+            raise IntegrationError(f"line {n}: the name {name} is used twice; give each value a name of its own")
+        seen.add(name)
+        out.append((name, metric, matchers))
+    return out
+
+
+def _prom_page_labels(line, i):
+    """The ``{...}`` block of a sample line starting at ``line[i]`` -> ``(labels, index after the })``,
+    or None when it is malformed. Values are quoted with \\ escapes; bounded in count and length."""
+    labels, n = {}, len(line)
+    i += 1
+    while True:
+        while i < n and line[i] in " \t,":
+            i += 1
+        if i >= n:
+            return None
+        if line[i] == "}":
+            return labels, i + 1
+        m = _PROM_LABEL_AT.match(line, i)
+        if not m or m.end() >= n or line[m.end()] != "=":
+            return None
+        name, j = m.group(0), m.end() + 1
+        if j >= n or line[j] != '"':
+            return None
+        j += 1
+        buf = []
+        while j < n and line[j] != '"':
+            if line[j] == "\\" and j + 1 < n:
+                buf.append(_PROM_ESCAPES.get(line[j + 1], "\\" + line[j + 1]))
+                j += 2
+            else:
+                buf.append(line[j])
+                j += 1
+        labels[name] = "".join(buf)[:_PROM_MAX_LABEL_VALUE]  # a value that never closed ends the line: None below
+        if len(labels) > _PROM_MAX_LABELS:
+            return None
+        i = j + 1
+
+
+def iter_samples(text):
+    """``(metric, labels, value)`` for each sample line of a Prometheus text page.
+
+    Comments, lines that do not read and values that are not numbers are skipped; a timestamp
+    after the value is ignored. Bounded: it stops after _PROM_MAX_SAMPLES lines."""
+    count = 0
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line or line[0] == "#":
+            continue
+        count += 1
+        if count > _PROM_MAX_SAMPLES:
+            return
+        m = _PROM_NAME_AT.match(line)
+        if not m:
+            continue
+        metric, i, labels = m.group(0), m.end(), {}
+        if i < len(line) and line[i] == "{":
+            parsed = _prom_page_labels(line, i)
+            if parsed is None:
+                continue
+            labels, i = parsed
+        rest = line[i:].split(None, 1)
+        if not rest:
+            continue
+        try:
+            value = float(rest[0])
+        except ValueError:
+            continue
+        yield metric, labels, value
+
+
+def _prom_matches(labels, matchers):
+    for label, op, want in matchers:
+        if (labels.get(label, "") == want) != (op == "="):
+            return False
+    return True
+
+
+def prom_query_value(doc):
+    """``(value, None, series)`` or ``(None, why, series)`` from the answer of ``/api/v1/query``:
+    the first sample of a vector, or a scalar. ``series`` is how many series answered."""
+    data = doc.get("data") if isinstance(doc, dict) else None
+    if not isinstance(data, dict):
+        return None, "the answer has no data", 0
+    kind, result = data.get("resultType"), data.get("result")
+    if kind == "vector":
+        if not isinstance(result, list) or not result:
+            return None, "no data (the query returned nothing)", 0
+        first = result[0]
+        sample, series = (first.get("value") if isinstance(first, dict) else None), len(result)
+    elif kind == "scalar":
+        sample, series = result, 1
+    elif kind == "matrix":
+        return None, "a range, not a value; wrap it in a function such as avg_over_time()", 0
+    else:
+        return None, f"a {str(kind)[:20]} result is not a number", 0
+    if not (isinstance(sample, list) and len(sample) == 2):
+        return None, "the sample is not a [time, value] pair", series
+    try:
+        value = float(sample[1])
+    except (TypeError, ValueError):
+        return None, "the value is not a number", series
+    if value != value or value in (float("inf"), float("-inf")):
+        return None, f"the value is {str(sample[1])[:8]}", series
+    return _prom_num(value), None, series
+
+
+def _prom_auth(inst):
+    """Basic auth when there is a user name and a password, a bearer token when there is only the
+    secret, nothing when neither (a Prometheus on the LAN usually has no login)."""
+    user, tok = str(inst.get("username") or ""), str(inst.get("secret") or "")
+    if user and tok:
+        return {"Authorization": "Basic " + base64.b64encode(f"{user}:{tok}".encode()).decode()}
+    if tok:
+        return {"Authorization": "Bearer " + tok}
+    return {}
+
+
+def _prom_result(read, problems, note=""):
+    """The poll result: all values read is OK, some is a warning (it names what is missing), none is
+    critical. Values read are metrics either way, so a threshold on one still works."""
+    if not problems:
+        return {"status": OK, "detail": plural(len(read), "value", "values") + " read" + note, "metrics": read}
+    shown = "; ".join(f"{n}: {why}" for n, why in problems[:3])
+    more = f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""
+    return {"status": WARN if read else CRIT, "detail": shown + more, "metrics": read}
+
+
+@_register(
+    "prometheus",
+    "Prometheus (PromQL query)",
+    "observability",
+    [
+        _field(
+            "prom_lines",
+            "Values to read (one per line: name = PromQL expression)",
+            TEXTAREA,
+            placeholder='mem_active = node_memory_active_bytes{instance="192.168.0.1:9100"}\nload1 = node_load1{instance="192.168.0.1:9100"}',
+        ),
+        _field("username", "User name (optional, for Basic auth)", TEXT, optional=True),
+        _field("secret", "Password or bearer token (optional)", PASSWORD, optional=True),
+    ],
+    notes="Reads values from a Prometheus server with its HTTP API (/api/v1/query). Give the "
+    "server's URL, then one line for each value: a name, an equals sign and a PromQL expression. "
+    "The first sample of each answer becomes a metric under that name, which you can alert on under "
+    "Alert on a metric and see on the host the instance runs on. A query that returns nothing "
+    "counts as a problem, so write one that always answers, such as  count(up == 0) or vector(0).",
+)
+def _prometheus(inst, c):
+    lines = parse_query_lines(inst.get("prom_lines"))
+    if not lines:
+        raise IntegrationError("nothing to read: add a line such as  name = PromQL expression")
+    headers = _prom_auth(inst)
+    read, problems, several = {}, [], []
+    deadline = time.monotonic() + _PROM_BUDGET_S
+    for name, expr in lines:
+        # Each query has its own timeout, so twelve slow ones could hold the poll for minutes. The
+        # first is always asked; after that the poll stops asking and says which values it left.
+        if (read or problems) and time.monotonic() > deadline:
+            problems.append((name, "not asked; the server was too slow"))
+            continue
+        r = c.get("/api/v1/query", headers=headers, params={"query": expr})
+        if r.status in (401, 403):
+            raise IntegrationError(f"the server refused the credentials (HTTP {r.status})")
+        doc = r.json()  # IntegrationError for a body that is not JSON, saying what it was instead
+        if not isinstance(doc, dict) or doc.get("status") != "success":
+            err = doc.get("error") if isinstance(doc, dict) else None
+            problems.append((name, str(err or f"HTTP {r.status}")[:80]))
+            continue
+        value, why, series = prom_query_value(doc)
+        if value is None:
+            problems.append((name, why))
+            continue
+        read[name] = value
+        if series > 1:
+            several.append(name)
+    note = f" (several series answered for {', '.join(several[:3])}; the first is used)" if several else ""
+    return _prom_result(read, problems, note)
+
+
+@_register(
+    "prometheus_exporter",
+    "Prometheus exporter (/metrics scrape)",
+    "observability",
+    [
+        _field("prom_path", "Metrics path (default /metrics)", TEXT, optional=True, placeholder="/metrics"),
+        _field(
+            "prom_lines",
+            "Values to read (one per line: name = metric, with {label=\"value\"} if needed)",
+            TEXTAREA,
+            placeholder='mem_active = node_memory_active_bytes\nroot_free = node_filesystem_avail_bytes{mountpoint="/"}',
+        ),
+        _field("username", "User name (optional, for Basic auth)", TEXT, optional=True),
+        _field("secret", "Password or bearer token (optional)", PASSWORD, optional=True),
+    ],
+    notes="Reads values from an exporter's /metrics page (node_exporter on port 9100, an OPNsense or "
+    "Hubitat exporter, anything that speaks the Prometheus text format). Give the exporter's URL, "
+    "then one line for each value: a name, an equals sign, a metric name and optionally label "
+    "matchers with = or != in braces. The first sample that matches becomes a metric under that name, "
+    "which you can alert on under Alert on a metric and see on the host the instance runs on. "
+    "For a calculation across metrics, use the Prometheus (PromQL query) connector against a server.",
+)
+def _prometheus_exporter(inst, c):
+    wanted = parse_scrape_lines(inst.get("prom_lines"))
+    if not wanted:
+        raise IntegrationError("nothing to read: add a line such as  name = metric_name")
+    path = str(inst.get("prom_path") or "").strip() or "/metrics"
+    if not path.startswith("/"):
+        path = "/" + path
+    r = c.get(path, headers=_prom_auth(inst))
+    if r.status in (401, 403):
+        raise IntegrationError(f"the exporter refused the credentials (HTTP {r.status})")
+    if not r.ok:
+        raise IntegrationError(f"HTTP {r.status} from {path}")
+    if r.truncated:
+        raise IntegrationError(
+            f"{path} is larger than {MAX_RESPONSE_BYTES // (1024 * 1024)} MB; point it at a smaller page"
+        )
+    by_metric = {}
+    for name, metric, matchers in wanted:
+        by_metric.setdefault(metric, []).append((name, matchers))
+    first, count, seen_any = {}, {}, False
+    for metric, labels, value in iter_samples(r.text):
+        seen_any = True
+        for name, matchers in by_metric.get(metric, ()):
+            if _prom_matches(labels, matchers):
+                count[name] = count.get(name, 0) + 1
+                first.setdefault(name, value)
+    if not seen_any:
+        raise IntegrationError(f"{path} holds no Prometheus samples; is this an exporter's metrics page?")
+    read, problems = {}, []
+    for name, _metric, _matchers in wanted:
+        if name not in first:
+            problems.append((name, "not found on the page"))
+        elif first[name] != first[name] or first[name] in (float("inf"), float("-inf")):
+            problems.append((name, "the value is not a number"))
+        else:
+            read[name] = _prom_num(first[name])
+    several = [n for n in read if count.get(n, 0) > 1]
+    note = f" (several series match {', '.join(several[:3])}; the first is used)" if several else ""
+    return _prom_result(read, problems, note)
+
+
 # One GitHub owner/repo path segment pair. Repo names are interpolated into the
 # outbound URL path, so they MUST be reduced to a strict charset first (the
 # SSRF rule from the virt drivers: an absolute-URL "id" would otherwise pass
@@ -2625,6 +3002,12 @@ def format_stats(type_, metrics):
     the metric is absent)."""
     metrics = metrics or {}
     out = []
+    if type_ in DYNAMIC_STATS:
+        # The names are the operator's own, so there is no fixed list: every number is a chip.
+        for key, v in list(metrics.items())[:PROM_MAX_VALUES]:
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out.append({"label": str(key)[:64], "value": f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.4g}"})
+        return out
     for key, label, kind in _STATS.get(type_, []):
         if key in metrics and metrics[key] is not None:
             out.append({"label": label, "value": _fmt_stat(kind, metrics[key])})

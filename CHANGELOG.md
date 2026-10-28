@@ -106,6 +106,36 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   table of its own (`diskio_history.json`, per host, 120 samples a disk, a sample a
   minute at most) and goes with the host when it is deleted. (#49)
 
+### Integrations
+
+- **An integration that reads Prometheus.** Many homelab hosts export metrics in the
+  Prometheus format, and some can only be monitored that way (an OPNsense firewall
+  running node_exporter reports its real memory there), and the Custom HTTP probe
+  cannot read either form: an exporter answers in text, and the Prometheus API returns
+  lists. Two new connectors, because one instance has one URL. **Prometheus (PromQL
+  query)** asks a server (`/api/v1/query`) one expression for each value and takes the
+  first sample of the answer (a scalar works too). **Prometheus exporter (/metrics
+  scrape)** reads an exporter's text page and takes the first sample that matches a metric
+  name and optional `=` / `!=` label matchers. Each instance reads up to 12 values, one
+  line each (`name = …`), with Basic or bearer credentials if the target has a login. The
+  values are the instance's metrics, so the **Alert on a metric** thresholds of every other
+  connector apply to them, and an instance bound to a host (**Runs on host**) shows them
+  on that host's card with their trend. A query that returns nothing, a metric that is not
+  on the page and a value that is NaN make the instance a warning that names them; nothing
+  read, an unreachable server and a refused login make it critical. A line that cannot be
+  read is refused when you save, with its line number, instead of being left out. Regular
+  expression matchers are not supported on a scrape (the pattern would run against text a
+  remote host chose); use the query form for those. The card gets a box of several lines for
+  the values. That makes 50 connectors, besides the Custom HTTP probe. (#46)
+- **An integration's own fields and thresholds come back when the form is opened again.**
+  The instance list was a read whitelist that stopped at the URL, the credentials and the
+  host binding. A Custom HTTP probe's path, expected status and JSON check, and the
+  **Alert on a metric** thresholds of any instance, were saved and then not sent back, so the
+  form showed them empty, and the next save from that form (to change anything else)
+  removed them. They are sent back now, to administrators only, like the URL: a path can
+  carry a token. The rule is "every field a connector declares that is not a password",
+  and a test walks the whole registry to hold it.
+
 ### Monitors
 
 - **An HTTP monitor can expect a 4xx or 5xx.** Apps that sit behind a login (Sonarr,

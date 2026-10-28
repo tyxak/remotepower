@@ -118,7 +118,7 @@ something is bound to the host and stays shut when nothing is.
 | Virtualization / orchestration | **Kubernetes / k3s**, **VMware vSphere / ESXi / vCenter**, **Red Hat OpenShift**, **VMware Cloud Director**, **Proxmox Backup Server** |
 | Network | **UniFi Network** |
 | Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
-| Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)** |
+| Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)**, **Prometheus** (a PromQL query), **Prometheus exporter** (a `/metrics` scrape) |
 | Security / EDR | **Wazuh**, **CrowdStrike Falcon**, **SentinelOne** — each reports the hosts it protects, cross-referenced by `GET /api/edr/coverage` to name the machines with no EDR at all (see [edr-coverage.md](edr-coverage.md)) |
 | Media | **Jellyfin**, **Plex**, **Immich**, **Frigate** |
 | Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **WordPress** (site health + the last 5 logins with source IP, via an Application password and the Simple History plugin's REST API; IPs geo-enriched when a GeoIP MMDB is configured), **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
@@ -139,6 +139,9 @@ something is bound to the host and stays shut when nothing is.
 - **No credential / public**: Caddy admin API, Uptime Kuma (a published
   status-page slug), Vaultwarden (`/alive` liveness), Frigate, ESPHome
   dashboard (protect it at your proxy).
+- **Optional Basic or bearer**: Prometheus and Prometheus exporter. A user name
+  and a password send Basic auth; a password alone is sent as a bearer token;
+  leave both empty for a server on your LAN with no login.
 
 ### Notes per category
 
@@ -159,6 +162,29 @@ something is bound to the host and stays shut when nothing is.
   control-plane, and CRITICAL only when it's unreachable or the key is rejected.
   This is **read-only off-site visibility, not federation**: there is no shared
   identity and no cross-instance control.
+- **Prometheus** and **Prometheus exporter** *(v7.4.3)* read named values from
+  something that already speaks Prometheus, such as an OPNsense firewall running
+  node_exporter. You write one line for each value, `name = …`, up to 12 to an
+  instance. The first sample becomes a metric under that name, so you can alert on
+  it under **Alert on a metric**, and bound to a host with **Runs on host** the
+  value and its trend show on that host's card. A line that cannot be read is
+  refused when you save, with its line number.
+  - **Prometheus (PromQL query)**: the URL is the Prometheus server
+    (`http://prometheus.lab:9090`). Each line is a name and a PromQL expression,
+    for example `mem_active = node_memory_active_bytes{instance="192.168.0.1:9100"}`.
+    The first sample of the answer is the value, and a scalar works too. A query
+    that returns nothing counts as a problem, so write one that always answers,
+    such as `down = count(up == 0) or vector(0)`.
+  - **Prometheus exporter (/metrics scrape)**: the URL is the exporter
+    (`http://192.168.0.1:9100`) and the path is `/metrics` unless you change it.
+    Each line is a name and a metric, with `=` or `!=` label matchers if you need
+    them: `root_free = node_filesystem_avail_bytes{mountpoint="/"}`. Leave the name
+    out and the metric's own name is used. The first sample on the page that matches
+    is the value. Regular expressions are not supported on a scrape; for those, or
+    for a calculation across metrics, use the query form against a server.
+  - The status is *OK* when every value was read, *warning* when some were not (the
+    detail names them) and *critical* when none were, when the server cannot be
+    reached or when it refuses the login.
 - **Servarr** is a single connector for any *arr app — it **auto-detects the API
   version** (`/api/v3` for Sonarr/Radarr, `/api/v1` for Prowlarr/Lidarr/Readarr)
   and surfaces the app's own health-check warnings/errors. **Bazarr** uses a

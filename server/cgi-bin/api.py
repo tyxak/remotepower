@@ -27370,6 +27370,17 @@ def _redact_integration(inst, admin=True):
     (https://user:pass@host), so a viewer/mcp gets only a `url_set` flag — the
     `label` already identifies the target for status purposes."""
     safe = {k: inst.get(k) for k in INTEGRATION_FIELDS if k in inst}
+    if admin:
+        # v7.4.3: the fields a connector declares for itself (a probe's path, a Prometheus instance's
+        # lines) and the operator's metric thresholds. They were saved and never read back, so a form
+        # that was opened and saved again wiped them. Like the URL they can name an endpoint or carry
+        # a token in a query string, so a reader who cannot edit the instance does not get them.
+        for _f in ((integrations_mod.CONNECTORS.get(inst.get('type')) or {}).get('fields') or []):
+            _k = _f.get('key')
+            if _k and _f.get('kind') != integrations_mod.PASSWORD and _k not in safe and _k in inst:
+                safe[_k] = inst[_k]
+        if isinstance(inst.get('metric_thresholds'), list):
+            safe['metric_thresholds'] = inst['metric_thresholds']
     for f in _INTEGRATION_SECRET_FIELDS:
         safe.pop(f, None)
         safe[f + '_set'] = bool(inst.get(f))
@@ -27524,6 +27535,21 @@ def handle_integrations_save():
                 inst['probe_json_field'] = _no_ctrl(_sanitize_str(raw.get('probe_json_field', ''), 128))
                 inst['probe_json_op']    = _no_ctrl(_sanitize_str(raw.get('probe_json_op', ''), 16))
                 inst['probe_json_value'] = _no_ctrl(_sanitize_str(str(raw.get('probe_json_value', '')), 255))
+            # v7.4.3 (#46): the value lines of a Prometheus instance, and an exporter's path. The lines are
+            # checked here, so one that cannot be read is a 400 the operator sees and not a value that never
+            # shows up. An empty box is allowed: an instance can be saved before its lines are written.
+            if typ in ('prometheus', 'prometheus_exporter'):
+                inst['prom_lines'] = '\n'.join(
+                    _no_ctrl(_ln) for _ln in str(raw.get('prom_lines') or '').splitlines()[:50])[:6000]
+                if typ == 'prometheus_exporter':
+                    inst['prom_path'] = _no_ctrl(_sanitize_str(raw.get('prom_path', ''), 200))
+                try:
+                    if typ == 'prometheus':
+                        integrations_mod.parse_query_lines(inst['prom_lines'])
+                    else:
+                        integrations_mod.parse_scrape_lines(inst['prom_lines'])
+                except integrations_mod.IntegrationError as e:
+                    respond(400, {'error': inst['label'] + ': ' + str(e)})
             # v6.4.2: operator thresholds on this connector's own metrics —
             # the thing that lets a Pi-hole whose gravity list emptied actually
             # alert while its own status stays OK. Validated here rather than at
@@ -27592,6 +27618,11 @@ def handle_integration_test():
     for _f in ('username', 'slug', 'secret'):
         if inst.get(_f):
             inst[_f] = _no_ctrl(inst[_f])
+    # v7.4.3 (#46): the same cleaning the save gives a Prometheus instance's lines and path.
+    if inst.get('prom_lines') is not None:
+        inst['prom_lines'] = '\n'.join(_no_ctrl(_ln) for _ln in str(inst['prom_lines']).splitlines()[:50])[:6000]
+    if inst.get('prom_path') is not None:
+        inst['prom_path'] = _no_ctrl(_sanitize_str(inst['prom_path'], 200))
     if not inst.get('secret') and inst.get('id'):
         for i in _get_integrations():
             if str(i.get('id')) == str(inst['id']) and i.get('secret'):

@@ -184,7 +184,7 @@ hours.
 - **Stay compliant** — OpenSCAP CIS/STIG/PCI scans, with control mapping for
   PCI DSS v4.0, the HIPAA Security Rule, SOC 2, the ACSC Essential Eight and
   SMB1001.
-- **Integrate** — 48 connectors (homelab apps, hypervisors, and EDR — Wazuh,
+- **Integrate** — 50 connectors (homelab apps, hypervisors, and EDR — Wazuh,
   CrowdStrike, SentinelOne — cross-referenced to find hosts with no EDR at all),
   a custom HTTP probe that needs no code, Prometheus and Grafana endpoints,
   webhooks, syslog, and an MCP server.

@@ -14337,6 +14337,14 @@ function _integrationCardHtml(it, idx) {
       const set = it[f.key + '_set'];
       const val = f.kind === 'password' ? '' : escAttr(it[f.key] || '');
       const ph = f.kind === 'password' && set ? '•••••• (set — blank keeps it)' : escAttr(f.placeholder || '');
+      // v7.4.3 (#46): a field of several lines (the Prometheus connectors' values) takes the whole row.
+      if (f.kind === 'textarea') {
+        return `<div class="form-group form-group-wide">
+          <label class="form-label">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
+          <textarea class="form-input ff-mono fs-12" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off"
+                    data-ifield="${escAttr(f.key)}" placeholder="${ph}">${escHtml(it[f.key] || '')}</textarea>
+        </div>`;
+      }
       return `<div class="form-group">
           <label class="form-label">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
           <input type="${f.kind === 'password' ? 'password' : 'text'}" class="form-input" autocomplete="off"

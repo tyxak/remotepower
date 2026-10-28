@@ -48,7 +48,9 @@ def _mything(inst, c):
 A dict with the operator-entered fields: `inst.get("url")`, `inst.get("secret")`,
 `inst.get("username")`, `inst.get("slug")`, plus `verify_tls`. **Field keys must be
 one of** `secret` (the primary credential — auto-redacted everywhere),
-`username`, or `slug`. The `secret` field is never echoed back to the browser.
+`username`, or `slug`. The `secret` field is never echoed back to the browser. (The
+built-in Custom HTTP probe and Prometheus connectors have fields of their own, which the
+server saves in code; a plugin cannot add keys.)
 
 ### `c` — the SSRF-safe HTTP client
 

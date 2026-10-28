@@ -69,11 +69,12 @@ class TestConnectorRegistry(unittest.TestCase):
             for f in c['fields']:
                 # 'secret'/'username'/'slug' are the standard credential keys;
                 # the declarative custom_probe connector (v5.1.0) carries extra
-                # non-secret spec fields, all prefixed 'probe_'.
+                # non-secret spec fields, all prefixed 'probe_', and the two
+                # Prometheus connectors (v7.4.3) theirs, prefixed 'prom_'.
                 self.assertTrue(
-                    f['key'] in ('secret', 'username', 'slug') or f['key'].startswith('probe_'),
+                    f['key'] in ('secret', 'username', 'slug') or f['key'].startswith(('probe_', 'prom_')),
                     f"unexpected field key {f['key']} on {c['type']}")
-                self.assertIn(f['kind'], (I.TEXT, I.PASSWORD))
+                self.assertIn(f['kind'], (I.TEXT, I.PASSWORD, I.TEXTAREA))
 
     def test_secret_field_naming_redactable(self):
         # The primary credential must be named 'secret' (or be the non-secret
@@ -321,7 +322,14 @@ class TestRichTiles(unittest.TestCase):
 
     def test_every_connector_has_a_stat_spec(self):
         # Each registered connector should expose at least one headline chip.
+        # The two Prometheus connectors (v7.4.3) are the exception: their values are named by the
+        # operator, so every number they read is a chip (see DYNAMIC_STATS) and there is no fixed list.
+        self.assertEqual(set(I.DYNAMIC_STATS), {'prometheus', 'prometheus_exporter'})
+        self.assertTrue(set(I.DYNAMIC_STATS) <= set(I.CONNECTORS), 'a dynamic connector that is not registered')
         for t in I.CONNECTORS:
+            if t in I.DYNAMIC_STATS:
+                self.assertTrue(I.format_stats(t, {'any_name': 5}), f'{t} shows no chip for a number it read')
+                continue
             self.assertIn(t, I._STATS, f'{t} has no stat-chip spec')
             self.assertTrue(I._STATS[t])
 

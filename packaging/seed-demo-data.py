@@ -3887,6 +3887,14 @@ _DEMO_INTEG_DEFS = [
     ('overseerr', 'Overseerr', 'https://overseerr.lab', 'ok',
      '5 pending requests', '1.33.2',
      {'pending_requests': 5, 'update_available': False}),
+    # v7.4.3 (#46): Prometheus, as a server queried with PromQL and as an exporter's page scraped. The
+    # exporter runs on the firewall host, so the host's own card shows its values and their trend.
+    ('prometheus', 'Prometheus — lab', 'http://prometheus.lab:9090', 'ok',
+     '3 values read', None,
+     {'cpu_busy_pct': 23.4, 'mem_free_gb': 11.2, 'targets_down': 0}),
+    ('prometheus_exporter', 'node_exporter — opnsense', 'http://10.0.0.1:9100', 'ok',
+     '3 values read', None,
+     {'mem_active_bytes': 1840291840, 'load1': 0.42, 'root_free_bytes': 41234000000}),
 ]
 
 _DEMO_INTEGRATIONS = [
@@ -3943,6 +3951,23 @@ for _inst in _DEMO_INTEGRATIONS:
     if _inst['type'] in _DEMO_SNAPSHOTS:
         _inst['demo_snapshot'] = _DEMO_SNAPSHOTS[_inst['type']]
 
+# v7.4.3 (#46): the lines of the two Prometheus instances, the host the exporter runs on, and a threshold on
+# one of its values (the memory line is above today's reading, so nothing is firing).
+for _inst in _DEMO_INTEGRATIONS:
+    if _inst['type'] == 'prometheus':
+        _inst['prom_lines'] = (
+            'cpu_busy_pct = 100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100\n'
+            'mem_free_gb = node_memory_MemAvailable_bytes / 1024 / 1024 / 1024\n'
+            'targets_down = count(up == 0) or vector(0)')
+    elif _inst['type'] == 'prometheus_exporter':
+        _inst['prom_path'] = '/metrics'
+        _inst['prom_lines'] = ('mem_active_bytes = node_memory_active_bytes\n'
+                               'load1 = node_load1\n'
+                               'root_free_bytes = node_filesystem_avail_bytes{mountpoint="/"}')
+        _inst['device_id'] = 'fw01'
+        _inst['metric_thresholds'] = [{'metric': 'mem_active_bytes', 'op': 'gt', 'value': 3000000000,
+                                       'severity': 'high'}]
+
 _DEMO_INTEG_RESULTS = {
     _stable_id('integration', typ, label): (status, detail, metrics, version)
     for (typ, label, url, status, detail, version, metrics) in _DEMO_INTEG_DEFS
@@ -3972,8 +3997,13 @@ def build_integrations_state() -> dict:
         for i in range(7, -1, -1):               # 8 points, oldest → newest
             ts = checked - i * 300
             st = status if i == 0 else 'ok'       # only the latest reflects a fault
-            hist.append({'ts': ts, 'status': st,
-                         'detail': detail if i == 0 else 'ok'})
+            entry = {'ts': ts, 'status': st, 'detail': detail if i == 0 else 'ok'}
+            # v7.4.3 (#46): an instance bound to a host keeps its numbers (the host card draws their
+            # trend); the last point is exactly what the tile shows.
+            if inst.get('device_id'):
+                entry['m'] = {k: (v if i == 0 else round(v * rng.uniform(0.92, 1.08), 3))
+                              for k, v in metrics.items() if isinstance(v, (int, float))}
+            hist.append(entry)
         history[key] = hist
     return {'latest': latest, 'history': history}
 

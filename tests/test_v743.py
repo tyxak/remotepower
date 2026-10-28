@@ -166,6 +166,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v743_container_limits_e2e.py", # #50: the Tuning card, each host's form, the colours and trends
         "tests/test_v743_disk_io.py",              # #49: the agent's reading, the line, the alert, the history
         "tests/test_v743_disk_io_e2e.py",          # #49: the Hardware tab table, the host's boxes, the fleet's pane
+        "tests/test_v743_prometheus.py",           # #46: the parsers, the connectors, the client, the handlers, the host card
+        "tests/test_v743_prometheus_e2e.py",       # #46: the card with its box of lines, the round trip, a refused line
         "tests/test_v743_translations.py",      # the text the release added, in six languages
     )
 
