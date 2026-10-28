@@ -4012,6 +4012,26 @@
         </div>
 
         <div class="settings-section">
+          <div class="section-title">Disk activity</div>
+          <p class="hint">How busy a disk may be, as a share of the time it has a request in flight, before an alert. Both lines are off at 0. A disk has to stay over a line for several reports in a row, so a scrub or a backup that pins it for a minute does not page anyone. A line set for one host under Metric thresholds wins over these. <a href="docs/alert-parameters.md#disk-activity" class="c-accent">Documentation</a></p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-diskio-warn" class="form-label">Disk busy warn %</label>
+              <input type="number" id="ap-diskio-warn" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-diskio-crit" class="form-label">Disk busy crit %</label>
+              <input type="number" id="ap-diskio-crit" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-diskio-sustain" class="form-label">Reports in a row</label>
+              <input type="number" id="ap-diskio-sustain" class="form-input isl-80" min="1" max="60" placeholder="5">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">Reachability</div>
           <p class="hint">Flap-dampening confirm counts before a host, resolver or IP-reputation signal pages. Higher rides out transient blips; lower pages sooner. <a href="docs/alert-parameters.md#reachability" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
@@ -10088,6 +10108,17 @@ nextcloud mem=95 sustain=6</pre>
       <label class="fs-13">NIC floors (errors, drops)</label>
       <input type="number" class="form-input" id="thr-nic-err" min="1" max="100000" aria-label="NIC error floor">
       <input type="number" class="form-input" id="thr-nic-drop" min="0" max="100000" aria-label="NIC drop floor">
+    </div>
+
+    <!-- v7.4.3 (#49): how busy a disk may be on this host -->
+    <div class="isl-198">
+      <div class="isl-199">Disk busy share</div>
+      <div class="isl-200">How much of the time a disk may be busy before an alert, as a percentage. The first box is the warning, the second the critical line. Leave a box blank to follow the fleet setting under Settings, Alert parameters, shown in grey. A fleet line of 0 means nothing alerts.</div>
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">Disk busy % (warning, critical)</label>
+      <input type="number" class="form-input" id="thr-diskio-warn" min="1" max="99" aria-label="Disk busy warning">
+      <input type="number" class="form-input" id="thr-diskio-crit" min="1" max="99" aria-label="Disk busy critical">
     </div>
 
     <div class="isl-198">

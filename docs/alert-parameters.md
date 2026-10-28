@@ -147,6 +147,14 @@ before a warning and a critical alert. A host's own threshold override wins.
 Fields: Inode warn %, Inode crit %, File-descriptor warn %, File-descriptor
 crit %, Conntrack warn %, Conntrack crit %.
 
+### Disk activity
+
+How busy a disk may be, as a share of the time it has a request in flight, and how many
+reports in a row it has to stay over a line before an alert. Both lines are off at 0. A
+host's own line under Metric thresholds wins. See [disk-health.md](disk-health.md#disk-io-v743).
+
+Fields: Disk busy warn %, Disk busy crit %, Reports in a row.
+
 ### Reachability
 
 How many failed checks in a row before a host, a resolver or an IP-reputation

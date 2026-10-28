@@ -448,6 +448,9 @@ CMDB_SSH_PORT_MAX     = 65535
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_id: {serial: name}}
+DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
+_DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
+_DISKIO_HIST_MAX = 120          # samples kept per disk
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
@@ -10295,6 +10298,8 @@ def _alert_title(event, payload):
         return f'Log alert on {name}: {p.get("pattern") or p.get("unit", "")}'
     if event in ('metric_warning', 'metric_critical'):
         lvl = (p.get('level') or ('critical' if event == 'metric_critical' else 'warning')).upper()
+        if p.get('metric') == 'diskio' and p.get('target'):       # v7.4.3 (#49)
+            return f'Disk {p["target"]} busy {lvl} on {name}: {notify_mod._num(p.get("value", "?"))}%'
         return f'{p.get("metric", "metric")} {lvl} on {name}: {p.get("value", "?")}'
     if event == 'snmp_unreachable':
         return f'SNMP unreachable: {name} ({p.get("host", "?")})'
@@ -15024,7 +15029,7 @@ def _bf_active(dev_bf, cutoff, threshold):
 # that every open page re-fetches once a minute. A key belongs here when no
 # client file reads it off this response; verify with a grep over
 # server/html/static/js before adding one.
-_ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gaps'})
+_ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gaps', 'disk_io'})
 
 
 def handle_devices_list():
@@ -15270,6 +15275,7 @@ def _purge_device(dev_id):
         SNMP_DATA_FILE, HARDWARE_FILE, AV_FILE,
         DISK_NAMES_FILE,        # v7.4.3 (#47): a deleted host takes its disk names with it
         CONTAINER_STATS_HIST_FILE,   # v7.4.3 (#50): and its container samples
+        DISKIO_HIST_FILE,            # v7.4.3 (#49): and its disk I/O samples
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -15672,6 +15678,13 @@ def handle_device_metric_thresholds(dev_id):
                   'temp_warn_celsius',     'temp_crit_celsius'):
             if k in overrides:
                 effective[k] = overrides[k]
+        # v7.4.3 (#49): how busy a disk may be. `defaults` carries the FLEET's lines (0 = off), which is
+        # what a host with none of its own falls back to.
+        _gc = _config_ro()
+        _fleet_dio = {k: (_gc[k] if _finite_number(_gc.get(k)) and _gc[k] > 0 else 0)
+                      for k in ('diskio_warn_percent', 'diskio_crit_percent')}
+        for k, v in _fleet_dio.items():
+            effective[k] = overrides.get(k, v)
         # v7.4.1 (#37): the NIC floors. `defaults` carries the FLEET's values (Settings →
         # Alert parameters), which is what a host with none of its own falls back to;
         # a drops floor of None means errors and drops are added, shown as null.
@@ -15682,7 +15695,7 @@ def handle_device_metric_thresholds(dev_id):
             'overrides': overrides,
             'effective': effective,
             'defaults':  dict(DEFAULT_METRIC_THRESHOLDS, nic_err_alert_min=_fleet_err,
-                              nic_drop_alert_min=_fleet_drop),
+                              nic_drop_alert_min=_fleet_drop, **_fleet_dio),
             # v6.4.2: sensors this device's operator has taken out of the
             # temperature picture (a dead/unconnected board pin). Kept OUT of
             # `overrides` so a DELETE — "reset my thresholds" — does not also
@@ -15713,7 +15726,7 @@ def handle_device_metric_thresholds(dev_id):
               'swap_warn_percent', 'swap_crit_percent', 'cpu_warn_load_ratio',
               'cpu_crit_load_ratio', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent',
               'temp_warn_celsius', 'temp_crit_celsius', 'mailq_warn_count', 'mailq_crit_count',
-              'nic_err_alert_min', 'nic_drop_alert_min'):
+              'nic_err_alert_min', 'nic_drop_alert_min', 'diskio_warn_percent', 'diskio_crit_percent'):
         if k in body and body[k] is None:
             overrides.pop(k, None)
             del body[k]
@@ -15742,6 +15755,15 @@ def handle_device_metric_thresholds(dev_id):
             v = body[k]
             if not isinstance(v, (int, float)) or not (1 <= v <= 99):
                 respond(400, {'error': f'{k} must be a number between 1 and 99'})
+            overrides[k] = float(v)
+
+    # v7.4.3 (#49): how busy a disk may be on this host. A number from 1 to 99 (a bool is not one).
+    for k in ('diskio_warn_percent', 'diskio_crit_percent'):
+        if k in body:
+            v = body[k]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (1 <= v <= 99):
+                # A fixed sentence, so the dashboard can translate it (see the server-messages gate).
+                respond(400, {'error': 'The disk busy lines must be a number from 1 to 99', 'field': k})
             overrides[k] = float(v)
 
     # Load ratios (0.1 to 100 — 0.1 is "alert when even partially loaded")
@@ -21675,6 +21697,29 @@ def handle_heartbeat():
                         ent['delta_scale'] = round(_nic_scale, 3)
                     safe_io.append(ent)
                 safe_si['network_io'] = safe_io
+            # v7.4.3 (#49): per-disk I/O, one row per whole disk or md array, worked out by the agent
+            # from /proc/diskstats: the busy share of the interval, read and write MiB/s, IOPS and the
+            # average wait. A row needs a name and a busy share; the other figures are kept when they are
+            # finite and in range. Bounded at 32 rows.
+            if isinstance(si.get('disk_io'), list):
+                safe_dio = []
+                for row in si['disk_io'][:200]:
+                    if not isinstance(row, dict):
+                        continue
+                    dname = _sanitize_str(str(row.get('dev') or ''), 32).strip()
+                    busy = row.get('busy_pct')
+                    if not dname or not _finite_number(busy):
+                        continue
+                    ent = {'dev': dname, 'busy_pct': round(min(100.0, max(0.0, float(busy))), 1)}
+                    for k, hi, nd in (('read_mbs', 1e6, 2), ('write_mbs', 1e6, 2), ('riops', 1e8, 1),
+                                      ('wiops', 1e8, 1), ('await_ms', 1e6, 1)):
+                        v = row.get(k)
+                        if _finite_number(v) and 0 <= v < hi:
+                            ent[k] = round(float(v), nd)
+                    safe_dio.append(ent)
+                    if len(safe_dio) >= 32:
+                        break
+                safe_si['disk_io'] = safe_dio
             # Metrics — legacy three (root-mount disk, cpu, memory) plus
             # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
             for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent',
@@ -22615,6 +22660,10 @@ def handle_heartbeat():
         # beat that measured nothing must not append a sample.
         _record_metrics(dev_id, _fresh_si if _fresh_si is not None
                         else saved_dev['sysinfo'])
+        # v7.4.3 (#49): the disks' samples, only when this beat itself carried them. A partial beat's merged
+        # record still holds the last full reading, which would be sampled again under a new time.
+        if isinstance(_fresh_si, dict) and 'disk_io' in _fresh_si:
+            _record_diskio(dev_id, _fresh_si.get('disk_io') or [], now)
 
     # W3-47: merge any store-and-forward backfill (samples the agent spooled
     # while the server was unreachable) into the metrics history. History only —
@@ -23884,6 +23933,30 @@ def _backfill_metrics(dev_id, samples, now):
         window.sort(key=lambda w: w.get('ts', 0))
         metrics[dev_id] = window[-MAX_METRICS:]
     return len(clean)
+
+
+def _record_diskio(dev_id, rows, now):
+    """v7.4.3 (#49): add this report's rows to the host's disk I/O history (at most one sample a minute
+    for each disk, 120 kept) and forget the disks that are not reported any more. A sample is
+    [ts, busy %, read MB/s, write MB/s, IOPS (reads plus writes), await ms]."""
+    try:
+        hist = _entity_read_one(DISKIO_HIST_FILE, dev_id, {}) or {}
+        if not isinstance(hist, dict):
+            hist = {}
+        out = {}
+        for r in rows:
+            if not isinstance(r, dict) or not r.get('dev'):
+                continue
+            name = r['dev']
+            old = hist.get(name) if isinstance(hist.get(name), list) else []
+            if not old or now - old[-1][0] >= _DISKIO_HIST_MIN_GAP:
+                old = old + [[now, r.get('busy_pct'), r.get('read_mbs'), r.get('write_mbs'),
+                              round((r.get('riops') or 0) + (r.get('wiops') or 0), 1), r.get('await_ms')]]
+            out[name] = old[-_DISKIO_HIST_MAX:]
+        if out != hist:
+            _entity_write_one(DISKIO_HIST_FILE, dev_id, out)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] disk io history: {e}\n')
 
 
 def _record_metrics(dev_id, sysinfo):
@@ -28906,6 +28979,9 @@ def handle_config_get():
     safe.setdefault('fd_crit_percent', 95)             # file-descriptor fullness → critical
     safe.setdefault('conntrack_warn_percent', 80)      # conntrack fullness → warning
     safe.setdefault('conntrack_crit_percent', 95)      # conntrack fullness → critical
+    safe.setdefault('diskio_warn_percent', 0)          # v7.4.3: disk busy share → metric_warning (0 = off)
+    safe.setdefault('diskio_crit_percent', 0)          # disk busy share → metric_critical (0 = off)
+    safe.setdefault('diskio_sustain', 5)               # reports in a row over the line before it alerts
     safe.setdefault('offline_missed_polls', OFFLINE_MISSED_POLLS)             # offline after N missed polls
     safe.setdefault('laptop_offline_grace_hours', 0)  # v6.3.0: extra hours before a laptop-chassis host is offline-flagged (0 = same as servers)
     safe.setdefault('resolver_failures_before_alert', RESOLVER_HEALTH_CONFIRM)  # resolver_unhealthy confirm
@@ -30493,6 +30569,10 @@ def handle_config_save():
         ('fd_crit_percent',           1,   100,    True),
         ('conntrack_warn_percent',    1,   100,    True),
         ('conntrack_crit_percent',    1,   100,    True),
+        # v7.4.3 (#49): how busy a disk may be, and for how many reports in a row. 0 keeps it off.
+        ('diskio_warn_percent',       0,   100,    True),
+        ('diskio_crit_percent',       0,   100,    True),
+        ('diskio_sustain',            1,   60,     True),
         # Reachability — offline / resolver / IP-reputation confirm counts.
         ('offline_missed_polls',      1,   100,    True),
         ('laptop_offline_grace_hours', 0,  168,    True),   # v6.3.0 chassis-aware
@@ -45497,7 +45577,26 @@ def handle_device_hardware(dev_id):
                 _d['name'] = _nm
     speed = (load(SPEEDTEST_FILE) or {}).get(dev_id, [])
     disc  = (load(DISCOVERY_FILE) or {}).get(dev_id, {})
+    # v7.4.3 (#49): per-disk I/O: the latest reading, the recent samples, and the busy lines this host is
+    # held to (null when none is set; the critical line is null when only a warning line is). A disk the
+    # operator named (#47) carries its name, found through the SMART entry of the same device.
+    _dev_rec = device_get(dev_id) or {}
+    _io_hist = _entity_read_one(DISKIO_HIST_FILE, dev_id, {}) or {}
+    _smart_of = {str(d.get('device') or ''): d for d in _smart if isinstance(d, dict)}
+    _diskio = []
+    for _r in ((_dev_rec.get('sysinfo') or {}).get('disk_io') or []):
+        if not isinstance(_r, dict) or not _r.get('dev'):
+            continue
+        _w, _c = _resolve_metric_thresholds(_dev_rec, 'diskio', _r['dev'])
+        _h = _io_hist.get(_r['dev']) if isinstance(_io_hist, dict) else None
+        _row = dict(_r, hist=(_h[-60:] if isinstance(_h, list) else []), warn=_w,
+                    crit=(None if _c == float('inf') else _c))
+        _nm = _disk_name_of(_names, _smart_of.get('/dev/' + _r['dev']))
+        if _nm:
+            _row['name'] = _nm
+        _diskio.append(_row)
     respond(200, {
+        'diskio':    _diskio,
         'smart':     _smart,
         'kernel':    hw.get('kernel', {}),
         'hardware':  hw.get('hardware', {}),
@@ -50346,6 +50445,19 @@ def _compute_attention():
             kind, target = key.split(':', 1)
             if kind == 'disk':
                 continue  # handled above with mount path + pct
+            if kind == 'diskio':
+                # v7.4.3 (#49): a disk that stays busy. The item is kind 'disk' so it is muted, and held by
+                # a maintenance window, with the other disk problems (metric_warning / metric_critical).
+                _row = next((r for r in (si.get('disk_io') or [])
+                             if isinstance(r, dict) and r.get('dev') == target), {})
+                _w, _c = _resolve_metric_thresholds(dev, 'diskio', target)
+                _thr = _c if level == 'critical' else _w
+                if _thr is not None and _thr != float('inf') and _finite_number(_row.get('busy_pct')):
+                    items.append({
+                        'severity': 'critical' if level == 'critical' else 'warning', 'kind': 'disk',
+                        'device': dev.get('name', dev_id),
+                        'summary': f'disk {target} busy: {_row["busy_pct"]:.0f}% ({level} ≥ {_thr:.0f}%)'})
+                continue
             # Pull current value for the summary line. memory/swap come
             # from sysinfo top-level fields; cpu from loadavg.
             val_str = ''
@@ -69112,7 +69224,29 @@ def _resolve_metric_thresholds(dev, kind, target=''):
     if kind == 'conntrack':
         return (float(overrides.get('conntrack_warn_percent', _gc.get('conntrack_warn_percent', 80))),
                 float(overrides.get('conntrack_crit_percent', _gc.get('conntrack_crit_percent', 95))))
+    if kind == 'diskio':
+        # v7.4.3 (#49): how busy a disk is, as a share of the time. Off until a line is set (0 or nothing).
+        # A warning line alone leaves the critical one out of reach, and a critical line alone is also
+        # the warning. The host's own line wins over the fleet's, as for every other kind.
+        def _line(key):
+            v = overrides.get(key, _gc.get(key, 0))
+            return float(v) if _finite_number(v) and v > 0 else 0.0
+        w, c = _line('diskio_warn_percent'), _line('diskio_crit_percent')
+        if w <= 0 and c <= 0:
+            return (None, None)
+        return (w if w > 0 else c, c if c > 0 else float('inf'))
     return (None, None)
+
+
+def _diskio_sustain():
+    """Reports in a row a disk has to be over its busy line before it alerts (v7.4.3, #49). Its own
+    setting, not metric_failures_before_alert: a drive sits at 100% for a minute in any scrub, which is
+    not news, and a few minutes is."""
+    try:
+        n = int(_config_ro().get('diskio_sustain', 5))
+    except (TypeError, ValueError, OverflowError):
+        n = 5
+    return max(1, min(60, n))
 
 
 def _classify_metric(value, warn, crit):
@@ -69255,8 +69389,9 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
         else:
             _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold, extra)
 
-    def _check(kind, target, value):
-        """Check one metric and fire webhooks on transition."""
+    def _check(kind, target, value, hold=None):
+        """Check one metric and fire webhooks on transition. `hold` is the run of reports a first
+        breach has to last, when the kind has its own (the default is the global setting)."""
         if value is None:
             return
         warn, crit = _resolve_metric_thresholds(dev, kind, target)
@@ -69283,7 +69418,7 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
         # v4.3.0: flap dampening — hold a first ok→warn/crit breach until it
         # has persisted for `need` consecutive heartbeats (escalation, recovery
         # and de-escalation are never held).
-        if _metric_damp_hold(streaks, key, prev_level, new_level, need):
+        if _metric_damp_hold(streaks, key, prev_level, new_level, need if hold is None else hold):
             return
 
         # Transition. Fire the appropriate event.
@@ -69376,6 +69511,33 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
     elif safe_si.get('disk_percent') is not None:
         # Pre-v1.11.10 agent: only legacy root-disk metric. Treat as '/'.
         _check('disk', '/', safe_si['disk_percent'])
+
+    # v7.4.3 (#49): how busy each disk is, one key per disk ('diskio:sda'). Off until a line is set, and
+    # held for its own run of reports (see _diskio_sustain). Only a report that carries the figures is
+    # judged: a beat without them says nothing, so it leaves every state as it was. An alert is closed
+    # when its line is turned off or its disk leaves the list, so nothing stays open for a condition
+    # that cannot be checked any more.
+    if 'disk_io' in safe_si:
+        _io_hold = _diskio_sustain()
+        _io_seen = set()
+        for _r in (safe_si.get('disk_io') or []):
+            if not isinstance(_r, dict) or not _r.get('dev'):
+                continue
+            _t = _r['dev']
+            _k = f'diskio:{_t}'
+            _io_seen.add(_k)
+            if _resolve_metric_thresholds(dev, 'diskio', _t)[0] is None:
+                if state.get(_k, 'ok') != 'ok':
+                    _emit('metric_recovered', dev_id, dev, 'diskio', _t, _r.get('busy_pct'), 0)
+                state.pop(_k, None)
+                streaks.pop(_k, None)
+                continue
+            _check('diskio', _t, _r.get('busy_pct'), hold=_io_hold)
+        for _k in [k for k in state if k.startswith('diskio:') and k not in _io_seen]:
+            if state.get(_k, 'ok') != 'ok':
+                _emit('metric_recovered', dev_id, dev, 'diskio', _k.split(':', 1)[1], 0, 0)
+            state.pop(_k, None)
+            streaks.pop(_k, None)
 
     # v4.1.0: file-descriptor + conntrack table fullness (host-wide, no target).
     _check('fd', '', safe_si.get('fd_percent'))

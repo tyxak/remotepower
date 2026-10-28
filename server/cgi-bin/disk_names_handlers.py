@@ -121,7 +121,7 @@ def handle_device_disk_names(dev_id):
             else:
                 ignored.append(serial)              # a drive this host does not have
         if len(mine) > _PER_HOST_MAX:
-            A.respond(400, {'error': f'a host keeps at most {_PER_HOST_MAX} disk names'})
+            A.respond(400, {'error': 'Too many disk names for one host', 'limit': _PER_HOST_MAX})
         if mine:
             store[dev_id] = mine
         else:

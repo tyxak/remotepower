@@ -32,6 +32,7 @@ import sys as _rp_sys, pathlib as _rp_pl  # noqa: E402
 # then fails to import at all. Make it runnable on its own.
 _rp_sys.path.insert(0, str(_rp_pl.Path(__file__).resolve().parent))
 from test_v622_alert_params import _SaveBase, api, ROOT, _CGI
+import srcpin
 
 _API_SRC = (_CGI / "api.py").read_text()
 _CHECKS_SRC = (_CGI / "checks.py").read_text()
@@ -132,9 +133,7 @@ class TestDiskEtaSingleSource(unittest.TestCase):
     disk_forecast_* keys — the three copies (7/21, 2/7, 30/90) are gone."""
 
     def test_na_digest_reads_disk_forecast_keys(self):
-        na = _API_SRC[_API_SRC.index("def _compute_attention"):
-                      _API_SRC.index("def _compute_attention") + 60000]
-        na = na[:na.index("\ndef ", 100)]
+        na = srcpin.py_function(_API_SRC, "_compute_attention")
         self.assertIn("disk_forecast_crit_days", na)
         self.assertIn("disk_forecast_warn_days", na)
         # the old bare ladder is gone from the disk-fill NA item

@@ -8323,7 +8323,7 @@ async function openMetricThresholds(id, name) {
   // Clear the form before loading — avoids flashing stale values
   ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit',
    'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit','mailq-warn','mailq-crit',
-   'nic-err','nic-drop']
+   'nic-err','nic-drop','diskio-warn','diskio-crit']
     .forEach(k => {
       const el = document.getElementById('thr-' + k);
       if (el) el.value = '';
@@ -8367,6 +8367,9 @@ async function openMetricThresholds(id, name) {
   // v7.4.1 (#37): NIC error and drop floors (counts per report)
   fillField('thr-nic-err',       'nic_err_alert_min');
   fillField('thr-nic-drop',      'nic_drop_alert_min');
+  // v7.4.3 (#49): how busy a disk may be on this host; the placeholder is the fleet's line (0 = none)
+  fillField('thr-diskio-warn',   'diskio_warn_percent');
+  fillField('thr-diskio-crit',   'diskio_crit_percent');
 
   // Per-mount overrides
   const perMount = (o.disk_per_mount || {});
@@ -8437,6 +8440,7 @@ async function saveMetricThresholds() {
   readPair('thr-temp-warn',     'thr-temp-crit',     'temp_warn_celsius',     'temp_crit_celsius');
   readPair('thr-mailq-warn',    'thr-mailq-crit',    'mailq_warn_count',      'mailq_crit_count');
   readPair('thr-nic-err',       'thr-nic-drop',      'nic_err_alert_min',     'nic_drop_alert_min');
+  readPair('thr-diskio-warn',   'thr-diskio-crit',   'diskio_warn_percent',   'diskio_crit_percent');
 
   // Per-mount overrides
   const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');
@@ -22812,6 +22816,10 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-fd-crit',                   'fd_crit_percent',            95],
   ['ap-conntrack-warn',            'conntrack_warn_percent',     80],
   ['ap-conntrack-crit',            'conntrack_crit_percent',     95],
+  // v7.4.3 (#49): how busy a disk may be, and for how many reports in a row (0 keeps the lines off).
+  ['ap-diskio-warn',               'diskio_warn_percent',        0],
+  ['ap-diskio-crit',               'diskio_crit_percent',        0],
+  ['ap-diskio-sustain',            'diskio_sustain',             5],
   ['ap-offline-polls',             'offline_missed_polls',       5],
   ['ap-laptop-grace',              'laptop_offline_grace_hours', 0],
   ['ap-resolver-fails',            'resolver_failures_before_alert', 2],
@@ -26270,6 +26278,10 @@ async function _loadAuditSection(key) {
           tableCtl.wireSortOnly('hw-smart-thead', 'hw_smart',
             () => _loadAuditSectionForce('hardware'));
         }
+        if (((hw && hw.diskio) || []).length) {
+          tableCtl.wireSortOnly('hw-diskio-thead', 'hw_diskio',
+            () => _loadAuditSectionForce('hardware'));
+        }
         break;
       }
 
@@ -26574,6 +26586,36 @@ function _renderHardwareSection(id, hw, fc, ch) {
       h += `<div class="mt-6"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName||'')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen',13)} Get a runbook for this disk &rarr;</a></div>`;
     }
     h += `</div>`;
+  }
+
+  // ── v7.4.3 (#49): Disk I/O ─────────────────────────────────────────
+  const dio = hw.diskio || [];
+  if (dio.length) {
+    const sortedIo = tableCtl.sortRows('hw_diskio', dio, r => ({
+      disk: r.name || r.dev, busy: r.busy_pct ?? -1, read: r.read_mbs ?? -1, write: r.write_mbs ?? -1,
+      iops: (r.riops || 0) + (r.wiops || 0), wait: r.await_ms ?? -1,
+    }));
+    h += `<div class="hw-block"><div class="hw-h">Disk I/O</div>
+      <div class="hint mb-6">Busy is the share of the last interval the disk had a request in flight, and Wait is the average time a request takes. Whole disks and RAID arrays are listed, not partitions.</div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="hw-diskio-thead"><tr>
+        <th data-col="disk">Disk</th><th data-col="busy">Busy</th><th data-col="read">Read</th>
+        <th data-col="write">Write</th><th data-col="iops">IOPS</th><th data-col="wait">Wait</th>
+        <th>Trend</th></tr></thead><tbody>` +
+      sortedIo.map(r => {
+        const level = (r.crit != null && r.busy_pct >= r.crit) ? 'crit'
+          : (r.warn != null && r.busy_pct >= r.warn) ? 'warn' : '';
+        const cls = level === 'crit' ? 'c-red' : level === 'warn' ? 'c-amber' : '';
+        const color = level === 'crit' ? 'var(--red)' : level === 'warn' ? 'var(--amber)' : 'var(--accent)';
+        const trend = (r.hist || []).map(p => p[1]).filter(v => typeof v === 'number');
+        const ops = (r.riops || 0) + (r.wiops || 0);
+        return `<tr><td>${r.name ? `<div class="fw-500">${escHtml(r.name)}</div>` : ''}<code>${escHtml(r.dev)}</code></td>
+          <td class="ta-center ${cls}">${r.busy_pct != null ? r.busy_pct + '%' : '—'}</td>
+          <td class="ta-center">${r.read_mbs != null ? r.read_mbs + ' MB/s' : '—'}</td>
+          <td class="ta-center">${r.write_mbs != null ? r.write_mbs + ' MB/s' : '—'}</td>
+          <td class="ta-center">${r.riops != null || r.wiops != null ? Math.round(ops) : '—'}</td>
+          <td class="ta-center">${r.await_ms != null && ops > 0 ? r.await_ms + ' ms' : '—'}</td>
+          <td>${renderSparkline(trend, {width: 90, height: 18, color})}</td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
   }
 
   // ── v3.14.0: GPUs ──────────────────────────────────────────────────

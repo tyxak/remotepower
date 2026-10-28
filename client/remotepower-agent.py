@@ -1814,6 +1814,75 @@ def collect_net_io():
     out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
     return out[:20]
 
+# v7.4.3 (#49): per-disk I/O. /proc/diskstats counts since boot, so, as with the interface counters
+# above, a figure is the change since the previous call divided by the time between the two. The first
+# call has nothing to subtract and reports nothing. Whole disks and md arrays only: a partition has no
+# entry under /sys/block, and loop, ram, zram, optical, floppy, nbd and device-mapper devices are not
+# disks (a logical volume would count its disk's traffic twice).
+_prev_disk_io = {}   # name -> (reads, sectors_read, ms_reading, writes, sectors_written, ms_writing, ms_busy, ts)
+_DISK_IO_SKIP = ('loop', 'ram', 'zram', 'sr', 'fd', 'nbd', 'dm-')
+_DISK_IO_MIN_DT = 0.5       # two calls closer than this say nothing about a rate
+_DISK_IO_MAX_DT = 3600.0    # and two calls further apart say nothing about the last minute
+_DISK_IO_MAX = 32
+
+
+def _disk_io_is_whole(name):
+    if not name or name.startswith(_DISK_IO_SKIP):
+        return False
+    return os.path.isdir(host_path('/sys/block/' + name))
+
+
+def collect_disk_io():
+    """For each whole disk and md array: busy share of the interval, read and write MiB/s, IOPS and
+    the average wait. Rows are the busiest first, at most 32."""
+    out = []
+    try:
+        with open(host_path('/proc/diskstats'), 'r') as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return out
+    now = time.monotonic()
+    seen = {}
+    for line in lines:
+        p = line.split()
+        if len(p) < 13:
+            continue
+        name = p[2]
+        if not _disk_io_is_whole(name):
+            continue
+        try:
+            seen[name] = (int(p[3]), int(p[5]), int(p[6]), int(p[7]), int(p[9]), int(p[10]), int(p[12]))
+        except ValueError:
+            continue
+    for name, cur in seen.items():
+        prev = _prev_disk_io.get(name)
+        if prev is None:
+            _prev_disk_io[name] = cur + (now,)
+            continue
+        dt = now - prev[7]
+        if dt < _DISK_IO_MIN_DT:
+            continue                        # too soon: keep the old baseline
+        if dt > _DISK_IO_MAX_DT or any(c < p for c, p in zip(cur, prev[:7])):
+            _prev_disk_io[name] = cur + (now,)      # a gap, or a counter that restarted: begin again
+            continue
+        _prev_disk_io[name] = cur + (now,)
+        d = [c - p for c, p in zip(cur, prev[:7])]
+        ops = d[0] + d[3]
+        out.append({
+            'dev': name,
+            'busy_pct': round(min(100.0, d[6] / (dt * 1000.0) * 100.0), 1),
+            'read_mbs': round(d[1] * 512 / 1048576.0 / dt, 2),
+            'write_mbs': round(d[4] * 512 / 1048576.0 / dt, 2),
+            'riops': round(d[0] / dt, 1),
+            'wiops': round(d[3] / dt, 1),
+            'await_ms': round((d[2] + d[5]) / ops, 1) if ops else 0.0,
+        })
+    for name in [n for n in _prev_disk_io if n not in seen]:
+        del _prev_disk_io[name]
+    out.sort(key=lambda r: r['busy_pct'], reverse=True)
+    return out[:_DISK_IO_MAX]
+
+
 # W3-38: canary / honeytoken files. Plant a decoy at each configured path (never
 # over an existing file), then watch for access: atime advancing past plant time
 # (a read), or mtime/size change / deletion (tampering). Each event is reported
@@ -13809,6 +13878,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 'packages': cached_patch,
                 'network':  get_network_info(),
                 'network_io': collect_net_io(),   # v3.14.0 #37: per-iface bandwidth
+                'disk_io': collect_disk_io(),     # v7.4.3 #49: per-disk busy share, throughput, IOPS, wait
                 'audit_mode': _audit_mode(),      # v4.11.0: observe-only (read-only) agent
             }
             # Merge metrics if psutil available

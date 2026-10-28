@@ -34,6 +34,43 @@ hardware** and fill in **Disk names** under the SMART table.
   `{"names": {"<serial>": "<name>"}}`. A serial the host does not report is left out and
   listed under `ignored`.
 
+## Disk I/O *(v7.4.3)*
+
+Which drive is saturated, or slow? The Linux agent reads the kernel's disk counters on
+every report and works out, for each whole disk and each RAID array, how much of the
+interval it had a request in flight, how much it read and wrote, how many requests it
+served and how long a request took on average. Partitions, logical volumes, loop, RAM and
+optical drives are left out, so a volume is not counted twice with its disk. At most 32
+disks are listed, the busiest first.
+
+Open the host, go to the **Audit** tab, expand **Health & hardware** and look at **Disk
+I/O**. Each disk has a row with a trend of the last hour, and a disk you named (see above)
+shows its name. The busy figure turns amber or red when the disk is over a line.
+
+### An alert for a disk that stays busy
+
+A drive pinned at 100% for minutes often shows up here before SMART changes: a failing
+disk, a stuck scrub or a runaway job. Set the lines under **Settings → Alert parameters →
+Disk activity**:
+
+- **Disk busy warn %** and **Disk busy crit %**. Both are off at 0. With only a warning
+  line the disk never goes critical. With only a critical line, that line is also the
+  warning.
+- **Reports in a row** (5 unless you change it). A disk has to be over the line this many
+  reports in a row, so a scrub or a backup that pins it for one minute does not alert.
+
+A host can have lines of its own under **Metric thresholds** in its menu (1 to 99). Its
+line wins over the fleet's, and an empty box follows the fleet.
+
+You get one alert for each disk (`metric_warning` or `metric_critical`, with the disk as
+its target). It closes when the disk drops under the line, when you turn the line off and
+when the disk is no longer reported. It is muted, held by a maintenance window and listed
+in Needs attention like the other disk problems. A report that carries no disk figures,
+from an agent that does not send them, neither alerts nor closes anything.
+
+From a script: `GET /api/devices/{id}/hardware` has a `diskio` list with the latest
+reading, the last 60 samples and the lines for each disk.
+
 ## Host reliability prediction *(v6.2.0)*
 
 The page's third card, **Hosts likely to fail**, folds every failure signal into

@@ -37,6 +37,8 @@ DELIBERATELY_UNINDEXED = {
     'network_io': 'per-interface counters, same churn argument',
     'network_io_ts': 'sampling bookkeeping for the NIC counters: when the last sample arrived',
     'network_io_gaps': 'sampling bookkeeping for the NIC counters: the last few gaps between samples',
+    'disk_io': 'per-disk rates for the last interval, same churn argument as the NIC counters; the busy '
+               'lines and the alert are what a question about it needs',
     'custom_metrics': 'operator-defined numeric series — belongs in the metrics '
                       'corpus, not the prose one',
     'uptime_seconds': 'duplicate of `uptime`',

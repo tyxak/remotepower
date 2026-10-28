@@ -777,6 +777,12 @@ def _webhook_message(event, payload):
         kind = payload.get("kind", "?")
         target = payload.get("target", "")
         sev = "CRITICAL" if event == "metric_critical" else "WARNING"
+        # v7.4.3 (#49): how busy a disk is, as a share of the time.
+        if kind == "diskio" and target:
+            return (
+                f"{name}: {sev} — disk {target} busy {_num(payload.get('value', '?'))}% of the time "
+                f"(threshold: {_num(payload.get('threshold', '?'))}%)"
+            )
         # Disk has a target (mount path); other kinds don't.
         if kind == "disk" and target:
             return (
@@ -797,6 +803,8 @@ def _webhook_message(event, payload):
     elif event == "metric_recovered":
         kind = payload.get("kind", "?")
         target = payload.get("target", "")
+        if kind == "diskio" and target:
+            return f"{name}: disk {target} busy share back to {_num(payload.get('value', '?'))}%"
         if kind == "disk" and target:
             return f"{name}: disk {target} recovered to " f'{payload.get("value", "?")}%'
         if kind == "cpu":

@@ -178,6 +178,9 @@ ENTITY_FILES = {
     # ({device_id: {container: [[ts, cpu, mem%, mem MiB], ...]}}), written with every container report.
     # Born an ENTITY file, so one host's report is one row and there is no cold blob to migrate.
     'container_stats_hist.json',
+    # v7.4.3 (#49): diskio_history.json -- per-host, per-disk busy share, throughput, IOPS and wait
+    # ({device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}), one row per host.
+    'diskio_history.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

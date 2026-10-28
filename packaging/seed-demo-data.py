@@ -411,6 +411,35 @@ def build_users() -> dict:
     }
 
 
+# v7.4.3 (#49): per-disk I/O for the hosts that carry disks (the same hosts and device names as
+# build_hardware). tnas /dev/sdc is the failing drive, so it is the busy, slow one.
+_DEMO_DISK_IO = {
+    'tnas':  [('sda', 7), ('sdb', 6), ('sdc', 94), ('sdd', 8)],
+    'pmx01': [('nvme0n1', 21)],
+    'nc01':  [('sda', 12)],
+    'bk01':  [('sda', 3), ('sdb', 3)],
+    'gt01':  [('sda', 9)],
+}
+
+
+def _demo_disk_io(dev_id):
+    """The rows sysinfo.disk_io holds for this host, in the shape collect_disk_io reports. A drawn
+    stream of its own, so adding this leaves every other seeded value where it was."""
+    rng = _seeded_random('diskio', dev_id)
+    rows = []
+    for disk, busy in _DEMO_DISK_IO.get(dev_id, []):
+        slow = busy >= 80
+        rows.append({
+            'dev': disk, 'busy_pct': float(busy),
+            'read_mbs': round(busy * rng.uniform(0.2, 1.4), 2),
+            'write_mbs': round(busy * rng.uniform(0.1, 0.9), 2),
+            'riops': round(busy * rng.uniform(1.0, 5.0), 1),
+            'wiops': round(busy * rng.uniform(0.5, 3.0), 1),
+            'await_ms': round(rng.uniform(25.0, 60.0) if slow else rng.uniform(0.6, 6.0), 1),
+        })
+    return rows
+
+
 def _demo_enrich_sysinfo(dev, rng, si):
     """v3.11–v3.13 device-drawer / Exposure / Storage demo data, added in place.
 
@@ -670,6 +699,8 @@ def _demo_enrich_sysinfo(dev, rng, si):
         'rx_total': _rx * rng.randint(50_000, 500_000),
         'tx_total': _tx * rng.randint(50_000, 500_000),
     }]
+    if dev.get('id') in _DEMO_DISK_IO:
+        si['disk_io'] = _demo_disk_io(dev['id'])
     _demo_unseeded_signals(dev, rng, si)
 
 
@@ -2685,6 +2716,11 @@ def build_config() -> dict:
         'health_grade_good':        92,
         'health_grade_fair':        72,
         'temp_alert_threshold_c':   80,
+        # v7.4.3 (#49): how busy a disk may be. Set, so the Hardware tab's Disk I/O table has lines to
+        # colour against and the Alert parameters page shows values.
+        'diskio_warn_percent':      85,
+        'diskio_crit_percent':      98,
+        'diskio_sustain':           5,
         # v7.0.2: was 4, which with the seeded 60s poll_interval put the whole
         # fleet OFFLINE ~5 minutes after a seed — max(online_ttl 300, 60*4) + 10
         # grace = 310s, against last_seen values 5-90s old. A public demo spent
@@ -3447,6 +3483,9 @@ def build_alerts() -> dict:
     specs = [
         ('smart_failure',      'high',     'tnas',  'SMART failure on /dev/sdc (truenas.lab)',
          {'device_id': 'tnas', 'device_name': 'truenas.lab'}, None, None),
+        ('metric_warning',     'medium',   'tnas',  'Disk sdc busy WARNING on truenas.lab: 94%',
+         {'device_id': 'tnas', 'device_name': 'truenas.lab', 'metric': 'diskio', 'kind': 'diskio',
+          'target': 'sdc', 'value': 94.0, 'threshold': 85.0, 'level': 'warning'}, None, None),
         ('device_offline',     'critical', 'jf01',  'jellyfin.lab went offline',
          {'device_id': 'jf01', 'device_name': 'jellyfin.lab'}, None, None),
         ('service_down',       'high',     'jf01',  'jellyfin.service is down on jellyfin.lab',
@@ -4446,6 +4485,43 @@ def build_custom_scripts() -> dict:
                     'assigned_devices': assigned, 'timeout': 30,
                     'created_at': created, 'updated_at': created + 86400,
                     'created_by': 'alice' if i % 2 == 0 else 'bob'}
+    return out
+
+
+def build_diskio_history() -> dict:
+    """Per-disk I/O samples -> diskio_history.json (v7.4.3, #49).
+
+    {dev_id: {disk: [[ts, busy %, read MB/s, write MB/s, IOPS, await ms], ...]}}, one sample a minute
+    for the last hour, ending on exactly what the host's sysinfo.disk_io shows (the same rows
+    _demo_disk_io draws). A busy disk ramps up to its reading; the quiet ones wander around it."""
+    out = {}
+    t_end = now()
+    n = 60
+    for dev_id, disks in _DEMO_DISK_IO.items():
+        current = {r['dev']: r for r in _demo_disk_io(dev_id)}
+        rec = {}
+        for disk, busy in disks:
+            last = current[disk]
+            rng = _seeded_random('diskiohist', dev_id, disk)
+            rows = []
+            for i in range(n):
+                age = n - 1 - i
+                if age == 0:
+                    rows.append([t_end, last['busy_pct'], last['read_mbs'], last['write_mbs'],
+                                 round(last['riops'] + last['wiops'], 1), last['await_ms']])
+                    continue
+                if busy >= 80:
+                    b = max(2.0, busy - age * 0.9 + rng.uniform(-4, 4))      # climbing toward its reading
+                else:
+                    b = max(0.5, busy + rng.uniform(-busy * 0.5, busy * 0.5))
+                b = round(min(100.0, b), 1)
+                scale = b / max(busy, 1)
+                rows.append([t_end - age * 60, b, round(last['read_mbs'] * scale, 2),
+                             round(last['write_mbs'] * scale, 2),
+                             round((last['riops'] + last['wiops']) * scale, 1),
+                             round(last['await_ms'] * rng.uniform(0.7, 1.2), 1)])
+            rec[disk] = rows
+        out[dev_id] = rec
     return out
 
 
@@ -7200,6 +7276,7 @@ BUILDERS = {
     'gitops_state.json':           build_gitops_state,
     'custom_scripts.json':         build_custom_scripts,
     'smart_history.json':          build_smart_history,
+    'diskio_history.json':         build_diskio_history,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

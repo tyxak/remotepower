@@ -84,6 +84,27 @@ rough edges of the HTTP monitors. Each change adds its own entry here when it la
   so a heartbeat can never overwrite one, and a deleted host takes its names with it.
   The first column of the SMART table was headed *Host*, which was a leftover of the
   rename sweep; it says *Disk* again. (#47)
+- **How busy each disk is, and an alert for one that stays busy.** The agent reported
+  network I/O per interface and nothing about disks, so on a host with eleven drives
+  behind an HBA and an md mirror the question "which drive is saturated, or slow?" had
+  no answer, and a drive pinned at 100% for minutes, which often shows before SMART
+  changes, raised nothing. The Linux agent now reads `/proc/diskstats` and sends, for
+  each whole disk and md array, the busy share of the interval, the read and write rate,
+  IOPS and the average wait (partitions, logical volumes, loop, RAM and optical drives
+  are left out; at most 32 disks, the busiest first; a counter that restarts or a long
+  gap starts a new baseline instead of a wild rate). The Hardware tab has a *Disk I/O*
+  table with an hour of history for each disk and the name you gave the drive. Lines for
+  how busy a disk may be are under Settings, Alert parameters, *Disk activity* (warning,
+  critical and *Reports in a row*, 5 unless changed), and a host can have its own under
+  Metric thresholds; both are off until set. A disk has to be over its line for that
+  many reports in a row, so a scrub or a backup that pins it for a minute does not
+  alert. There is one alert per disk, which closes when the disk calms down, when the
+  line is turned off and when the disk is no longer reported; a report without disk
+  figures neither alerts nor closes anything. The alert is a `metric_warning` or
+  `metric_critical` with the disk as its target, so it is muted, held by maintenance
+  windows and listed in Needs attention like the other disk problems. The history is a
+  table of its own (`diskio_history.json`, per host, 120 samples a disk, a sample a
+  minute at most) and goes with the host when it is deleted. (#49)
 
 ### Monitors
 

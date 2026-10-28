@@ -71,6 +71,30 @@ NEW = (
     ("no alerts", APP),
     ("Covered events are kept out of the Alerts inbox and Needs attention as well as out of notifications. "
      "An alert that was already open stays open.", APP),
+    # Disk I/O: Settings -> Alert parameters, each host's own lines, the Hardware tab. IOPS is a name that
+    # no language changes, so it is in the dictionary but not in this list (which wants every string to
+    # differ from the English).
+    ("Disk activity", INDEX),
+    ("How busy a disk may be, as a share of the time it has a request in flight, before an alert. Both lines "
+     "are off at 0. A disk has to stay over a line for several reports in a row, so a scrub or a backup that "
+     "pins it for a minute does not page anyone. A line set for one host under Metric thresholds wins over "
+     "these.", INDEX),
+    ("Disk busy warn %", INDEX),
+    ("Disk busy crit %", INDEX),
+    ("Disk busy share", INDEX),
+    ("How much of the time a disk may be busy before an alert, as a percentage. The first box is the "
+     "warning, the second the critical line. Leave a box blank to follow the fleet setting under Settings, "
+     "Alert parameters, shown in grey. A fleet line of 0 means nothing alerts.", INDEX),
+    ("Disk busy % (warning, critical)", INDEX),
+    ("Disk busy warning", INDEX),
+    ("Disk busy critical", INDEX),
+    ("Disk I/O", APP),
+    ("Busy is the share of the last interval the disk had a request in flight, and Wait is the average time "
+     "a request takes. Whole disks and RAID arrays are listed, not partitions.", APP),
+    ("Busy", APP),
+    ("Read", APP),
+    ("Write", APP),
+    ("Wait", APP),
 )
 
 # Text that must come through a translation as it is written.
@@ -89,7 +113,7 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_list_was_found(self):
         """The control on the population: a list that shrank to nothing would pass every test below."""
-        self.assertGreaterEqual(len(NEW), 25)
+        self.assertGreaterEqual(len(NEW), 40)
         self.assertEqual(len({s for s, _ in NEW}), len(NEW), "a string is listed twice")
 
     def test_the_real_engine_translates_each_in_every_language(self):
