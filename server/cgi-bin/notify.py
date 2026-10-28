@@ -623,7 +623,7 @@ def _num(v):
         f = float(v)
     except (TypeError, ValueError):
         return str(v)
-    return f'{f:,.0f}' if f == int(f) else f'{f:,.1f}'
+    return f"{f:,.0f}" if f == int(f) else f"{f:,.1f}"
 
 
 def container_resource_phrase(payload):
@@ -631,13 +631,13 @@ def container_resource_phrase(payload):
     'CPU 412.5% (alert at 100%)', 'memory 94% of its limit (alert at 90%)',
     'memory 1,536 MB (alert at 1,024 MB)'."""
     p = payload or {}
-    value, line = _num(p.get('value', '?')), _num(p.get('threshold', '?'))
-    metric = p.get('metric')
-    if metric == 'memory_mb':
-        return f'memory {value} MB (alert at {line} MB)'
-    if metric == 'memory':
-        return f'memory {value}% of its limit (alert at {line}%)'
-    return f'CPU {value}% (alert at {line}%)'
+    value, line = _num(p.get("value", "?")), _num(p.get("threshold", "?"))
+    metric = p.get("metric")
+    if metric == "memory_mb":
+        return f"memory {value} MB (alert at {line} MB)"
+    if metric == "memory":
+        return f"memory {value}% of its limit (alert at {line}%)"
+    return f"CPU {value}% (alert at {line}%)"
 
 
 def _webhook_message(event, payload):
@@ -764,7 +764,9 @@ def _webhook_message(event, payload):
     elif event == "container_resource_high":
         return f'{name}: container "{payload.get("container", "?")}" {container_resource_phrase(payload)}'
     elif event == "container_resource_ok":
-        res = {"cpu": "CPU", "memory": "memory", "memory_mb": "memory"}.get(payload.get("metric"), "resource")
+        res = {"cpu": "CPU", "memory": "memory", "memory_mb": "memory"}.get(
+            payload.get("metric"), "resource"
+        )
         return f'{name}: container "{payload.get("container", "?")}" back under its {res} line'
     elif event == "containers_stale":
         return (

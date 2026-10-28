@@ -21,7 +21,6 @@ path, the Prometheus lines) and its metric thresholds were saved and never read 
 opened and saved again wiped them.
 """
 import json
-import os
 import random
 import string
 import sys

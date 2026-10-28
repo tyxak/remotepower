@@ -2510,7 +2510,9 @@ PROM_MAX_VALUES = 12  # the history keeps twelve numbers an instance (api._INTEG
 # Connectors whose headline chips are every number they read, under the names the operator chose, so
 # _STATS has nothing to list for them.
 DYNAMIC_STATS = frozenset({"prometheus", "prometheus_exporter"})
-_PROM_BUDGET_S = 20.0  # one poll asks for its values for this long at most; the rest wait for the next poll
+_PROM_BUDGET_S = (
+    20.0  # one poll asks for its values for this long at most; the rest wait for the next poll
+)
 _PROM_MAX_LINE = 500  # characters in one value line
 _PROM_MAX_SAMPLES = 200_000  # sample lines read from one page
 _PROM_MAX_LABELS = 64  # labels read from one sample
@@ -2536,7 +2538,9 @@ def parse_prom_lines(text, need_alias=True):
     silently left out is one the operator believes is being read."""
     out = []
     for n, raw in enumerate(str(text or "").splitlines(), 1):
-        line = "".join(ch for ch in raw if ch == "\t" or (ord(ch) >= 0x20 and ord(ch) != 0x7F)).strip()
+        line = "".join(
+            ch for ch in raw if ch == "\t" or (ord(ch) >= 0x20 and ord(ch) != 0x7F)
+        ).strip()
         if not line or line.startswith("#"):
             continue
         if len(line) > _PROM_MAX_LINE:
@@ -2550,7 +2554,9 @@ def parse_prom_lines(text, need_alias=True):
             name, expr = None, line
         out.append((n, name, expr))
         if len(out) > PROM_MAX_VALUES:
-            raise IntegrationError(f"at most {PROM_MAX_VALUES} values to an instance; add a second instance")
+            raise IntegrationError(
+                f"at most {PROM_MAX_VALUES} values to an instance; add a second instance"
+            )
     return out
 
 
@@ -2594,7 +2600,9 @@ def parse_selector(expr):
             i += 1
         op = body[i : i + 2] if body[i : i + 2] in ("!=", "=~", "!~") else body[i : i + 1]
         if op in ("=~", "!~"):
-            raise IntegrationError("regular expression matchers are not supported on a scrape; use the query form")
+            raise IntegrationError(
+                "regular expression matchers are not supported on a scrape; use the query form"
+            )
         if op not in ("=", "!="):
             raise IntegrationError(f"after {label} write = or !=")
         i += len(op)
@@ -2632,7 +2640,9 @@ def parse_scrape_lines(text):
             raise IntegrationError(f"line {n}: {e}") from None
         name = name or metric
         if name in seen:
-            raise IntegrationError(f"line {n}: the name {name} is used twice; give each value a name of its own")
+            raise IntegrationError(
+                f"line {n}: the name {name} is used twice; give each value a name of its own"
+            )
         seen.add(name)
         out.append((name, metric, matchers))
     return out
@@ -2665,7 +2675,9 @@ def _prom_page_labels(line, i):
             else:
                 buf.append(line[j])
                 j += 1
-        labels[name] = "".join(buf)[:_PROM_MAX_LABEL_VALUE]  # a value that never closed ends the line: None below
+        labels[name] = "".join(buf)[
+            :_PROM_MAX_LABEL_VALUE
+        ]  # a value that never closed ends the line: None below
         if len(labels) > _PROM_MAX_LABELS:
             return None
         i = j + 1
@@ -2754,7 +2766,11 @@ def _prom_result(read, problems, note=""):
     """The poll result: all values read is OK, some is a warning (it names what is missing), none is
     critical. Values read are metrics either way, so a threshold on one still works."""
     if not problems:
-        return {"status": OK, "detail": plural(len(read), "value", "values") + " read" + note, "metrics": read}
+        return {
+            "status": OK,
+            "detail": plural(len(read), "value", "values") + " read" + note,
+            "metrics": read,
+        }
     shown = "; ".join(f"{n}: {why}" for n, why in problems[:3])
     more = f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""
     return {"status": WARN if read else CRIT, "detail": shown + more, "metrics": read}
@@ -2808,7 +2824,11 @@ def _prometheus(inst, c):
         read[name] = value
         if series > 1:
             several.append(name)
-    note = f" (several series answered for {', '.join(several[:3])}; the first is used)" if several else ""
+    note = (
+        f" (several series answered for {', '.join(several[:3])}; the first is used)"
+        if several
+        else ""
+    )
     return _prom_result(read, problems, note)
 
 
@@ -2817,10 +2837,16 @@ def _prometheus(inst, c):
     "Prometheus exporter (/metrics scrape)",
     "observability",
     [
-        _field("prom_path", "Metrics path (default /metrics)", TEXT, optional=True, placeholder="/metrics"),
+        _field(
+            "prom_path",
+            "Metrics path (default /metrics)",
+            TEXT,
+            optional=True,
+            placeholder="/metrics",
+        ),
         _field(
             "prom_lines",
-            "Values to read (one per line: name = metric, with {label=\"value\"} if needed)",
+            'Values to read (one per line: name = metric, with {label="value"} if needed)',
             TEXTAREA,
             placeholder='mem_active = node_memory_active_bytes\nroot_free = node_filesystem_avail_bytes{mountpoint="/"}',
         ),
@@ -2861,7 +2887,9 @@ def _prometheus_exporter(inst, c):
                 count[name] = count.get(name, 0) + 1
                 first.setdefault(name, value)
     if not seen_any:
-        raise IntegrationError(f"{path} holds no Prometheus samples; is this an exporter's metrics page?")
+        raise IntegrationError(
+            f"{path} holds no Prometheus samples; is this an exporter's metrics page?"
+        )
     read, problems = {}, []
     for name, _metric, _matchers in wanted:
         if name not in first:
@@ -3006,7 +3034,9 @@ def format_stats(type_, metrics):
         # The names are the operator's own, so there is no fixed list: every number is a chip.
         for key, v in list(metrics.items())[:PROM_MAX_VALUES]:
             if isinstance(v, (int, float)) and not isinstance(v, bool):
-                out.append({"label": str(key)[:64], "value": f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.4g}"})
+                out.append(
+                    {"label": str(key)[:64], "value": f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.4g}"}
+                )
         return out
     for key, label, kind in _STATS.get(type_, []):
         if key in metrics and metrics[key] is not None:

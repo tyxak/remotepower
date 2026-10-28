@@ -13,7 +13,6 @@ The page is real (a seeded instance, a signed-in browser). Self-skips without pl
 like its siblings.
 """
 import os
-import re
 import subprocess
 import sys
 import tempfile

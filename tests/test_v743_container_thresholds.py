@@ -15,7 +15,6 @@ Everything goes through the real heartbeat, the real container diff and the real
 """
 import json
 import sys
-import time
 import unittest
 from pathlib import Path
 

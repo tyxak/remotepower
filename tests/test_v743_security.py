@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_v742_container_recovery import DEV, _Base, _Captured, _Stdin, api  # noqa: E402
-from test_v743_prometheus import FakeClient, NODE_EXPORTER, EXPORTER, I, _call  # noqa: E402
+from test_v743_prometheus import FakeClient, NODE_EXPORTER, EXPORTER, I  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
