@@ -31,6 +31,22 @@ own entry here when it lands.
   before. The Exposure page's answer carries `assumed` on each socket and a `hosts` map of the
   marked hosts; the switch is `PUT /api/devices/{id}/exposure-internal`. (#55)
 
+### Security
+
+The review of this release found two issues, both low. Both were caught before release and are
+fixed. See `docs/security-review-7.4.5.md`.
+
+- **A request to the new route that did not say what it wanted turned the switch off.** An empty
+  body, a broken one, null or a list answered 200 and removed a host's mark. That fails closed,
+  but a request that does not say what it wants must not change a host's grade, and a proxy that
+  mangled a body would have raised a world-exposure alert for every wildcard socket of the host.
+  The route answers 400 now unless `internal` is true or false, and a refused request writes
+  nothing to the audit trail.
+- **The Exposure page and the Checks row raised on a stored port list that is not a list of
+  maps.** The agent's report never produces one, so only a hand-edited or imported store reached
+  it, and then the Exposure page failed for the whole fleet and the Checks row for the host. Both
+  skip what they cannot read now.
+
 ### Translations
 
 - **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and

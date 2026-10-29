@@ -133,55 +133,20 @@ class TestVersionBumps(unittest.TestCase):
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
 
 
-class TestTheSecurityReview(unittest.TestCase):
-    """The review is part of the release: it exists, it is indexed where a reader looks, it names
-    what it found, and the three kept reviews are the last three."""
+class TestTheReviewLeftTheWindow(unittest.TestCase):
+    """The review of 7.4.2 (which also covered 7.4.1) left the three kept reviews at the v7.4.5 bump. Its history
+    stays in CHANGELOG.md, and the later reviews write out what they carry forward."""
 
-    DOC = "docs/security-review-7.4.2.md"
+    def test_it_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.2.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.2.md", (_ROOT / rel).read_text(), rel)
 
-    def text(self):
-        return re.sub(r"\s+", " ", (_ROOT / self.DOC).read_text())
-
-    def test_it_exists_and_is_indexed(self):
-        self.assertTrue((_ROOT / self.DOC).exists())
-        for rel in ("docs/README.md", "docs/security.md"):
-            self.assertIn("security-review-7.4.2.md", (_ROOT / rel).read_text(), rel)
-
-    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
-        text = self.text()
-        self.assertIn("so this one covers both", text)
-        self.assertIn("7.4.1 went out as a pre-release without a review of its own", text)
-        self.assertIn("were not run this time", text)          # the nginx scanners
-        self.assertIn("## Known and unchanged", text)
-
-    def test_it_names_the_three_findings_and_the_summary_has_three_rows(self):
-        text = self.text()
-        self.assertIn("**three** issues", text)
-        for needle in ("state files from `/tmp`", "turn into a FIFO", "certificate check off"):
-            self.assertIn(needle, text)
-        rows = re.findall(r"^\| ([123]) \|", (_ROOT / self.DOC).read_text(), re.M)
-        self.assertEqual(rows, ["1", "2", "3"])
-
-    def test_no_placeholder_is_left(self):
-        self.assertNotIn("@@", (_ROOT / self.DOC).read_text())
-
-    def test_it_reveals_no_command_for_the_attack(self):
-        text = (_ROOT / self.DOC).read_text()
-        self.assertNotIn("mkfifo", text)
-        self.assertNotIn("/tmp/remotepower-poll-interval", text)
-
-    def test_the_changelog_and_the_notes_agree_on_the_count(self):
-        for rel, heading in (("CHANGELOG.md", "### Security"),):
-            body = (_ROOT / rel).read_text()
-            if rel == "CHANGELOG.md":
-                body = body[body.index("## v7.4.2 \u2014 "):]      # the newer entries have a Security section too
-            section = body[body.index(heading):][:900]
-            self.assertIn("three issues", re.sub(r"\s+", " ", section), rel)
-
-    def test_three_reviews_are_kept_and_this_is_one_of_them(self):
-        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(len(reviews), 3, reviews)
-        self.assertIn("security-review-7.4.2.md", reviews)
+    def test_the_changelog_still_counts_its_three_issues(self):
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.2 \u2014 "):]
+        section = body[body.index("### Security"):][:900]
+        self.assertIn("three issues", re.sub(r"\s+", " ", section))
 
 
 class TestTheReleaseContainsItsGuards(unittest.TestCase):

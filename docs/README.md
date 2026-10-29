@@ -61,6 +61,13 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.5.md](security-review-7.4.5.md)** — the v7.4.5 review: the new
+  switch that marks a host internal (who may set it and on which host, what a host can make the
+  server do by what it reports about its addresses and ports, and what the pages and the
+  assistant print from it) and two low issues, a request that did not say true or false that
+  turned the switch off, and two readers that raised on a stored port list the agent never
+  sends. Caught before release, with the scans, the run over every route and the race behind
+  them.
 - **[security-review-7.4.4.md](security-review-7.4.4.md)** — the v7.4.4 review: the new
   temperature lines for drives (who may set them, what a host can make the server do by
   what it reports about its drives, and what the pages and messages print from it) and one
@@ -71,11 +78,6 @@ holds long-form docs that don't fit there.
   an integration list that showed a tenant administrator more than a viewer sees, and a
   host report that could make its own heartbeat fail. Four issues, all caught before
   release, with the scans and the run over every route behind them.
-- **[security-review-7.4.2.md](security-review-7.4.2.md)** — the v7.4.2 review, which
-  also covers 7.4.1: a root agent that a FIFO or a planted state file in `/tmp` could
-  stop or steer, and an installer that trusted a CA address nothing authenticated.
-  Three issues, all caught before release, with the scans and the hostile-input run
-  behind them.
 - **[v7.4.5.md](v7.4.5.md)** — "Int3rnalMatters": a host can be marked internal, so a
   service that listens on every address is not graded as exposed to the world, for
   one request from the same Docker install.

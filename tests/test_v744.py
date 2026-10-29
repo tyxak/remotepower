@@ -153,11 +153,6 @@ class TestTheSecurityReview(unittest.TestCase):
         for rel in ("docs/README.md", "docs/security.md"):
             self.assertIn("security-review-7.4.4.md", (_ROOT / rel).read_text(), rel)
 
-    def test_security_md_points_at_it_as_the_latest(self):
-        text = (_ROOT / "docs/security.md").read_text()
-        self.assertGreaterEqual(text.count("latest is\n[security-review-7.4.4.md]") +
-                                text.count("latest:\n  [security-review-7.4.4.md]"), 2)
-
     def test_it_says_what_it_covers_and_what_it_did_not_run(self):
         text = self.text()
         self.assertIn("everything that changed since 7.4.3, the last reviewed release", text)
@@ -203,7 +198,8 @@ class TestTheSecurityReview(unittest.TestCase):
 
     def test_three_reviews_are_kept_and_this_is_one_of_them(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.2.md", "security-review-7.4.3.md", "security-review-7.4.4.md"])
+        self.assertEqual(len(reviews), 3, reviews)
+        self.assertIn("security-review-7.4.4.md", reviews)
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.0.md").exists())
