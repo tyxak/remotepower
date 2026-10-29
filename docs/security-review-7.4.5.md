@@ -49,9 +49,9 @@ has tests, and each test was run against the code with its fix taken out.
 |---|---|---|
 | Read against the threat model | Everything above, then each place a rule is meant to apply: who may set the switch, who may read a host's addresses, what a host can make the server keep or do, what the audit trail says, what is printed where | Two findings (below), and the places listed under "Not found" |
 | Lint (`make lint`: isort, black, mypy, ruff `F` and `E9`) | The type-checked modules, the agents, the sidecars, the tools, the tests and the packaging | Clean, once black had reformatted the new module and one line of the Checks row |
-| bandit | 134,931 lines of server and agent Python, against the committed baseline | 0 High, 24 Medium and 920 Low. Nothing is new against the baseline. The two extra Low are the agent's new `ip -j addr` call (the same call, with a fixed argument list and no shell, that `get_network_info` has made for years), and the two new Python modules have no finding |
+| bandit | 134,941 lines of server and agent Python, against the committed baseline | 0 High, 24 Medium and 920 Low. Nothing is new against the baseline. The two extra Low are the agent's new `ip -j addr` call (the same call, with a fixed argument list and no shell, that `get_network_info` has made for years), and the two new Python modules have no finding |
 | semgrep | The Python, JavaScript and security-audit rule sets over the 12 server, agent, page and packaging files that changed, with the per-rule timeout raised to 120 seconds | 21 results, none on a line this release added or changed, and the same 3 timeouts on `api.py` as in 7.4.4 |
-| gitleaks | Every commit (2,469) and the unpacked release tarball | No leaks |
+| gitleaks | Every commit (2,471) and the unpacked release tarball | No leaks |
 | Dependency audit (`pip-audit`) | The 26 packages the server and agents import or pull in, at the versions installed here, among them Flask 3.1.3, Werkzeug 3.1.9, pydantic 2.14.1, cryptography 50.0.2, psycopg 3.3.6 and requests 2.34.2 | No known vulnerabilities. No dependency changed in 7.4.5 |
 | CodeQL | The repository's own configuration, as the production workflow runs it, for Python and JavaScript | 0 results. The raw output holds 687 (686 in Python, 1 in JavaScript), all in the six rule classes the configuration scopes out as reviewed false positives, and none on a line this release added or changed |
 | nuclei | 6,613 templates (exposure, misconfiguration, tokens, default logins, XSS, SQL injection, file inclusion, redirects, CORS, SSRF, traversal, technology detection and the generic checks; the denial-of-service, fuzzing and brute-force ones left out) against a seeded server | 17 informational results, the same as on 7.4.4 and none about the release: the file server of the test setup sends none of the security headers that nginx sends (10), technology fingerprints (4), an upload form, a `security.txt` and an address on a page. The control template for the headers matched 10 times, so the scan did look. The file server logs a traceback for a request with a NUL byte in its path; that is the test setup's server and not the product's |
@@ -154,7 +154,18 @@ fleet query and the advisory) have the same gap and were not changed; see below.
 
 ## Left for the release gate
 
-The suite is running on a copy of the tree at 49f88946, which holds all the server, agent and page code of the release. The numbers go in with the date of the release.
+Run on a copy of the tree at 49f88946, which holds all the server, agent and page code of the
+release. The commits after it add this document with its pins, the changelog entry, the release
+notes, the card and the date. The suite on JSON, 16,978 tests, and on SQLite, 16,731 tests. Both
+pass except `test_v643_aur_tracks_release` (two subtests), which compares the AUR packages with the
+newest dated release in the changelog. It goes red the moment the header carries a date and stays
+red until the AUR packages are bumped, and that bump needs the checksum of a published tarball, so
+for a release that is not published it is red by design. The suite ran once before, on 4f5b514d,
+which lacks the 400 on the new route and the guards of the two older readers: SQLite 16,717 tests,
+the same two failures; its JSON run was stopped part-way when this one started. The PostgreSQL suite
+(`tests.test_pg`, 28 tests) ran against a real server and passes; it was PostgreSQL 18.6 here, and
+CI runs 16. `make lint` (isort, black, mypy and ruff) and `make bandit` are clean, and
+`tools/release-prep.py verify` reports 0 failures.
 
 Not run for this release: a live probe of the maintainer's own instance (it needs a one-time
 token), the nginx scanners (above), the SAML routes (the library is not installed here, so all
