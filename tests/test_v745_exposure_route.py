@@ -81,14 +81,26 @@ class TestSettingTheSwitch(_Route):
         body = self.put({"internal": True})["body"]
         self.assertEqual((body["internal"], body["assumed"], body["blocked"]), (True, False, "no_address_data"))
 
-    def test_nothing_that_is_not_a_clear_yes_turns_it_on(self):
-        for body in ({}, {"internal": False}, {"internal": None}, {"internal": 0}, {"internal": []}, []):
-            self.put({"internal": True})
+    def test_a_request_that_does_not_say_true_or_false_changes_nothing(self):
+        """The first version answered 200 and turned the switch off for an empty body, a broken one and
+        null. It fails closed, but a request that does not say what it wants must not change a host's grade."""
+        self.report({"listening_ports": ports(), "host_addresses": PRIVATE})
+        self.put({"internal": True})
+        before = self.grades()
+        for body in ({}, {"internal": None}, {"internal": 0}, {"internal": 1}, {"internal": "true"},
+                     {"internal": "false"}, {"internal": []}, {"internal": {"a": 1}}, {"other": True}, [], "x", None):
             box = self.put(body)
-            self.assertIn(box["status"], (200, 400), body)
-            if box["status"] == 200:
-                self.assertNotIn("exposure_internal", self.host(), repr(body))
-        self.put({"internal": False})
+            self.assertEqual(box["status"], 400, repr(body))
+            if isinstance(body, dict):
+                self.assertEqual(box["body"], {"error": "The internal setting must be true or false"})
+            else:
+                self.assertIn("JSON object", box["body"]["error"], "the shared check refuses a body that is no object")
+            self.assertNotIn("audit", box, "a refused request writes nothing to the trail")
+            self.assertIs(self.host()["exposure_internal"], True, repr(body))
+            self.assertEqual(self.grades(), before, repr(body))
+        self.assertEqual(self.put({"internal": False})["status"], 200, "false is an answer")
+        self.assertNotIn("exposure_internal", self.host())
+        self.assertEqual(self.put({"internal": True})["status"], 200, "and so is true")
 
     def test_it_is_audited_when_it_changes_and_only_then_and_without_the_addresses(self):
         self.report({"listening_ports": ports(), "host_addresses": WITH_PUBLIC})

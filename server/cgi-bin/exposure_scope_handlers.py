@@ -74,6 +74,13 @@ def handle_device_exposure_internal(dev_id):
         A.respond(200, mod.host_state(dev.get('exposure_internal'),
                                       (dev.get('sysinfo') or {}).get('host_addresses')))
     body = A._read_valid(A.request_models.ExposureInternalRequest)
+    # A request that does not say what it wants must not change a host's grade. The model above is loose (it
+    # never rejects what an older client sent), so the body is read again here: only the JSON values true and
+    # false are an answer. An empty body, a broken one, null, "true" and 1 are refused.
+    asked = A.get_json_obj()
+    said = asked.get('internal') if isinstance(asked, dict) else None
+    if said is not True and said is not False:
+        A.respond(400, {'error': 'The internal setting must be true or false'})
     internal = body.get('internal') is True
     with A._LockedUpdate(A.DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
