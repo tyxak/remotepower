@@ -10,8 +10,10 @@ them), that saving what the form was given changes nothing, and that a line the 
 refused with its line number and nothing is kept.
 
 The page is real (a seeded instance, a signed-in browser). Self-skips without playwright/chromium/gunicorn,
-like its siblings.
+like its siblings. No integration is polled while it runs (see _no_polling), so the result does not depend
+on how the network treats the addresses the cards point at.
 """
+import json
 import os
 import subprocess
 import sys
@@ -37,6 +39,24 @@ from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
 _GATE = browser_available() or browser_required.required()
 _STACK = {}
 HOST = "fw01"
+SAVE = '#settings-pane-integrations [data-action="saveIntegrations"]'
+
+
+def _no_polling(data_dir):
+    """Take every seeded integration out of the poll.
+
+    A save sets the poll due again, and the next request of any kind then visits each enabled instance before
+    it answers. The seeded fleet's instances are .lab names and private addresses, and the cards these tests
+    add point at addresses nothing answers. Where the network drops those packets instead of refusing them,
+    that request takes about half a minute, and the Save button stays disabled for all of it: the page
+    disables a button while its handler runs, and this handler ends with a reload of the list. A click on a
+    disabled button does nothing, so a test that saved twice never made its second save and waited for a
+    toast that could not come. Nothing here is about polling, so nothing is polled."""
+    path = Path(data_dir) / "config.json"
+    cfg = json.loads(path.read_text())
+    for inst in cfg.get("integrations") or []:
+        inst["enabled"] = False
+    path.write_text(json.dumps(cfg))
 
 
 def _sign_in(browser, base, user, password):
@@ -67,6 +87,7 @@ def setUpModule():
                           capture_output=True, cwd=str(_ROOT), timeout=900)
     if proc.returncode != 0:
         raise unittest.SkipTest("demo seeder failed: " + proc.stderr.decode(errors="replace")[-300:])
+    _no_polling(data_dir)
     from e2e_harness import start_stack
     pw = sync_playwright().start()
     try:
@@ -137,8 +158,18 @@ class _Page(unittest.TestCase):
 
     def press(self, selector):
         """Press a button by dispatching its click, which the page's own handler answers; where the
-        button sits on screen is what the layout gates measure, not this test."""
+        button sits on screen is what the layout gates measure, not this test. A disabled button ignores
+        the click without a sound, so that is a failure here and not a toast that never comes."""
+        self.assertFalse(self.page.eval_on_selector(selector, "e => e.disabled"),
+                         f"{selector} is disabled, so a click on it does nothing (the page disables a button "
+                         "while its handler runs)")
         self.page.eval_on_selector(selector, "e => e.click()")
+
+    def wait_for_save_to_end(self):
+        """The handler of Save ends with a reload of the list that draws the cards again, and the button is
+        disabled until it has. Wait for that before pressing it again or before reading the redrawn form."""
+        self.page.wait_for_function(
+            "(s) => { const b = document.querySelector(s); return !!b && !b.disabled; }", arg=SAVE, timeout=60000)
 
     def add(self, kind):
         """Pick the type in the box under the list and press Add, as a person does."""
@@ -193,6 +224,7 @@ class TestTheCard(_Page):
     def fill_card(self, card, lines=None):
         card.query_selector('input[data-ifield="label"]').fill("E2E node_exporter")
         card.query_selector('input[data-ifield="url"]').fill("http://192.0.2.50:9100")
+        card.query_selector('input[data-ifield="enabled"]').uncheck()      # a new card is on; see _no_polling
         card.query_selector('input[data-ifield="prom_path"]').fill("/stats/prom")
         card.query_selector('textarea[data-ifield="prom_lines"]').fill(lines if lines is not None else self.LINES)
         card.query_selector('select[data-ifield="device_id"]').select_option(HOST)
@@ -200,13 +232,15 @@ class TestTheCard(_Page):
         card.query_selector("textarea[data-ithresh]").fill("mem_active gt 2000000000 high")
 
     def save(self):
-        self.press('#settings-pane-integrations [data-action="saveIntegrations"]')
+        self.wait_for_save_to_end()
+        self.press(SAVE)
 
     def test_everything_typed_comes_back_when_the_page_reads_it_again(self):
         self.open_pane()
         self.fill_card(self.add("prometheus_exporter"))
         self.save()
         self.page.wait_for_selector(".toast.success", timeout=20000)
+        self.wait_for_save_to_end()                  # the cards are drawn again from the server's answer
         saved = self.mine()
         self.assertEqual(len(saved), 1, saved)
         self.assertEqual(saved[0]["prom_lines"], self.LINES)
@@ -234,7 +268,7 @@ class TestTheCard(_Page):
         self.save()                                                    # nothing edited
         self.page.wait_for_selector(".toast.success", timeout=20000)
         after = self.mine()[0]
-        for key in ("prom_lines", "prom_path", "metric_thresholds", "device_id", "url", "label"):
+        for key in ("prom_lines", "prom_path", "metric_thresholds", "device_id", "url", "label", "enabled"):
             self.assertEqual(after.get(key), before.get(key), key)
 
     def test_a_line_the_server_cannot_read_is_refused_with_its_number(self):
@@ -252,7 +286,7 @@ class TestTheCard(_Page):
         self.page.evaluate("""async () => {
             const r = await api('GET', '/integrations');
             const list = (r.integrations || []).concat([{type: 'custom_probe', label: 'E2E probe',
-              url: 'http://192.0.2.60:8080', enabled: true, probe_path: '/health', probe_expect: '204',
+              url: 'http://192.0.2.60:8080', enabled: false, probe_path: '/health', probe_expect: '204',
               metric_thresholds: [{metric: 'http_status', op: 'gt', value: 300, severity: 'high'}]}]);
             await api('POST', '/integrations', {integrations: list, interval: r.interval, show_homelab: true});
         }""")
@@ -269,6 +303,16 @@ class TestTheCard(_Page):
         kept = self.mine()[0]
         self.assertEqual((kept["probe_path"], kept["probe_expect"]), ("/health", "204"))
         self.assertEqual(kept["metric_thresholds"][0]["metric"], "http_status")
+
+    def test_nothing_this_module_saves_is_polled(self):
+        """The control for the rest of the module (see _no_polling): with no instance enabled, a save sets
+        the poll due and the next request has nothing to visit, so no test here waits on the network."""
+        self.open_pane()
+        self.assertEqual([i["label"] for i in self.listing() if i.get("enabled")], [])
+        self.fill_card(self.add("prometheus_exporter"))
+        self.save()
+        self.page.wait_for_selector(".toast.success", timeout=20000)
+        self.assertEqual([i["enabled"] for i in self.mine()], [False])
 
 
 if __name__ == "__main__":
