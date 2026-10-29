@@ -15640,6 +15640,35 @@ def handle_device_save_bulk(dev_id):
 
 
 # v1.11.10: per-device metric threshold overrides
+def _threshold_change_detail(before, after):
+    """What a save of a host's metric thresholds changed, for the audit trail. v7.4.4.
+
+    The lines that were set, with their numbers (a line raised until it never fires is the thing the
+    trail has to be able to show), the ones that were taken away, and how many drives and mounts have
+    lines of their own now: a count, not their serial numbers or paths. '' when nothing changed."""
+    before = before if isinstance(before, dict) else {}
+    after = after if isinstance(after, dict) else {}
+    was_set, cleared, groups = [], [], []
+    for k in sorted(set(before) | set(after)):
+        b, a = before.get(k), after.get(k)
+        if b == a:
+            continue
+        if k in ('drivetemp_per_serial', 'disk_per_mount'):
+            groups.append(f'{k}={len(a) if isinstance(a, dict) else 0}')
+        elif k not in after:
+            cleared.append(k)
+        else:
+            was_set.append(f'{k}={a:g}' if isinstance(a, (int, float)) and not isinstance(a, bool) else f'{k}={a}')
+    parts = []
+    if was_set:
+        parts.append('set=' + ','.join(was_set))
+    if cleared:
+        parts.append('cleared=' + ','.join(cleared))
+    if groups:
+        parts.append('changed=' + ','.join(groups))
+    return ' '.join(parts)[:480]
+
+
 def handle_device_metric_thresholds(dev_id):
     """``GET|PATCH|DELETE /api/devices/{id}/metric-thresholds``.
 
@@ -15717,9 +15746,14 @@ def handle_device_metric_thresholds(dev_id):
         })
 
     if method() == 'DELETE':
+        _was = copy.deepcopy(dev.get('metric_thresholds') or {})
         with _LockedUpdate(DEVICES_FILE) as devices:
             if dev_id in devices:
                 devices[dev_id].pop('metric_thresholds', None)
+        # v7.4.4: a reset removes every line the host had, the drive temperature lines among them.
+        _detail = _threshold_change_detail(_was, {})
+        if _detail:
+            audit_log(_actor, 'device_metric_thresholds', f'dev={dev_id} reset {_detail}')
         respond(200, {'ok': True})
 
     if method() != 'PATCH':
@@ -15727,6 +15761,7 @@ def handle_device_metric_thresholds(dev_id):
 
     body = _read_valid(request_models.DeviceMetricThresholdsRequest)
     overrides = dev.get('metric_thresholds') or {}
+    _was = copy.deepcopy(overrides)         # v7.4.4: what the trail compares the save against
 
     # v7.4.1: a null removes that one override, so the host follows the default (or, for
     # the NIC floors, the fleet setting) again. The editor used to ignore a field you
@@ -15932,6 +15967,12 @@ def handle_device_metric_thresholds(dev_id):
                 # over threshold the falling edge fires temp_normal, which
                 # auto-resolves the open temp_high — the behaviour we want.
     _out = {'ok': True, 'overrides': overrides}
+    # v7.4.4: a change to a host's lines is on the trail, with the numbers. A critical line of 150 never fires,
+    # so a save that raises one is the thing the trail has to be able to show; before this only a change to
+    # the ignored sensors was recorded, while the fleet's save, the container lines and the disk names all were.
+    _detail = _threshold_change_detail(_was, overrides)
+    if _detail:
+        audit_log(_actor, 'device_metric_thresholds', f'dev={dev_id} {_detail}')
     if sensor_ignores is not None:
         _out['sensor_ignores'] = sensor_ignores
         # v6.4.3: actor first. This shipped with the arguments shifted by one —
