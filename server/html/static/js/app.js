@@ -8323,7 +8323,8 @@ async function openMetricThresholds(id, name) {
   // Clear the form before loading — avoids flashing stale values
   ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit',
    'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit','mailq-warn','mailq-crit',
-   'nic-err','nic-drop','diskio-warn','diskio-crit']
+   'nic-err','nic-drop','diskio-warn','diskio-crit',
+   'dt-warn','dt-crit','dt-hdd-warn','dt-hdd-crit','dt-ssd-warn','dt-ssd-crit','dt-nvme-warn','dt-nvme-crit']
     .forEach(k => {
       const el = document.getElementById('thr-' + k);
       if (el) el.value = '';
@@ -8370,6 +8371,15 @@ async function openMetricThresholds(id, name) {
   // v7.4.3 (#49): how busy a disk may be on this host; the placeholder is the fleet's line (0 = none)
   fillField('thr-diskio-warn',   'diskio_warn_percent');
   fillField('thr-diskio-crit',   'diskio_crit_percent');
+  // v7.4.4 (#54): how warm a drive on this host may get; the placeholder is the fleet's line (0 = none)
+  fillField('thr-dt-warn', 'drivetemp_warn_c');
+  fillField('thr-dt-crit', 'drivetemp_crit_c');
+  fillField('thr-dt-hdd-warn', 'drivetemp_hdd_warn_c');
+  fillField('thr-dt-hdd-crit', 'drivetemp_hdd_crit_c');
+  fillField('thr-dt-ssd-warn', 'drivetemp_ssd_warn_c');
+  fillField('thr-dt-ssd-crit', 'drivetemp_ssd_crit_c');
+  fillField('thr-dt-nvme-warn', 'drivetemp_nvme_warn_c');
+  fillField('thr-dt-nvme-crit', 'drivetemp_nvme_crit_c');
 
   // Per-mount overrides
   const perMount = (o.disk_per_mount || {});
@@ -8441,6 +8451,10 @@ async function saveMetricThresholds() {
   readPair('thr-mailq-warn',    'thr-mailq-crit',    'mailq_warn_count',      'mailq_crit_count');
   readPair('thr-nic-err',       'thr-nic-drop',      'nic_err_alert_min',     'nic_drop_alert_min');
   readPair('thr-diskio-warn',   'thr-diskio-crit',   'diskio_warn_percent',   'diskio_crit_percent');
+  readPair('thr-dt-warn', 'thr-dt-crit', 'drivetemp_warn_c', 'drivetemp_crit_c');
+  readPair('thr-dt-hdd-warn', 'thr-dt-hdd-crit', 'drivetemp_hdd_warn_c', 'drivetemp_hdd_crit_c');
+  readPair('thr-dt-ssd-warn', 'thr-dt-ssd-crit', 'drivetemp_ssd_warn_c', 'drivetemp_ssd_crit_c');
+  readPair('thr-dt-nvme-warn', 'thr-dt-nvme-crit', 'drivetemp_nvme_warn_c', 'drivetemp_nvme_crit_c');
 
   // Per-mount overrides
   const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');
@@ -22828,6 +22842,15 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-diskio-warn',               'diskio_warn_percent',        0],
   ['ap-diskio-crit',               'diskio_crit_percent',        0],
   ['ap-diskio-sustain',            'diskio_sustain',             5],
+  // v7.4.4 (#54): how warm a drive may get, for each type and for any other drive (0 keeps a line off).
+  ['ap-drivetemp-hdd-warn',          'drivetemp_hdd_warn_c',        0],
+  ['ap-drivetemp-hdd-crit',          'drivetemp_hdd_crit_c',        0],
+  ['ap-drivetemp-ssd-warn',          'drivetemp_ssd_warn_c',        0],
+  ['ap-drivetemp-ssd-crit',          'drivetemp_ssd_crit_c',        0],
+  ['ap-drivetemp-nvme-warn',         'drivetemp_nvme_warn_c',       0],
+  ['ap-drivetemp-nvme-crit',         'drivetemp_nvme_crit_c',       0],
+  ['ap-drivetemp-warn',              'drivetemp_warn_c',            0],
+  ['ap-drivetemp-crit',              'drivetemp_crit_c',            0],
   ['ap-offline-polls',             'offline_missed_polls',       5],
   ['ap-laptop-grace',              'laptop_offline_grace_hours', 0],
   ['ap-resolver-fails',            'resolver_failures_before_alert', 2],
@@ -26499,11 +26522,39 @@ async function saveDiskNames() {
   if (!form) return;
   const names = {};
   form.querySelectorAll('input[data-serial]').forEach(inp => { names[inp.dataset.serial] = inp.value.trim(); });
-  const r = await api('PUT', `/devices/${encodeURIComponent(form.dataset.dev)}/disk-names`, { names });
-  if (r && r.ok) {
+  // v7.4.4 (#54): a drive's own temperature lines, sent for the boxes whose value changed. An emptied box
+  // is a null, which takes that one line away; a drive that is not named keeps what it has.
+  const lines = {};
+  form.querySelectorAll('input[data-line]').forEach(inp => {
+    const v = inp.value.trim();
+    if (v === (inp.dataset.orig || '')) return;
+    const s = inp.dataset.lineSerial;
+    (lines[s] = lines[s] || {})[inp.dataset.line] = v === '' ? null : Number(v);
+  });
+  const id = encodeURIComponent(form.dataset.dev);
+  const r = await api('PUT', `/devices/${id}/disk-names`, { names });
+  if (!(r && r.ok)) { failToast(r); return; }
+  if (Object.keys(lines).length) {
+    const m = await api('PATCH', `/devices/${id}/metric-thresholds`, { drivetemp_per_serial: lines });
+    if (!(m && m.ok)) { failToast(m); _loadAuditSectionForce('hardware'); return; }
+    toast('Disk names and lines saved', 'success');
+  } else {
     toast('Disk names saved', 'success');
-    _loadAuditSectionForce('hardware');
-  } else failToast(r);
+  }
+  _loadAuditSectionForce('hardware');
+}
+
+// v7.4.4 (#54): the colour of a drive's temperature against the lines it is held to, and the lines as its
+// tooltip. A drive with no line is not coloured: the fleet's hot and critical pair is on the Thermal page.
+function _driveTempCls(d) {
+  const L = d.lines || {}, t = d.temperature_c;
+  if (t == null || L.warn == null) return '';
+  return (L.crit != null && t >= L.crit) ? 'c-red' : (t >= L.warn ? 'c-amber' : '');
+}
+function _driveTempTitle(d) {
+  const L = d.lines || {};
+  if (L.warn == null) return '';
+  return ` title="${escAttr(L.crit != null ? `≥ ${L.warn} °C / ≥ ${L.crit} °C` : `≥ ${L.warn} °C`)}"`;
 }
 
 function _renderHardwareSection(id, hw, fc, ch) {
@@ -26570,7 +26621,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center ${crcBad?'c-red':''}">${crcCell}</td>
-          <td class="ta-center">${d.temperature_c!=null?fmtTemp(d.temperature_c,0):'—'}</td>
+          <td class="ta-center ${_driveTempCls(d)}"${_driveTempTitle(d)}>${d.temperature_c!=null?fmtTemp(d.temperature_c,0):'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td>
           <td class="ta-center ${d.wear_pct>=90?'c-red':d.wear_pct>=80?'c-amber':''}">${d.wear_pct!=null?`${d.wear_pct}%${_wearEol(d)?`<div class="fs-11 c-muted">${_wearEol(d)}</div>`:''}`:'—'}</td></tr>`;
       }).join('') + `</tbody></table></div>`;
@@ -26579,12 +26630,22 @@ function _renderHardwareSection(id, hw, fc, ch) {
     if (_meCache && (_meCache.admin || (_meCache.permissions || []).length)) {
       const nameable = disks.filter(d => d && d.serial);
       const unnamable = disks.filter(d => d && !d.serial);
+      // v7.4.4 (#54): the drive's type as the lines see it, and for an administrator (the route is the
+      // host's metric thresholds, which are the administrator's) the two boxes of its own temperature lines.
+      // An empty box shows the line it would use instead, in grey.
+      const _isAdmin = !!(_meCache && _meCache.admin);
+      const _typeTag = d => { const m = (d.lines || {}).media; return m ? ` <span class="c-muted">${m === 'nvme' ? 'NVMe' : m.toUpperCase()}</span>` : ''; };
+      const _lineBox = (d, which) => {
+        const L = d.lines || {}, own = (L.own || {})[which], inh = (L.inherit || {})[which];
+        return `<span class="fs-11 c-muted">${which === 'warn' ? 'Warn °C' : 'Crit °C'}</span><input type="number" class="form-input mw-100" min="1" max="150" step="any" data-line-serial="${escAttr(d.serial)}" data-line="${which}" data-orig="${own == null ? '' : own}" value="${own == null ? '' : own}" placeholder="${inh == null ? '' : inh}" aria-label="${which === 'warn' ? 'Warning' : 'Critical'} temperature line for ${escAttr(d.device)}">`;
+      };
       h += `<div class="mt-8" id="hw-diskname-form" data-dev="${escAttr(id)}">
         <div class="hw-h">Disk names</div>
         <div class="hint mb-6">A name follows the drive by its serial number, whatever letter it is given, and shows here, on the disk health page and in alerts.</div>`
-        + nameable.map(d => `<div class="settings-row"><label class="form-label"><code>${escHtml(d.device)}</code> ${escHtml(d.model || '')} <span class="c-muted">sn ${escHtml(d.serial)}</span></label><input type="text" class="form-input" maxlength="64" data-serial="${escAttr(d.serial)}" value="${escAttr(d.name || '')}" aria-label="Name for ${escAttr(d.device)}"></div>`).join('')
+        + (_isAdmin ? `<div class="hint mb-6">Warn and Crit are the temperature in °C at which this drive raises a warning or a critical alert. An empty box uses the host's line, or the fleet's, shown in grey. Nothing alerts until a line is set.</div>` : '')
+        + nameable.map(d => `<div class="settings-row"><label class="form-label"><code>${escHtml(d.device)}</code> ${escHtml(d.model || '')} <span class="c-muted">sn ${escHtml(d.serial)}</span>${_typeTag(d)}</label><input type="text" class="form-input" maxlength="64" data-serial="${escAttr(d.serial)}" value="${escAttr(d.name || '')}" aria-label="Name for ${escAttr(d.device)}">${_isAdmin ? _lineBox(d, 'warn') + _lineBox(d, 'crit') : ''}</div>`).join('')
         + (unnamable.length ? `<div class="hint mt-4"><span>No serial number reported, so these cannot be named:</span> <code>${unnamable.map(d => escHtml(d.device)).join(', ')}</code></div>` : '')
-        + (nameable.length ? `<button class="btn-primary mt-6" data-action="saveDiskNames">Save names</button>` : '')
+        + (nameable.length ? `<button class="btn-primary mt-6" data-action="saveDiskNames">${_isAdmin ? 'Save names and lines' : 'Save names'}</button>` : '')
         + `</div>`;
     }
     // Cross-feature: a failing disk → a prefilled AI runbook.

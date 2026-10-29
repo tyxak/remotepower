@@ -9,7 +9,41 @@ releases only; for an older release the entry below is the record.
 
 The next request from the same Docker install, filed on tyxak/remotepower as #54:
 temperature lines for each drive, because a hard disk and an NVMe drive should not be
-held to one pair of numbers. Each change adds its own entry here when it lands.
+held to one pair of numbers. The release page is [docs/v7.4.4.md](docs/v7.4.4.md).
+
+### Disks
+
+- **Temperature lines for each drive.** A drive's temperature was judged only by the fleet's
+  hot and critical pair (75 and 85 °C), in the risk score and on the Thermal page, and no alert
+  came from it, so a hard disk at 60 °C raised nothing. A warning and a critical line can now be
+  set, in °C, for one drive (kept against its serial number, so it follows the drive when its
+  letter changes), for one host, or for every drive of a type: hard disks, SATA SSDs and NVMe
+  drives, with a last pair for any other drive. For the warning line and for the critical line,
+  one at a time, the drive's own line wins, then the host's for the type, the host's for any
+  drive, the fleet's for the type and the fleet's for any drive. Every line is off until it is
+  set, so an upgrade alerts on nothing new. A drive over a line raises one alert
+  (`metric_warning` or `metric_critical`, the serial number as its target) that closes when the
+  drive cools, and it is muted, held by a maintenance window and listed in Needs attention like
+  the other disk problems. The *Temp* column of the SMART table is coloured against the lines.
+  They are set under Settings → Alert parameters → Drive temperature, in a host's Metric
+  thresholds and, by an administrator, in two boxes beside each drive's name on the Hardware
+  tab. The Linux agent now sends the drive type (a spindle speed is a hard disk, a solid state
+  device a SATA SSD, `/dev/nvme*` NVMe); the Windows agent does not yet, so its drives use the
+  lines for any drive. The risk score and the Thermal page still judge every sensor against the
+  fleet's hot and critical pair. (#54)
+
+### Alerts
+
+- **A sensor an operator ignored still fired the temperature alert.** The per-sensor ignore
+  added in 6.4.2 was read from a copy of the host that the heartbeat builds before it checks
+  the hardware report, and the copy did not carry the ignore list, so the sensor an
+  operator had switched off, such as a dead pin, went on raising *High temperature*. The copy
+  carries it now, and the host's own temperature lines with it.
+
+### Translations
+
+- **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and
+  French.** A native speaker has not read it yet; if a line reads wrong, tell us.
 
 ## v7.4.3 — "M3asureMatters" — 2026-10-28
 

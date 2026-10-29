@@ -4032,6 +4032,46 @@
         </div>
 
         <div class="settings-section">
+          <div class="section-title">Drive temperature</div>
+          <p class="hint">How warm a drive may get, in °C, before an alert. A hard disk, a SATA SSD and an NVMe drive run at different temperatures, so each type has a pair of its own, and the last pair is for any other drive. The most specific line wins: a drive's own line (on its host's Hardware tab, against its serial number), then the host's (under Metric thresholds), then these. Every line is off at 0, and nothing alerts until one is set. <a href="docs/alert-parameters.md#drive-temperature" class="c-accent">Documentation</a></p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-drivetemp-hdd-warn" class="form-label">Hard disk warn °C</label>
+              <input type="number" id="ap-drivetemp-hdd-warn" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-hdd-crit" class="form-label">Hard disk crit °C</label>
+              <input type="number" id="ap-drivetemp-hdd-crit" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-ssd-warn" class="form-label">SATA SSD warn °C</label>
+              <input type="number" id="ap-drivetemp-ssd-warn" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-ssd-crit" class="form-label">SATA SSD crit °C</label>
+              <input type="number" id="ap-drivetemp-ssd-crit" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-nvme-warn" class="form-label">NVMe warn °C</label>
+              <input type="number" id="ap-drivetemp-nvme-warn" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-nvme-crit" class="form-label">NVMe crit °C</label>
+              <input type="number" id="ap-drivetemp-nvme-crit" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-warn" class="form-label">Any other drive warn °C</label>
+              <input type="number" id="ap-drivetemp-warn" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-drivetemp-crit" class="form-label">Any other drive crit °C</label>
+              <input type="number" id="ap-drivetemp-crit" class="form-input isl-80" min="0" max="150" placeholder="0">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">Reachability</div>
           <p class="hint">Flap-dampening confirm counts before a host, resolver or IP-reputation signal pages. Higher rides out transient blips; lower pages sooner. <a href="docs/alert-parameters.md#reachability" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
@@ -4822,7 +4862,9 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.4.4 spec1ficmatters drive temperature temperatures hard disk hdd ssd sata nvme smart serial lines warn critical hot cool per drive per host most specific disk names thermal alert">
             <summary><strong>What's new — v7.4.4 &ldquo;Spec1ficMatters&rdquo;</strong> &mdash; the next request from the same Docker install.</summary>
             <div class="doc-body">
-              <p>Temperature lines for each drive: a hard disk, a SATA SSD and an NVMe drive can each have their own warning and critical line. Each change is listed in the CHANGELOG as it lands.</p>
+              <p><strong>Temperature lines for each drive.</strong> A hard disk, a SATA SSD and an NVMe drive run at different temperatures, so each can have its own warning and critical line, in &deg;C. Set them for every drive of a type under <strong>Settings &rarr; Alert parameters &rarr; Drive temperature</strong>, for one host under its Metric thresholds, or for one drive in the boxes beside its name on the Hardware tab; the most specific line wins and nothing alerts until one is set. A drive over a line raises one alert that closes when it cools, and its temperature turns amber or red in the SMART table. Update the Linux agents to get the drive type. See <a href="docs/disk-health.md" class="c-accent">Predictive Health</a>.</p>
+              <p><strong>An ignored sensor stays quiet.</strong> A temperature sensor you switched off, such as a dead pin, no longer raises <em>High temperature</em>.</p>
+              <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v7.4.4.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -10119,6 +10161,32 @@ nextcloud mem=95 sustain=6</pre>
       <label class="fs-13">Disk busy % (warning, critical)</label>
       <input type="number" class="form-input" id="thr-diskio-warn" min="1" max="99" aria-label="Disk busy warning">
       <input type="number" class="form-input" id="thr-diskio-crit" min="1" max="99" aria-label="Disk busy critical">
+    </div>
+
+    <!-- v7.4.4 (#54): how warm a drive on this host may get -->
+    <div class="isl-198">
+      <div class="isl-199">Drive temperature</div>
+      <div class="isl-200">How warm a drive on this host may get, in °C. The first box of each row is the warning line and the second the critical line. Leave a box blank to follow the fleet setting under Settings, Alert parameters, shown in grey. A drive can have lines of its own on the Hardware tab, and those win over these.</div>
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">Hard disks</label>
+      <input type="number" class="form-input" id="thr-dt-hdd-warn" min="1" max="150" aria-label="Hard disk warn °C">
+      <input type="number" class="form-input" id="thr-dt-hdd-crit" min="1" max="150" aria-label="Hard disk crit °C">
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">SATA SSDs</label>
+      <input type="number" class="form-input" id="thr-dt-ssd-warn" min="1" max="150" aria-label="SATA SSD warn °C">
+      <input type="number" class="form-input" id="thr-dt-ssd-crit" min="1" max="150" aria-label="SATA SSD crit °C">
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">NVMe drives</label>
+      <input type="number" class="form-input" id="thr-dt-nvme-warn" min="1" max="150" aria-label="NVMe warn °C">
+      <input type="number" class="form-input" id="thr-dt-nvme-crit" min="1" max="150" aria-label="NVMe crit °C">
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">Any other drive</label>
+      <input type="number" class="form-input" id="thr-dt-warn" min="1" max="150" aria-label="Any other drive warn °C">
+      <input type="number" class="form-input" id="thr-dt-crit" min="1" max="150" aria-label="Any other drive crit °C">
     </div>
 
     <div class="isl-198">

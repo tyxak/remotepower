@@ -151,6 +151,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
 
     FILES = (
         "tests/test_v744_drive_temp.py",     # #54: the lines, the alert and its close, the handlers, the agent's drive type
+        "tests/test_v744_drive_temp_e2e.py", # #54: the Hardware tab's colour and boxes, the host's block, the fleet's pane
+        "tests/test_v744_translations.py",   # the text the release added, in six languages
     )
 
     def test_the_list_is_not_empty(self):

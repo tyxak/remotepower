@@ -1240,6 +1240,16 @@ def _ip_intel_documents() -> tuple:
     return table, intake
 
 
+def _demo_serial(dev_id, device):
+    """The serial number build_hardware gives one demo disk, read from the record it builds, so the
+    pieces that name a drive by its serial (a drive's own temperature lines, the alert on a hot one)
+    cannot drift from the hardware record."""
+    for d in build_hardware().get(dev_id, {}).get('smart', []):
+        if d.get('device') == device:
+            return d['serial']
+    raise RuntimeError(f'the demo has no disk {device} on {dev_id}')
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -1527,6 +1537,12 @@ def build_devices() -> dict:
                                 'api_secret': 'demo-secret-not-real',
                                 'port': 443, 'verify': False}
 
+        # v7.4.4 (#54): one drive on the NAS has temperature lines of its own, so the Hardware tab shows a
+        # filled box beside the grey ones. /dev/sdd sits in a warm bay and is held to 50 and 55, a little
+        # above the 45 and 50 the fleet sets for hard disks.
+        if dev['id'] == 'tnas':
+            rec['metric_thresholds'] = {'drivetemp_per_serial': {
+                _demo_serial('tnas', '/dev/sdd'): {'warn': 50, 'crit': 55}}}
         out[dev['id']] = rec
     return out
 
@@ -2721,6 +2737,14 @@ def build_config() -> dict:
         'diskio_warn_percent':      85,
         'diskio_crit_percent':      98,
         'diskio_sustain':           5,
+        # v7.4.4 (#54): how warm a drive may get, for each type. Set, so the Hardware tab has lines to
+        # colour the temperatures against and Alert parameters shows values.
+        'drivetemp_hdd_warn_c':     45,
+        'drivetemp_hdd_crit_c':     50,
+        'drivetemp_ssd_warn_c':     65,
+        'drivetemp_ssd_crit_c':     70,
+        'drivetemp_nvme_warn_c':    70,
+        'drivetemp_nvme_crit_c':    80,
         # v7.0.2: was 4, which with the seeded 60s poll_interval put the whole
         # fleet OFFLINE ~5 minutes after a seed — max(online_ttl 300, 60*4) + 10
         # grace = 310s, against last_seen values 5-90s old. A public demo spent
@@ -3189,8 +3213,11 @@ def build_hardware() -> dict:
         disks = []
         for device, health, model, realloc in disk_specs:
             failed = (health != 'PASSED') or realloc > 0
+            # v7.4.4 (#54): the kind of drive, as the Linux agent reads it from smartctl.
+            media = ('nvme' if device.startswith('/dev/nvme')
+                     else 'ssd' if ('SSD' in model or 'MX500' in model) else 'hdd')
             disks.append({
-                'device': device, 'health': health, 'model': model,
+                'device': device, 'health': health, 'model': model, 'media': media,
                 'serial': f"S{rng.randint(10**9, 10**10 - 1)}",
                 'reallocated_sectors':   realloc,
                 'pending_sectors':       rng.randint(1, 4) if realloc else 0,
@@ -3207,6 +3234,13 @@ def build_hardware() -> dict:
                        'reboot_for_kernel': reboot},
             'ts': ts,
         }
+        # v7.4.4 (#54): the second NAS disk runs at 47 °C, over the fleet's 45 for a hard disk, so the
+        # Hardware tab colours it, Needs attention names it and the alerts inbox has its warning. No
+        # random draw: the serials must stay as build_smart_history replays them.
+        if dev_id == 'tnas':
+            hot = next(d for d in disks if d['device'] == '/dev/sdb')
+            hot['temperature_c'] = 47
+            rec['_drive_temp'] = {hot['serial']: {'l': 'warning', 'm': 0}}
         if dev_id in temps_map:
             # Same shape a real agent report lands in: board/CPU sensors live
             # under `hardware`, unlike smart/gpus which sit at the top level.
@@ -3486,6 +3520,10 @@ def build_alerts() -> dict:
         ('metric_warning',     'medium',   'tnas',  'Disk sdc busy WARNING on truenas.lab: 94%',
          {'device_id': 'tnas', 'device_name': 'truenas.lab', 'metric': 'diskio', 'kind': 'diskio',
           'target': 'sdc', 'value': 94.0, 'threshold': 85.0, 'level': 'warning'}, None, None),
+        ('metric_warning',     'medium',   'tnas',  'Drive /dev/sdb WARNING on truenas.lab: 47°C',
+         {'device_id': 'tnas', 'device_name': 'truenas.lab', 'metric': 'drivetemp', 'kind': 'drivetemp',
+          'target': _demo_serial('tnas', '/dev/sdb'), 'serial': _demo_serial('tnas', '/dev/sdb'),
+          'disk': '/dev/sdb', 'value': 47.0, 'threshold': 45.0, 'level': 'warning'}, None, None),
         ('device_offline',     'critical', 'jf01',  'jellyfin.lab went offline',
          {'device_id': 'jf01', 'device_name': 'jellyfin.lab'}, None, None),
         ('service_down',       'high',     'jf01',  'jellyfin.service is down on jellyfin.lab',

@@ -155,6 +155,17 @@ host's own line under Metric thresholds wins. See [disk-health.md](disk-health.m
 
 Fields: Disk busy warn %, Disk busy crit %, Reports in a row.
 
+### Drive temperature
+
+How warm a drive may get, in °C, before an alert. Hard disks, SATA SSDs and NVMe drives
+each have a warning and a critical line of their own, and the last pair is for any other
+drive. All eight are off at 0. A host's own lines under Metric thresholds win over these,
+and a drive's own lines on the Hardware tab win over both. See
+[disk-health.md](disk-health.md#temperature-lines-for-each-drive-v744).
+
+Fields: Hard disk warn °C, Hard disk crit °C, SATA SSD warn °C, SATA SSD crit °C, NVMe
+warn °C, NVMe crit °C, Any other drive warn °C, Any other drive crit °C.
+
 ### Reachability
 
 How many failed checks in a row before a host, a resolver or an IP-reputation
