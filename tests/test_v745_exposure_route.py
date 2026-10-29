@@ -236,15 +236,28 @@ class TestWhatThePagesRead(_Route):
         self.assertEqual((row()["status"], row()["output"]), ("warning", "2 world-reachable"))
 
     def test_the_risk_score_and_the_advisory_stop_counting_what_is_assumed_internal(self):
-        """Two more readers of the grade, with no code of their own for the switch."""
+        """Two more readers of the grade, with no code of their own for the switch. Driven, not assumed."""
         import advisory
         self.report({"listening_ports": ports(), "host_addresses": PRIVATE})
-        si = api.device_get(DEV)["sysinfo"]
-        self.assertEqual(sum(1 for p in si["listening_ports"] if p.get("scope") == "world"), 2)
+
+        def risk():
+            r = api._device_risk(DEV, api.device_get(DEV), {}, {}, {}, int(time.time()), 180)
+            return [f["detail"] for f in r["factors"] if f["kind"] == "exposed_world"], r["score"]
+
+        def findings():
+            return [f["id"] for f in advisory._exposure_findings(DEV, "web01", api.device_get(DEV), [],
+                                                                  api._exposure_muted)]
+        details, score = risk()
+        self.assertEqual(details, ["2 world-reachable services"])
+        self.assertIn("exp.world", findings())
         self.put({"internal": True})
-        si = api.device_get(DEV)["sysinfo"]
-        self.assertEqual(sum(1 for p in si["listening_ports"] if p.get("scope") == "world"), 0)
-        self.assertTrue(hasattr(advisory, "__file__"))
+        details_on, score_on = risk()
+        self.assertEqual(details_on, [])
+        self.assertLess(score_on, score)
+        self.assertNotIn("exp.world", findings())
+        self.put({"internal": False})
+        self.assertEqual(risk(), (details, score))
+        self.assertIn("exp.world", findings())
 
 
 if __name__ == "__main__":
