@@ -516,12 +516,16 @@ def _host_checks(
         )
     ]
     if si.get("listening_ports") is not None:
+        # v7.4.5 (#55): on a host marked internal the wildcard listeners are graded lan and carry
+        # `assumed`. Say so in the row, or "none" beside a page of 0.0.0.0 sockets reads as a blind spot.
+        n_assumed = sum(1 for p in (si.get("listening_ports") or []) if isinstance(p, dict) and p.get("assumed"))
+        note = f" ({plural(n_assumed, 'service', 'services')} assumed internal)" if n_assumed else ""
         add(
             "exposure",
             "World-exposed ports",
             "posture",
             "warning" if wp else "ok",
-            f"{len(wp)} world-reachable" if wp else "none",
+            f"{len(wp)} world-reachable{note}" if wp else f"none{note}",
         )
     if si.get("reboot_required"):
         add("reboot", "Reboot required", "patch", "warning", si.get("reboot_reason") or "pending")

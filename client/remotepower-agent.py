@@ -1778,6 +1778,32 @@ def get_network_info():
         pass
     return interfaces
 
+
+def get_host_addresses():
+    """v7.4.5 (#55): every address the host holds on any interface, so the server can tell a host that has
+    only private addresses from one that also has a public IPv4 or a global IPv6 address. That decides
+    whether a host an operator marked internal is graded as one: a NAT does not protect IPv6.
+
+    Link and host scope are left out (they cannot carry traffic off the link, and 127.0.0.1 and ::1 are
+    host scope). An address on the loopback with a wider scope is kept: a public virtual address there is
+    reachable. The server does the classifying, so this stays a plain list, and it is None, never [],
+    when the probe fails, finds nothing or finds more than the server accepts (64): an agent that cannot
+    say must not be read as one with nothing to report."""
+    try:
+        out = subprocess.check_output(['ip', '-j', 'addr'], text=True, timeout=5)
+        rows = json.loads(out)
+    except Exception:
+        return None
+    found = []
+    for iface in rows if isinstance(rows, list) else []:
+        for a in (iface.get('addr_info') or []) if isinstance(iface, dict) else []:
+            ip = a.get('local') if isinstance(a, dict) else None
+            if ip and a.get('scope') not in ('host', 'link'):
+                found.append(ip)
+    if not found or len(found) > 64:
+        return None
+    return found
+
 # v3.14.0 #37: per-interface bandwidth. net_io_counters are cumulative, so we
 # diff against the previous heartbeat (this daemon is long-running) to get a
 # bytes/sec rate. Per-process byte accounting isn't portably available without
@@ -13904,6 +13930,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo.update(get_host_health())
             except Exception as e:
                 log.debug(f'host health probe error: {e}')
+            # v7.4.5 (#55): the addresses the host holds, for the "internal" switch. Inside
+            # `if send_sysinfo:` and AFTER `sysinfo = {...}`, like the collectors above. Left out when the
+            # probe fails: a missing key is "unknown" to the server and keeps the listeners graded world.
+            try:
+                _host_addrs = get_host_addresses()
+                if _host_addrs is not None:
+                    sysinfo['host_addresses'] = _host_addrs
+            except Exception as e:
+                log.debug(f'host addresses probe error: {e}')
             # v4.1.0: evaluate server-pushed agent-side custom checks on-host.
             if agent_checks:
                 try:

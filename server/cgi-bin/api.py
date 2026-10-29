@@ -928,6 +928,7 @@ from textfmt import agree, plural  # noqa: E402, F401 — '3 hosts', never 'host
 import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
+import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
@@ -1142,6 +1143,18 @@ for _ct_name in (
 ):
     globals()[_ct_name] = getattr(container_thresholds_handlers_mod, _ct_name)
 del _ct_name
+
+# v7.4.5 (#55): a host's exposure switch (treat its listeners as internal). A new route, so a bound module.
+_es_spec = _tk_ilu.spec_from_file_location(
+    'exposure_scope_handlers', Path(__file__).parent / 'exposure_scope_handlers.py')
+exposure_scope_handlers_mod = _tk_ilu.module_from_spec(_es_spec)
+_es_spec.loader.exec_module(exposure_scope_handlers_mod)
+exposure_scope_handlers_mod.bind(globals())
+for _es_name in (
+        'handle_device_exposure_internal',
+):
+    globals()[_es_name] = getattr(exposure_scope_handlers_mod, _es_name)
+del _es_name
 
 # v7.0.3: web-terminal ticket issue, session audit and host-key lookup. Carved
 # out when adding the host-key endpoint pushed api.py past the inline-handler
@@ -21762,6 +21775,12 @@ def handle_heartbeat():
                             'mac':   _sanitize_mac(iface.get('mac', '')),
                         })
                 safe_si['network'] = safe_net
+            # v7.4.5 (#55): every address the host holds, for the "internal" switch. Kept only as a whole
+            # list the agent could vouch for; anything else leaves the key out, and a missing key means
+            # "unknown", which keeps the listeners graded as the agent graded them.
+            _host_addrs = exposure_scope_mod.clean_addresses(si.get('host_addresses'))
+            if _host_addrs is not None:
+                safe_si['host_addresses'] = _host_addrs
             # v3.14.0 #37: per-interface bandwidth (bytes/sec rates + totals).
             if 'network_io' in si and isinstance(si['network_io'], list):
                 safe_io = []
@@ -22571,6 +22590,11 @@ def handle_heartbeat():
                 _merged = dict(dev['sysinfo'])
                 _merged.update(safe_si)
                 safe_si = _merged
+            # v7.4.5 (#55): grade the listeners of a host an operator marked internal. After the delta and
+            # partial merges, so the rows it sees are the whole set whichever way they arrived, and before
+            # the record is stored and handed to the port audit, so every reader of the grade (the Exposure
+            # page, the Checks row, the risk score, the audit's new-world-port event) sees the same one.
+            exposure_scope_mod.apply(dev.get('exposure_internal'), safe_si)
             dev['sysinfo'] = safe_si
             # v6.4.3: keep the stored hostname current. It was captured once at
             # enrolment and never again, so a renamed host kept its old name
@@ -66271,13 +66295,22 @@ def handle_exposure_overview():
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
     devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     rows = []
-    counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
+    counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0, 'assumed': 0}
+    hosts = {}
     for dev_id, d in (devices or {}).items():
+        # v7.4.5 (#55): a host an operator marked internal, with whether that holds right now and, when it
+        # does not, why. The page prints the reason beside the host, so the switch is never silently ignored.
+        _st = exposure_scope_mod.host_state(d.get('exposure_internal'),
+                                            (d.get('sysinfo') or {}).get('host_addresses'))
+        if _st['internal']:
+            hosts[dev_id] = _st
         # Telemetry/inventory view — unmonitored hosts still SHOW their data
         # (only alerting is suppressed for them), flagged so the UI can badge it.
         for p in ((d.get('sysinfo') or {}).get('listening_ports') or []):
             scope = p.get('scope') or 'unknown'
             counts[scope] = counts.get(scope, 0) + 1
+            if p.get('assumed'):
+                counts['assumed'] += 1
             if want and scope != want:
                 continue
             rows.append({
@@ -66286,13 +66319,14 @@ def handle_exposure_overview():
                 'proto': p.get('proto', 'tcp'), 'port': p.get('port'),
                 'process': p.get('process', ''), 'addr': p.get('addr', ''),
                 'scope': scope,
+                'assumed': bool(p.get('assumed')),
                 'muted': _exposure_muted(p.get('process'), p.get('proto', 'tcp'),
                                          p.get('port'), mutes, dev_id),
             })
     rows.sort(key=lambda r: ({'world': 0, 'lan': 1, 'local': 2}.get(r['scope'], 3),
                              r['device'], r['port'] or 0))
     respond(200, {'ports': rows, 'counts': counts, 'count': len(rows),
-                  'audit_enabled': audit_enabled, 'mutes': mutes})
+                  'audit_enabled': audit_enabled, 'mutes': mutes, 'hosts': hosts})
 
 
 def handle_exposure_mute():
@@ -73609,7 +73643,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -73669,6 +73703,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/integrations', 'handle_device_integrations', "pi.startswith('/api/devices/') and pi.endswith('/integrations') and m == 'GET'"),
     ('pat', ('PUT',), '/api/devices/', '/disk-names', 'handle_device_disk_names', "pi.startswith('/api/devices/') and pi.endswith('/disk-names') and m == 'PUT'"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/container-thresholds', 'handle_device_container_thresholds', "pi.startswith('/api/devices/') and pi.endswith('/container-thresholds') and m in ('GET', 'PUT')"),
+    ('pat', ('GET', 'PUT'), '/api/devices/', '/exposure-internal', 'handle_device_exposure_internal', "pi.startswith('/api/devices/') and pi.endswith('/exposure-internal') and m in ('GET', 'PUT')"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
@@ -74054,7 +74089,9 @@ def _route_code_5(pi, m):
                                      # v7.4.3 (#47)
                                      '/disk-names',
                                      # v7.4.3 (#50)
-                                     '/container-thresholds'))):
+                                     '/container-thresholds',
+                                     # v7.4.5 (#55)
+                                     '/exposure-internal'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False

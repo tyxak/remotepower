@@ -386,6 +386,7 @@ builtins = [
     "handle_device_backups",
     "handle_device_container_thresholds",
     "handle_device_disk_names",
+    "handle_device_exposure_internal",
     "handle_device_flows",
     "handle_device_inherited_credentials",
     "handle_device_integrations",

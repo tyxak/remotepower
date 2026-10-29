@@ -2335,6 +2335,11 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         thresholds: Any = None
 
+    class ExposureInternalRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        internal: bool = False
+        _v0 = field_validator('internal', mode='before')(_coerce_bool_loose)
+
     class DiskNamesRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         names: Any = None
